@@ -75,3 +75,31 @@ embedded here. Temporary raw paths are provenance locations, not script inputs.
 `validation.json` records successful real runs of the final portable script for
 N4 (bare plus instrumented) and N23 (typed budget refusal), scoped static checks,
 and verification of the source manifest and all 162 indexed raw byte contents.
+
+## Final Runtime boundary rerun
+
+`final-runtime-measurement.json` preserves a separate run at
+`e5a2aae2295a6c483c1fd536ff52dfe937fd4c73`, including the final post-state
+validation fix and physical removal of `Operation.vectors`. It repeats only
+N22 all-selected, N22 last-rejected, and N23 all-selected:
+
+```sh
+python docs/refactor/current-language/evidence/bounded-fold/measure.py --output /path/to/fresh-output --capacities 22 23 --modes all-selected last-rejected --repeats 3
+```
+
+The successful cases still charge exactly 250 and 247 attempts; N23 refuses on
+attempt 257 without committing state. Each successful group again has six identical
+member artifacts across three bare runs and a separate instrumented run. Full
+sample values and profiler counts are recorded, without a speedup claim.
+
+`final-runtime-source-manifest.json` records the five changed source hashes relative
+to the historical manifest. `final-runtime-raw-index.json` indexes 159 raw files as
+73 unique byte contents, each verified against the retained raw material.
+
+The subsequent oracle seal at `5db4389ab` changes nine authority resource files and
+26 expected identity leaves. The audit verifies unchanged production Python,
+Kernel bytes, and package semantic closures. Two actual Model builds using the
+preserved N22/N23 Source bytes also produce byte-identical RIR payloads under that
+seal. This transfers the selected execution rules and bounds; the recorded timing
+samples still belong to the measured graph. Full authority identities differ
+truthfully, and the original nine-case observations remain unchanged.

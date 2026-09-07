@@ -1,0 +1,462 @@
+{
+  "measured_head": "e5a2aae2295a6c483c1fd536ff52dfe937fd4c73",
+  "measurement_scope": "Final runtime boundary rerun with c21286cf6 post-state validation and physical Operation.vectors removal already present. Original measurement.json remains historical and unchanged.",
+  "command": "python docs/refactor/current-language/evidence/bounded-fold/measure.py --output <fresh-directory> --capacities 22 23 --modes all-selected last-rejected --repeats 3",
+  "runner_sha256": "9aed297d129fe684a5624244cb1e7d957ffdc409c518d7b323ce639c1fbc2fb7",
+  "environment": {
+    "head": "e5a2aae2295a6c483c1fd536ff52dfe937fd4c73",
+    "python": "3.13.13 (main, Jun  2 2026, 22:33:40) [Clang 22.1.3 ]",
+    "executable": "/Users/lelej/projects/godot-agent-worktree/codex-dev/libs/gda-balancing/.venv/bin/python",
+    "platform": "macOS-26.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "logical_cpus": 8
+  },
+  "production_source_manifest": "final-runtime-source-manifest.json",
+  "cases": [
+    {
+      "capacity": 22,
+      "mode": "all-selected",
+      "declared_operation_bound": 250,
+      "unchanged_event_budget": 256,
+      "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+      "ldb_identity": "sha256:d06db4db51ac06393576b1db11a6a28fc6daed8c163de1c9493f067f99736cfa",
+      "rir_semantic_identity": "sha256:469445556c5afb4a062adf01e509c15c085413a4a853917887f317e01ca16ae8",
+      "build": {
+        "arguments": [
+          "model",
+          "build",
+          "/private/tmp/gda-877-final-runtime-evidence/measurement/n22-all-selected/model-source.json",
+          "--out",
+          "/private/tmp/gda-877-final-runtime-evidence/measurement/n22-all-selected/build",
+          "--invocation-key",
+          "0101010101010101010101010101010101010101010101010101010101010101"
+        ],
+        "exit": 0,
+        "wall_seconds": 2.970970750087872,
+        "direct_child_peak_rss": 103088128,
+        "peak_rss_unit": "bytes",
+        "stdout_sha256": "caf17bf2fc74227d4dd19128e9208551b0817a0db70ee48edc7fa2ec46790ab2",
+        "instrumented": false
+      },
+      "check": {
+        "arguments": [
+          "experiment",
+          "check",
+          "/private/tmp/gda-877-final-runtime-evidence/measurement/n22-all-selected/experiment.json",
+          "--rir",
+          "/private/tmp/gda-877-final-runtime-evidence/measurement/n22-all-selected/store/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json"
+        ],
+        "exit": 0,
+        "wall_seconds": 1.8767312089912593,
+        "direct_child_peak_rss": 94437376,
+        "peak_rss_unit": "bytes",
+        "stdout_sha256": "e50ee8c7122ac60073198249d69d2e18f54f107b01e36f2c687d52706a77df8b",
+        "instrumented": false
+      },
+      "runs": [
+        {
+          "exit": 0,
+          "wall_seconds": 1.9470224999822676,
+          "direct_child_peak_rss": 94322688,
+          "peak_rss_unit": "bytes",
+          "stdout_sha256": "c22435542f45da4c1e8b67dea78017ca4388d1adb34ebbd94feb439ff25e1510",
+          "instrumented": false
+        },
+        {
+          "exit": 0,
+          "wall_seconds": 2.013615083997138,
+          "direct_child_peak_rss": 94420992,
+          "peak_rss_unit": "bytes",
+          "stdout_sha256": "1e86877dfb1c3084b483d697b59538c1b1d409cbc9d4ee9fb24b50d168f9b611",
+          "instrumented": false
+        },
+        {
+          "exit": 0,
+          "wall_seconds": 2.006124750012532,
+          "direct_child_peak_rss": 94420992,
+          "peak_rss_unit": "bytes",
+          "stdout_sha256": "bf74bcc3a2230af7f21c8c11555f89c11b087cd4324f7da0df796c88b2dca64d",
+          "instrumented": false
+        },
+        {
+          "exit": 0,
+          "wall_seconds": 45.934333625016734,
+          "direct_child_peak_rss": 137543680,
+          "peak_rss_unit": "bytes",
+          "stdout_sha256": "36844d8524a38043bb56be01f91dc328521970a17390ab558193411a97206e69",
+          "instrumented": true
+        }
+      ],
+      "actual_node_steps": 250,
+      "actual_metrics": {
+        "ordered_value": 0,
+        "selected_count": 22
+      },
+      "all_six_member_bytes_equal_across_four_fresh_runs": true,
+      "bare_wall_median_seconds": 2.006124750012532,
+      "instrumented_tracemalloc_peak_bytes": 48824861,
+      "instrumented_call_counts": [
+        {
+          "file": "domain/structured_values.py",
+          "function": "_validate",
+          "primitive_calls": 187,
+          "total_calls": 1926
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "append_typed_value",
+          "primitive_calls": 22,
+          "total_calls": 22
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "admit_typed_value",
+          "primitive_calls": 187,
+          "total_calls": 187
+        },
+        {
+          "file": "domain/canonical.py",
+          "function": "_validate",
+          "primitive_calls": 4167,
+          "total_calls": 734403
+        },
+        {
+          "file": "domain/runtime/execution.py",
+          "function": "_execute_value_instruction",
+          "primitive_calls": 178,
+          "total_calls": 178
+        }
+      ],
+      "two_growing_prefix_constructions_slots_lower_bound": 484
+    },
+    {
+      "capacity": 22,
+      "mode": "last-rejected",
+      "declared_operation_bound": 250,
+      "unchanged_event_budget": 256,
+      "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+      "ldb_identity": "sha256:d06db4db51ac06393576b1db11a6a28fc6daed8c163de1c9493f067f99736cfa",
+      "rir_semantic_identity": "sha256:469445556c5afb4a062adf01e509c15c085413a4a853917887f317e01ca16ae8",
+      "build": {
+        "arguments": [
+          "model",
+          "build",
+          "/private/tmp/gda-877-final-runtime-evidence/measurement/n22-last-rejected/model-source.json",
+          "--out",
+          "/private/tmp/gda-877-final-runtime-evidence/measurement/n22-last-rejected/build",
+          "--invocation-key",
+          "0101010101010101010101010101010101010101010101010101010101010101"
+        ],
+        "exit": 0,
+        "wall_seconds": 5.717298375093378,
+        "direct_child_peak_rss": 104153088,
+        "peak_rss_unit": "bytes",
+        "stdout_sha256": "bb502e49edb9068c80b3088be77d574d69ee3af2330267dfa3088ae6a8f19bcb",
+        "instrumented": false
+      },
+      "check": {
+        "arguments": [
+          "experiment",
+          "check",
+          "/private/tmp/gda-877-final-runtime-evidence/measurement/n22-last-rejected/experiment.json",
+          "--rir",
+          "/private/tmp/gda-877-final-runtime-evidence/measurement/n22-last-rejected/store/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json"
+        ],
+        "exit": 0,
+        "wall_seconds": 3.707972374977544,
+        "direct_child_peak_rss": 95109120,
+        "peak_rss_unit": "bytes",
+        "stdout_sha256": "ef7041439b909f4e83f969274446a5e4c94aecb7163cd4353889606c0844e2aa",
+        "instrumented": false
+      },
+      "runs": [
+        {
+          "exit": 0,
+          "wall_seconds": 4.468837541062385,
+          "direct_child_peak_rss": 91635712,
+          "peak_rss_unit": "bytes",
+          "stdout_sha256": "ec6cba14779ae849c5ac06514afdf160ab7e1332ea5a1cfa30a5892e3c6e7eb0",
+          "instrumented": false
+        },
+        {
+          "exit": 0,
+          "wall_seconds": 3.5767046250402927,
+          "direct_child_peak_rss": 94650368,
+          "peak_rss_unit": "bytes",
+          "stdout_sha256": "6f68cea026189e75568750766d4842aafb863b826987c00f901c82bb95a7ec65",
+          "instrumented": false
+        },
+        {
+          "exit": 0,
+          "wall_seconds": 3.4154929579235613,
+          "direct_child_peak_rss": 94879744,
+          "peak_rss_unit": "bytes",
+          "stdout_sha256": "bfa0753e17c15b853971917df666bcd0d1bd116ff436ae23f41280dc8cbcaab0",
+          "instrumented": false
+        },
+        {
+          "exit": 0,
+          "wall_seconds": 52.224439959041774,
+          "direct_child_peak_rss": 138461184,
+          "peak_rss_unit": "bytes",
+          "stdout_sha256": "230399a423f940aca9de847e00ed777a5b8ccbbfa98290244c2fb665958ee5eb",
+          "instrumented": true
+        }
+      ],
+      "actual_node_steps": 247,
+      "actual_metrics": {
+        "ordered_value": 2,
+        "selected_count": 21
+      },
+      "all_six_member_bytes_equal_across_four_fresh_runs": true,
+      "bare_wall_median_seconds": 3.5767046250402927,
+      "instrumented_tracemalloc_peak_bytes": 48823902,
+      "instrumented_call_counts": [
+        {
+          "file": "domain/structured_values.py",
+          "function": "append_typed_value",
+          "primitive_calls": 22,
+          "total_calls": 22
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "admit_typed_value",
+          "primitive_calls": 187,
+          "total_calls": 187
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "_validate",
+          "primitive_calls": 187,
+          "total_calls": 1923
+        },
+        {
+          "file": "domain/canonical.py",
+          "function": "_validate",
+          "primitive_calls": 4167,
+          "total_calls": 734302
+        },
+        {
+          "file": "domain/runtime/execution.py",
+          "function": "_execute_value_instruction",
+          "primitive_calls": 176,
+          "total_calls": 176
+        }
+      ],
+      "two_growing_prefix_constructions_slots_lower_bound": 484
+    },
+    {
+      "capacity": 23,
+      "mode": "all-selected",
+      "declared_operation_bound": 261,
+      "unchanged_event_budget": 256,
+      "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+      "ldb_identity": "sha256:ad2fb0689b8019bc30d6916f4ae34bb927a5044b648f8cff8a9e452be7db1c7d",
+      "rir_semantic_identity": "sha256:96a6ff24c2f6831a43d3cef1b6a2bf453c0316b9d0803841779d9c9ea4b7f8db",
+      "build": {
+        "arguments": [
+          "model",
+          "build",
+          "/private/tmp/gda-877-final-runtime-evidence/measurement/n23-all-selected/model-source.json",
+          "--out",
+          "/private/tmp/gda-877-final-runtime-evidence/measurement/n23-all-selected/build",
+          "--invocation-key",
+          "0101010101010101010101010101010101010101010101010101010101010101"
+        ],
+        "exit": 0,
+        "wall_seconds": 4.94827491696924,
+        "direct_child_peak_rss": 103497728,
+        "peak_rss_unit": "bytes",
+        "stdout_sha256": "6af2d0f82bf1f78b2ca60669ad19efad86e24b698aec51975f3f1ed871a60fc5",
+        "instrumented": false
+      },
+      "check": {
+        "arguments": [
+          "experiment",
+          "check",
+          "/private/tmp/gda-877-final-runtime-evidence/measurement/n23-all-selected/experiment.json",
+          "--rir",
+          "/private/tmp/gda-877-final-runtime-evidence/measurement/n23-all-selected/store/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json"
+        ],
+        "exit": 0,
+        "wall_seconds": 2.837475083069876,
+        "direct_child_peak_rss": 94650368,
+        "peak_rss_unit": "bytes",
+        "stdout_sha256": "ee3d243788144bddca6c5770dc50d2f8a2f9e9ad41abebc45c986436da48e7e1",
+        "instrumented": false
+      },
+      "runs": [
+        {
+          "exit": 2,
+          "wall_seconds": 2.9580914590042084,
+          "direct_child_peak_rss": 94863360,
+          "peak_rss_unit": "bytes",
+          "stdout_sha256": "0cf3cf1971ca946e25c163e393a08b2c916f136febf3c68d8bcaa111a9140ad9",
+          "instrumented": false
+        }
+      ],
+      "refusal": {
+        "diagnostic": "runtime.step_limit_exceeded",
+        "stage": "runtime",
+        "event_steps": 257,
+        "node_steps": 257,
+        "call_path": "fold/ordered-items/@22",
+        "instruction_index": 1,
+        "no_committed_event": true,
+        "state_unchanged": true
+      }
+    }
+  ],
+  "final_oracle_equivalence": {
+    "measured_head": "e5a2aae2295a6c483c1fd536ff52dfe937fd4c73",
+    "final_oracle_head": "5db4389ab11f4e9d97e1d6e8b52875855d142ca0",
+    "only_changed_source_files": [
+      {
+        "path": "src/gda_balancing/schema2/authorities/language-bundle.json",
+        "before_sha256": "8dfbabc623dc34287776db5de2d232ec69164b850437d9eeefefd271d6e71e24",
+        "after_sha256": "34c85fffb8ccd53e0c068024fee54d657737fb28937faf7f2a7f2f1283b2edcd",
+        "changed_leaf_paths": [
+          "/content_identity",
+          "/package_descriptors/0/content_identity",
+          "/package_descriptors/3/content_identity",
+          "/package_descriptors/8/content_identity",
+          "/package_descriptors/12/content_identity"
+        ]
+      },
+      {
+        "path": "src/gda_balancing/schema2/authorities/packages/core-quantity/core.quantity.conformance-vectors.json",
+        "before_sha256": "9f00d8a7faf49d5941c38fc06a65f2cc79c24d72fa708df4dbd4910a1a0730d2",
+        "after_sha256": "57cc667407c0ded665a24b5f46944c254b76bf5a955ef230c8e8738c664f68fc",
+        "changed_leaf_paths": [
+          "/content_identity",
+          "/vector_definitions/9/expect/debug_map_identity",
+          "/vector_definitions/9/expect/rir_identity",
+          "/vector_definitions/11/expect/debug_map_identity",
+          "/vector_definitions/11/expect/rir_identity",
+          "/vector_definitions/14/expect/debug_map_identity",
+          "/vector_definitions/14/expect/rir_identity",
+          "/vector_definitions/15/expect/debug_map_identity",
+          "/vector_definitions/15/expect/rir_identity",
+          "/vector_definitions/28/expect/debug_map_identity",
+          "/vector_definitions/28/expect/rir_identity",
+          "/vector_definitions/35/expect/debug_map_identity",
+          "/vector_definitions/35/expect/rir_identity",
+          "/vector_definitions/36/expect/debug_map_identity",
+          "/vector_definitions/36/expect/rir_identity"
+        ]
+      },
+      {
+        "path": "src/gda_balancing/schema2/authorities/packages/core-quantity/core.quantity.json",
+        "before_sha256": "eee32d19453b3d3dd9bfd0a1b5ceb240829c5d701352e8cf10948ee63462b1f3",
+        "after_sha256": "3026dea57df01cb754511a3c605e01571127367b66a8635286b05d84204e4973",
+        "changed_leaf_paths": [
+          "/conformance_vectors/content_identity",
+          "/content_identity"
+        ]
+      },
+      {
+        "path": "src/gda_balancing/schema2/authorities/packages/game-combat/game.combat.conformance-vectors.json",
+        "before_sha256": "899cb135c5c16a6807f16a0141d8e3799251fd1e3ea1cd01315715105eafef69",
+        "after_sha256": "b34d5e09b48f08830e4b451dcc8afd108f35e0f6d047a21b474cce5316c04335",
+        "changed_leaf_paths": [
+          "/content_identity",
+          "/vector_definitions/12/expect/debug_map_identity",
+          "/vector_definitions/12/expect/rir_identity",
+          "/vector_definitions/13/expect/debug_map_identity",
+          "/vector_definitions/13/expect/rir_identity",
+          "/vector_definitions/28/expect/debug_map_identity",
+          "/vector_definitions/28/expect/rir_identity",
+          "/vector_definitions/30/expect/debug_map_identity",
+          "/vector_definitions/30/expect/rir_identity"
+        ]
+      },
+      {
+        "path": "src/gda_balancing/schema2/authorities/packages/game-combat/game.combat.json",
+        "before_sha256": "e2d26961b11e5f2d62d6188a9e65f2d51594cc882cabfdf0b477838f8020da3c",
+        "after_sha256": "d54a972e7807904ddf73a23ad75e624cf201582a667feae532f7cd94fd135d86",
+        "changed_leaf_paths": [
+          "/conformance_vectors/content_identity",
+          "/content_identity"
+        ]
+      },
+      {
+        "path": "src/gda_balancing/schema2/authorities/packages/standard-compiler/standard.compiler.conformance-vectors.json",
+        "before_sha256": "c85d78bc49aaa4692006e16815410aa3d4717b6dbd8433e74625c357bf2cd5b1",
+        "after_sha256": "ba311b4414d89f04a83e1fcae70a385cfc7aa705f1233303049f4014527a1d70",
+        "changed_leaf_paths": [
+          "/content_identity",
+          "/vector_definitions/22/expect/debug_map_identity",
+          "/vector_definitions/22/expect/rir_identity"
+        ]
+      },
+      {
+        "path": "src/gda_balancing/schema2/authorities/packages/standard-compiler/standard.compiler.json",
+        "before_sha256": "a61aa7373022ffcf526ebd59107deb3409a52c82542a77c6726e881f478e5556",
+        "after_sha256": "4b48d10203e032e4b563be488607547a46462de5767d7177c220868155dd1950",
+        "changed_leaf_paths": [
+          "/conformance_vectors/content_identity",
+          "/content_identity"
+        ]
+      },
+      {
+        "path": "src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.conformance-vectors.json",
+        "before_sha256": "1f90baa85b35865258d95b839128ebe79397148212c02d30eeca2212efdec296",
+        "after_sha256": "e15f09e7986f989821debe2411c622acd5183bddacc84631c247cd3fd21fb78e",
+        "changed_leaf_paths": [
+          "/content_identity",
+          "/vector_definitions/0/expect/debug_map_identity",
+          "/vector_definitions/0/expect/rir_identity"
+        ]
+      },
+      {
+        "path": "src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+        "before_sha256": "f3bf85582bb970059b81cc7f591cde79b5da034386efd162f5ffe352d8a861e2",
+        "after_sha256": "e543f6f4695ada0631986b9074242e0a06a42525d3ea1dadb36dc135a36ee146",
+        "changed_leaf_paths": [
+          "/conformance_vectors/content_identity",
+          "/content_identity"
+        ]
+      }
+    ],
+    "production_python_unchanged": true,
+    "kernel_bytes_unchanged": true,
+    "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+    "final_ldb_identity": "sha256:58a42db14b212162ef24022266e700397da38636484f5dd935a97af8b955d617",
+    "all_changed_package_semantic_closures_and_identities_equal": true,
+    "actual_post_seal_build_comparison": {
+      "scope": "Actual Model builds from exact preserved measurement Source bytes under final oracle seal, with unchanged production Python and the same lawful capacity/bound mutations. No extra Runtime measurement.",
+      "cases": [
+        {
+          "capacity": 22,
+          "exact_authored_source_sha256": "3e69104cf7b50189b9c5f3b4e65efea5b1dbe44cfa4802d203dc3ed8f0ff90f5",
+          "rir_bytes_sha256": "a17914dd32460e481efaee4b59538ccf1f648e9fcc60d288258dea64f3be7f7c",
+          "rir_semantic_identity": "sha256:469445556c5afb4a062adf01e509c15c085413a4a853917887f317e01ca16ae8",
+          "rir_bytes_equal": true,
+          "selected_semantics_equal": true,
+          "post_seal_candidate_ldb_identity": "sha256:b4ce82a7709b670e6952a433dd85ea2cb17d4a6c86c37acf3decc62765f483ad",
+          "raw_command_receipt": "/private/tmp/gda-877-final-runtime-evidence/post-seal-cap22/cli-results.json"
+        },
+        {
+          "capacity": 23,
+          "exact_authored_source_sha256": "3e69104cf7b50189b9c5f3b4e65efea5b1dbe44cfa4802d203dc3ed8f0ff90f5",
+          "rir_bytes_sha256": "7d6d77d2abe091311ed191be12132adddaf53542d1a1a8e0761cb19e50aa4f21",
+          "rir_semantic_identity": "sha256:96a6ff24c2f6831a43d3cef1b6a2bf453c0316b9d0803841779d9c9ea4b7f8db",
+          "rir_bytes_equal": true,
+          "selected_semantics_equal": true,
+          "post_seal_candidate_ldb_identity": "sha256:668db7a8c536832310af83a7a6f35f5d3c10f80c4680e8ba43ee5ceefcb7f601",
+          "raw_command_receipt": "/private/tmp/gda-877-final-runtime-evidence/post-seal-cap23/cli-results.json"
+        }
+      ]
+    }
+  },
+  "limits": [
+    "Bare wall time and direct-child peak RSS include startup, admission and publication on a shared development host; these samples are not a controlled speedup or scaling benchmark.",
+    "The cProfile/tracemalloc run is separate and materially slower; its whole-command call counts and Python allocation peak are not bare Runtime latency or live List-only memory.",
+    "N23 follows the existing script rule: one non-instrumented run and no last-rejected variant. Its actual Event budget refusal is distinct from typed input capacity refusal.",
+    "Measured timings belong to the frozen e5a2aae22 graph. Final oracle seal changes full LDB/conformance bytes and identities, so no final-authority timing measurement or full artifact identity equality is claimed.",
+    "All production Python and Kernel bytes, selected package semantic closures and the two actually recompiled RIR payloads are unchanged at final oracle head. This supports equivalent runtime execution semantics, selected execution rules and declared bounds, not arbitrary input equivalence or old/new producer identity equality.",
+    "The two inspected prefix-copy paths still require at least N squared total slots for the all-selected growth prefix (484 at N22); further validation adds work. No quadratic live-memory claim."
+  ],
+  "raw_root": "/private/tmp/gda-877-final-runtime-evidence",
+  "raw_receipt_sha256": "d891a491effeb767ecd4d026eac773163099e0751643c3d768e3ec46d84dacc4"
+}

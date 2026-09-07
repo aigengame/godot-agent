@@ -1,0 +1,33 @@
+{
+  "base_manifest": "source-manifest.json",
+  "base_head": "060d0989f544926e7e006de0c3caa016069213b3",
+  "measured_head": "e5a2aae2295a6c483c1fd536ff52dfe937fd4c73",
+  "production_file_count": 124,
+  "unchanged_from_base_file_count": 119,
+  "changed_files": {
+    "src/gda_balancing/domain/authority/admission.py": {
+      "before_sha256": "493cb3e80001307a3d9f7be0d54c32764313fa822e40d2ed2038feeb56f1214b",
+      "measured_sha256": "5d3cf9e511944d5d5ca6cc826fbffa8fedd5878046c1f17fec864ad0c70bcb43"
+    },
+    "src/gda_balancing/domain/experiment_artifact_replay.py": {
+      "before_sha256": "b1389cdbc3a29b92ae2dba21d94fdeafd9daa894ce4dd8f48e69de67658ed90b",
+      "measured_sha256": "50c7ba46387546a1520d875eed8bd6873ad9ca7c06acd3e9d89ee292d3d12e2e"
+    },
+    "src/gda_balancing/domain/model/_lowering.py": {
+      "before_sha256": "24e5708acdbd1b8338b7142f16dfb7a4d310199ae1286d83d9a7c6409833a452",
+      "measured_sha256": "3447e0e9368cd66a70fde6228a841f13cb1b2c7ff081a92fb5de1121096ae44a"
+    },
+    "src/gda_balancing/domain/model/_operation_call_domain_adapters.py": {
+      "before_sha256": "efa020290f6f937a1b7405fa6a9eac2d55180dbdb8aefe8c9f846baf4a851abc",
+      "measured_sha256": "ed82d3a47df04eb2dbb529b12b46d19d43a8da9458d0291fa899eddd51bee2ab"
+    },
+    "src/gda_balancing/domain/operation_call_domains.py": {
+      "before_sha256": "49d28ab5a2657058456f383e6344c168d48a4f8ec62b7a33f56b2512d258f49e",
+      "measured_sha256": "5f42cae4a610d6866ecb871908567363193a514c1908c37a3b936330c6bd9633"
+    }
+  },
+  "added_files": [],
+  "removed_files": [],
+  "complete_manifest_sha256": "845c94ec8921b5fcfd78fbea369c477aaac81493187bbb72287d6ccbe0a02744",
+  "hash_encoding": "Reconstruct files from base_manifest.files, replace changed_files with measured_sha256, then UTF-8 json.dumps(files, sort_keys=True, separators=(comma, colon))."
+}
