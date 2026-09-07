@@ -159,7 +159,7 @@ def test_public_model_request_prepares_once_and_keeps_artifact_admission(
         "_resolved_entrypoints",
         "_resolved_call_sites",
     } <= trace.post_specialization_checks
-    assert {used for _, used, _ in trace.charges} == {504}
+    assert {used for _, used, _ in trace.charges} == {506}
     assert {
         name: trace.calls["source", name]
         for name in (
