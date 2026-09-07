@@ -16,7 +16,7 @@ import pytest
 from gda.exit_codes import EXIT_LIVE
 from tests.support import Gda
 
-from tests.conftest import LIVE_PROJECT_GODOT
+from tests.conftest import LIVE_PROJECT_GODOT, project_godot
 
 
 @pytest.mark.e2e
@@ -863,5 +863,231 @@ def test_game_tree_counts_an_omitted_subtree_deeper_than_the_call_stack(
         errors = run("diag", "errors")
         assert errors.returncode == 0, errors.stdout + errors.stderr
         assert json.loads(errors.stdout)["errors"] == []
+    finally:
+        run("daemon", "stop")
+
+
+# --- game find: the selector search (#855, GDA-DF-051) -----------------------
+# The dogfooding shape: a CombatScreen rebuild moved the actor slot from `Enemy0`
+# to `Enemy1`, and a full-tree read was the only way to find it again. The
+# fixture carries exactly what the selectors must tell apart — an engine subclass
+# inside a group, a project `class_name` no engine-class match can see, an
+# autoload that is the current scene's SIBLING, and two `%`-marked nodes of the
+# same name whose OWNERS sit on either side of a search root.
+
+FIND_PROJECT_GODOT = project_godot(
+    extra=(
+        'run/main_scene="res://main.tscn"\n\n'
+        '[autoload]\n\nMatchProbe="*res://match_probe.gd"\n'
+    )
+)
+
+# A project `class_name`: visible to `--script` (the node's own script and the
+# base chain of the one extending it), invisible to `--type`, which reads the
+# ENGINE class. The subclass extends by PATH so the fixture does not depend on a
+# global class cache the run never builds.
+CARD_VIEW_GD = "class_name CardView\nextends Label\n"
+SPECIAL_CARD_VIEW_GD = 'extends "res://card_view.gd"\n'
+MATCH_PROBE_GD = "extends Node\n"
+
+# The instanced sub-scene: its `%Value` is owned by the instance root.
+FIND_CARD_TSCN = (
+    "[gd_scene format=3]\n\n"
+    '[node name="Card" type="Node2D"]\n\n'
+    '[node name="Body" type="Node2D" parent="."]\n\n'
+    '[node name="Value" type="Label" parent="Body"]\n'
+    "unique_name_in_owner = true\n"
+)
+
+# The main scene. Its own `Value` sits INSIDE the instance's subtree but is owned
+# by Main — the node the owner rule must exclude when the search root is the
+# instance.
+FIND_MAIN_TSCN = (
+    "[gd_scene load_steps=4 format=3]\n\n"
+    '[ext_resource type="PackedScene" path="res://card.tscn" id="1"]\n'
+    '[ext_resource type="Script" path="res://card_view.gd" id="2"]\n'
+    '[ext_resource type="Script" path="res://special_card_view.gd" id="3"]\n\n'
+    '[node name="Main" type="Node2D"]\n\n'
+    '[node name="HUD" type="Control" parent="."]\n\n'
+    '[node name="Ok" type="Button" parent="HUD" groups=["hud"]]\n\n'
+    '[node name="Toggle" type="CheckBox" parent="HUD" groups=["hud"]]\n\n'
+    '[node name="Score" type="Label" parent="HUD"]\n\n'
+    '[node name="Base" type="Label" parent="HUD"]\n'
+    'script = ExtResource("2")\n\n'
+    '[node name="Derived" type="Label" parent="HUD"]\n'
+    'script = ExtResource("3")\n\n'
+    '[node name="Plain" type="Button" parent="."]\n\n'
+    '[node name="Card" parent="." instance=ExtResource("1")]\n\n'
+    '[node name="Value" type="Label" parent="Card"]\n'
+    "unique_name_in_owner = true\n"
+)
+
+
+def _write_find_project(tmp_path):
+    """Scaffold the `game find` fixture project into ``tmp_path``."""
+    (tmp_path / "project.godot").write_text(FIND_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(FIND_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "card.tscn").write_text(FIND_CARD_TSCN, encoding="utf-8")
+    (tmp_path / "card_view.gd").write_text(CARD_VIEW_GD, encoding="utf-8")
+    (tmp_path / "special_card_view.gd").write_text(
+        SPECIAL_CARD_VIEW_GD, encoding="utf-8"
+    )
+    (tmp_path / "match_probe.gd").write_text(MATCH_PROBE_GD, encoding="utf-8")
+
+
+def _paths(doc):
+    return [match["path"] for match in doc["matches"]]
+
+
+@pytest.mark.e2e
+def test_game_find_locates_nodes_by_selector_and_counts_what_it_left_unsearched(
+    tmp_path, daemon_runtime_dir
+):
+    # #855 AC1/AC2/AC4 against a real engine session, plus the default root the
+    # help and the skill state: the running CURRENT SCENE, whose siblings (the
+    # autoloads) take `--root /root`.
+    _write_find_project(tmp_path)
+
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        # AC1: `--type` is the ENGINE class and subclass-inclusive, so the
+        # CheckBox in the group answers `--type Button`; ANDed with `--group`,
+        # the Button outside the group and the Labels inside it do not.
+        typed = run("game", "find", "--type", "Button", "--group", "hud")
+        assert typed.returncode == 0, typed.stdout + typed.stderr
+        doc = json.loads(typed.stdout)
+        assert _paths(doc) == ["/root/Main/HUD/Ok", "/root/Main/HUD/Toggle"]
+        assert [match["type"] for match in doc["matches"]] == ["Button", "CheckBox"]
+        assert [match["name"] for match in doc["matches"]] == ["Ok", "Toggle"]
+        assert doc["count"] == 2
+        assert doc["truncated"] is False and doc["omitted_nodes"] == 0
+
+        # AC2: `--script` reaches what `--type` cannot — the node carrying that
+        # script AND the one whose script extends it — and each match names the
+        # script it actually carries.
+        scripted = run("game", "find", "--script", "res://card_view.gd")
+        assert scripted.returncode == 0, scripted.stdout + scripted.stderr
+        by_script = json.loads(scripted.stdout)
+        assert _paths(by_script) == ["/root/Main/HUD/Base", "/root/Main/HUD/Derived"]
+        assert [match["script_path"] for match in by_script["matches"]] == [
+            "res://card_view.gd",
+            "res://special_card_view.gd",
+        ]
+        # A node with no script says so rather than omitting the key.
+        assert doc["matches"][0]["script_path"] is None
+
+        # AC2: the same nodes are invisible to `--type CardView` — engine classes
+        # only. Nothing was left unsearched, so this empty list IS absence.
+        by_class_name = run("game", "find", "--type", "CardView")
+        assert by_class_name.returncode == 0, by_class_name.stdout
+        absent = json.loads(by_class_name.stdout)
+        assert absent["matches"] == [] and absent["count"] == 0
+        assert absent["truncated"] is False and absent["omitted_nodes"] == 0
+
+        # AC4: the bounds are `game tree`'s. Depth 0 searches the root alone, and
+        # the five nodes it never reached are counted — so THIS empty list is not
+        # absence.
+        alone = run(
+            "game",
+            "find",
+            "--type",
+            "Label",
+            "--root",
+            "/root/Main/HUD",
+            "--max-depth",
+            "0",
+        )
+        assert alone.returncode == 0, alone.stdout + alone.stderr
+        bounded = json.loads(alone.stdout)
+        assert bounded["matches"] == [] and bounded["count"] == 0
+        assert bounded["truncated"] is True
+        assert bounded["omitted_nodes"] == 5
+
+        # One level down reaches all three Labels, in the tree's document order,
+        # and leaves nothing behind.
+        deeper = run(
+            "game",
+            "find",
+            "--type",
+            "Label",
+            "--root",
+            "/root/Main/HUD",
+            "--max-depth",
+            "1",
+        )
+        assert deeper.returncode == 0, deeper.stdout + deeper.stderr
+        one_level = json.loads(deeper.stdout)
+        assert _paths(one_level) == [
+            "/root/Main/HUD/Score",
+            "/root/Main/HUD/Base",
+            "/root/Main/HUD/Derived",
+        ]
+        assert one_level["truncated"] is False and one_level["omitted_nodes"] == 0
+
+        # The default root is the running current scene, so an autoload — its
+        # SIBLING under /root — is out of the default search and takes
+        # `--root /root`, the same rule `game tree` follows.
+        default_root = run("game", "find", "--name", "MatchProbe")
+        assert default_root.returncode == 0, default_root.stdout
+        assert json.loads(default_root.stdout)["count"] == 0
+        from_root = run("game", "find", "--root", "/root", "--name", "MatchProbe")
+        assert from_root.returncode == 0, from_root.stdout + from_root.stderr
+        assert _paths(json.loads(from_root.stdout)) == ["/root/MatchProbe"]
+
+        # An unknown `--root` is the shared typed refusal every live op gives for
+        # a path that resolves to nothing — not an empty match list.
+        missing = run("game", "find", "--type", "Node", "--root", "/root/Main/Nope")
+        assert missing.returncode == EXIT_LIVE, missing.stdout + missing.stderr
+        assert json.loads(missing.stdout)["error"]["code"] == "live_node_not_found"
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_game_find_scopes_a_unique_name_to_the_owners_inside_the_search(
+    tmp_path, daemon_runtime_dir
+):
+    # #855 AC3 (wording fixed 2026-09-05): a `%Name` is per OWNER, and a running
+    # tree holds many owners. Two nodes named Value carry the unique flag inside
+    # the instance's subtree — one owned by the instance root, one owned by the
+    # scene ABOVE it — so the match is decided against the node's own owner.
+    _write_find_project(tmp_path)
+
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        # Searching the instance: only the node its own owner declares.
+        inside = run(
+            "game", "find", "--unique-name", "Value", "--root", "/root/Main/Card"
+        )
+        assert inside.returncode == 0, inside.stdout + inside.stderr
+        scoped = json.loads(inside.stdout)
+        assert _paths(scoped) == ["/root/Main/Card/Body/Value"]
+        assert scoped["count"] == 1
+        # Nothing was left unsearched: the excluded node was REACHED and refused
+        # by the owner rule, not missed by a bound.
+        assert scoped["truncated"] is False and scoped["omitted_nodes"] == 0
+
+        # `--name` is plain identity and knows nothing about owners, so the same
+        # subtree yields both — the contrast that makes the owner rule visible.
+        by_name = run("game", "find", "--name", "Value", "--root", "/root/Main/Card")
+        assert by_name.returncode == 0, by_name.stdout + by_name.stderr
+        assert json.loads(by_name.stdout)["count"] == 2
+
+        # Widen the search root to the owner above, and its `%Value` is in scope
+        # too: the rule is the owner's position, not the node's.
+        above = run("game", "find", "--unique-name", "Value", "--root", "/root/Main")
+        assert above.returncode == 0, above.stdout + above.stderr
+        both = json.loads(above.stdout)
+        assert sorted(_paths(both)) == [
+            "/root/Main/Card/Body/Value",
+            "/root/Main/Card/Value",
+        ]
+        assert both["count"] == 2
     finally:
         run("daemon", "stop")
