@@ -78,6 +78,7 @@ def test_shards_pairwise_partition_every_balancing_test_file():
         "experiment",
         "experiment-continuation",
         "composition",
+        "interfaces",
     )
     assert ci.PROCESS_TIMEOUT_SECONDS == {
         "required": 480,

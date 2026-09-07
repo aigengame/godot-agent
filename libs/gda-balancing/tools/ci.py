@@ -75,9 +75,11 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "composition": (
         "test_current_namespace_public.py",
         "test_current_package_composition.py",
+        "test_schema2_bootstrap_composition.py",
+    ),
+    "interfaces": (
         "test_cli_conformance.py",
         "test_http_service.py",
-        "test_schema2_bootstrap_composition.py",
         "test_schema2_evidence_cli.py",
         "test_schema2_template_cli.py",
     ),
