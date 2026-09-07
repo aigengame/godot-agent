@@ -668,6 +668,20 @@ class _ReplayResult:
         tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None
     ) = None
     refusal: ReplayOperationRefusal | None = None
+    event_steps: int = 0
+    node_steps: int = 0
+
+
+@dataclass(frozen=True)
+class ReplayEventEvidence:
+    """Independently observed Event evidence and its actual attempted charges."""
+
+    schedule_arguments: (
+        tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None
+    )
+    formula_evaluations: list[dict[str, JsonValue]]
+    event_steps: int
+    node_steps: int
 
 
 def execution_path_segment(value: str) -> str:
@@ -1306,7 +1320,12 @@ def _replay_operation_event(
                             cast(JsonValue, references[instruction["symbol"]])
                         )
                         value = (
-                            cast(int, state[target]) - variables[instruction["value"]]
+                            _require_runtime_integer(
+                                state[target], structured_authority
+                            )
+                            - _require_runtime_integer(
+                                variables[instruction["value"]], structured_authority
+                            )
                             if operator == "state-integer-subtract"
                             else variables[instruction["value"]]
                         )
@@ -1411,6 +1430,8 @@ def _replay_operation_event(
         ValueError,
     ):
         return None
+    result.event_steps = event_steps
+    result.node_steps = node_steps
     return result
 
 
@@ -1430,13 +1451,8 @@ def replay_event_evidence(
     scenario_id: str,
     catalog_by_id: dict[str, dict[str, JsonValue]],
     events_by_id: dict[str, dict[str, JsonValue]],
-) -> (
-    tuple[
-        tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None,
-        list[dict[str, JsonValue]],
-    ]
-    | None
-):
+    node_steps_before_operation: int = 0,
+) -> ReplayEventEvidence | None:
     """Independently consume a committed Event and its complete call evidence."""
     profile = next(
         row
@@ -1456,7 +1472,7 @@ def replay_event_evidence(
         scenario_id=scenario_id,
         catalog_by_id=catalog_by_id,
         events_by_id=events_by_id,
-        node_steps_before_operation=0,
+        node_steps_before_operation=node_steps_before_operation,
         bounds=profile["resource_bounds"],
         target_schedule=target_schedule,
     )
@@ -1470,7 +1486,12 @@ def replay_event_evidence(
         != canonical_bytes(parent_event["state_after"])
     ):
         return None
-    return result.schedule_arguments, result.formula_evaluations
+    return ReplayEventEvidence(
+        result.schedule_arguments,
+        result.formula_evaluations,
+        result.event_steps,
+        result.node_steps,
+    )
 
 
 def replay_refusing_operation(
