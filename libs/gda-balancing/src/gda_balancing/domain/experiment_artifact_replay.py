@@ -1,6 +1,7 @@
 """Independent behavioral adapter for Runtime evidence replay."""
 
 import hashlib
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
@@ -12,6 +13,7 @@ from gda_balancing.domain.operation_program import (
     guard_expanded_instruction_indices,
     instruction_evaluation_sites,
     operation_coordinate,
+    operation_body_instructions,
     selected_operation_index,
 )
 from gda_balancing.domain.program_reachability import reachable_formula_programs
@@ -27,7 +29,6 @@ from gda_balancing.domain.structured_values import (
     StructuredValueFault,
     StructuredValueIndex,
     admit_typed_value,
-    append_typed_value,
     list_type_contract,
     structured_fault_reason,
     equal_typed_values,
@@ -55,6 +56,10 @@ class ReplayInitializationProgramFault(Exception):
         self.program = program
         self.evaluation_site_identity = evaluation_site_identity
         self.frame_identity = frame_identity
+
+
+class _NonpositiveDivisorError(ValueError):
+    """A selected floor-divide cannot execute outside its positive domain."""
 
 
 def _admit_numeric(value: int, numeric: dict[str, Any]) -> int:
@@ -254,6 +259,74 @@ class ReplayNamedRng:
         return minimum + mixed % (maximum - minimum + 1), index, mixed, True
 
 
+def _append_replay_list(
+    envelope: Any,
+    item: Any,
+    *,
+    authority: StructuredValueIndex,
+    resource_limit: int | None,
+) -> dict[str, JsonValue]:
+    """Interpret selected append independently; only type admission is shared."""
+    admitted = admit_typed_value(
+        envelope, authority=authority, resource_limit=resource_limit
+    )
+    type_member, value_member = typed_envelope_members(authority)
+    element, maximum = list_type_contract(admitted[type_member], authority=authority)
+    expression = cast(dict[str, Any], admitted[type_member])
+    if "package" in expression and "id" in expression:
+        constructor = authority.types[(expression["package"], expression["id"])][
+            "constructor"
+        ]
+    else:
+        constructor = next(
+            row["id"]
+            for row in authority.constructors.values()
+            if row["value_rule"].get("definition_kind") == expression["kind"]
+        )
+    law = next(
+        row["law"]
+        for row in authority.operations.values()
+        if row["owner_constructor"] == constructor
+        and row["law"]["operator"] == "bounded-list-append"
+    )
+    if law != {
+        "operator": "bounded-list-append",
+        "element_projection": "list-element-type",
+        "result_projection": "same-list-type",
+        "order": "append-after-existing",
+        "duplicates": "preserve",
+        "capacity": "length-less-than-maximum",
+        "refusal_signal": "structured-list-capacity-exceeded",
+    }:
+        raise ValueError("unsupported selected List append law")
+    # The item is admitted before testing capacity, including when the List is full.
+    if isinstance(item, dict) and set(item) == {type_member, value_member}:
+        item_envelope = admit_typed_value(
+            item, authority=authority, resource_limit=resource_limit
+        )
+        if item_envelope[type_member] != element:
+            raise StructuredValueFault("structured.reason.type-mismatch", "/item/type")
+    else:
+        item_envelope = admit_typed_value(
+            {type_member: element, value_member: item},
+            authority=authority,
+            resource_limit=resource_limit,
+        )
+    values = cast(list[JsonValue], admitted[value_member])
+    if len(values) == maximum:
+        reason = next(
+            row
+            for row in authority.reasons.values()
+            if row.get("stage") == "runtime"
+            and row.get("signal") == law["refusal_signal"]
+        )
+        raise StructuredValueFault(reason["id"], "/value")
+    return {
+        type_member: admitted[type_member],
+        value_member: [*values, item_envelope[value_member]],
+    }
+
+
 def execute_value_instruction(
     instruction: dict[str, Any],
     variables: dict[str, Any],
@@ -283,7 +356,7 @@ def execute_value_instruction(
             variables[cast(str, instruction["right"])], structured_authority
         )
         if operator == "integer-floor-divide" and right <= 0:
-            raise ValueError("floor-divide divisor must be positive")
+            raise _NonpositiveDivisorError("floor-divide divisor must be positive")
         value = (
             left + right
             if operator == "integer-add"
@@ -365,7 +438,7 @@ def execute_value_instruction(
     elif operator == "bounded-list-append":
         if structured_authority is None or structured_resource_limit is None:
             raise ValueError("structured authority is required for List append")
-        variables[cast(str, instruction["target"])] = append_typed_value(
+        variables[cast(str, instruction["target"])] = _append_replay_list(
             variables[cast(str, instruction["value"])],
             variables[cast(str, instruction["item"])],
             authority=structured_authority,
@@ -598,6 +671,45 @@ class _ReplayResult:
 def execution_path_segment(value: str) -> str:
     """Independently encode one raw static execution-path segment."""
     return value.replace("~", "~0").replace("/", "~1")
+
+
+def operation_at_execution_path(
+    checked: CheckedExperiment,
+    root_reference: dict[str, Any],
+    root_path: str,
+    path: str,
+) -> OperationCoordinate | None:
+    """Resolve static ownership; actual fold lengths are checked by value replay."""
+    segments = path.split("/")
+    if not segments or segments.pop(0) != root_path:
+        return None
+    coordinate = operation_coordinate(root_reference)
+    operations = selected_operation_index(checked.rir["selected_semantics"])
+    nodes = runtime_nodes(checked)
+    while segments:
+        operation = operations.get(coordinate)
+        if operation is None:
+            return None
+        segment = segments.pop(0)
+        # Comparing canonical encodings also rejects malformed escapes.
+        matches = [
+            row
+            for row in operation_body_instructions(operation["body"])
+            if nodes[row["node"]]["semantics"]["operator"]
+            in {"invoke-operation", "bounded-pure-fold"}
+            and execution_path_segment(row["site"]) == segment
+        ]
+        if len(matches) != 1:
+            return None
+        instruction = matches[0]
+        if nodes[instruction["node"]]["semantics"]["operator"] == "bounded-pure-fold":
+            if (
+                not segments
+                or re.fullmatch(r"@(0|[1-9][0-9]*)", segments.pop(0)) is None
+            ):
+                return None
+        coordinate = operation_coordinate(instruction["operation"])
+    return coordinate if coordinate in operations else None
 
 
 def _replay_operation_event(
@@ -951,13 +1063,9 @@ def _replay_operation_event(
                         child = operations[child_coordinate]
                         if child["operation_kind"] != "pure-expression":
                             raise ValueError("fold step is not pure")
-                        captures, captured_references = arguments_for(
+                        captures, _captured_references = arguments_for(
                             instruction, variables, references
                         )
-                        if captured_references:
-                            # Passing the read value of a State formal is explicit;
-                            # a pure frame receives no mutable aliases.
-                            captured_references = {}
                         for item_index, item in enumerate(items):
                             child_path = (
                                 *path,
@@ -1007,7 +1115,10 @@ def _replay_operation_event(
                         logical_time = instruction["logical_time"]
                         depth = (
                             cast(int, event_spec.get("zero_time_depth", 0)) + 1
-                            if logical_time == event_spec["logical_time"]
+                            if logical_time
+                            == cast(dict[str, Any], event_spec["ordering_key"])[
+                                "logical_time"
+                            ]
                             else 0
                         )
                         signal = (
@@ -1015,10 +1126,19 @@ def _replay_operation_event(
                             if instruction.get("phase", schedule_law["child_phase"])
                             != schedule_law["child_phase"]
                             else signals["backward"]
-                            if logical_time < event_spec["logical_time"]
+                            if logical_time
+                            < cast(dict[str, Any], event_spec["ordering_key"])[
+                                "logical_time"
+                            ]
                             else signals["illegal_same_time_priority"]
-                            if logical_time == event_spec["logical_time"]
-                            and instruction["priority"] > event_spec["priority"]
+                            if logical_time
+                            == cast(dict[str, Any], event_spec["ordering_key"])[
+                                "logical_time"
+                            ]
+                            and instruction["priority"]
+                            > cast(dict[str, Any], event_spec["ordering_key"])[
+                                "priority"
+                            ]
                             else "logical-time-limit"
                             if logical_time > bounds["max_logical_time"]
                             else "zero-time-depth-limit"

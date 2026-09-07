@@ -19,6 +19,7 @@ from gda_balancing.domain.operation_program import (
     OperationCoordinate,
     instruction_evaluation_sites,
     operation_coordinate,
+    operation_body_instructions,
     selected_operation_index,
 )
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
@@ -29,6 +30,7 @@ from gda_balancing.domain.experiment_artifact_replay import (
     ReplayInitializationProgramFault as _InitializationProgramFault,
     replay_refusing_operation as _replay_refusing_operation,
     execution_path_segment as _execution_path_segment,
+    operation_at_execution_path as _operation_at_execution_path,
     evaluate_initialization_programs as _evaluate_initialization_programs,
     execute_value_instruction as _execute_value_instruction,
     replay_event_evidence as _replay_event_evidence,
@@ -189,6 +191,7 @@ def _evaluate_formula_evidence_result(
 
 
 def _event_operation_executions(
+    checked: CheckedExperiment,
     event: dict[str, Any],
     root_reference: dict[str, Any] | None,
 ) -> dict[str, OperationCoordinate] | None:
@@ -204,6 +207,8 @@ def _event_operation_executions(
             else f"scheduled:{event.get('schedule_call_site_identity')}"
         )
         executions[root_path] = operation_coordinate(root_reference)
+    else:
+        return executions
     for call in cast(list[dict[str, Any]], event.get("calls", [])):
         call_operation = call.get("operation")
         call_path = call.get("site")
@@ -211,9 +216,26 @@ def _event_operation_executions(
             not isinstance(call_path, str)
             or not isinstance(call_operation, dict)
             or call_path in executions
+            or _operation_at_execution_path(
+                checked, root_reference, root_path, call_path
+            )
+            != operation_coordinate(call_operation)
         ):
             return None
         executions[call_path] = operation_coordinate(call_operation)
+    # Pure invocations have no Event outcome rows. Their selected Formula sites
+    # still have graph-owned frames; the later value replay verifies that each
+    # claimed dynamic frame actually executed with these exact inputs/results.
+    for evaluation in cast(list[dict[str, Any]], event.get("formula_evaluations", [])):
+        path = evaluation.get("call_path")
+        if not isinstance(path, str):
+            return None
+        coordinate = _operation_at_execution_path(
+            checked, root_reference, root_path, path
+        )
+        if coordinate is None:
+            return None
+        executions[path] = coordinate
     return executions
 
 
@@ -237,7 +259,7 @@ def _trace_formula_evaluations_are_authoritative(
             if isinstance(entrypoint, dict)
             else scheduled_operations.get(cast(str, event.get("event_id")))
         )
-        executions = _event_operation_executions(event, root_reference)
+        executions = _event_operation_executions(checked, event, root_reference)
         if executions is None or not _event_formula_evaluations_are_authoritative(
             checked, event, executions
         ):
@@ -749,7 +771,7 @@ def _scheduled_catalog_record_is_authoritative(
     if not isinstance(root_reference, dict):
         return False
     executions = _event_operation_executions(
-        cast(dict[str, Any], parent_event), root_reference
+        checked, cast(dict[str, Any], parent_event), root_reference
     )
     if executions is None:
         return False
@@ -762,13 +784,13 @@ def _scheduled_catalog_record_is_authoritative(
     if operation is None:
         return False
     root_path = (
-        cast(str, parent_entrypoint["id"])
+        _execution_path_segment(cast(str, parent_entrypoint["id"]))
         if isinstance(parent_entrypoint, dict)
         else f"scheduled:{parent_event.get('schedule_call_site_identity')}"
     )
     schedule_identity = _scheduler_contract(checked)["call_site_identity"]["schedule"]
     matching_instructions = []
-    for instruction in operation["body"]:
+    for instruction in operation_body_instructions(operation["body"]):
         if instruction["node"] != "schedule":
             continue
         call_site_identity = content_identity(
@@ -1838,6 +1860,19 @@ def _terminal_audit_is_valid(
         exact_event_steps = 0
         exact_node_steps = cast(int, ledger["node_steps"]) + event_formula_fault_charge
     else:
+        if refusing_event_spec["kind"] == "transition-invocation":
+            root_entrypoint = resolved_entrypoints[refusing_event_spec["entrypoint"]]
+            expected_entrypoint = {
+                "id": root_entrypoint["id"],
+                "identity": root_entrypoint["identity"],
+            }
+        elif refusing_event_spec["kind"] == "scheduled-transition":
+            identity = refusing_event_spec["call_site_identity"]
+            expected_entrypoint = {"id": f"scheduled:{identity}", "identity": identity}
+        else:
+            return False
+        if refusing_event["entrypoint"] != expected_entrypoint:
+            return False
         root_arguments = _event_arguments(
             checked,
             refusing_event_spec,
