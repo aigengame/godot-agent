@@ -20,6 +20,7 @@ from gda_balancing.domain.program_reachability import reachable_formula_programs
 from gda_balancing.domain.runtime.projections import (
     operation_formula_evaluation_record,
     resolved_display_names,
+    resolved_state_rows,
     runtime_contract,
     runtime_nodes,
     scheduler_contract,
@@ -662,6 +663,7 @@ class _ReplayResult:
     formula_evaluations: list[dict[str, JsonValue]]
     calls: list[dict[str, JsonValue]]
     draws: list[dict[str, JsonValue]]
+    state_after: list[dict[str, JsonValue]] | None = None
     schedule_arguments: (
         tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None
     ) = None
@@ -1395,6 +1397,7 @@ def _replay_operation_event(
             root_path,
             None,
         )
+        result.state_after = resolved_state_rows(state, names)
     except _OperationFault as fault:
         result.refusal = fault.refusal
     except _ScheduleFound:
@@ -1463,6 +1466,8 @@ def replay_event_evidence(
         result.outcome != cast(dict[str, JsonValue], parent_event["outcome"])["id"]
         or result.calls != parent_event["calls"]
         or result.draws != parent_event["rng_draws"]
+        or canonical_bytes(cast(JsonValue, result.state_after))
+        != canonical_bytes(parent_event["state_after"])
     ):
         return None
     return result.schedule_arguments, result.formula_evaluations

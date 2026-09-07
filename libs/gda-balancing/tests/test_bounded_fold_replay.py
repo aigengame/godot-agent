@@ -1,6 +1,7 @@
 """Real fold refusals must survive independent replay, not claimed path chasing."""
 
 from copy import deepcopy
+import inspect
 
 import pytest
 
@@ -12,6 +13,7 @@ from gda_balancing.domain.experiment import CheckedExperiment, check_experiment_
 from gda_balancing.domain.experiment_artifacts import (
     runtime_terminal_audit_members,
     validate_experiment_artifact_set,
+    validate_experiment_member,
 )
 from gda_balancing.domain.model import (
     CheckedModel,
@@ -20,11 +22,13 @@ from gda_balancing.domain.model import (
     compile_checked_model,
 )
 from gda_balancing.domain.runtime.execution import (
+    EvaluationArtifacts,
     PreparedExperiment,
     RuntimeRefusalOutcome,
     evaluate_prepared_experiment,
     prepare_experiment,
 )
+from gda_balancing.domain.runtime import execution as runtime_execution
 from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_conformance_support import _bind_package_vector_set
 from test_bounded_fold_public import _OWNER, _source, _specification
@@ -32,6 +36,137 @@ from test_bounded_fold_terminal_audit import _assert_reidentified_audit_refuses
 from schema2_bootstrap_production_support import _reidentify_graph_root
 
 _MAX = (1 << 63) - 1
+
+
+@pytest.mark.parametrize("target_order", [1234, 4321], ids=["verdict", "success"])
+def test_fold_artifacts_reject_a_real_reversed_execution_post_state(target_order):
+    context = admit_authority_context(*mutable_authorities())
+    assert isinstance(context, AdmittedAuthorityContext), context
+    model = check_model_source_value(_source(), authority_context=context)
+    assert isinstance(model, CheckedModel), model
+    rir = compile_checked_model(model)["rir-semantic-payload"]
+    program = admit_rir(rir, authority_context=context)
+    checked = check_experiment_value(
+        _specification(rir, [1, 2, 3, 4], order=target_order),
+        program,
+        authority_context=context,
+    )
+    assert isinstance(checked, CheckedExperiment), checked
+    prepared = prepare_experiment(checked)
+    assert isinstance(prepared, PreparedExperiment), prepared
+    control = evaluate_prepared_experiment(prepared)
+    assert isinstance(control, EvaluationArtifacts), control
+    assert control.accepted is (target_order == 1234)
+    control_members = {
+        name: deepcopy(member.value) for name, member in control.members.items()
+    }
+    assert validate_experiment_artifact_set(checked, control_members)
+    control_event = next(
+        row
+        for row in control_members["event-trace"]["events"]
+        if row["operation"] is not None
+    )
+    control_state = {row["name"]: row["value"] for row in control_event["state_after"]}
+    assert control_state["ordered_value"] == 1234
+    assert control_state["selected_items"]["value"] == [1, 2]
+
+    # Change only the production traversal. The admitted program, input, producer
+    # artifact construction and independent validator remain the real controls.
+    source = inspect.getsource(evaluate_prepared_experiment)
+    traversal = "for item_index, item in enumerate(collection[value_member]):"
+    assert source.count(traversal) == 1
+    mutant_source = source.replace(
+        traversal,
+        "for item_index, item in enumerate(reversed(collection[value_member])):",
+    )
+    namespace = dict(vars(runtime_execution))
+    exec(compile(mutant_source, "<reverse-fold-runtime-mutant>", "exec"), namespace)
+    mutant = namespace["evaluate_prepared_experiment"](prepared)
+    assert isinstance(mutant, EvaluationArtifacts), mutant
+    assert mutant.accepted is (target_order == 4321)
+    members = {name: deepcopy(member.value) for name, member in mutant.members.items()}
+    assert ("evaluation-run" if mutant.accepted else "experiment-verdict") in members
+    event = next(
+        row for row in members["event-trace"]["events"] if row["operation"] is not None
+    )
+    state = {row["name"]: row["value"] for row in event["state_after"]}
+    assert state["ordered_value"] == 4321
+    assert state["selected_items"]["value"] == [2, 1]
+    assert all(
+        validate_experiment_member(checked, name, value)
+        for name, value in members.items()
+    )
+    assert not validate_experiment_artifact_set(checked, members)
+
+
+def test_fold_post_state_replay_accepts_a_business_rollback_after_writes():
+    kernel, language = mutable_authorities()
+    package = next(
+        row for row in language["language"]["packages"] if row["id"] == _OWNER
+    )
+    operation = next(
+        row
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.operations"
+        for row in closure["definitions"]
+        if row["id"] == "bounded-fold-v1"
+    )
+    # The failed business precondition follows all three real state writes.
+    operation["body"].append(
+        {
+            "node": "precondition-greater-than-or-equal",
+            "left": "zero",
+            "right": "counted",
+            "outcome": "fold-declined",
+        }
+    )
+    operation["outcomes"].append(
+        {
+            "id": "fold-declined",
+            "kind": "gameplay-alternative",
+            "state_policy": "rollback",
+        }
+    )
+    operation["resource_bounds"]["max_steps"] += 1
+    vectors = next(
+        row
+        for row in language.package_conformance_vector_sets
+        if row["package_id"] == _OWNER
+    )
+    for vector in vectors["vector_definitions"]:
+        if vector["id"] == "bounded-fold.bounded-fold-v1.body":
+            vector["expect"] = deepcopy(operation["body"])
+        elif vector["id"] == "bounded-fold.bounded-fold-v1.resource-bound":
+            vector["expect"] = operation["resource_bounds"]["max_steps"]
+    _bind_package_vector_set(package, vectors)
+    _reidentify_graph_root(language)
+    context = admit_authority_context(kernel, language)
+    assert isinstance(context, AdmittedAuthorityContext), context
+    model = check_model_source_value(_source(), authority_context=context)
+    assert isinstance(model, CheckedModel), model
+    rir = compile_checked_model(model)["rir-semantic-payload"]
+    program = admit_rir(rir, authority_context=context)
+    specification = _specification(rir, [1, 2, 3, 4], count=0, order=0)
+    specification["runtime"]["required_evaluator"]["instruction_nodes"].append(
+        "precondition-greater-than-or-equal"
+    )
+    checked = check_experiment_value(specification, program, authority_context=context)
+    assert isinstance(checked, CheckedExperiment), checked
+    prepared = prepare_experiment(checked)
+    assert isinstance(prepared, PreparedExperiment), prepared
+    outcome = evaluate_prepared_experiment(prepared)
+    assert isinstance(outcome, EvaluationArtifacts), outcome
+    assert outcome.accepted
+    members = {name: deepcopy(member.value) for name, member in outcome.members.items()}
+    event = next(
+        row for row in members["event-trace"]["events"] if row["operation"] is not None
+    )
+    assert event["outcome"] == {
+        "id": "fold-declined",
+        "kind": "gameplay-alternative",
+    }
+    assert event["state_after"] == event["state_before"]
+    assert validate_experiment_artifact_set(checked, members)
 
 
 def _fold_case(*, variant: str = "ordinary", limit: int | None = None, items=None):
