@@ -22,6 +22,7 @@ requires-python = ">=3.13"
 dependencies = [
     "pydantic>=2.13.4",
     "typer>=0.26.7",
+    "pillow>=11.0",
 ]
 
 [project.urls]
@@ -47,8 +48,22 @@ gda = "gda.cli:app"
 gda-mcp = "gda.mcp:main"
 
 [build-system]
-requires = ["uv_build>=0.11.19,<0.12.0"]
-build-backend = "uv_build"
+requires = ["hatchling>=1.32,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gda", "libs/gda-assets/src/gda_assets"]
+
+[tool.hatch.build.targets.sdist]
+# Preserve the previous root distribution scope, adding only the supporting
+# library. The monorepo's games, sibling product and local agent files do not ship.
+only-include = [
+    "src/gda",
+    "libs/gda-assets/src/gda_assets",
+    "pyproject.toml",
+    "README.md",
+    "LICENSE",
+]
 
 [dependency-groups]
 dev = [
@@ -62,11 +77,6 @@ dev = [
     # The MCP SDK is also a dev dependency (not just the `[mcp]` extra) so
     # `uv run pytest` has it for the gda-mcp fast/e2e tiers (ADR-0013).
     "mcp>=2,<3",
-    # The example game's asset pipeline postprocess stage (gADR-0014, panda-
-    # adventure): Pillow conforms acquired images to the pixel-art regime and the
-    # Scale spec size. A dev dependency (not a live-only one) because those
-    # transforms are deterministic and CI-tested with the acquire boundary mocked.
-    "pillow>=11.0",
     # Lint + format gate (CI `lint` job). Pinned so `ruff format` output stays
     # stable across the team and CI; the exact version is locked in uv.lock.
     "ruff>=0.15.19,<0.16",
@@ -87,7 +97,7 @@ assets-live = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "libs/gda-assets/tests"]
 # `scripts/` holds repo-automation modules the workflows call directly (they are
 # stdlib-only so any environment can run them). They are not part of the shipped
 # `gda` distribution, so they live outside `src/`; putting the directory on the
@@ -110,7 +120,7 @@ select = ["E4", "E7", "E9", "F"]
 # Type-check gate (ADR-0030). Covers the shipped library (src/) and the tests/;
 # `basic` mode is the starting point — a strictness ratchet and a possible `ty`
 # migration are tracked separately.
-include = ["src", "tests", "scripts"]
+include = ["src", "tests", "scripts", "libs/gda-assets/src", "libs/gda-assets/tests"]
 # `scripts/` is not importable as a package from the repo root, so pyright needs
 # the same path the pytest `pythonpath` gives the suite in order to resolve
 # `import release_tags` from a test module.

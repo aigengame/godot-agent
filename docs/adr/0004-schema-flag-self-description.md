@@ -4,6 +4,20 @@ status: accepted
 
 # `--schema` is self-description, not a caller-supplied contract
 
+> **Amendment (2026-09-07, #908): partial operation results.** A command can fail
+> after completing some effects. `GdaError` adds optional `partial_result`, a
+> JSON object containing the invoking operation's completed outcomes. It is
+> omitted when absent, as for existing optional context keys; existing commands
+> need no workflow input or record. The shared envelope remains `{"error": ...}`
+> and keeps the original failure category, code and diagnostics. A nonempty
+> partial result does not turn failure into exit 0 or imply rollback.
+>
+> The first consumer is Asset Pipeline. Its host adapter translates the local
+> pipeline result into this object, with completed stages, installed/unchanged
+> files and failed step. The pipeline output model documents those fields. Core
+> error models import no asset-domain types, and no persisted history or new
+> operation-error shape is introduced.
+
 > **Outcome (2026-06-22, #230 / PR #232):** the per-command `--schema` object
 > gained a fourth, additive key — `kind`, the command's static `ExecutionKind`
 > (`headless` / `export` / `live`, ADR-0017) — alongside `input` / `output` /
@@ -12,10 +26,10 @@ status: accepted
 > so it stays backward compatible (ADR-0012). `kind` is `null` only for a
 > self-description emitted without a backing command (e.g. `gda schema --schema`);
 > in the aggregate manifest (ADR-0012) every dispatchable entry's `kind` is
-> required and enum-constrained. The enum has since grown two
+> required and enum-constrained. The enum has since grown
 > self-description-only values on the ADR-0031 migration pattern: `script_run`
 > (ADR-0031) and `import` (#668, the native project-wide `--import` pass behind
-> `resource import`).
+> `resource import`), and `composite` (ADR-0042, the asset workflow recipe).
 
 > **Outcome (2026-06-22, #233 / PR #245):** the per-command `--schema` object
 > gained a fifth, additive key — `constraints`, the command's
@@ -346,8 +360,8 @@ semantics here, and deliberately scope out an overloaded interpretation.
   (The three-key shape is the original decision. The outcome notes above have
   since grown the object to six top-level keys — `{input, output, error, kind,
   constraints, argv}`: `kind` from #230, `constraints` from #233, `argv` from
-  #669. The #667, #670 and #687 amendments evolve fields *nested inside* the
-  `error` envelope — `probe`, `hint` and `evidence` — and add no top-level key.)
+  #669. The #667, #670, #687 and #908 amendments evolve fields *nested inside* the
+  `error` envelope — `probe`, `hint`, `evidence` and `partial_result` — and add no top-level key.)
 
 - **`output` describes only the success result; `error` describes the failure
   envelope** (#43). `output` is the command's own success result model, exactly as

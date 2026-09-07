@@ -43,6 +43,7 @@ from gda.headless import (
 )
 from gda.models import (
     CREATED_DIRS_DESC,
+    EngineVersion,
     NodeProperty,
     NormalizedPath,
     OBJECT_SET_ECHO_DESC,
@@ -120,6 +121,43 @@ class ResourceGetResult(BaseModel):
     path: str
     type: str = Field(description="The resource's engine class (e.g. Gradient).")
     properties: list[NodeProperty]
+
+
+class ResourceLoadParams(BaseModel):
+    """The internal engine-load observation request used by asset workflows (#908)."""
+
+    path: NormalizedPath = Field(
+        description="An imported project resource to load through Godot."
+    )
+
+
+class ResourceLoadResult(BaseModel):
+    """A bounded observation of one resource loaded by the real engine (#908)."""
+
+    path: str
+    resource_type: str
+    engine_version: EngineVersion
+    texture_size: list[int] | None = Field(default=None, min_length=2, max_length=2)
+    scene_node_count: int | None = Field(default=None, ge=1)
+
+
+def _render_resource_load(outcome: "ResourceLoadResult") -> str:
+    """Internal-only renderer required by the command descriptor contract."""
+    return f"loaded {outcome.path} as {outcome.resource_type}"
+
+
+RESOURCE_LOAD_COMMAND: HeadlessCommand[ResourceLoadResult] = HeadlessCommand(
+    operation="resource-load",
+    input_model=ResourceLoadParams,
+    output_model=ResourceLoadResult,
+    render=_render_resource_load,
+)
+
+
+def _execute_resource_load(
+    params: ResourceLoadParams, *, godot: str | None, project: Path
+) -> ResourceLoadResult | Failure:
+    return RESOURCE_LOAD_COMMAND.execute(params, godot=godot, project=project)
 
 
 class ResourceSetParams(BaseModel):
@@ -871,6 +909,25 @@ def _asset_res_path(project: Path, raw: str) -> "str | Failure":
     # of one asset produce one address — `.` (the project root, from `foo/..`)
     # included, which `PurePosixPath` used to hand on as the bogus `res://.`.
     return canonical_res_path(RES_PREFIX + rel_fs.as_posix())
+
+
+def run_resource_load_operation(
+    project: Path, path: str | Path, *, godot: str | None = None
+) -> ResourceLoadResult | Failure:
+    """Ask Godot to load one project asset and return a bounded observation.
+
+    This is the returning host-operation seam for composite workflows. It keeps
+    project ownership and containment in gda, then uses the ordinary sentinel
+    runner and classifier without emitting a CLI envelope or exiting.
+    """
+    addressed = _asset_res_path(project, str(path))
+    if isinstance(addressed, Failure):
+        return addressed
+    return _execute_resource_load(
+        ResourceLoadParams(path=addressed),
+        godot=godot,
+        project=project,
+    )
 
 
 def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:

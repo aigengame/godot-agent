@@ -19,6 +19,7 @@ from typing import Optional
 import typer
 
 from gda.commands import (
+    asset_pipeline as asset_pipeline_commands,
     daemon as daemon_commands,
     diag as diag_commands,
     export as export_commands,
@@ -57,6 +58,8 @@ node_commands.register(app)
 script_commands.register(app)
 
 resource_commands.register(app)
+
+asset_pipeline_commands.register(app)
 
 export_commands.register(app)
 

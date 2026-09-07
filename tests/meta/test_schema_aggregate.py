@@ -189,6 +189,7 @@ def test_every_entry_carries_an_execution_kind():
             "export",
             "live",
             "script_run",
+            "composite",
             "import",
         }, entry["name"]
 
@@ -212,9 +213,9 @@ def test_all_execution_kinds_appear_in_the_aggregate():
     assert by_name["game tree"]["kind"] == "live"
     assert by_name["script run"]["kind"] == "script_run"
     assert by_name["resource import"]["kind"] == "import"
-    # All five kinds are represented in the aggregate as a whole.
+    # All six kinds are represented in the aggregate as a whole.
     kinds = {entry["kind"] for entry in by_name.values()}
-    assert {"headless", "export", "live", "script_run", "import"} <= kinds
+    assert {"headless", "export", "live", "script_run", "import", "composite"} <= kinds
 
 
 def test_entry_constraints_match_the_commands_own_schema_constraints():
@@ -299,6 +300,7 @@ def test_self_described_manifest_guarantees_a_constrained_entry_kind():
         "live",
         "script_run",
         "import",
+        "composite",
     ]
 
 

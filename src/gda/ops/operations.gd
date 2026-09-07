@@ -329,6 +329,8 @@ func _initialize() -> void:
 			_op_resource_create(params)
 		"resource-get":
 			_op_resource_get(params)
+		"resource-load":
+			_op_resource_load(params)
 		"resource-set":
 			_op_resource_set(params)
 		"resource-delete":
@@ -2991,6 +2993,46 @@ func _op_resource_get(params: Dictionary) -> void:
 		"type": resource.get_class(),
 		"properties": properties,
 	})
+
+
+# resource-load: the narrow engine observation needed by the asset-pipeline
+# adapter (#908). It proves the selected imported asset is loadable by Godot and
+# reports only workflow-relevant facts. Loading project resources carries the
+# existing Trusted project assumption (ADR-0009).
+func _op_resource_load(params: Dictionary) -> void:
+	_diag("running operation: resource-load")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if not FileAccess.file_exists(path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "resource not found: " + path)
+		return
+
+	var resource: Resource = ResourceLoader.load(path)
+	if resource == null:
+		_fail(OP_ERROR_INVALID_PATH, "file could not be loaded as a Resource: " + path)
+		return
+
+	var result := {
+		"path": path,
+		"resource_type": resource.get_class(),
+		"engine_version": Engine.get_version_info(),
+	}
+	if resource is Texture2D:
+		result["texture_size"] = [resource.get_width(), resource.get_height()]
+	elif resource is PackedScene:
+		var root: Node = resource.instantiate()
+		if root == null:
+			_fail(OP_ERROR_NOT_A_SCENE, "PackedScene has no instantiable root: " + path)
+			return
+		result["scene_node_count"] = 1 + root.find_children("*", "", true, false).size()
+		root.free()
+	else:
+		_fail(OP_ERROR_INVALID_PATH,
+				"resource is not a supported Texture2D or PackedScene: " + path)
+		return
+	_succeed(result)
 
 
 # resource-set: load a .tres, coerce a CLI string value to a property's declared

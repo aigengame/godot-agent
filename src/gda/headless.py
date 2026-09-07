@@ -644,8 +644,8 @@ def emit_failure(failure: Failure, *, json_output: bool) -> NoReturn:
     entirely when a failure has none, rather than emitting them as ``null``. So
     adding such a key leaves every failure that does not set it byte-identical —
     the property that makes the optional-context axis additive for existing
-    consumers. Three keys ride it now, one per ADR-0004 amendment: ``probe``
-    (#667), ``hint`` (#670) and ``evidence`` (#687). The required keys
+    consumers. The ADR-0004 amendments add ``probe`` (#667), ``hint`` (#670),
+    ``evidence`` (#687), and ``partial_result`` (#908). The required keys
     (``category`` / ``code`` / ``message`` / ``diagnostics``) are never ``None``,
     so none of them can be dropped by this.
 

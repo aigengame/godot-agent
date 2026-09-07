@@ -8,8 +8,9 @@ override rules are declared in its own `AGENTS.md`.
 - [Panda Adventure](examples/platformer/panda-adventure/GAME-CONTEXT.md) — the 2D-platformer game demo.
 - [gda-balancing](libs/gda-balancing/BALANCING-CONTEXT.md) — the standalone numeric design & balancing toolkit.
 - [Asset Pipeline](libs/gda-assets/ASSETS-CONTEXT.md) — the internal supporting
-  context, physically carried by `libs/gda-assets` and exposed through the planned
-  `gda asset-pipeline` command group. The design is accepted; implementation is pending.
+  context, physically carried by `libs/gda-assets` and exposed through
+  `gda asset-pipeline`. The `run` file-handoff slice is implemented by #908;
+  other planned workflows are tracked by #907.
 
 ## Asset Pipeline integration
 
