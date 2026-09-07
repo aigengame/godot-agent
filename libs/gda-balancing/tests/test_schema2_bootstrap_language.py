@@ -203,6 +203,30 @@ def test_two_consumers_refuse_reidentified_authority_type_mismatches(mutation):
     ) in first["diagnostics"]
 
 
+@pytest.mark.parametrize("mutation", ("omitted-when", "always", "required-schema"))
+def test_independent_bootstrap_requires_conditional_execution_resource_contract(
+    mutation,
+):
+    authority = _authority_candidate()
+    kernel, ldb = authority["kernel"], authority["language_bundle"]
+    meta = kernel["meta_format"]
+    contract = meta["runtime_projection"]["execution_closure"]
+    properties = next(
+        row["schema"]
+        for row in ldb["language"]["artifact_wire_schemas"]
+        if row["artifact_kind"] == "rir-semantic-payload"
+    )["properties"]["selected_semantics"]["properties"]
+    validate = bootstrap_support._consumer_b_execution_projection_is_closed
+    assert validate(contract, meta, ldb, properties)
+    if mutation == "omitted-when":
+        del contract["resources"][0]["when"]
+    elif mutation == "always":
+        contract["resources"][0]["when"] = "always"
+    else:
+        properties["execution_resources"]["required"] = ["max_rule_match_steps"]
+    assert not validate(contract, meta, ldb, properties)
+
+
 def test_two_consumers_type_empty_semantic_collections_from_kernel_contracts():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]

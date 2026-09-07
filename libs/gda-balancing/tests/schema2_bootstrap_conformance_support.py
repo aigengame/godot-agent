@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:b4f13b014acce1656282a07a1ba5e0d0f197f75598fb2c72993b8e9011192dfa"
+    "sha256:9034564a7ab519b9cc00dd80cf86974a9ce50065cb41004ea6143d09ab91ab55"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -3555,10 +3555,18 @@ def _consumer_b_execution_projection_is_closed(
         return False
     resource_members = []
     for row in resources:
-        if not isinstance(row, dict) or set(row) != {"source_member", "output_member"}:
+        if not isinstance(row, dict) or set(row) != {
+            "source_member",
+            "output_member",
+            "when",
+        }:
             return False
         source, target = row["source_member"], row["output_member"]
-        if not isinstance(source, str) or source != target:
+        if (
+            not isinstance(source, str)
+            or source != target
+            or row["when"] != "typed-values"
+        ):
             return False
         schema = _consumer_b_schema_path(outputs["execution_resources"], [target])
         if schema is None or not jsonschema.Draft202012Validator(schema).is_valid(
@@ -3566,9 +3574,12 @@ def _consumer_b_execution_projection_is_closed(
         ):
             return False
         resource_members.append(target)
-    if len(set(resource_members)) != len(resource_members) or set(
-        resource_members
-    ) != set(outputs["execution_resources"].get("required", [])):
+    if (
+        len(set(resource_members)) != len(resource_members)
+        or outputs["execution_resources"].get("required") != []
+        or set(resource_members)
+        != set(outputs["execution_resources"].get("properties", {}))
+    ):
         return False
     reasons = value["reasons"]
     if not isinstance(reasons, dict) or {

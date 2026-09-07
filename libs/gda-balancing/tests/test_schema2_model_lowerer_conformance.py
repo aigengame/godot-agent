@@ -38,7 +38,10 @@ from gda_balancing.domain.model import (
     check_model_source,
     check_model_source_value,
 )
-from gda_balancing.domain.model._compilation import lower_checked_model
+from gda_balancing.domain.model._compilation import (
+    compile_checked_model,
+    lower_checked_model,
+)
 from gda_balancing.domain.model._resolution import ModelSourceContext
 from schema2_authority_support import (
     refresh_package_semantic_closures,
@@ -1400,6 +1403,7 @@ def _reference_formula_contract_matches_operation(
 def _reference_selected_operation_coordinates(
     checked: ModelSourceContext,
     lock: dict[str, Any],
+    formula_roots: set[tuple[str, str]],
 ) -> set[tuple[str, str]]:
 
     operations = {
@@ -1415,21 +1419,35 @@ def _reference_selected_operation_coordinates(
             entrypoint["operation"]["id"],
         )
         for entrypoint in checked.source.get("entrypoints", [])
-    }
+    } | formula_roots
     if any(coordinate not in operations for coordinate in selected):
         return set(operations)
+    reference_nodes = {
+        node["id"]
+        for node in checked.kernel["meta_format"]["runtime_program"]["nodes"]
+        if "operation" in node["required_members"]
+    }
+
+    def references(body: list[dict[str, Any]]) -> set[tuple[str, str]]:
+        coordinates = set()
+        for instruction in body:
+            if instruction["node"] in reference_nodes:
+                coordinates.add(
+                    (
+                        instruction["operation"]["package"],
+                        instruction["operation"]["id"],
+                    )
+                )
+            if isinstance(instruction.get("body"), list):
+                coordinates.update(references(instruction["body"]))
+        return coordinates
+
     pending = list(selected)
     while pending:
         operation = operations.get(pending.pop())
         if operation is None:
             continue
-        for instruction in operation.get("body", []):
-            if instruction.get("node") != "invoke":
-                continue
-            dependency = (
-                instruction["operation"]["package"],
-                instruction["operation"]["id"],
-            )
+        for dependency in references(operation.get("body", [])):
             if dependency not in selected:
                 selected.add(dependency)
                 pending.append(dependency)
@@ -1817,6 +1835,12 @@ def _reference_formulas_and_bindings(
     selected_operation_coordinates = _reference_selected_operation_coordinates(
         checked,
         lock,
+        {
+            (node["operation"]["package"], node["operation"]["id"])
+            for formula in formulas
+            for node in formula["body"]["nodes"]
+            if node["node"] == "operation-call"
+        },
     )
     for row in lock["operations"]:
         coordinate = (
@@ -2515,7 +2539,9 @@ def _reference_initialization_programs(
             f"init.{site['identity']}",
         )
         max_steps = formula["closure"]["resource_charge"]["max_steps"]
-        assert len(body) == max_steps
+        # A selected Operation's declared bound may exceed its current body.
+        # Preserve that bound in the program and reject only an overrun.
+        assert len(body) <= max_steps
         program = {
             "site": site,
             "target": site["resolved_symbol"],
@@ -3642,6 +3668,8 @@ def _reference_execution_closure(
     resources = {}
     for selector in contract["resources"]:
         consume()
+        if not applicable[selector["when"]]:
+            continue
         resources[selector["output_member"]] = checked.language_bundle["resources"][
             selector["source_member"]
         ]
@@ -4533,6 +4561,55 @@ def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():
                 "rir-semantic-payload",
                 "resolved-model",
             )
+        }
+    ).admitted
+
+
+def test_independent_lowerer_closes_operation_slots_reached_from_formulas():
+    path = (
+        Path(__file__).parents[1]
+        / "examples/schema2/progression-periodic-effect/model-source.json"
+    )
+    source = json.loads(path.read_text())
+    kernel, language_bundle = mutable_authorities()
+    checked = check_model_source_value(
+        source, kernel=kernel, language_bundle=language_bundle
+    )
+    assert isinstance(checked, CheckedModel)
+    production = compile_checked_model(checked)
+    assert len(production) == 8
+
+    # The progression policy is reached through a derived-symbol Formula,
+    # although the only authored entrypoint is the periodic Effect Operation.
+    target = {"package": "game.progression", "id": "game.progression.contribution@1"}
+    assert all(row["operation"] != target for row in source["entrypoints"])
+    assert source["formula_bindings"][2]["site"]["operation"] == target
+    independent_checked = _reference_check_source(source, kernel, language_bundle)
+    assert isinstance(independent_checked, ModelSourceContext)
+    independent = _reference_semantic_artifacts(independent_checked)
+    initialization = next(
+        row
+        for row in independent["rir-semantic-payload"]["initialization_programs"]
+        if row["target"]["name"] == "magnitude_threshold"
+    )
+    assert (
+        len(initialization["body"]),
+        initialization["resource_bounds"]["max_steps"],
+    ) == (2, 3)
+    assert all(
+        production[name] == independent[name]
+        for name in (
+            "package-lock",
+            "rir-semantic-payload",
+            "resolved-model",
+            "debug-map",
+        )
+    )
+    assert _reference_admits_semantic_artifacts(production, independent_checked)
+    assert admit_resolved_model(
+        {
+            name: independent[name]
+            for name in ("package-lock", "rir-semantic-payload", "resolved-model")
         }
     ).admitted
 
