@@ -2,7 +2,7 @@
   "schema_version": "2.0.0",
   "id": "example.progression-periodic-effect.snapshot",
   "model": {
-    "rir_semantic_identity": "sha256:59c77d6cc0460a61447884199e04d21c33d15186b5fef3569fda31cc2b797492"
+    "rir_semantic_identity": "sha256:ef89917e88c3056ee2b5922e2da304a827680b6d4413d59b2f915dcee498226c"
   },
   "seed": {
     "algorithm": "splitmix64-v1",
