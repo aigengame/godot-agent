@@ -234,15 +234,15 @@ def _limited_context(limit):
 
 
 @pytest.mark.parametrize(
-    ("phase", "limit", "committed"),
+    ("phase", "limit", "committed", "before", "charged"),
     [
-        ("initialization", 2, 0),
-        ("event", 5, 0),
-        ("observation", 20, 1),
+        ("initialization", 2, 0, 0, 3),
+        ("event", 5, 0, 3, 6),
+        ("observation", 20, 1, 19, 22),
     ],
 )
 def test_public_formula_budget_refusal_preserves_site_frame_and_atomic_prefix(
-    tmp_path, run_cli, monkeypatch, phase, limit, committed
+    tmp_path, run_cli, monkeypatch, phase, limit, committed, before, charged
 ):
     # Inject an actually admitted authority value at the normal context owner;
     # no checked RIR or Runtime policy is replaced after admission.
@@ -263,7 +263,9 @@ def test_public_formula_budget_refusal_preserves_site_frame_and_atomic_prefix(
     assert fault.program == last["program"]["identity"]
     assert fault.evaluation_site_identity == last["program"]["site"]["identity"]
     assert fault.frame_identity == last["frame"]
-    assert last["after"] == last["before"] + 3 == limit + 1
+    assert last["before"] == before
+    assert last["after"] == before + 3 == charged
+    assert charged > limit
     diagnostic = error["diagnostics"][0]
     assert diagnostic["code"] == "runtime.step_limit_exceeded"
     if phase == "initialization":
@@ -311,7 +313,7 @@ def test_public_formula_budget_refusal_preserves_site_frame_and_atomic_prefix(
             "state_before": audit["last_snapshot_record"]["values"],
             "state_after": audit["last_snapshot_record"]["values"],
         }
-        assert audit["budget_counters"]["node_steps"] == limit + 1
+        assert audit["budget_counters"]["node_steps"] == charged
         assert (
             audit["refusing_event"]["evaluation_site_identity"]
             == fault.evaluation_site_identity
