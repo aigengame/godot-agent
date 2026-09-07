@@ -6,6 +6,8 @@ declared generic inputs/result and normative vectors.
 """
 
 import json
+
+import jsonschema
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -70,7 +72,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:9c1c88e55c239fb6c3b3d022ea7099c2f952c15c8339e292bb29c74f75387202"
+    "sha256:9034564a7ab519b9cc00dd80cf86974a9ce50065cb41004ea6143d09ab91ab55"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1771,12 +1773,201 @@ def _schema_items_match(source: Any, target: Any) -> bool:
     return isinstance(source, dict) and isinstance(target, dict) and source == target
 
 
+def _execution_projection_is_closed(
+    contract: Any,
+    meta_format: dict[str, Any],
+    language_bundle: dict[str, Any],
+    selected_properties: dict[str, Any],
+) -> bool:
+    """Admit exact selectors against their source and RIR schema owners."""
+    if (
+        not isinstance(contract, dict)
+        or set(contract)
+        != {
+            "closed",
+            "output_members",
+            "law_selectors",
+            "nodes",
+            "resources",
+            "reasons",
+        }
+        or contract.get("closed") is not True
+        or contract.get("output_members")
+        != [
+            "execution_laws",
+            "execution_resources",
+            "diagnostic_reasons",
+            "diagnostics",
+        ]
+        or not set(contract["output_members"]) <= selected_properties.keys()
+    ):
+        return False
+    laws_schema = selected_properties["execution_laws"]
+    runtime_schema = _json_schema_path(laws_schema, ["runtime_program"])
+    if not isinstance(runtime_schema, dict) or not isinstance(
+        runtime_schema.get("properties"), dict
+    ):
+        return False
+    expected_paths = {
+        ("runtime_program", name) for name in runtime_schema["properties"]
+    } | {
+        (name,)
+        for name in laws_schema.get("properties", {})
+        if name != "runtime_program"
+    }
+    nodes = contract.get("nodes")
+    if nodes != {
+        "source_path": ["runtime_program", "nodes"],
+        "output_path": ["runtime_program", "nodes"],
+        "id_member": "id",
+        "instruction_member": "node",
+        "roots": "reachable-operations-and-lifecycle-formulas",
+    }:
+        return False
+    selected_paths = {tuple(cast(dict[str, Any], nodes)["output_path"])}
+    selectors = contract.get("law_selectors")
+    if not isinstance(selectors, list) or not selectors:
+        return False
+    for selector in selectors:
+        if not isinstance(selector, dict) or set(selector) != {
+            "source_path",
+            "output_path",
+            "when",
+        }:
+            return False
+        source_path, output_path = selector["source_path"], selector["output_path"]
+        if (
+            not isinstance(source_path, list)
+            or not isinstance(output_path, list)
+            or not 1 <= len(source_path) <= 2
+            or not 1 <= len(output_path) <= 2
+            or not all(isinstance(x, str) and x for x in source_path + output_path)
+            or selector["when"] not in {"executable", "typed-values"}
+            or tuple(output_path) in selected_paths
+            or source_path[-1] != output_path[-1]
+            or (selector["when"] == "executable" and source_path != output_path)
+            or (
+                selector["when"] == "typed-values"
+                and source_path != ["literal_typing", output_path[-1]]
+            )
+        ):
+            return False
+        value: Any = meta_format
+        for member in source_path:
+            if not isinstance(value, dict) or member not in value:
+                return False
+            value = value[member]
+        target = _json_schema_path(laws_schema, output_path)
+        if target is None or not jsonschema.Draft202012Validator(target).is_valid(
+            value
+        ):
+            return False
+        selected_paths.add(tuple(output_path))
+    if selected_paths != expected_paths:
+        return False
+    resources = contract.get("resources")
+    resource_schema = selected_properties["execution_resources"]
+    resource_outputs: list[str] = []
+    if not isinstance(resources, list) or not resources:
+        return False
+    for resource in resources:
+        if not isinstance(resource, dict) or set(resource) != {
+            "source_member",
+            "output_member",
+            "when",
+        }:
+            return False
+        source, output = resource["source_member"], resource["output_member"]
+        if (
+            not isinstance(source, str)
+            or not isinstance(output, str)
+            or source != output
+            or resource["when"] != "typed-values"
+        ):
+            return False
+        target = _json_schema_path(resource_schema, [output])
+        value = language_bundle.get("resources", {}).get(source)
+        if target is None or not jsonschema.Draft202012Validator(target).is_valid(
+            value
+        ):
+            return False
+        resource_outputs.append(output)
+    if (
+        len(set(resource_outputs)) != len(resource_outputs)
+        or resource_schema.get("required") != []
+        or set(resource_outputs) != set(resource_schema.get("properties", {}))
+    ):
+        return False
+    reasons = contract.get("reasons")
+    if not isinstance(reasons, dict) or set(reasons) != {
+        "authority_path",
+        "diagnostic_authority_path",
+        "id_member",
+        "diagnostic_member",
+        "node_signal_member",
+        "node_signal_stage",
+        "operation_reason_member",
+        "instruction_reference",
+        "owner",
+        "missing",
+        "roots",
+    }:
+        return False
+    # These are the existing owner/reference operations, not a second law catalog.
+    if {key: value for key, value in reasons.items() if key != "roots"} != {
+        "authority_path": "language.reasons",
+        "diagnostic_authority_path": "diagnostics",
+        "id_member": "id",
+        "diagnostic_member": "code",
+        "node_signal_member": "refusals",
+        "node_signal_stage": "runtime",
+        "operation_reason_member": "refusals",
+        "instruction_reference": "refusal_reference",
+        "owner": "attached-package-definition",
+        "missing": "refuse",
+    }:
+        return False
+    roots = reasons["roots"]
+    if not isinstance(roots, list) or not roots:
+        return False
+    catalog = language_bundle.get("language", {}).get("reasons", [])
+    root_keys: set[tuple[str, ...]] = set()
+    for root in roots:
+        if not isinstance(root, dict) or root.get("when") not in {
+            "executable",
+            "typed-values",
+        }:
+            return False
+        if set(root) == {"when", "id"} and isinstance(root["id"], str):
+            matches = [row for row in catalog if row.get("id") == root["id"]]
+            key = (root["when"], root["id"])
+        elif (
+            set(root) == {"when", "stage", "signal"}
+            and isinstance(root["stage"], str)
+            and isinstance(root["signal"], str)
+        ):
+            matches = [
+                row
+                for row in catalog
+                if row.get("stage") == root["stage"]
+                and row.get("signal") == root["signal"]
+            ]
+            key = (root["when"], root["stage"], root["signal"])
+        else:
+            return False
+        if len(matches) != 1 or key in root_keys:
+            return False
+        root_keys.add(key)
+    return True
+
+
 def _runtime_projection_is_closed(
     profile: Any,
     contract: Any,
     language_bundle: dict[str, Any],
     declaration_fields: dict[str, Any],
     language_definitions: dict[str, Any],
+    meta_format: dict[str, Any],
 ) -> bool:
     if (
         not isinstance(profile, dict)
@@ -1798,6 +1989,7 @@ def _runtime_projection_is_closed(
             "path_typing",
             "output_typing",
             "resource_accounting",
+            "execution_closure",
         }
         or contract.get("closed") is not True
     ):
@@ -1905,6 +2097,12 @@ def _runtime_projection_is_closed(
                 "constructor-kind-target",
                 "collection-output-row",
                 "explicit-output-row",
+                "law-selector",
+                "selected-node",
+                "resource-selector",
+                "runtime-instruction",
+                "owned-reason",
+                "owned-diagnostic",
             ],
             "exhaustion_reason": {
                 "stage": "static",
@@ -2141,9 +2339,17 @@ def _runtime_projection_is_closed(
         for item in wire_schemas
         if isinstance(item, dict) and item.get("artifact_kind") == "package-lock"
     ]
+    if not isinstance(selected_properties, dict) or not _execution_projection_is_closed(
+        contract.get("execution_closure"),
+        meta_format,
+        language_bundle,
+        selected_properties,
+    ):
+        return False
     if not (
         isinstance(required_outputs, list)
-        and set(output_members) == set(required_outputs)
+        and set(output_members) | set(contract["execution_closure"]["output_members"])
+        == set(required_outputs)
         and isinstance(selected_properties, dict)
         and isinstance(packages, list)
         and all(
@@ -2601,6 +2807,7 @@ def _language_definitions_are_closed(
                 language_bundle,
                 fields,
                 cast(dict[str, Any], meta_format["language_definitions"]),
+                meta_format,
             ):
                 return False
             for equality in equalities:

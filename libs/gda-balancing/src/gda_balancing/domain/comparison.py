@@ -1,10 +1,14 @@
 """Domain Comparison semantics for exact Experiment Replay."""
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, cast
 
-from gda_balancing.domain.artifacts import identified_artifact, verify_artifact
-from gda_balancing.domain.authority.context import AdmittedAuthorityContext
+from gda_balancing.domain.artifacts import ArtifactContract, select_artifact_contract
+from gda_balancing.domain.authority.context import (
+    AdmittedAuthorityContext,
+    _deep_freeze,
+)
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
@@ -37,6 +41,45 @@ _REPRODUCTION_BINDINGS = (
 )
 
 
+@dataclass(frozen=True)
+class ExactReplayContract:
+    """One admitted Replay policy and its immutable result/refusal contracts."""
+
+    policy_binding: Mapping[str, Any]
+    reasons: Mapping[str, Mapping[str, Any]]
+    artifact: ArtifactContract
+    # Transitional broad binding retained until #875; never a semantics lookup.
+    language_bundle_identity: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "policy_binding", _deep_freeze(self.policy_binding))
+        object.__setattr__(self, "reasons", _deep_freeze(self.reasons))
+
+
+def select_exact_replay_contract(
+    authority_context: AdmittedAuthorityContext,
+) -> ExactReplayContract:
+    """Select Replay inputs once from their admitted policy and reason owners."""
+    binding = authority_context.replay_comparison_policy_index.get(_EXACT_REPLAY_POLICY)
+    if binding is None:
+        raise ValueError("the exact Replay policy is not admitted")
+    _policy_binding(binding)
+    reasons = {
+        reason_id: reason_by_id(authority_context.language_bundle, reason_id)
+        for reason_id in EXACT_REPLAY_REFUSAL_REASONS
+    }
+    if any(reason["stage"] != "evaluation" for reason in reasons.values()):
+        raise ValueError("an exact Replay refusal reason belongs to the wrong stage")
+    return ExactReplayContract(
+        policy_binding=binding,
+        reasons=reasons,
+        artifact=select_artifact_contract(
+            authority_context.language_bundle, "replay-comparison"
+        ),
+        language_bundle_identity=authority_context.language_bundle["content_identity"],
+    )
+
+
 def exact_replay_input_identity(
     experiment_identity: str,
     original_artifact_set_receipt_identity: str,
@@ -58,11 +101,12 @@ def exact_replay_input_identity(
 
 def _exact_replay_refusal(
     checked: CheckedExperiment,
+    replay_contract: ExactReplayContract,
     reason_id: str,
     pointer: str,
     message: str,
 ) -> Schema2RefusalReport:
-    reason = reason_by_id(checked.language_bundle, reason_id)
+    reason = replay_contract.reasons[reason_id]
     stage = cast(RefusalStage, reason["stage"])
     if stage != "evaluation":
         raise ValueError("an exact Replay refusal reason belongs to the wrong stage")
@@ -85,11 +129,13 @@ def _exact_replay_refusal(
 def exact_replay_original_refusal(
     checked: CheckedExperiment,
     original_artifacts: dict[str, dict[str, Any]],
+    replay_contract: ExactReplayContract,
 ) -> Schema2RefusalReport | None:
     """Apply the LDB-owned eligibility and binding rules to an original run."""
     if "evaluation-run" not in original_artifacts:
         return _exact_replay_refusal(
             checked,
+            replay_contract,
             "evaluation.reason.replay-ineligible-outcome",
             "/original_experiment_run_artifact_set_receipt",
             "The original publication is not a successful Evaluation run",
@@ -97,6 +143,7 @@ def exact_replay_original_refusal(
     if not validate_experiment_artifact_set(checked, original_artifacts):
         return _exact_replay_refusal(
             checked,
+            replay_contract,
             "evaluation.reason.replay-reproduction-mismatch",
             "/original_experiment_run_artifact_set_receipt",
             "The original publication does not bind this Experiment",
@@ -108,6 +155,7 @@ def exact_replay_reproduction_refusal(
     checked: CheckedExperiment,
     original_reproduction: dict[str, Any],
     prepared_reproduction: dict[str, Any],
+    replay_contract: ExactReplayContract,
 ) -> Schema2RefusalReport | None:
     """Require exact complete reproduction equality before Replay dispatch."""
     if canonical_bytes(cast(JsonValue, original_reproduction)) == canonical_bytes(
@@ -116,6 +164,7 @@ def exact_replay_reproduction_refusal(
         return None
     return _exact_replay_refusal(
         checked,
+        replay_contract,
         "evaluation.reason.replay-reproduction-mismatch",
         "/original_experiment_run_artifact_set_receipt/reproduction-receipt",
         "The prepared Runtime does not match the original reproduction identity",
@@ -123,11 +172,8 @@ def exact_replay_reproduction_refusal(
 
 
 def _policy_binding(
-    policy_index: Mapping[str, Mapping[str, Any]],
+    binding: Mapping[str, Any],
 ) -> tuple[dict[str, str], list[str]]:
-    binding = policy_index.get(_EXACT_REPLAY_POLICY)
-    if binding is None:
-        raise ValueError("the exact Replay policy is not admitted")
     policy = cast(Mapping[str, Any], binding["policy"])
     owner = cast(Mapping[str, Any], binding["owner"])
     if policy.get("comparator") != "canonical-equal":
@@ -147,15 +193,17 @@ def _policy_binding(
 def _member_value(
     members: dict[str, PublicationMember],
     logical_name: str,
-    language_bundle: dict[str, Any],
+    output_contracts: Mapping[str, ArtifactContract],
 ) -> dict[str, Any]:
     member = members.get(logical_name)
+    contract = output_contracts.get(logical_name)
     if (
         member is None
+        or contract is None
         or member.artifact_kind != logical_name
         or member.value.get("artifact_kind") != logical_name
         or member.value.get("content_identity") != member.content_identity
-        or not verify_artifact(member.value, language_bundle)
+        or not contract.verify(member.value)
     ):
         raise ValueError(f"invalid Replay observation member: {logical_name}")
     return member.value
@@ -163,13 +211,16 @@ def _member_value(
 
 def _reproduction_members(
     members: dict[str, PublicationMember],
-    language_bundle: dict[str, Any],
+    output_contracts: Mapping[str, ArtifactContract],
+    replay_contract: ExactReplayContract,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-    reproduction = _member_value(members, "reproduction-receipt", language_bundle)
+    reproduction = _member_value(members, "reproduction-receipt", output_contracts)
     resolved_runtime = _member_value(
-        members, "resolved-runtime-profile", language_bundle
+        members, "resolved-runtime-profile", output_contracts
     )
-    evaluator = _member_value(members, "evaluator-capability-manifest", language_bundle)
+    evaluator = _member_value(
+        members, "evaluator-capability-manifest", output_contracts
+    )
     if any(
         reproduction.get(name) != resolved_runtime.get(name)
         for name in _REPRODUCTION_BINDINGS
@@ -186,7 +237,7 @@ def _reproduction_members(
         or evaluator.get("language_bundle_identity")
         != reproduction.get("language_bundle_identity")
         or reproduction.get("language_bundle_identity")
-        != language_bundle["content_identity"]
+        != replay_contract.language_bundle_identity
     ):
         raise ValueError("Replay reproduction support is inconsistent")
     return reproduction, resolved_runtime, evaluator
@@ -194,16 +245,17 @@ def _reproduction_members(
 
 def _producing_outcome(
     members: dict[str, PublicationMember],
-    language_bundle: dict[str, Any],
+    output_contracts: Mapping[str, ArtifactContract],
+    replay_contract: ExactReplayContract,
     *,
     require_primary: bool,
 ) -> tuple[dict[str, str], str, str, dict[str, Any]]:
     reproduction, resolved_runtime, evaluator = _reproduction_members(
-        members, language_bundle
+        members, output_contracts, replay_contract
     )
-    trace = _member_value(members, "event-trace", language_bundle)
-    snapshots = _member_value(members, "snapshot-series", language_bundle)
-    metrics = _member_value(members, "metric-dataset", language_bundle)
+    trace = _member_value(members, "event-trace", output_contracts)
+    snapshots = _member_value(members, "snapshot-series", output_contracts)
+    metrics = _member_value(members, "metric-dataset", output_contracts)
     experiment_identity = reproduction["experiment_identity"]
     runtime_identity = resolved_runtime["content_identity"]
     if any(
@@ -254,7 +306,7 @@ def _producing_outcome(
         payload["evaluator_manifest_identity"] = cast(
             str, evaluator["content_identity"]
         )
-    expected_outcome = identified_artifact(language_bundle, outcome_kind, payload)
+    expected_outcome = output_contracts[outcome_kind].identify(payload)
     present_primary_names = [
         name for name in ("evaluation-run", "experiment-verdict") if name in members
     ]
@@ -263,7 +315,7 @@ def _producing_outcome(
     if present_primary_names:
         if present_primary_names != [outcome_kind]:
             raise ValueError("Replay producing outcome kind is inconsistent")
-        primary = _member_value(members, outcome_kind, language_bundle)
+        primary = _member_value(members, outcome_kind, output_contracts)
         if canonical_bytes(cast(JsonValue, primary)) != canonical_bytes(
             cast(JsonValue, expected_outcome)
         ):
@@ -284,12 +336,13 @@ def _producing_outcome(
 
 def _observation(
     members: dict[str, PublicationMember],
-    language_bundle: dict[str, Any],
+    output_contracts: Mapping[str, ArtifactContract],
+    replay_contract: ExactReplayContract,
     *,
     original: bool,
 ) -> tuple[dict[str, str], str, str]:
     observation, primary_name, primary_identity, _reproduction = _producing_outcome(
-        members, language_bundle, require_primary=True
+        members, output_contracts, replay_contract, require_primary=True
     )
     if original and primary_name != "evaluation-run":
         raise ValueError("the original producing outcome is not an Evaluation run")
@@ -298,28 +351,26 @@ def _observation(
 
 def _comparison_value(
     *,
-    authority_context: AdmittedAuthorityContext,
+    replay_contract: ExactReplayContract,
+    output_contracts: Mapping[str, ArtifactContract],
     original_artifact_set_receipt_identity: str,
     original_members: dict[str, PublicationMember],
     replay_members: dict[str, PublicationMember],
 ) -> dict[str, JsonValue]:
     if not original_artifact_set_receipt_identity:
         raise ValueError("the original Artifact-set receipt identity is empty")
-    language_bundle = authority_context.language_bundle
-    policy, policy_checks = _policy_binding(
-        authority_context.replay_comparison_policy_index
-    )
+    policy, policy_checks = _policy_binding(replay_contract.policy_binding)
     original, original_kind, original_identity = _observation(
-        original_members, language_bundle, original=True
+        original_members, output_contracts, replay_contract, original=True
     )
     replay, replay_kind, replay_identity = _observation(
-        replay_members, language_bundle, original=False
+        replay_members, output_contracts, replay_contract, original=False
     )
     original_reproduction = _member_value(
-        original_members, "reproduction-receipt", language_bundle
+        original_members, "reproduction-receipt", output_contracts
     )
     replay_reproduction = _member_value(
-        replay_members, "reproduction-receipt", language_bundle
+        replay_members, "reproduction-receipt", output_contracts
     )
     if canonical_bytes(cast(JsonValue, original_reproduction)) != canonical_bytes(
         cast(JsonValue, replay_reproduction)
@@ -345,14 +396,12 @@ def _comparison_value(
     ]
     return cast(
         dict[str, JsonValue],
-        identified_artifact(
-            language_bundle,
-            "replay-comparison",
+        replay_contract.artifact.identify(
             {
                 "comparison_implementation_identity": (
                     EXACT_REPLAY_COMPARISON_IMPLEMENTATION
                 ),
-                "language_bundle_identity": language_bundle["content_identity"],
+                "language_bundle_identity": replay_contract.language_bundle_identity,
                 "original_artifact_set_receipt_identity": (
                     original_artifact_set_receipt_identity
                 ),
@@ -375,21 +424,24 @@ def _comparison_value(
 
 def compare_exact_replay(
     *,
-    authority_context: AdmittedAuthorityContext,
+    replay_contract: ExactReplayContract,
+    output_contracts: Mapping[str, ArtifactContract],
     original_artifact_set_receipt_identity: str,
     original_members: dict[str, PublicationMember],
     replay_members: dict[str, PublicationMember],
 ) -> PublicationMember:
     """Apply the admitted exact Replay policy to explicit observations."""
     value = _comparison_value(
-        authority_context=authority_context,
+        replay_contract=replay_contract,
+        output_contracts=output_contracts,
         original_artifact_set_receipt_identity=(original_artifact_set_receipt_identity),
         original_members=original_members,
         replay_members=replay_members,
     )
     if not validate_exact_replay_comparison(
         value,
-        authority_context=authority_context,
+        replay_contract=replay_contract,
+        output_contracts=output_contracts,
         original_artifact_set_receipt_identity=(original_artifact_set_receipt_identity),
         original_members=original_members,
         replay_members=replay_members,
@@ -406,7 +458,8 @@ def compare_exact_replay(
 def validate_exact_replay_comparison(
     value: dict[str, Any],
     *,
-    authority_context: AdmittedAuthorityContext,
+    replay_contract: ExactReplayContract,
+    output_contracts: Mapping[str, ArtifactContract],
     original_artifact_set_receipt_identity: str,
     original_members: dict[str, PublicationMember],
     replay_members: dict[str, PublicationMember],
@@ -414,7 +467,8 @@ def validate_exact_replay_comparison(
     """Independently reconstruct and validate every Replay comparison binding."""
     try:
         expected = _comparison_value(
-            authority_context=authority_context,
+            replay_contract=replay_contract,
+            output_contracts=output_contracts,
             original_artifact_set_receipt_identity=(
                 original_artifact_set_receipt_identity
             ),
@@ -423,8 +477,7 @@ def validate_exact_replay_comparison(
         )
     except (KeyError, TypeError, ValueError):
         return False
-    language_bundle = authority_context.language_bundle
-    return verify_artifact(value, language_bundle) and canonical_bytes(
+    return replay_contract.artifact.verify(value) and canonical_bytes(
         cast(JsonValue, value)
     ) == canonical_bytes(cast(JsonValue, expected))
 
@@ -432,27 +485,26 @@ def validate_exact_replay_comparison(
 def validate_published_exact_replay_comparison(
     value: dict[str, Any],
     *,
-    authority_context: AdmittedAuthorityContext,
+    replay_contract: ExactReplayContract,
+    output_contracts: Mapping[str, ArtifactContract],
     original_artifact_set_receipt_identity: str,
     original_members: dict[str, PublicationMember],
     replay_members: dict[str, PublicationMember],
 ) -> bool:
     """Validate a published comparison from its retained supporting members."""
     try:
-        language_bundle = authority_context.language_bundle
-        policy, policy_checks = _policy_binding(
-            authority_context.replay_comparison_policy_index
-        )
+        policy, policy_checks = _policy_binding(replay_contract.policy_binding)
         original, original_kind, original_identity = _observation(
-            original_members, language_bundle, original=True
+            original_members, output_contracts, replay_contract, original=True
         )
         replay, replay_kind, replay_identity, replay_reproduction = _producing_outcome(
             replay_members,
-            language_bundle,
+            output_contracts,
+            replay_contract,
             require_primary=False,
         )
         original_reproduction = _member_value(
-            original_members, "reproduction-receipt", language_bundle
+            original_members, "reproduction-receipt", output_contracts
         )
         if canonical_bytes(cast(JsonValue, original_reproduction)) != canonical_bytes(
             cast(JsonValue, replay_reproduction)
@@ -481,11 +533,11 @@ def validate_published_exact_replay_comparison(
         )
         return (
             original_kind == "evaluation-run"
-            and verify_artifact(value, language_bundle)
+            and replay_contract.artifact.verify(value)
             and value.get("comparison_implementation_identity")
             == EXACT_REPLAY_COMPARISON_IMPLEMENTATION
             and value.get("language_bundle_identity")
-            == language_bundle["content_identity"]
+            == replay_contract.language_bundle_identity
             and value.get("original_artifact_set_receipt_identity")
             == original_artifact_set_receipt_identity
             and value.get("original_evaluation_run_identity") == original_identity

@@ -18,6 +18,7 @@ from gda_balancing.domain.artifacts import identified_artifact
 from gda_balancing.domain.comparison import (
     EXACT_REPLAY_COMPARISON_IMPLEMENTATION,
     compare_exact_replay,
+    select_exact_replay_contract,
     exact_replay_reproduction_refusal,
     validate_exact_replay_comparison,
     validate_published_exact_replay_comparison,
@@ -180,7 +181,8 @@ def test_exact_replay_comparison_applies_admitted_ordered_policy(accepted_execut
     checked, execution = accepted_execution
 
     comparison = compare_exact_replay(
-        authority_context=_authority_context(checked),
+        replay_contract=select_exact_replay_contract(_authority_context(checked)),
+        output_contracts=checked.output_contracts,
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=execution.members,
         replay_members=execution.members,
@@ -203,7 +205,8 @@ def test_exact_replay_comparison_applies_admitted_ordered_policy(accepted_execut
     assert all(row["match"] is True for row in comparison.value["checks"])
     assert validate_exact_replay_comparison(
         comparison.value,
-        authority_context=_authority_context(checked),
+        replay_contract=select_exact_replay_contract(_authority_context(checked)),
+        output_contracts=checked.output_contracts,
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=execution.members,
         replay_members=execution.members,
@@ -215,7 +218,10 @@ def test_exact_replay_comparison_reports_complete_ordered_mismatch(accepted_exec
     replay = _same_reproduction_drift(original_checked, original)
 
     comparison = compare_exact_replay(
-        authority_context=_authority_context(original_checked),
+        replay_contract=select_exact_replay_contract(
+            _authority_context(original_checked)
+        ),
+        output_contracts=original_checked.output_contracts,
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=original.members,
         replay_members=replay.members,
@@ -243,7 +249,10 @@ def test_exact_replay_comparison_rejects_a_foreign_reproduction(
 
     with pytest.raises(ValueError, match="complete reproduction"):
         compare_exact_replay(
-            authority_context=_authority_context(original_checked),
+            replay_contract=select_exact_replay_contract(
+                _authority_context(original_checked)
+            ),
+            output_contracts=original_checked.output_contracts,
             original_artifact_set_receipt_identity="sha256:original-receipt",
             original_members=original.members,
             replay_members=replay.members,
@@ -256,7 +265,8 @@ def test_published_mismatch_reconstructs_the_omitted_verdict_identity(
     checked, original = accepted_execution
     replay = _same_reproduction_drift(checked, original)
     comparison = compare_exact_replay(
-        authority_context=_authority_context(checked),
+        replay_contract=select_exact_replay_contract(_authority_context(checked)),
+        output_contracts=checked.output_contracts,
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=original.members,
         replay_members=replay.members,
@@ -269,7 +279,8 @@ def test_published_mismatch_reconstructs_the_omitted_verdict_identity(
 
     assert validate_published_exact_replay_comparison(
         comparison.value,
-        authority_context=_authority_context(checked),
+        replay_contract=select_exact_replay_contract(_authority_context(checked)),
+        output_contracts=checked.output_contracts,
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=original.members,
         replay_members=retained_replay_members,
@@ -282,7 +293,8 @@ def test_published_mismatch_reconstructs_the_omitted_verdict_identity(
     )
     assert not validate_published_exact_replay_comparison(
         forged,
-        authority_context=_authority_context(checked),
+        replay_contract=select_exact_replay_contract(_authority_context(checked)),
+        output_contracts=checked.output_contracts,
         original_artifact_set_receipt_identity="sha256:original-receipt",
         original_members=original.members,
         replay_members=retained_replay_members,
@@ -449,7 +461,11 @@ def test_public_replay_refuses_a_prepared_runtime_drift_before_dispatch(
 def test_complete_reproduction_check_covers_every_identity_class(accepted_execution):
     checked, execution = accepted_execution
     original = execution.members["reproduction-receipt"].value
-    assert exact_replay_reproduction_refusal(checked, original, original) is None
+    replay_contract = select_exact_replay_contract(_authority_context(checked))
+    assert (
+        exact_replay_reproduction_refusal(checked, original, original, replay_contract)
+        is None
+    )
     changes = (
         ("kernel_identity", "sha256:" + "1" * 64),
         ("resolved_model_identity", "sha256:" + "2" * 64),
@@ -475,7 +491,9 @@ def test_complete_reproduction_check_covers_every_identity_class(accepted_execut
         payload = _artifact_payload(original)
         payload[field] = replacement
         changed = _member(checked, "reproduction-receipt", payload)
-        refusal = exact_replay_reproduction_refusal(checked, original, changed.value)
+        refusal = exact_replay_reproduction_refusal(
+            checked, original, changed.value, replay_contract
+        )
         assert refusal is not None, field
         assert refusal.stage == "evaluation"
         assert refusal.diagnostics[0].code == (
@@ -640,3 +658,59 @@ def test_public_replay_rejects_a_changed_seed_for_a_committed_invocation_key(
     assert (exit_code, stdout) == (3, "")
     assert json.loads(stderr)["error"]["code"] == "invocation_key_conflict"
     assert not conflict_out.exists()
+
+
+def test_replay_consumes_detached_policy_reasons_and_output_contracts(
+    accepted_execution, monkeypatch
+):
+    import gda_balancing.domain.artifacts as artifact_module
+    import gda_balancing.domain.comparison as comparison_module
+
+    checked, execution = accepted_execution
+    selected = select_exact_replay_contract(_authority_context(checked))
+    policy_source = deepcopy(selected.policy_binding)
+    reason_source = cast(dict, deepcopy(selected.reasons))
+    selected = replace(selected, policy_binding=policy_source, reasons=reason_source)
+    policy_source["policy"]["checks"].clear()
+    reason_source["evaluation.reason.replay-reproduction-mismatch"]["diagnostic"] = (
+        "caller.changed-the-reason"
+    )
+
+    def ambient_lookup_forbidden(*_args, **_kwargs):
+        raise AssertionError("Replay consulted an authority catalog after selection")
+
+    monkeypatch.setattr(comparison_module, "reason_by_id", ambient_lookup_forbidden)
+    monkeypatch.setattr(
+        comparison_module, "select_artifact_contract", ambient_lookup_forbidden
+    )
+    monkeypatch.setattr(
+        artifact_module, "select_artifact_contract", ambient_lookup_forbidden
+    )
+    comparison = compare_exact_replay(
+        replay_contract=selected,
+        output_contracts=checked.output_contracts,
+        original_artifact_set_receipt_identity="sha256:original-receipt",
+        original_members=execution.members,
+        replay_members=execution.members,
+    )
+    assert comparison.value["result"] == "matched"
+    assert len(comparison.value["checks"]) == 4
+    assert validate_published_exact_replay_comparison(
+        comparison.value,
+        replay_contract=selected,
+        output_contracts=checked.output_contracts,
+        original_artifact_set_receipt_identity="sha256:original-receipt",
+        original_members=execution.members,
+        replay_members=execution.members,
+    )
+    original = execution.members["reproduction-receipt"].value
+    changed = {**original, "seed_value": original["seed_value"] + 1}
+    refusal = exact_replay_reproduction_refusal(checked, original, changed, selected)
+    assert refusal is not None
+    assert refusal.diagnostics[0].code == "evaluation.replay_reproduction_mismatch"
+    with pytest.raises(TypeError, match="immutable"):
+        selected.policy_binding["policy"]["checks"].clear()
+    with pytest.raises(TypeError, match="immutable"):
+        cast(dict, selected.reasons["evaluation.reason.replay-reproduction-mismatch"])[
+            "stage"
+        ] = "runtime"

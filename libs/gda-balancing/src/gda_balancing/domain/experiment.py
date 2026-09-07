@@ -5,15 +5,22 @@ from __future__ import annotations
 import json
 import hashlib
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, fields
 from typing import Any, cast
 
 import jsonschema
 
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
+    _deep_freeze,
     packaged_authority_context,
 )
+from gda_balancing.domain.artifact_set import (
+    EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
+    EXPERIMENT_SUCCESS_ARTIFACT_SET,
+    EXPERIMENT_VERDICT_ARTIFACT_SET,
+)
+from gda_balancing.domain.artifacts import ArtifactContract, select_artifact_contract
 from gda_balancing.domain.canonical import (
     JsonValue,
     canonical_bytes,
@@ -25,6 +32,7 @@ from gda_balancing.domain.diagnostics import (
     DiagnosticLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
+    reason_by_id,
 )
 from gda_balancing.domain.artifact_errors import (
     PublishedArtifactIntegrityError,
@@ -53,6 +61,7 @@ from gda_balancing.domain.structured_values import (
     StructuredValueFault,
     admit_typed_value,
     selected_structured_value_index,
+    structured_fault_reason,
     typed_envelope_members,
 )
 
@@ -83,12 +92,44 @@ class CheckedExperiment:
     resolved_model: dict[str, Any]
     rir: dict[str, Any]
     authority_context: AdmittedAuthorityContext | None = None
+    output_contracts: Mapping[str, ArtifactContract] = field(init=False, repr=False)
+    runtime_profile_identity_contract: dict[str, Any] = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        for member in fields(self):
+            if member.init:
+                object.__setattr__(
+                    self, member.name, _deep_freeze(getattr(self, member.name))
+                )
+        output_kinds = {
+            member.artifact_kind
+            for members in (
+                EXPERIMENT_SUCCESS_ARTIFACT_SET,
+                EXPERIMENT_VERDICT_ARTIFACT_SET,
+                EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
+            )
+            for member in members
+        }
+        object.__setattr__(
+            self,
+            "output_contracts",
+            _deep_freeze(
+                {
+                    kind: select_artifact_contract(self.language_bundle, kind)
+                    for kind in sorted(output_kinds)
+                }
+            ),
+        )
+        object.__setattr__(
+            self,
+            "runtime_profile_identity_contract",
+            _deep_freeze(self.kernel["meta_format"]["runtime_profile_definition"]),
+        )
 
 
 def _refusal(
     *,
-    stage: str,
-    code: str,
+    reason: dict[str, Any],
     identity: str,
     pointer: str,
     message: str,
@@ -97,11 +138,11 @@ def _refusal(
     related: tuple[DiagnosticLocation, ...] = (),
 ) -> Schema2RefusalReport:
     return Schema2RefusalReport(
-        stage=cast(Any, stage),
+        stage=cast(Any, reason["stage"]),
         variant=variant,
         diagnostics=(
             Schema2Diagnostic(
-                code=code,
+                code=reason["diagnostic"],
                 message=message,
                 primary=(
                     primary
@@ -139,13 +180,14 @@ def _first_schema_error(
     return errors[0] if errors else None
 
 
-def _declared_value_fault(
+def _declared_value_diagnostic(
     value: Any,
     declaration: dict[str, Any],
     *,
     structured_authority: StructuredValueIndex,
-    resource_limit: int,
-) -> StructuredValueFault | None:
+    resource_limit: int | None,
+    numeric_domain_reason: dict[str, Any],
+) -> tuple[dict[str, Any], str] | None:
     type_identity = cast(dict[str, str], declaration["type_identity"])
     declared_type: JsonValue = {
         "id": type_identity["id"],
@@ -159,12 +201,11 @@ def _declared_value_fault(
                 authority=structured_authority,
                 resource_limit=resource_limit,
             )
+            if canonical_bytes(admitted[type_member]) != canonical_bytes(declared_type):
+                raise StructuredValueFault("structured.reason.type-mismatch", "/type")
         except StructuredValueFault as fault:
-            return fault
-        if canonical_bytes(admitted[type_member]) != canonical_bytes(declared_type):
-            return StructuredValueFault(
-                "language.structured_value_type_mismatch", "/type"
-            )
+            reason = structured_fault_reason(fault, authority=structured_authority)
+            return reason, fault.pointer
         return None
     domain = declaration["domain"]
     if (
@@ -172,7 +213,7 @@ def _declared_value_fault(
         or isinstance(value, bool)
         or not domain["minimum"] <= value <= domain["maximum"]
     ):
-        return StructuredValueFault("language.invalid_domain", "")
+        return numeric_domain_reason, ""
     return None
 
 
@@ -372,8 +413,9 @@ def check_experiment(
     observation = read_bounded_input_with_sha256(path, max_source_bytes)
     if observation.data is None:
         return _refusal(
-            stage="ingress",
-            code="language.source_too_large",
+            reason=reason_by_id(
+                context.language_bundle, "model.reason.source-too-large"
+            ),
             identity=f"sha256:{observation.sha256}",
             pointer="",
             message="Experiment Specification exceeds the admitted ingress bound",
@@ -387,8 +429,9 @@ def check_experiment(
         )
     except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
         return _refusal(
-            stage="parse",
-            code="language.source_parse_failure",
+            reason=reason_by_id(
+                context.language_bundle, "model.reason.source-parse-failure"
+            ),
             identity=observed_identity,
             pointer="",
             message="Experiment Specification is not canonical JSON data",
@@ -408,16 +451,18 @@ def check_experiment_value(
         data = canonical_bytes(cast(JsonValue, value))
     except (TypeError, ValueError, UnicodeEncodeError):
         return _refusal(
-            stage="parse",
-            code="language.source_parse_failure",
+            reason=reason_by_id(
+                context.language_bundle, "model.reason.source-parse-failure"
+            ),
             identity="unidentified",
             pointer="",
             message="Experiment Specification is not canonical JSON data",
         )
     if len(data) > cast(int, context.language_bundle["resources"]["max_source_bytes"]):
         return _refusal(
-            stage="ingress",
-            code="language.source_too_large",
+            reason=reason_by_id(
+                context.language_bundle, "model.reason.source-too-large"
+            ),
             identity=f"sha256:{hashlib.sha256(data).hexdigest()}",
             pointer="",
             message="Experiment Specification exceeds the admitted ingress bound",
@@ -448,8 +493,9 @@ def _check_experiment_value(
     schema_error = _first_schema_error(value, _experiment_schema(language_bundle))
     if schema_error is not None:
         return _refusal(
-            stage="static",
-            code="language.source_contract_mismatch",
+            reason=reason_by_id(
+                language_bundle, "model.reason.source-contract-mismatch"
+            ),
             identity=experiment_identity,
             pointer=_schema_error_pointer(schema_error),
             message=schema_error.message,
@@ -459,8 +505,9 @@ def _check_experiment_value(
         or value["language_bundle_identity"] != language_bundle["content_identity"]
     ):
         return _refusal(
-            stage="resolution",
-            code="language.resolved_authority_mismatch",
+            reason=reason_by_id(
+                language_bundle, "model.reason.resolved-authority-mismatch"
+            ),
             identity=experiment_identity,
             pointer="/kernel_identity",
             message="Experiment Specification does not bind the active authorities",
@@ -471,15 +518,15 @@ def _check_experiment_value(
     ):
         if not _unique_rows(collection, member):
             return _refusal(
-                stage="static",
-                code="language.source_contract_mismatch",
+                reason=reason_by_id(
+                    language_bundle, "model.reason.source-contract-mismatch"
+                ),
                 identity=experiment_identity,
                 pointer="",
                 message=f"Experiment {member} values must be unique",
             )
     for scenario_index, scenario in enumerate(value["scenarios"]):
         event_plan = _scenario_root_events(scenario)
-        scheduler = RuntimeScheduler.from_kernel(kernel).contract
         if (
             not _unique_canonical_rows(scenario["assignments"], "target")
             or len(scenario["named_streams"]) != len(set(scenario["named_streams"]))
@@ -494,11 +541,11 @@ def _check_experiment_value(
                 for event in event_plan
                 if event["kind"] == "transition-invocation"
             )
-            or not _external_input_plan_is_admitted(scenario, scheduler)
         ):
             return _refusal(
-                stage="static",
-                code="language.source_contract_mismatch",
+                reason=reason_by_id(
+                    language_bundle, "model.reason.source-contract-mismatch"
+                ),
                 identity=experiment_identity,
                 pointer=(
                     f"/scenarios/{scenario_index}/assignments"
@@ -513,8 +560,9 @@ def _check_experiment_value(
     for metric_index, metric in enumerate(value["metrics"]):
         if metric["target"]["minimum"] > metric["target"]["maximum"]:
             return _refusal(
-                stage="static",
-                code="language.source_contract_mismatch",
+                reason=reason_by_id(
+                    language_bundle, "model.reason.source-contract-mismatch"
+                ),
                 identity=experiment_identity,
                 pointer=f"/metrics/{metric_index}/target",
                 message="Metric target minimum exceeds maximum",
@@ -543,8 +591,9 @@ def _check_experiment_value(
         except PublishedArtifactUnavailable as err:
             identity_member = identity_members[err.logical_name]
             return _refusal(
-                stage="resolution",
-                code="language.resolved_authority_mismatch",
+                reason=reason_by_id(
+                    language_bundle, "model.reason.resolved-authority-mismatch"
+                ),
                 identity=experiment_identity,
                 pointer=f"/model/{identity_member}",
                 message=(
@@ -556,8 +605,9 @@ def _check_experiment_value(
             logical_name = err.logical_name or "build-receipt"
             kind = artifact_kinds[logical_name]
             return _refusal(
-                stage="resolution",
-                code="language.resolved_authority_mismatch",
+                reason=reason_by_id(
+                    language_bundle, "model.reason.resolved-authority-mismatch"
+                ),
                 identity=experiment_identity,
                 pointer=f"/model/{identity_members[logical_name]}",
                 message=(
@@ -567,8 +617,9 @@ def _check_experiment_value(
         except ExactResolvedModelBindingError as err:
             if err.reason == "resolved-model-admission-failed":
                 return _refusal(
-                    stage="resolution",
-                    code="language.resolved_authority_mismatch",
+                    reason=reason_by_id(
+                        language_bundle, "model.reason.resolved-authority-mismatch"
+                    ),
                     identity=experiment_identity,
                     pointer="/model",
                     message=(
@@ -577,8 +628,9 @@ def _check_experiment_value(
                     ),
                 )
             return _refusal(
-                stage="resolution",
-                code="language.resolved_authority_mismatch",
+                reason=reason_by_id(
+                    language_bundle, "model.reason.resolved-authority-mismatch"
+                ),
                 identity=experiment_identity,
                 pointer="/model",
                 message="Experiment Model binding disagrees with its exact Build receipt",
@@ -602,8 +654,9 @@ def _check_experiment_value(
         for logical_name, identity_member in identity_members.items()
     ):
         return _refusal(
-            stage="resolution",
-            code="language.resolved_authority_mismatch",
+            reason=reason_by_id(
+                language_bundle, "model.reason.resolved-authority-mismatch"
+            ),
             identity=experiment_identity,
             pointer="/model",
             message="Experiment Model binding disagrees with its exact Build receipt",
@@ -618,22 +671,44 @@ def _check_experiment_value(
         canonical_bytes(cast(JsonValue, row["resolved_symbol"])): row
         for row in rir["declarations"]
     }
-    structured_authority = selected_structured_value_index(
-        selected,
-        kernel=context.kernel,
-    )
-    structured_resource_limit = cast(
-        int, language_bundle["resources"]["max_rule_match_steps"]
-    )
     required_profile = value["runtime"]["profile"]
     if required_profile not in runtime_profiles:
         return _refusal(
-            stage="resolution",
-            code="language.resolution_binding_mismatch",
+            reason=reason_by_id(
+                language_bundle, "model.reason.resolution-binding-mismatch"
+            ),
             identity=experiment_identity,
             pointer="/runtime/profile",
             message="Experiment Runtime profile is absent from the selected RIR",
         )
+    if not entrypoints:
+        return _refusal(
+            reason=reason_by_id(
+                language_bundle, "model.reason.resolution-binding-mismatch"
+            ),
+            identity=experiment_identity,
+            pointer="/model/rir_identity",
+            message="Experiment Model has no executable Event entrypoints",
+        )
+    runtime_laws = selected["execution_laws"]["runtime_program"]
+    scheduler = RuntimeScheduler(runtime_laws["scheduler"]).contract
+    for scenario_index, scenario in enumerate(value["scenarios"]):
+        if not _external_input_plan_is_admitted(scenario, scheduler):
+            return _refusal(
+                reason=reason_by_id(
+                    language_bundle, "model.reason.source-contract-mismatch"
+                ),
+                identity=experiment_identity,
+                pointer=f"/scenarios/{scenario_index}",
+                message="Experiment external inputs violate the selected scheduler contract",
+            )
+    numeric_domain_reason = reason_by_id(
+        language_bundle, "quantity.reason.invalid-domain"
+    )
+    structured_authority = selected_structured_value_index(selected)
+    structured_resource_limit = cast(
+        int | None, selected["execution_resources"].get("max_rule_match_steps")
+    )
     required_operation_kinds: set[str] = set()
     required_instruction_nodes: set[str] = set()
     required_effects: set[str] = set()
@@ -649,8 +724,9 @@ def _check_experiment_value(
             pointer = f"/scenarios/{scenario_index}/event_plan/{event_index}/entrypoint"
             if entrypoint is None:
                 return _refusal(
-                    stage="resolution",
-                    code="language.resolution_binding_mismatch",
+                    reason=reason_by_id(
+                        language_bundle, "model.reason.resolution-binding-mismatch"
+                    ),
                     identity=experiment_identity,
                     pointer=pointer,
                     message="Root Event entrypoint is absent from the selected RIR",
@@ -658,8 +734,9 @@ def _check_experiment_value(
             operation = operations.get(operation_coordinate(entrypoint["operation"]))
             if operation is None or operation["runtime_profile"] != required_profile:
                 return _refusal(
-                    stage="resolution",
-                    code="language.resolution_binding_mismatch",
+                    reason=reason_by_id(
+                        language_bundle, "model.reason.resolution-binding-mismatch"
+                    ),
                     identity=experiment_identity,
                     pointer=pointer,
                     message=(
@@ -676,8 +753,9 @@ def _check_experiment_value(
                 )
             except ValueError:
                 return _refusal(
-                    stage="resolution",
-                    code="language.resolution_binding_mismatch",
+                    reason=reason_by_id(
+                        language_bundle, "model.reason.resolution-binding-mismatch"
+                    ),
                     identity=experiment_identity,
                     pointer=pointer,
                     message="Root Event Operation composition is not closed",
@@ -699,8 +777,9 @@ def _check_experiment_value(
             )
             if not _unique_canonical_rows(payload, "target"):
                 return _refusal(
-                    stage="static",
-                    code="language.source_contract_mismatch",
+                    reason=reason_by_id(
+                        language_bundle, "model.reason.source-contract-mismatch"
+                    ),
                     identity=experiment_identity,
                     pointer=payload_pointer,
                     message="Event-local payload repeats a target",
@@ -722,8 +801,9 @@ def _check_experiment_value(
                 or not provided_payload.keys() <= allowed_payload.keys()
             ):
                 return _refusal(
-                    stage="static",
-                    code="language.source_contract_mismatch",
+                    reason=reason_by_id(
+                        language_bundle, "model.reason.source-contract-mismatch"
+                    ),
                     identity=experiment_identity,
                     pointer=payload_pointer,
                     message=(
@@ -735,19 +815,20 @@ def _check_experiment_value(
                 declaration = declarations[
                     canonical_bytes(cast(JsonValue, row["target"]))
                 ]
-                fault = _declared_value_fault(
+                fault = _declared_value_diagnostic(
                     row["value"],
                     declaration,
                     structured_authority=structured_authority,
                     resource_limit=structured_resource_limit,
+                    numeric_domain_reason=numeric_domain_reason,
                 )
                 if fault is not None:
+                    reason, value_pointer = fault
                     return _refusal(
-                        stage="static",
-                        code=fault.code,
+                        reason=reason,
                         identity=experiment_identity,
                         pointer=(
-                            f"{payload_pointer}/{payload_index}/value{fault.pointer}"
+                            f"{payload_pointer}/{payload_index}/value{value_pointer}"
                         ),
                         message="Event-local payload does not match its declared value",
                     )
@@ -773,8 +854,9 @@ def _check_experiment_value(
                 or not provided_reference_names <= allowed_reference_names
             ):
                 return _refusal(
-                    stage="static",
-                    code="language.source_contract_mismatch",
+                    reason=reason_by_id(
+                        language_bundle, "model.reason.source-contract-mismatch"
+                    ),
                     identity=experiment_identity,
                     pointer=reference_pointer,
                     message=(
@@ -789,8 +871,9 @@ def _check_experiment_value(
             for reference_index, reference in enumerate(references):
                 if reference["root_event_ref"] not in root_references:
                     return _refusal(
-                        stage="static",
-                        code="language.resolution_binding_mismatch",
+                        reason=reason_by_id(
+                            language_bundle, "model.reason.resolution-binding-mismatch"
+                        ),
                         identity=experiment_identity,
                         pointer=(
                             f"{reference_pointer}/{reference_index}/root_event_ref"
@@ -827,8 +910,9 @@ def _check_experiment_value(
             )
         except ValueError as err:
             return _refusal(
-                stage="static",
-                code="language.source_contract_mismatch",
+                reason=reason_by_id(
+                    language_bundle, "model.reason.source-contract-mismatch"
+                ),
                 identity=experiment_identity,
                 pointer=f"/scenarios/{scenario_index}/assignments",
                 message=str(err),
@@ -847,16 +931,18 @@ def _check_experiment_value(
         }
         if not required <= provided.keys() or not provided.keys() <= allowed.keys():
             return _refusal(
-                stage="static",
-                code="language.source_contract_mismatch",
+                reason=reason_by_id(
+                    language_bundle, "model.reason.source-contract-mismatch"
+                ),
                 identity=experiment_identity,
                 pointer=f"/scenarios/{scenario_index}/assignments",
                 message="Scenario assignments do not close the Scenario Input Contract",
             )
         if required_streams != set(scenario["named_streams"]):
             return _refusal(
-                stage="static",
-                code="language.source_contract_mismatch",
+                reason=reason_by_id(
+                    language_bundle, "model.reason.source-contract-mismatch"
+                ),
                 identity=experiment_identity,
                 pointer=f"/scenarios/{scenario_index}/named_streams",
                 message="Scenario Named streams do not exactly close operation draws",
@@ -876,28 +962,30 @@ def _check_experiment_value(
             )
         except ValueError as err:
             return _refusal(
-                stage="static",
-                code="language.source_contract_mismatch",
+                reason=reason_by_id(
+                    language_bundle, "model.reason.source-contract-mismatch"
+                ),
                 identity=experiment_identity,
                 pointer=f"/scenarios/{scenario_index}/event_plan",
                 message=str(err),
             )
         for assignment_index, row in enumerate(scenario["assignments"]):
             declaration = declarations[canonical_bytes(cast(JsonValue, row["target"]))]
-            fault = _declared_value_fault(
+            fault = _declared_value_diagnostic(
                 row["value"],
                 declaration,
                 structured_authority=structured_authority,
                 resource_limit=structured_resource_limit,
+                numeric_domain_reason=numeric_domain_reason,
             )
             if fault is not None:
+                reason, value_pointer = fault
                 return _refusal(
-                    stage="static",
-                    code=fault.code,
+                    reason=reason,
                     identity=experiment_identity,
                     pointer=(
                         f"/scenarios/{scenario_index}/assignments/"
-                        f"{assignment_index}/value{fault.pointer}"
+                        f"{assignment_index}/value{value_pointer}"
                     ),
                     message="Scenario assignment does not match its declared value",
                 )
@@ -913,8 +1001,9 @@ def _check_experiment_value(
                 )
                 if target_contract is None:
                     return _refusal(
-                        stage="static",
-                        code="language.source_contract_mismatch",
+                        reason=reason_by_id(
+                            language_bundle, "model.reason.source-contract-mismatch"
+                        ),
                         identity=experiment_identity,
                         pointer=f"{pointer}/target",
                         message=(
@@ -923,18 +1012,19 @@ def _check_experiment_value(
                         ),
                     )
                 declaration = declarations[identity]
-                fault = _declared_value_fault(
+                fault = _declared_value_diagnostic(
                     fact["value"],
                     declaration,
                     structured_authority=structured_authority,
                     resource_limit=structured_resource_limit,
+                    numeric_domain_reason=numeric_domain_reason,
                 )
                 if fault is not None:
+                    reason, value_pointer = fault
                     return _refusal(
-                        stage="static",
-                        code=fault.code,
+                        reason=reason,
                         identity=experiment_identity,
-                        pointer=f"{pointer}/value{fault.pointer}",
+                        pointer=f"{pointer}/value{value_pointer}",
                         message="External-input fact does not match its declared value",
                     )
     expected_requirements = {
@@ -949,8 +1039,9 @@ def _check_experiment_value(
     for member, expected in expected_requirements.items():
         if set(required_evaluator[member]) != expected:
             return _refusal(
-                stage="resolution",
-                code="language.resolution_binding_mismatch",
+                reason=reason_by_id(
+                    language_bundle, "model.reason.resolution-binding-mismatch"
+                ),
                 identity=experiment_identity,
                 pointer=f"/runtime/required_evaluator/{member}",
                 message=(

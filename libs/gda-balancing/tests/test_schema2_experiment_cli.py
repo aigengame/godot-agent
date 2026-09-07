@@ -178,7 +178,7 @@ def test_runtime_canonical_equality_rechecks_typed_envelope_identity():
             structured_resource_limit=1024,
         )
     assert fault.value == StructuredValueFault(
-        "language.structured_value_type_mismatch", "/type"
+        "structured.reason.type-mismatch", "/type"
     )
 
 
@@ -3478,17 +3478,13 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
         for row in selected_semantics["runtime_profiles"]
         if row["id"] == checked.value["runtime"]["profile"]
     )
-    assert (
-        experiment_artifact_replay_module.attempted_operation_charge(
-            replace(checked, rir=replay_rir),
-            audit["refusing_event"],
-            audit["refusing_event"]["event_spec"],
-            node_steps_before_operation=budget["node_steps"] - budget["event_steps"],
-            bounds=replay_profile["resource_bounds"],
-            require_budget_breach=True,
-        )
-        == budget["event_steps"]
-    )
+    assert experiment_artifact_replay_module.attempted_operation_charge(
+        replace(checked, rir=replay_rir),
+        audit["refusing_event"],
+        audit["refusing_event"]["event_spec"],
+        node_steps_before_operation=budget["node_steps"] - budget["event_steps"],
+        bounds=replay_profile["resource_bounds"],
+    ) == (budget["event_steps"], True)
 
     drifted_audit = deepcopy(audit)
     drifted_audit["budget_counters"]["event_steps"] = 0
@@ -7879,6 +7875,14 @@ def test_experiment_keeps_required_and_supported_evaluator_policies_separate(
     mutated_rir["initialization_programs"][program_index]["body"].append(
         added_instruction
     )
+    # This synthetic projection fixture bypasses Model admission and dispatch.
+    # Supply the added instruction's selected law; the manifest has no ambient
+    # Kernel lookup from which to recover an omitted execution dependency.
+    selected_nodes = mutated_rir["selected_semantics"]["execution_laws"][
+        "runtime_program"
+    ]["nodes"]
+    selected_nodes.append(deepcopy(added_contract))
+    selected_nodes.sort(key=lambda row: row["id"])
     projected = program_reachability_module.project_reachable_program_structure(
         mutated_rir, selected_entrypoints
     )

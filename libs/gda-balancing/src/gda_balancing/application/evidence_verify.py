@@ -64,6 +64,7 @@ def verify_evidence(
             inp.model_build_artifact_set_receipt,
             model_build_descriptor_identity,
             model_build_artifact_set,
+            authority_context=checked_model.authority_context,
         )
     except PublicationAdmissionError as error:
         return ingress_refusal(error.code, error.subject, error.message)
@@ -105,6 +106,7 @@ def verify_evidence(
             inp.experiment_run_artifact_set_receipt,
             experiment_run_descriptor_identity,
             experiment_run_artifact_sets,
+            authority_context=model_publication.authority_context,
         )
     except PublicationAdmissionError as error:
         return ingress_refusal(error.code, error.subject, error.message)

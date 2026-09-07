@@ -22,6 +22,7 @@ from gda_balancing.domain.model import (
     compile_checked_model,
 )
 from gda_balancing.domain.model import _admission, _compilation, _lowering
+from gda_balancing.domain.model._execution_closure import close_execution_dependencies
 from schema2_authority_support import mutable_authorities
 from test_schema2_model_cli import (
     _model_source,
@@ -60,6 +61,7 @@ class _PreparationTrace:
                 _lowering._resolved_source_symbols,
                 _lowering._resolved_formulas_and_bindings,
                 _lowering._runtime_projection,
+                close_execution_dependencies,
                 _lowering._specialize_operation_formula_slots,
                 _lowering._resolved_entrypoints,
                 _lowering._resolved_call_sites,
@@ -87,10 +89,11 @@ class _PreparationTrace:
             if name == "_specialize_operation_formula_slots" and owner == "source":
                 self.specialized = True
             if name == "_runtime_projection":
-                budget = frame.f_locals["budget"]
-                self.charges.append((owner, budget.used, budget.limit))
                 if owner == "source" and result is not None:
                     self.projections.append(deepcopy(result))
+            elif name == "close_execution_dependencies":
+                budget = frame.f_locals["consume"].__self__
+                self.charges.append((owner, budget.used, budget.limit))
             elif name == "_resolved_formulas_and_bindings" and owner == "source":
                 self.formula_results.append(deepcopy(result))
 
@@ -156,7 +159,7 @@ def test_public_model_request_prepares_once_and_keeps_artifact_admission(
         "_resolved_entrypoints",
         "_resolved_call_sites",
     } <= trace.post_specialization_checks
-    assert {used for _, used, _ in trace.charges} == {318}
+    assert {used for _, used, _ in trace.charges} == {504}
     assert {
         name: trace.calls["source", name]
         for name in (
@@ -164,12 +167,16 @@ def test_public_model_request_prepares_once_and_keeps_artifact_admission(
             "lowering_inputs",
             "_resolved_formulas_and_bindings",
             "_runtime_projection",
+            "_specialize_operation_formula_slots",
+            "close_execution_dependencies",
         )
     } == {
         "_resolved_source_symbols": 1,
         "lowering_inputs": 1,
         "_resolved_formulas_and_bindings": 1,
         "_runtime_projection": 1,
+        "_specialize_operation_formula_slots": 1,
+        "close_execution_dependencies": 1,
     }
 
 
@@ -434,7 +441,7 @@ def test_checked_request_and_all_artifact_outputs_are_isolated_from_mutation():
     assert _artifact_bytes(checked) == expected
 
 
-@pytest.mark.parametrize("limit", [232, 233, 234])
+@pytest.mark.parametrize("limit", [372, 373, 374])
 def test_preparation_keeps_exact_projection_charge_and_complete_refusal(limit):
     kernel, language_bundle = mutable_authorities()
     language_bundle["resources"]["max_runtime_projection_steps"] = limit
@@ -456,7 +463,7 @@ def test_preparation_keeps_exact_projection_charge_and_complete_refusal(limit):
             artifacts = _artifact_bytes(checked)
             assert artifacts
 
-    if limit == 232:
+    if limit == 372:
         assert isinstance(checked, Schema2RefusalReport)
         assert checked.model_dump(mode="json") == {
             "stage": "static",
@@ -480,10 +487,10 @@ def test_preparation_keeps_exact_projection_charge_and_complete_refusal(limit):
     else:
         assert isinstance(checked, CheckedModel), checked
         assert trace.calls["imported-artifact", "admit_resolved_model"] == 1
-        assert ("source", 233, limit) in trace.charges
-        assert ("imported-artifact", 233, limit) in trace.charges
+        assert ("source", 373, limit) in trace.charges
+        assert ("imported-artifact", 373, limit) in trace.charges
     assert trace.charges
     assert all(
-        used == min(limit, 233) and admitted_limit == limit
+        used == min(limit, 373) and admitted_limit == limit
         for _, used, admitted_limit in trace.charges
     )

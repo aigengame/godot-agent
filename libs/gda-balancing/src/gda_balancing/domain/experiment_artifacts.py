@@ -14,9 +14,6 @@ from gda_balancing.domain.canonical import (
     canonical_bytes,
     content_identity,
 )
-from gda_balancing.domain.artifacts import (
-    verify_artifact,
-)
 from gda_balancing.domain.publication import PublicationMember
 from gda_balancing.domain.operation_program import (
     OperationCoordinate,
@@ -1042,11 +1039,12 @@ def runtime_terminal_audit_members(
 def validate_experiment_member(
     checked: CheckedExperiment, logical_name: str, value: dict[str, Any]
 ) -> bool:
-    """Re-admit one prepared Experiment output against the exact LDB."""
+    """Re-admit one prepared output against its selected exact contract."""
     del logical_name
-    if not verify_artifact(value, checked.language_bundle):
-        return False
     kind = value.get("artifact_kind")
+    contract = checked.output_contracts.get(kind) if isinstance(kind, str) else None
+    if contract is None or not contract.verify(value):
+        return False
     if kind == "event-trace":
         return _trace_formula_evaluations_are_authoritative(
             checked, cast(list[dict[str, Any]], value.get("events", []))
@@ -1443,9 +1441,9 @@ def _terminal_audit_is_valid(
     state_before = cast(list[dict[str, Any]], rollback["state_before"])
     state_after = cast(list[dict[str, Any]], rollback["state_after"])
     runtime_diagnostics = {
-        row["code"]
-        for row in checked.language_bundle["diagnostics"]
-        if row["stage"] == "runtime"
+        row["definition"]["code"]
+        for row in checked.rir["selected_semantics"]["diagnostics"]
+        if row["definition"]["stage"] == "runtime"
     }
     if (
         audit.get("terminal_condition") != scenario["terminal_condition"]
@@ -1846,11 +1844,21 @@ def _terminal_audit_is_valid(
                 cast(int, ledger["node_steps"]) + event_formula_charge
             ),
             bounds=bounds,
-            require_budget_breach=(diagnostic["code"] == "runtime.step_limit_exceeded"),
         )
         if attempted_operation_charge is None:
             return False
-        exact_event_steps = attempted_operation_charge
+        exact_event_steps, budget_breached = attempted_operation_charge
+        # Diagnostic mappings need not be injective. Match the independently
+        # replayed charge condition against all selected reasons for this code.
+        if not any(
+            reason.get("stage") == "runtime"
+            and reason["diagnostic"] == diagnostic["code"]
+            and isinstance(reason.get("signal"), str)
+            and (reason.get("signal") == "step-limit") == budget_breached
+            for row in checked.rir["selected_semantics"]["diagnostic_reasons"]
+            for reason in [row["definition"]]
+        ):
+            return False
         exact_node_steps = (
             cast(int, ledger["node_steps"]) + event_formula_charge + exact_event_steps
         )

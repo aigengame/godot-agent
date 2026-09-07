@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from functools import cache
 from typing import Any, cast
 
-from gda_balancing.domain.artifacts import identified_artifact, wire_schema_identity
 from gda_balancing.domain.canonical import JsonValue, content_identity
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.domain.experiment import (
@@ -98,21 +97,23 @@ def artifact(
     artifact_kind: str,
     payload: dict[str, JsonValue],
 ) -> PublicationMember:
-    """Create one identified Runtime artifact under the selected LDB."""
-    value = identified_artifact(checked.language_bundle, artifact_kind, payload)
+    """Create one Runtime artifact under the request's selected output contract."""
+    contract = checked.output_contracts[artifact_kind]
+    value = contract.identify(payload)
     return PublicationMember(
         value=value,
         artifact_kind=artifact_kind,
-        wire_schema_identity=wire_schema_identity(
-            checked.language_bundle, artifact_kind
-        ),
+        wire_schema_identity=contract.wire_schema_identity,
         content_identity=cast(str, value["content_identity"]),
     )
 
 
 def runtime_contract(checked: CheckedExperiment) -> dict[str, Any]:
-    """Return the exact Kernel Runtime program contract."""
-    return cast(dict[str, Any], checked.kernel["meta_format"]["runtime_program"])
+    """Return the selected execution laws carried by the admitted program."""
+    return cast(
+        dict[str, Any],
+        checked.rir["selected_semantics"]["execution_laws"]["runtime_program"],
+    )
 
 
 def runtime_execution_contract(checked: CheckedExperiment) -> dict[str, Any]:
@@ -218,7 +219,7 @@ def operation_formula_evaluation_record(
 
 def scheduler_contract(checked: CheckedExperiment) -> Mapping[str, Any]:
     """Return the exact Kernel scheduler contract."""
-    return RuntimeScheduler.from_kernel(checked.kernel).contract
+    return RuntimeScheduler(runtime_contract(checked)["scheduler"]).contract
 
 
 def scenario_transition_events(scenario: dict[str, Any]) -> list[dict[str, Any]]:
@@ -564,7 +565,7 @@ def metric_definition_identity(metric: dict[str, Any]) -> str:
 def runtime_profile_definition_identity(
     checked: CheckedExperiment, definition: dict[str, Any]
 ) -> str:
-    contract = checked.kernel["meta_format"].get("runtime_profile_definition")
+    contract = checked.runtime_profile_identity_contract
     if (
         not isinstance(contract, dict)
         or set(contract) != {"domain", "projection", "active_runtime"}
@@ -646,7 +647,7 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
     )
     supported_profiles = sorted(
         row["id"]
-        for row in checked.language_bundle["language"]["runtime_profiles"]
+        for row in checked.rir["selected_semantics"]["runtime_profiles"]
         if (
             row.get("evaluation") == runtime["version"]
             and row.get("runtime_program_version") == runtime["version"]
@@ -709,8 +710,8 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
         {
             "evaluator_build_identity": build_identity,
             "implementation_identity": implementation_identity,
-            "kernel_identity": checked.kernel["content_identity"],
-            "language_bundle_identity": checked.language_bundle["content_identity"],
+            "kernel_identity": checked.value["kernel_identity"],
+            "language_bundle_identity": checked.value["language_bundle_identity"],
             "operation_kinds": ["event-fragment", "event-program"],
             "instruction_nodes": nodes,
             "effects": [
@@ -744,8 +745,8 @@ def resolved_runtime_profile(
         "resolved-runtime-profile",
         {
             "experiment_identity": checked.content_identity,
-            "kernel_identity": checked.kernel["content_identity"],
-            "language_bundle_identity": checked.language_bundle["content_identity"],
+            "kernel_identity": checked.value["kernel_identity"],
+            "language_bundle_identity": checked.value["language_bundle_identity"],
             "package_lock_identity": checked.package_lock["content_identity"],
             "resolved_model_identity": checked.resolved_model["content_identity"],
             "rir_identity": checked.rir["content_identity"],
@@ -796,8 +797,8 @@ def reproduction_receipt(
         "reproduction-receipt",
         {
             "experiment_identity": checked.content_identity,
-            "kernel_identity": checked.kernel["content_identity"],
-            "language_bundle_identity": checked.language_bundle["content_identity"],
+            "kernel_identity": checked.value["kernel_identity"],
+            "language_bundle_identity": checked.value["language_bundle_identity"],
             "package_lock_identity": checked.package_lock["content_identity"],
             "resolved_model_identity": checked.resolved_model["content_identity"],
             "rir_identity": checked.rir["content_identity"],

@@ -21,5 +21,6 @@ Start with the [accepted decision](../../badr/0028-current-language-refactor-and
 | [Wire migration](WIRE-MIGRATION.md) | Native forms, declaration ownership, deletion boundaries and ordered verification for #871 |
 | [Namespace contract](NAMESPACE-CONTRACT.md) | Final S3 transition dispositions, acceptance witnesses, retained meanings and whole-stage rollback for #872 |
 | [Model preparation](MODEL-PREPARATION.md) | One request snapshot, alias-independent specialization, retained admission/resource checks and S4 rollback for #873 |
+| [Execution closure](EXECUTION-CLOSURE.md) | S5a dependency counterexample, selected execution and decoding boundaries, implementation status and mandatory S5b deletion |
 
 GitHub owns live acceptance and task status; bADR-0028 owns the adopted policy; the plan owns delivery sequencing. Matrices preserve exact captured requirement text as provenance. Current issue amendments supersede the identified historical clauses. Evidence is confirmed only within its stated bounds, and no disposable probe establishes full production conformance, genre completion or automatic formal-release/claim activation.

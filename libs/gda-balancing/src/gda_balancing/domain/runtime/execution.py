@@ -74,6 +74,7 @@ from gda_balancing.domain.structured_values import (
     lookup_selector_kind,
     lookup_typed_value,
     selected_structured_value_index,
+    structured_fault_reason,
     typed_envelope_members,
 )
 
@@ -228,15 +229,18 @@ def _runtime_step_boundary(
     return None
 
 
-def _diagnostic_for_signal(checked: CheckedExperiment, signal: str, stage: str) -> str:
+def _reason_for_signal(
+    checked: CheckedExperiment, signal: str, stage: str
+) -> dict[str, Any]:
     matches = [
-        reason["diagnostic"]
-        for reason in checked.language_bundle["language"]["reasons"]
-        if reason.get("signal") == signal and reason.get("stage") == stage
+        row["definition"]
+        for row in checked.rir["selected_semantics"]["diagnostic_reasons"]
+        if row["definition"].get("signal") == signal
+        and row["definition"].get("stage") == stage
     ]
     if len(matches) != 1:
-        raise ValueError(f"admitted Diagnostic signal is not unique: {signal}")
-    return cast(str, matches[0])
+        raise ValueError(f"admitted reason signal is not unique: {signal}")
+    return cast(dict[str, Any], matches[0])
 
 
 def _admit_numeric(value: int, numeric: dict[str, Any]) -> int:
@@ -264,7 +268,7 @@ def _admit_declared_value(
     declaration: dict[str, Any],
     *,
     structured_authority: StructuredValueIndex,
-    structured_resource_limit: int,
+    structured_resource_limit: int | None,
 ) -> JsonValue:
     type_identity = cast(dict[str, str], declaration["type_identity"])
     declared_type: JsonValue = {
@@ -281,9 +285,7 @@ def _admit_declared_value(
         if canonical_bytes(admitted[type_member]) != canonical_bytes(
             cast(JsonValue, declared_type)
         ):
-            raise StructuredValueFault(
-                "language.structured_value_type_mismatch", "/type"
-            )
+            raise StructuredValueFault("structured.reason.type-mismatch", "/type")
         return cast(JsonValue, admitted)
     value_member = "value"
     if (
@@ -301,12 +303,12 @@ def _admit_declared_value(
                 cast(JsonValue, declared_type)
             ):
                 raise StructuredValueFault(
-                    "language.structured_value_type_mismatch", f"/{type_member}"
+                    "structured.reason.type-mismatch", f"/{type_member}"
                 )
             value = admitted[value_member]
     if not isinstance(value, int) or isinstance(value, bool):
         raise StructuredValueFault(
-            "language.structured_value_type_mismatch", f"/{value_member}"
+            "structured.reason.type-mismatch", f"/{value_member}"
         )
     return _admit_declared_numeric(value, numeric, declaration)
 
@@ -483,8 +485,7 @@ def _check_evaluator_requirements(
     ):
         if not set(required[member]) <= set(available[member]):
             return _refusal(
-                stage="resolution",
-                code=_diagnostic_for_signal(
+                reason=_reason_for_signal(
                     checked, "capability-unsupported", "resolution"
                 ),
                 identity=checked.content_identity,
@@ -567,7 +568,7 @@ def _execute_value_instruction(
         )
         return
     elif operator == "canonical-equal":
-        if structured_authority is None or structured_resource_limit is None:
+        if structured_authority is None:
             raise ValueError("structured authority is required for canonical equality")
         left = variables[cast(str, instruction["left"])]
         right = variables[cast(str, instruction["right"])]
@@ -588,7 +589,7 @@ def _execute_value_instruction(
                     right[type_member]
                 ):
                     raise StructuredValueFault(
-                        "language.structured_value_type_mismatch", f"/{type_member}"
+                        "structured.reason.type-mismatch", f"/{type_member}"
                     )
             result = left_integer == right_integer
         elif left_integer is None and right_integer is None:
@@ -884,7 +885,7 @@ def _runtime_refusal_outcome(
     *,
     scenario_id: str,
     scenario_index: int,
-    code: str,
+    reason: dict[str, Any],
     message: str,
     events: list[dict[str, JsonValue]],
     event_catalog: list[dict[str, JsonValue]],
@@ -908,9 +909,8 @@ def _runtime_refusal_outcome(
     state_before: dict[str, Any],
 ) -> RuntimeRefusalOutcome:
     report = _refusal(
-        stage="runtime",
         variant="post-dispatch",
-        code=code,
+        reason=reason,
         identity=checked.content_identity,
         pointer=f"/scenarios/{scenario_index}/entrypoint",
         message=message,
@@ -1005,10 +1005,12 @@ def evaluate_prepared_experiment(
     node_contracts = _runtime_nodes(checked)
     structured_authority = selected_structured_value_index(
         cast(dict[str, Any], checked.rir["selected_semantics"]),
-        kernel=checked.kernel,
     )
     structured_resource_limit = cast(
-        int, checked.language_bundle["resources"]["max_rule_match_steps"]
+        int | None,
+        checked.rir["selected_semantics"]["execution_resources"].get(
+            "max_rule_match_steps"
+        ),
     )
     events: list[dict[str, JsonValue]] = []
     snapshots: list[dict[str, JsonValue]] = []
@@ -1055,9 +1057,8 @@ def evaluate_prepared_experiment(
         ordered_events = root_events_by_scenario[scenario["id"]]
         if len(ordered_events) > runtime_bounds["max_queue_events"]:
             return _refusal(
-                stage="runtime",
                 variant="pre-event",
-                code=_diagnostic_for_signal(checked, "queue-limit", "runtime"),
+                reason=_reason_for_signal(checked, "queue-limit", "runtime"),
                 identity=checked.content_identity,
                 pointer=f"/scenarios/{scenario_index}/event_plan",
                 message="Authored root Events exceed the Runtime queue bound",
@@ -1067,18 +1068,16 @@ def evaluate_prepared_experiment(
             for event in ordered_events
         ):
             return _refusal(
-                stage="runtime",
                 variant="pre-event",
-                code=_diagnostic_for_signal(checked, "logical-time-limit", "runtime"),
+                reason=_reason_for_signal(checked, "logical-time-limit", "runtime"),
                 identity=checked.content_identity,
                 pointer=f"/scenarios/{scenario_index}/event_plan",
                 message="Authored root Event exceeds the Runtime logical-time bound",
             )
         if len(ordered_events) > runtime_bounds["max_total_events"]:
             return _refusal(
-                stage="runtime",
                 variant="pre-event",
-                code=_diagnostic_for_signal(checked, "event-limit", "runtime"),
+                reason=_reason_for_signal(checked, "event-limit", "runtime"),
                 identity=checked.content_identity,
                 pointer=f"/scenarios/{scenario_index}/event_plan",
                 message="Authored root Events exceed the Runtime total-Event bound",
@@ -1153,11 +1152,10 @@ def evaluate_prepared_experiment(
                 phase="initialization",
             )
         except _InitializationProgramFault as fault:
-            code = _diagnostic_for_signal(checked, fault.signal, "runtime")
+            reason = _reason_for_signal(checked, fault.signal, "runtime")
             return _refusal(
-                stage="runtime",
                 variant="pre-event",
-                code=code,
+                reason=reason,
                 identity=checked.content_identity,
                 pointer=f"/scenarios/{scenario_index}/assignments",
                 message=(
@@ -1620,11 +1618,11 @@ def evaluate_prepared_experiment(
                         reason_id = instruction[refusal_reference["instruction_member"]]
                         reason = next(
                             (
-                                item
-                                for item in checked.language_bundle["language"][
-                                    "reasons"
+                                row["definition"]
+                                for row in checked.rir["selected_semantics"][
+                                    "diagnostic_reasons"
                                 ]
-                                if item.get("id") == reason_id
+                                if row["definition"].get("id") == reason_id
                             ),
                             None,
                         )
@@ -1717,12 +1715,18 @@ def evaluate_prepared_experiment(
                             instruction_index=instruction_index,
                         ) from error
                     except StructuredValueFault as error:
-                        if error.code != "runtime.structured_lookup_out_of_range":
+                        reason = structured_fault_reason(
+                            error, authority=structured_authority
+                        )
+                        if (
+                            reason.get("stage") != "runtime"
+                            or reason.get("signal") not in node_contract["refusals"]
+                        ):
                             raise ValueError(
                                 "admitted structured expression violated its type contract"
                             ) from error
                         raise _RuntimeExecutionFault(
-                            signal="structured-lookup-out-of-range",
+                            signal=cast(str, reason["signal"]),
                             operation=selected_operation["id"],
                             call_path=call_path,
                             call_site_identity=call_site_identity,
@@ -1948,7 +1952,7 @@ def evaluate_prepared_experiment(
                 rng.restore(rng_before)
                 admitted_event_count = admitted_event_count_before
                 next_enqueue_sequence = next_enqueue_sequence_before
-                code = _diagnostic_for_signal(checked, fault.signal, "runtime")
+                reason = _reason_for_signal(checked, fault.signal, "runtime")
                 message = {
                     "step-limit": "Runtime program exhausted its exact step bound",
                     "numeric-overflow": (
@@ -1962,7 +1966,7 @@ def evaluate_prepared_experiment(
                     checked,
                     scenario_id=scenario["id"],
                     scenario_index=scenario_index,
-                    code=code,
+                    reason=reason,
                     message=message,
                     events=events,
                     event_catalog=event_catalog,
@@ -2196,7 +2200,7 @@ def evaluate_prepared_experiment(
                     phase="observation",
                 )
             except _InitializationProgramFault as fault:
-                code = _diagnostic_for_signal(checked, fault.signal, "runtime")
+                reason = _reason_for_signal(checked, fault.signal, "runtime")
                 message = (
                     "Runtime program exhausted its exact step bound"
                     if fault.signal == "step-limit"
@@ -2206,7 +2210,7 @@ def evaluate_prepared_experiment(
                     checked,
                     scenario_id=scenario["id"],
                     scenario_index=scenario_index,
-                    code=code,
+                    reason=reason,
                     message=message,
                     events=events,
                     event_catalog=event_catalog,
@@ -2310,7 +2314,7 @@ def evaluate_prepared_experiment(
                     checked,
                     scenario_id=scenario["id"],
                     scenario_index=scenario_index,
-                    code=_diagnostic_for_signal(checked, "event-limit", "runtime"),
+                    reason=_reason_for_signal(checked, "event-limit", "runtime"),
                     message="Runtime scheduler refused event-limit",
                     events=events,
                     event_catalog=event_catalog,
@@ -2516,8 +2520,7 @@ def evaluate_prepared_experiment(
                     matched.append(value)
             if len(matched) != 1:
                 return _refusal(
-                    stage="evaluation",
-                    code=_diagnostic_for_signal(
+                    reason=_reason_for_signal(
                         checked, "observation-unavailable", "evaluation"
                     ),
                     identity=checked.content_identity,
@@ -2562,8 +2565,7 @@ def evaluate_prepared_experiment(
             )
         if matched_replications == 0:
             return _refusal(
-                stage="evaluation",
-                code=_diagnostic_for_signal(
+                reason=_reason_for_signal(
                     checked, "observation-unavailable", "evaluation"
                 ),
                 identity=checked.content_identity,

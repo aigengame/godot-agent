@@ -17,6 +17,9 @@ class _TypedHIR:
     formula_bindings: list[dict[str, JsonValue]]
     formula_debug_entries: list[tuple[str, str]]
     runtime_projection: dict[str, Any]
+    initialization_programs: list[dict[str, Any]]
+    entrypoints: list[dict[str, Any]]
+    call_sites: list[dict[str, Any]]
 
     def __post_init__(self) -> None:
         for member in fields(self):

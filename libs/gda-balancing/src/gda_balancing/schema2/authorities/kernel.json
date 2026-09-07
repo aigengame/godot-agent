@@ -912,7 +912,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:9c1c88e55c239fb6c3b3d022ea7099c2f952c15c8339e292bb29c74f75387202",
+  "content_identity": "sha256:9034564a7ab519b9cc00dd80cf86974a9ce50065cb41004ea6143d09ab91ab55",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2382,7 +2382,8 @@
                 "required",
                 "type",
                 "unevaluatedProperties",
-                "oneOf"
+                "oneOf",
+                "anyOf"
               ],
               "dialect": "https://json-schema.org/draft/2020-12/schema",
               "keyword_type_requirements": {
@@ -5362,12 +5363,229 @@
           "type-reference-target",
           "constructor-kind-target",
           "collection-output-row",
-          "explicit-output-row"
+          "explicit-output-row",
+          "law-selector",
+          "selected-node",
+          "resource-selector",
+          "runtime-instruction",
+          "owned-reason",
+          "owned-diagnostic"
         ],
         "exhaustion_reason": {
           "stage": "static",
           "operation": "greater-than",
           "limit_path": "resources.max_runtime_projection_steps"
+        }
+      },
+      "execution_closure": {
+        "closed": true,
+        "output_members": [
+          "execution_laws",
+          "execution_resources",
+          "diagnostic_reasons",
+          "diagnostics"
+        ],
+        "law_selectors": [
+          {
+            "source_path": [
+              "runtime_program",
+              "version"
+            ],
+            "output_path": [
+              "runtime_program",
+              "version"
+            ],
+            "when": "executable"
+          },
+          {
+            "source_path": [
+              "runtime_program",
+              "numeric"
+            ],
+            "output_path": [
+              "runtime_program",
+              "numeric"
+            ],
+            "when": "executable"
+          },
+          {
+            "source_path": [
+              "runtime_program",
+              "named_rng"
+            ],
+            "output_path": [
+              "runtime_program",
+              "named_rng"
+            ],
+            "when": "executable"
+          },
+          {
+            "source_path": [
+              "runtime_program",
+              "scheduler"
+            ],
+            "output_path": [
+              "runtime_program",
+              "scheduler"
+            ],
+            "when": "executable"
+          },
+          {
+            "source_path": [
+              "runtime_program",
+              "event_atomicity"
+            ],
+            "output_path": [
+              "runtime_program",
+              "event_atomicity"
+            ],
+            "when": "executable"
+          },
+          {
+            "source_path": [
+              "runtime_program",
+              "invocation_contract"
+            ],
+            "output_path": [
+              "runtime_program",
+              "invocation_contract"
+            ],
+            "when": "executable"
+          },
+          {
+            "source_path": [
+              "runtime_program",
+              "runtime_configuration"
+            ],
+            "output_path": [
+              "runtime_program",
+              "runtime_configuration"
+            ],
+            "when": "executable"
+          },
+          {
+            "source_path": [
+              "runtime_program",
+              "transition"
+            ],
+            "output_path": [
+              "runtime_program",
+              "transition"
+            ],
+            "when": "executable"
+          },
+          {
+            "source_path": [
+              "runtime_program",
+              "step"
+            ],
+            "output_path": [
+              "runtime_program",
+              "step"
+            ],
+            "when": "executable"
+          },
+          {
+            "source_path": [
+              "runtime_program",
+              "fixed_value_contracts"
+            ],
+            "output_path": [
+              "runtime_program",
+              "fixed_value_contracts"
+            ],
+            "when": "executable"
+          },
+          {
+            "source_path": [
+              "literal_typing",
+              "typed_envelope_profile"
+            ],
+            "output_path": [
+              "typed_envelope_profile"
+            ],
+            "when": "typed-values"
+          }
+        ],
+        "nodes": {
+          "source_path": [
+            "runtime_program",
+            "nodes"
+          ],
+          "output_path": [
+            "runtime_program",
+            "nodes"
+          ],
+          "id_member": "id",
+          "instruction_member": "node",
+          "roots": "reachable-operations-and-lifecycle-formulas"
+        },
+        "resources": [
+          {
+            "source_member": "max_rule_match_steps",
+            "output_member": "max_rule_match_steps",
+            "when": "typed-values"
+          }
+        ],
+        "reasons": {
+          "authority_path": "language.reasons",
+          "diagnostic_authority_path": "diagnostics",
+          "id_member": "id",
+          "diagnostic_member": "code",
+          "node_signal_member": "refusals",
+          "node_signal_stage": "runtime",
+          "operation_reason_member": "refusals",
+          "instruction_reference": "refusal_reference",
+          "owner": "attached-package-definition",
+          "missing": "refuse",
+          "roots": [
+            {
+              "when": "executable",
+              "stage": "resolution",
+              "signal": "capability-unsupported"
+            },
+            {
+              "when": "executable",
+              "stage": "runtime",
+              "signal": "step-limit"
+            },
+            {
+              "when": "executable",
+              "stage": "runtime",
+              "signal": "queue-limit"
+            },
+            {
+              "when": "executable",
+              "stage": "runtime",
+              "signal": "logical-time-limit"
+            },
+            {
+              "when": "executable",
+              "stage": "runtime",
+              "signal": "event-limit"
+            },
+            {
+              "when": "executable",
+              "stage": "evaluation",
+              "signal": "observation-unavailable"
+            },
+            {
+              "when": "typed-values",
+              "id": "structured.reason.resource-exhausted"
+            },
+            {
+              "when": "typed-values",
+              "id": "structured.reason.type-mismatch"
+            },
+            {
+              "when": "typed-values",
+              "id": "structured.reason.unknown-enum"
+            },
+            {
+              "when": "typed-values",
+              "id": "structured.reason.record-member-mismatch"
+            }
+          ]
         }
       }
     },

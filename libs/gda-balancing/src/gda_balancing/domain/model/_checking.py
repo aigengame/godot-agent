@@ -32,6 +32,7 @@ from gda_balancing.domain.model._resolution import (
     ModelSourceContext,
     _bounded_refusal,
     _formula_pair_diagnostics,
+    _formula_policy,
     _language,
     _model_check_diagnostics,
     _model_lowering,
@@ -49,6 +50,8 @@ from gda_balancing.domain.model._lowering import (
     _FormulaResolutionError,
     _RuntimeProjectionResourceExhausted,
     _composition_policy,
+    _compile_initialization_programs,
+    _specialize_operation_formula_slots,
     _formula_failure_pointer,
     _invalid_source_value_policy_pointer,
     lowering_inputs,
@@ -59,6 +62,8 @@ from gda_balancing.domain.model._lowering import (
     _runtime_projection,
     _runtime_projection_budget,
 )
+
+from gda_balancing.domain.model._execution_closure import close_execution_dependencies
 
 
 def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
@@ -309,23 +314,43 @@ def _check_model_source_bytes(
     if formula_pair_refusal is not None:
         return formula_pair_refusal
     try:
+        projection_budget = _runtime_projection_budget(kernel, ldb)
         selected_semantics = _runtime_projection(
             lock,
             declarations,
             admitted_lowering,
-            _runtime_projection_budget(kernel, ldb),
+            projection_budget,
         )
-        _resolved_entrypoints(
+        initialization_programs = _compile_initialization_programs(
+            selected_semantics,
+            resolved_formulas,
+            resolved_formula_bindings,
+            _formula_policy(ldb),
+        )
+        selected_semantics = _specialize_operation_formula_slots(
+            selected_semantics, resolved_formulas, resolved_formula_bindings
+        )
+        entrypoints = _resolved_entrypoints(
             context,
             cast(list[dict[str, Any]], declarations),
             selected_semantics,
             cast(list[dict[str, Any]], resolved_formulas),
             cast(list[dict[str, Any]], resolved_formula_bindings),
         )
-        _resolved_call_sites(
+        call_sites = _resolved_call_sites(
             kernel,
             selected_semantics,
             _composition_policy(admitted_lowering),
+        )
+        selected_semantics = close_execution_dependencies(
+            kernel,
+            ldb,
+            {
+                "selected_semantics": selected_semantics,
+                "entrypoints": entrypoints,
+                "initialization_programs": initialization_programs,
+            },
+            projection_budget.consume,
         )
     except _RuntimeProjectionResourceExhausted:
         resource_reason = _unique_reason(
@@ -381,5 +406,8 @@ def _check_model_source_bytes(
             formula_bindings=resolved_formula_bindings,
             formula_debug_entries=formula_debug_entries,
             runtime_projection=selected_semantics,
+            initialization_programs=initialization_programs,
+            entrypoints=entrypoints,
+            call_sites=call_sites,
         ),
     )

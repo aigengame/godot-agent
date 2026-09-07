@@ -12,8 +12,11 @@ not completion. The [refactor plan](refactor/current-language/PLAN.md) owns the 
 requirement routing, bounded evidence, and rollback. #871 implements namespace-string requirements,
 `{package, id}` nominal Type/Operation references and id-only Template selection. Model, Template,
 Experiment and LDB policy own-version labels are removed. Schema/artifact formats and actual
-Runtime/grammar contract markers remain. Whole-LDB/Build-receipt wrappers still describe current
-execution prerequisites pending #874–#875. The [S3 contract record](refactor/current-language/NAMESPACE-CONTRACT.md)
+Runtime/grammar contract markers remain. Selected execution closure (#874) closes execution inputs
+and detaches admitted consumer contracts; the [execution-closure record](refactor/current-language/EXECUTION-CLOSURE.md)
+tracks its dependency matrix and validation limits. Whole-LDB/Build-receipt wrappers remain
+transitional execution prerequisites for mandatory deletion in #875; #874 and its PR own live acceptance.
+The [S3 contract record](refactor/current-language/NAMESPACE-CONTRACT.md)
 accounts for #872's final deletion witnesses and rollback; #879 and full conformance retain
 their separate acceptance.
 
@@ -1013,15 +1016,20 @@ The public compilation pipeline is:
 - The **Authoring AST** preserves source structure after parsing.
 - **Typed HIR** resolves names, types, units, package symbols, and static effects while retaining
   enough structure for useful diagnostics.
-  A checked Model owns one immutable private preparation of those facts. Compilation and Template
-  facts reuse it; specialization explicitly derives each Operation and its package-closure view.
-  Post-specialization checks, independent imported-artifact admission and publication validation
-  retain their own boundaries. This adds no persisted or public IR
-  ([S4 implementation](refactor/current-language/MODEL-PREPARATION.md)).
+  A checked Model owns one immutable private preparation, including the final specialized program
+  and its selected execution closure. Compilation copies those prepared values; Template facts
+  reuse the same preparation. Post-specialization checks, independent imported-artifact admission
+  and publication validation retain their own boundaries. The [S4 record](refactor/current-language/MODEL-PREPARATION.md)
+  describes preparation reuse; the [S5a record](refactor/current-language/EXECUTION-CLOSURE.md)
+  describes the later final-program closure. Neither introduces another public IR.
 - The **RIR semantic payload** is the canonical, public semantic normal form. Its
   `semantic_identity` excludes Formula `expression` text; the complete canonical RIR JSON has a
   separate `content_identity` for wire integrity. Equivalent admitted source must lower to the same
-  semantic projection under the same selected semantic dependencies (bADR-0013/0024).
+  semantic projection under the same selected semantic dependencies. The final specialized graph
+  carries the consumed Runtime laws and nodes, namespace-owned reasons and Diagnostics, and
+  applicable resource limits. The structured-value rule budget is selected only for a selected
+  typed-envelope profile. Independent import admission derives this closure again rather than
+  trusting the producer's dependency payload (bADR-0013/0024/0028).
 - The **Resolved Model wrapper** binds the RIR payload to the exact Kernel Specification, whole LDB,
   selected Package Lock, RIR semantic identity, exact RIR content identity, and all other required
   build identities.
@@ -1087,8 +1095,9 @@ restores the operation's entry snapshot.
 ### 6.2 Identity layers
 
 **Implementation transition:** The exact wrapper inventory below is the existing implementation,
-partly superseded as a target by bADR-0028. S5a closes all runtime-consumed rules, reasons, types,
-Numeric/RNG/scheduler/effect policies and limits, then S5b requires deletion of the irrelevant
+partly superseded as a target by bADR-0028. S5a selects execution rules, reasons and applicable
+limits into the final program, with input/output contracts selected at their existing boundaries.
+Its full acceptance remains open. S5b then requires deletion of the irrelevant
 whole-LDB/Build-receipt execution coupling. Provenance-only changes must preserve execution
 eligibility and semantic observations; changed actual execution inputs and forged content must
 still be distinguished. Do not retain obsolete schema fields, equality gates, or fallback reads
@@ -1314,6 +1323,13 @@ a template defect, and a missing convenience field is not automatically a Kernel
 ## 8. Deterministic atomic runtime
 
 ### 8.1 Runtime admission and scope
+
+An admitted Experiment request retains a detached immutable view of its intent, selected RIR and
+required contracts. Runtime and independent result replay consume the selected execution laws and
+resources; result construction and admission use the selected artifact contracts. Missing selected
+meaning cannot be supplied by a lookup in the complete Kernel or LDB. The
+[execution-closure record](refactor/current-language/EXECUTION-CLOSURE.md) tracks applicability,
+mutation evidence and the broad identity checks still awaiting #875 deletion.
 
 An LDB-owned **Runtime profile definition** declares an admitted execution policy. Before dispatch,
 Runtime admission produces a **Resolved Runtime profile**. That artifact binds the definition to the
@@ -1649,6 +1665,12 @@ declared set atomically through Infrastructure mechanisms. The descriptor also r
 outcome after a transport failure. A stdout-only command does not need to publish an artifact set or
 accept an Invocation key. Local filesystem publication and production storage adapters must satisfy
 the same observable contract. Their trust boundaries and durability guarantees remain explicit.
+
+At the admitted command boundary, Publication selects immutable artifact contracts for its manifest,
+receipt and index. Commit and recovery use those framing contracts; execution-result member
+admission reuses the admitted request's selected output contracts. Schema/kind/digest checks,
+independent cross-artifact admission, authenticated anchors and atomic visibility remain.
+Publication does not look up omitted framing meaning in the full LDB.
 
 Every successful `model build` artifact set includes its Debug Map and Model explanation. Its Build
 receipt and artifact-set framing bind both exact identities. If either projection cannot be
@@ -2008,14 +2030,19 @@ Replay first prepares the Evaluator Capability Manifest, Resolved Runtime profil
 receipt without Event dispatch. It checks these prepared values against the original run. A mismatch
 in authority, model, Experiment, external input, seed, evaluator, or Runtime-profile identity refuses
 before dispatch. The same prepared value then enters the existing execution path, so `experiment
-run` and `experiment replay` do not own separate Runtime preparation rules.
+run` and `experiment replay` do not own separate Runtime preparation rules. The full reproduction
+equality and broad authority/build bindings remain current transitional checks; #875 must remove
+their obsolete roles while preserving actual execution inputs and exact content integrity.
 
 Application coordinates receipt input, original-set authentication, Replay execution, comparison,
 and publication. Domain Artifact policy authenticates the original set and returns its complete
 member map. Application passes those members and the new Replay observations directly to Domain
-Comparison semantics. The comparison owner performs no Locator or store lookup. It applies the
-admitted policy, produces the comparison, and validates every binding before Artifact policy can
-publish the declared set. Evidence validation is not part of this path.
+Comparison semantics. Original-set authentication precedes Experiment admission. Replay selects
+the complete owned policy, refusal definitions and comparison artifact contract at admission;
+member validation reuses the admitted request's output contracts. The comparison owner performs no
+Locator, store or ambient authority-catalog lookup. It applies the selected policy, produces the
+comparison, and validates every binding before Artifact policy can publish the declared set.
+Evidence validation is not part of this path.
 
 The current `standard.experiment` package owns `exact-replay-v1` under
 `language.replay_comparison_policies`. The policy fixes the ordered comparison checks. It compares the

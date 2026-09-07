@@ -18,13 +18,8 @@ from gda_balancing.domain.model._resolution import (
 )
 from gda_balancing.domain.model._lowering import (
     _LOWERER_IMPLEMENTATION_IDENTITY,
-    _compile_initialization_programs,
-    _composition_policy,
     _formula_operation_identity,
     _identified_rir_artifact,
-    _resolved_call_sites,
-    _resolved_entrypoints,
-    _specialize_operation_formula_slots,
 )
 from gda_balancing.domain.model._admission import (
     _model_explanation_pairs_are_admitted,
@@ -349,29 +344,9 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
     )
     output_member = cast(str, lowering["output_member"])
     selected_semantics = deepcopy(hir.runtime_projection)
-    initialization_programs = _compile_initialization_programs(
-        selected_semantics,
-        cast(list[dict[str, JsonValue]], formulas),
-        cast(list[dict[str, JsonValue]], formula_bindings),
-        _formula_policy(checked.language_bundle),
-    )
-    selected_semantics = _specialize_operation_formula_slots(
-        selected_semantics,
-        cast(list[dict[str, JsonValue]], formulas),
-        cast(list[dict[str, JsonValue]], formula_bindings),
-    )
-    entrypoints = _resolved_entrypoints(
-        checked,
-        cast(list[dict[str, Any]], declarations),
-        selected_semantics,
-        cast(list[dict[str, Any]], formulas),
-        cast(list[dict[str, Any]], formula_bindings),
-    )
-    call_sites = _resolved_call_sites(
-        checked.kernel,
-        selected_semantics,
-        _composition_policy(lowering),
-    )
+    initialization_programs = deepcopy(hir.initialization_programs)
+    entrypoints = deepcopy(hir.entrypoints)
+    call_sites = deepcopy(hir.call_sites)
     rir = _identified_rir_artifact(
         checked.language_bundle,
         {

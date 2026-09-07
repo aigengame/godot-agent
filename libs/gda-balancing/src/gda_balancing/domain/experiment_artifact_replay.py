@@ -75,7 +75,7 @@ def admit_declared_value(
     declaration: dict[str, Any],
     *,
     structured_authority: StructuredValueIndex,
-    structured_resource_limit: int,
+    structured_resource_limit: int | None,
 ) -> JsonValue:
     """Independently admit one replayed value under its declaration."""
     type_identity = cast(dict[str, str], declaration["type_identity"])
@@ -91,9 +91,7 @@ def admit_declared_value(
             resource_limit=structured_resource_limit,
         )
         if canonical_bytes(admitted[type_member]) != canonical_bytes(declared_type):
-            raise StructuredValueFault(
-                "language.structured_value_type_mismatch", "/type"
-            )
+            raise StructuredValueFault("structured.reason.type-mismatch", "/type")
         return cast(JsonValue, admitted)
     value_member = "value"
     if (
@@ -109,12 +107,12 @@ def admit_declared_value(
             )
             if canonical_bytes(admitted[type_member]) != canonical_bytes(declared_type):
                 raise StructuredValueFault(
-                    "language.structured_value_type_mismatch", f"/{type_member}"
+                    "structured.reason.type-mismatch", f"/{type_member}"
                 )
             value = admitted[value_member]
     if not isinstance(value, int) or isinstance(value, bool):
         raise StructuredValueFault(
-            "language.structured_value_type_mismatch", f"/{value_member}"
+            "structured.reason.type-mismatch", f"/{value_member}"
         )
     return _admit_declared_numeric(value, numeric, declaration)
 
@@ -324,7 +322,7 @@ def execute_value_instruction(
         )
         return
     elif operator == "canonical-equal":
-        if structured_authority is None or structured_resource_limit is None:
+        if structured_authority is None:
             raise ValueError("structured authority is required for canonical equality")
         left = variables[cast(str, instruction["left"])]
         right = variables[cast(str, instruction["right"])]
@@ -345,7 +343,7 @@ def execute_value_instruction(
                     right[type_member]
                 ):
                     raise StructuredValueFault(
-                        "language.structured_value_type_mismatch", f"/{type_member}"
+                        "structured.reason.type-mismatch", f"/{type_member}"
                     )
             result = left_integer == right_integer
         elif left_integer is None and right_integer is None:
@@ -658,10 +656,12 @@ def replay_event_evidence(
     node_contracts = runtime_nodes(checked)
     structured_authority = selected_structured_value_index(
         cast(dict[str, Any], checked.rir["selected_semantics"]),
-        kernel=checked.kernel,
     )
     structured_resource_limit = cast(
-        int, checked.language_bundle["resources"]["max_rule_match_steps"]
+        int | None,
+        checked.rir["selected_semantics"]["execution_resources"].get(
+            "max_rule_match_steps"
+        ),
     )
     schedule_identity = scheduler_contract(checked)["call_site_identity"]["schedule"]
 
@@ -967,9 +967,8 @@ def attempted_operation_charge(
     *,
     node_steps_before_operation: int,
     bounds: dict[str, int],
-    require_budget_breach: bool,
-) -> int | None:
-    """Replay the exact Operation charge up to one refused instruction."""
+) -> tuple[int, bool] | None:
+    """Replay the exact charge and whether the refused instruction exceeds it."""
     evaluation_site_identity = refusing_event.get("evaluation_site_identity")
     target_instruction_index = refusing_event.get("instruction_index")
     target_path = refusing_event.get("call_path")
@@ -1012,6 +1011,7 @@ def attempted_operation_charge(
     node_contracts = runtime_nodes(checked)
     event_charge = 0
     node_steps = node_steps_before_operation
+    target_breached = False
 
     def is_target(
         operation: dict[str, Any],
@@ -1139,6 +1139,7 @@ def attempted_operation_charge(
         operation: dict[str, Any],
         call_path: str,
     ) -> bool:
+        nonlocal target_breached
         operation_charge = 0
         sites = instruction_evaluation_sites(operation)
         body = cast(list[dict[str, Any]], operation["body"])
@@ -1152,7 +1153,8 @@ def attempted_operation_charge(
             )
             target = is_target(operation, call_path, instruction_index, sites)
             if breached or target:
-                return target and (breached or not require_budget_breach)
+                target_breached = breached
+                return target
             operator = node_contracts[instruction["node"]]["semantics"]["operator"]
             if operator == "guarded-outcome-block":
                 guard_body = cast(list[dict[str, Any]], instruction["body"])
@@ -1188,7 +1190,8 @@ def attempted_operation_charge(
                     )
                     target = is_target(operation, call_path, guard_index, sites)
                     if breached or target:
-                        return target and (breached or not require_budget_breach)
+                        target_breached = breached
+                        return target
                     guard_operator = node_contracts[guard_instruction["node"]][
                         "semantics"
                     ]["operator"]
@@ -1224,4 +1227,4 @@ def attempted_operation_charge(
     reached_target = charge_to_target(root_operation, root_path)
     if not reached_target or used_calls != set(range(len(calls))):
         return None
-    return event_charge
+    return event_charge, target_breached

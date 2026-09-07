@@ -1,14 +1,14 @@
 {
   "schema_version": "2.0.0",
   "id": "example.rpg-stat-composition.golden-attack",
-  "kernel_identity": "sha256:9c1c88e55c239fb6c3b3d022ea7099c2f952c15c8339e292bb29c74f75387202",
-  "language_bundle_identity": "sha256:4072bc7fb9817b7d9c8ebf14a6e666bcc5d3c739e7d61a2157c5038bc5cf9d32",
+  "kernel_identity": "sha256:9034564a7ab519b9cc00dd80cf86974a9ce50065cb41004ea6143d09ab91ab55",
+  "language_bundle_identity": "sha256:a9498f658792dd2d8cde6387c505f11bb249977bc698f1607520116fbdd71f84",
   "model": {
     "source_identity": "sha256:979a800d62fbd815f076ef22db9f5caa0e0c00404e18e88fbb88935bf26aa4e3",
-    "build_receipt_identity": "sha256:15e713202af5fa13f3f71f246dbb219a2de9532cc4dc6cf0b363ff4376147782",
-    "resolved_model_identity": "sha256:493e8e1040b8c70b6f05e86d7c765a1296ad7e75a35da16de86c18d00b424b15",
-    "package_lock_identity": "sha256:5cd9807587d358d59b112560b7a4a4e70dc30187b5b0b4da4e917da2063063b2",
-    "rir_identity": "sha256:9f6e7c43e4b59f0e02c11437650106941606a75a030f2b2a74498154d90241be"
+    "build_receipt_identity": "sha256:e12037870dcef8fddcc136e76f51fb6a38d7641416d3792fb8c5d11024643822",
+    "resolved_model_identity": "sha256:1e950b306ab63a1288459993b2bb7654633f86781d81b3f93ed2abf8d3e3795a",
+    "package_lock_identity": "sha256:ee506fcf1933f06ad5179e01734ffc951fd62088886cc0a265ddf1ae8a13394e",
+    "rir_identity": "sha256:7270195a2d585a5e25e7aa214335313c8e58981ef38290f0e6fad12e6c79aeee"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",

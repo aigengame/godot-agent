@@ -203,6 +203,30 @@ def test_two_consumers_refuse_reidentified_authority_type_mismatches(mutation):
     ) in first["diagnostics"]
 
 
+@pytest.mark.parametrize("mutation", ("omitted-when", "always", "required-schema"))
+def test_independent_bootstrap_requires_conditional_execution_resource_contract(
+    mutation,
+):
+    authority = _authority_candidate()
+    kernel, ldb = authority["kernel"], authority["language_bundle"]
+    meta = kernel["meta_format"]
+    contract = meta["runtime_projection"]["execution_closure"]
+    properties = next(
+        row["schema"]
+        for row in ldb["language"]["artifact_wire_schemas"]
+        if row["artifact_kind"] == "rir-semantic-payload"
+    )["properties"]["selected_semantics"]["properties"]
+    validate = bootstrap_support._consumer_b_execution_projection_is_closed
+    assert validate(contract, meta, ldb, properties)
+    if mutation == "omitted-when":
+        del contract["resources"][0]["when"]
+    elif mutation == "always":
+        contract["resources"][0]["when"] = "always"
+    else:
+        properties["execution_resources"]["required"] = ["max_rule_match_steps"]
+    assert not validate(contract, meta, ldb, properties)
+
+
 def test_two_consumers_type_empty_semantic_collections_from_kernel_contracts():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
@@ -1618,6 +1642,83 @@ def test_two_consumers_admit_cross_owner_calls_with_the_same_local_operation_id(
     assert first == second
     assert first["admitted"] is True
     assert first["diagnostics"] == []
+
+
+@pytest.mark.parametrize("mapping", ("static", "lookup"))
+def test_structured_value_consumers_follow_admitted_reason_diagnostics(mapping):
+    from gda_balancing.domain.structured_values import evaluate_structured_value_vector
+
+    authority = _authority_candidate()
+    kernel, ldb = authority["kernel"], authority["language_bundle"]
+    reasons = {row["id"]: row for row in ldb["language"]["reasons"]}
+    if mapping == "static":
+        identifiers = [
+            "structured.reason.type-mismatch",
+            "structured.reason.unknown-enum",
+            "structured.reason.record-member-mismatch",
+            "structured.reason.resource-exhausted",
+        ]
+    else:
+        identifiers = [
+            "structured.reason.lookup-out-of-range",
+            "runtime.reason.numeric-overflow",
+        ]
+    codes = [reasons[name]["diagnostic"] for name in identifiers]
+    replacements = dict(zip(codes, codes[1:] + codes[:1], strict=True))
+    for name in identifiers:
+        reasons[name]["diagnostic"] = replacements[reasons[name]["diagnostic"]]
+    owned_vectors = [
+        row
+        for vector_set in ldb.package_conformance_vector_sets
+        for row in vector_set["vector_definitions"]
+    ]
+    for vector in owned_vectors:
+        if vector.get("reason") in identifiers:
+            vector["diagnostic"] = replacements[vector["diagnostic"]]
+    if mapping == "lookup":
+        old = identifiers[0]
+        renamed = "structured.reason.selected-lookup-bound"
+        reasons[old]["id"] = renamed
+        for package in ldb["language"]["packages"]:
+            package["exports"]["reasons"] = [
+                renamed if name == old else name
+                for name in package["exports"]["reasons"]
+            ]
+        for vector in owned_vectors:
+            if vector.get("reason") == old:
+                vector["reason"] = renamed
+        for operation in ldb["language"]["operations"]:
+            operation["refusals"] = [
+                renamed if name == old else name for name in operation["refusals"]
+            ]
+    _refresh_package_closure_and_reidentify(ldb)
+    first = _consumer_a(kernel, ldb)
+    assert first["admitted"] is True, first["diagnostics"]
+    assert first == _consumer_b(kernel, ldb)
+
+    vectors = [
+        row
+        for vector_set in ldb.package_conformance_vector_sets
+        for row in vector_set["vector_definitions"]
+        if row.get("kind") == "structured-value"
+    ]
+    affected = set()
+    for vector in vectors:
+        expected = deepcopy(vector["expect"])
+        if expected["code"] in replacements:
+            affected.add(expected["code"])
+            expected["code"] = replacements[expected["code"]]
+        arguments = {
+            "nominal_types": ldb["language"]["packages"],
+            "kernel": kernel,
+            "resource_limit": ldb["resources"]["max_rule_match_steps"],
+        }
+        assert evaluate_structured_value_vector(vector, **arguments) == expected
+        assert (
+            _consumer_b_evaluate_structured_value_vector(vector, **arguments)
+            == expected
+        )
+    assert affected == (set(codes) if mapping == "static" else {codes[0]})
 
 
 def test_independent_recursive_nominal_values_resolve_attached_owners():
