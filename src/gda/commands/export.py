@@ -762,7 +762,14 @@ def get_preset(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Report one preset's details plus export-template install status."""
+    """Report one preset's details plus export-template install status.
+
+    ``templates_root`` names the export-templates directory that was checked.
+    Godot reads the templates from its data directory and ``--user-data-root``
+    relocates that, so a redirected run can report none installed on a host
+    that has them; ``templates_root_host`` names the host's directory in
+    exactly that case.
+    """
     dispatch_domain(
         EXPORT_GET_COMMAND,
         ExportGetParams(preset=preset),
@@ -825,11 +832,11 @@ def run_export(
     reported ``output_path`` is the resolved artifact path, and missing output
     parent directories are created and reported in ``created_dirs`` (#402/#403).
 
-    Export-template discovery follows ``--user-data-root``: Godot reads the export
-    templates from the data directory that option relocates, so a release/debug run
-    under it finds none installed unless you put templates there. The failure then
-    names both directories and the remedies; ``--mode pack`` needs no export
-    templates at all.
+    Export-template discovery follows ``--user-data-root``: Godot reads the
+    templates from the data directory that option relocates, so a release or
+    debug run under it finds none installed unless you put templates there.
+    The failure then names both directories and the remedies; ``--mode pack``
+    needs no export templates at all.
     """
     # Build the params model from the argv options (the single source of truth,
     # ADR-0015): ExportRunParams.output is an ExportOutputPath, so argv and
