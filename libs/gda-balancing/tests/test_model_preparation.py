@@ -52,6 +52,7 @@ class _PreparationTrace:
             function.__code__: function.__name__
             for function in (
                 _lowering.lowering_inputs,
+                _lowering._resolved_source_symbols,
                 _lowering._resolved_formulas_and_bindings,
                 _lowering._runtime_projection,
                 _lowering._specialize_operation_formula_slots,
@@ -154,11 +155,13 @@ def test_public_model_request_prepares_once_and_keeps_artifact_admission(
     assert {
         name: trace.calls["source", name]
         for name in (
+            "_resolved_source_symbols",
             "lowering_inputs",
             "_resolved_formulas_and_bindings",
             "_runtime_projection",
         )
     } == {
+        "_resolved_source_symbols": 1,
         "lowering_inputs": 1,
         "_resolved_formulas_and_bindings": 1,
         "_runtime_projection": 1,
