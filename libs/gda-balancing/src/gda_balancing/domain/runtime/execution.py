@@ -229,16 +229,18 @@ def _runtime_step_boundary(
     return None
 
 
-def _diagnostic_for_signal(checked: CheckedExperiment, signal: str, stage: str) -> str:
+def _reason_for_signal(
+    checked: CheckedExperiment, signal: str, stage: str
+) -> dict[str, Any]:
     matches = [
-        row["definition"]["diagnostic"]
+        row["definition"]
         for row in checked.rir["selected_semantics"]["diagnostic_reasons"]
         if row["definition"].get("signal") == signal
         and row["definition"].get("stage") == stage
     ]
     if len(matches) != 1:
-        raise ValueError(f"admitted Diagnostic signal is not unique: {signal}")
-    return cast(str, matches[0])
+        raise ValueError(f"admitted reason signal is not unique: {signal}")
+    return cast(dict[str, Any], matches[0])
 
 
 def _admit_numeric(value: int, numeric: dict[str, Any]) -> int:
@@ -483,8 +485,7 @@ def _check_evaluator_requirements(
     ):
         if not set(required[member]) <= set(available[member]):
             return _refusal(
-                stage="resolution",
-                code=_diagnostic_for_signal(
+                reason=_reason_for_signal(
                     checked, "capability-unsupported", "resolution"
                 ),
                 identity=checked.content_identity,
@@ -884,7 +885,7 @@ def _runtime_refusal_outcome(
     *,
     scenario_id: str,
     scenario_index: int,
-    code: str,
+    reason: dict[str, Any],
     message: str,
     events: list[dict[str, JsonValue]],
     event_catalog: list[dict[str, JsonValue]],
@@ -908,9 +909,8 @@ def _runtime_refusal_outcome(
     state_before: dict[str, Any],
 ) -> RuntimeRefusalOutcome:
     report = _refusal(
-        stage="runtime",
         variant="post-dispatch",
-        code=code,
+        reason=reason,
         identity=checked.content_identity,
         pointer=f"/scenarios/{scenario_index}/entrypoint",
         message=message,
@@ -1057,9 +1057,8 @@ def evaluate_prepared_experiment(
         ordered_events = root_events_by_scenario[scenario["id"]]
         if len(ordered_events) > runtime_bounds["max_queue_events"]:
             return _refusal(
-                stage="runtime",
                 variant="pre-event",
-                code=_diagnostic_for_signal(checked, "queue-limit", "runtime"),
+                reason=_reason_for_signal(checked, "queue-limit", "runtime"),
                 identity=checked.content_identity,
                 pointer=f"/scenarios/{scenario_index}/event_plan",
                 message="Authored root Events exceed the Runtime queue bound",
@@ -1069,18 +1068,16 @@ def evaluate_prepared_experiment(
             for event in ordered_events
         ):
             return _refusal(
-                stage="runtime",
                 variant="pre-event",
-                code=_diagnostic_for_signal(checked, "logical-time-limit", "runtime"),
+                reason=_reason_for_signal(checked, "logical-time-limit", "runtime"),
                 identity=checked.content_identity,
                 pointer=f"/scenarios/{scenario_index}/event_plan",
                 message="Authored root Event exceeds the Runtime logical-time bound",
             )
         if len(ordered_events) > runtime_bounds["max_total_events"]:
             return _refusal(
-                stage="runtime",
                 variant="pre-event",
-                code=_diagnostic_for_signal(checked, "event-limit", "runtime"),
+                reason=_reason_for_signal(checked, "event-limit", "runtime"),
                 identity=checked.content_identity,
                 pointer=f"/scenarios/{scenario_index}/event_plan",
                 message="Authored root Events exceed the Runtime total-Event bound",
@@ -1155,11 +1152,10 @@ def evaluate_prepared_experiment(
                 phase="initialization",
             )
         except _InitializationProgramFault as fault:
-            code = _diagnostic_for_signal(checked, fault.signal, "runtime")
+            reason = _reason_for_signal(checked, fault.signal, "runtime")
             return _refusal(
-                stage="runtime",
                 variant="pre-event",
-                code=code,
+                reason=reason,
                 identity=checked.content_identity,
                 pointer=f"/scenarios/{scenario_index}/assignments",
                 message=(
@@ -1956,7 +1952,7 @@ def evaluate_prepared_experiment(
                 rng.restore(rng_before)
                 admitted_event_count = admitted_event_count_before
                 next_enqueue_sequence = next_enqueue_sequence_before
-                code = _diagnostic_for_signal(checked, fault.signal, "runtime")
+                reason = _reason_for_signal(checked, fault.signal, "runtime")
                 message = {
                     "step-limit": "Runtime program exhausted its exact step bound",
                     "numeric-overflow": (
@@ -1970,7 +1966,7 @@ def evaluate_prepared_experiment(
                     checked,
                     scenario_id=scenario["id"],
                     scenario_index=scenario_index,
-                    code=code,
+                    reason=reason,
                     message=message,
                     events=events,
                     event_catalog=event_catalog,
@@ -2204,7 +2200,7 @@ def evaluate_prepared_experiment(
                     phase="observation",
                 )
             except _InitializationProgramFault as fault:
-                code = _diagnostic_for_signal(checked, fault.signal, "runtime")
+                reason = _reason_for_signal(checked, fault.signal, "runtime")
                 message = (
                     "Runtime program exhausted its exact step bound"
                     if fault.signal == "step-limit"
@@ -2214,7 +2210,7 @@ def evaluate_prepared_experiment(
                     checked,
                     scenario_id=scenario["id"],
                     scenario_index=scenario_index,
-                    code=code,
+                    reason=reason,
                     message=message,
                     events=events,
                     event_catalog=event_catalog,
@@ -2318,7 +2314,7 @@ def evaluate_prepared_experiment(
                     checked,
                     scenario_id=scenario["id"],
                     scenario_index=scenario_index,
-                    code=_diagnostic_for_signal(checked, "event-limit", "runtime"),
+                    reason=_reason_for_signal(checked, "event-limit", "runtime"),
                     message="Runtime scheduler refused event-limit",
                     events=events,
                     event_catalog=event_catalog,
@@ -2524,8 +2520,7 @@ def evaluate_prepared_experiment(
                     matched.append(value)
             if len(matched) != 1:
                 return _refusal(
-                    stage="evaluation",
-                    code=_diagnostic_for_signal(
+                    reason=_reason_for_signal(
                         checked, "observation-unavailable", "evaluation"
                     ),
                     identity=checked.content_identity,
@@ -2570,8 +2565,7 @@ def evaluate_prepared_experiment(
             )
         if matched_replications == 0:
             return _refusal(
-                stage="evaluation",
-                code=_diagnostic_for_signal(
+                reason=_reason_for_signal(
                     checked, "observation-unavailable", "evaluation"
                 ),
                 identity=checked.content_identity,
