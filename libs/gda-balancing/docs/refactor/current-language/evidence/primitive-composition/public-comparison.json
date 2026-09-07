@@ -1,0 +1,1301 @@
+{
+  "issue": 876,
+  "baseline_head": "6a32d8ced05e4dcd6c02e59d7053144500528b83",
+  "candidate_capture_head": "201148033",
+  "candidate_capture_head_resolved": "20114803382d229de9acf8d941ae3a19d5db4b8e",
+  "raw_hash_index": {
+    "path": "/private/tmp/gda-876-public-worker-evidence/compact/raw-hashes.json",
+    "sha256": "db97d7dd9331de7c6c12bb1cac838eb38157784017320878aaf78226234828e9"
+  },
+  "authority_and_source_summaries": [
+    {
+      "head": "6a32d8ced05e4dcd6c02e59d7053144500528b83",
+      "authority_files": 28,
+      "authority_hash_map_sha256": "1703b62c5f352403d417bd4b7a10e667b729cfcff05c3be09bfda7864b4c5df0",
+      "domain_source_files": 60,
+      "domain_hash_map_sha256": "623760f6b6dbe1080a1b716e22c744684762b13566f52e3bb7eef8ea2e9c4a7e"
+    },
+    {
+      "head": "201148033",
+      "authority_files": 28,
+      "authority_hash_map_sha256": "a6d61e77f9dc69b8fb6c88ff0c282e8bff41027b47d208ad9adfa2c5c1a8f250",
+      "domain_source_files": 60,
+      "domain_hash_map_sha256": "f476b03fd7a43ca734702aed8967d30b18930cdc6ace1bbbd9c4877bac78b24e"
+    }
+  ],
+  "commands": [
+    {
+      "case": "progression-periodic-effect",
+      "command": [
+        "model",
+        "build"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "progression-periodic-effect-experiment",
+      "command": [
+        "experiment",
+        "check"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "progression-periodic-effect-experiment",
+      "command": [
+        "experiment",
+        "run"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "roguelike-reward-build",
+      "command": [
+        "model",
+        "build"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "roguelike-reward-build-experiment",
+      "command": [
+        "experiment",
+        "check"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "roguelike-reward-build-experiment",
+      "command": [
+        "experiment",
+        "run"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "rpg-combat-cast",
+      "command": [
+        "model",
+        "build"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "rpg-combat-cast-experiment",
+      "command": [
+        "experiment",
+        "check"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "rpg-combat-cast-experiment",
+      "command": [
+        "experiment",
+        "run"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "rpg-combat-cast-multi-time-experiment",
+      "command": [
+        "experiment",
+        "check"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "rpg-combat-cast-multi-time-experiment",
+      "command": [
+        "experiment",
+        "run"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "rpg-periodic-effect",
+      "command": [
+        "model",
+        "build"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "rpg-periodic-effect-experiment",
+      "command": [
+        "experiment",
+        "check"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "rpg-periodic-effect-experiment",
+      "command": [
+        "experiment",
+        "run"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "rpg-periodic-effect-same-time-experiment",
+      "command": [
+        "experiment",
+        "check"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "rpg-periodic-effect-same-time-experiment",
+      "command": [
+        "experiment",
+        "run"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "rpg-stat-composition",
+      "command": [
+        "model",
+        "build"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "rpg-stat-composition-experiment",
+      "command": [
+        "experiment",
+        "check"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "rpg-stat-composition-experiment",
+      "command": [
+        "experiment",
+        "run"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "structured-selection",
+      "command": [
+        "model",
+        "build"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "structured-selection-experiment",
+      "command": [
+        "experiment",
+        "check"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "structured-selection-experiment",
+      "command": [
+        "experiment",
+        "run"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "initialization-numeric-refusal",
+      "command": [
+        "model",
+        "build"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "initialization-numeric-refusal",
+      "command": [
+        "experiment",
+        "run"
+      ],
+      "baseline_exit": 2,
+      "candidate_exit": 2
+    },
+    {
+      "case": "inline-formula-numeric-refusal",
+      "command": [
+        "model",
+        "build"
+      ],
+      "baseline_exit": 0,
+      "candidate_exit": 0
+    },
+    {
+      "case": "inline-formula-numeric-refusal",
+      "command": [
+        "experiment",
+        "run"
+      ],
+      "baseline_exit": 2,
+      "candidate_exit": 2
+    }
+  ],
+  "behavior_cases": [
+    {
+      "case": "progression-periodic-effect-experiment",
+      "exit": 0,
+      "metrics": [
+        {
+          "metric": "effect_active_terminal",
+          "value": 0,
+          "within_target": true
+        },
+        {
+          "metric": "effect_instance_id_terminal",
+          "value": 1507657888,
+          "within_target": true
+        },
+        {
+          "metric": "target_health_remaining",
+          "value": 70,
+          "within_target": true
+        }
+      ],
+      "rng_draws": [
+        {
+          "accepted": true,
+          "candidate_hex": "bbdce0cd62234702",
+          "index": 0,
+          "maximum": 2147483647,
+          "minimum": 1,
+          "stream": "effect-instance",
+          "value": 1507657888
+        }
+      ],
+      "event_count": 7,
+      "snapshot_count": 8,
+      "terminal_node_steps": [
+        43,
+        44
+      ]
+    },
+    {
+      "case": "roguelike-reward-build-experiment",
+      "exit": 0,
+      "metrics": [
+        {
+          "metric": "reward_score",
+          "value": 80,
+          "within_target": true
+        },
+        {
+          "metric": "build_score",
+          "value": 90,
+          "within_target": true
+        }
+      ],
+      "rng_draws": [
+        {
+          "accepted": true,
+          "candidate_hex": "cb822c763bee22e2",
+          "index": 0,
+          "maximum": 100,
+          "minimum": 1,
+          "stream": "reward",
+          "value": 3
+        }
+      ],
+      "event_count": 4,
+      "snapshot_count": 5,
+      "terminal_node_steps": [
+        107,
+        107
+      ]
+    },
+    {
+      "case": "rpg-combat-cast-experiment",
+      "exit": 0,
+      "metrics": [
+        {
+          "metric": "enemy_damage_dealt",
+          "value": 14,
+          "within_target": true
+        },
+        {
+          "metric": "player_resource_remaining",
+          "value": 26,
+          "within_target": true
+        },
+        {
+          "metric": "player_health_remaining",
+          "value": 86,
+          "within_target": true
+        },
+        {
+          "metric": "enemy_resource_remaining",
+          "value": 23,
+          "within_target": true
+        },
+        {
+          "metric": "player_damage_dealt",
+          "value": 37,
+          "within_target": true
+        },
+        {
+          "metric": "enemy_health_remaining",
+          "value": 63,
+          "within_target": true
+        }
+      ],
+      "rng_draws": [
+        {
+          "accepted": true,
+          "candidate_hex": "f33102e1751c7585",
+          "index": 0,
+          "maximum": 100,
+          "minimum": 1,
+          "stream": "hit",
+          "value": 10
+        },
+        {
+          "accepted": true,
+          "candidate_hex": "f016b4b8352e1e90",
+          "index": 0,
+          "maximum": 100,
+          "minimum": 1,
+          "stream": "critical",
+          "value": 45
+        },
+        {
+          "accepted": true,
+          "candidate_hex": "12223d438619a881",
+          "index": 1,
+          "maximum": 100,
+          "minimum": 1,
+          "stream": "hit",
+          "value": 2
+        },
+        {
+          "accepted": true,
+          "candidate_hex": "0f44fc97734d1b68",
+          "index": 1,
+          "maximum": 100,
+          "minimum": 1,
+          "stream": "critical",
+          "value": 25
+        }
+      ],
+      "event_count": 8,
+      "snapshot_count": 9,
+      "terminal_node_steps": [
+        76,
+        86
+      ]
+    },
+    {
+      "case": "rpg-combat-cast-multi-time-experiment",
+      "exit": 0,
+      "metrics": [
+        {
+          "metric": "player_resource_remaining",
+          "value": 26,
+          "within_target": true
+        },
+        {
+          "metric": "enemy_health_remaining",
+          "value": 57,
+          "within_target": true
+        }
+      ],
+      "rng_draws": [
+        {
+          "accepted": true,
+          "candidate_hex": "f33102e1751c7585",
+          "index": 0,
+          "maximum": 100,
+          "minimum": 1,
+          "stream": "hit",
+          "value": 10
+        },
+        {
+          "accepted": true,
+          "candidate_hex": "f016b4b8352e1e90",
+          "index": 0,
+          "maximum": 100,
+          "minimum": 1,
+          "stream": "critical",
+          "value": 45
+        },
+        {
+          "accepted": true,
+          "candidate_hex": "12223d438619a881",
+          "index": 1,
+          "maximum": 100,
+          "minimum": 1,
+          "stream": "hit",
+          "value": 2
+        },
+        {
+          "accepted": true,
+          "candidate_hex": "0f44fc97734d1b68",
+          "index": 1,
+          "maximum": 100,
+          "minimum": 1,
+          "stream": "critical",
+          "value": 25
+        }
+      ],
+      "event_count": 6,
+      "snapshot_count": 7,
+      "terminal_node_steps": [
+        69,
+        78
+      ]
+    },
+    {
+      "case": "rpg-periodic-effect-experiment",
+      "exit": 0,
+      "metrics": [
+        {
+          "metric": "effect_active_terminal",
+          "value": 0,
+          "within_target": true
+        },
+        {
+          "metric": "effect_instance_id_terminal",
+          "value": 1507657888,
+          "within_target": true
+        },
+        {
+          "metric": "target_health_remaining",
+          "value": 70,
+          "within_target": true
+        }
+      ],
+      "rng_draws": [
+        {
+          "accepted": true,
+          "candidate_hex": "bbdce0cd62234702",
+          "index": 0,
+          "maximum": 2147483647,
+          "minimum": 1,
+          "stream": "effect-instance",
+          "value": 1507657888
+        }
+      ],
+      "event_count": 7,
+      "snapshot_count": 8,
+      "terminal_node_steps": [
+        16,
+        17
+      ]
+    },
+    {
+      "case": "rpg-periodic-effect-same-time-experiment",
+      "exit": 0,
+      "metrics": [
+        {
+          "metric": "effect_instance_id_terminal",
+          "value": 1507657888,
+          "within_target": true
+        },
+        {
+          "metric": "combat_damage",
+          "value": 10,
+          "within_target": true
+        },
+        {
+          "metric": "effect_active_terminal",
+          "value": 0,
+          "within_target": true
+        },
+        {
+          "metric": "target_health_remaining",
+          "value": 85,
+          "within_target": true
+        }
+      ],
+      "rng_draws": [
+        {
+          "accepted": true,
+          "candidate_hex": "bbdce0cd62234702",
+          "index": 0,
+          "maximum": 2147483647,
+          "minimum": 1,
+          "stream": "effect-instance",
+          "value": 1507657888
+        },
+        {
+          "accepted": true,
+          "candidate_hex": "3f60a0c3356a610d",
+          "index": 0,
+          "maximum": 100,
+          "minimum": 1,
+          "stream": "hit",
+          "value": 34
+        },
+        {
+          "accepted": true,
+          "candidate_hex": "16e650a7ab41a000",
+          "index": 0,
+          "maximum": 100,
+          "minimum": 1,
+          "stream": "critical",
+          "value": 21
+        }
+      ],
+      "event_count": 9,
+      "snapshot_count": 10,
+      "terminal_node_steps": [
+        43,
+        46
+      ]
+    },
+    {
+      "case": "rpg-stat-composition-experiment",
+      "exit": 0,
+      "metrics": [
+        {
+          "metric": "target_health",
+          "value": 70,
+          "within_target": true
+        },
+        {
+          "metric": "base_damage",
+          "value": 20,
+          "within_target": true
+        },
+        {
+          "metric": "progression_damage",
+          "value": 12,
+          "within_target": true
+        },
+        {
+          "metric": "build_damage",
+          "value": 8,
+          "within_target": true
+        },
+        {
+          "metric": "attack_damage",
+          "value": 50,
+          "within_target": true
+        },
+        {
+          "metric": "effect_damage",
+          "value": 10,
+          "within_target": true
+        },
+        {
+          "metric": "damage_dealt",
+          "value": 50,
+          "within_target": true
+        },
+        {
+          "metric": "pre_buff_damage",
+          "value": 40,
+          "within_target": true
+        }
+      ],
+      "rng_draws": [],
+      "event_count": 9,
+      "snapshot_count": 10,
+      "terminal_node_steps": [
+        80,
+        81
+      ]
+    },
+    {
+      "case": "structured-selection-experiment",
+      "exit": 0,
+      "metrics": [
+        {
+          "metric": "selected_rank",
+          "value": 3,
+          "within_target": true
+        }
+      ],
+      "rng_draws": [
+        {
+          "accepted": true,
+          "candidate_hex": "e9d99c027e25cf36",
+          "index": 0,
+          "maximum": 1,
+          "minimum": 0,
+          "stream": "selection",
+          "value": 0
+        }
+      ],
+      "event_count": 2,
+      "snapshot_count": 3,
+      "terminal_node_steps": [
+        20,
+        20
+      ]
+    },
+    {
+      "case": "initialization-numeric-refusal",
+      "exit": 2,
+      "refusal_code": "runtime.numeric_overflow",
+      "publication": false,
+      "terminal_budget_before": null,
+      "terminal_budget_after": null
+    },
+    {
+      "case": "inline-formula-numeric-refusal",
+      "exit": 2,
+      "refusal_code": "runtime.numeric_overflow",
+      "publication": true,
+      "terminal_budget_before": {
+        "event_steps": 15,
+        "logical_time": 0,
+        "node_steps": 19,
+        "queue_events": 0,
+        "total_events": 1,
+        "zero_time_depth": 0
+      },
+      "terminal_budget_after": {
+        "event_steps": 15,
+        "logical_time": 0,
+        "node_steps": 21,
+        "queue_events": 0,
+        "total_events": 1,
+        "zero_time_depth": 0
+      }
+    }
+  ],
+  "all29metric_fields_equal_except_event_snapshot_identity": true,
+  "all15full_rng_draw_records_equal_and_independently_replayed": true,
+  "all_actual_event_states_outcomes_order_schedule_arguments_and_rng_equal": true,
+  "maximum_operation_changes": [
+    {
+      "package": "core.quantity",
+      "operation": "quantity.floor-zero",
+      "old_bound": 2,
+      "new_bound": 3,
+      "replaced_maximum_instructions": 1
+    },
+    {
+      "package": "core.quantity",
+      "operation": "quantity.maximum",
+      "old_bound": 1,
+      "new_bound": 2,
+      "replaced_maximum_instructions": 1
+    },
+    {
+      "package": "game.combat",
+      "operation": "game.combat.damage-v1",
+      "old_bound": 13,
+      "new_bound": 14,
+      "replaced_maximum_instructions": 1
+    },
+    {
+      "package": "game.effect",
+      "operation": "game.effect.tick-live-periodic-v1",
+      "old_bound": 12,
+      "new_bound": 13,
+      "replaced_maximum_instructions": 1
+    },
+    {
+      "package": "game.effect",
+      "operation": "game.effect.apply-snapshot-periodic-v1",
+      "old_bound": 16,
+      "new_bound": 17,
+      "replaced_maximum_instructions": 1
+    }
+  ],
+  "formula_program_charge_changes": [
+    {
+      "model_case": "rpg-combat-cast",
+      "target": {
+        "model": "example.rpg-combat-cast",
+        "module": "combat",
+        "name": "player_effective_accuracy"
+      },
+      "phase": "event",
+      "old_bound": 2,
+      "new_bound": 3
+    },
+    {
+      "model_case": "rpg-combat-cast",
+      "target": {
+        "model": "example.rpg-combat-cast",
+        "module": "combat",
+        "name": "player_effective_accuracy"
+      },
+      "phase": "observation",
+      "old_bound": 2,
+      "new_bound": 3
+    },
+    {
+      "model_case": "rpg-combat-cast",
+      "target": {
+        "model": "example.rpg-combat-cast",
+        "module": "combat",
+        "name": "enemy_effective_accuracy"
+      },
+      "phase": "observation",
+      "old_bound": 2,
+      "new_bound": 3
+    },
+    {
+      "model_case": "rpg-combat-cast",
+      "target": {
+        "model": "example.rpg-combat-cast",
+        "module": "combat",
+        "name": "enemy_effective_accuracy"
+      },
+      "phase": "event",
+      "old_bound": 2,
+      "new_bound": 3
+    },
+    {
+      "model_case": "rpg-combat-cast",
+      "target": {
+        "model": "example.rpg-combat-cast",
+        "module": "combat",
+        "name": "enemy_effective_accuracy"
+      },
+      "phase": "initialization",
+      "old_bound": 2,
+      "new_bound": 3
+    },
+    {
+      "model_case": "rpg-combat-cast",
+      "target": {
+        "model": "example.rpg-combat-cast",
+        "module": "combat",
+        "name": "player_effective_accuracy"
+      },
+      "phase": "initialization",
+      "old_bound": 2,
+      "new_bound": 3
+    },
+    {
+      "model_case": "inline-formula-numeric-refusal",
+      "target": {
+        "model": "example.rpg-combat-cast",
+        "module": "combat",
+        "name": "effective_accuracy"
+      },
+      "phase": "event",
+      "old_bound": 2,
+      "new_bound": 3
+    },
+    {
+      "model_case": "inline-formula-numeric-refusal",
+      "target": {
+        "model": "example.rpg-combat-cast",
+        "module": "combat",
+        "name": "effective_accuracy"
+      },
+      "phase": "observation",
+      "old_bound": 2,
+      "new_bound": 3
+    },
+    {
+      "model_case": "inline-formula-numeric-refusal",
+      "target": {
+        "model": "example.rpg-combat-cast",
+        "module": "combat",
+        "name": "effective_accuracy"
+      },
+      "phase": "initialization",
+      "old_bound": 2,
+      "new_bound": 3
+    }
+  ],
+  "precise_source_contract_changes": [
+    {
+      "case": "rpg-stat-composition",
+      "pointer": "/modules/0/symbols/12/domain/maximum",
+      "before": 4040,
+      "after": 1000
+    },
+    {
+      "case": "rpg-stat-composition",
+      "pointer": "/modules/0/formulas/4/parameters/0/domain/maximum",
+      "before": 4040,
+      "after": 1000
+    },
+    {
+      "case": "rpg-stat-composition",
+      "pointer": "/modules/0/formulas/4/result/domain/maximum",
+      "before": 4040,
+      "after": 1000
+    },
+    {
+      "case": "rpg-stat-composition",
+      "pointer": "/modules/0/formulas/4/body/nodes/0/result/domain/maximum",
+      "before": 4040,
+      "after": 1000
+    },
+    {
+      "case": "rpg-stat-composition",
+      "pointer": "/modules/0/formulas/4/body/nodes/1/result/domain/maximum",
+      "before": 4040,
+      "after": 1000
+    },
+    {
+      "case": "rpg-stat-composition",
+      "pointer": "/modules/0/formulas/9/result/domain/maximum",
+      "before": 4040,
+      "after": 1000
+    },
+    {
+      "case": "rpg-stat-composition",
+      "pointer": "/modules/0/formulas/9/body/nodes/1/result/domain/maximum",
+      "before": 4040,
+      "after": 1000
+    }
+  ],
+  "changed_semantic_leaf_counts": {
+    "declared_identity": 767,
+    "observed_charge_delta": 59,
+    "declared_generated_name": 30
+  },
+  "all_snapshot_and_terminal_ledger_changes": [
+    {
+      "case": "progression-periodic-effect-experiment",
+      "pointer": "snapshots/1/continuation/resource_ledger/event_steps",
+      "before": 12,
+      "after": 13,
+      "delta": 1
+    },
+    {
+      "case": "progression-periodic-effect-experiment",
+      "pointer": "snapshots/1/continuation/resource_ledger/node_steps",
+      "before": 18,
+      "after": 19,
+      "delta": 1
+    },
+    {
+      "case": "progression-periodic-effect-experiment",
+      "pointer": "snapshots/2/continuation/resource_ledger/node_steps",
+      "before": 25,
+      "after": 26,
+      "delta": 1
+    },
+    {
+      "case": "progression-periodic-effect-experiment",
+      "pointer": "snapshots/3/continuation/resource_ledger/node_steps",
+      "before": 32,
+      "after": 33,
+      "delta": 1
+    },
+    {
+      "case": "progression-periodic-effect-experiment",
+      "pointer": "snapshots/4/continuation/resource_ledger/node_steps",
+      "before": 40,
+      "after": 41,
+      "delta": 1
+    },
+    {
+      "case": "progression-periodic-effect-experiment",
+      "pointer": "snapshots/5/continuation/resource_ledger/node_steps",
+      "before": 43,
+      "after": 44,
+      "delta": 1
+    },
+    {
+      "case": "progression-periodic-effect-experiment",
+      "pointer": "snapshots/6/continuation/resource_ledger/node_steps",
+      "before": 43,
+      "after": 44,
+      "delta": 1
+    },
+    {
+      "case": "progression-periodic-effect-experiment",
+      "pointer": "snapshots/7/continuation/resource_ledger/node_steps",
+      "before": 43,
+      "after": 44,
+      "delta": 1
+    },
+    {
+      "case": "rpg-combat-cast-experiment",
+      "pointer": "snapshots/0/continuation/resource_ledger/node_steps",
+      "before": 4,
+      "after": 6,
+      "delta": 2
+    },
+    {
+      "case": "rpg-combat-cast-experiment",
+      "pointer": "snapshots/1/continuation/resource_ledger/event_steps",
+      "before": 30,
+      "after": 31,
+      "delta": 1
+    },
+    {
+      "case": "rpg-combat-cast-experiment",
+      "pointer": "snapshots/1/continuation/resource_ledger/node_steps",
+      "before": 38,
+      "after": 43,
+      "delta": 5
+    },
+    {
+      "case": "rpg-combat-cast-experiment",
+      "pointer": "snapshots/2/continuation/resource_ledger/event_steps",
+      "before": 30,
+      "after": 31,
+      "delta": 1
+    },
+    {
+      "case": "rpg-combat-cast-experiment",
+      "pointer": "snapshots/2/continuation/resource_ledger/node_steps",
+      "before": 72,
+      "after": 80,
+      "delta": 8
+    },
+    {
+      "case": "rpg-combat-cast-experiment",
+      "pointer": "snapshots/3/continuation/resource_ledger/node_steps",
+      "before": 76,
+      "after": 86,
+      "delta": 10
+    },
+    {
+      "case": "rpg-combat-cast-experiment",
+      "pointer": "snapshots/4/continuation/resource_ledger/node_steps",
+      "before": 76,
+      "after": 86,
+      "delta": 10
+    },
+    {
+      "case": "rpg-combat-cast-experiment",
+      "pointer": "snapshots/5/continuation/resource_ledger/node_steps",
+      "before": 76,
+      "after": 86,
+      "delta": 10
+    },
+    {
+      "case": "rpg-combat-cast-experiment",
+      "pointer": "snapshots/6/continuation/resource_ledger/node_steps",
+      "before": 76,
+      "after": 86,
+      "delta": 10
+    },
+    {
+      "case": "rpg-combat-cast-experiment",
+      "pointer": "snapshots/7/continuation/resource_ledger/node_steps",
+      "before": 76,
+      "after": 86,
+      "delta": 10
+    },
+    {
+      "case": "rpg-combat-cast-experiment",
+      "pointer": "snapshots/8/continuation/resource_ledger/node_steps",
+      "before": 76,
+      "after": 86,
+      "delta": 10
+    },
+    {
+      "case": "rpg-combat-cast-multi-time-experiment",
+      "pointer": "snapshots/0/continuation/resource_ledger/node_steps",
+      "before": 2,
+      "after": 3,
+      "delta": 1
+    },
+    {
+      "case": "rpg-combat-cast-multi-time-experiment",
+      "pointer": "snapshots/1/continuation/resource_ledger/node_steps",
+      "before": 2,
+      "after": 3,
+      "delta": 1
+    },
+    {
+      "case": "rpg-combat-cast-multi-time-experiment",
+      "pointer": "snapshots/2/continuation/resource_ledger/node_steps",
+      "before": 7,
+      "after": 9,
+      "delta": 2
+    },
+    {
+      "case": "rpg-combat-cast-multi-time-experiment",
+      "pointer": "snapshots/3/continuation/resource_ledger/event_steps",
+      "before": 22,
+      "after": 23,
+      "delta": 1
+    },
+    {
+      "case": "rpg-combat-cast-multi-time-experiment",
+      "pointer": "snapshots/3/continuation/resource_ledger/node_steps",
+      "before": 33,
+      "after": 38,
+      "delta": 5
+    },
+    {
+      "case": "rpg-combat-cast-multi-time-experiment",
+      "pointer": "snapshots/4/continuation/resource_ledger/event_steps",
+      "before": 30,
+      "after": 31,
+      "delta": 1
+    },
+    {
+      "case": "rpg-combat-cast-multi-time-experiment",
+      "pointer": "snapshots/4/continuation/resource_ledger/node_steps",
+      "before": 67,
+      "after": 75,
+      "delta": 8
+    },
+    {
+      "case": "rpg-combat-cast-multi-time-experiment",
+      "pointer": "snapshots/5/continuation/resource_ledger/node_steps",
+      "before": 69,
+      "after": 78,
+      "delta": 9
+    },
+    {
+      "case": "rpg-combat-cast-multi-time-experiment",
+      "pointer": "snapshots/6/continuation/resource_ledger/node_steps",
+      "before": 69,
+      "after": 78,
+      "delta": 9
+    },
+    {
+      "case": "rpg-periodic-effect-experiment",
+      "pointer": "snapshots/1/continuation/resource_ledger/event_steps",
+      "before": 12,
+      "after": 13,
+      "delta": 1
+    },
+    {
+      "case": "rpg-periodic-effect-experiment",
+      "pointer": "snapshots/1/continuation/resource_ledger/node_steps",
+      "before": 12,
+      "after": 13,
+      "delta": 1
+    },
+    {
+      "case": "rpg-periodic-effect-experiment",
+      "pointer": "snapshots/2/continuation/resource_ledger/node_steps",
+      "before": 13,
+      "after": 14,
+      "delta": 1
+    },
+    {
+      "case": "rpg-periodic-effect-experiment",
+      "pointer": "snapshots/3/continuation/resource_ledger/node_steps",
+      "before": 14,
+      "after": 15,
+      "delta": 1
+    },
+    {
+      "case": "rpg-periodic-effect-experiment",
+      "pointer": "snapshots/4/continuation/resource_ledger/node_steps",
+      "before": 16,
+      "after": 17,
+      "delta": 1
+    },
+    {
+      "case": "rpg-periodic-effect-experiment",
+      "pointer": "snapshots/5/continuation/resource_ledger/node_steps",
+      "before": 16,
+      "after": 17,
+      "delta": 1
+    },
+    {
+      "case": "rpg-periodic-effect-experiment",
+      "pointer": "snapshots/6/continuation/resource_ledger/node_steps",
+      "before": 16,
+      "after": 17,
+      "delta": 1
+    },
+    {
+      "case": "rpg-periodic-effect-experiment",
+      "pointer": "snapshots/7/continuation/resource_ledger/node_steps",
+      "before": 16,
+      "after": 17,
+      "delta": 1
+    },
+    {
+      "case": "rpg-periodic-effect-same-time-experiment",
+      "pointer": "snapshots/2/continuation/resource_ledger/event_steps",
+      "before": 22,
+      "after": 23,
+      "delta": 1
+    },
+    {
+      "case": "rpg-periodic-effect-same-time-experiment",
+      "pointer": "snapshots/2/continuation/resource_ledger/node_steps",
+      "before": 29,
+      "after": 30,
+      "delta": 1
+    },
+    {
+      "case": "rpg-periodic-effect-same-time-experiment",
+      "pointer": "snapshots/3/continuation/resource_ledger/event_steps",
+      "before": 6,
+      "after": 7,
+      "delta": 1
+    },
+    {
+      "case": "rpg-periodic-effect-same-time-experiment",
+      "pointer": "snapshots/3/continuation/resource_ledger/node_steps",
+      "before": 35,
+      "after": 37,
+      "delta": 2
+    },
+    {
+      "case": "rpg-periodic-effect-same-time-experiment",
+      "pointer": "snapshots/4/continuation/resource_ledger/event_steps",
+      "before": 6,
+      "after": 7,
+      "delta": 1
+    },
+    {
+      "case": "rpg-periodic-effect-same-time-experiment",
+      "pointer": "snapshots/4/continuation/resource_ledger/node_steps",
+      "before": 41,
+      "after": 44,
+      "delta": 3
+    },
+    {
+      "case": "rpg-periodic-effect-same-time-experiment",
+      "pointer": "snapshots/5/continuation/resource_ledger/node_steps",
+      "before": 43,
+      "after": 46,
+      "delta": 3
+    },
+    {
+      "case": "rpg-periodic-effect-same-time-experiment",
+      "pointer": "snapshots/6/continuation/resource_ledger/node_steps",
+      "before": 43,
+      "after": 46,
+      "delta": 3
+    },
+    {
+      "case": "rpg-periodic-effect-same-time-experiment",
+      "pointer": "snapshots/7/continuation/resource_ledger/node_steps",
+      "before": 43,
+      "after": 46,
+      "delta": 3
+    },
+    {
+      "case": "rpg-periodic-effect-same-time-experiment",
+      "pointer": "snapshots/8/continuation/resource_ledger/node_steps",
+      "before": 43,
+      "after": 46,
+      "delta": 3
+    },
+    {
+      "case": "rpg-periodic-effect-same-time-experiment",
+      "pointer": "snapshots/9/continuation/resource_ledger/node_steps",
+      "before": 43,
+      "after": 46,
+      "delta": 3
+    },
+    {
+      "case": "rpg-stat-composition-experiment",
+      "pointer": "snapshots/1/continuation/resource_ledger/event_steps",
+      "before": 11,
+      "after": 12,
+      "delta": 1
+    },
+    {
+      "case": "rpg-stat-composition-experiment",
+      "pointer": "snapshots/1/continuation/resource_ledger/node_steps",
+      "before": 57,
+      "after": 58,
+      "delta": 1
+    },
+    {
+      "case": "rpg-stat-composition-experiment",
+      "pointer": "snapshots/2/continuation/resource_ledger/node_steps",
+      "before": 80,
+      "after": 81,
+      "delta": 1
+    },
+    {
+      "case": "rpg-stat-composition-experiment",
+      "pointer": "snapshots/3/continuation/resource_ledger/node_steps",
+      "before": 80,
+      "after": 81,
+      "delta": 1
+    },
+    {
+      "case": "rpg-stat-composition-experiment",
+      "pointer": "snapshots/4/continuation/resource_ledger/node_steps",
+      "before": 80,
+      "after": 81,
+      "delta": 1
+    },
+    {
+      "case": "rpg-stat-composition-experiment",
+      "pointer": "snapshots/5/continuation/resource_ledger/node_steps",
+      "before": 80,
+      "after": 81,
+      "delta": 1
+    },
+    {
+      "case": "rpg-stat-composition-experiment",
+      "pointer": "snapshots/6/continuation/resource_ledger/node_steps",
+      "before": 80,
+      "after": 81,
+      "delta": 1
+    },
+    {
+      "case": "rpg-stat-composition-experiment",
+      "pointer": "snapshots/7/continuation/resource_ledger/node_steps",
+      "before": 80,
+      "after": 81,
+      "delta": 1
+    },
+    {
+      "case": "rpg-stat-composition-experiment",
+      "pointer": "snapshots/8/continuation/resource_ledger/node_steps",
+      "before": 80,
+      "after": 81,
+      "delta": 1
+    },
+    {
+      "case": "rpg-stat-composition-experiment",
+      "pointer": "snapshots/9/continuation/resource_ledger/node_steps",
+      "before": 80,
+      "after": 81,
+      "delta": 1
+    },
+    {
+      "case": "inline-formula-numeric-refusal",
+      "pointer": "terminal_audit/budget_counters/node_steps",
+      "before": 19,
+      "after": 21,
+      "delta": 2
+    },
+    {
+      "case": "inline-formula-numeric-refusal",
+      "pointer": "terminal_audit/last_snapshot_record/continuation/resource_ledger/node_steps",
+      "before": 2,
+      "after": 3,
+      "delta": 1
+    }
+  ],
+  "accounting_explanation": "Each of five authored maximum instructions is replaced by exactly less-than then if, preserving both selected arms and target, adding one instruction and one declared Operation step. Every emitted lifecycle program adds exactly its prior maximum count to body length and declared charge (nine affected programs). All 59 Event-step and cumulative node-step changes are enumerated at snapshot/terminal boundaries and checked for positive deltas only; this is NOT an independent exact recurrence proof of cumulative accounting. The public trace does not record every derived lifecycle evaluation. Remaining queue/event/time counters are exact. Exact per-program charging is separately checked above and permanent public budget boundaries supplement this limited cumulative comparison. Full source compilation/algebra equivalence beyond these cases belongs to independent conformance validation.",
+  "identity_explanation": "Changed event/snapshot/site/journal/profile/Experiment identities are preserved as explicit old/new pairs. Generated snapshot names and scheduled call paths are accepted only when exact substitution using those recorded identity pairs yields the candidate string. Authored intent changes are limited to actual RIR binding and maximum\u2192less-than evaluator capability closure. Effect instance ids remain exact RNG-derived numeric values.",
+  "scope_limits": [
+    "No blanket byte equality or arbitrary identity stripping. All differing leaves in the compared complete Event/snapshot/metric/terminal structures are classified; all other fields match exactly.",
+    "The precise current rpg-stat derived Source bounds change4040\u21921000 at exactly seven recorded paths; no other maintained Source edits.",
+    "Capture predates the subsequent vector-only source-oracle checkpoint; keep its authority head explicit. Root supplied proof of unchanged six maintained RIRs for that later checkpoint.",
+    "Permanent public extrema/budget/eager tests are separately recorded in public-test-receipt.json at f48d56dd081ab37becf717127e83c7256d4bca86; 19 unique cases passed, including the five retained cases. They do not turn the 59 cumulative ledger deltas into an independent recurrence proof.",
+    "Single-observation latency/RSS receipt is separate; not a benchmark, acceleration claim or #877worst-case proof."
+  ],
+  "latency_receipt": "/private/tmp/gda-876-public-worker-evidence/latency/receipt.json",
+  "public_test_receipt": "/private/tmp/gda-876-public-worker-evidence/public-test-receipt.json"
+}

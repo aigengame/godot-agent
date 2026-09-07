@@ -41,7 +41,7 @@
     "tests/test_cli_conformance.py::TestPerDescriptorRows::test_verdict_row[template list]",
     "tests/test_cli_conformance.py::TestPerDescriptorRows::test_verdict_row[version]"
   ],
-  "description": "Required logical behavior inventory after Schema 1 retirement, current-package union, #871 native namespace migration and #873 request preparation, and #874 selected execution-contract closure. Explicit obligation dispositions preserve negative admission and retained behavior; the complete current collection must also belong to exactly one CI shard.",
+  "description": "Required logical behavior inventory after Schema 1 retirement, current-package union, #871 native namespace migration and #873 request preparation, #874 selected execution-contract closure, and #876 replacement of the removed maximum charge witness with its executing less-than dependency. Explicit obligation dispositions preserve negative admission and retained behavior; the complete current collection must also belong to exactly one CI shard.",
   "package_vector_ids": [
     "core.quantity:model.compile.boundary-max-symbols",
     "core.quantity:model.compile.boundary-max-symbols-plus-one",
@@ -358,7 +358,7 @@
     "tests/test_execution_law_projection.py::test_each_selected_node_charge_is_an_independently_admitted_dependency[rpg-combat-cast-copy]",
     "tests/test_execution_law_projection.py::test_each_selected_node_charge_is_an_independently_admitted_dependency[rpg-combat-cast-invoke]",
     "tests/test_execution_law_projection.py::test_each_selected_node_charge_is_an_independently_admitted_dependency[rpg-combat-cast-less-than-or-equal]",
-    "tests/test_execution_law_projection.py::test_each_selected_node_charge_is_an_independently_admitted_dependency[rpg-combat-cast-maximum]",
+    "tests/test_execution_law_projection.py::test_each_selected_node_charge_is_an_independently_admitted_dependency[rpg-combat-cast-less-than]",
     "tests/test_execution_law_projection.py::test_each_selected_node_charge_is_an_independently_admitted_dependency[rpg-combat-cast-multiply]",
     "tests/test_execution_law_projection.py::test_each_selected_node_charge_is_an_independently_admitted_dependency[rpg-combat-cast-precondition-greater-than-or-equal]",
     "tests/test_execution_law_projection.py::test_each_selected_node_charge_is_an_independently_admitted_dependency[rpg-combat-cast-schedule]",

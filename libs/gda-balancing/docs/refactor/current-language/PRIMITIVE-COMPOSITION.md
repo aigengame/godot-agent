@@ -178,3 +178,70 @@ old readers or duplicate execution branches as a rollback mechanism.
 This slice does not remove subtraction, state writes, guards or cancellation. It
 does not establish full collection traversal, genre coverage, a formal release or
 authenticated claim activation. #877 and #878 retain their own required witnesses.
+
+## Recorded implementation evidence
+
+The [public evidence receipt](evidence/primitive-composition/public-evidence-receipt.json)
+archives the bounded comparison and its original capture state. Baseline
+`6a32d8ced05e4dcd6c02e59d7053144500528b83` and the candidate each execute 26 actual
+CLI subprocess commands: six maintained Model builds, eight Experiment checks
+and runs, and two numeric-refusal build/run pairs. All 29 Metric observations,
+15 complete Named RNG draws, committed state transitions and Event order agree.
+The draws are also replayed independently from the authored seed and stream law.
+Identity changes remain explicit pairs; generated names must follow those pairs
+exactly. Numeric Effect instance identifiers remain unchanged.
+
+Five Operation replacements and nine affected lifecycle programs have exact
+body-length and declared-bound checks. The receipt also lists 59 cumulative
+ledger changes. Those entries are observations with a monotonicity check, not an
+independent recurrence proof for every captured frame. Exact metering evidence
+comes separately from the normative vectors and permanent public boundary cases.
+
+The 14 new value-program vectors extend the existing ten. Each of the 24
+expectations is checked independently by the reference consumer and by the
+production seam in initialization, Event and observation contexts. Permanent
+Formula inference tests compare 4,050 actual transfer results with concrete
+enumeration and cover Int64 boundaries, unreachable branches, distinct origins,
+rebindings and mixed value contracts. Copy-related operands have sound containment
+checks; no exact relational alias inference is claimed.
+
+Four public extrema cases cover both operand orders and ties at MIN/MAX, in all
+three lifecycle phases, with unchanged results and charges under explicit cache
+prewarming. Nine further public cases exercise below/exact/above limits around
+the simple composed program's cumulative charges: initialization `0→3`, Event
+`3→6`, observation `29→32`. An exact Formula fit can still refuse later work under
+the same global budget; the tests distinguish those boundaries. Observation uses
+the committed Event snapshot as its input frame and records its charge in a later
+snapshot. The eager-operand case refuses `MIN−1` before snapshot zero, even when
+maximum would select the other operand.
+
+Thirteen positive Source vectors refresh only their RIR and Debug Map identity
+expectations. Both compiler pipelines produce identical artifacts, mutually admit
+them and preserve the declared relations. Source identities, Debug Map mappings,
+lock expectations, declaration counts and refusal expectations do not change.
+The later vector-only reseal leaves four package semantic identities and all six
+maintained RIR artifacts unchanged. The
+[integration check](evidence/primitive-composition/capture-integration.json)
+also verifies unchanged Python source, Kernel and maintained inputs between the
+public capture and its integrated source checkpoint.
+
+One fresh-store observation of `rpg-stat-composition` build/check/run measured
+baseline `3.700/1.513/1.648 s` and candidate `3.802/1.542/1.614 s` on the same
+shared macOS ARM64 host. Direct child peak RSS ranged from 79.6 to 98.4 MB.
+The [raw measurements](evidence/primitive-composition/public-latency.json) record
+the environment and command arguments. This is neither a controlled benchmark
+nor a speedup or worst-case capacity claim.
+
+The maintained logical inventory replaces its obsolete
+`rpg-combat-cast-maximum` charge-mutation obligation with
+`rpg-combat-cast-less-than`, the dependency now executed by composed maximum.
+All 849 logical obligations remain; no legacy parameter alias or compatibility
+interpreter is retained. The mutation still reidentifies the changed authority
+and requires independent admission to refuse the altered selected-node charge.
+
+Reproduce permanent checks with the package's `uv run --frozen pytest` command
+over `tests/test_formula_interval_inference.py`, `tests/test_formula_runtime_seam.py`
+and `tests/test_public_formula_runtime_seam.py`, plus the value-program and
+dual-compiler vector tests in their existing modules. `tools/ci.py` includes these
+files in the required inventory. GitHub owns final complete CI, review, rollback
+and issue acceptance; these bounded records do not replace those gates.
