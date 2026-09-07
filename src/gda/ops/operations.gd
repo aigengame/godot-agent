@@ -3256,8 +3256,8 @@ func _op_resource_inspect_model(params: Dictionary) -> void:
 		return
 	var resource: Resource = ResourceLoader.load(path)
 	if resource == null:
-		_fail(OP_ERROR_MISSING_DEPENDENCY, "resource could not be loaded: " + path
-				+ "; inspect engine diagnostics and use resource import for an unavailable import")
+		_fail(OP_ERROR_NOT_A_SCENE, "resource could not be loaded as PackedScene: " + path
+				+ "; inspect engine diagnostics; imported sources may need resource import")
 		return
 	if not resource is PackedScene:
 		_fail(OP_ERROR_NOT_A_SCENE, "resource is " + resource.get_class() + ", not PackedScene: " + path)

@@ -231,13 +231,20 @@ def test_empty_subtree_and_distinct_load_failures(godot_project, imported_model)
         code="invalid_params",
     )
     run.json("resource", "create", "res://gradient.tres", "--type", "Gradient")
-    run.error("resource", "inspect-model", "res://gradient.tres", code="not_a_scene")
+    wrong_type = run.error(
+        "resource", "inspect-model", "res://gradient.tres", code="not_a_scene"
+    )
+    assert "resource is Gradient, not PackedScene" in wrong_type["message"]
+    (godot_project / "garbage.tscn").write_text("not a scene document")
+    corrupt = run.error(
+        "resource", "inspect-model", "res://garbage.tscn", code="not_a_scene"
+    )
+    assert "could not be loaded as PackedScene" in corrupt["message"]
     # Valid source bytes with no sidecar/cache under this NEW path cannot load.
     source = (imported_model / "model.glb").read_bytes()
     (godot_project / "cold.glb").write_bytes(source)
-    cold = run.error(
-        "resource", "inspect-model", "res://cold.glb", code="missing_dependency"
-    )
+    cold = run.error("resource", "inspect-model", "res://cold.glb", code="not_a_scene")
+    assert "could not be loaded as PackedScene" in cold["message"]
     assert "resource import" in cold["message"]
     assert not (godot_project / "cold.glb.import").exists()
     assert (godot_project / "cold.glb").read_bytes() == source

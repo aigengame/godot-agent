@@ -1170,9 +1170,11 @@ Node traversal stops at `max_nodes` (1–4096); one shared `max_items` budget
 empty partial list as absence. Summary counts and bounds cover visited nodes only.
 These are report/traversal limits, not byte or engine-load memory limits: Godot
 loads and instantiates the resource first. Human output is a summary; use `--json`
-for the complete bounded facts. Missing files, absent subtrees, non-PackedScene
-resources and unavailable loads use `path_not_found`, `node_not_found`,
-`not_a_scene` and `missing_dependency`, respectively. Project expectations and
+for the complete bounded facts. Missing files and absent subtrees use
+`path_not_found` and `node_not_found`. A loaded resource of the wrong type and a
+failed load both use the existing `not_a_scene` code, with distinct messages and
+engine diagnostics. A failed load may require explicit import; its cause is not
+assumed to be a missing dependency. Project expectations and
 cross-version comparisons belong to Asset Pipeline; this command gives facts.
 
 **Scoped import surface** (shipped, #668, per the issue's revised contract): a clean
