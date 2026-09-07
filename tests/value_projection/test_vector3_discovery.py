@@ -30,3 +30,8 @@ def test_local_transform_contract_reaches_cli_schema_and_generated_mcp():
             tool = tools[f"{group}_{action}"]
             assert tool.input_schema == schema["input"]
             assert tool.output_schema == schema["output"]
+            if group == "game":
+                help_result = CliRunner().invoke(app, [group, action, "--help"])
+                assert help_result.exit_code == 0
+                help_text = " ".join(help_result.stdout.replace("│", " ").split())
+                assert "storage and Node3D local components first" in help_text

@@ -658,8 +658,9 @@ def game_get(
         None,
         "--property",
         help=(
-            "If set, read only this property: storage first, then an attached "
-            "script variable. Without it, list only the storage surface."
+            "If set, read only this property: storage and Node3D local components "
+            "first, then an attached script variable. Without it, list only the "
+            "storage surface."
         ),
     ),
     texture_digest: bool = typer.Option(
@@ -754,8 +755,8 @@ def game_set(
         ...,
         "--property",
         help=(
-            "The property to set (e.g. position, visible): storage first, then an "
-            "attached script variable."
+            "The property to set (e.g. position, visible): storage and Node3D local "
+            "components first, then an attached script variable."
         ),
     ),
     value: str = typer.Option(

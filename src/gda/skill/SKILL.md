@@ -494,7 +494,8 @@ leading space fails as `expected_resource_path`). The value-typed forms are shar
 `node set`, `resource set`, `project set`, and live `game set`; the `res://` Resource
 assignment is headless-only (`node set` / `resource set`). For live `game get` /
 `game set`, an explicitly named attached-script variable is addressable after storage
-properties are checked; unfiltered `game get` still lists only storage properties.
+properties and Node3D local components are checked; unfiltered `game get` still lists
+only storage properties.
 
 For Node3D, `node get` includes local `position`, `rotation` and `scale`. Both
 `node set` and `game set` can edit them; live reads name the component explicitly
