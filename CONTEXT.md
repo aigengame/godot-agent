@@ -357,6 +357,12 @@ stack.
 off-tree: resource/node initializers and custom property metadata can run, but
 the inspected scene is not added to the active tree or played. Its bounded
 report is an engine observation, not a project acceptance verdict.
+`gda resource import-options` (#888) uses an isolated empty project to parse a
+sidecar with ConfigFile; it starts no target code or import pass. `resource reimport`
+composes that query, source-adjacent configuration edits, the existing project-wide
+import pass, and before/after `inspect-model` observations. Its dry-run and no-op
+paths do not load the target. A changed request has the import and instantiation
+effects described above, without adding a trust axis or requiring an asset workflow.
 `gda scene validate` (#664) is a point too, and a narrow one: it compiles
 every script the scene binds — which runs their static initializers — while
 instantiating nothing, so none of the scene's own nodes reach `_init` or

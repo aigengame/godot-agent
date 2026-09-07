@@ -1128,6 +1128,63 @@ a missing action is `unknown_setting`, mirroring `remove-autoload`. A failed sav
 | `gda resource set` | Edit a resource file |
 | `gda resource uid` | Resolve UID ↔ resource path (both directions) |
 | `gda resource import` | Ensure assets are imported into the project cache (clean-worktree loading) |
+| `gda resource import-options` | Read configured GLB importer values and the supported update scope |
+| `gda resource reimport` | Change root scale, run project-wide import, and verify loaded dimensions |
+
+`gda resource import-options res://model.glb --json` reads the existing `.import`
+sidecar with Godot's ConfigFile parser in an isolated empty project. It does not
+start target-project autoloads or an import pass, or write target-project files.
+Temporary engine files and normal engine user-data writes remain possible. Import
+a source explicitly first if it has no sidecar. The current scope is GLB with a
+recorded `scene` / `PackedScene` importer. This declaration does not establish
+that the importer is currently registered or available.
+
+`configured_options` contains observed scalar values and Variant types, not an
+importer capability table. At most 128 sorted options are returned; complex
+values and strings above 4096 characters have an unavailable reason. Godot writes
+defaults and edits into the same sidecar, so explicit authorship, importer defaults,
+declared types/hints and effective engine values are unavailable from this query.
+`supported_updates` describes gda's bounded update contract: numeric
+`nodes/root_scale`, from `0.001` to `1000`. It does not discover plugin options.
+
+```sh
+gda resource reimport res://model.glb --updates-json '{"nodes/root_scale":2}' --dry-run
+gda resource reimport --params-json '{"path":"res://model.glb","updates":{"nodes/root_scale":2}}'
+```
+
+Dry-run validates the patch and recorded configuration without target mutation,
+target loading, or an import pass. It does not predict geometry or prove engine
+adoption. Unknown keys, nonnumeric values (including booleans), out-of-range values
+and unavailable scene scale configuration are refused. A no-op returns `unchanged`
+with no configuration write, import pass or dimension verification; this does not
+prove that a previously edited sidecar was adopted. Invalid cache evidence needs
+explicit repair; this command does not delete sidecars or caches to repair it.
+
+A changed request needs an already imported baseline. The operation reads complete
+static mesh bounds through `inspect-model` (up to 4096 nodes), edits only root scale
+through ConfigFile, and invokes the existing project-wide import primitive even
+when GLB bytes are unchanged. Godot may normalize sidecar formatting; unselected
+`[params]` values are compared semantically, including nested values omitted from
+the query. gda does not edit authored scenes or material overrides. Import scripts
+still run under the Trusted project assumption and can cause their own effects.
+
+Success requires unchanged source bytes, the requested configured value, preserved
+unselected parameters and changed loaded dimensions matching the scale ratio.
+The comparison uses static resource-space mesh AABB **sizes**, including the root
+transform; both baked and root-transform scale modes are supported. It compares
+axes whose prior size exceeds `0.0001`, with relative tolerance `0.00001` and absolute
+tolerance `0.0001`. No geometry, incomplete bounds, or a change too small to distinguish
+from unchanged geometry is refused before editing the configuration. This is a
+bounded dimension check, not animation, runtime-instance, or artistic acceptance.
+
+`import_result` retains the existing cache-evidence and created-file report;
+`verification` supplies the independent loaded-size observation. An import script
+can fail while old artifacts still satisfy the static import checks (#853), so that
+summary alone never establishes adoption. Failed verification or an interrupted
+import returns `error.partial_result`, including whether the sidecar changed,
+whether an engine pass was attempted, and available import/verification results.
+There is no automatic rollback. `--timeout` bounds the import pass (default 300s);
+each sentinel query/load retains the normal headless-operation timeout.
 
 `resource inspect-model PATH [--subtree PATH] [--max-nodes 256] [--max-items 1024]`
 loads and instantiates a PackedScene off-tree. It accepts an imported GLB or an

@@ -333,6 +333,12 @@ func _initialize() -> void:
 			_op_resource_load(params)
 		"resource-inspect-model":
 			_op_resource_inspect_model(params)
+		"resource-import-options":
+			_op_resource_import_options(params)
+		"resource-import-config-patch":
+			_op_resource_import_config_patch(params)
+		"resource-import-config-check":
+			_op_resource_import_config_check(params)
 		"resource-set":
 			_op_resource_set(params)
 		"resource-delete":
@@ -3246,6 +3252,87 @@ func _model_animation_player(player: AnimationPlayer, root: Node, budget: Dictio
 			record["tracks"].append(_model_animation_track(animation, index, base, root))
 		result["animations"].append(record)
 	return result
+
+
+func _op_resource_import_options(params: Dictionary) -> void:
+	_diag("running operation: resource-import-options")
+	var path := _string_param(params, "path")
+	var sidecar := path + ".import"
+	if not FileAccess.file_exists(sidecar):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "import sidecar not found: " + sidecar + "; import the source explicitly first")
+		return
+	var config := ConfigFile.new()
+	var error := config.load(sidecar)
+	if error != OK:
+		_fail(OP_ERROR_INVALID_PATH, "cannot read import configuration: " + sidecar + " (" + error_string(error) + ")")
+		return
+	var importer := str(config.get_value("remap", "importer", ""))
+	var resource_type := str(config.get_value("remap", "type", ""))
+	if importer != "scene" or resource_type != "PackedScene":
+		_fail(OP_ERROR_INVALID_PARAMS, "unsupported importer: " + importer + "; expected scene / PackedScene")
+		return
+	var options: Array = []
+	var keys := config.get_section_keys("params") if config.has_section("params") else PackedStringArray()
+	keys.sort()
+	for key in keys:
+		if options.size() >= 128:
+			break
+		var value: Variant = config.get_value("params", key)
+		var unavailable: Variant = null
+		if typeof(value) not in [TYPE_NIL, TYPE_BOOL, TYPE_INT, TYPE_FLOAT, TYPE_STRING]:
+			unavailable = "complex value omitted"
+		elif value is String and value.length() > 4096:
+			unavailable = "string exceeds 4096 characters"
+		options.append({"name": key, "value_type": _type_name(typeof(value)),
+			"value": _jsonify(value) if unavailable == null else null,
+			"value_unavailable_reason": unavailable})
+	_succeed({"path": path, "sidecar": sidecar, "engine_version": Engine.get_version_info(),
+		"importer": importer, "resource_type": resource_type,
+		"configured_options": options, "configured_options_truncated": keys.size() > options.size()})
+
+
+func _op_resource_import_config_patch(params: Dictionary) -> void:
+	var sidecar := _string_param(params, "sidecar")
+	var original := _string_param(params, "original")
+	if not FileAccess.file_exists(sidecar) or FileAccess.get_file_as_bytes(sidecar) != FileAccess.get_file_as_bytes(original):
+		_fail(OP_ERROR_FILE_CHANGED_EXTERNALLY, "import configuration changed before patch: " + sidecar)
+		return
+	var config := ConfigFile.new()
+	var error := config.load(sidecar)
+	if error != OK:
+		_fail(OP_ERROR_INVALID_PATH, "cannot read import configuration: " + error_string(error))
+		return
+	var scale := float(params["root_scale"])
+	config.set_value("params", "nodes/root_scale", scale)
+	error = config.save(sidecar)
+	if error != OK:
+		_fail(OP_ERROR_SAVE_FAILED, "cannot save import configuration: " + error_string(error))
+		return
+	_succeed({"root_scale": scale})
+
+
+func _op_resource_import_config_check(params: Dictionary) -> void:
+	var config := ConfigFile.new()
+	var original := ConfigFile.new()
+	if config.load(_string_param(params, "sidecar")) != OK or original.load(_string_param(params, "original")) != OK:
+		_fail(OP_ERROR_INVALID_PATH, "cannot compare import configuration after reimport")
+		return
+	var keys := original.get_section_keys("params")
+	for key in config.get_section_keys("params"):
+		if not key in keys:
+			keys.append(key)
+	var changed: Array = []
+	for key in keys:
+		if key == "nodes/root_scale":
+			continue
+		if not config.has_section_key("params", key) or not original.has_section_key("params", key) or config.get_value("params", key) != original.get_value("params", key):
+			if changed.size() < 128:
+				changed.append(key)
+	var scale: Variant = config.get_value("params", "nodes/root_scale", null)
+	if not scale is float:
+		_fail(OP_ERROR_INVALID_PARAMS, "root_scale is unavailable after reimport")
+		return
+	_succeed({"root_scale": scale, "changed_unselected_options": changed})
 
 
 func _op_resource_inspect_model(params: Dictionary) -> void:
