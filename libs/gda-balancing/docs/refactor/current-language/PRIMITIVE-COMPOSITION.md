@@ -85,6 +85,43 @@ result does not remove an unselected arithmetic instruction, its overflow/refusa
 or its charge. It creates no lazy evaluation, callback, extra phase or stateful
 Runtime policy.
 
+## Current implementation changes
+
+The foundation removes both Kernel definitions, their execution operators and
+the obsolete `maximum` inference rule. Production Runtime, artifact replay and
+vector admission use the remaining vocabulary. `quantity.maximum`, its `max`
+notation and interval fields named `maximum` remain useful and retain their
+distinct meanings. Independent test consumers must migrate before acceptance;
+the foundation alone is not a completed slice.
+
+The five affected Operation bounds count the added comparison explicitly:
+
+| Operation | Previous steps | Current steps |
+| --- | ---: | ---: |
+| `quantity.maximum` | 1 | 2 |
+| `quantity.floor-zero` | 2 | 3 |
+| `game.combat.damage-v1` | 13 | 14 |
+| `game.effect.tick-live-periodic-v1` | 12 | 13 |
+| `game.effect.apply-snapshot-periodic-v1` | 16 | 17 |
+
+The three affected Formula-slot placeholder lengths change from 3 to 4, so
+specialization replaces the complete default body. Actual specialized Formula
+bounds are derived from their emitted programs, not copied from this table.
+
+The same generic inference also sharpens the maintained `rpg-stat-composition`
+cap: `min(uncapped_damage, maximum_damage)` has a maximum of 1000 rather than
+4040. Seven derived domain maxima change together: the `attack-damage` Symbol,
+that Formula's result and selection node, and the downstream combat Formula's
+parameter, subtraction node, floor node and result. Authored expressions, input
+values and numeric policies are unchanged. This is a stronger inferred contract,
+not wider output tolerance. The refreshed Experiment inputs bind their actual
+new RIR identities and request only current instruction nodes.
+
+The compiler passes the selected Kernel Boolean contract explicitly through
+notation and concrete Operation-call projection. Each selection can use its local
+comparison fact; local rebinding invalidates affected facts. It does not infer arbitrary
+arithmetic correlations or introduce an ambient contract lookup.
+
 ## Implementation and validation
 
 1. Promote the smallest generic inference rule, delete `value` and `maximum`, and

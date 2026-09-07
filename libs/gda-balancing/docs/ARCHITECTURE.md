@@ -911,11 +911,23 @@ uses that vocabulary to define the complete language and Operations owned by Dom
 Operation definition declares its inputs, result, effects, refusals, numeric behavior, lowering,
 evaluation, and vectors. A host function with the same name is not an Operation definition.
 
-The unreleased 2.0 baseline includes exact-int64 addition, subtraction, multiplication, comparison,
-selection, maximum, and floor division. Floor division requires a positive divisor and rounds
-toward negative infinity. `core.quantity` exposes typed Operations over this vocabulary; it does
-not make the Kernel node a public, polymorphic numeric API. Other representations or Numeric
-profiles require an explicit later language decision.
+The current exact-int64 vocabulary includes addition, subtraction, multiplication, comparison,
+selection and floor division. Floor division requires a positive divisor and rounds toward
+negative infinity. Under #876, the redundant `value` binding alias is deleted and `copy` remains.
+Maximum is an LDB Operation composed from `less-than` and `if`; its former Kernel node and host
+operator are deleted. Both instructions charge normally, including cached Formula evaluations.
+`core.quantity` exposes typed Operations over this vocabulary; it does not make a Kernel node a
+public, polymorphic numeric API. Other representations or Numeric profiles require an explicit
+later language decision.
+
+The existing Formula inference owner interprets the compiler's comparison and selection rules.
+It restricts branches to possible values under one comparison before joining their intervals.
+This preserves composed extrema precision without recognizing an Operation name or adding a
+Runtime policy. The comparison result has the selected Kernel Boolean contract. Selection remains
+eager: a known or unreachable result branch does not suppress an earlier instruction's refusal or
+charge. The [primitive-composition record](refactor/current-language/PRIMITIVE-COMPOSITION.md)
+records the admission counterexample, current contract changes and bounded validation; #876 owns
+live acceptance.
 
 The `RPG-STAT-01` tracer composes progression, build, and effect contributions through their owning
 package Operations. Model Source owns one named Formula graph. It binds each package Formula slot,
