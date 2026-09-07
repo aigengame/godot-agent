@@ -962,8 +962,8 @@ def game_find(
     required. `--type` reads the ENGINE class and is subclass-inclusive
     (`--type Control` matches every Control); it never sees a project
     `class_name`, which is what `--script` reaches — matching the node's
-    attached script or any script in its base chain. `--unique-name` decides
-    is decided by the node's OWN owner (not `current_scene`): the owner
+    attached script or any script in its base chain. `--unique-name` is decided
+    by the node's OWN owner (not `current_scene`): the owner
     declaring the `%` name must be the search root or lie inside the searched
     subtree, because a running tree holds many owners (every autoload, every
     instanced sub-scene).

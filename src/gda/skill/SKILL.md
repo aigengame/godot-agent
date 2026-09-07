@@ -333,25 +333,24 @@ whole tree:
    unbounded `game tree` on a production UI is a very large result — it can exceed your
    own context budget and be truncated by your client, and a truncated dump cannot prove
    a node is absent.
-2. **Or search by selector.** `gda game find --type Button --group hud --json` returns
-   a flat list of matches instead of a tree — each one an object carrying `path`,
-   `name`, `type` and `script_path`. Selectors are ANDed and at least one is required:
-   `--type` is the ENGINE class and subclass-inclusive (`Button` also matches a
-   `CheckBox`), and it never sees a project `class_name` — `--script
-   res://ui/card_view.gd` is what reaches that, matching the node's attached script or
-   any script in its base chain.
+2. **Or search by selector.** `gda game find --type Button --group hud --json` returns a
+   flat list of matches instead of a tree — each one an object carrying `path`, `name`,
+   `type` and `script_path`. Selectors are ANDed and at least one is required: `--type`
+   is the ENGINE class and subclass-inclusive (`Button` also matches a `CheckBox`), and
+   it never sees a project `class_name` — `--script res://ui/card_view.gd` is what
+   reaches that, matching the node's attached script or any script in its base chain.
    `--group` and `--name` are the plain identity checks, and `--unique-name` matches a
    `%`-addressable node whose OWNER is the search root or lies inside the searched
    subtree, so the same `%Name` owned from ABOVE that root does not match. `--root` and
    `--max-depth` bound the search exactly as they bound the read above, from the same
    default root — so reaching an autoload takes `--root /root` here too, and a broad
    selector needs the bounds as much as the tree read does: `--type Node` matches every
-   node in the subtree, which on a production UI is the same very large result.
-   Zero matches is a success with an empty list, not an error. Several matches are data
-   too: every candidate comes back and you choose, because the ops that need one node
-   still take an exact path.
-3. **Address exactly.** With the path in hand, use `game get` / `game rect` / `game set`
-   / `game call` on that path. Do not re-read the tree per node.
+   node in the subtree, which on a production UI is the same very large result. Zero
+   matches is a success with an empty list, not an error. Several matches are data too:
+   every candidate comes back and you choose, because the ops that need one node still
+   take an exact path. 3. **Address exactly.** With the path in hand, use `game get` /
+   `game rect` / `game set` / `game call` on that path. Do not re-read the tree per
+   node.
 
 A bounded read says what it left out, so you never mistake it for a complete one:
 `omitted_nodes` counts every unserialized node at any depth below the selected root,

@@ -1016,7 +1016,7 @@ def test_game_find_locates_nodes_by_selector_and_counts_what_it_left_unsearched(
         assert absent["truncated"] is False and absent["omitted_nodes"] == 0
 
         # AC4: the bounds are `game tree`'s. Depth 0 searches the root alone, and
-        # the five nodes it never reached are counted — so THIS empty list is not
+        # the six nodes it never reached are counted — so THIS empty list is not
         # absence.
         alone = run(
             "game",
@@ -1034,7 +1034,7 @@ def test_game_find_locates_nodes_by_selector_and_counts_what_it_left_unsearched(
         assert bounded["truncated"] is True
         assert bounded["omitted_nodes"] == 6
 
-        # One level down reaches all three Labels, in the tree's document order,
+        # One level down reaches all four nodes at that level, in the tree's document order,
         # and leaves nothing behind.
         deeper = run(
             "game",
