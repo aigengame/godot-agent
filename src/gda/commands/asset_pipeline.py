@@ -68,7 +68,10 @@ class AssetPipelineRunParams(BaseModel):
     )
     source_root: Path | None = Field(
         default=None,
-        description="Base for relative sources; defaults to the current directory.",
+        description=(
+            "Required base directory when any source is relative; may be omitted "
+            "when every source is absolute."
+        ),
     )
     overwrite: bool = Field(
         default=False, description="Whether existing target files may be replaced."
@@ -81,6 +84,14 @@ class AssetPipelineRunParams(BaseModel):
         default=None,
         description="Optional caller-declared producer metadata; never an engine observation.",
     )
+
+    @model_validator(mode="after")
+    def _relative_sources_require_a_base(self) -> "AssetPipelineRunParams":
+        if self.source_root is None and any(
+            not Path(item.source).is_absolute() for item in self.files
+        ):
+            raise ValueError("source_root is required when any source path is relative")
+        return self
 
 
 class InstalledAssetResult(BaseModel):
@@ -210,7 +221,7 @@ def run_asset_pipeline(
     )
     pipeline = run_pipeline(
         recipe,
-        source_root=(params.source_root or Path.cwd()).resolve(),
+        source_root=(params.source_root or project).resolve(),
         project_root=project,
         godot=port,
     )
@@ -288,7 +299,10 @@ def asset_pipeline_run(
     source_root: Optional[Path] = typer.Option(
         None,
         "--source-root",
-        help="Base directory for relative source paths; defaults to the current directory.",
+        help=(
+            "Base directory for relative source paths; required when any source "
+            "is relative."
+        ),
     ),
     overwrite: bool = typer.Option(
         False, "--overwrite", help="Allow replacement of existing target files."

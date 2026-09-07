@@ -41,7 +41,7 @@ def test_no_resolved_project_is_a_structured_failure_on_both_input_paths(
 ):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("GDA_PROJECT", raising=False)
-    files = [{"source": "missing.png", "target": "res://icon.png"}]
+    files = [{"source": str(tmp_path / "missing.png"), "target": "res://icon.png"}]
     runner = CliRunner()
 
     argv = runner.invoke(
@@ -69,6 +69,118 @@ def test_no_resolved_project_is_a_structured_failure_on_both_input_paths(
     assert error["code"] == "project_not_found"
     assert error["partial_result"]["completed"] == []
     assert error["partial_result"]["failure"]["stage"] == "validate"
+
+
+def test_relative_sources_need_an_explicit_base_independent_of_cwd(
+    monkeypatch, tmp_path
+):
+    project = minimal_project(tmp_path / "project")
+    cwd_a = tmp_path / "a"
+    cwd_b = tmp_path / "b"
+    source_base = tmp_path / "selected"
+    for directory, content in (
+        (cwd_a, b"a"),
+        (cwd_b, b"b"),
+        (source_base, b"selected"),
+    ):
+        directory.mkdir()
+        (directory / "icon.png").write_bytes(content)
+    calls = []
+
+    def fake_run(recipe, *, source_root, project_root, godot):
+        calls.append((recipe.files[0].source, source_root, project_root))
+        return PipelineResult(source_mode=recipe.source_mode)
+
+    monkeypatch.setattr("gda.commands.asset_pipeline.run_pipeline", fake_run)
+    files = [{"source": "icon.png", "target": "res://icon.png"}]
+    runner = CliRunner()
+
+    monkeypatch.chdir(cwd_a)
+    argv_refusal = runner.invoke(
+        app,
+        [
+            "asset-pipeline",
+            "run",
+            "--files",
+            json.dumps(files),
+            "--project",
+            str(project),
+            "--json",
+        ],
+    )
+    monkeypatch.chdir(cwd_b)
+    params_refusal = runner.invoke(
+        app,
+        [
+            "asset-pipeline",
+            "run",
+            "--params-json",
+            json.dumps({"files": files}),
+            "--project",
+            str(project),
+            "--json",
+        ],
+    )
+
+    assert argv_refusal.exit_code == 2
+    assert params_refusal.exit_code == 4
+    assert "source_root is required" in argv_refusal.stderr
+    assert "source_root is required" in params_refusal.stdout
+    assert calls == []
+
+    monkeypatch.chdir(cwd_a)
+    argv = runner.invoke(
+        app,
+        [
+            "asset-pipeline",
+            "run",
+            "--files",
+            json.dumps(files),
+            "--source-root",
+            str(source_base),
+            "--project",
+            str(project),
+            "--json",
+        ],
+    )
+    monkeypatch.chdir(cwd_b)
+    structured = runner.invoke(
+        app,
+        [
+            "asset-pipeline",
+            "run",
+            "--params-json",
+            json.dumps({"files": files, "source_root": str(source_base)}),
+            "--project",
+            str(project),
+            "--json",
+        ],
+    )
+
+    assert argv.exit_code == structured.exit_code == 0
+    assert calls == [
+        ("icon.png", source_base.resolve(), project),
+        ("icon.png", source_base.resolve(), project),
+    ]
+
+    absolute = str(source_base / "icon.png")
+    allowed = runner.invoke(
+        app,
+        [
+            "asset-pipeline",
+            "run",
+            "--params-json",
+            json.dumps(
+                {"files": [{"source": absolute, "target": "res://absolute.png"}]}
+            ),
+            "--project",
+            str(project),
+            "--json",
+        ],
+    )
+    assert allowed.exit_code == 0
+    assert calls[-1][0] == absolute
+    assert calls[-1][1] == project.resolve()
 
 
 def test_argv_and_params_json_build_the_same_recipe(monkeypatch, tmp_path):
@@ -221,6 +333,8 @@ def test_failure_is_nonzero_preserves_child_error_and_carries_partial_result(
             "run",
             "--files",
             '[{"source":"icon.png","target":"res://icon.png"}]',
+            "--source-root",
+            str(tmp_path),
             "--project",
             str(project),
             "--json",
@@ -254,7 +368,8 @@ def test_nested_project_target_is_rejected_before_pipeline_install(
 
     outcome = run_asset_pipeline(
         AssetPipelineRunParams(
-            files=[AssetFileInput(source="model.glb", target="res://vendor/model.glb")]
+            files=[AssetFileInput(source="model.glb", target="res://vendor/model.glb")],
+            source_root=tmp_path,
         ),
         project=project,
         godot=None,

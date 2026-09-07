@@ -98,9 +98,14 @@ Root `pyproject.toml` builds `src/gda` and `libs/gda-assets/src/gda_assets` into
 one gda distribution. Hatchling provides both wheel roots and the sdist through
 the existing `uv build` PEP 517 path. The previous uv_build backend supports
 multiple names under one source root, which does not fit these two owned roots.
+The sdist selects those same two source trees and the root build metadata,
+README and license. This preserves the previous distribution scope while adding
+the support library; it does not package other monorepo contexts or local files.
 No workspace-only dependency, separate version, release train, or assets extra
 is introduced. PNG processing makes Pillow a normal runtime dependency; its
-import stays local to PNG admission/processing.
+import stays local to PNG admission/processing. This uses the documented
+[uv module-root model](https://docs.astral.sh/uv/concepts/build-backend/#modules)
+and [Hatch package selection](https://hatch.pypa.io/latest/config/build/#packages).
 
 The descriptor uses `ExecutionKind.COMPOSITE` as truthful self-description.
 `dispatch_recipe` calls the workflow; there is no additional runner-selection

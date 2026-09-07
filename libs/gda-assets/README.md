@@ -13,8 +13,9 @@ gda asset-pipeline run --project ./consumer --source-root ./production \
 
 The consumer must contain `project.godot`. Set `GDA_GODOT` or pass `--godot` as
 for other gda commands. `source_root` is the base for relative source paths; when
-omitted it is the invocation's current directory. Targets always use the resolved
-Godot project. Absolute source paths are also accepted. Use `--overwrite` to
+any source is relative this base must be supplied explicitly. It can be omitted
+when every source is an absolute path. Targets always use the resolved
+Godot project. Use `--overwrite` to
 replace different target content; the default refuses it. Identical processed
 output reports `unchanged` and does not rewrite the target.
 

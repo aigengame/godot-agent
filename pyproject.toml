@@ -54,6 +54,17 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/gda", "libs/gda-assets/src/gda_assets"]
 
+[tool.hatch.build.targets.sdist]
+# Preserve the previous root distribution scope, adding only the supporting
+# library. The monorepo's games, sibling product and local agent files do not ship.
+only-include = [
+    "src/gda",
+    "libs/gda-assets/src/gda_assets",
+    "pyproject.toml",
+    "README.md",
+    "LICENSE",
+]
+
 [dependency-groups]
 dev = [
     "jsonschema>=4.26.0",

@@ -5,6 +5,7 @@ import struct
 import zlib
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
@@ -60,6 +61,7 @@ def _run(project: Path, source_root: Path, files: list[dict]):
     )
 
 
+@pytest.mark.e2e
 def test_png_handoff_resizes_preserves_source_and_loads_in_godot(
     godot_project, tmp_path
 ):
@@ -88,6 +90,7 @@ def test_png_handoff_resizes_preserves_source_and_loads_in_godot(
     assert source.read_bytes() == original
 
 
+@pytest.mark.e2e
 def test_glb_handoff_loads_as_a_scene_in_godot(godot_project, tmp_path):
     source_root = tmp_path / "inputs"
     source_root.mkdir()
