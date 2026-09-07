@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e225ed00bc75daf0ba46f85f056196e35987afe39341d354b4ec0454b64733a2 -->
+<!-- gda-readme-i18n: source=README.md sha256=29b7207be8231ce46160c34b0e1336b4412f3a788196bf583b581dafd6b27806 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -492,6 +492,18 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | ------- | ------------ |
 | `theme create` | Crea un recurso Theme `.tres` nuevo y cargable (sin sobrescribir). |
 
+### Flujo de trabajo de assets — Godot 4.4+, todas las plataformas
+
+| Comando | Qué hace |
+| ------- | ------------ |
+| `asset-pipeline run` | Prepara los archivos PNG/GLB seleccionados, permite redimensionar los PNG, los instala e importa y comprueba el tipo y las dimensiones o la escena que Godot carga realmente. |
+
+Usa correspondencias explícitas entre origen y destino y define una política de sobrescritura.
+Los archivos que complete la generación de imágenes siguen el mismo flujo y pueden incluir metadatos
+declarados por quien realiza la llamada. La [guía de entrega de archivos](../libs/gda-assets/README.md)
+explica las entradas, las referencias y los fallos parciales. Este flujo se incluye con gda y no requiere
+una herramienta de assets aparte.
+
 ### Comandos live — vía `gda-daemon`; Godot 4.6+, macOS/Linux
 
 **`daemon`** — el ciclo de vida del runtime live
@@ -595,7 +607,8 @@ proyecto es de confianza ([ADR-0009](adr/0009-trust-boundary-trusted-project.md)
 - **Los autoloads** arrancan en cada operación `--project` que inicia el motor, incluidas las de solo
   lectura (un `resource import` con la caché íntegra no arranca nada).
 - **El `_init` de los scripts de la escena** se ejecuta allí donde se instancia una escena: todo comando
-  `node` que modifica la escena y `node get`; `scene get` / `scene list` / `node list` leen sin instanciar.
+  `node` que modifica la escena, `node get` y la comprobación de carga de GLB de `asset-pipeline run`;
+  `scene get` / `scene list` / `node list` leen sin instanciar.
 - **`script run`** ejecuta íntegramente el script indicado; **`scene preflight`** arranca la escena y
   ejecuta su `_ready`.
 - **`resource import`** ejecuta los importadores del motor (y los plugins de importación del proyecto)

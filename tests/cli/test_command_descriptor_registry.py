@@ -72,7 +72,7 @@ def test_every_group_module_is_registered_on_the_root_app():
         )
         if info.name == _META_MODULE:
             continue
-        group = mounted.get(info.name)
+        group = mounted.get(info.name.replace("_", "-"))
         assert group is not None, (
             f"group module '{info.name}' is not mounted — "
             f"add {info.name}.register(app) to gda/cli.py"
@@ -161,6 +161,7 @@ def test_no_renderer_is_orphaned():
 # `_SCREEN_COMMANDS` identity frozensets + the export `kind` special-case: now it is
 # an asserted INVARIANT over the descriptors, not a dispatch mechanism.
 _RECIPE_OPERATIONS = {
+    "asset-pipeline-run",
     "export-run",
     # `script run` is the third execution shape (ADR-0031): a user-script passthrough
     # run, fulfilled by a CLI-side recipe (it emits no ADR-0002 sentinel) like export

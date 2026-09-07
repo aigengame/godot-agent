@@ -1,6 +1,7 @@
 # Asset Pipeline architecture
 
-**Status:** accepted design, implementation pending. Accepted by the project owner
+**Status:** accepted design; first file-handoff slice implemented by #908. Other
+workflows remain planned. Accepted by the project owner
 on 2026-09-07 after review of the Blender-to-Godot workflow and milestone #14.
 Source baseline inspected: `cfcb8658e67df418a69694840a37a22a9cd3cbe0`.
 Acceptance and delivery status are owned by
@@ -113,7 +114,6 @@ libs/gda-assets/
   ASSETS-CONTEXT.md
   docs/ARCHITECTURE.md
   docs/adr/
-  pyproject.toml                      # added with installable first slice
   src/gda_assets/
     api.py                            # deliberately supported cross-package API
     domain/
@@ -128,7 +128,7 @@ libs/gda-assets/
       prepare.py                     # save inputs, register outputs, select references
       preview.py                      # when preview slice lands
       package_check.py                # when package slice lands
-    adapters/outbound/
+    adapters/
       blender/
       imagegen/
       files.py
@@ -140,6 +140,9 @@ libs/gda-assets/
 The tree is a placement guide, not a requirement for one class per file. The
 package API exports only supported service inputs/results and required ports;
 it is not a wholesale re-export of internal modules. There is no second CLI.
+Root `pyproject.toml` packages both source roots in one gda distribution; this
+support context has no separate package manifest or release lifecycle. The
+[file-handoff guide](../README.md) documents the first implemented path.
 
 ## Tactical model and interfaces
 
@@ -305,8 +308,12 @@ The design's boundary review covers known owners and source cycles, but does not
 prove runtime conformance. Each slice must test its complete public path and real
 external boundary where relevant. Fakes can isolate local rules; they cannot be
 the sole evidence for Blender, Godot import, a runtime instance, or an exported
-package. No Godot/Blender runtime or new package-install tests were run for this
-documentation-only change.
+package. The original design-only change ran no Godot/Blender or package-install
+checks. #908 adds file-handoff evidence in `tests/asset_pipeline`, bounded resource
+load tests in `tests/resource`, and `scripts/smoke_asset_pipeline.py` for a clean
+built-distribution consumer. These cover PNG/GLB import and loading, declarations,
+resize, no-op repeat, admission failures and partial file effects. They do not
+establish Blender production, runtime refresh or package-only acceptance.
 
 ## Research basis and retained limits
 

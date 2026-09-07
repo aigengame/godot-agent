@@ -487,6 +487,14 @@ jobs:
         # grouped on one worker (#818).
         run: uv run --frozen pytest -m e2e -rs -n 4 --dist loadgroup
 
+      - name: Verify installed asset workflow
+        run: |
+          uv build --out-dir dist-asset-smoke
+          uv venv /tmp/gda-assets-consumer --python 3.13
+          uv pip install --python /tmp/gda-assets-consumer/bin/python dist-asset-smoke/gda-*.whl
+          /tmp/gda-assets-consumer/bin/python scripts/smoke_asset_pipeline.py \
+            --gda /tmp/gda-assets-consumer/bin/gda --godot "$GDA_GODOT"
+
       # The example game's engine-backed tiers: the data round-trip + logic seam
       # (engine marker) and the live daemon loop (e2e). install-godot exported
       # GDA_GODOT, so these resolve the engine. -rs surfaces any skips.

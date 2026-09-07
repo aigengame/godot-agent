@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e225ed00bc75daf0ba46f85f056196e35987afe39341d354b4ec0454b64733a2 -->
+<!-- gda-readme-i18n: source=README.md sha256=29b7207be8231ce46160c34b0e1336b4412f3a788196bf583b581dafd6b27806 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -468,6 +468,16 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | ------- | ------------ |
 | `theme create` | 创建一个全新的、可加载的 `.tres` Theme 资源（不覆盖已有文件）。 |
 
+### 资产工作流 — Godot 4.4+，全平台
+
+| 命令 | 作用 |
+| ------- | ------------ |
+| `asset-pipeline run` | 暂存选定的 PNG/GLB 文件，可选择调整 PNG 尺寸，然后安装并导入文件，检查 Godot 实际加载出的类型及尺寸/场景。 |
+
+请使用明确的源文件到目标位置映射，并指定覆盖策略。图像生成完成后的文件沿用同一流程，
+也可以附带调用方声明的元数据。[文件交接指南](../libs/gda-assets/README.md)介绍了输入、引用与
+部分失败的处理方式。该工作流随 gda 一同提供，无需单独安装资产工具。
+
 ### Live 命令 — 经由 `gda-daemon`；Godot 4.6+，macOS/Linux
 
 **`daemon`** — Live 运行时的生命周期
@@ -570,8 +580,8 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 
 - **autoload** 在每个会启动引擎的 `--project` 操作中运行，只读操作也不例外（缓存完好的
   `resource import` 不启动任何东西）。
-- **场景脚本的 `_init`** 在场景被实例化的地方运行：每个改动状态的 `node` 命令以及 `node get`；
-  `scene get` / `scene list` / `node list` 只读取、不实例化。
+- **场景脚本的 `_init`** 在场景被实例化的地方运行：每个改动状态的 `node` 命令、`node get`，
+  以及 `asset-pipeline run` 中的 GLB 加载检查；`scene get` / `scene list` / `node list` 只读取、不实例化。
 - **`script run`** 会执行指定脚本的全部内容；**`scene preflight`** 启动场景并运行其 `_ready`。
 - **`resource import`** 在缓存缺失时运行引擎的导入器（以及项目的导入插件），不运行 autoload。
 - **`game call`** 只运行节点 `GDA_CALLABLE` 声明中列出的那一个方法；未声明的绝不会被调用。

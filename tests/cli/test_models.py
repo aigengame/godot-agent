@@ -151,7 +151,12 @@ def test_error_envelope_round_trips_a_failure():
     # difference — rather than just asserting the filtered form — keeps this a real
     # guard: a future optional key that a consumer would see as `null` fails here.
     raw = json.loads(envelope.model_dump_json())
-    assert set(raw["error"]) - set(payload["error"]) == {"probe", "hint", "evidence"}
+    assert set(raw["error"]) - set(payload["error"]) == {
+        "probe",
+        "hint",
+        "evidence",
+        "partial_result",
+    }
     assert raw["error"]["probe"] is None
     # `hint` (#670) joined `probe` on the same optional-context axis and under the
     # same convention: a failure that offers no correction must not grow a `null`.
@@ -160,6 +165,7 @@ def test_error_envelope_round_trips_a_failure():
     # a nested object — so the convention has to hold one level deeper too, which
     # the test below measures on a failure that sets some of its fields.
     assert raw["error"]["evidence"] is None
+    assert raw["error"]["partial_result"] is None
 
 
 def test_the_evidence_key_omits_its_own_unset_fields_too():

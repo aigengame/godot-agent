@@ -243,6 +243,7 @@ name = "gda"
 version = "0.14.0"
 source = { editable = "." }
 dependencies = [
+    { name = "pillow" },
     { name = "pydantic" },
     { name = "typer" },
 ]
@@ -260,7 +261,6 @@ assets-live = [
 dev = [
     { name = "jsonschema" },
     { name = "mcp" },
-    { name = "pillow" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-xdist" },
@@ -270,6 +270,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2,<3" },
+    { name = "pillow", specifier = ">=11.0" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "typer", specifier = ">=0.26.7" },
 ]
@@ -283,7 +284,6 @@ assets-live = [
 dev = [
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "mcp", specifier = ">=2,<3" },
-    { name = "pillow", specifier = ">=11.0" },
     { name = "pyright", specifier = ">=1.1.411,<1.2" },
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },

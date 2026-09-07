@@ -477,6 +477,17 @@ names the file, and only `preflight` catches a first-frame failure.
 | ------- | ------------ |
 | `theme create` | Create a new, loadable `.tres` Theme resource (no-clobber). |
 
+### Asset workflow — Godot 4.4+, all platforms
+
+| Command | What it does |
+| ------- | ------------ |
+| `asset-pipeline run` | Stage selected PNG/GLB files, optionally resize PNGs, install them, then import and check their actual Godot-loaded type and dimensions/scene. |
+
+Use explicit source-to-target mappings and an overwrite policy. Completed
+image-generation files use the same path with optional caller-declared metadata.
+The [file-handoff guide](libs/gda-assets/README.md) covers inputs, references and
+partial failures. The workflow ships with gda; it needs no separate asset tool.
+
 ### Live commands — via `gda-daemon`; Godot 4.6+, macOS/Linux
 
 **`daemon`** — the live runtime lifecycle
@@ -579,7 +590,8 @@ project is trusted ([ADR-0009](docs/adr/0009-trust-boundary-trusted-project.md))
 - **Autoloads** start on every `--project` operation that boots the engine, read-only ones
   included (a cached `resource import` boots nothing).
 - **Scene scripts' `_init`** runs wherever a scene is instantiated: every mutating `node`
-  command and `node get`; `scene get` / `scene list` / `node list` read without instantiating.
+  command, `node get`, and the GLB load check in `asset-pipeline run`;
+  `scene get` / `scene list` / `node list` read without instantiating.
 - **`script run`** executes the named script in full; **`scene preflight`** boots the scene
   and runs its `_ready`.
 - **`resource import`** runs the engine's importers (and the project's import plugins) on a

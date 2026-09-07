@@ -241,7 +241,8 @@ class GdaError(BaseModel):
     probing the host (ADR-0004 amendment, #667); ``hint`` is the supported
     invocation to use instead, on the refusals gda recognizes as a near miss
     (#670); ``evidence`` is the typed evidence behind the verdict, on the failures
-    that compute any (#687). All three optional keys are OMITTED when unset, never
+    that compute any (#687); ``partial_result`` carries bounded completed work for
+    a composite failure (#908). All four optional keys are OMITTED when unset, never
     null, and so are ``evidence``'s own fields. The rule stops there: a model
     NESTED inside one of them keeps its full published key set, so a record reads
     the same on both halves of the contract (see
@@ -288,6 +289,13 @@ class GdaError(BaseModel):
             "Typed evidence behind this verdict (clocks, the child's exit status, "
             "recognized script errors); the key is omitted (never null) on failures "
             "that have none."
+        ),
+    )
+    partial_result: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "The bounded workflow result produced before this failure; omitted "
+            "when the operation has no partial result."
         ),
     )
 
