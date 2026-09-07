@@ -169,6 +169,17 @@
     "replacement_path": "tests/test_admitted_rir.py"
   },
   "rollback": "Restore code, packaged authorities, maintained authored sources, consumer contracts and current evidence together to the development baseline; no legacy execution fallback is retained.",
+  "rollback_execution": {
+    "actual_baseline_public_run_passed": true,
+    "all_package_bytes_match_baseline": true,
+    "base": "2a6c89cde0f4ec2c7ee1a377d5df15c171afd5a9",
+    "original_artifact_members": 7,
+    "original_publication_authenticated": true,
+    "restored_descriptor_gate_refused_changed_descriptor": true,
+    "restored_regular_files": 430,
+    "reversed_head": "f15a0f4ae79c5bbc0ade22f43e184c1680433822",
+    "scope": "Full package reverse patch and byte comparison, followed by actual restored public Model/Experiment/publication execution. Final PR review and CI are separate."
+  },
   "scope": "Current production Python and packaged JSON; historical evidence and superseded decision text are not shipped execution paths.",
   "status": "Implementation deletion checkpoint; final PR review and CI remain open. The issue and PR own live acceptance."
 }
