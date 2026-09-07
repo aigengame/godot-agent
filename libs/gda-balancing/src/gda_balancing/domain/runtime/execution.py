@@ -230,9 +230,10 @@ def _runtime_step_boundary(
 
 def _diagnostic_for_signal(checked: CheckedExperiment, signal: str, stage: str) -> str:
     matches = [
-        reason["diagnostic"]
-        for reason in checked.language_bundle["language"]["reasons"]
-        if reason.get("signal") == signal and reason.get("stage") == stage
+        row["definition"]["diagnostic"]
+        for row in checked.rir["selected_semantics"]["diagnostic_reasons"]
+        if row["definition"].get("signal") == signal
+        and row["definition"].get("stage") == stage
     ]
     if len(matches) != 1:
         raise ValueError(f"admitted Diagnostic signal is not unique: {signal}")
@@ -1005,10 +1006,12 @@ def evaluate_prepared_experiment(
     node_contracts = _runtime_nodes(checked)
     structured_authority = selected_structured_value_index(
         cast(dict[str, Any], checked.rir["selected_semantics"]),
-        kernel=checked.kernel,
     )
     structured_resource_limit = cast(
-        int, checked.language_bundle["resources"]["max_rule_match_steps"]
+        int,
+        checked.rir["selected_semantics"]["execution_resources"][
+            "max_rule_match_steps"
+        ],
     )
     events: list[dict[str, JsonValue]] = []
     snapshots: list[dict[str, JsonValue]] = []
@@ -1620,11 +1623,11 @@ def evaluate_prepared_experiment(
                         reason_id = instruction[refusal_reference["instruction_member"]]
                         reason = next(
                             (
-                                item
-                                for item in checked.language_bundle["language"][
-                                    "reasons"
+                                row["definition"]
+                                for row in checked.rir["selected_semantics"][
+                                    "diagnostic_reasons"
                                 ]
-                                if item.get("id") == reason_id
+                                if row["definition"].get("id") == reason_id
                             ),
                             None,
                         )

@@ -80,7 +80,8 @@ def test_selected_artifact_contract_preserves_bytes_and_detaches_authority(
             contract.schema["properties"]["artifact_kind"]["const"] = "mutated"
 
 
-def test_checked_experiment_pins_nested_inputs_and_output_contracts(admitted_model):
+@pytest.fixture
+def admitted_experiment(admitted_model):
     context, artifacts, binding = admitted_model
     value = json.loads((_EXAMPLE / "experiment.json").read_bytes())
     build = artifacts["build-receipt"]
@@ -94,6 +95,13 @@ def test_checked_experiment_pins_nested_inputs_and_output_contracts(admitted_mod
     }
     checked = check_experiment_value(value, binding, authority_context=context)
     assert isinstance(checked, CheckedExperiment), checked
+    return context, binding, value, checked
+
+
+def test_checked_experiment_pins_nested_inputs_and_output_contracts(
+    admitted_experiment,
+):
+    context, binding, value, checked = admitted_experiment
     original_seed = value["seed"]["value"]
     expected = evaluate_experiment(checked)
     assert isinstance(expected, EvaluationArtifacts), expected
@@ -134,3 +142,42 @@ def test_checked_experiment_pins_nested_inputs_and_output_contracts(admitted_mod
     assert isinstance(next_checked, CheckedExperiment), next_checked
     assert next_checked.value["seed"]["value"] == original_seed + 1
     assert next_checked.content_identity != checked.content_identity
+
+
+def test_execution_and_independent_validation_need_no_ingress_authorities(
+    admitted_experiment,
+):
+    _context, _binding, _value, checked = admitted_experiment
+
+    class ExecutionBoundary:
+        """Expose admitted data while trapping a return to an ingress catalog.
+
+        This is a dependency-cut regression, not an alternative admission path.
+        The unwrapped request above passes normal authority and Model admission.
+        """
+
+        def __getattr__(self, name):
+            if name in {"kernel", "language_bundle", "authority_context"}:
+                raise AssertionError(
+                    f"execution returned to an ingress authority: {name}"
+                )
+            return getattr(checked, name)
+
+    closed = cast(CheckedExperiment, ExecutionBoundary())
+    execution = evaluate_experiment(closed)
+    assert isinstance(execution, EvaluationArtifacts), execution
+    assert validate_experiment_artifact_set(
+        closed,
+        {
+            name: cast(dict[str, Any], member.value)
+            for name, member in execution.members.items()
+        },
+    )
+    original = evaluate_experiment(checked)
+    assert isinstance(original, EvaluationArtifacts), original
+    assert {
+        name: canonical_bytes(member.value)
+        for name, member in execution.members.items()
+    } == {
+        name: canonical_bytes(member.value) for name, member in original.members.items()
+    }

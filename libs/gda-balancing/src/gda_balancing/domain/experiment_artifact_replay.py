@@ -658,10 +658,12 @@ def replay_event_evidence(
     node_contracts = runtime_nodes(checked)
     structured_authority = selected_structured_value_index(
         cast(dict[str, Any], checked.rir["selected_semantics"]),
-        kernel=checked.kernel,
     )
     structured_resource_limit = cast(
-        int, checked.language_bundle["resources"]["max_rule_match_steps"]
+        int,
+        checked.rir["selected_semantics"]["execution_resources"][
+            "max_rule_match_steps"
+        ],
     )
     schedule_identity = scheduler_contract(checked)["call_site_identity"]["schedule"]
 

@@ -39,6 +39,47 @@ Changing that original seed leaves the checked request and two complete Runtime
 artifact sets unchanged; a new check sees the new seed. This is preserved behavior,
 not a baseline failure attributed to the new immutable contract view.
 
+## Integrated execution foundation
+
+The checked Model's existing Typed HIR now retains the final specialized program,
+entrypoints, callsites and execution closure. Compilation copies those prepared
+values; independent imported-Model admission derives the closure again from the
+admitted authorities and program. RIR adds selected execution laws, execution
+resources and namespace-owned reason/diagnostic definitions. It does not carry
+the entire Kernel or Language Definition Bundle.
+
+Initial selection and final closure share one `max_runtime_projection_steps`
+counter. The added reason/diagnostic catalog traversal is charged, including rows
+that establish ownership but are not retained as execution inputs. Signal lookup
+uses an index built during that same request-local traversal. The maintained
+minimal quantity case now needs 373 steps and the progression/periodic case 504;
+the previous 233 and 318 totals describe the earlier implementation. Permanent
+372/373/374 cases cover typed Source refusal, complete compilation and independent
+import. Preserving the old total by granting a second allowance is rejected.
+
+Experiment value admission, Runtime execution and independent result replay now
+read structured-value laws and their budget from RIR. Runtime also reads selected
+nodes, numeric/RNG/scheduler/lifecycle laws, supported profiles and owned refusal
+definitions there. Output construction and validation use the request's selected
+`ArtifactContract` values. Whole-authority identities still appear as explicit
+provenance scalars in output payloads; #875 must remove their obsolete eligibility
+and semantic-identity roles.
+
+`test_execution_and_independent_validation_need_no_ingress_authorities` executes
+a normally admitted request through a boundary that rejects any attempt to read
+its complete Kernel, LDB or authority context. It then validates all output members
+through the independent result interpreter and compares their complete bytes
+with the unwrapped run. This is a dependency-cut regression, not an alternative
+admission path. Restoring the old full-Kernel read in an isolated source copy makes
+this test fail at that read. The legal 837/838/839 resource witness separately
+verifies the changed semantic identity and actual refusal/success boundary.
+
+Publication framing, authenticated original-artifact admission and Replay policy
+selection are still being migrated to their own selected contracts. Independent
+bootstrap/reference compilation, maintained Experiment bindings and the complete
+CLI/HTTP/session mutation matrix also remain open. These foundation results do
+not close #874 or any deletion criterion in #875.
+
 ## Ownership and identity boundaries
 
 | Input | Existing owner and selected representation | Required observation |

@@ -86,6 +86,23 @@ def _kernel_structured_value_contracts(
         or not isinstance(nodes, list)
     ):
         raise ValueError("Kernel structured-value contracts are unavailable")
+    value_nodes = _structured_value_nodes(nodes)
+    if set(value_nodes) != {
+        "bounded-lookup",
+        "canonical-equal",
+        "collection-is-empty",
+    }:
+        raise ValueError("Kernel structured-value operator is unavailable")
+    return (
+        typed_profile,
+        cast(dict[str, dict[str, Any]], fixed_contracts),
+        value_nodes,
+    )
+
+
+def _structured_value_nodes(
+    nodes: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
     value_nodes: dict[str, dict[str, Any]] = {}
     for node in nodes:
         semantics = node.get("semantics") if isinstance(node, dict) else None
@@ -98,17 +115,7 @@ def _kernel_structured_value_contracts(
             if operator in value_nodes:
                 raise ValueError("Kernel structured-value operator is duplicated")
             value_nodes[cast(str, operator)] = node
-    if set(value_nodes) != {
-        "bounded-lookup",
-        "canonical-equal",
-        "collection-is-empty",
-    }:
-        raise ValueError("Kernel structured-value operator is unavailable")
-    return (
-        typed_profile,
-        cast(dict[str, dict[str, Any]], fixed_contracts),
-        value_nodes,
-    )
+    return value_nodes
 
 
 def _typed_envelope_profile(
@@ -135,15 +142,13 @@ def _typed_envelope_profile(
 
 def _selected_typed_envelope_profile(
     profiles: Iterable[dict[str, Any]],
-    kernel_profile: dict[str, Any],
+    kernel_profile: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
     selected = list(profiles)
-    if not any(
-        profile.get("source_kind") == "typed-envelope"
-        and profile.get("value_kind") == kernel_profile.get("value_kind")
-        for profile in selected
-    ):
+    if not any(profile.get("source_kind") == "typed-envelope" for profile in selected):
         return None
+    if kernel_profile is None:
+        raise ValueError("RIR typed-envelope admission law is unavailable")
     return _typed_envelope_profile(selected, kernel_profile)
 
 
@@ -245,13 +250,12 @@ def language_structured_value_index(
 
 def selected_structured_value_index(
     selected_semantics: dict[str, Any],
-    *,
-    kernel: dict[str, Any],
 ) -> StructuredValueIndex:
     """Index only the structured-value rules carried by admitted RIR semantics."""
-    typed_profile, fixed_contracts, value_nodes = _kernel_structured_value_contracts(
-        kernel
-    )
+    laws = cast(dict[str, Any], selected_semantics["execution_laws"])
+    runtime = cast(dict[str, Any], laws["runtime_program"])
+    fixed_contracts = cast(dict[str, dict[str, Any]], runtime["fixed_value_contracts"])
+    value_nodes = _structured_value_nodes(cast(list[dict[str, Any]], runtime["nodes"]))
     namespaces = {
         cast(str, package["id"])
         for package in cast(list[dict[str, Any]], selected_semantics["packages"])
@@ -294,7 +298,7 @@ def selected_structured_value_index(
         operations=operations,
         types=definitions,
         typed_envelope_profile=_selected_typed_envelope_profile(
-            profiles, typed_profile
+            profiles, laws.get("typed_envelope_profile")
         ),
         fixed_value_contracts=fixed_contracts,
         value_nodes=value_nodes,

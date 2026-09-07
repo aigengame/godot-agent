@@ -109,8 +109,11 @@ def artifact(
 
 
 def runtime_contract(checked: CheckedExperiment) -> dict[str, Any]:
-    """Return the exact Kernel Runtime program contract."""
-    return cast(dict[str, Any], checked.kernel["meta_format"]["runtime_program"])
+    """Return the selected execution laws carried by the admitted program."""
+    return cast(
+        dict[str, Any],
+        checked.rir["selected_semantics"]["execution_laws"]["runtime_program"],
+    )
 
 
 def runtime_execution_contract(checked: CheckedExperiment) -> dict[str, Any]:
@@ -216,7 +219,7 @@ def operation_formula_evaluation_record(
 
 def scheduler_contract(checked: CheckedExperiment) -> Mapping[str, Any]:
     """Return the exact Kernel scheduler contract."""
-    return RuntimeScheduler.from_kernel(checked.kernel).contract
+    return RuntimeScheduler(runtime_contract(checked)["scheduler"]).contract
 
 
 def scenario_transition_events(scenario: dict[str, Any]) -> list[dict[str, Any]]:
@@ -644,7 +647,7 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
     )
     supported_profiles = sorted(
         row["id"]
-        for row in checked.language_bundle["language"]["runtime_profiles"]
+        for row in checked.rir["selected_semantics"]["runtime_profiles"]
         if (
             row.get("evaluation") == runtime["version"]
             and row.get("runtime_program_version") == runtime["version"]
@@ -707,8 +710,8 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
         {
             "evaluator_build_identity": build_identity,
             "implementation_identity": implementation_identity,
-            "kernel_identity": checked.kernel["content_identity"],
-            "language_bundle_identity": checked.language_bundle["content_identity"],
+            "kernel_identity": checked.value["kernel_identity"],
+            "language_bundle_identity": checked.value["language_bundle_identity"],
             "operation_kinds": ["event-fragment", "event-program"],
             "instruction_nodes": nodes,
             "effects": [
@@ -742,8 +745,8 @@ def resolved_runtime_profile(
         "resolved-runtime-profile",
         {
             "experiment_identity": checked.content_identity,
-            "kernel_identity": checked.kernel["content_identity"],
-            "language_bundle_identity": checked.language_bundle["content_identity"],
+            "kernel_identity": checked.value["kernel_identity"],
+            "language_bundle_identity": checked.value["language_bundle_identity"],
             "package_lock_identity": checked.package_lock["content_identity"],
             "resolved_model_identity": checked.resolved_model["content_identity"],
             "rir_identity": checked.rir["content_identity"],
@@ -794,8 +797,8 @@ def reproduction_receipt(
         "reproduction-receipt",
         {
             "experiment_identity": checked.content_identity,
-            "kernel_identity": checked.kernel["content_identity"],
-            "language_bundle_identity": checked.language_bundle["content_identity"],
+            "kernel_identity": checked.value["kernel_identity"],
+            "language_bundle_identity": checked.value["language_bundle_identity"],
             "package_lock_identity": checked.package_lock["content_identity"],
             "resolved_model_identity": checked.resolved_model["content_identity"],
             "rir_identity": checked.rir["content_identity"],

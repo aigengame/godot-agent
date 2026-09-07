@@ -519,7 +519,6 @@ def _check_experiment_value(
             )
     for scenario_index, scenario in enumerate(value["scenarios"]):
         event_plan = _scenario_root_events(scenario)
-        scheduler = RuntimeScheduler.from_kernel(kernel).contract
         if (
             not _unique_canonical_rows(scenario["assignments"], "target")
             or len(scenario["named_streams"]) != len(set(scenario["named_streams"]))
@@ -534,7 +533,6 @@ def _check_experiment_value(
                 for event in event_plan
                 if event["kind"] == "transition-invocation"
             )
-            or not _external_input_plan_is_admitted(scenario, scheduler)
         ):
             return _refusal(
                 stage="static",
@@ -658,13 +656,6 @@ def _check_experiment_value(
         canonical_bytes(cast(JsonValue, row["resolved_symbol"])): row
         for row in rir["declarations"]
     }
-    structured_authority = selected_structured_value_index(
-        selected,
-        kernel=context.kernel,
-    )
-    structured_resource_limit = cast(
-        int, language_bundle["resources"]["max_rule_match_steps"]
-    )
     required_profile = value["runtime"]["profile"]
     if required_profile not in runtime_profiles:
         return _refusal(
@@ -674,6 +665,21 @@ def _check_experiment_value(
             pointer="/runtime/profile",
             message="Experiment Runtime profile is absent from the selected RIR",
         )
+    runtime_laws = selected["execution_laws"]["runtime_program"]
+    scheduler = RuntimeScheduler(runtime_laws["scheduler"]).contract
+    for scenario_index, scenario in enumerate(value["scenarios"]):
+        if not _external_input_plan_is_admitted(scenario, scheduler):
+            return _refusal(
+                stage="static",
+                code="language.source_contract_mismatch",
+                identity=experiment_identity,
+                pointer=f"/scenarios/{scenario_index}",
+                message="Experiment external inputs violate the selected scheduler contract",
+            )
+    structured_authority = selected_structured_value_index(selected)
+    structured_resource_limit = cast(
+        int, selected["execution_resources"]["max_rule_match_steps"]
+    )
     required_operation_kinds: set[str] = set()
     required_instruction_nodes: set[str] = set()
     required_effects: set[str] = set()

@@ -1441,9 +1441,9 @@ def _terminal_audit_is_valid(
     state_before = cast(list[dict[str, Any]], rollback["state_before"])
     state_after = cast(list[dict[str, Any]], rollback["state_after"])
     runtime_diagnostics = {
-        row["code"]
-        for row in checked.language_bundle["diagnostics"]
-        if row["stage"] == "runtime"
+        row["definition"]["code"]
+        for row in checked.rir["selected_semantics"]["diagnostics"]
+        if row["definition"]["stage"] == "runtime"
     }
     if (
         audit.get("terminal_condition") != scenario["terminal_condition"]
