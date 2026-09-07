@@ -87,6 +87,7 @@ from gda_balancing.domain.model._operation_call_domain_adapters import (
     resolved_rir_entrypoint_call,
     resolved_rir_formula_call,
 )
+from gda_balancing.domain.model._execution_closure import close_execution_dependencies
 
 
 @dataclass(frozen=True)
@@ -1861,11 +1862,12 @@ def admit_resolved_model(
     except (KeyError, TypeError, ValueError, jsonschema.ValidationError):
         return ResolvedModelAdmission(False, diagnostic)
     try:
+        projection_budget = _runtime_projection_budget(kernel, ldb)
         expected_runtime_projection = _runtime_projection(
             lock,
             cast(list[dict[str, JsonValue]], declarations),
             lowering,
-            _runtime_projection_budget(kernel, ldb),
+            projection_budget,
         )
         expected_initialization_programs = _compile_initialization_programs(
             expected_runtime_projection,
@@ -1877,6 +1879,16 @@ def admit_resolved_model(
             expected_runtime_projection,
             cast(list[dict[str, JsonValue]], rir.get("formulas")),
             cast(list[dict[str, JsonValue]], rir.get("formula_bindings")),
+        )
+        expected_runtime_projection = close_execution_dependencies(
+            kernel,
+            ldb,
+            {
+                "selected_semantics": expected_runtime_projection,
+                "entrypoints": rir["entrypoints"],
+                "initialization_programs": expected_initialization_programs,
+            },
+            projection_budget.consume,
         )
     except (
         KeyError,
