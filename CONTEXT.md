@@ -71,6 +71,16 @@ drives or observes the scene from outside, there is no `Engine session` and no
 `gda-daemon`, and the process ends with the verdict.
 _Avoid_: smoke test, dry run, live check
 
+**Import evidence**:
+The read-side verdict gda takes on one asset's import cache before deciding to run
+the engine's project-wide pass — `cached` / `missing` / `stale` / `invalid`, read
+from the same artifacts `EditorFileSystem::_test_for_reimport` reads, in the
+engine's own order, with the engine-state checks it cannot read declared as a
+one-way remainder (delay a re-import, never spend a pass the engine would not).
+Owned by the core `import_evidence` module; settlements are the command's
+post-pass verdicts, not evidence.
+_Avoid_: cache check, freshness probe, validity scan
+
 **Engine session**:
 A single transient run of a gda-owned Godot game, launched and held by `gda-daemon`
 with the `gda harness` injected, against which `Live operation`s are served. The
