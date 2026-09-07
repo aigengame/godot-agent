@@ -1894,6 +1894,7 @@ def evaluate_prepared_experiment(
                         phase="event",
                     )
                 except _InitializationProgramFault as fault:
+                    total_steps = fault.consumed_steps
                     event_formula_fault = _RuntimeExecutionFault(
                         signal=fault.signal,
                         operation=cast(str, operation["id"]),
@@ -2207,6 +2208,7 @@ def evaluate_prepared_experiment(
                     phase="observation",
                 )
             except _InitializationProgramFault as fault:
+                total_steps = fault.consumed_steps
                 reason = _reason_for_signal(checked, fault.signal, "runtime")
                 message = (
                     "Runtime program exhausted its exact step bound"
