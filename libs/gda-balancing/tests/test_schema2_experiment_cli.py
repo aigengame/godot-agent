@@ -7348,6 +7348,20 @@ def test_package_value_program_vectors_execute_in_two_consumers():
         "formula.runtime.floor-divide.negative-non-exact",
         "formula.runtime.floor-divide.refuse.zero-divisor",
         "formula.runtime.floor-divide.refuse.negative-divisor",
+        "formula.runtime.maximum.extrema",
+        "formula.runtime.maximum.extrema-reversed",
+        "formula.runtime.maximum.tie-minimum",
+        "formula.runtime.maximum.tie-maximum",
+        "formula.runtime.maximum.limit-below",
+        "formula.runtime.maximum.limit-exact",
+        "formula.runtime.maximum.limit-above",
+        "formula.runtime.maximum.cached-limit",
+        "formula.runtime.subtraction.minimum-self",
+        "formula.runtime.subtraction.negated-minimum-refuses",
+        "formula.runtime.comparison.extrema-direct",
+        "formula.runtime.comparison.tie-is-false",
+        "formula.runtime.comparison.difference-overflow",
+        "formula.runtime.selection.eager-unselected-overflow",
     }
     for vector in vectors:
         reference = _reference_evaluate_value_program_vector(vector)

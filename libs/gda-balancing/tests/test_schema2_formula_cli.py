@@ -1134,8 +1134,7 @@ def test_standard_compiler_owns_formula_notation_contextual_policy(run_cli) -> N
         "copy": "copy-contract",
         "floor-divide": "closed-interval-floor-divide",
         "if": "closed-interval-select",
-        "less-than": "declared-result-contract",
-        "maximum": "closed-interval-maximum",
+        "less-than": "closed-interval-less-than",
         "multiply": "closed-interval-multiply",
         "subtract": "closed-interval-subtract",
     }
@@ -1288,7 +1287,9 @@ def test_formula_parse_resolves_cross_module_formula_calls(
     pair["formula"]["body"] = result["body"]
     pair["formula"]["expression"] = result["expression"]
     context = authority_module.packaged_authority_context()
-    assert independently_admit_pair(pair, context.language_bundle)
+    assert independently_admit_pair(
+        pair, context.language_bundle, kernel=context.kernel
+    )
 
 
 def test_formula_parse_never_resolves_an_unquoted_kebab_case_local(
@@ -2223,7 +2224,9 @@ def test_independent_consumer_mutually_admits_production_formula_pairs() -> None
                 "module": module,
                 "formula": formula,
             }
-            assert independently_admit_pair(request, context.language_bundle)
+            assert independently_admit_pair(
+                request, context.language_bundle, kernel=context.kernel
+            )
             independent_expression = independently_render_body(
                 formula["body"], request, context.language_bundle
             )
@@ -2249,13 +2252,17 @@ def test_independent_consumer_reconstructs_results_without_body_guidance() -> No
         "module": module,
         "formula": deepcopy(formula),
     }
-    assert independently_admit_pair(request, context.language_bundle)
+    assert independently_admit_pair(
+        request, context.language_bundle, kernel=context.kernel
+    )
     request["formula"]["body"]["nodes"][0]["result"]["domain"] = {
         "minimum": 0,
         "maximum": 0,
     }
 
-    assert not independently_admit_pair(request, context.language_bundle)
+    assert not independently_admit_pair(
+        request, context.language_bundle, kernel=context.kernel
+    )
 
 
 def test_independent_consumer_types_zero_node_results() -> None:
@@ -2291,8 +2298,12 @@ def test_independent_consumer_types_zero_node_results() -> None:
         },
     }
 
-    assert not independently_admit_pair(wrong_parameter, context.language_bundle)
-    assert not independently_admit_pair(missing_symbol, context.language_bundle)
+    assert not independently_admit_pair(
+        wrong_parameter, context.language_bundle, kernel=context.kernel
+    )
+    assert not independently_admit_pair(
+        missing_symbol, context.language_bundle, kernel=context.kernel
+    )
 
 
 def test_independent_consumer_enforces_notation_resource_bounds() -> None:
@@ -2323,7 +2334,9 @@ def test_independent_consumer_enforces_notation_resource_bounds() -> None:
         },
     }
 
-    assert not independently_admit_pair(request, context.language_bundle)
+    assert not independently_admit_pair(
+        request, context.language_bundle, kernel=context.kernel
+    )
 
 
 def test_independent_consumer_requires_exact_context_and_algorithm(
@@ -2354,7 +2367,9 @@ def test_independent_consumer_requires_exact_context_and_algorithm(
         },
     }
     assert not independently_admit_pair(
-        request, pristine_authority_context.language_bundle
+        request,
+        pristine_authority_context.language_bundle,
+        kernel=pristine_authority_context.kernel,
     )
 
     kernel, language_bundle = pristine_authority_context.mutable_pair()
@@ -2372,7 +2387,9 @@ def test_independent_consumer_requires_exact_context_and_algorithm(
     request["schema_version"] = "2.0.0"
     request["module"] = {"id": "main", "imports": []}
 
-    assert not independently_admit_pair(request, drifted.language_bundle)
+    assert not independently_admit_pair(
+        request, drifted.language_bundle, kernel=drifted.kernel
+    )
 
     kernel, language_bundle = pristine_authority_context.mutable_pair()
     profile = next(
@@ -2387,7 +2404,9 @@ def test_independent_consumer_requires_exact_context_and_algorithm(
     drifted = authority_module.admit_authority_context(kernel, language_bundle)
     assert isinstance(drifted, authority_module.AdmittedAuthorityContext)
 
-    assert not independently_admit_pair(request, drifted.language_bundle)
+    assert not independently_admit_pair(
+        request, drifted.language_bundle, kernel=drifted.kernel
+    )
 
 
 def test_independent_consumer_covers_every_formula_node_and_operand_kind() -> None:
@@ -2516,7 +2535,9 @@ def test_independent_consumer_covers_every_formula_node_and_operand_kind() -> No
         "formula": formula,
     }
 
-    assert independently_admit_pair(request, context.language_bundle)
+    assert independently_admit_pair(
+        request, context.language_bundle, kernel=context.kernel
+    )
     admit_formula_pair(request, context)
 
 
@@ -2552,5 +2573,7 @@ def test_formula_conversion_refuses_retired_import_version(
     ]
 
     assert not independently_admit_pair(
-        request, pristine_authority_context.language_bundle
+        request,
+        pristine_authority_context.language_bundle,
+        kernel=pristine_authority_context.kernel,
     )

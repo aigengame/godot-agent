@@ -2068,7 +2068,7 @@ def _reference_specialize_formula_slots(
                         }
                     elif child["node"] in {
                         "add",
-                        "maximum",
+                        "less-than",
                         "multiply",
                         "subtract",
                     }:
@@ -2422,7 +2422,7 @@ def _reference_initialization_programs(
                             }
                         elif child_node in {
                             "add",
-                            "maximum",
+                            "less-than",
                             "multiply",
                             "subtract",
                         }:
@@ -4665,7 +4665,7 @@ def test_independent_lowerer_counts_guard_body_in_nested_operation_charge():
     assert damage_calls
     assert {
         cast(dict[str, Any], row["closure"])["resource_charge"] for row in damage_calls
-    } == {16}
+    } == {17}
 
 
 def test_operation_formula_dependency_closure_includes_guard_invocations():
