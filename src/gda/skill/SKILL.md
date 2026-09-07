@@ -321,8 +321,9 @@ freeze-frame in an agent session, use `paused`, which live operations survive; a
 
 ### Find a node before you address it
 
-Every live op that ADDRESSES a node takes an exact runtime path, and `game tree` is how
-you learn one. Read it in TWO steps rather than dumping the whole tree:
+Every live op that ADDRESSES a node takes an exact runtime path, and `game tree` /
+`game find` are how you learn one. Resolve the path first, then address it — never dump
+the whole tree:
 
 1. **Bound the read.** `gda game tree --max-depth 2 --json` shows the top levels of the
    running CURRENT SCENE; then `gda game tree --root /root/Main/HUD --max-depth 2 --json`
@@ -339,9 +340,10 @@ you learn one. Read it in TWO steps rather than dumping the whole tree:
    any script in its base chain. `--group` and `--name` are the plain identity checks,
    and `--unique-name` matches a `%`-addressable node whose OWNER is the search root or
    lies inside the searched subtree, so the same `%Name` owned from ABOVE that root does
-   not match. `--root` and `--max-depth` bound the search exactly as above, autoloads
-   included. Zero matches is a success with an empty list — the ops that need one node
-   still take an exact path, so ambiguity is data rather than an error.
+   not match. `--root` and `--max-depth` bound the search exactly as they bound the read
+   above, from the same default root — so reaching an autoload takes `--root /root` here
+   too. Zero matches is a success with an empty list: the ops that need one node still
+   take an exact path, so ambiguity is data rather than an error.
 3. **Address exactly.** With the path in hand, use `game get` / `game rect` / `game set`
    / `game call` on that path. Do not re-read the tree per node.
 
