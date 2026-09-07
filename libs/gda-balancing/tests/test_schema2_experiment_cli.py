@@ -7875,6 +7875,14 @@ def test_experiment_keeps_required_and_supported_evaluator_policies_separate(
     mutated_rir["initialization_programs"][program_index]["body"].append(
         added_instruction
     )
+    # This synthetic projection fixture bypasses Model admission and dispatch.
+    # Supply the added instruction's selected law; the manifest has no ambient
+    # Kernel lookup from which to recover an omitted execution dependency.
+    selected_nodes = mutated_rir["selected_semantics"]["execution_laws"][
+        "runtime_program"
+    ]["nodes"]
+    selected_nodes.append(deepcopy(added_contract))
+    selected_nodes.sort(key=lambda row: row["id"])
     projected = program_reachability_module.project_reachable_program_structure(
         mutated_rir, selected_entrypoints
     )
