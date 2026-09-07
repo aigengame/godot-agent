@@ -46,7 +46,7 @@ from gda_balancing.domain.operation_call_domains import (
 )
 
 from gda_balancing.domain.model._resolution import (
-    CheckedModel,
+    ModelSourceContext,
     _formula_contexts,
     _formula_policy,
     _inventory_values,
@@ -1850,12 +1850,11 @@ def admit_resolved_model(
         selection = resolve_current_namespaces(
             context.current_namespace_packages(), root_requirements
         )
-        synthetic = CheckedModel(
+        synthetic = ModelSourceContext(
             source={requirements_member: root_requirements},
             source_identity="unbound-for-semantic-admission",
             kernel=kernel,
             language_bundle=ldb,
-            authority_context=context,
             namespace_selection=selection,
         )
         expected_lock = _package_lock(synthetic)

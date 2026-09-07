@@ -43,6 +43,7 @@ from gda_balancing.domain.structured_values import (
 
 from gda_balancing.domain.model._resolution import (
     CheckedModel,
+    ModelSourceContext,
     _FORMULA_REASON,
     _formula_contexts,
     _formula_policy,
@@ -66,7 +67,8 @@ _LOWERER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-lowerer-v1"
 
 
 def lowering_inputs(
-    checked: CheckedModel,
+    checked: ModelSourceContext,
+    source_rows: list[tuple[dict[str, Any], tuple[object, ...]]],
 ) -> tuple[
     dict[str, Any],
     list[dict[str, JsonValue]],
@@ -77,7 +79,6 @@ def lowering_inputs(
     lock = _package_lock(checked)
     language = _language(checked.language_bundle)
     lowering = _model_lowering(checked.language_bundle)
-    source_rows = _resolved_source_symbols(checked.source, checked.language_bundle)
     declarations: list[dict[str, JsonValue]] = []
     for fields, _source_pointer in source_rows:
         structured = fields.get("value_kind") == "nominal-structured"
@@ -144,9 +145,7 @@ def checked_model_template_facts(checked: CheckedModel) -> dict[str, JsonValue]:
         package.namespace for package in checked.namespace_selection.packages
     ]
     source_symbols = []
-    for fields, _source_pointer in _resolved_source_symbols(
-        checked.source, checked.language_bundle
-    ):
+    for fields, _source_pointer in checked.hir.source_rows:
         resolved = cast(dict[str, str], fields["resolved_symbol"])
         source_symbols.append(
             {
@@ -571,10 +570,11 @@ def _reachable_derived_formula_sites(
 
 
 def _resolved_formula_programs_and_bindings_impl(
-    checked: CheckedModel,
+    checked: ModelSourceContext,
     declarations: list[dict[str, Any]],
     policy: dict[str, Any],
     failure_context: list[str],
+    lock: dict[str, Any],
 ) -> tuple[
     list[dict[str, JsonValue]],
     list[dict[str, JsonValue]],
@@ -754,7 +754,6 @@ def _resolved_formula_programs_and_bindings_impl(
         visit(key)
 
     resolved_by_key: dict[tuple[str, str], dict[str, JsonValue]] = {}
-    lock = _package_lock(checked)
     operations_by_coordinate = {
         (
             cast(str, row["package"]),
@@ -1587,9 +1586,10 @@ def _resolved_formula_programs_and_bindings_impl(
 
 
 def _resolved_formula_programs_and_bindings(
-    checked: CheckedModel,
+    checked: ModelSourceContext,
     declarations: list[dict[str, Any]],
     policy: dict[str, Any],
+    lock: dict[str, Any],
 ) -> tuple[
     list[dict[str, JsonValue]],
     list[dict[str, JsonValue]],
@@ -1602,6 +1602,7 @@ def _resolved_formula_programs_and_bindings(
             declarations,
             policy,
             failure_context,
+            lock,
         )
     except _FormulaResolutionError:
         raise
@@ -1632,8 +1633,9 @@ def _resolved_formula_programs_and_bindings(
 
 
 def _resolved_formulas_and_bindings(
-    checked: CheckedModel,
+    checked: ModelSourceContext,
     declarations: list[dict[str, Any]],
+    lock: dict[str, Any],
 ) -> tuple[
     list[dict[str, JsonValue]],
     list[dict[str, JsonValue]],
@@ -1676,12 +1678,11 @@ def _resolved_formulas_and_bindings(
                 changed = True
                 break
     normalized = (
-        CheckedModel(
+        ModelSourceContext(
             source=normalized_source,
             source_identity=checked.source_identity,
             kernel=checked.kernel,
             language_bundle=checked.language_bundle,
-            authority_context=checked.authority_context,
             namespace_selection=checked.namespace_selection,
         )
         if changed
@@ -1691,6 +1692,7 @@ def _resolved_formulas_and_bindings(
         normalized,
         declarations,
         policy,
+        lock,
     )
 
 
@@ -2258,6 +2260,14 @@ def _specialize_operation_formula_slots(
                 evaluation_site_identity=site_identity,
             )
             shift += len(compiled) - length
+    for closure in cast(list[dict[str, Any]], specialized["package_semantic_closures"]):
+        package = cast(str, closure["package"])
+        for entry in cast(list[dict[str, Any]], closure["definitions"]):
+            if entry["authority_path"] == "language.operations":
+                entry["definitions"] = [
+                    deepcopy(operations[(package, definition["id"])])
+                    for definition in entry["definitions"]
+                ]
     return cast(dict[str, JsonValue], specialized)
 
 
@@ -2915,7 +2925,7 @@ def _reachable_operation_formula_dependencies(
 
 
 def _resolved_entrypoints(
-    checked: CheckedModel,
+    checked: ModelSourceContext,
     declarations: list[dict[str, Any]],
     selected_semantics: dict[str, Any],
     formulas: list[dict[str, Any]] | None = None,
@@ -3858,7 +3868,7 @@ def _resolved_call_sites(
     )
 
 
-def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
+def _package_lock(checked: ModelSourceContext) -> dict[str, JsonValue]:
     language = _language(checked.language_bundle)
     lowering = _model_lowering(checked.language_bundle)
     profile = _resolution_profile(

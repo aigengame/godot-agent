@@ -29,6 +29,7 @@ from gda_balancing.infrastructure.input_bytes import (
 )
 from gda_balancing.domain.model._resolution import (
     CheckedModel,
+    ModelSourceContext,
     _bounded_refusal,
     _formula_pair_diagnostics,
     _language,
@@ -42,6 +43,7 @@ from gda_balancing.domain.model._resolution import (
     _strict_object,
     _unique_reason,
 )
+from gda_balancing.domain.model._preparation import _TypedHIR
 from gda_balancing.domain.model._lowering import (
     _EntrypointBindingError,
     _FormulaResolutionError,
@@ -233,7 +235,7 @@ def _check_model_source_bytes(
         if refusal is not None:
             return refusal
     try:
-        _resolved_source_symbols(source, ldb)
+        source_rows = _resolved_source_symbols(source, ldb)
     except (KeyError, TypeError, ValueError) as err:
         source_contract_reason = reason_by_id(
             ldb,
@@ -246,12 +248,11 @@ def _check_model_source_bytes(
             f"Model Source name resolution failed: {err}",
             ldb,
         )
-    checked = CheckedModel(
+    context = ModelSourceContext(
         source=source,
         source_identity=source_identity,
         kernel=kernel,
         language_bundle=ldb,
-        authority_context=authority_context,
         namespace_selection=admit_namespace_selection(namespace_projection),
     )
     invalid_policy_pointer = _invalid_source_value_policy_pointer(source, ldb)
@@ -268,14 +269,17 @@ def _check_model_source_bytes(
             ldb,
         )
     try:
-        _lock, formula_declarations, _lowering, _rows = lowering_inputs(checked)
+        lock, declarations, admitted_lowering, source_rows = lowering_inputs(
+            context, source_rows
+        )
         (
             resolved_formulas,
             resolved_formula_bindings,
-            _formula_debug_entries,
+            formula_debug_entries,
         ) = _resolved_formulas_and_bindings(
-            checked,
-            cast(list[dict[str, Any]], formula_declarations),
+            context,
+            cast(list[dict[str, Any]], declarations),
+            lock,
         )
     except (KeyError, TypeError, ValueError) as err:
         message = str(err)
@@ -305,7 +309,6 @@ def _check_model_source_bytes(
     if formula_pair_refusal is not None:
         return formula_pair_refusal
     try:
-        lock, declarations, admitted_lowering, _source_rows = lowering_inputs(checked)
         selected_semantics = _runtime_projection(
             lock,
             declarations,
@@ -313,7 +316,7 @@ def _check_model_source_bytes(
             _runtime_projection_budget(kernel, ldb),
         )
         _resolved_entrypoints(
-            checked,
+            context,
             cast(list[dict[str, Any]], declarations),
             selected_semantics,
             cast(list[dict[str, Any]], resolved_formulas),
@@ -362,4 +365,21 @@ def _check_model_source_bytes(
             f"Model entrypoint resolution failed: {err}",
             ldb,
         )
-    return checked
+    return CheckedModel(
+        source=source,
+        source_identity=source_identity,
+        kernel=kernel,
+        language_bundle=ldb,
+        namespace_selection=context.namespace_selection,
+        authority_context=authority_context,
+        hir=_TypedHIR(
+            package_lock=lock,
+            declarations=declarations,
+            lowering=admitted_lowering,
+            source_rows=source_rows,
+            formulas=resolved_formulas,
+            formula_bindings=resolved_formula_bindings,
+            formula_debug_entries=formula_debug_entries,
+            runtime_projection=selected_semantics,
+        ),
+    )

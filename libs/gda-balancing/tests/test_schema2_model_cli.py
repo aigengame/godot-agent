@@ -6858,13 +6858,12 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
     )
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
-    candidate = model_module.CheckedModel(
-        source=checked.source,
-        source_identity=checked.source_identity,
+    candidate = model_checking_module.check_model_source_value(
+        checked.source,
         kernel=checked.kernel,
         language_bundle=candidate_ldb,
-        namespace_selection=checked.namespace_selection,
     )
+    assert isinstance(candidate, model_module.CheckedModel)
 
     artifacts = model_compilation_module.lower_checked_model(candidate)
 
@@ -6968,7 +6967,9 @@ def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):
     )
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
-    candidate = replace(checked, language_bundle=candidate_ldb)
+    candidate = _check_with_candidate_ldb(
+        checked.source, checked.kernel, cast(LanguageBundleIndex, candidate_ldb)
+    )
 
     mutated = model_compilation_module.lower_checked_model(candidate)
 
@@ -7443,7 +7444,9 @@ def test_compile_only_package_authority_does_not_change_rir_semantics(tmp_path):
     candidate_ldb["language"]["model_checks"].reverse()
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
-    candidate = replace(checked, language_bundle=candidate_ldb)
+    candidate = _check_with_candidate_ldb(
+        checked.source, checked.kernel, cast(LanguageBundleIndex, candidate_ldb)
+    )
 
     mutated = model_compilation_module.lower_checked_model(candidate)
 
@@ -7473,7 +7476,9 @@ def test_vector_only_package_change_reidentifies_exact_wrappers_not_rir(tmp_path
     vector_set["vector_definitions"].reverse()
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
-    candidate = replace(checked, language_bundle=candidate_ldb)
+    candidate = _check_with_candidate_ldb(
+        checked.source, checked.kernel, cast(LanguageBundleIndex, candidate_ldb)
+    )
 
     mutated = model_compilation_module.lower_checked_model(candidate)
 
@@ -7518,7 +7523,9 @@ def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
     resource_vector["expect"] += 1
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
-    candidate = replace(checked, language_bundle=candidate_ldb)
+    candidate = _check_with_candidate_ldb(
+        checked.source, checked.kernel, cast(LanguageBundleIndex, candidate_ldb)
+    )
 
     mutated = model_compilation_module.lower_checked_model(candidate)
 
@@ -7895,9 +7902,10 @@ def test_unreachable_package_semantics_do_not_change_rir(
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
 
-    mutated = model_compilation_module.lower_checked_model(
-        replace(checked, language_bundle=candidate_ldb)
+    candidate = _check_with_candidate_ldb(
+        checked.source, checked.kernel, cast(LanguageBundleIndex, candidate_ldb)
     )
+    mutated = model_compilation_module.lower_checked_model(candidate)
 
     assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
     assert original["package-lock"] != mutated["package-lock"]

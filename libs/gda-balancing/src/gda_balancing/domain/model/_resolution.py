@@ -10,6 +10,7 @@ import jsonschema
 
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
+    _deep_freeze,
 )
 from gda_balancing.domain.authority.graph import (
     NamespaceClosureProjection,
@@ -36,6 +37,7 @@ from gda_balancing.domain.formula.notation import (
     admit_formula_pair,
 )
 from gda_balancing.domain.operation_program import closed_operation_coordinates
+from gda_balancing.domain.model._preparation import _TypedHIR
 
 _RESOLVER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-exact-resolver-v1"
 _RelationBindings: TypeAlias = dict[str, tuple[Any, tuple[object, ...] | None]]
@@ -104,13 +106,32 @@ MODEL_REFUSAL_CATALOG = refusal_catalog_for_reasons(MODEL_REFUSAL_REASONS)
 
 
 @dataclass(frozen=True)
-class CheckedModel:
+class ModelSourceContext:
+    """Inputs for resolution; these alone do not authorize compilation."""
+
     source: dict[str, Any]
     source_identity: str
     kernel: dict[str, Any]
     language_bundle: dict[str, Any]
     namespace_selection: NamespaceSelection
-    authority_context: AdmittedAuthorityContext | None = None
+
+
+@dataclass(frozen=True)
+class CheckedModel(ModelSourceContext):
+    """One admitted source snapshot with its complete static preparation."""
+
+    authority_context: AdmittedAuthorityContext
+    hir: _TypedHIR
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.hir, _TypedHIR):
+            raise TypeError("checked Model requires complete static preparation")
+        if (
+            self.kernel is not self.authority_context.kernel
+            or self.language_bundle is not self.authority_context.language_bundle
+        ):
+            raise ValueError("checked Model must retain its admitted authority context")
+        object.__setattr__(self, "source", _deep_freeze(self.source))
 
 
 class _ResolutionResourceExhausted(Exception):

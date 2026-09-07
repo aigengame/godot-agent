@@ -36,8 +36,10 @@ from gda_balancing.domain.model import (
     CheckedModel,
     admit_resolved_model,
     check_model_source,
+    check_model_source_value,
 )
 from gda_balancing.domain.model._compilation import lower_checked_model
+from gda_balancing.domain.model._resolution import ModelSourceContext
 from schema2_authority_support import (
     refresh_package_semantic_closures,
     mutable_authorities,
@@ -515,7 +517,7 @@ def _reference_check_source(
     source: dict[str, Any],
     kernel: dict[str, Any],
     language_bundle: dict[str, Any],
-) -> tuple[tuple[str, str], ...] | CheckedModel:
+) -> tuple[tuple[str, str], ...] | ModelSourceContext:
     """Independently interpret the admitted source schema and model-check relation."""
     language = language_bundle["language"]
     source_schema = next(
@@ -903,7 +905,7 @@ def _reference_check_source(
             return ((resource_diagnostic, ""),)
         if stage_diagnostics:
             return tuple(dict.fromkeys(stage_diagnostics))
-    checked = CheckedModel(
+    checked = ModelSourceContext(
         source=source,
         source_identity=_reference_content_identity(
             profile["source_identity_domain"], source
@@ -1037,7 +1039,7 @@ def _reference_apply(
     }
 
 
-def _reference_resolved_symbols(checked: CheckedModel) -> list[dict[str, Any]]:
+def _reference_resolved_symbols(checked: ModelSourceContext) -> list[dict[str, Any]]:
     language = checked.language_bundle["language"]
     lowering = _reference_lowering(language)
     profile = next(
@@ -1109,7 +1111,7 @@ def _reference_resolved_symbols(checked: CheckedModel) -> list[dict[str, Any]]:
 
 
 def _reference_artifact(
-    checked: CheckedModel, artifact_kind: str, payload: dict[str, Any]
+    checked: ModelSourceContext, artifact_kind: str, payload: dict[str, Any]
 ) -> dict[str, Any]:
     language = checked.language_bundle["language"]
     contract = next(
@@ -1147,7 +1149,7 @@ def _reference_artifact(
     return artifact
 
 
-def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
+def _reference_package_lock(checked: ModelSourceContext) -> dict[str, Any]:
     language = checked.language_bundle["language"]
     lowering = _reference_lowering(language)
     profile = next(
@@ -1396,7 +1398,7 @@ def _reference_formula_contract_matches_operation(
 
 
 def _reference_selected_operation_coordinates(
-    checked: CheckedModel,
+    checked: ModelSourceContext,
     lock: dict[str, Any],
 ) -> set[tuple[str, str]]:
 
@@ -1435,7 +1437,7 @@ def _reference_selected_operation_coordinates(
 
 
 def _reference_formulas_and_bindings(
-    checked: CheckedModel,
+    checked: ModelSourceContext,
     declarations: list[dict[str, Any]],
     lock: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -2262,7 +2264,7 @@ def _reference_initialization_programs(
     selected_semantics: dict[str, Any],
     formulas: list[dict[str, Any]],
     bindings: list[dict[str, Any]],
-    checked: CheckedModel,
+    checked: ModelSourceContext,
 ) -> list[dict[str, Any]]:
     """Independently compile derived bindings to generic value programs."""
 
@@ -2540,7 +2542,7 @@ def _reference_initialization_programs(
 
 
 def _reference_rir(
-    checked: CheckedModel, lock: dict[str, Any] | None = None
+    checked: ModelSourceContext, lock: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     language = checked.language_bundle["language"]
     lowering = _reference_lowering(language)
@@ -2634,7 +2636,7 @@ def _reference_value_contract_matches(
 def _reference_literal_context(
     value: Any,
     formal: dict[str, Any],
-    checked: CheckedModel,
+    checked: ModelSourceContext,
     selected_semantics: dict[str, Any],
 ) -> dict[str, Any] | None:
     if (
@@ -2728,7 +2730,7 @@ def _reference_alias_rows(
 
 
 def _reference_entrypoints(
-    checked: CheckedModel,
+    checked: ModelSourceContext,
     declarations: list[dict[str, Any]],
     selected_semantics: dict[str, Any],
     formula_bindings: list[dict[str, Any]],
@@ -3210,7 +3212,7 @@ def _reference_operation_contract_matches(
 
 
 def _reference_call_sites(
-    checked: CheckedModel,
+    checked: ModelSourceContext,
     selected_semantics: dict[str, Any],
     lowering: dict[str, Any],
 ) -> list[dict[str, Any]]:
@@ -3514,7 +3516,7 @@ def _reference_call_sites(
 
 
 def _reference_runtime_projection(
-    checked: CheckedModel,
+    checked: ModelSourceContext,
     lock: dict[str, Any],
     declarations: list[dict[str, Any]],
     lowering: dict[str, Any],
@@ -3769,7 +3771,9 @@ def _reference_pointer(parts: list[object]) -> str:
     )
 
 
-def _reference_debug_map(checked: CheckedModel, rir: dict[str, Any]) -> dict[str, Any]:
+def _reference_debug_map(
+    checked: ModelSourceContext, rir: dict[str, Any]
+) -> dict[str, Any]:
     language = checked.language_bundle["language"]
     lowering = _reference_lowering(language)
     profile = next(
@@ -3838,7 +3842,7 @@ def _reference_debug_map(checked: CheckedModel, rir: dict[str, Any]) -> dict[str
 
 
 def _reference_semantic_artifacts(
-    checked: CheckedModel,
+    checked: ModelSourceContext,
 ) -> dict[str, dict[str, Any]]:
     lock = _reference_package_lock(checked)
     rir = _reference_rir(checked, lock)
@@ -3862,7 +3866,7 @@ def _reference_semantic_artifacts(
 
 
 def _reference_admits_semantic_artifacts(
-    candidate: dict[str, dict[str, Any]], checked: CheckedModel
+    candidate: dict[str, dict[str, Any]], checked: ModelSourceContext
 ) -> bool:
     expected = _reference_semantic_artifacts(checked)
     return all(
@@ -4048,7 +4052,7 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
             continue
 
         assert isinstance(production_checked, CheckedModel)
-        assert isinstance(reference_checked, CheckedModel)
+        assert isinstance(reference_checked, ModelSourceContext)
         production = lower_checked_model(production_checked)
         reference = _reference_semantic_artifacts(reference_checked)
         assert all(
@@ -4176,7 +4180,7 @@ def test_independent_lowerers_mutually_consume_byte_identical_rir(tmp_path):
     checked = check_model_source(str(path))
     reference_checked = _reference_check_source(source, kernel, language_bundle)
     assert isinstance(checked, CheckedModel)
-    assert isinstance(reference_checked, CheckedModel)
+    assert isinstance(reference_checked, ModelSourceContext)
 
     production = lower_checked_model(checked)
     reference = _reference_semantic_artifacts(reference_checked)
@@ -4230,7 +4234,7 @@ def test_independent_lowerers_close_recursive_nominal_types_by_owner(
     production_checked = check_model_source(str(path))
     reference_checked = _reference_check_source(source, kernel, language_bundle)
     assert isinstance(production_checked, CheckedModel)
-    assert isinstance(reference_checked, CheckedModel)
+    assert isinstance(reference_checked, ModelSourceContext)
     production = lower_checked_model(production_checked)
     reference = _reference_semantic_artifacts(reference_checked)
     for name in ("package-lock", "rir-semantic-payload", "resolved-model", "debug-map"):
@@ -4280,7 +4284,7 @@ def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():
     checked = check_model_source(str(path))
     reference_checked = _reference_check_source(source, kernel, language_bundle)
     assert isinstance(checked, CheckedModel)
-    assert isinstance(reference_checked, CheckedModel)
+    assert isinstance(reference_checked, ModelSourceContext)
 
     production = lower_checked_model(checked)
     reference = _reference_semantic_artifacts(reference_checked)
@@ -4431,7 +4435,7 @@ def test_independent_lowerers_treat_empty_collection_exclusion_as_noop(monkeypat
     checked = check_model_source(str(path))
     reference_checked = _reference_check_source(source, kernel, candidate_ldb)
     assert isinstance(checked, CheckedModel)
-    assert isinstance(reference_checked, CheckedModel)
+    assert isinstance(reference_checked, ModelSourceContext)
 
     production = lower_checked_model(checked)
     reference = _reference_semantic_artifacts(reference_checked)
@@ -4484,7 +4488,7 @@ def test_nested_integer_literal_is_identical_across_lowerers(
     checked = check_model_source(str(path))
     reference_checked = _reference_check_source(source, kernel, candidate_ldb)
     assert isinstance(checked, CheckedModel)
-    assert isinstance(reference_checked, CheckedModel)
+    assert isinstance(reference_checked, ModelSourceContext)
 
     production = lower_checked_model(checked)
     reference = _reference_semantic_artifacts(reference_checked)
@@ -4979,7 +4983,7 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
     checked = check_model_source(str(path))
     reference_checked = _reference_check_source(source, kernel, candidate_ldb)
     assert isinstance(checked, CheckedModel)
-    assert isinstance(reference_checked, CheckedModel)
+    assert isinstance(reference_checked, ModelSourceContext)
 
     production = lower_checked_model(checked)
     reference = _reference_semantic_artifacts(reference_checked)
@@ -5021,18 +5025,10 @@ def test_rir_output_member_follows_the_ldb_lowering_and_wire_schema(tmp_path):
     ]
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted
-    profile = language["resolution_profiles"][0]
-    checked = CheckedModel(
-        source=source,
-        source_identity=_reference_content_identity(
-            profile["source_identity_domain"], source
-        ),
-        kernel=kernel,
-        language_bundle=candidate_ldb,
-        namespace_selection=_reference_namespace_selection(
-            source, kernel, candidate_ldb
-        ),
+    checked = check_model_source_value(
+        source, kernel=kernel, language_bundle=candidate_ldb
     )
+    assert isinstance(checked, CheckedModel)
 
     production = lower_checked_model(checked)["rir-semantic-payload"]
     reference = _reference_rir(checked)
@@ -5122,15 +5118,10 @@ def test_lowerers_follow_renamed_ldb_rule_and_judgment_tokens_without_host_chang
         vector["input"]["judgment"] = judgment
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(checked.kernel, candidate_ldb).admitted
-    candidate = CheckedModel(
-        source=checked.source,
-        source_identity=checked.source_identity,
-        kernel=checked.kernel,
-        language_bundle=candidate_ldb,
-        namespace_selection=_reference_namespace_selection(
-            checked.source, checked.kernel, candidate_ldb
-        ),
+    candidate = check_model_source_value(
+        checked.source, kernel=checked.kernel, language_bundle=candidate_ldb
     )
+    assert isinstance(candidate, CheckedModel)
 
     artifacts = lower_checked_model(candidate)
     production = artifacts["rir-semantic-payload"]
@@ -5268,18 +5259,10 @@ def test_resolved_admission_follows_a_renamed_ldb_diagnostic_without_host_change
         "language.resolved_authority_mismatch",
     )
     source = _source([_symbol("health", "state")])
-    profile = candidate_ldb["language"]["resolution_profiles"][0]
-    checked = CheckedModel(
-        source=source,
-        source_identity=_reference_content_identity(
-            profile["source_identity_domain"], source
-        ),
-        kernel=kernel,
-        language_bundle=candidate_ldb,
-        namespace_selection=_reference_namespace_selection(
-            source, kernel, candidate_ldb
-        ),
+    checked = check_model_source_value(
+        source, kernel=kernel, language_bundle=candidate_ldb
     )
+    assert isinstance(checked, CheckedModel)
     artifacts = lower_checked_model(checked)
     semantic_artifacts: dict[str, dict[str, Any]] = {
         name: deepcopy(artifacts[name])

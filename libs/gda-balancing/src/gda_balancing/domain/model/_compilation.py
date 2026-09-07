@@ -1,12 +1,11 @@
 """Compile an already checked Model Source into resolved artifacts."""
 
+from copy import deepcopy
 from typing import Any, cast
 
 from gda_balancing.domain.artifacts import _identified_artifact
-from gda_balancing.domain.authority.admission import BootstrapAdmission
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
-    admit_authority_context,
 )
 from gda_balancing.domain.canonical import JsonValue
 from gda_balancing.domain.model._resolution import (
@@ -23,12 +22,8 @@ from gda_balancing.domain.model._lowering import (
     _composition_policy,
     _formula_operation_identity,
     _identified_rir_artifact,
-    lowering_inputs,
     _resolved_call_sites,
     _resolved_entrypoints,
-    _resolved_formulas_and_bindings,
-    _runtime_projection,
-    _runtime_projection_budget,
     _specialize_operation_formula_slots,
 )
 from gda_balancing.domain.model._admission import (
@@ -56,12 +51,7 @@ def compile_checked_model(
 
 def authority_context_for_checked(checked: CheckedModel) -> AdmittedAuthorityContext:
     """Return the exact admitted authority carried by a checked Model."""
-    if checked.authority_context is not None:
-        return checked.authority_context
-    context = admit_authority_context(checked.kernel, checked.language_bundle)
-    if isinstance(context, BootstrapAdmission):
-        raise RuntimeError("checked Model authorities failed admission")
-    return context
+    return checked.authority_context
 
 
 def model_build_command_input_identity(checked: CheckedModel) -> str:
@@ -346,42 +336,19 @@ def _capability_manifest(
 def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]]:
     """Lower one checked source to the semantic and provenance artifacts."""
     context = checked.authority_context
-    if (
-        context is None
-        or context.kernel is not checked.kernel
-        or context.language_bundle is not checked.language_bundle
-    ):
-        resolved_context = admit_authority_context(
-            checked.kernel,
-            checked.language_bundle,
-        )
-        if isinstance(resolved_context, BootstrapAdmission):
-            raise ValueError("lowerer received authorities that failed admission")
-        context = resolved_context
-        checked = CheckedModel(
-            source=checked.source,
-            source_identity=checked.source_identity,
-            kernel=context.kernel,
-            language_bundle=context.language_bundle,
-            authority_context=context,
-            namespace_selection=checked.namespace_selection,
-        )
-    if not context.admission.admitted:
-        raise ValueError("lowerer received authorities that failed admission")
-    lock, declarations, lowering, source_rows = lowering_inputs(checked)
-    formulas, formula_bindings, formula_debug_entries = _resolved_formulas_and_bindings(
-        checked, cast(list[dict[str, Any]], declarations)
-    )
+    hir = checked.hir
+    lock = deepcopy(hir.package_lock)
+    declarations = deepcopy(hir.declarations)
+    lowering = hir.lowering
+    source_rows = hir.source_rows
+    formulas = deepcopy(hir.formulas)
+    formula_bindings = deepcopy(hir.formula_bindings)
+    formula_debug_entries = hir.formula_debug_entries
     profile = _resolution_profile(
         checked.language_bundle, cast(str, lowering["resolution_profile"])
     )
     output_member = cast(str, lowering["output_member"])
-    selected_semantics = _runtime_projection(
-        lock,
-        declarations,
-        lowering,
-        _runtime_projection_budget(checked.kernel, checked.language_bundle),
-    )
+    selected_semantics = deepcopy(hir.runtime_projection)
     initialization_programs = _compile_initialization_programs(
         selected_semantics,
         cast(list[dict[str, JsonValue]], formulas),
