@@ -9,8 +9,17 @@ from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     admit_authority_context,
 )
-from gda_balancing.domain.experiment import CheckedExperiment, check_experiment_value
+from gda_balancing.domain.experiment import (
+    CheckedExperiment,
+    check_experiment_value,
+    derive_scenario_program_requirements,
+)
+from gda_balancing.domain.experiment_artifact_replay import (
+    ReplayEventEvidence,
+    replay_event_evidence,
+)
 from gda_balancing.domain.experiment_artifacts import (
+    _event_arguments,
     runtime_terminal_audit_members,
     validate_experiment_artifact_set,
     validate_experiment_member,
@@ -32,10 +41,128 @@ from gda_balancing.domain.runtime import execution as runtime_execution
 from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_conformance_support import _bind_package_vector_set
 from test_bounded_fold_public import _OWNER, _source, _specification
+from test_bounded_fold_runtime import _candidate, _single_fold
 from test_bounded_fold_terminal_audit import _assert_reidentified_audit_refuses
 from schema2_bootstrap_production_support import _reidentify_graph_root
 
 _MAX = (1 << 63) - 1
+
+
+def test_typed_fold_subtraction_replays_actual_state_and_cumulative_charge():
+    def mutate(operations):
+        _single_fold(operations, empty=True)
+        operations["bounded.count-step"]["result"]["source"] = {
+            "kind": "port",
+            "name": "item",
+        }
+        operations["bounded-fold-v1"]["body"][-1]["node"] = "subtract-state"
+
+    context, operation = _candidate(mutate)
+    model = check_model_source_value(_source(), authority_context=context)
+    assert isinstance(model, CheckedModel), model
+    rir = compile_checked_model(model)["rir-semantic-payload"]
+    program = admit_rir(rir, authority_context=context)
+    specification = _specification(rir, [1], count=3, order=0)
+    next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "selected_count"
+    )["value"] = 4
+    requirements, _streams = derive_scenario_program_requirements(
+        rir,
+        "fold",
+        operation["runtime_profile"],
+        context.kernel["meta_format"]["runtime_program"]["named_rng"]["algorithm"],
+    )
+    specification["runtime"]["required_evaluator"] = requirements
+    checked = check_experiment_value(specification, program, authority_context=context)
+    assert isinstance(checked, CheckedExperiment), checked
+    prepared = prepare_experiment(checked)
+    assert isinstance(prepared, PreparedExperiment), prepared
+    outcome = evaluate_prepared_experiment(prepared)
+    assert isinstance(outcome, EvaluationArtifacts), outcome
+    assert outcome.accepted
+    members = {name: deepcopy(member.value) for name, member in outcome.members.items()}
+    events = members["event-trace"]["events"]
+    event = next(row for row in events if row["operation"] is not None)
+    state = {row["name"]: row["value"] for row in event["state_after"]}
+    assert state["selected_count"] == 3  # 4 minus the typed scalar item 1.
+    catalog = members["snapshot-series"]["event_catalog"]
+    catalog_by_id = {row["event_id"]: row for row in catalog}
+    events_by_id = {row["event_id"]: row for row in events}
+    record = catalog_by_id[event["event_id"]]
+    arguments = _event_arguments(
+        checked,
+        record["event_spec"],
+        event_index=event["index"],
+        state_before=event["state_before"],
+        snapshot_identity=event["snapshot_before_identity"],
+        scenario_id=record["scenario"],
+        catalog_by_id=catalog_by_id,
+        events_by_id=events_by_id,
+    )
+    assert arguments is not None
+    replayed = replay_event_evidence(
+        checked,
+        event,
+        record["event_spec"],
+        None,
+        arguments,
+        scenario_id=record["scenario"],
+        catalog_by_id=catalog_by_id,
+        events_by_id=events_by_id,
+        node_steps_before_operation=7,
+    )
+    assert isinstance(replayed, ReplayEventEvidence), replayed
+    # Constant, fold, one empty-step invocation attempt, subtraction.
+    assert replayed.event_steps == 4
+    assert replayed.node_steps == 11
+    assert validate_experiment_artifact_set(checked, members)
+    profile = next(
+        row
+        for row in checked.rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == checked.value["runtime"]["profile"]
+    )
+    assert (
+        replay_event_evidence(
+            checked,
+            event,
+            record["event_spec"],
+            None,
+            arguments,
+            scenario_id=record["scenario"],
+            catalog_by_id=catalog_by_id,
+            events_by_id=events_by_id,
+            node_steps_before_operation=profile["resource_bounds"]["max_node_steps"]
+            - 3,
+        )
+        is None
+    )
+
+    # A producer that writes the folded operand instead of subtracting it still
+    # creates internally consistent artifact identities, but the post-state lies.
+    source = inspect.getsource(evaluate_prepared_experiment)
+    subtraction = 'if operator == "state-integer-subtract"'
+    assert source.count(subtraction) == 1
+    namespace = dict(vars(runtime_execution))
+    exec(
+        compile(source.replace(subtraction, "if False"), "<write-mutant>", "exec"),
+        namespace,
+    )
+    mutant = namespace["evaluate_prepared_experiment"](prepared)
+    assert isinstance(mutant, EvaluationArtifacts), mutant
+    forged = {name: deepcopy(member.value) for name, member in mutant.members.items()}
+    forged_event = next(
+        row for row in forged["event-trace"]["events"] if row["operation"] is not None
+    )
+    assert {row["name"]: row["value"] for row in forged_event["state_after"]}[
+        "selected_count"
+    ] == 1
+    assert all(
+        validate_experiment_member(checked, name, value)
+        for name, value in forged.items()
+    )
+    assert not validate_experiment_artifact_set(checked, forged)
 
 
 @pytest.mark.parametrize("target_order", [1234, 4321], ids=["verdict", "success"])
