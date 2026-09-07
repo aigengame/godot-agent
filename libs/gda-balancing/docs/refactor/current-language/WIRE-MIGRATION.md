@@ -215,6 +215,9 @@ results for both groups before integration.
 
 ## Rollback
 
+This section describes undoing #871 while retaining #870. For a complete S3
+rollback, use the #869 checkpoint in [the contract record](NAMESPACE-CONTRACT.md).
+
 Restore code, machine contracts, authored inputs and derived evidence together to
 the reviewed #870 integration above. If later slices depend on the migrated wire
 form, roll them back to the same coherent boundary. Reopen affected acceptance

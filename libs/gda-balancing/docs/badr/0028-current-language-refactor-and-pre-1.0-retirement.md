@@ -45,7 +45,9 @@ Global constructors/structured Operations and unique selected capability provide
 their laws. No new owner registry or authored owner field is introduced. Namespace closure, missing
 package/capability refusal, canonical integrity and active-session stability remain.
 
-This implements the native forms; it does not close #872, #879 or the full refactor. Distribution,
+The [S3 contract record](../refactor/current-language/NAMESPACE-CONTRACT.md) accounts for #872's
+final transition dispositions, independent acceptance witnesses and whole-S3 rollback. #879 and
+the full refactor retain their own acceptance. Distribution,
 Schema/artifact format and actual Runtime/grammar contract markers retain their distinct purposes.
 Whole-LDB and Build-receipt execution prerequisites still require closure in #874 followed by
 mandatory field/gate/propagation/fallback deletion in #875. Policy contents and their actual checks

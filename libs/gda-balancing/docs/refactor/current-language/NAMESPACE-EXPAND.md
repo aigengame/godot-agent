@@ -1,5 +1,8 @@
 # Current namespace resolution: expand and handoff
 
+This is the historical expand-stage inventory. The [S3 contract record](NAMESPACE-CONTRACT.md)
+accounts for every transition surface below and names the complete rollback endpoint.
+
 Issue: [#870](https://github.com/aigengame/godot-agent/issues/870), stage S3-expand.
 Common base: `ef0eba2d89c2487979ea7fa785172b3129958c38`, after #869 integration.
 The issue branch is `codex/gda-balancing-870-current-namespace-resolution`; its target is
