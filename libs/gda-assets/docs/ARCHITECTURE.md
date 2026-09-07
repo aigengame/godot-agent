@@ -285,6 +285,22 @@ the new home. The equal-frame packer/SpriteFrames emitter is not complete Asepri
 support for trimmed regions, frame timing, or richer metadata. Do not change the
 original Panda codebase or mark it archived as part of this work.
 
+The `gda-blender-mcp` skill is another optional source of production lessons.
+[aADR-0001](adr/0001-domain-application-and-producer-adapters.md) owns its reuse
+boundary. Its `mcp_stdio_client.py` demonstrates protocol/result handling for a
+specific Blender MCP implementation; its SDK pin and agent-config defaults are not
+product requirements. Its `inspect_blender_asset.py` demonstrates selected-subtree
+inspection, derived-transform updates, visibility diagnostics, and explicit base
+geometry limitations. Those Blender observations do not replace gda's imported
+resource facts or the workflow's project-expectation evaluator.
+
+Transfer useful cases to tests owned by the relevant implementation slice. Run
+installed/public acceptance paths without the skill or its helper paths available,
+while retaining the selected external tools. A helper receipt or manually invoking
+the helper cannot close a product requirement. Reusable authoring recipes and
+examples delivered by #913 belong to the product/consumer example, and cannot
+require an installed helper to supply planned preparation or selection behavior.
+
 ## Evidence limits and validation gates
 
 [aADR-0002](adr/0002-minimum-results-and-optional-content-checks.md) owns the minimum

@@ -32,6 +32,9 @@ contracts. Write producer/project vocabulary here, not into the root glossary.
   policies, and output paths. Do not embed Panda Adventure defaults in the framework.
 - Transplant useful Panda asset code once, then refactor here. Do not modify the
   original game to consume this library or preserve its internal import API.
+- The `gda-blender-mcp` skill is optional reference material. Follow aADR-0001's
+  helper boundary: no installed-skill dependency and no substitution of helper
+  execution for a planned product feature or its acceptance.
 - Add structures when a vertical slice needs them. Do not scaffold empty pattern
   directories, a generic job system, a central asset registry, or an event bus.
 
