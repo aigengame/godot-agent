@@ -288,3 +288,40 @@ def test_fold_invocation_charge_does_not_consume_the_new_step_budget(
     projection = _judge(kernel, language, operations)
     assert projection.diagnostics == ()
     assert _program(operations, projection).resource_charge == expected_bound
+
+
+@pytest.mark.parametrize(
+    "artifact_kind, owner_path",
+    [
+        ("capability-manifest", ("operations",)),
+        ("package-lock", ("operations",)),
+        ("package-lock", ("selected_semantics", "operations")),
+        ("rir-semantic-payload", ("selected_semantics", "operations")),
+    ],
+)
+@pytest.mark.parametrize("inside_guard", [False, True])
+def test_operation_artifact_wires_admit_fold_and_append_with_closed_members(
+    artifact_kind, owner_path, inside_guard
+):
+    import jsonschema
+
+    _kernel, language, operations = _inputs()
+    schema = next(
+        row["schema"]
+        for row in language["language"]["artifact_wire_schemas"]
+        if row["artifact_kind"] == artifact_kind
+    )
+    for member in owner_path:
+        schema = schema["properties"][member]
+    schema = schema["items"]["properties"]["definition"]["properties"]["body"]["items"]
+    if inside_guard:
+        schema = schema["properties"]["body"]["items"]
+    validator = jsonschema.Draft202012Validator(schema)
+    for instruction in (
+        operations[_ROOT]["body"][2],
+        operations[(_OWNER, "bounded.filter-step")]["body"][1],
+    ):
+        validator.validate(instruction)
+        invalid = {**instruction, "undeclared_capture": "threshold"}
+        with pytest.raises(jsonschema.ValidationError, match="Unevaluated properties"):
+            validator.validate(invalid)
