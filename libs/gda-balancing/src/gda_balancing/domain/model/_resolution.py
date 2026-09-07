@@ -11,6 +11,10 @@ import jsonschema
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
 )
+from gda_balancing.domain.authority.graph import (
+    NamespaceClosureProjection,
+    NamespaceSelection,
+)
 from gda_balancing.domain.authority.admission import (
     BOOTSTRAP_REFUSAL_CATALOG,
 )
@@ -92,7 +96,7 @@ MODEL_REFUSAL_REASONS = (
     "model.reason.runtime-projection-resource-exhausted",
     "model.reason.unresolved-name",
     "model.reason.name-ambiguity",
-    "model.reason.package-version-unavailable",
+    "model.reason.package-unavailable",
     "model.reason.resolution-ambiguity",
     *_FORMULA_REASON.values(),
 )
@@ -105,6 +109,7 @@ class CheckedModel:
     source_identity: str
     kernel: dict[str, Any]
     language_bundle: dict[str, Any]
+    namespace_selection: NamespaceSelection
     authority_context: AdmittedAuthorityContext | None = None
 
 
@@ -365,27 +370,18 @@ def _selected_source_operation_coordinates(
     source: dict[str, Any],
     lock: dict[str, Any],
     operation_node_ids: set[str],
-    additional_roots: set[tuple[str, str, str]] | None = None,
-) -> set[tuple[str, str, str]]:
+    additional_roots: set[tuple[str, str]] | None = None,
+) -> set[tuple[str, str]]:
     """Close the exact Operation-valued graph from authored entrypoints."""
-    package_versions = {
-        cast(str, row["id"]): cast(str, row["version"])
-        for row in cast(list[dict[str, Any]], lock["packages"])
-    }
     operations = {
         (
             cast(str, row["package"]),
-            package_versions[cast(str, row["package"])],
             cast(str, cast(dict[str, Any], row["definition"])["id"]),
         ): cast(dict[str, Any], row["definition"])
         for row in cast(list[dict[str, Any]], lock["operations"])
     }
     selected = {
-        (
-            cast(str, operation["package"]),
-            cast(str, operation["version"]),
-            cast(str, operation["id"]),
-        )
+        (cast(str, operation["package"]), cast(str, operation["id"]))
         for entrypoint in cast(list[dict[str, Any]], source.get("entrypoints", []))
         if isinstance((operation := entrypoint.get("operation")), dict)
     }
@@ -401,27 +397,18 @@ def _selected_resolved_operation_coordinates(
     entrypoints: list[dict[str, Any]],
     selected_semantics: dict[str, Any],
     operation_node_ids: set[str],
-    additional_roots: set[tuple[str, str, str]] | None = None,
-) -> set[tuple[str, str, str]]:
+    additional_roots: set[tuple[str, str]] | None = None,
+) -> set[tuple[str, str]]:
     """Close Operation-valued instructions from all admitted roots."""
-    package_versions = {
-        cast(str, row["id"]): cast(str, row["version"])
-        for row in cast(list[dict[str, Any]], selected_semantics["packages"])
-    }
     operations = {
         (
             cast(str, row["package"]),
-            package_versions[cast(str, row["package"])],
             cast(str, cast(dict[str, Any], row["definition"])["id"]),
         ): cast(dict[str, Any], row["definition"])
         for row in cast(list[dict[str, Any]], selected_semantics["operations"])
     }
     selected = {
-        (
-            cast(str, operation["package"]),
-            cast(str, operation["version"]),
-            cast(str, operation["id"]),
-        )
+        (cast(str, operation["package"]), cast(str, operation["id"]))
         for entrypoint in entrypoints
         if isinstance((operation := entrypoint.get("operation")), dict)
     }
@@ -853,35 +840,15 @@ def _resolution_relations(
     language_bundle: dict[str, Any],
     profile: dict[str, Any],
     budget: _ResolutionBudget,
+    projection: NamespaceClosureProjection,
 ) -> dict[str, list[dict[str, Any]]]:
     language = _language(language_bundle)
-    available_packages = cast(list[dict[str, Any]], language["packages"])
-    requirements_member = cast(str, profile["requirements_member"])
-    requirement_package_member = cast(str, profile["requirement_package_member"])
-    requirement_version_member = cast(str, profile["requirement_version_member"])
-    by_coordinate = {
-        (package["id"], package["version"]): package for package in available_packages
+    available_packages = {
+        package["id"]: package
+        for package in cast(list[dict[str, Any]], language["packages"])
     }
-    selected_packages: dict[tuple[str, str], dict[str, Any]] = {}
-    pending = [
-        (
-            requirement[requirement_package_member],
-            requirement[requirement_version_member],
-        )
-        for requirement in cast(list[dict[str, str]], source[requirements_member])
-    ]
-    while pending:
-        coordinate = pending.pop(0)
-        package = by_coordinate.get(coordinate)
-        if package is None or coordinate in selected_packages:
-            continue
-        selected_packages[coordinate] = package
-        for dependency in cast(
-            list[dict[str, str]], package["dependencies"]["required"]
-        ):
-            pending.append((dependency["id"], dependency["version"]))
     selected_package_values = [
-        selected_packages[coordinate] for coordinate in sorted(selected_packages)
+        available_packages[package.namespace] for package in projection.packages
     ]
 
     def evaluate_term(
@@ -1011,21 +978,6 @@ def _resolution_law_failures(
             else:
                 failures.append((item, previous))
         return failures
-    if operator == "require-single-value":
-        group_first: dict[tuple[str, ...], tuple[tuple[str, ...], dict[str, Any]]] = {}
-        failures = []
-        for item in relations[law["relation"]]:
-            budget.consume()
-            group = tuple(
-                item["values"][field] for field in [*law["scope"], *law["group"]]
-            )
-            value = tuple(item["values"][field] for field in law["value"])
-            previous = group_first.get(group)
-            if previous is None:
-                group_first[group] = (value, item)
-            elif previous[0] != value:
-                failures.append((item, previous[1]))
-        return failures
     raise ValueError(f"unknown admitted resolution law operator: {operator}")
 
 
@@ -1034,6 +986,7 @@ def _resolution_diagnostics(
     source_identity: str,
     kernel: dict[str, Any],
     language_bundle: dict[str, Any],
+    projection: NamespaceClosureProjection,
     *,
     stage: str,
 ) -> list[Schema2Diagnostic]:
@@ -1070,7 +1023,9 @@ def _resolution_diagnostics(
     )
     diagnostics: list[Schema2Diagnostic] = []
     try:
-        relations = _resolution_relations(source, language_bundle, profile, budget)
+        relations = _resolution_relations(
+            source, language_bundle, profile, budget, projection
+        )
         for judgment in cast(list[dict[str, Any]], profile["judgment_chain"]):
             operation_spec = operation_specs[judgment["operation"]]
             if operation_spec["stage"] != stage:

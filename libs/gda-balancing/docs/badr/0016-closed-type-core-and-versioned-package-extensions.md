@@ -8,8 +8,9 @@ status: accepted
 > bADR-0028 supersedes strict package SemVer, historical release retention, exact-version
 > selection/locking, and compatibility-major type identity as the target. The replacement
 > admits one complete current definition per namespace and removes version-selection fields and
-> branches across the public path. Existing coordinates below describe the current
-> implementation and its history until that replacement lands. Nominal ownership, declared
+> branches across the public path. #871 now implements the native forms recorded in
+> [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#native-wire-delivery-871-2026-09-07);
+> the version coordinates below are historical. Nominal ownership, declared
 > dependency/capability/type closure, deterministic ambiguity/cycle refusal, and independent
 > admission remain binding.
 

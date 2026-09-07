@@ -419,32 +419,26 @@ class TestKeyUserPath:
         assert entrypoints == {
             "combat.enemy-attacks-player": {
                 "package": "game.combat",
-                "version": "2.2.0",
                 "id": "game.combat.eligible-cast-v1",
             },
             "combat.enemy-attacks-player-without-eligibility": {
                 "package": "game.combat",
-                "version": "2.2.0",
                 "id": "game.combat.cast-v1",
             },
             "combat.player-attacks-enemy-and-cancels-counterattack": {
                 "package": "game.combat",
-                "version": "2.2.0",
                 "id": "game.combat.cast-and-cancel-v1",
             },
             "combat.player-attacks-enemy": {
                 "package": "game.combat",
-                "version": "2.2.0",
                 "id": "game.combat.eligible-cast-v1",
             },
             "combat.player-attacks-enemy-without-eligibility": {
                 "package": "game.combat",
-                "version": "2.2.0",
                 "id": "game.combat.cast-v1",
             },
             "combat.player-plans-attacks": {
                 "package": "game.combat",
-                "version": "2.2.0",
                 "id": "game.combat.plan-casts-v1",
             },
         }

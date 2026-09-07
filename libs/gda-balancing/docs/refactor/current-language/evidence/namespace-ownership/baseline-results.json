@@ -1,0 +1,44 @@
+{
+  "empty_kernel_package": {
+    "production": {
+      "admitted": true,
+      "diagnostics": []
+    },
+    "reference": {
+      "admitted": true,
+      "diagnostics": []
+    }
+  },
+  "head": "44e6fa9f73ed4f1f7d6cc4c97314ebda964f03c5",
+  "kernel_fixed_types": {
+    "kernel-boolean": {
+      "id": "Boolean",
+      "package": "kernel",
+      "version": "2.0.0"
+    },
+    "kernel-event-reference": {
+      "id": "EventReference",
+      "package": "kernel",
+      "version": "2.0.0"
+    },
+    "kernel-unit": {
+      "id": "Unit",
+      "package": "kernel",
+      "version": "2.0.0"
+    }
+  },
+  "kernel_package_exporting_boolean": {
+    "production": {
+      "admitted": true,
+      "diagnostics": []
+    },
+    "reference": {
+      "admitted": true,
+      "diagnostics": []
+    }
+  },
+  "package_id_contract": {
+    "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
+    "type": "non-empty-string"
+  }
+}

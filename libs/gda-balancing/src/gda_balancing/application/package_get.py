@@ -1,4 +1,4 @@
-"""Get one exact Package Release member."""
+"""Get one current namespace Package member."""
 
 from typing import Literal
 
@@ -14,11 +14,10 @@ from gda_balancing.domain.diagnostics import Schema2RefusalReport
 def get_package(
     provider: AuthorityContextProvider,
     package_id: str,
-    version: str,
     member: Literal["release", "conformance-vectors"],
 ) -> PackageArtifactContent | Schema2RefusalReport:
-    """Resolve one authority context and select an exact Package Release member."""
+    """Resolve one authority context and select a current namespace Package member."""
     context = admit_command_authority(provider)
     if isinstance(context, Schema2RefusalReport):
         return context
-    return get_package_release(context, package_id, version, member)
+    return get_package_release(context, package_id, member)

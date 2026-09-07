@@ -19,8 +19,9 @@ uv run gda-balancing experiment run examples/schema2/progression-periodic-effect
 ```
 
 Use unused output locations or distinct invocation keys for a new publication.
-The committed Experiment binds the current build exactly. Internal version selectors
-remain present at this stage; their deletion belongs to #870–#872.
+The committed Experiment binds the current build exactly. Package requirements are namespace
+strings and nominal Type/Operation references have no version coordinate. The remaining broad
+whole-LDB and Build-receipt execution bindings must close in #874 and be deleted in #875.
 
 The permanent public test changes only level to 4 and the expected terminal target:
 the same rules derive 68, capture 32 per tick, and leave 36 health. CLI and real HTTP

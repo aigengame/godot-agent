@@ -75,7 +75,7 @@ def test_two_consumers_require_declared_record_lookup_semantics(
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.standard.conformance.structured@2.0.0."
+        "language.operations.standard.conformance.structured."
         "standard.conformance.structured.select-v1.body.0."
         f"{diagnostic_member}",
     ) in first["diagnostics"]
@@ -135,7 +135,6 @@ def test_two_consumers_refuse_invalid_runtime_control_compositions(mutation):
                 "site": "guarded-spend",
                 "operation": {
                     "package": "game.resource",
-                    "version": "1.1.0",
                     "id": "game.resource.spend-v1",
                 },
                 "arguments": [
@@ -378,7 +377,7 @@ def test_literal_typing_is_an_independent_package_owned_authority():
     policy = language["model_lowerings"][0]["assignment_policy"]
     profiles = language["literal_typing_profiles"]
     owners = {
-        package["version"]: package
+        package["id"]: package
         for package in language["packages"]
         if package["id"] == "core.quantity"
     }
@@ -395,8 +394,8 @@ def test_literal_typing_is_an_independent_package_owned_authority():
         "quantity.positive-dimensionless-int64-v2-2",
         "standard.schema.nominal-structured",
     ]
-    assert set(owners) == {"2.2.0"}
-    assert owners["2.2.0"]["exports"]["literal_typing_profiles"] == [
+    assert set(owners) == {"core.quantity"}
+    assert owners["core.quantity"]["exports"]["literal_typing_profiles"] == [
         "quantity.dimensionless-int64-v2-2",
         "quantity.positive-dimensionless-int64-v2-2",
     ]
@@ -558,12 +557,12 @@ def test_distinct_overlapping_numeric_literal_profiles_preserve_operation_admiss
         ),
     ),
     ids=(
-        "effect-language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.effects",
-        "refusal-language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.refusals",
-        "resource-language.operations.game.combat@2.2.0.game.combat.cast-v1.resource_bounds",
-        "cycle-language.operations.game.check@1.1.0.game.check.hit-v1.body.cycle.operation",
-        "argument-contract-language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.arguments",
-        "literal-contract-language.operations.game.combat@2.2.0.game.combat.cast-v1.body.apply-damage.arguments",
+        "effect-language.operations.game.combat.game.combat.cast-v1.body.hit-check.effects",
+        "refusal-language.operations.game.combat.game.combat.cast-v1.body.hit-check.refusals",
+        "resource-language.operations.game.combat.game.combat.cast-v1.resource_bounds",
+        "cycle-language.operations.game.check.game.check.hit-v1.body.cycle.operation",
+        "argument-contract-language.operations.game.combat.game.combat.cast-v1.body.hit-check.arguments",
+        "literal-contract-language.operations.game.combat.game.combat.cast-v1.body.apply-damage.arguments",
     ),
 )
 def test_two_consumers_refuse_every_reidentified_operation_composition_violation(
@@ -616,7 +615,6 @@ def test_two_consumers_refuse_every_reidentified_operation_composition_violation
                 "operation": {
                     "id": "game.check.hit-v1",
                     "package": "game.check",
-                    "version": hit["version"],
                 },
                 "outcomes": [
                     {
@@ -639,12 +637,8 @@ def test_two_consumers_refuse_every_reidentified_operation_composition_violation
 
     assert first == second
     assert first["admitted"] is False
-    subject_operation = hit if subject_owner == "check" else cast_operation
     subject_package = "game.check" if subject_owner == "check" else "game.combat"
-    expected_subject = (
-        f"language.operations.{subject_package}@{subject_operation['version']}."
-        f"{subject_suffix}"
-    )
+    expected_subject = f"language.operations.{subject_package}.{subject_suffix}"
     assert (
         "static",
         "kernel.vector_mismatch",
@@ -1346,7 +1340,7 @@ def test_reidentified_operation_result_source_cannot_invent_host_semantics():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@2.2.0.game.combat.damage-v1.result.source",
+        "language.operations.game.combat.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 
@@ -1378,10 +1372,7 @@ def test_reidentified_operation_result_source_requires_its_exact_call_producer()
     assert (
         "static",
         "kernel.vector_mismatch",
-        (
-            f"language.operations.game.combat@{operation['version']}."
-            "game.combat.cast-v1.result.source"
-        ),
+        ("language.operations.game.combat.game.combat.cast-v1.result.source"),
     ) in first["diagnostics"]
 
 
@@ -1459,7 +1450,7 @@ def test_two_consumers_refuse_a_floor_divide_operation_with_a_non_positive_domai
     operation = next(
         row
         for row in ldb["language"]["operations"]
-        if row["id"] == "quantity.floor-divide" and row["version"] == "2.2.0"
+        if row["id"] == "quantity.floor-divide"
     )
     next(row for row in operation["inputs"] if row["id"] == "right")["domain"][
         "minimum"
@@ -1481,7 +1472,7 @@ def test_two_consumers_refuse_a_floor_divide_operation_with_a_non_positive_domai
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.core.quantity@2.2.0.quantity.floor-divide.body.0.typing",
+        "language.operations.core.quantity.quantity.floor-divide.body.0.typing",
     ) in first["diagnostics"]
 
 
@@ -1530,10 +1521,7 @@ def test_operation_result_source_refuses_a_non_successful_producer_path():
     assert (
         "static",
         "kernel.vector_mismatch",
-        (
-            f"language.operations.game.combat@{cast_operation['version']}."
-            "game.combat.cast-v1.result.source"
-        ),
+        ("language.operations.game.combat.game.combat.cast-v1.result.source"),
     ) in first["diagnostics"]
 
 

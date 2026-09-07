@@ -12,8 +12,9 @@ status: accepted
 > bADR-0028 supersedes model migrate as a permanent forward command and requires removal of
 > obsolete version selectors and execution-binding fields from descriptors and every derived
 > surface when their owning slice lands. The command table retains its accepted target status;
-> the live CLI manifest defines command availability. Delivered version/binding forms
-> remain current implementation contracts until their replacements land. The unused artifact
+> the live CLI manifest defines command availability. #871 removes own-version fields and Template
+> `--version` selection under [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#native-wire-delivery-871-2026-09-07).
+> Whole-LDB/Build-receipt execution bindings remain pending #874–#875. The unused artifact
 > sink is also retired without removing active
 > artifact-set publication. Descriptor ownership, typed outcomes, diagnostics, invocation-key
 > recovery, and atomic publication remain binding.

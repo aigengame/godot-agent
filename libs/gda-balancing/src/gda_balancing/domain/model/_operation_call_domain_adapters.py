@@ -253,13 +253,12 @@ def _formula_slot_bindings(
             or not isinstance(site.get("slot"), str)
             or not all(
                 isinstance(operation_ref.get(member), str)
-                for member in ("package", "version", "id")
+                for member in ("package", "id")
             )
         ):
             continue
         coordinate = (
             cast(str, operation_ref["package"]),
-            cast(str, operation_ref["version"]),
             cast(str, operation_ref["id"]),
         )
         operation = operations.get(coordinate)

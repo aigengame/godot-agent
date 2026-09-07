@@ -17,8 +17,8 @@ experiment check/run -> deterministic lookup and equality
 Event trace + committed Snapshots + numeric Metric
 ```
 
-`standard.schema@2.4.0` owns the generic structured-value rules. The
-`standard.conformance.structured@2.0.0` Package Release owns the nominal `CandidateKind`,
+`standard.schema` owns the generic structured-value rules. The
+`standard.conformance.structured` package owns the nominal `CandidateKind`,
 `CandidateRef`, `Candidate`, `SelectionResult`, and `SelectionState` definitions. It also owns the
 bounded selection Operation. Host code does not define these types, Ref keys, lookup behavior,
 equality, or selection policy.
@@ -96,7 +96,7 @@ jq '.declaration_explanations' \
 ```
 
 The explanation identifies each structured declaration with `value_kind` set to
-`nominal-structured` and with its exact package, version, and type id.
+`nominal-structured` and its exact `{package, id}` nominal Type identity.
 
 Inspect the RIR literal types and selected structured semantics:
 

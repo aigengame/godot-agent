@@ -55,7 +55,7 @@ from gda_balancing.domain.authority.package_semantics import (
     package_runtime_semantic_closure,
 )
 from schema2_authority_support import (
-    definition_matches_package_coordinate,
+    refresh_package_semantic_closures,
     mutable_authorities,
 )
 
@@ -136,10 +136,9 @@ def _model_source() -> dict[str, Any]:
         "schema_version": "2.0.0",
         "manifest": {
             "id": "example.quantity-model",
-            "version": "1.0.0",
             "entry_module": "main",
         },
-        "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
+        "package_requirements": ["core.quantity"],
         "entrypoints": [],
         "modules": [
             {
@@ -148,7 +147,6 @@ def _model_source() -> dict[str, Any]:
                     {
                         "alias": "quantity",
                         "package": "core.quantity",
-                        "version": "2.2.0",
                         "symbol": "Quantity",
                     }
                 ],
@@ -176,7 +174,6 @@ def _use_derived_value(source: dict[str, Any]) -> None:
             "id": "formula.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -277,7 +274,7 @@ def test_structured_model_check_build_and_inspect_preserve_nominal_types(
         if row.get("value_kind") == "nominal-structured"
     ]
     assert {
-        row["resolved_symbol"]["name"]: row["type_identity"]["symbol"]
+        row["resolved_symbol"]["name"]: row["type_identity"]["id"]
         for row in structured_declarations
     } == {
         "selected_result": "SelectionResult",
@@ -286,7 +283,6 @@ def test_structured_model_check_build_and_inspect_preserve_nominal_types(
     }
     assert all(
         row["type_identity"]["package"] == "standard.conformance.structured"
-        and row["type_identity"]["version"] == "2.0.0"
         for row in structured_declarations
     )
     assert all(
@@ -302,11 +298,11 @@ def test_structured_model_check_build_and_inspect_preserve_nominal_types(
         )
     )
     lock = json.loads((artifact_dir / "package-lock.json").read_text())
-    assert {(row["id"], row["version"]) for row in lock["packages"]} >= {
-        ("core.quantity", "2.2.0"),
-        ("standard.conformance.structured", "2.0.0"),
-        ("standard.runtime", "1.1.0"),
-        ("standard.schema", "2.4.0"),
+    assert {row["id"] for row in lock["packages"]} >= {
+        "core.quantity",
+        "standard.conformance.structured",
+        "standard.runtime",
+        "standard.schema",
     }
     assert {
         (row["package"], row["definition"]["id"])
@@ -334,7 +330,7 @@ def test_structured_model_check_build_and_inspect_preserve_nominal_types(
             "admission": {
                 "envelope_members": ["type", "value"],
                 "nominal_type_reference": {
-                    "coordinate_members": ["package", "version", "id"],
+                    "coordinate_members": ["package", "id"],
                     "optional_kind_member": "kind",
                     "optional_kind_value": "nominal",
                 },
@@ -454,7 +450,6 @@ def test_roguelike_model_build_selects_the_atomic_build_operation(tmp_path, run_
 
     assert entrypoint["operation"] == {
         "package": "game.build",
-        "version": "2.0.0",
         "id": "game.build.replace-reward-v1",
     }
     assert [row["port"]["name"] for row in entrypoint["arguments"]] == [
@@ -542,7 +537,6 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
             "id": "formula.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -1389,7 +1383,6 @@ def test_model_build_closes_a_pure_operation_call_in_a_formula(tmp_path, run_cli
                         "node": "operation-call",
                         "operation": {
                             "package": "core.quantity",
-                            "version": "2.2.0",
                             "id": "quantity.identity",
                         },
                         "arguments": [
@@ -1452,11 +1445,9 @@ def test_model_build_closes_a_pure_operation_call_in_a_formula(tmp_path, run_cli
     operation = formula["body"]["nodes"][0]["operation"]
     assert {
         "package": operation["package"],
-        "version": operation["version"],
         "id": operation["id"],
     } == {
         "package": "core.quantity",
-        "version": "2.2.0",
         "id": "quantity.identity",
     }
     assert formula["closure"] == {
@@ -1601,7 +1592,6 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
                         "node": "operation-call",
                         "operation": {
                             "package": "core.quantity",
-                            "version": "2.2.0",
                             "id": "quantity.subtract",
                         },
                         "arguments": [
@@ -1630,7 +1620,6 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
                         "node": "operation-call",
                         "operation": {
                             "package": "core.quantity",
-                            "version": "2.2.0",
                             "id": "quantity.floor-zero",
                         },
                         "arguments": [
@@ -1664,7 +1653,6 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
                 "kind": "operation-slot",
                 "operation": {
                     "package": "game.combat",
-                    "version": "2.2.0",
                     "id": "game.combat.damage-v1",
                 },
                 "slot": "damage-policy",
@@ -1719,7 +1707,6 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
     assert binding["site"]["kind"] == "operation-slot"
     assert binding["site"]["operation"] == {
         "package": "game.combat",
-        "version": "2.2.0",
         "id": "game.combat.damage-v1",
         "identity": binding["site"]["operation"]["identity"],
     }
@@ -1856,7 +1843,6 @@ def test_model_check_refuses_operation_formula_slot_contract_violations(
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.2.0",
                     "id": "quantity.identity",
                 },
                 "arguments": [
@@ -1908,7 +1894,6 @@ def test_model_check_refuses_an_effectful_operation_in_a_formula(tmp_path, run_c
                 "node": "operation-call",
                 "operation": {
                     "package": "game.combat",
-                    "version": "2.2.0",
                     "id": "game.combat.cast-v1",
                 },
                 "arguments": [],
@@ -2144,7 +2129,6 @@ def test_model_check_points_a_non_first_binding_budget_error_at_its_formula(
             "node": "operation-call",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -2290,7 +2274,6 @@ def test_model_check_refuses_an_unreachable_operation_slot_binding(tmp_path, run
             "id": "resource.spend",
             "operation": {
                 "package": "game.resource",
-                "version": "1.1.0",
                 "id": "game.resource.spend-v1",
             },
             "arguments": [
@@ -2342,7 +2325,7 @@ def test_model_check_reaches_formula_slots_through_scheduled_operations(
     source_document["package_requirements"] = [
         requirement
         for requirement in source_document["package_requirements"]
-        if requirement["id"] in {"core.quantity", "game.effect"}
+        if requirement in {"core.quantity", "game.effect"}
     ]
     source_document["modules"][0]["formulas"] = [
         formula
@@ -2380,7 +2363,7 @@ def test_model_check_closes_formula_domains_through_scheduled_operations(
     source_document["package_requirements"] = [
         requirement
         for requirement in source_document["package_requirements"]
-        if requirement["id"] in {"core.quantity", "game.effect"}
+        if requirement in {"core.quantity", "game.effect"}
     ]
     source_document["modules"][0]["formulas"] = [
         formula
@@ -2472,7 +2455,7 @@ def test_resolved_model_admission_rejects_reidentified_nested_formula_domain_esc
         source_document["package_requirements"] = [
             requirement
             for requirement in source_document["package_requirements"]
-            if requirement["id"] in {"core.quantity", "game.effect"}
+            if requirement in {"core.quantity", "game.effect"}
         ]
         source_document["modules"][0]["formulas"] = [
             formula
@@ -2916,7 +2899,6 @@ def test_stat_composition_refusal_vectors_use_the_shared_model_source(
                     "node": "operation-call",
                     "operation": {
                         "package": "game.progression",
-                        "version": "1.0.0",
                         "id": "game.progression.contribution@1",
                     },
                     "arguments": [
@@ -2978,8 +2960,8 @@ def test_operation_reachability_follows_kernel_operation_members_after_node_rena
             }
         }
     }
-    child = {"package": "example.runtime", "version": "1.0.0", "id": "child"}
-    root = {"package": "example.runtime", "version": "1.0.0", "id": "root"}
+    child = {"package": "example.runtime", "id": "child"}
+    root = {"package": "example.runtime", "id": "root"}
     operations = [
         {
             "package": "example.runtime",
@@ -2991,7 +2973,7 @@ def test_operation_reachability_follows_kernel_operation_members_after_node_rena
         {"package": "example.runtime", "definition": {"id": "child", "body": []}},
     ]
     lock = {
-        "packages": [{"id": "example.runtime", "version": "1.0.0"}],
+        "packages": [{"id": "example.runtime"}],
         "operations": operations,
     }
     source = {"entrypoints": [{"operation": root}]}
@@ -3003,8 +2985,8 @@ def test_operation_reachability_follows_kernel_operation_members_after_node_rena
     operation_nodes = model_module._operation_reference_node_ids(kernel)
 
     expected = {
-        ("example.runtime", "1.0.0", "root"),
-        ("example.runtime", "1.0.0", "child"),
+        ("example.runtime", "root"),
+        ("example.runtime", "child"),
     }
     assert operation_nodes == {"defer"}
     assert (
@@ -3054,9 +3036,7 @@ def test_model_check_refuses_an_omitted_transitive_manifest_dependency(
         for package in candidate_ldb["language"]["packages"]
         if package["id"] == "core.quantity"
     )
-    assert quantity["dependencies"]["required"] == [
-        {"id": "standard.compiler", "version": "1.1.0"}
-    ]
+    assert quantity["dependencies"]["required"] == ["standard.compiler"]
     quantity["dependencies"]["required"] = []
     quantity_vectors = next(
         vector_set["vectors"]
@@ -3106,8 +3086,9 @@ def test_model_check_rejects_an_invalid_value_policy_on_an_unused_symbol(
     assert diagnostic["primary"]["pointer"] == ("/modules/0/symbols/5/value_policy")
 
 
-def test_model_check_refuses_conflicting_transitive_dependency_versions(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("provider_count", (0, 1, 2))
+def test_model_source_checks_transitive_selected_capability_cardinality(
+    tmp_path, monkeypatch, provider_count
 ):
     kernel, baseline_ldb = mutable_authorities()
     candidate_ldb = deepcopy(baseline_ldb)
@@ -3120,12 +3101,10 @@ def test_model_check_refuses_conflicting_transitive_dependency_versions(
 
     def empty_package(
         package_id: str,
-        version: str,
-        dependencies: list[dict[str, str]],
+        dependencies: list[str],
     ) -> dict[str, Any]:
         package = deepcopy(seed)
         package["id"] = package_id
-        package["version"] = version
         package["dependencies"] = {"optional": [], "required": dependencies}
         package["capabilities"] = {"provided": [], "required": []}
         package["exports"] = {name: [] for name in package["exports"]}
@@ -3136,23 +3115,26 @@ def test_model_check_refuses_conflicting_transitive_dependency_versions(
         return package
 
     added_packages = [
-        empty_package("shared.rules", "1.0.0", []),
-        empty_package("shared.rules", "2.0.0", []),
+        empty_package("shared.rules", []),
         empty_package(
             "genre.parenta",
-            "1.0.0",
-            [{"id": "shared.rules", "version": "1.0.0"}],
+            ["shared.rules"],
         ),
         empty_package(
             "genre.parentb",
-            "1.0.0",
-            [{"id": "shared.rules", "version": "2.0.0"}],
+            ["shared.rules"],
         ),
     ]
+    added_packages[0]["capabilities"]["required"] = ["game.check.hit"]
+    providers = [
+        empty_package(f"genre.provider{index}", []) for index in range(provider_count)
+    ]
+    for provider in providers:
+        provider["capabilities"]["provided"] = ["game.check.hit"]
+    added_packages.extend(providers)
     language["packages"].extend(added_packages)
     candidate_ldb.package_conformance_vector_sets.extend(
-        _package_vector_set(package["id"], package["version"], [])
-        for package in added_packages
+        _package_vector_set(package["id"], []) for package in added_packages
     )
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
@@ -3160,14 +3142,35 @@ def test_model_check_refuses_conflicting_transitive_dependency_versions(
     source_document = _model_source()
     source_document["package_requirements"].extend(
         [
-            {"id": "genre.parenta", "version": "1.0.0"},
-            {"id": "genre.parentb", "version": "1.0.0"},
+            "genre.parenta",
+            "genre.parentb",
         ]
     )
-    source = tmp_path / "conflicting-transitive-versions.json"
+    source_document["package_requirements"].extend(
+        provider["id"] for provider in providers
+    )
+    source = tmp_path / "missing-transitive-provider.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
 
+    def refuse_finalization(_projection):
+        pytest.fail("Invalid selected capability provider count reached finalization")
+
+    if provider_count != 1:
+        monkeypatch.setattr(
+            model_checking_module, "admit_namespace_selection", refuse_finalization
+        )
     result = model_checking_module.check_model_source(str(source))
+
+    if provider_count == 1:
+        assert isinstance(result, model_module.CheckedModel), result
+        artifacts = model_compilation_module.compile_checked_model(result)
+        assert {
+            "capability": "game.check.hit",
+            "provider_package": "genre.provider0",
+        } in cast(
+            list[dict[str, Any]], artifacts["package-lock"]["capability_bindings"]
+        )
+        return
 
     assert isinstance(result, model_module.Schema2RefusalReport)
     assert result.stage == "resolution"
@@ -3344,12 +3347,12 @@ def test_model_check_refuses_a_source_without_a_selected_domain_package(
     }
 
 
-def test_model_check_classifies_an_unavailable_exact_package_as_resolution(
+def test_model_check_classifies_an_unavailable_namespace_as_resolution(
     tmp_path, run_cli
 ):
     source_document = _model_source()
-    source_document["package_requirements"][0]["version"] = "9.0.0"
-    source_document["modules"][0]["imports"][0]["version"] = "9.0.0"
+    source_document["package_requirements"][0] = "not.available"
+    source_document["modules"][0]["imports"][0]["package"] = "not.available"
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
 
@@ -3362,8 +3365,8 @@ def test_model_check_classifies_an_unavailable_exact_package_as_resolution(
         (item["primary"]["pointer"], item["code"]) for item in error["diagnostics"]
     ] == [
         (
-            "/package_requirements/0/version",
-            "language.package_version_unavailable",
+            "/package_requirements/0",
+            "language.package_unavailable",
         )
     ]
     assert error["truncated"] is False
@@ -4779,15 +4782,14 @@ def test_package_lock_closes_the_selected_semantic_graph_without_provenance(
     artifact_dir = _artifact_directory(json.loads(built[1]))
 
     lock = json.loads((artifact_dir / "package-lock.json").read_text())
-    assert [(package["id"], package["version"]) for package in lock["packages"]] == [
-        ("core.quantity", "2.2.0"),
-        ("standard.compiler", "1.1.0"),
+    assert [package["id"] for package in lock["packages"]] == [
+        "core.quantity",
+        "standard.compiler",
     ]
     assert all(
         set(package)
         == {
             "id",
-            "version",
             "content_identity",
             "semantic_identity",
         }
@@ -4827,8 +4829,7 @@ def test_package_lock_closes_the_selected_semantic_graph_without_provenance(
         declaration["type_identity"]
         == {
             "package": "core.quantity",
-            "version": "2.2.0",
-            "symbol": "Quantity",
+            "id": "Quantity",
         }
         for declaration in rir["declarations"]
     )
@@ -4908,13 +4909,11 @@ def _reidentify(artifact: dict, domain: str) -> None:
 
 def _package_vector_set(
     package_id: str,
-    package_version: str,
     vectors: list[dict[str, Any]],
 ) -> dict[str, Any]:
     vector_set = {
         "artifact_kind": "package-conformance-vector-set",
         "package_id": package_id,
-        "package_version": package_version,
         "vectors": [vector["id"] for vector in vectors],
         "vector_definitions": deepcopy(vectors),
     }
@@ -4925,52 +4924,13 @@ def _package_vector_set(
 def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
     assert isinstance(language_bundle, LanguageBundleIndex)
     kernel, _ = mutable_authorities()
-    projections = kernel["meta_format"]["package_release"]["semantic_closure"][
-        "projections"
-    ]
-
-    def path_values(root: Any, dotted: str) -> list[Any]:
-        values = [root]
-        for segment in dotted.split("."):
-            selected: list[Any] = []
-            for value in values:
-                if not isinstance(value, dict) or segment not in value:
-                    continue
-                child = value[segment]
-                selected.extend(child if isinstance(child, list) else [child])
-            values = selected
-        return values
-
-    vector_sets_by_coordinate = {
-        (vector_set["package_id"], vector_set["package_version"]): vector_set
+    refresh_package_semantic_closures(language_bundle, kernel)
+    vector_sets_by_namespace = {
+        vector_set["package_id"]: vector_set
         for vector_set in language_bundle.package_conformance_vector_sets
     }
     projected_vectors = {vector["id"]: vector for vector in language_bundle["vectors"]}
     for package in language_bundle["language"]["packages"]:
-        for entry, projection in zip(
-            package["semantic_closure"], projections, strict=True
-        ):
-            definitions = path_values(language_bundle, entry["authority_path"])
-            owners = path_values(package, projection["owners_path"])
-            key_member = projection["key_member"]
-            entry["definitions"] = deepcopy(
-                [
-                    definition
-                    for definition in definitions
-                    if (
-                        definition.get(key_member)
-                        if key_member is not None and isinstance(definition, dict)
-                        else definition
-                    )
-                    in owners
-                    and definition_matches_package_coordinate(
-                        definition,
-                        authority_path=entry["authority_path"],
-                        package_id=package["id"],
-                        package_version=package["version"],
-                    )
-                ]
-            )
         semantic_projection = kernel["meta_format"]["package_release"][
             "semantic_identity_projection"
         ]
@@ -4981,7 +4941,7 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
                 package_runtime_semantic_closure(package, semantic_projection),
             ),
         )
-        vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
+        vector_set = vector_sets_by_namespace[package["id"]]
         existing_vectors = {
             vector["id"]: vector for vector in vector_set["vector_definitions"]
         }
@@ -5004,7 +4964,7 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
                 deepcopy(language_bundle.package_conformance_vector_sets),
                 strict=True,
             ),
-            key=lambda member: (member[0]["id"], member[0]["version"]),
+            key=lambda member: member[0]["id"],
         )
         packages = [package for package, _vector_set in members]
         vector_sets = [vector_set for _package, vector_set in members]
@@ -5022,7 +4982,6 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
                 "byte_size": size,
                 "content_identity": package["content_identity"],
                 "id": package["id"],
-                "version": package["version"],
             }
             for package, size in zip(packages, package_sizes, strict=True)
         ]
@@ -5254,8 +5213,7 @@ def test_resolved_model_admission_requires_the_kernel_boolean_conditional_contra
     wrong_boolean_domain = {
         "type_identity": {
             "package": "kernel",
-            "version": "2.0.0",
-            "symbol": "Boolean",
+            "id": "Boolean",
         },
         "representation": "Bool",
         "kind": "boolean",
@@ -5358,7 +5316,6 @@ def test_resolved_model_admission_recomputes_entrypoint_binding_identities(
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -5447,7 +5404,6 @@ def test_model_entrypoint_arguments_must_exactly_close_formal_ports(
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": arguments,
@@ -5488,7 +5444,6 @@ def test_model_entrypoint_read_port_rejects_symbols_without_an_input_source(
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -5530,7 +5485,6 @@ def test_model_entrypoint_result_reports_the_exact_binding_pointer(tmp_path, run
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -5566,7 +5520,7 @@ def test_model_entrypoint_result_reports_the_exact_binding_pointer(tmp_path, run
     (
         (
             "type",
-            {"package": "kernel", "version": "2.0.0", "id": "Boolean"},
+            {"package": "kernel", "id": "Boolean"},
         ),
         ("representation", "Bool"),
         ("kind", "boolean"),
@@ -5611,7 +5565,6 @@ def test_model_entrypoint_lowers_an_ldb_typed_integer_literal(tmp_path):
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -5642,7 +5595,6 @@ def test_model_entrypoint_lowers_an_ldb_typed_integer_literal(tmp_path):
         "id": "quantity.dimensionless-int64-v2-2",
         "type": {
             "package": "core.quantity",
-            "version": "2.2.0",
             "id": "Quantity",
         },
         "representation": "Int",
@@ -5662,7 +5614,6 @@ def test_resolved_model_admission_rejects_reidentified_literal_context_tamper(
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -5714,7 +5665,6 @@ def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch)
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -5792,7 +5742,6 @@ def test_model_entrypoint_refuses_integer_literal_for_boolean_formal(
             "id": "combat.damage",
             "operation": {
                 "package": "game.combat",
-                "version": "2.2.0",
                 "id": "game.combat.damage-v1",
             },
             "arguments": [
@@ -5860,7 +5809,6 @@ def test_model_entrypoint_lowers_a_kernel_boolean_literal(tmp_path):
             "id": "combat.damage",
             "operation": {
                 "package": "game.combat",
-                "version": "2.2.0",
                 "id": "game.combat.damage-v1",
             },
             "arguments": [
@@ -5912,7 +5860,7 @@ def test_model_entrypoint_lowers_a_kernel_boolean_literal(tmp_path):
     operand = cast(dict[str, Any], entrypoint["arguments"][1]["operand"])
     assert operand["value"] is False
     assert operand["context_type"] == {
-        "type": {"package": "kernel", "version": "2.0.0", "id": "Boolean"},
+        "type": {"package": "kernel", "id": "Boolean"},
         "representation": "Bool",
         "kind": "boolean",
         "unit": "1",
@@ -5929,7 +5877,7 @@ def test_model_entrypoint_lowers_a_kernel_boolean_literal(tmp_path):
         ("id", "quantity.missing"),
     ),
 )
-def test_model_entrypoint_refuses_stale_exact_operation_coordinates(
+def test_model_entrypoint_refuses_invalid_namespace_operation_references(
     tmp_path,
     run_cli,
     member,
@@ -5941,7 +5889,6 @@ def test_model_entrypoint_refuses_stale_exact_operation_coordinates(
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -5962,7 +5909,7 @@ def test_model_entrypoint_refuses_stale_exact_operation_coordinates(
         }
     ]
     source_value["entrypoints"][0]["operation"][member] = value
-    source = tmp_path / f"stale-operation-{member}.json"
+    source = tmp_path / f"invalid-operation-reference-{member}.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
 
     exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
@@ -5992,7 +5939,6 @@ def test_symbol_rename_and_binding_change_reidentify_the_resolved_graph(tmp_path
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -6322,31 +6268,27 @@ def test_assignment_policy_refuses_a_readable_role_mode_without_a_value_producer
         (
             "effect",
             (
-                "language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.effects"
+                "language.operations.game.combat.game.combat.cast-v1.body.hit-check.effects"
             ),
         ),
         (
             "refusal",
             (
-                "language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.refusals"
+                "language.operations.game.combat.game.combat.cast-v1.body.hit-check.refusals"
             ),
         ),
         (
             "resource",
-            (
-                "language.operations.game.combat@2.2.0.game.combat.cast-v1.resource_bounds"
-            ),
+            ("language.operations.game.combat.game.combat.cast-v1.resource_bounds"),
         ),
         (
             "cycle",
-            (
-                "language.operations.game.check@1.1.0.game.check.hit-v1.body.cycle.operation"
-            ),
+            ("language.operations.game.check.game.check.hit-v1.body.cycle.operation"),
         ),
         (
             "argument-contract",
             (
-                "language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.arguments"
+                "language.operations.game.combat.game.combat.cast-v1.body.hit-check.arguments"
             ),
         ),
     ),
@@ -6411,7 +6353,6 @@ def test_package_admission_closes_every_operation_composition_axis(
                 "site": "self",
                 "operation": {
                     "package": "game.check",
-                    "version": "1.1.0",
                     "id": "game.check.hit-v1",
                 },
                 "arguments": [
@@ -6482,7 +6423,7 @@ def test_package_admission_requires_a_visible_integer_local_for_list_lookup(key)
     admission = admit_authorities(baseline.kernel, candidate_ldb)
 
     assert (
-        "language.operations.standard.conformance.structured@2.0.0."
+        "language.operations.standard.conformance.structured."
         f"standard.conformance.structured.select-v1.body.{lookup_index}.typing"
         in composition_subjects
     )
@@ -6598,7 +6539,7 @@ def test_package_admission_rejects_canonical_equality_across_value_contracts():
 
     assert mutation_index is not None
     expected_subject = (
-        "language.operations.game.generation@1.1.0."
+        "language.operations.game.generation."
         f"game.generation.select-reward-v1.body.{mutation_index}.typing"
     )
     composition_subjects = bootstrap_module._operation_composition_diagnostic_subjects(
@@ -6614,7 +6555,6 @@ def test_lookup_scalar_result_contract_comes_from_the_selected_literal_profile()
     exact_type = {
         "id": "Amount",
         "package": "example.scalar",
-        "version": "3.0.0",
     }
     profile = {
         "domain": {"kind": "actual"},
@@ -6654,7 +6594,6 @@ def test_lookup_structured_result_uses_the_kernel_value_kind():
         "element": {
             "id": "Candidate",
             "package": "standard.conformance.structured",
-            "version": "1.0.0",
         },
         "kind": "list",
         "maximum_length": 2,
@@ -6747,7 +6686,7 @@ def test_authority_admission_rejects_operation_closure_at_the_package_site():
     assert admission.admitted is False
     assert any(
         diagnostic.subject
-        == "language.operations.game.combat@2.2.0.game.combat.cast-v1.body.hit-check.effects"
+        == "language.operations.game.combat.game.combat.cast-v1.body.hit-check.effects"
         for diagnostic in admission.diagnostics
     )
 
@@ -6826,7 +6765,6 @@ def test_model_entrypoint_can_explicitly_discard_a_discardable_result(tmp_path):
             "id": "resource.spend",
             "operation": {
                 "package": "game.resource",
-                "version": "1.1.0",
                 "id": "game.resource.spend-v1",
             },
             "arguments": [
@@ -6925,6 +6863,7 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
         source_identity=checked.source_identity,
         kernel=checked.kernel,
         language_bundle=candidate_ldb,
+        namespace_selection=checked.namespace_selection,
     )
 
     artifacts = model_compilation_module.lower_checked_model(candidate)
@@ -6959,7 +6898,6 @@ def test_symbol_assignment_semantics_follow_the_admitted_per_role_mode_contracts
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.2.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -7333,7 +7271,6 @@ def test_unlocked_escaping_authority_changes_rir_content_not_semantics():
                         "node": "operation-call",
                         "operation": {
                             "package": "core.quantity",
-                            "version": "2.2.0",
                             "id": "quantity.identity",
                         },
                         "arguments": [
@@ -7430,7 +7367,6 @@ def test_unselected_pure_operation_notation_preserves_lock_and_rir():
         )
     )
     operation["id"] = "game.check.unused-identity"
-    operation["version"] = "1.1.0"
     operation["vectors"] = []
     operation["extensions"]["standard.formula-notation"]["name"] = "unused_identity"
     baseline_ldb["language"]["operations"].append(operation)
@@ -7601,12 +7537,11 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
         next(item for item in language["packages"] if item["id"] == "standard.compiler")
     )
     package["id"] = "genre.economy"
-    package["version"] = "1.0.0"
     package["dependencies"] = {
         "optional": [],
         "required": [
-            {"id": "core.quantity", "version": "2.2.0"},
-            {"id": "standard.runtime", "version": "1.1.0"},
+            "core.quantity",
+            "standard.runtime",
         ],
     }
     package["capabilities"] = {
@@ -7654,7 +7589,6 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
                 "type": {
                     "id": "Quantity",
                     "package": "core.quantity",
-                    "version": "2.2.0",
                 },
                 "unit": "1",
             },
@@ -7668,7 +7602,6 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
                 "type": {
                     "id": "Quantity",
                     "package": "core.quantity",
-                    "version": "2.2.0",
                 },
                 "unit": "1",
             },
@@ -7702,7 +7635,6 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
             "type": {
                 "id": "Quantity",
                 "package": "core.quantity",
-                "version": "2.2.0",
             },
             "unit": "1",
         },
@@ -7715,7 +7647,6 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
             "genre.economy.purchase.outcomes",
             "genre.economy.purchase.resource-bound",
         ],
-        "version": "1.0.0",
     }
     vectors = [
         {
@@ -7743,7 +7674,7 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     language["operations"].append(operation)
     language["packages"].append(package)
     candidate_ldb.package_conformance_vector_sets.append(
-        _package_vector_set(package["id"], package["version"], vectors)
+        _package_vector_set(package["id"], vectors)
     )
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
@@ -7753,8 +7684,8 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
 
     source_document = _model_source()
     source_document["package_requirements"] = [
-        {"id": "core.quantity", "version": "2.2.0"},
-        {"id": "genre.economy", "version": "1.0.0"},
+        "core.quantity",
+        "genre.economy",
     ]
     source_document["modules"][0]["symbols"] = [
         _quantity_symbol("account_balance", "state"),
@@ -7766,7 +7697,6 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
             "id": "economy.purchase",
             "operation": {
                 "package": "genre.economy",
-                "version": "1.0.0",
                 "id": "genre.economy.purchase-v1",
             },
             "arguments": [
@@ -7821,7 +7751,6 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     experiment_value = {
         "schema_version": "2.0.0",
         "id": "example.economy.purchase",
-        "version": "1.0.0",
         "kernel_identity": kernel["content_identity"],
         "language_bundle_identity": candidate_ldb["content_identity"],
         "model": {
@@ -7951,7 +7880,6 @@ def test_unreachable_package_semantics_do_not_change_rir(
         language["runtime_profiles"].append(
             {
                 "id": "compile.unused",
-                "version": "2.0.0",
                 "numeric_policy": "exact-int64",
                 "evaluation": "declaration-only",
                 "effects": [],
@@ -8053,3 +7981,99 @@ def test_runtime_projection_step_exhaustion_is_a_typed_static_refusal(
         "language.resource_exhausted"
     ]
     assert not output.exists()
+
+
+def test_model_source_finalizes_one_namespace_projection_and_lock_reuses_it(
+    monkeypatch,
+):
+    source = _model_source()
+    projections = []
+    finalized = []
+    original_project = model_checking_module.project_required_namespace_closure
+    original_admit = model_checking_module.admit_namespace_selection
+
+    def project(packages, roots):
+        projection = original_project(packages, roots)
+        projections.append(projection)
+        return projection
+
+    def admit(projection):
+        finalized.append(projection)
+        return original_admit(projection)
+
+    monkeypatch.setattr(
+        model_checking_module, "project_required_namespace_closure", project
+    )
+    monkeypatch.setattr(model_checking_module, "admit_namespace_selection", admit)
+    checked = model_checking_module.check_model_source_value(source)
+    assert isinstance(checked, model_module.CheckedModel), checked
+    assert len(projections) == len(finalized) == 1
+    assert finalized[0] is projections[0]
+    assert checked.namespace_selection.roots == ("core.quantity",)
+    assert tuple(
+        package.namespace for package in checked.namespace_selection.packages
+    ) == (
+        "core.quantity",
+        "standard.compiler",
+    )
+    assert checked.namespace_selection.dependency_edges == (
+        ("core.quantity", "standard.compiler"),
+    )
+
+    def refuse_second_traversal(*_args, **_kwargs):
+        pytest.fail("Lock lowering traversed the dependency graph again")
+
+    monkeypatch.setattr(
+        model_checking_module,
+        "project_required_namespace_closure",
+        refuse_second_traversal,
+    )
+    monkeypatch.setattr(
+        "gda_balancing.domain.authority.graph.project_required_namespace_closure",
+        refuse_second_traversal,
+    )
+    lock = model_lowering_module._package_lock(checked)
+    assert lock["root_requirements"] == ["core.quantity"]
+    assert [row["id"] for row in cast(list[dict[str, Any]], lock["packages"])] == [
+        "core.quantity",
+        "standard.compiler",
+    ]
+    assert lock["dependency_edges"] == [
+        {
+            "from_package": "core.quantity",
+            "kind": "required",
+            "to_package": "standard.compiler",
+        }
+    ]
+    assert lock["capability_bindings"] == [
+        {"capability": capability, "provider_package": provider}
+        for capability, provider in checked.namespace_selection.capability_bindings
+    ]
+
+
+@pytest.mark.parametrize(
+    ("namespace", "stage", "code"),
+    [
+        ("unavailable.namespace", "resolution", "language.package_unavailable"),
+        ("core.quantity", "static", "language.name_ambiguity"),
+    ],
+)
+def test_invalid_source_namespace_does_not_reach_selection_finalizer(
+    monkeypatch, namespace, stage, code
+):
+    source = _model_source()
+    source["package_requirements"].append(namespace)
+
+    def refuse_finalization(_projection):
+        pytest.fail("Invalid Source reached namespace selection finalization")
+
+    monkeypatch.setattr(
+        model_checking_module, "admit_namespace_selection", refuse_finalization
+    )
+    result = model_checking_module.check_model_source_value(source)
+    assert isinstance(result, Schema2RefusalReport)
+    assert result.stage == stage
+    assert (code, "/package_requirements/1") in {
+        (diagnostic.code, cast(ArtifactLocation, diagnostic.primary).pointer)
+        for diagnostic in result.diagnostics
+    }

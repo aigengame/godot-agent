@@ -2,18 +2,11 @@
   "schema_version": "2.0.0",
   "manifest": {
     "id": "example.rpg-combat-cast",
-    "version": "1.0.0",
     "entry_module": "combat"
   },
   "package_requirements": [
-    {
-      "id": "core.quantity",
-      "version": "2.2.0"
-    },
-    {
-      "id": "game.combat",
-      "version": "2.2.0"
-    }
+    "core.quantity",
+    "game.combat"
   ],
   "modules": [
     {
@@ -22,7 +15,6 @@
         {
           "alias": "quantity",
           "package": "core.quantity",
-          "version": "2.2.0",
           "symbol": "Quantity"
         }
       ],
@@ -401,7 +393,6 @@
                 "node": "operation-call",
                 "operation": {
                   "package": "core.quantity",
-                  "version": "2.2.0",
                   "id": "quantity.subtract"
                 },
                 "arguments": [
@@ -438,7 +429,6 @@
                 "node": "operation-call",
                 "operation": {
                   "package": "core.quantity",
-                  "version": "2.2.0",
                   "id": "quantity.floor-zero"
                 },
                 "arguments": [
@@ -507,7 +497,6 @@
                 "node": "operation-call",
                 "operation": {
                   "package": "core.quantity",
-                  "version": "2.2.0",
                   "id": "quantity.maximum"
                 },
                 "arguments": [
@@ -598,7 +587,6 @@
         "kind": "operation-slot",
         "operation": {
           "package": "game.combat",
-          "version": "2.2.0",
           "id": "game.combat.damage-v1"
         },
         "slot": "damage-policy"
@@ -630,8 +618,7 @@
       "id": "combat.player-attacks-enemy",
       "operation": {
         "id": "game.combat.eligible-cast-v1",
-        "package": "game.combat",
-        "version": "2.2.0"
+        "package": "game.combat"
       },
       "arguments": [
         {
@@ -725,7 +712,6 @@
       "id": "combat.player-plans-attacks",
       "operation": {
         "package": "game.combat",
-        "version": "2.2.0",
         "id": "game.combat.plan-casts-v1"
       },
       "arguments": [
@@ -802,7 +788,6 @@
       "id": "combat.player-attacks-enemy-and-cancels-counterattack",
       "operation": {
         "package": "game.combat",
-        "version": "2.2.0",
         "id": "game.combat.cast-and-cancel-v1"
       },
       "arguments": [
@@ -888,8 +873,7 @@
       "id": "combat.enemy-attacks-player",
       "operation": {
         "id": "game.combat.eligible-cast-v1",
-        "package": "game.combat",
-        "version": "2.2.0"
+        "package": "game.combat"
       },
       "arguments": [
         {
@@ -983,8 +967,7 @@
       "id": "combat.player-attacks-enemy-without-eligibility",
       "operation": {
         "id": "game.combat.cast-v1",
-        "package": "game.combat",
-        "version": "2.2.0"
+        "package": "game.combat"
       },
       "arguments": [
         {
@@ -1062,8 +1045,7 @@
       "id": "combat.enemy-attacks-player-without-eligibility",
       "operation": {
         "id": "game.combat.cast-v1",
-        "package": "game.combat",
-        "version": "2.2.0"
+        "package": "game.combat"
       },
       "arguments": [
         {

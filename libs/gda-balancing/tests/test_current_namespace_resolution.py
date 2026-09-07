@@ -418,7 +418,7 @@ def test_maintained_sources_resolve_the_expected_current_namespace_closure(
         / "model-source.json"
     )
     source = json.loads(source_path.read_text(encoding="utf-8"))
-    roots = [requirement["id"] for requirement in source["package_requirements"]]
+    roots = source["package_requirements"]
 
     selected = resolve_current_namespaces(packages, roots)
 
@@ -496,3 +496,64 @@ def test_current_projection_retains_complete_operations_and_cannot_mutate_admitt
         context.current_namespace_packages(), ("core.quantity",)
     )
     assert fresh.definitions[key]["body"][0]["node"] == "add"
+
+
+def test_projection_retains_raw_roots_and_missing_namespaces_for_source_judgments():
+    from gda_balancing.domain.authority.graph import (
+        admit_namespace_selection,
+        project_required_namespace_closure,
+    )
+
+    packages = (
+        _package("root", required=("leaf",)),
+        _package("leaf", provides=("read",)),
+    )
+    projection = project_required_namespace_closure(
+        packages, (name for name in ("root", "missing", "root"))
+    )
+
+    assert projection.roots == ("root", "missing", "root")
+    assert tuple(package.namespace for package in projection.packages) == (
+        "leaf",
+        "root",
+    )
+    assert projection.dependency_edges == (("root", "leaf"),)
+    assert projection.capability_providers == (("read", "leaf"),)
+    with pytest.raises(ValueError, match="missing root namespace: missing"):
+        admit_namespace_selection(projection)
+
+
+@pytest.mark.parametrize("provider_count", (0, 1, 2))
+def test_projection_retains_all_selected_capability_providers_until_finalization(
+    provider_count,
+):
+    from gda_balancing.domain.authority.graph import (
+        admit_namespace_selection,
+        project_required_namespace_closure,
+    )
+
+    providers = tuple(
+        _package(f"provider{index}", provides=("read",))
+        for index in range(provider_count)
+    )
+    root = _package(
+        "root", required=tuple(item.namespace for item in providers), requires=("read",)
+    )
+    projection = project_required_namespace_closure(
+        (*providers, root), ("root", "root")
+    )
+
+    assert projection.capability_providers == tuple(
+        ("read", f"provider{index}") for index in range(provider_count)
+    )
+    if provider_count == 1:
+        selected = admit_namespace_selection(projection)
+        assert selected.roots == ("root",)
+        assert selected.capability_bindings == (("read", "provider0"),)
+        assert selected.packages is projection.packages
+        assert selected.dependency_edges is projection.dependency_edges
+        assert selected.definitions is projection.definitions
+    else:
+        message = "no provider" if provider_count == 0 else "multiple providers"
+        with pytest.raises(ValueError, match=message):
+            admit_namespace_selection(projection)

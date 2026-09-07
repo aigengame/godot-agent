@@ -4,6 +4,12 @@ status: accepted
 
 # Adopt explicit mechanisms from modeling standards without importing their runtimes or formats
 
+> **Native wire update (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#native-wire-delivery-871-2026-09-07)):**
+> #871 supersedes the ONNX-derived internal package/opset exact-version locking and associated
+> version-selection vector requirements below. Current requirements name namespaces and nominal
+> Type/Operation references use `{package, id}`. Pinned external-source versions, scoped adoption,
+> Numeric/Runtime laws and independent conformance remain; external provenance is not a selector.
+
 Standard Schema 2.0 draws on UCUM, MLIR, SBML, FMI, Modelica, and ONNX. Naming those systems without
 a mapping would be decorative borrowing: it would not tell an implementer which semantics are
 binding, which features are excluded, or how conformance is tested. Directly adopting all six

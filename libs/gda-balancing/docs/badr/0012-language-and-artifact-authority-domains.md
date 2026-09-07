@@ -4,6 +4,11 @@ status: accepted
 
 # Scope Standard Schema 2.0 authority by language, model, experiment, and approval domains
 
+> **Native wire update (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#native-wire-delivery-871-2026-09-07)):**
+> #871 removes package/Operation and authored-definition own-version labels; the corresponding
+> clauses below are historical. Exact content and authored-domain ownership remain. Whole-LDB and
+> Build-receipt execution prerequisites still require closure and deletion in #874–#875.
+
 > **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
 > The internal-release immutability and whole-build execution-binding requirements below are
 > superseded as a final target by bADR-0028. One current language, exact content integrity, and

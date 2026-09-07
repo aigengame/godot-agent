@@ -4,6 +4,11 @@ status: accepted
 
 # Use one Metrics schema and immutable evidence for evaluation, calibration, and approval
 
+> **Native wire update (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#native-wire-delivery-871-2026-09-07)):**
+> #871 removes Experiment, Runtime profile, evidence claim-kind and Replay policy own-version
+> labels and their provenance echoes. Their authored content, actual policies, identities and
+> checks remain binding. This does not activate deferred verifier work or satisfy #874–#875.
+
 > **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
 > bADR-0028 requires removal of irrelevant whole-LDB/Build-receipt execution and
 > semantic-comparison bindings after closing actual execution inputs. Truthful content and

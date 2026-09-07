@@ -319,7 +319,6 @@ def _package_conformance_vector_set_is_closed(
         "artifact_kind",
         "content_identity",
         "package_id",
-        "package_version",
         "vector_definitions",
         "vectors",
     }
@@ -331,9 +330,7 @@ def _package_conformance_vector_set_is_closed(
     }
     field_types = contract.get("field_types") if isinstance(contract, dict) else None
     coordinate_contracts = (
-        [field_types.get("package_id"), field_types.get("package_version")]
-        if isinstance(field_types, dict)
-        else []
+        [field_types.get("package_id")] if isinstance(field_types, dict) else []
     )
     return (
         isinstance(contract, dict)

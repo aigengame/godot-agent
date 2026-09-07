@@ -8,7 +8,7 @@ import gda_balancing.domain.program_reachability as program_reachability_module
 def test_projects_nested_operation_only_structure():
     rir = {
         "selected_semantics": {
-            "packages": [{"id": "example.program", "version": "1.0.0"}],
+            "packages": [{"id": "example.program"}],
             "operations": [
                 {
                     "package": "example.program",
@@ -19,7 +19,6 @@ def test_projects_nested_operation_only_structure():
                                 "node": "invoke",
                                 "operation": {
                                     "package": "example.program",
-                                    "version": "1.0.0",
                                     "id": "invoked",
                                 },
                             },
@@ -27,7 +26,6 @@ def test_projects_nested_operation_only_structure():
                                 "node": "schedule",
                                 "operation": {
                                     "package": "example.program",
-                                    "version": "1.0.0",
                                     "id": "scheduled",
                                 },
                             },
@@ -52,7 +50,6 @@ def test_projects_nested_operation_only_structure():
     entrypoint = {
         "operation": {
             "package": "example.program",
-            "version": "1.0.0",
             "id": "root",
         },
         "arguments": [],
@@ -63,9 +60,9 @@ def test_projects_nested_operation_only_structure():
     )
 
     assert projected.operation_coordinates == {
-        ("example.program", "1.0.0", "root"),
-        ("example.program", "1.0.0", "invoked"),
-        ("example.program", "1.0.0", "scheduled"),
+        ("example.program", "root"),
+        ("example.program", "invoked"),
+        ("example.program", "scheduled"),
     }
     assert projected.runtime_node_ids == {"add", "invoke", "schedule", "subtract"}
     assert all(
@@ -87,7 +84,7 @@ def test_groups_formula_programs_by_lifecycle_phase():
 
     rir = {
         "selected_semantics": {
-            "packages": [{"id": "example.program", "version": "1.0.0"}],
+            "packages": [{"id": "example.program"}],
             "operations": [
                 {
                     "package": "example.program",
@@ -104,7 +101,6 @@ def test_groups_formula_programs_by_lifecycle_phase():
     entrypoint = {
         "operation": {
             "package": "example.program",
-            "version": "1.0.0",
             "id": "root",
         },
         "arguments": [{"operand": {"kind": "symbol", "symbol": target}}],

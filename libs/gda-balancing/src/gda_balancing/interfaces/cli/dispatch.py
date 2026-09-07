@@ -20,10 +20,10 @@ from typing import Any, TextIO
 import jsonschema
 from pydantic import BaseModel, ValidationError
 
+from gda_balancing.domain.authority.context import AuthorityLoadError
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.domain.publication_types import PublicationError
 from gda_balancing.interfaces.cli.errors import UsageError, publication_usage_error
-from gda_balancing.interfaces.cli.registry import REGISTRY
 from gda_balancing.interfaces.cli.descriptors import (
     CommandDescriptor,
     option_bindings,
@@ -43,7 +43,10 @@ from gda_balancing.interfaces.cli.envelope import (
     schema2_refusal_envelope,
     usage_envelope,
 )
-from gda_balancing.domain.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.diagnostics import (
+    Schema2RefusalReport,
+    authority_load_refusal,
+)
 
 _SCHEMA_FLAG = "--schema"
 _HELP_FLAG = "--help"
@@ -62,7 +65,7 @@ def dispatch(
     stdout: TextIO,
     stderr: TextIO,
     *,
-    registry: tuple[CommandDescriptor, ...] = REGISTRY,
+    registry: tuple[CommandDescriptor, ...] | None = None,
     stdin: TextIO | None = None,
 ) -> int:
     """Run one invocation; returns the exit code, never raises or exits.
@@ -72,7 +75,16 @@ def dispatch(
     (bADR-0011's fault-injection seam — production has no fault path).
     """
     try:
+        if registry is None:
+            from gda_balancing.interfaces.cli.registry import REGISTRY
+
+            registry = REGISTRY
         return _dispatch(list(argv), stdout, stderr, registry, stdin)
+    except AuthorityLoadError as err:
+        stdout.write(
+            canonical_json(schema2_refusal_envelope(authority_load_refusal(err)))
+        )
+        return EXIT_REFUSAL
     except UsageError as err:
         stderr.write(canonical_json(usage_envelope(err.code, err.message)))
         return EXIT_USAGE
@@ -85,7 +97,7 @@ def dispatch(
         diagnostics = traceback.format_exc() if _DEBUG_FLAG in argv else None
         message = f"the toolkit failed unexpectedly ({type(exc).__name__})"
         envelope = internal_envelope(message, diagnostics)
-        descriptor = _descriptor_for_invocation(argv, registry)
+        descriptor = _descriptor_for_invocation(argv, registry or ())
         if descriptor is not None and diagnostics:
             envelope["error"]["debug"] = envelope["error"].pop("diagnostics")
         stderr.write(canonical_json(envelope))

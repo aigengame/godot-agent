@@ -19,9 +19,9 @@ from gda_balancing.domain.operation_call_domains import (
 )
 
 
-ROOT = ("test.calls", "1.0.0", "root")
-MIDDLE = ("test.calls", "1.0.0", "middle")
-LEAF = ("test.calls", "1.0.0", "leaf")
+ROOT = ("test.calls", "root")
+MIDDLE = ("test.calls", "middle")
+LEAF = ("test.calls", "leaf")
 LEAF_SLOT = (*LEAF, "scale-policy")
 
 
@@ -88,6 +88,13 @@ def test_projects_the_reproduced_nested_formula_domain_mismatch() -> None:
         ),
         (
             lambda inp: inp.operations[MIDDLE]["body"][0].update(
+                {"operation": _operation_ref(LEAF) | {"version": "1.0.0"}}
+            ),
+            "malformed_operation_reference",
+            MIDDLE,
+        ),
+        (
+            lambda inp: inp.operations[MIDDLE]["body"][0].update(
                 {"operation": _operation_ref(LEAF) | {"id": ""}}
             ),
             "malformed_operation_reference",
@@ -98,7 +105,7 @@ def test_projects_the_reproduced_nested_formula_domain_mismatch() -> None:
 def test_returns_typed_failures_with_stable_operation_coordinates(
     mutate: Any,
     expected_code: str,
-    expected_coordinate: tuple[str, str, str],
+    expected_coordinate: tuple[str, str],
 ) -> None:
     projection_input = _projection_input()
     mutate(projection_input)
@@ -164,9 +171,9 @@ def _projection_input() -> ConcreteOperationCallDomainInput:
     )
 
 
-def _operations() -> dict[tuple[str, str, str], dict[str, Any]]:
+def _operations() -> dict[tuple[str, str], dict[str, Any]]:
     leaf = {
-        "id": LEAF[2],
+        "id": LEAF[1],
         "inputs": [
             _quantity_operation_contract("value"),
             _quantity_operation_contract("factor"),
@@ -186,7 +193,7 @@ def _operations() -> dict[tuple[str, str, str], dict[str, Any]]:
         "extensions": {
             "standard.formula-slots": [
                 {
-                    "id": LEAF_SLOT[3],
+                    "id": LEAF_SLOT[2],
                     "parameters": [
                         {
                             **_quantity_operation_contract("scaled"),
@@ -198,7 +205,7 @@ def _operations() -> dict[tuple[str, str, str], dict[str, Any]]:
         },
     }
     middle = {
-        "id": MIDDLE[2],
+        "id": MIDDLE[1],
         "inputs": [_quantity_operation_contract("value")],
         "body": [
             {
@@ -250,7 +257,7 @@ def _operations() -> dict[tuple[str, str, str], dict[str, Any]]:
         },
     }
     root = {
-        "id": ROOT[2],
+        "id": ROOT[1],
         "inputs": [_quantity_operation_contract("value")],
         "body": [
             {
@@ -279,11 +286,10 @@ def _operations() -> dict[tuple[str, str, str], dict[str, Any]]:
     return {ROOT: root, MIDDLE: middle, LEAF: leaf}
 
 
-def _operation_ref(coordinate: tuple[str, str, str]) -> dict[str, str]:
+def _operation_ref(coordinate: tuple[str, str]) -> dict[str, str]:
     return {
         "package": coordinate[0],
-        "version": coordinate[1],
-        "id": coordinate[2],
+        "id": coordinate[1],
     }
 
 
@@ -292,7 +298,6 @@ def _quantity_operation_contract(name: str) -> dict[str, Any]:
         "id": name,
         "type": {
             "package": "core.quantity",
-            "version": "2.2.0",
             "id": "Quantity",
         },
         "representation": "Int",
@@ -307,8 +312,7 @@ def _quantity_formula_contract(minimum: int, maximum: int) -> dict[str, Any]:
     return {
         "type_identity": {
             "package": "core.quantity",
-            "version": "2.2.0",
-            "symbol": "Quantity",
+            "id": "Quantity",
         },
         "representation": "Int",
         "kind": "scalar",

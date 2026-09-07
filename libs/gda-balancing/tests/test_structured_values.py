@@ -23,7 +23,6 @@ def test_tagged_nominal_reference_is_canonicalized_by_the_selected_profile():
                 "id": "CandidateKind",
                 "kind": "nominal",
                 "package": "standard.conformance.structured",
-                "version": "2.0.0",
             },
             "value": "primary",
         },
@@ -35,21 +34,20 @@ def test_tagged_nominal_reference_is_canonicalized_by_the_selected_profile():
         "type": {
             "id": "CandidateKind",
             "package": "standard.conformance.structured",
-            "version": "2.0.0",
         },
         "value": "primary",
     }
 
 
-def test_nominal_reference_refuses_members_outside_the_selected_profile():
+@pytest.mark.parametrize("extra_member", ("scope", "version"))
+def test_nominal_reference_refuses_members_outside_the_selected_profile(extra_member):
     with pytest.raises(StructuredValueFault) as fault:
         admit_typed_value(
             {
                 "type": {
                     "id": "CandidateKind",
                     "package": "standard.conformance.structured",
-                    "scope": "unexpected",
-                    "version": "2.0.0",
+                    extra_member: "unexpected",
                 },
                 "value": "primary",
             },
@@ -66,7 +64,6 @@ def test_record_lookup_returns_its_declared_fixed_nominal_field_type():
             "type": {
                 "id": "SelectionResult",
                 "package": "standard.conformance.structured",
-                "version": "2.0.0",
             },
             "value": {
                 "kind": "primary",
@@ -83,7 +80,6 @@ def test_record_lookup_returns_its_declared_fixed_nominal_field_type():
         "type": {
             "id": "Quantity",
             "package": "core.quantity",
-            "version": "2.2.0",
         },
         "value": 4,
     }
@@ -100,7 +96,6 @@ def test_record_lookup_consumes_the_declared_structured_operation_bound():
                 "type": {
                     "id": "SelectionResult",
                     "package": "standard.conformance.structured",
-                    "version": "2.0.0",
                 },
                 "value": {
                     "kind": "primary",

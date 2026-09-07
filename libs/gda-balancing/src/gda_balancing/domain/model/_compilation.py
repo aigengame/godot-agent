@@ -234,10 +234,7 @@ def _model_explanation(
         package = cast(str, row["package"])
         definition = cast(dict[str, Any], row["definition"])
         operation_identity = _formula_operation_identity(
-            formula_domains,
-            package,
-            cast(str, definition["version"]),
-            cast(str, definition["id"]),
+            formula_domains, package, cast(str, definition["id"])
         )
         body = cast(list[dict[str, Any]], definition["body"])
         outcomes = cast(list[dict[str, Any]], definition.get("outcomes", []))
@@ -246,7 +243,6 @@ def _model_explanation(
                 dict[str, JsonValue],
                 {
                     "package": package,
-                    "version": definition["version"],
                     "id": definition["id"],
                     "identity": operation_identity,
                     "operation_kind": definition["operation_kind"],
@@ -288,11 +284,7 @@ def _model_explanation(
             )
         )
     operation_explanations.sort(
-        key=lambda row: (
-            cast(str, row["package"]),
-            cast(str, row["version"]),
-            cast(str, row["id"]),
-        )
+        key=lambda row: (cast(str, row["package"]), cast(str, row["id"]))
     )
     payload = {
         "rir_identity": rir["content_identity"],
@@ -335,7 +327,6 @@ def _capability_manifest(
             "packages": [
                 {
                     "id": item["id"],
-                    "version": item["version"],
                     "content_identity": item["content_identity"],
                 }
                 for item in cast(list[dict[str, str]], lock["packages"])
@@ -373,6 +364,7 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
             kernel=context.kernel,
             language_bundle=context.language_bundle,
             authority_context=context,
+            namespace_selection=checked.namespace_selection,
         )
     if not context.admission.admitted:
         raise ValueError("lowerer received authorities that failed admission")

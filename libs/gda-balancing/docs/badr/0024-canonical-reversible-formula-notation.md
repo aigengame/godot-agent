@@ -6,8 +6,10 @@ status: accepted
 
 > **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
 > bADR-0028 supersedes historical version selectors and the whole-LDB wrapper as the permanent
-> Formula execution-identity boundary. Their current wire forms remain implemented until a
-> coordinated replacement. Pure Formula semantics, exact body/expression pairing, canonical
+> Formula execution-identity boundary. #871 now uses `{package, id}` Operation and nominal Type
+> references; the old coordinate forms below remain history. The whole-LDB wrapper remains
+> pending closure/deletion in #874–#875 under [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#native-wire-delivery-871-2026-09-07).
+> Pure Formula semantics, exact body/expression pairing, canonical
 > reversible notation, contextual type and static-slot validation remain. Removing irrelevant
 > provenance does not permit an unchecked expression/body mismatch.
 

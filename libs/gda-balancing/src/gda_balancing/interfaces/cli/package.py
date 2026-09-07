@@ -9,7 +9,6 @@ from pydantic import (
     ConfigDict,
     Field,
     RootModel,
-    ValidationInfo,
     field_validator,
 )
 from pydantic.json_schema import (
@@ -44,21 +43,17 @@ class PackageGetInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str = Field(min_length=1)
-    version: str = Field(min_length=1)
     member: Literal["release", "conformance-vectors"] = "release"
 
-    @field_validator("id", "version")
+    @field_validator("id")
     @classmethod
-    def _validate_kernel_coordinate(cls, value: str, info: ValidationInfo) -> str:
-        field_name = info.field_name
-        if field_name not in {"id", "version"}:
-            raise ValueError("package-coordinate validator reached an unknown field")
+    def _validate_kernel_namespace(cls, value: str) -> str:
         try:
-            contract = package_coordinate_contracts()[field_name]
+            contract = package_coordinate_contracts()["id"]
         except AuthorityLoadError:
             return value
         if re.fullmatch(cast(str, contract["pattern"]), value) is None:
-            raise ValueError(f"value does not match the Kernel {field_name} contract")
+            raise ValueError("value does not match the Kernel namespace contract")
         return value
 
     @classmethod
@@ -107,7 +102,7 @@ def package_get_handler(
     provider: AuthorityContextProvider,
 ) -> Callable[[PackageGetInput], PackageArtifact | Schema2RefusalReport]:
     def _run(inp: PackageGetInput) -> PackageArtifact | Schema2RefusalReport:
-        result = get_package(provider, inp.id, inp.version, inp.member)
+        result = get_package(provider, inp.id, inp.member)
         if isinstance(result, Schema2RefusalReport):
             return result
         return PackageArtifact(root=result.root)
@@ -118,13 +113,13 @@ def package_get_handler(
 PACKAGE_GET = CommandDescriptor(
     group="package",
     command="get",
-    description="Get one exact member of a Package Release.",
+    description="Get one member of a current namespace Package.",
     input_model=PackageGetInput,
     output_model=PackageArtifact,
     handler=package_get_handler(packaged_authority_context),
     fixtures=ConformanceFixtures(
-        valid_args=("--id", "core.quantity", "--version", "2.2.0"),
-        refusing_args=("--id", "missing.package", "--version", "1.0.0"),
+        valid_args=("--id", "core.quantity"),
+        refusing_args=("--id", "missing.package"),
     ),
     schema_major=2,
     structured_params=True,

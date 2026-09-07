@@ -2,25 +2,17 @@
   "schema_version": "2.0.0",
   "manifest": {
     "id": "standard.structured-selection-model",
-    "version": "1.0.0",
     "entry_module": "selection"
   },
   "package_requirements": [
-    {
-      "id": "core.quantity",
-      "version": "2.2.0"
-    },
-    {
-      "id": "standard.conformance.structured",
-      "version": "2.0.0"
-    }
+    "core.quantity",
+    "standard.conformance.structured"
   ],
   "entrypoints": [
     {
       "id": "structured.select-candidate-a",
       "operation": {
         "package": "standard.conformance.structured",
-        "version": "2.0.0",
         "id": "standard.conformance.structured.select-v1"
       },
       "arguments": [
@@ -39,7 +31,6 @@
             "value": {
               "type": {
                 "package": "standard.conformance.structured",
-                "version": "2.0.0",
                 "id": "CandidateKind"
               },
               "value": "primary"
@@ -53,7 +44,6 @@
             "value": {
               "type": {
                 "package": "standard.conformance.structured",
-                "version": "2.0.0",
                 "id": "CandidateRef"
               },
               "value": {
@@ -89,7 +79,6 @@
       "id": "structured.select-candidate-b",
       "operation": {
         "package": "standard.conformance.structured",
-        "version": "2.0.0",
         "id": "standard.conformance.structured.select-v1"
       },
       "arguments": [
@@ -108,7 +97,6 @@
             "value": {
               "type": {
                 "package": "standard.conformance.structured",
-                "version": "2.0.0",
                 "id": "CandidateKind"
               },
               "value": "secondary"
@@ -122,7 +110,6 @@
             "value": {
               "type": {
                 "package": "standard.conformance.structured",
-                "version": "2.0.0",
                 "id": "CandidateRef"
               },
               "value": {
@@ -162,19 +149,16 @@
         {
           "alias": "selection-state",
           "package": "standard.conformance.structured",
-          "version": "2.0.0",
           "symbol": "SelectionState"
         },
         {
           "alias": "selection-result",
           "package": "standard.conformance.structured",
-          "version": "2.0.0",
           "symbol": "SelectionResult"
         },
         {
           "alias": "quantity",
           "package": "core.quantity",
-          "version": "2.2.0",
           "symbol": "Quantity"
         }
       ],

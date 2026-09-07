@@ -124,7 +124,7 @@ Inspect the source:
 jq . examples/schema2/rpg-combat-cast/model-source.json
 ```
 
-The source selects `core.quantity@2.2.0` and `game.combat@2.2.0`. The selected closure supplies
+The source requires the `core.quantity` and `game.combat` namespaces. The selected closure supplies
 resource spending, hit and critical checks, deterministic Runtime behavior, the raw cast, and the
 directional eligible-cast Operation.
 
@@ -485,8 +485,7 @@ Now make a semantic Model edit. Replace mitigation and floor-zero with the admit
 export EDITED_MODEL_SOURCE="$GDA_BALANCING_TUTORIAL_ROOT/model-source-unmitigated.json"
 
 jq '
-  .manifest.version = "1.1.0"
-  | (.modules[0].formulas[]
+  (.modules[0].formulas[]
       | select(.id == "mitigated-damage")) |=
     (.body = {
       "nodes": [{
@@ -494,7 +493,6 @@ jq '
         "node": "operation-call",
         "operation": {
           "package": "core.quantity",
-          "version": "2.2.0",
           "id": "quantity.identity"
         },
         "arguments": [{
@@ -598,7 +596,6 @@ export EDITED_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-unmitigated.js
 
 jq --slurpfile build "$EDITED_BUILD_RECORD_PATH" '
   .id = "example.rpg-combat-cast.reciprocal-unmitigated"
-  | .version = "1.1.0"
   | .model = {
       "source_identity": $build[0].source_identity,
       "build_receipt_identity": $build[0].content_identity,

@@ -139,8 +139,6 @@ def _policy_binding(
         {
             "id": cast(str, policy["id"]),
             "package": cast(str, owner["package"]),
-            "package_version": cast(str, owner["package_version"]),
-            "version": cast(str, policy["version"]),
         },
         cast(list[str], checks),
     )

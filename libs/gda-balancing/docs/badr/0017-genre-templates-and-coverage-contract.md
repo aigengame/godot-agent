@@ -4,6 +4,12 @@ status: accepted
 
 # Prove RPG and Roguelike support through template releases and executable coverage
 
+> **Native wire update (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#native-wire-delivery-871-2026-09-07)):**
+> #871 replaces the dated package coordinates and Template version/range selection below with
+> namespace requirements and id-only Template selection. Instantiation retains exact Template and
+> member-content provenance, without an own-version label. The S2 receipt and earlier release
+> lineage remain historical; neither this migration nor the capability union closes a genre row.
+
 > **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
 > bADR-0028 supersedes the 2026-08-26 requirement that all earlier releases remain unchanged,
 > its permanent exact release-lineage mandate, and historical template compatibility selection.

@@ -2,11 +2,11 @@
 
 VALID_MODEL_SOURCE = """{
   "schema_version": "2.0.0",
-  "manifest": {"id": "example.quantity-model", "version": "1.0.0", "entry_module": "main"},
-  "package_requirements": [{"id": "core.quantity", "version": "2.2.0"}],
+  "manifest": {"id": "example.quantity-model", "entry_module": "main"},
+  "package_requirements": ["core.quantity"],
   "modules": [{
     "id": "main",
-    "imports": [{"alias": "quantity", "package": "core.quantity", "version": "2.2.0", "symbol": "Quantity"}],
+    "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity"}],
     "symbols": [
       {"symbol":"constant_value","type":"quantity","role":"constant","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"model-fixed","value":1}},
       {"symbol":"parameter_value","type":"quantity","role":"parameter","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"experiment-required"}},

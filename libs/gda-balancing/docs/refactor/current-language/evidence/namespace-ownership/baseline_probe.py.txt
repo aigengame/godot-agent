@@ -1,0 +1,107 @@
+"""Reproduce the pre-#871 Kernel nominal-owner namespace collision."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+from copy import deepcopy
+
+from schema2_bootstrap_conformance_support import (
+    _consumer_b,
+    _reidentify_package_release,
+)
+from schema2_bootstrap_production_support import (
+    _authority_candidate,
+    _consumer_a,
+    _reidentify_graph_root,
+)
+
+
+def add_kernel_package(*, export_boolean: bool) -> tuple[dict, dict]:
+    candidate = _authority_candidate()
+    kernel = candidate["kernel"]
+    ldb = candidate["language_bundle"]
+    seed = next(
+        package
+        for package in ldb["language"]["packages"]
+        if package["id"] == "standard.compiler"
+    )
+    package = deepcopy(seed)
+    package["id"] = "kernel"
+    package["version"] = "1.0.0"
+    package["dependencies"] = {"required": [], "optional": []}
+    package["capabilities"] = {"provided": [], "required": []}
+    package["runtime_semantic_paths"] = ["language.capabilities"]
+    package["runtime_semantic_excluded_extensions"] = []
+    for key in package["exports"]:
+        package["exports"][key] = []
+    for key in package["profiles"]:
+        package["profiles"][key] = []
+    for entry in package["semantic_closure"]:
+        entry["definitions"] = []
+
+    if export_boolean:
+        nominal = {
+            "constructor": "standard.schema.enum",
+            "definition": {"kind": "enum", "members": ["false", "true"]},
+            "id": "Boolean",
+            "package": "kernel",
+            "version": "1.0.0",
+        }
+        package["dependencies"]["required"] = [
+            {"id": "standard.schema", "version": "2.4.0"}
+        ]
+        package["capabilities"]["required"] = ["structured.lower"]
+        package["runtime_semantic_paths"] = ["language.nominal_types"]
+        package["exports"]["nominal_types"] = ["Boolean"]
+        package["exports"]["types"] = [
+            {"constructor": "standard.schema.enum", "id": "Boolean"}
+        ]
+        nominal_entry = next(
+            entry
+            for entry in package["semantic_closure"]
+            if entry["authority_path"] == "language.nominal_types"
+        )
+        nominal_entry["definitions"] = [deepcopy(nominal)]
+        ldb["language"]["nominal_types"].append(deepcopy(nominal))
+
+    package["conformance_vectors"] = {
+        "artifact_kind": "package-conformance-vector-set",
+        "byte_size": 1,
+        "content_identity": "pending",
+    }
+    _reidentify_package_release(package)
+    ldb["language"]["packages"].append(package)
+    _reidentify_graph_root(ldb)
+    return kernel, ldb
+
+
+def result(kernel: dict, ldb: dict) -> dict:
+    production = _consumer_a(kernel, ldb)
+    reference = _consumer_b(kernel, ldb)
+    return {
+        "production": {
+            "admitted": production["admitted"],
+            "diagnostics": production["diagnostics"],
+        },
+        "reference": {
+            "admitted": reference["admitted"],
+            "diagnostics": reference["diagnostics"],
+        },
+    }
+
+
+baseline = _authority_candidate()["kernel"]
+fixed = baseline["meta_format"]["runtime_program"]["fixed_value_contracts"]
+output = {
+    "head": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+    "package_id_contract": baseline["meta_format"]["package_release"]["field_types"]["id"],
+    "kernel_fixed_types": {
+        name: contract["type"] for name, contract in fixed.items()
+    },
+    "empty_kernel_package": result(*add_kernel_package(export_boolean=False)),
+    "kernel_package_exporting_boolean": result(
+        *add_kernel_package(export_boolean=True)
+    ),
+}
+print(json.dumps(output, indent=2, sort_keys=True))

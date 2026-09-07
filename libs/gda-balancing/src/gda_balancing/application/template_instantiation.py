@@ -17,7 +17,6 @@ from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 def instantiate_template(
     template_id: str,
-    version: str,
     package_id: str,
     out: str,
     invocation_key: str,
@@ -31,7 +30,6 @@ def instantiate_template(
     """Prepare one Template instance and atomically publish its artifact set."""
     plan = prepare_template_instantiation(
         template_id,
-        version,
         package_id,
         provider,
         authority_context_provider,

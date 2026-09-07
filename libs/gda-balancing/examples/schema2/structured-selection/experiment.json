@@ -3,8 +3,8 @@
     "policy": "all-metrics-within-target"
   },
   "id": "standard.structured-selection",
-  "kernel_identity": "sha256:9a51ddec39c4a68ddb31dd2f6d0b081164490750cc70cd50bc4ebc16f9f3490d",
-  "language_bundle_identity": "sha256:cddf6f50b5ba759b42c70918a0db5f22674ab711a6ff2e0d153bda45be458aa6",
+  "kernel_identity": "sha256:9c1c88e55c239fb6c3b3d022ea7099c2f952c15c8339e292bb29c74f75387202",
+  "language_bundle_identity": "sha256:4072bc7fb9817b7d9c8ebf14a6e666bcc5d3c739e7d61a2157c5038bc5cf9d32",
   "metrics": [
     {
       "aggregation": "single",
@@ -33,11 +33,11 @@
     }
   ],
   "model": {
-    "source_identity": "sha256:fc4b3386c511bcbc7139a05f690664881b4bb156fc01b3f53ff1158bb853c3ab",
-    "build_receipt_identity": "sha256:875c434f59e56e5976b236a91fd97bbaf7afd02ea902151c1726cdb447e40528",
-    "resolved_model_identity": "sha256:69afc31a22f2b3fc58e63bd80f085a7f91832f7e6dcaf2c9a5be76754af2ad77",
-    "package_lock_identity": "sha256:d8b713208fb96f100b56594e870a6d8c29e6aca1dc606c47ee5769825ddf45a2",
-    "rir_identity": "sha256:bab95ecd6505b4dfd04b3a95a722674da32ed034e9909e023e0a23f68b80583d"
+    "source_identity": "sha256:8d0bc57581b004c9d027b7e84af51e3b2b9bcb1e2de7cfcea8326b5bb2e80270",
+    "build_receipt_identity": "sha256:71daa5215795e24258506d8d85cdb0d22a48fbaa22fe8ce32969f862f2b0a4b7",
+    "resolved_model_identity": "sha256:5e2c6a6bae6aa5f1751caabd9adfecf1287f2a5bf8889e7cf3c83d5d38ad0f3d",
+    "package_lock_identity": "sha256:764bcd843dd174515016234d79912c3ae37ce8daa91be6cc5415265116b8773b",
+    "rir_identity": "sha256:a1b77609ff8f45c9538f0f6dfac4154533fb193c6de75c874b513ba49169bb57"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",
@@ -85,8 +85,7 @@
           "value": {
             "type": {
               "id": "SelectionState",
-              "package": "standard.conformance.structured",
-              "version": "2.0.0"
+              "package": "standard.conformance.structured"
             },
             "value": {
               "candidates": [
@@ -134,8 +133,7 @@
           "value": {
             "type": {
               "id": "SelectionResult",
-              "package": "standard.conformance.structured",
-              "version": "2.0.0"
+              "package": "standard.conformance.structured"
             },
             "value": {
               "kind": "secondary",
@@ -179,6 +177,5 @@
   "seed": {
     "algorithm": "splitmix64-v1",
     "value": 20260811
-  },
-  "version": "1.0.0"
+  }
 }

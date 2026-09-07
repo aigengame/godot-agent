@@ -73,10 +73,13 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "experiment": _EXPERIMENT_TESTS[::2],
     "experiment-continuation": _EXPERIMENT_TESTS[1::2],
     "composition": (
+        "test_current_namespace_public.py",
         "test_current_package_composition.py",
+        "test_schema2_bootstrap_composition.py",
+    ),
+    "interfaces": (
         "test_cli_conformance.py",
         "test_http_service.py",
-        "test_schema2_bootstrap_composition.py",
         "test_schema2_evidence_cli.py",
         "test_schema2_template_cli.py",
     ),
@@ -192,9 +195,9 @@ def package_vector_ids() -> set[str]:
     rows: set[str] = set()
     for path in sorted(authority_root.rglob("*.conformance-vectors.json")):
         value = json.loads(path.read_text(encoding="utf-8"))
-        coordinate = f"{value['package_id']}@{value['package_version']}"
+        namespace = value["package_id"]
         for vector in value["vector_definitions"]:
-            rows.add(f"{coordinate}:{vector['id']}")
+            rows.add(f"{namespace}:{vector['id']}")
     return rows
 
 

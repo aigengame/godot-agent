@@ -753,7 +753,6 @@ def resolved_runtime_profile(
             "runtime_profile_definition_identity": definition_identity,
             "runtime_profile": {
                 "id": definition["id"],
-                "version": definition["version"],
                 "evaluation": definition["evaluation"],
                 "numeric_policy": definition["numeric_policy"],
                 "runtime_program_version": definition["runtime_program_version"],

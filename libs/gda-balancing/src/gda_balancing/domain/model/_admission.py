@@ -13,6 +13,7 @@ from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     packaged_authority_context,
 )
+from gda_balancing.domain.authority.graph import resolve_current_namespaces
 from gda_balancing.domain.canonical import (
     JsonValue,
     canonical_bytes,
@@ -236,16 +237,8 @@ def _resolved_entrypoint_graph_is_admitted(
         for declaration in declarations
     ):
         return False
-    package_versions = {
-        row["id"]: row["version"]
-        for row in cast(list[dict[str, str]], selected_semantics["packages"])
-    }
     operations = {
-        (
-            row["package"],
-            package_versions[row["package"]],
-            row["definition"]["id"],
-        ): row
+        (row["package"], row["definition"]["id"]): row
         for row in cast(list[dict[str, Any]], selected_semantics["operations"])
     }
     declarations_by_symbol = {
@@ -279,21 +272,16 @@ def _resolved_entrypoint_graph_is_admitted(
     for entrypoint in entrypoints:
         operation_ref = entrypoint.get("operation")
         if not isinstance(operation_ref, dict) or not all(
-            isinstance(operation_ref.get(member), str)
-            for member in ("package", "version", "id")
+            isinstance(operation_ref.get(member), str) for member in ("package", "id")
         ):
             return False
         exact_operation_ref = cast(dict[str, str], operation_ref)
         operation_row = operations.get(
-            (
-                exact_operation_ref["package"],
-                exact_operation_ref["version"],
-                exact_operation_ref["id"],
-            )
+            (exact_operation_ref["package"], exact_operation_ref["id"])
         )
         if operation_row is None:
             return False
-        exact_operation = _exact_operation_coordinate(operation_row, package_versions)
+        exact_operation = _exact_operation_coordinate(operation_row)
         if operation_ref != exact_operation:
             return False
         operation = cast(dict[str, Any], operation_row["definition"])
@@ -567,11 +555,7 @@ def _resolved_entrypoint_graph_is_admitted(
             )
         try:
             event_formula_dependencies = _reachable_operation_formula_dependencies(
-                (
-                    exact_operation["package"],
-                    exact_operation["version"],
-                    exact_operation["id"],
-                ),
+                (exact_operation["package"], exact_operation["id"]),
                 operations,
                 operation_formula_dependencies,
                 operation_node_ids=_operation_reference_node_ids(kernel),
@@ -708,8 +692,7 @@ def _formula_program_graph_is_admitted(
         admitted_boolean_contract = {
             "type_identity": {
                 "package": boolean_type["package"],
-                "version": boolean_type["version"],
-                "symbol": boolean_type["id"],
+                "id": boolean_type["id"],
             },
             **{
                 member: boolean_contract[member]
@@ -790,25 +773,22 @@ def _formula_program_graph_is_admitted(
     if list(formulas_by_key) != sorted(formulas_by_key):
         return False
 
-    operations_by_coordinate: dict[tuple[str, str, str], dict[str, Any]] = {
-        (
-            cast(str, row["package"]),
-            cast(str, definition["version"]),
-            cast(str, definition["id"]),
-        ): cast(dict[str, Any], definition)
+    operations_by_coordinate: dict[tuple[str, str], dict[str, Any]] = {
+        (cast(str, row["package"]), cast(str, definition["id"])): cast(
+            dict[str, Any], definition
+        )
         for row in selected_semantics["operations"]
         if isinstance(row, dict)
         and isinstance((definition := row.get("definition")), dict)
         and isinstance(row.get("package"), str)
-        and isinstance(definition.get("version"), str)
         and isinstance(definition.get("id"), str)
     }
     dependency_keys: dict[tuple[str, str], list[tuple[str, str]]] = {}
     operation_dependencies_by_key: dict[
         tuple[str, str], list[tuple[str, dict[str, Any]]]
     ] = {}
-    formula_operation_roots: set[tuple[str, str, str]] = set()
-    concrete_operation_calls: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    formula_operation_roots: set[tuple[str, str]] = set()
+    concrete_operation_calls: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for key, formula in formulas_by_key.items():
         parameters = {parameter["id"]: parameter for parameter in formula["parameters"]}
         locals_by_id: dict[str, dict[str, Any]] = {}
@@ -931,7 +911,6 @@ def _formula_program_graph_is_admitted(
                     return False
                 coordinate = (
                     cast(str, operation_ref.get("package")),
-                    cast(str, operation_ref.get("version")),
                     cast(str, operation_ref.get("id")),
                 )
                 operation = operations_by_coordinate.get(coordinate)
@@ -947,7 +926,7 @@ def _formula_program_graph_is_admitted(
                 ):
                     return False
                 if operation_ref.get("identity") != _formula_operation_identity(
-                    domains, coordinate[0], coordinate[1], coordinate[2]
+                    domains, coordinate[0], coordinate[1]
                 ):
                     return False
                 ports = {
@@ -1098,12 +1077,8 @@ def _formula_program_graph_is_admitted(
 
     bound_formula_keys: set[tuple[str, str]] = set()
     bound_derived_sites: set[tuple[str, str, str]] = set()
-    selected_package_versions = {
-        cast(str, row["id"]): cast(str, row["version"])
-        for row in cast(list[dict[str, Any]], selected_semantics["packages"])
-    }
     selected_slots: dict[
-        tuple[str, str, str, str], tuple[dict[str, Any], dict[str, Any], str]
+        tuple[str, str, str], tuple[dict[str, Any], dict[str, Any], str]
     ] = {}
     for entrypoint in cast(list[dict[str, Any]], entrypoints):
         operation_ref = entrypoint.get("operation")
@@ -1111,7 +1086,6 @@ def _formula_program_graph_is_admitted(
             return False
         coordinate = (
             cast(str, operation_ref.get("package")),
-            cast(str, operation_ref.get("version")),
             cast(str, operation_ref.get("id")),
         )
         operation = operations_by_coordinate.get(coordinate)
@@ -1150,15 +1124,11 @@ def _formula_program_graph_is_admitted(
     for operation_row in cast(list[dict[str, Any]], selected_semantics["operations"]):
         package_id = cast(str, operation_row["package"])
         definition = cast(dict[str, Any], operation_row["definition"])
-        coordinate = (
-            package_id,
-            selected_package_versions[package_id],
-            cast(str, definition["id"]),
-        )
+        coordinate = (package_id, cast(str, definition["id"]))
         if coordinate not in reachable_operations:
             continue
         operation_identity = _formula_operation_identity(
-            domains, coordinate[0], coordinate[1], coordinate[2]
+            domains, coordinate[0], coordinate[1]
         )
         for slot in _operation_formula_slots(definition):
             selected_slots[(*coordinate, cast(str, slot["id"]))] = (
@@ -1166,7 +1136,7 @@ def _formula_program_graph_is_admitted(
                 slot,
                 operation_identity,
             )
-    bound_operation_slots: set[tuple[str, str, str, str]] = set()
+    bound_operation_slots: set[tuple[str, str, str]] = set()
     for binding in bindings:
         if not isinstance(binding, dict):
             return False
@@ -1291,7 +1261,6 @@ def _formula_program_graph_is_admitted(
             operation_ref = cast(dict[str, Any], site["operation"])
             slot_key = (
                 cast(str, operation_ref.get("package")),
-                cast(str, operation_ref.get("version")),
                 cast(str, operation_ref.get("id")),
                 cast(str, site.get("slot")),
             )
@@ -1299,7 +1268,7 @@ def _formula_program_graph_is_admitted(
             if (
                 selected_slot is None
                 or slot_key in bound_operation_slots
-                or set(operation_ref) != {"package", "version", "id", "identity"}
+                or set(operation_ref) != {"package", "id", "identity"}
             ):
                 return False
             operation, slot, operation_identity = selected_slot
@@ -1309,7 +1278,7 @@ def _formula_program_graph_is_admitted(
                 cast(str, parameter["id"]): parameter
                 for parameter in cast(list[dict[str, Any]], slot["parameters"])
             }
-            concrete_calls = concrete_operation_calls.get(slot_key[:3], [])
+            concrete_calls = concrete_operation_calls.get(slot_key[:2], [])
             for argument in arguments:
                 operand = argument.get("operand")
                 if (
@@ -1683,7 +1652,6 @@ def _rir_notation_body_projection(body: dict[str, Any]) -> dict[str, JsonValue]:
             operation = cast(dict[str, Any], node["operation"])
             projected["operation"] = {
                 "package": cast(str, operation["package"]),
-                "version": cast(str, operation["version"]),
                 "id": cast(str, operation["id"]),
             }
             projected["arguments"] = cast(
@@ -1878,24 +1846,18 @@ def admit_resolved_model(
         return ResolvedModelAdmission(False, diagnostic)
     profile = _resolution_profile(ldb, cast(str, lowering["resolution_profile"]))
     requirements_member = cast(str, profile["requirements_member"])
-    requirement_package_member = cast(str, profile["requirement_package_member"])
-    requirement_version_member = cast(str, profile["requirement_version_member"])
-    synthetic = CheckedModel(
-        source={
-            requirements_member: [
-                {
-                    requirement_package_member: item["id"],
-                    requirement_version_member: item["version"],
-                }
-                for item in root_requirements
-            ]
-        },
-        source_identity="unbound-for-semantic-admission",
-        kernel=kernel,
-        language_bundle=ldb,
-        authority_context=context,
-    )
     try:
+        selection = resolve_current_namespaces(
+            context.current_namespace_packages(), root_requirements
+        )
+        synthetic = CheckedModel(
+            source={requirements_member: root_requirements},
+            source_identity="unbound-for-semantic-admission",
+            kernel=kernel,
+            language_bundle=ldb,
+            authority_context=context,
+            namespace_selection=selection,
+        )
         expected_lock = _package_lock(synthetic)
     except (KeyError, TypeError, ValueError, jsonschema.ValidationError):
         return ResolvedModelAdmission(False, diagnostic)
@@ -1944,12 +1906,8 @@ def admit_resolved_model(
     except (KeyError, IndexError, TypeError):
         return ResolvedModelAdmission(False, diagnostic)
     resolved_keys: list[tuple[str, str, str]] = []
-    package_versions = {
-        item["id"]: item["version"]
-        for item in cast(list[dict[str, Any]], lock["packages"])
-    }
     selected_types = {
-        (item["package"], package_versions[item["package"]], item["id"])
+        (item["package"], item["id"])
         for item in cast(list[dict[str, Any]], lock["types"])
     }
     for item in declarations:
@@ -1971,11 +1929,7 @@ def admit_resolved_model(
             )
         )
         type_identity = cast(dict[str, str], item["type_identity"])
-        if (
-            type_identity["package"],
-            type_identity["version"],
-            type_identity["symbol"],
-        ) not in selected_types:
+        if (type_identity["package"], type_identity["id"]) not in selected_types:
             return ResolvedModelAdmission(False, diagnostic)
     if resolved_keys != sorted(resolved_keys) or len(resolved_keys) != len(
         set(resolved_keys)

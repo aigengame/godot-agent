@@ -8,17 +8,14 @@ const REWARD_OPERATION := "game.generation.select-reward-v1"
 const BUILD_OPERATION := "game.build.replace-reward-v1"
 const REWARD_SELECTION_TYPE := {
 	"package": "game.generation",
-	"version": "1.0.0",
 	"id": "RewardSelection",
 }
 const BUILD_DECISION_TYPE := {
 	"package": "game.build",
-	"version": "1.0.0",
 	"id": "BuildDecision",
 }
 const BUILD_STATE_TYPE := {
 	"package": "game.build",
-	"version": "1.0.0",
 	"id": "BuildState",
 }
 

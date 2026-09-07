@@ -8,8 +8,10 @@ status: accepted
 > bADR-0028 supersedes versioned collection descriptors as the target and irrelevant whole-LDB
 > identity propagation into execution. One current definition per namespace replaces historical
 > version selection; selected execution inputs must close before redundant
-> whole-LDB/Build-receipt binding fields and fallback reads are deleted. The current descriptor
-> shapes below remain implemented until that slice lands. Canonical bytes and digests, declared
+> whole-LDB/Build-receipt binding fields and fallback reads are deleted. #871 replaces descriptor
+> id/version coordinates with namespace ids and id-only ordering; see
+> [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#native-wire-delivery-871-2026-09-07).
+> The old coordinate shapes below remain history. Canonical bytes and digests, declared
 > membership, complete selected closure, and refusal of ambient discovery remain.
 
 The first permanent Schema 2.0 slices packaged every language definition and Domain package in one

@@ -23,7 +23,7 @@ from gda_balancing.domain.diagnostics import (
     Schema2Diagnostic,
     Schema2RefusalReport,
     bootstrap_refusal,
-    ingress_refusal,
+    authority_load_refusal,
 )
 from gda_balancing.domain.model import (
     CheckedModel,
@@ -45,7 +45,7 @@ from gda_balancing.domain.wire_schema import (
 
 
 TemplateProvider = Callable[
-    [dict[str, JsonValue], dict[str, JsonValue]],
+    [AdmittedAuthorityContext],
     dict[str, JsonValue],
 ]
 
@@ -1253,7 +1253,7 @@ def validate_template_release(
     release_identity = cast(str, release["content_identity"])
     if release["kernel_identity"] != kernel["content_identity"]:
         return template_refusal(
-            "language.package_version_unavailable",
+            "language.package_unavailable",
             "resolution",
             release_identity,
             "/kernel_identity",
@@ -1261,7 +1261,7 @@ def validate_template_release(
         )
     if release["language_bundle_identity"] != language_bundle["content_identity"]:
         return template_refusal(
-            "language.package_version_unavailable",
+            "language.package_unavailable",
             "resolution",
             release_identity,
             "/language_bundle_identity",
@@ -1291,15 +1291,12 @@ def load_admitted_template(
     try:
         context = resolve_authority_context(authority_context_provider)
     except AuthorityLoadError as err:
-        return ingress_refusal(err.code, err.subject, err.message)
+        return authority_load_refusal(err)
     if isinstance(context, BootstrapAdmission):
         return bootstrap_refusal(context)
     kernel = context.kernel
     language_bundle = context.language_bundle
-    release = provider(
-        cast(dict[str, JsonValue], kernel),
-        cast(dict[str, JsonValue], language_bundle),
-    )
+    release = provider(context)
     refusal = validate_template_release(
         release,
         cast(dict[str, JsonValue], kernel),
@@ -1347,7 +1344,6 @@ class TemplateInstantiationPlan:
 
 def prepare_template_instantiation(
     template_id: str,
-    version: str,
     package_id: str,
     provider: TemplateProvider,
     authority_context_provider: AuthorityContextProvider,
@@ -1359,13 +1355,13 @@ def prepare_template_instantiation(
     release = admitted.release
     kernel = admitted.kernel
     language_bundle = admitted.language_bundle
-    if (template_id, version) != (release["id"], release["version"]):
+    if template_id != release["id"]:
         return template_refusal(
-            "language.package_version_unavailable",
+            "language.package_unavailable",
             "resolution",
             cast(str, release["content_identity"]),
             "/id",
-            f"Template release {template_id}@{version} is unavailable",
+            f"Template {template_id} is unavailable",
         )
 
     source_kind = _template_model_source_member_kind(kernel, admitted.profile)
@@ -1388,7 +1384,6 @@ def prepare_template_instantiation(
     manifest["id"] = package_id
     manifest["template_provenance"] = {
         "template_id": release["id"],
-        "template_version": release["version"],
         "template_identity": release["content_identity"],
         "starter_identity": starter_identity,
     }

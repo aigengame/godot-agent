@@ -80,9 +80,8 @@ def admit_declared_value(
     """Independently admit one replayed value under its declaration."""
     type_identity = cast(dict[str, str], declaration["type_identity"])
     declared_type: JsonValue = {
-        "id": type_identity["symbol"],
+        "id": type_identity["id"],
         "package": type_identity["package"],
-        "version": type_identity["version"],
     }
     if declaration.get("value_kind") == "nominal-structured":
         type_member, _value_member = typed_envelope_members(structured_authority)
@@ -592,7 +591,7 @@ def replay_event_evidence(
     except (KeyError, TypeError):
         return None
     root_operation = operations.get(root_coordinate)
-    if root_operation is None or parent_event.get("operation") != root_coordinate[2]:
+    if root_operation is None or parent_event.get("operation") != root_coordinate[1]:
         return None
     declarations = {
         canonical_bytes(cast(JsonValue, row["resolved_symbol"])): row
@@ -789,7 +788,7 @@ def replay_event_evidence(
                         JsonValue,
                         {
                             "parent_event_id": parent_event["event_id"],
-                            "parent_operation": coordinate[2],
+                            "parent_operation": coordinate[1],
                             "site": instruction["site"],
                             "operation": instruction["operation"],
                         },

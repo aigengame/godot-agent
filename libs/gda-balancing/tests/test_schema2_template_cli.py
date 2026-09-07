@@ -18,6 +18,7 @@ from gda_balancing.interfaces.cli.template_instantiation import (
     template_instantiate_handler,
 )
 from gda_balancing.domain.template import (
+    load_admitted_template,
     minimal_release,
     validate_template_release,
 )
@@ -29,6 +30,7 @@ from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     admit_authority_context,
     authority_set,
+    packaged_authority_context,
 )
 from gda_balancing.domain.authority.graph import derive_language_index
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
@@ -47,7 +49,7 @@ from gda_balancing.domain.wire_schema import (
     wire_schema_identity as schema_definition_identity,
     wire_schema_identity_for_kind,
 )
-from schema2_authority_support import definition_matches_package_coordinate
+from schema2_authority_support import refresh_package_semantic_closures
 
 
 def _reidentify_release(release):
@@ -84,51 +86,12 @@ def _replace_json_value(value: Any, old: Any, new: Any) -> Any:
 
 
 def _reidentify_language_bundle(kernel, language_bundle):
-    projections = kernel["meta_format"]["package_release"]["semantic_closure"][
-        "projections"
-    ]
-
-    def path_values(root, dotted):
-        values = [root]
-        for segment in dotted.split("."):
-            selected = []
-            for value in values:
-                if not isinstance(value, dict) or segment not in value:
-                    continue
-                child = value[segment]
-                selected.extend(child if isinstance(child, list) else [child])
-            values = selected
-        return values
-
-    vector_sets_by_coordinate = {
-        (vector_set["package_id"], vector_set["package_version"]): vector_set
+    refresh_package_semantic_closures(language_bundle, kernel)
+    vector_sets_by_namespace = {
+        vector_set["package_id"]: vector_set
         for vector_set in language_bundle.package_conformance_vector_sets
     }
     for package in language_bundle["language"]["packages"]:
-        for entry, projection in zip(
-            package["semantic_closure"], projections, strict=True
-        ):
-            definitions = path_values(language_bundle, entry["authority_path"])
-            owners = path_values(package, projection["owners_path"])
-            key_member = projection["key_member"]
-            entry["definitions"] = deepcopy(
-                [
-                    definition
-                    for definition in definitions
-                    if (
-                        definition.get(key_member)
-                        if key_member is not None and isinstance(definition, dict)
-                        else definition
-                    )
-                    in owners
-                    and definition_matches_package_coordinate(
-                        definition,
-                        authority_path=entry["authority_path"],
-                        package_id=package["id"],
-                        package_version=package["version"],
-                    )
-                ]
-            )
         semantic_projection = kernel["meta_format"]["package_release"][
             "semantic_identity_projection"
         ]
@@ -139,7 +102,7 @@ def _reidentify_language_bundle(kernel, language_bundle):
                 package_runtime_semantic_closure(package, semantic_projection),
             ),
         )
-        vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
+        vector_set = vector_sets_by_namespace[package["id"]]
         vector_set["content_identity"] = content_identity(
             "package-conformance-vector-set-v2",
             {
@@ -164,7 +127,7 @@ def _reidentify_language_bundle(kernel, language_bundle):
             deepcopy(language_bundle.package_conformance_vector_sets),
             strict=True,
         ),
-        key=lambda member: (member[0]["id"], member[0]["version"]),
+        key=lambda member: member[0]["id"],
     )
     packages = [package for package, _vector_set in members]
     vector_sets = [vector_set for _package, vector_set in members]
@@ -177,7 +140,6 @@ def _reidentify_language_bundle(kernel, language_bundle):
             "byte_size": size,
             "content_identity": package["content_identity"],
             "id": package["id"],
-            "version": package["version"],
         }
         for package, size in zip(packages, package_sizes, strict=True)
     ]
@@ -915,14 +877,20 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
 
     assert (exit_code, stderr) == (0, "")
     result = json.loads(stdout)
+    get_code, get_stdout, get_stderr = run_cli(
+        ["template", "get", "--id", "standard.quantity-minimal"]
+    )
+    assert (get_code, get_stderr) == (0, "")
+    release = json.loads(get_stdout)
+    release_identity = content_identity(
+        "template-release-v2",
+        {key: value for key, value in release.items() if key != "content_identity"},
+    )
     assert result == {
         "templates": [
             {
                 "id": "standard.quantity-minimal",
-                "version": "2.1.0",
-                "content_identity": (
-                    "sha256:5f2d4da09c4adc5405755ea5238b2b54e7f4ae4910f874506dcb96cfbb9ad0d1"
-                ),
+                "content_identity": release_identity,
             }
         ]
     }
@@ -941,7 +909,11 @@ def test_template_schema_identity_refuses_a_missing_authority_contract():
         ValueError,
         match=f"exact wire-schema identity domain is unavailable for {schema_kind}",
     ):
-        minimal_release(kernel, language_bundle)
+        wire_schema_identity_for_kind(language_bundle, schema_kind)
+    _reidentify_language_bundle(kernel, language_bundle)
+    refused = load_admitted_template(minimal_release, lambda: (kernel, language_bundle))
+    assert isinstance(refused, Schema2RefusalReport)
+    assert {item.code for item in refused.diagnostics} == {"kernel.vector_mismatch"}
 
 
 def test_every_wire_schema_consumer_projects_an_extension_owned_identity_domain():
@@ -954,10 +926,7 @@ def test_every_wire_schema_consumer_projects_an_extension_owned_identity_domain(
     context = admit_authority_context(kernel, language_bundle)
 
     assert isinstance(context, AdmittedAuthorityContext)
-    release = minimal_release(
-        cast(Any, context.kernel),
-        cast(Any, context.language_bundle),
-    )
+    release = minimal_release(context)
     model_source_member = next(
         member
         for member in cast(list[dict[str, Any]], release["members"])
@@ -1112,10 +1081,7 @@ def test_template_admits_a_member_whose_artifact_and_schema_kinds_differ():
     context = admit_authority_context(kernel, language_bundle)
 
     assert isinstance(context, AdmittedAuthorityContext)
-    release = minimal_release(
-        cast(Any, context.kernel),
-        cast(Any, context.language_bundle),
-    )
+    release = minimal_release(context)
     member = next(
         item
         for item in cast(list[dict[str, Any]], release["members"])
@@ -1150,11 +1116,10 @@ def test_template_refuses_an_artifact_kind_that_shadows_a_standalone_schema():
         retain_standalone=True,
     )
 
-    with pytest.raises(
-        ValueError,
-        match="wire-schema kind authority is ambiguous: negative-vector",
-    ):
-        minimal_release(kernel, language_bundle)
+    _reidentify_language_bundle(kernel, language_bundle)
+    refused = load_admitted_template(minimal_release, lambda: (kernel, language_bundle))
+    assert isinstance(refused, Schema2RefusalReport)
+    assert {item.code for item in refused.diagnostics} == {"kernel.vector_mismatch"}
     with pytest.raises(
         ValueError,
         match="wire-schema kind authority is ambiguous: negative-vector",
@@ -1176,31 +1141,37 @@ def test_minimal_release_derives_every_authority_identity_from_its_inputs():
     kernel = authority["kernel"]
     language_bundle = authority["language_bundle"]
     language = cast(Any, language_bundle["language"])
-    kernel["content_identity"] = "sha256:" + "a" * 64
-    language_bundle["content_identity"] = "sha256:" + "b" * 64
-    package = language["packages"][0]
-    package["content_identity"] = "sha256:" + "c" * 64
+    baseline_context = packaged_authority_context()
+    baseline_release = minimal_release(baseline_context)
     schema = next(
         row["schema"]
         for collection in ("wire_schemas", "artifact_wire_schemas")
         for row in language[collection]
         if row["artifact_kind"] == "boundary-vector"
     )
-    schema["title"] = "Changed boundary vector schema"
+    schema["properties"]["pointer"]["minLength"] = 2
 
-    release = cast(Any, minimal_release(kernel, language_bundle))
+    _reidentify_language_bundle(kernel, language_bundle)
+    context = admit_authority_context(kernel, language_bundle)
+    assert isinstance(context, AdmittedAuthorityContext)
+    release = cast(Any, minimal_release(context))
 
-    assert release["kernel_identity"] == kernel["content_identity"]
-    assert release["language_bundle_identity"] == language_bundle["content_identity"]
+    assert release["kernel_identity"] == context.kernel["content_identity"]
+    assert (
+        release["language_bundle_identity"]
+        == context.language_bundle["content_identity"]
+    )
+    assert (
+        release["language_bundle_identity"]
+        != baseline_release["language_bundle_identity"]
+    )
+    assert release["content_identity"] != baseline_release["content_identity"]
     dependencies = next(
         member
         for member in release["members"]
         if member["member_kind"] == "declared-package-dependencies"
     )
-    assert (
-        dependencies["payload"]["packages"][0]["content_identity"]
-        == (package["content_identity"])
-    )
+    assert dependencies["payload"]["packages"] == ["core.quantity", "standard.compiler"]
     boundary = next(
         member
         for member in release["members"]
@@ -1218,18 +1189,14 @@ def test_template_get_returns_the_complete_content_addressed_release(run_cli):
             "get",
             "--id",
             "standard.quantity-minimal",
-            "--version",
-            "2.1.0",
         ]
     )
 
     assert (exit_code, stderr) == (0, "")
     release = json.loads(stdout)
     assert release["artifact_kind"] == "template-release"
-    assert (release["id"], release["version"]) == (
-        "standard.quantity-minimal",
-        "2.1.0",
-    )
+    assert release["id"] == "standard.quantity-minimal"
+    assert "version" not in release
     assert [item["logical_name"] for item in release["manifest"]] == [
         "starter-model-source",
         "experiment-specification",
@@ -1248,7 +1215,7 @@ def test_template_get_returns_the_complete_content_addressed_release(run_cli):
         for member in release["members"]
         if member["logical_name"] == "experiment-specification"
     )
-    assert experiment["payload"]["version"] == "1.1.0"
+    assert "version" not in experiment["payload"]
     for entry, member in zip(release["manifest"], release["members"], strict=True):
         assert {
             key: member[key]
@@ -1279,8 +1246,6 @@ def test_every_template_member_is_admitted_by_the_exact_kernel_and_ldb(
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
@@ -1304,15 +1269,9 @@ def test_every_template_member_is_admitted_by_the_exact_kernel_and_ldb(
     starter_identity = content_identity("model-source-package-v2", starter)
 
     language = authority_set()["language_bundle"]["language"]
-    package_inventory = {
-        (item["id"], item["version"], item["content_identity"])
-        for item in language["packages"]
-    }
+    package_inventory = {item["id"] for item in language["packages"]}
     dependencies = members["declared-package-dependencies"]["payload"]
-    assert {
-        (item["id"], item["version"], item["content_identity"])
-        for item in dependencies["packages"]
-    } <= package_inventory
+    assert set(dependencies["packages"]) <= package_inventory
 
     experiment = members["experiment-specification"]["payload"]
     assert experiment["kernel_identity"] == release["kernel_identity"]
@@ -1364,8 +1323,6 @@ def test_template_starter_formula_is_ordinary_editable_model_source(tmp_path, ru
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
@@ -1374,7 +1331,7 @@ def test_template_starter_formula_is_ordinary_editable_model_source(tmp_path, ru
         for item in release["members"]
         if item["logical_name"] == "starter-model-source"
     )
-    assert starter["manifest"]["version"] == "1.1.0"
+    assert "version" not in starter["manifest"]
     module = starter["modules"][0]
     assert [row["id"] for row in module["formulas"]] == ["derive-value"]
     assert starter["formula_bindings"] == [
@@ -1411,7 +1368,6 @@ def test_template_starter_formula_is_ordinary_editable_model_source(tmp_path, ru
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.2.0",
                     "id": "quantity.maximum",
                 },
                 "arguments": [
@@ -1447,6 +1403,57 @@ def test_template_starter_formula_is_ordinary_editable_model_source(tmp_path, ru
     assert (exit_code, stderr) == (0, ""), stdout
 
 
+@pytest.mark.parametrize("command", ("get", "instantiate"))
+def test_template_commands_refuse_the_retired_version_selector(
+    command, tmp_path, run_cli
+):
+    args = [
+        "template",
+        command,
+        "--id",
+        "standard.quantity-minimal",
+        "--version",
+        "2.1.0",
+    ]
+    if command == "instantiate":
+        args.extend(
+            [
+                "--package-id",
+                "example.retired-selector",
+                "--out",
+                str(tmp_path / "out"),
+                "--invocation-key",
+                "1" * 64,
+            ]
+        )
+    exit_code, stdout, stderr = run_cli(args)
+    assert (exit_code, stdout) == (3, "")
+    assert json.loads(stderr)["error"]["code"] == "unknown_argument"
+    assert not (tmp_path / "out").exists()
+
+
+def test_template_get_refuses_a_reidentified_retired_version_member(run_cli):
+    exit_code, stdout, stderr = run_cli(
+        ["template", "get", "--id", "standard.quantity-minimal"]
+    )
+    assert (exit_code, stderr) == (0, "")
+    release = json.loads(stdout)
+    release["version"] = "2.1.0"
+    _reidentify_release(release)
+    descriptor = replace(
+        TEMPLATE_GET, handler=template_get_handler(lambda _context: release)
+    )
+    exit_code, stdout, stderr = run_cli(
+        ["template", "get", "--id", "standard.quantity-minimal"], registry=(descriptor,)
+    )
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert {item["code"] for item in error["diagnostics"]} == {
+        "language.source_contract_mismatch"
+    }
+
+
 def test_template_get_refuses_an_unknown_release_with_a_stable_ldb_diagnostic(
     run_cli,
 ):
@@ -1456,8 +1463,6 @@ def test_template_get_refuses_an_unknown_release_with_a_stable_ldb_diagnostic(
             "get",
             "--id",
             "missing.template",
-            "--version",
-            "9.9.9",
         ]
     )
 
@@ -1465,7 +1470,7 @@ def test_template_get_refuses_an_unknown_release_with_a_stable_ldb_diagnostic(
     error = json.loads(stdout)["error"]
     assert error["stage"] == "resolution"
     assert [item["code"] for item in error["diagnostics"]] == [
-        "language.package_version_unavailable"
+        "language.package_unavailable"
     ]
 
 
@@ -1477,8 +1482,6 @@ def test_template_get_refuses_a_release_for_an_incompatible_ldb(run_cli):
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
@@ -1489,7 +1492,7 @@ def test_template_get_refuses_a_release_for_an_incompatible_ldb(run_cli):
     )
     descriptor = replace(
         TEMPLATE_GET,
-        handler=template_get_handler(lambda _kernel, _ldb: release),
+        handler=template_get_handler(lambda _context: release),
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -1498,8 +1501,6 @@ def test_template_get_refuses_a_release_for_an_incompatible_ldb(run_cli):
             "get",
             "--id",
             "standard.quantity-minimal",
-            "--version",
-            "2.1.0",
         ],
         registry=(descriptor,),
     )
@@ -1507,7 +1508,7 @@ def test_template_get_refuses_a_release_for_an_incompatible_ldb(run_cli):
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
     assert error["stage"] == "resolution"
-    assert error["diagnostics"][0]["code"] == ("language.package_version_unavailable")
+    assert error["diagnostics"][0]["code"] == ("language.package_unavailable")
     assert error["diagnostics"][0]["primary"]["pointer"] == (
         "/language_bundle_identity"
     )
@@ -1521,8 +1522,6 @@ def test_template_get_refuses_a_member_outside_its_ldb_wire_schema(run_cli):
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
@@ -1548,7 +1547,7 @@ def test_template_get_refuses_a_member_outside_its_ldb_wire_schema(run_cli):
     )
     descriptor = replace(
         TEMPLATE_GET,
-        handler=template_get_handler(lambda _kernel, _ldb: release),
+        handler=template_get_handler(lambda _context: release),
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -1557,8 +1556,6 @@ def test_template_get_refuses_a_member_outside_its_ldb_wire_schema(run_cli):
             "get",
             "--id",
             "standard.quantity-minimal",
-            "--version",
-            "2.1.0",
         ],
         registry=(descriptor,),
     )
@@ -1577,8 +1574,6 @@ def test_template_get_refuses_semantically_unbound_companion_evidence(run_cli):
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
@@ -1604,7 +1599,7 @@ def test_template_get_refuses_semantically_unbound_companion_evidence(run_cli):
     )
     descriptor = replace(
         TEMPLATE_GET,
-        handler=template_get_handler(lambda _kernel, _ldb: release),
+        handler=template_get_handler(lambda _context: release),
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -1613,8 +1608,6 @@ def test_template_get_refuses_semantically_unbound_companion_evidence(run_cli):
             "get",
             "--id",
             "standard.quantity-minimal",
-            "--version",
-            "2.1.0",
         ],
         registry=(descriptor,),
     )
@@ -1635,8 +1628,6 @@ def test_template_get_refuses_every_reidentified_semantic_admission_mutation(
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
@@ -1668,8 +1659,8 @@ def test_template_get_refuses_every_reidentified_semantic_admission_mutation(
 
     unavailable_source_package = deepcopy(pristine)
     starter = member(unavailable_source_package, "starter-model-source")
-    starter["package_requirements"][0]["version"] = "9.9.9"
-    starter["modules"][0]["imports"][0]["version"] = "9.9.9"
+    starter["package_requirements"][0] = "missing.quantity"
+    starter["modules"][0]["imports"][0]["package"] = "missing.quantity"
     mutated_source_identity = content_identity("model-source-package-v2", starter)
     member(unavailable_source_package, "experiment-specification")[
         "model_source_identity"
@@ -1698,16 +1689,16 @@ def test_template_get_refuses_every_reidentified_semantic_admission_mutation(
     mutations.append(invalid_default)
 
     unbound_dependency = deepcopy(pristine)
-    member(unbound_dependency, "declared-package-dependencies")["packages"][0][
-        "content_identity"
-    ] = "sha256:" + "f" * 64
+    member(unbound_dependency, "declared-package-dependencies")["packages"][0] = (
+        "missing.quantity"
+    )
     mutations.append(unbound_dependency)
 
     for release in mutations:
         descriptor = replace(
             TEMPLATE_GET,
             handler=template_get_handler(
-                lambda _kernel, _ldb, release=_reidentify_release(release): release
+                lambda _context, release=_reidentify_release(release): release
             ),
         )
         exit_code, stdout, stderr = run_cli(
@@ -1716,15 +1707,13 @@ def test_template_get_refuses_every_reidentified_semantic_admission_mutation(
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ],
             registry=(descriptor,),
         )
         assert (exit_code, stderr) == (2, "")
         assert json.loads(stdout)["error"]["diagnostics"][0]["code"] in {
             "language.source_contract_mismatch",
-            "language.package_version_unavailable",
+            "language.package_unavailable",
         }
 
 
@@ -1738,8 +1727,6 @@ def test_template_admission_accepts_multiple_experiments_scenarios_and_vectors(
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
@@ -1747,7 +1734,7 @@ def test_template_admission_accepts_multiple_experiments_scenarios_and_vectors(
     release = _with_secondary_vertical_slice(release)
     descriptor = replace(
         TEMPLATE_GET,
-        handler=template_get_handler(lambda _kernel, _ldb: release),
+        handler=template_get_handler(lambda _context: release),
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -1756,8 +1743,6 @@ def test_template_admission_accepts_multiple_experiments_scenarios_and_vectors(
             "get",
             "--id",
             "standard.quantity-minimal",
-            "--version",
-            "2.1.0",
         ],
         registry=(descriptor,),
     )
@@ -1777,15 +1762,13 @@ def test_metric_identifiers_are_unique_within_each_experiment_not_globally(
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
     release = _with_secondary_vertical_slice(release, metric_id="value")
     descriptor = replace(
         TEMPLATE_GET,
-        handler=template_get_handler(lambda _kernel, _ldb: release),
+        handler=template_get_handler(lambda _context: release),
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -1794,8 +1777,6 @@ def test_metric_identifiers_are_unique_within_each_experiment_not_globally(
             "get",
             "--id",
             "standard.quantity-minimal",
-            "--version",
-            "2.1.0",
         ],
         registry=(descriptor,),
     )
@@ -1813,8 +1794,6 @@ def test_template_admission_refuses_resource_exhaustion_from_coverage_rows(
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
@@ -1828,9 +1807,7 @@ def test_template_admission_refuses_resource_exhaustion_from_coverage_rows(
     ]
     descriptor = replace(
         TEMPLATE_GET,
-        handler=template_get_handler(
-            lambda _kernel, _ldb: _reidentify_release(release)
-        ),
+        handler=template_get_handler(lambda _context: _reidentify_release(release)),
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -1839,8 +1816,6 @@ def test_template_admission_refuses_resource_exhaustion_from_coverage_rows(
             "get",
             "--id",
             "standard.quantity-minimal",
-            "--version",
-            "2.1.0",
         ],
         registry=(descriptor,),
     )
@@ -1860,8 +1835,6 @@ def test_independent_template_graph_interpreter_agrees_on_admission_and_refusal(
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
@@ -1911,9 +1884,7 @@ def test_independent_template_graph_interpreter_agrees_on_admission_and_refusal(
         )
         descriptor = replace(
             TEMPLATE_GET,
-            handler=template_get_handler(
-                lambda _kernel, _ldb, release=release: release
-            ),
+            handler=template_get_handler(lambda _context, release=release: release),
         )
         exit_code, stdout, stderr = run_cli(
             [
@@ -1921,8 +1892,6 @@ def test_independent_template_graph_interpreter_agrees_on_admission_and_refusal(
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ],
             registry=(descriptor,),
         )
@@ -1949,8 +1918,6 @@ def test_template_instantiate_publishes_a_new_editable_model_source_identity(
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
@@ -1968,8 +1935,6 @@ def test_template_instantiate_publishes_a_new_editable_model_source_identity(
             "instantiate",
             "--id",
             "standard.quantity-minimal",
-            "--version",
-            "2.1.0",
             "--package-id",
             "example.my-quantity",
             "--out",
@@ -1990,7 +1955,6 @@ def test_template_instantiate_publishes_a_new_editable_model_source_identity(
     assert source["manifest"]["id"] == "example.my-quantity"
     assert source["manifest"]["template_provenance"] == {
         "template_id": release["id"],
-        "template_version": release["version"],
         "template_identity": release["content_identity"],
         "starter_identity": starter_identity,
     }
@@ -2031,8 +1995,6 @@ def test_template_instantiate_publishes_a_new_editable_model_source_identity(
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
@@ -2056,8 +2018,6 @@ def test_template_instantiation_selects_the_starter_by_admitted_role_not_name(
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
@@ -2070,7 +2030,7 @@ def test_template_instantiation_selects_the_starter_by_admitted_role_not_name(
     _reidentify_release(release)
     descriptor = replace(
         TEMPLATE_INSTANTIATE,
-        handler=template_instantiate_handler(lambda _kernel, _ldb: release),
+        handler=template_instantiate_handler(lambda _context: release),
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -2079,8 +2039,6 @@ def test_template_instantiation_selects_the_starter_by_admitted_role_not_name(
             "instantiate",
             "--id",
             "standard.quantity-minimal",
-            "--version",
-            "2.1.0",
             "--package-id",
             "example.role-selected",
             "--out",
@@ -2115,8 +2073,6 @@ def test_template_instantiation_uses_the_ldb_owned_source_role_name(tmp_path, ru
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
@@ -2129,7 +2085,7 @@ def test_template_instantiation_uses_the_ldb_owned_source_role_name(tmp_path, ru
     descriptor = replace(
         TEMPLATE_INSTANTIATE,
         handler=template_instantiate_handler(
-            lambda _kernel, _ldb: deepcopy(release),
+            lambda _context: deepcopy(release),
             authority_context_provider=lambda: context,
         ),
     )
@@ -2140,8 +2096,6 @@ def test_template_instantiation_uses_the_ldb_owned_source_role_name(tmp_path, ru
             "instantiate",
             "--id",
             "standard.quantity-minimal",
-            "--version",
-            "2.1.0",
             "--package-id",
             "example.renamed-role",
             "--out",
@@ -2174,8 +2128,6 @@ def test_template_vector_expected_value_uses_canonical_equality(run_cli):
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
@@ -2194,7 +2146,7 @@ def test_template_vector_expected_value_uses_canonical_equality(run_cli):
     descriptor = replace(
         TEMPLATE_GET,
         handler=template_get_handler(
-            lambda _kernel, _ldb: deepcopy(release),
+            lambda _context: deepcopy(release),
             authority_context_provider=lambda: context,
         ),
     )
@@ -2205,8 +2157,6 @@ def test_template_vector_expected_value_uses_canonical_equality(run_cli):
             "get",
             "--id",
             "standard.quantity-minimal",
-            "--version",
-            "2.1.0",
         ],
         registry=(descriptor,),
     )
@@ -2226,8 +2176,6 @@ def test_template_vector_refuses_non_rfc6901_array_indexes(array_index, run_cli)
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
@@ -2240,7 +2188,7 @@ def test_template_vector_refuses_non_rfc6901_array_indexes(array_index, run_cli)
     _reidentify_release(release)
     descriptor = replace(
         TEMPLATE_GET,
-        handler=template_get_handler(lambda _kernel, _ldb: deepcopy(release)),
+        handler=template_get_handler(lambda _context: deepcopy(release)),
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -2249,8 +2197,6 @@ def test_template_vector_refuses_non_rfc6901_array_indexes(array_index, run_cli)
             "get",
             "--id",
             "standard.quantity-minimal",
-            "--version",
-            "2.1.0",
         ],
         registry=(descriptor,),
     )
@@ -2272,8 +2218,6 @@ def test_instantiated_source_can_be_edited_and_built_without_a_toolkit_fork(
                 "instantiate",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
                 "--package-id",
                 "example.edited-quantity",
                 "--out",
@@ -2324,8 +2268,6 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
             "instantiate",
             "--id",
             "standard.quantity-minimal",
-            "--version",
-            "2.1.0",
             "--package-id",
             "example.template-game",
             "--out",
@@ -2384,7 +2326,6 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.2.0",
                     "id": "quantity.maximum",
                 },
                 "arguments": [
@@ -2444,7 +2385,6 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
                     "node": "operation-call",
                     "operation": {
                         "package": "core.quantity",
-                        "version": "2.2.0",
                         "id": "quantity.maximum",
                     },
                     "arguments": [
@@ -2647,8 +2587,6 @@ def test_template_instantiation_is_atomic_retry_safe_and_input_bound(tmp_path, r
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
@@ -2658,8 +2596,6 @@ def test_template_instantiation_is_atomic_retry_safe_and_input_bound(tmp_path, r
         "instantiate",
         "--id",
         "standard.quantity-minimal",
-        "--version",
-        "2.1.0",
         "--package-id",
         "example.retry-safe",
         "--invocation-key",
@@ -2669,7 +2605,7 @@ def test_template_instantiation_is_atomic_retry_safe_and_input_bound(tmp_path, r
     faulting = replace(
         TEMPLATE_INSTANTIATE,
         handler=template_instantiate_handler(
-            lambda _kernel, _ldb: release,
+            lambda _context: release,
             publication_fault="before-anchor-commit",
         ),
     )
@@ -2700,8 +2636,6 @@ def test_template_instantiation_is_atomic_retry_safe_and_input_bound(tmp_path, r
             "instantiate",
             "--id",
             "standard.quantity-minimal",
-            "--version",
-            "2.1.0",
             "--package-id",
             "example.different-input",
             "--out",
@@ -2734,8 +2668,6 @@ def test_every_template_publication_fault_is_all_or_nothing_and_retryable(
                 "get",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
             ]
         )[1]
     )
@@ -2750,8 +2682,6 @@ def test_every_template_publication_fault_is_all_or_nothing_and_retryable(
         "instantiate",
         "--id",
         "standard.quantity-minimal",
-        "--version",
-        "2.1.0",
         "--package-id",
         f"example.{publication_fault}",
         "--out",
@@ -2762,7 +2692,7 @@ def test_every_template_publication_fault_is_all_or_nothing_and_retryable(
     faulting = replace(
         TEMPLATE_INSTANTIATE,
         handler=template_instantiate_handler(
-            lambda _kernel, _ldb: release,
+            lambda _context: release,
             publication_fault=publication_fault,
         ),
     )
@@ -2827,8 +2757,6 @@ def test_template_publication_recovers_when_anchor_directory_fsync_fails(
         "instantiate",
         "--id",
         "standard.quantity-minimal",
-        "--version",
-        "2.1.0",
         "--package-id",
         "example.anchor-fsync",
         "--out",
@@ -2871,8 +2799,6 @@ def test_template_publication_rejects_output_symlinks(tmp_path, run_cli):
             "instantiate",
             "--id",
             "standard.quantity-minimal",
-            "--version",
-            "2.1.0",
             "--package-id",
             "example.alias",
             "--out",
@@ -2896,8 +2822,6 @@ def test_template_recovery_rejects_a_coherently_reidentified_anchor_rewrite(
         "instantiate",
         "--id",
         "standard.quantity-minimal",
-        "--version",
-        "2.1.0",
         "--package-id",
         "example.anchor-rewrite",
         "--out",
@@ -2937,8 +2861,6 @@ def test_template_recovery_rejects_a_symlinked_committed_member(tmp_path, run_cl
         "instantiate",
         "--id",
         "standard.quantity-minimal",
-        "--version",
-        "2.1.0",
         "--package-id",
         "example.member-alias",
         "--out",
@@ -2974,8 +2896,6 @@ def test_concurrent_template_retries_recover_one_committed_set(tmp_path, run_cli
                 "instantiate",
                 "--id",
                 "standard.quantity-minimal",
-                "--version",
-                "2.1.0",
                 "--package-id",
                 "example.concurrent",
                 "--out",
