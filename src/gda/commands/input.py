@@ -1834,8 +1834,8 @@ def input_tap(
     receive them and the polled state stays untouched, so both phases report
     `viewport_event` (`gda input action --help` carries the full conformance
     matrix). --as-event rides an action tap only: a key tap already pushes an
-    event. An unresolvable key is `live_invalid_key`, an action absent
-    from the running InputMap is `live_unknown_action`. With no daemon it reports
+    event. An unresolvable key is `live_invalid_key`, an action absent from the
+    running InputMap is `live_unknown_action`. With no daemon it reports
     `daemon_not_running`.
 
     A value the engine reports crosses the wire at full binary64 precision — the
@@ -1917,13 +1917,14 @@ def input_sequence(
     `mouse_click`, `mouse_button` and `mouse_move` events take the `viewport_event`
     route, an InputEvent pushed through the root viewport. An `action` event with
     `"as_event": true` takes that second route too (#854): gda pushes an
-    InputEventAction, so the handlers see it and the polled state stays untouched. For sequence mouse
-    events, read the injected coordinate from the mouse event's position; Godot may
-    leave Viewport.get_mouse_position() / Node2D.get_global_mouse_position() stale
-    in daemon sessions. A malformed `--events` (not a JSON array, an empty list, an
-    ill-formed event, or mixed `frame`/`physics_frame` clocks) is a usage error;
-    with no daemon it reports `daemon_not_running`. An event's action absent from
-    the InputMap is `live_unknown_action`, an unresolvable key `live_invalid_key`.
+    InputEventAction, so the handlers see it and the polled state stays untouched.
+    For sequence mouse events, read the injected coordinate from the mouse event's
+    position; Godot may leave Viewport.get_mouse_position() /
+    Node2D.get_global_mouse_position() stale in daemon sessions. A malformed
+    `--events` (not a JSON array, an empty list, an ill-formed event, or mixed
+    `frame`/`physics_frame` clocks) is a usage error; with no daemon it reports
+    `daemon_not_running`. An event's action absent from the InputMap is
+    `live_unknown_action`, an unresolvable key `live_invalid_key`.
     """
     # --events is a JSON array on the argv path; the model is the source of truth for
     # the per-event shape (ADR-0015), so a parse or validation failure is a usage
