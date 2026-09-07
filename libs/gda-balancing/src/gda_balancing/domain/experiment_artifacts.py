@@ -1836,6 +1836,7 @@ def _terminal_audit_is_valid(
     catalog_by_id = {cast(str, row["event_id"]): row for row in catalog}
     refusing_catalog_record = catalog_by_id.get(refusing_event_id)
     continuation = cast(dict[str, Any], last_snapshot["continuation"])
+    refusing_metric: dict[str, Any] | None = None
     if refusing_catalog_record is not None:
         if (
             refusing_catalog_record["scenario"] != scenario_id
@@ -1850,7 +1851,7 @@ def _terminal_audit_is_valid(
             == "observation"
             for record in catalog
         )
-        metric = (
+        refusing_metric = (
             checked.value["metrics"][committed_observation_count]
             if committed_observation_count < len(checked.value["metrics"])
             else None
@@ -1862,8 +1863,8 @@ def _terminal_audit_is_valid(
             "enqueue_sequence": continuation["next_enqueue_sequence"],
         }
         if (
-            metric is None
-            or _metric_definition_identity(metric) != metric_identity
+            refusing_metric is None
+            or _metric_definition_identity(refusing_metric) != metric_identity
             or ordering_key != expected_ordering_key
             or _observation_event_id(
                 checked,
@@ -2070,6 +2071,25 @@ def _terminal_audit_is_valid(
         if (
             formula_fault is not None
             or len(scenario_catalog) < bounds["max_total_events"]
+            or refusing_metric is None
+            or refusing_event["entrypoint"]
+            != {
+                "id": f"observation:{refusing_metric['id']}",
+                "identity": _metric_definition_identity(refusing_metric),
+            }
+            or refusing_event["operation"] != "observation"
+            or refusing_event["call_path"] != f"observation/{refusing_metric['id']}"
+            or refusing_event["attempted_calls"] != []
+            or refusing_event["call_site_identity"] is not None
+            or refusing_event["evaluation_site_identity"] is not None
+            or refusing_event["instruction_index"] is not None
+            or not any(
+                reason.get("stage") == "runtime"
+                and reason["diagnostic"] == diagnostic["code"]
+                and reason.get("signal") == "event-limit"
+                for row in checked.rir["selected_semantics"]["diagnostic_reasons"]
+                for reason in [row["definition"]]
+            )
         ):
             return False
     elif formula_fault is not None:

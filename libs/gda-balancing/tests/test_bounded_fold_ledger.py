@@ -406,6 +406,51 @@ def test_metric_event_refusal_includes_successful_final_observation_formula():
     audit["budget_counters"]["node_steps"] = 41
     _assert_refuses(checked, members, audit)
 
+    step_reason = next(
+        row["definition"]
+        for row in checked.rir["selected_semantics"]["diagnostic_reasons"]
+        if row["definition"].get("signal") == "step-limit"
+    )
+    audit = deepcopy(original)
+    audit["diagnostic"]["code"] = step_reason["diagnostic"]
+    audit["refusing_event"]["reason"] = step_reason["diagnostic"]
+    _assert_refuses(checked, members, audit)
+
+    # These all retain a genuine exhausted total-Event budget. Integrity and
+    # member shape alone cannot establish the reason or observation location.
+    identity = "sha256:" + "f" * 64
+    for field, value in [
+        ("operation", "forged-operation"),
+        ("call_path", "forged-observation"),
+        ("entrypoint", {"id": "forged-observation", "identity": identity}),
+        (
+            "entrypoint",
+            {**original["refusing_event"]["entrypoint"], "identity": identity},
+        ),
+        ("call_site_identity", identity),
+        ("evaluation_site_identity", identity),
+        ("instruction_index", 0),
+        (
+            "attempted_calls",
+            [
+                {
+                    "site": "forged-call",
+                    "call_site_identity": identity,
+                    "operation": {
+                        "package": "game.effect",
+                        "id": "apply-snapshot-periodic-v1",
+                    },
+                    "outcome": {"id": "invented", "identity": identity},
+                    "arguments": [],
+                    "result_identity": identity,
+                }
+            ],
+        ),
+    ]:
+        audit = deepcopy(original)
+        audit["refusing_event"][field] = value
+        _assert_refuses(checked, members, audit)
+
 
 def _terminal_pending_candidate():
     context = _resource_context(max_node_steps=60, max_total_events=2)
