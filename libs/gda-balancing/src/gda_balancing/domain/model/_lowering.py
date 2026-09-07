@@ -4216,17 +4216,21 @@ def _runtime_projection(
     closure_values: dict[tuple[str, str], list[Any]] = {}
 
     def projected_runtime_value(collection: dict[str, Any], value: Any) -> Any:
-        excluded = collection.get("excluded_extension_members", [])
-        if not excluded:
+        excluded_members = collection.get("excluded_members", [])
+        excluded_extensions = collection.get("excluded_extension_members", [])
+        if not excluded_members and not excluded_extensions:
             return value
-        if not isinstance(value, dict) or not isinstance(value.get("extensions"), dict):
-            return value
+        if not isinstance(value, dict):
+            raise ValueError("runtime member exclusion requires a definition")
         projected_value = deepcopy(value)
-        extensions = cast(dict[str, Any], projected_value["extensions"])
-        for member in cast(list[str], excluded):
-            extensions.pop(member, None)
-        if not extensions:
-            projected_value.pop("extensions")
+        for member in cast(list[str], excluded_members):
+            projected_value.pop(member, None)
+        extensions = projected_value.get("extensions")
+        if isinstance(extensions, dict):
+            for member in cast(list[str], excluded_extensions):
+                extensions.pop(member, None)
+            if not extensions:
+                projected_value.pop("extensions")
         return projected_value
 
     for collection in cast(list[dict[str, Any]], profile["collections"]):

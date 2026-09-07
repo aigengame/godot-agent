@@ -6916,6 +6916,20 @@ def test_candidate_graph_executes_every_operation_vector_in_two_consumers(monkey
             kernel,
             ldb,
             execution_evidence_expectations={
+                **{
+                    ("standard.conformance.structured", f"bounded-fold.{case}"): {
+                        "ordering_key": root_ordering_key,
+                        "resource_charge": steps,
+                    }
+                    for case, steps in (
+                        ("empty", 8),
+                        ("full", 46),
+                        ("reverse", 46),
+                        ("duplicates", 52),
+                        ("tail-difference", 46),
+                        ("numeric-overflow", 23),
+                    )
+                },
                 ("game.combat", "game.combat.cast.eligible-action"): {
                     "ordering_key": root_ordering_key,
                     "resource_charge": 31,
