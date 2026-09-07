@@ -235,6 +235,13 @@ def test_checked_request_and_all_artifact_outputs_are_isolated_from_mutation():
     emitted = compile_checked_model(checked)
     assert set(emitted) == _ARTIFACTS
     for artifact in emitted.values():
+        for member in artifact.values():
+            if isinstance(member, (dict, list)):
+                try:
+                    member.clear()
+                except TypeError:
+                    pass
+                break
         artifact.clear()
     assert _artifact_bytes(checked) == expected
 
