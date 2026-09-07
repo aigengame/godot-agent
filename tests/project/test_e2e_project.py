@@ -386,7 +386,9 @@ def test_project_remove_autoload_unregisters_and_round_trips(godot_project):
 
     removed = Gda(godot_project)("project", "remove-autoload", "Global", "--json")
     assert removed.returncode == 0, removed.stdout + removed.stderr
-    assert json.loads(removed.stdout) == {"name": "Global"}
+    # Plus the residual-mutation report every project write carries (#843), which
+    # test_every_project_writer_keeps_an_explicit_default_line covers on its own.
+    assert json.loads(removed.stdout)["name"] == "Global"
 
     # Round-trip: the autoload is gone from project.godot — a fresh get reports it
     # as an unknown setting, exit 4.
@@ -580,7 +582,7 @@ def test_project_remove_input_action_unregisters_and_persists(godot_project):
 
     removed = Gda(godot_project)("project", "remove-input-action", "jump", "--json")
     assert removed.returncode == 0, removed.stdout + removed.stderr
-    assert json.loads(removed.stdout) == {"name": "jump"}
+    assert json.loads(removed.stdout)["name"] == "jump"
 
     # The action is gone from project.godot — no lingering InputEventKey literal.
     normalized = _normalized_project_godot(godot_project)
@@ -867,3 +869,140 @@ def test_project_add_input_action_with_no_binding_is_a_usage_error(godot_project
         .read_text(encoding="utf-8")
         .count("[input]")
     )
+
+
+# --- Bounded project writes (#843) -------------------------------------------
+#
+# `ProjectSettings.save()` reserializes the whole file, so every writer in this
+# group changes lines the caller never named. These run against the REAL engine —
+# the drop rule, the features list and the section order are its behaviour, not a
+# fixture's. The e2e fixture already carries the declaration this is about:
+# `debug/file_logging/enable_file_logging=false` equals the engine default, so the
+# save deletes it (that is GDA-DF-068, found on a keyboard-only add-input-action).
+
+_DEFAULT_EQUAL_LINE = "file_logging/enable_file_logging=false"
+_DEFAULT_EQUAL_SETTING = "debug/file_logging/enable_file_logging"
+
+
+@pytest.mark.e2e
+def test_every_project_writer_keeps_an_explicit_default_line(godot_project):
+    # One fixture through all five writers, in sequence: each save would delete the
+    # explicit default-equal declaration, and each reports the restore it made.
+    (godot_project / "global.gd").write_text("extends Node\n", encoding="utf-8")
+    gda = Gda(godot_project, json_output=True)
+    writes = (
+        ("project", "set", "application/config/name", "--value", "renamed"),
+        ("project", "add-autoload", "Global", "res://global.gd"),
+        ("project", "remove-autoload", "Global"),
+        # Carries a joypad binding (#842): the two slices' regressions meet on the
+        # final add-input-action shape rather than each running its own sequence.
+        (
+            "project",
+            "add-input-action",
+            "jump",
+            "--key",
+            "J",
+            "--joy-button",
+            "A",
+            "--joy-axis",
+            "LeftX:-",
+        ),
+        ("project", "remove-input-action", "jump"),
+    )
+    for write in writes:
+        data = gda.json(*write)
+        assert data["restored_settings"] == [_DEFAULT_EQUAL_SETTING], write
+        text = (godot_project / "project.godot").read_text(encoding="utf-8")
+        assert _DEFAULT_EQUAL_LINE in text, write
+
+    # The engine still LOADS the restored file: a fresh process reads the setting
+    # back through project get, and the value is the one the file declares.
+    got = gda.json("project", "get", _DEFAULT_EQUAL_SETTING)
+    assert got["value"] is False
+    # And the write the sequence asked for landed, unaffected by the restore.
+    assert gda.json("project", "get", "application/config/name")["value"] == "renamed"
+
+
+@pytest.mark.e2e
+def test_project_set_to_the_engine_default_leaves_the_line_present(godot_project):
+    # The addressed setting cannot be restored FROM the file: it was never written
+    # there. `application/config/description` defaults to "", so setting it to ""
+    # is the case the engine's writer drops — the op moves the default aside and
+    # the line is written anyway, reported as restored.
+    gda = Gda(godot_project, json_output=True)
+
+    data = gda.json("project", "set", "application/config/description", "--value", "")
+
+    assert data["value"] == ""
+    assert "application/config/description" in data["restored_settings"]
+    text = (godot_project / "project.godot").read_text(encoding="utf-8")
+    assert 'config/description=""' in text
+    # And the engine reads the declaration back rather than its own default.
+    assert gda.json("project", "get", "application/config/description")["value"] == ""
+
+
+@pytest.mark.e2e
+def test_the_features_list_the_engine_writes_is_reported(godot_project):
+    # The fixture declares no application/config/features, so the first save ADDS
+    # one; the second changes nothing, so it is reported by neither category.
+    gda = Gda(godot_project, json_output=True)
+
+    first = gda.json("project", "set", "application/config/name", "--value", "one")
+    second = gda.json("project", "set", "application/config/name", "--value", "two")
+
+    assert first["added_settings"] == ["application/config/features"]
+    assert first["rewritten_settings"] == []
+    assert second["added_settings"] == []
+    assert second["rewritten_settings"] == []
+
+
+@pytest.mark.e2e
+def test_a_stale_features_list_is_reported_as_rewritten(tmp_path):
+    # A features list the engine changes on its own is the rewrite half of the
+    # report — and an older list can pull further settings in with it, which is
+    # exactly what `added_settings` is for.
+    project = tmp_path / "stale"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot(extra='config/features=PackedStringArray("4.5")'),
+        encoding="utf-8",
+    )
+
+    data = Gda(project, json_output=True).json(
+        "project", "set", "application/config/name", "--value", "renamed"
+    )
+
+    assert data["rewritten_settings"] == ["application/config/features"]
+    assert data["restored_settings"] == [_DEFAULT_EQUAL_SETTING]
+
+
+@pytest.mark.e2e
+def test_a_hand_ordered_file_reports_the_engine_reordering_it(tmp_path):
+    # The engine writes the sections in its own order. gda does not restore the
+    # layout — it says the order changed, and the file keeps the engine's.
+    project = tmp_path / "ordered"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot(extra="[zsection]\n\nmy/custom=42"), encoding="utf-8"
+    )
+
+    data = Gda(project, json_output=True).json(
+        "project", "set", "application/config/name", "--value", "renamed"
+    )
+
+    assert data["sections_reordered"] is True
+    text = (project / "project.godot").read_text(encoding="utf-8")
+    assert text.index("[debug]") < text.index("[zsection]")
+
+
+@pytest.mark.e2e
+def test_a_bounded_write_renders_its_report_for_a_human(godot_project):
+    written = Gda(godot_project)(
+        "project", "set", "application/config/name", "--value", "renamed"
+    )
+
+    assert written.returncode == 0, written.stdout + written.stderr
+    lines = written.stdout.strip().splitlines()
+    assert lines[0] == 'set application/config/name (String) = "renamed"'
+    assert "engine added: application/config/features" in lines
+    assert f"gda restored: {_DEFAULT_EQUAL_SETTING}" in lines
