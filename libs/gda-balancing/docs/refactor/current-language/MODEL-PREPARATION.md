@@ -27,7 +27,7 @@ declarations, lowering rules, Source rows, Formula bindings/debug entries and th
 unspecialized projection. No optional preparation or re-preparation fallback remains.
 
 The Model compiler consumes that snapshot. Template facts reuse its resolved Source
-rows. Specialization owns each Operation through its namespace and local id, then
+rows. Specialization separately copies each namespace/local-id Operation definition, then
 explicitly derives both the Operation and package-closure views, including provenance.
 It no longer relies on mutations propagating through object aliases. The existing
 immutable-container utility isolates request state; writable output copies cannot
@@ -44,15 +44,19 @@ candidate afresh, retaining the mutations and expected observations.
 ## Acceptance witnesses
 
 The permanent [preparation regressions](../../../tests/test_model_preparation.py)
-provide eight cases. At the baseline, five fail on duplicate preparation, alias
-dependence or mutation leakage, while three resource-boundary cases pass. With S4,
-all eight pass. These tests observe real public calls without replacing the compiler
-or admission implementation.
+provide nine cases. Of the initial eight at the pre-S4 baseline, five fail on duplicate
+preparation, alias dependence or mutation leakage, while three resource-boundary cases
+pass. The ninth case comes from independent review of the first S4 implementation:
+a legal admitted graph contains equal Operation definitions under `game.effect` and
+`test.effectcopy`. Sharing only their Python definition object leaves input values and
+canonical bytes unchanged but incorrectly specializes the unbound owner too. A copy
+per owner fixes that confirmed counterexample before either output view is derived.
+These tests observe real public calls without replacing the compiler or admission implementation.
 
 | Acceptance | Evidence and retained obligation |
 | --- | --- |
 | Single preparation | Public check/build each resolve Source rows, lowering inputs, Formulas and unspecialized projection once; independent admission remains one/two times respectively. All eight published artifact classes are compared. |
-| Explicit projections | Two maintained examples compare entire specialization outputs after a JSON roundtrip, including closure definitions and instruction provenance. |
+| Explicit projections | Two maintained examples and an independently admitted cross-owner clone compare entire specialization outputs after alias changes and a JSON roundtrip, including closure definitions and instruction provenance. The unbound owner's complete definition must stay unchanged. |
 | Snapshot isolation | Mutating original Source, inspected request data or nested emitted artifacts cannot alter the old request; new and concurrent requests reflect their distinct inputs. |
 | Diagnostics and admission | All 34 current Model vectors retain their full observations: 13 admitted eight-artifact sets and 21 complete refusal reports. Existing Model CLI/lowerer tests retain tamper, nominal/role/domain, Formula and call-closure refusals. |
 | Resource and publication | The current minimal fixture consumes 233 projection steps: 232 refuses with the full recorded diagnostic, 233/234 admit through independent validation. Progression consumes 318. Existing public Experiment tests retain initialization refusal, Event rollback and Formula resource/cache accounting; Model tests retain explanation/debug publication and inspection. |
@@ -63,9 +67,9 @@ own pinned graph. They are not a requirement to force the current graph back to
 197 steps. S4 preserves the freshly measured 232/233/234 boundary without changing
 machine laws, resource limits, authority bytes or maintained authored examples.
 
-The eight new tests join the existing required `model` CI shard and logical inventory.
+The nine new tests join the existing required `model` CI shard and logical inventory.
 All prior required test ids, vectors, allowed skips and process bounds remain.
-The full collection is 1,516 cases with no missing, overlapping or unassigned cases;
+The full collection is 1,517 cases with no missing, overlapping or unassigned cases;
 313 active package-vector obligations remain. Collection closure is not a test-pass
 claim: the PR must record final required CI results and independent Standards, Spec
 and domain-architecture reviews before integration.

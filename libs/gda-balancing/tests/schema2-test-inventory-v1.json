@@ -346,6 +346,7 @@
     "tests/test_model_preparation.py::test_preparation_keeps_exact_projection_charge_and_complete_refusal[234]",
     "tests/test_model_preparation.py::test_public_model_request_prepares_once_and_keeps_artifact_admission[build]",
     "tests/test_model_preparation.py::test_public_model_request_prepares_once_and_keeps_artifact_admission[check]",
+    "tests/test_model_preparation.py::test_specialization_does_not_bind_a_value_equal_operation_in_another_namespace",
     "tests/test_model_preparation.py::test_specialization_is_value_based_in_operations_and_package_closures[progression-periodic-effect]",
     "tests/test_model_preparation.py::test_specialization_is_value_based_in_operations_and_package_closures[roguelike-reward-build]",
     "tests/test_schema2_authority_cli.py::test_authority_decode_failure_is_a_typed_ingress_refusal",
