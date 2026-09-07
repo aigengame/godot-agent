@@ -14,9 +14,9 @@ from gda_balancing.application.experiment_execution import (
     ExperimentExecutionVerdict,
     execute_checked_experiment,
 )
+from gda_balancing.application.experiment_inputs import check_experiment_inputs
 from gda_balancing.domain.experiment import (
     CheckedExperiment,
-    check_experiment,
     experiment_input_identity,
 )
 from gda_balancing.domain.publication import (
@@ -55,10 +55,11 @@ def run_experiment(
     verdict_artifact_set: tuple[ArtifactSetMemberSpec, ...],
     runtime_refusal_artifact_set: tuple[ArtifactSetMemberSpec, ...],
     *,
+    rir: str,
     publication_fault: str | None = None,
 ) -> ExperimentRunPublication | ExperimentVerdictPublication | Schema2RefusalReport:
     """Admit, execute, recover, or publish one exact Experiment run."""
-    checked = check_experiment(specification)
+    checked = check_experiment_inputs(specification, rir)
     if isinstance(checked, Schema2RefusalReport):
         return checked
     assert isinstance(checked, CheckedExperiment)

@@ -38,6 +38,7 @@ class ExperimentRunInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     specification: str
+    rir: str
     out: str = Field(min_length=1)
     invocation_key: str = Field(pattern=r"^[0-9a-f]{64}$")
 
@@ -124,11 +125,12 @@ def experiment_run_handler(
                 EXPERIMENT_RUN.artifact_set,
                 EXPERIMENT_RUN.verdict_artifact_set,
                 EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
+                rir=inp.rir,
                 publication_fault=publication_fault,
             )
         except InputReadError as err:
             raise UnreadableInputError(
-                f"cannot read input document: {inp.specification}"
+                "cannot read an Experiment input document"
             ) from err
         if isinstance(result, Schema2RefusalReport):
             return result
