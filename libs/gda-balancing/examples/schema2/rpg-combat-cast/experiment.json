@@ -2,7 +2,7 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-combat-cast.reciprocal",
   "model": {
-    "rir_semantic_identity": "sha256:1ce4713b9061aca6f0cc860f9c44604b3b38f956deb1432f5a76312d9b9ada16"
+    "rir_semantic_identity": "sha256:f82ae16a694e7a266e49b952199400f2c6f8e8dbfea59e24961a1accfc4de701"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",
@@ -19,8 +19,8 @@
         "guard-block",
         "if",
         "invoke",
+        "less-than",
         "less-than-or-equal",
-        "maximum",
         "multiply",
         "precondition-greater-than-or-equal",
         "require",

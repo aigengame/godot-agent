@@ -912,7 +912,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:26575c99fefafbb39395ea866ed76f85b303d9e10c3f0764017790270d02112d",
+  "content_identity": "sha256:40b08f5a4e519f11d589781e62cbf0ec4f10f69a608d71649e353609332a02b0",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -4395,7 +4395,7 @@
             "copy",
             "floor-divide",
             "if",
-            "maximum",
+            "less-than",
             "multiply",
             "subtract"
           ],
@@ -5645,10 +5645,8 @@
         "less-than-or-equal",
         "lookup",
         "is-empty",
-        "maximum",
         "multiply",
-        "subtract",
-        "value"
+        "subtract"
       ],
       "effect_nodes": [
         "subtract-state",
@@ -6130,52 +6128,6 @@
         },
         {
           "family": "expression",
-          "id": "maximum",
-          "operand_constraints": [
-            {
-              "kind": "same-value-contract",
-              "members": [
-                "left",
-                "right"
-              ]
-            },
-            {
-              "kind": "runtime-numeric",
-              "members": [
-                "left",
-                "right"
-              ]
-            }
-          ],
-          "refusals": [
-            "numeric-overflow"
-          ],
-          "required_members": [
-            "node",
-            "target",
-            "left",
-            "right"
-          ],
-          "resource_charge": {
-            "amount": 1,
-            "counter": "event-steps"
-          },
-          "result": {
-            "kind": "local",
-            "typing": {
-              "kind": "same-as-references",
-              "members": [
-                "left",
-                "right"
-              ]
-            }
-          },
-          "semantics": {
-            "operator": "integer-maximum"
-          }
-        },
-        {
-          "family": "expression",
           "id": "multiply",
           "operand_constraints": [
             {
@@ -6264,33 +6216,6 @@
           },
           "semantics": {
             "operator": "integer-subtract"
-          }
-        },
-        {
-          "family": "expression",
-          "id": "value",
-          "operand_constraints": [],
-          "refusals": [],
-          "required_members": [
-            "node",
-            "target",
-            "value"
-          ],
-          "resource_charge": {
-            "amount": 1,
-            "counter": "event-steps"
-          },
-          "result": {
-            "kind": "local",
-            "typing": {
-              "kind": "same-as-references",
-              "members": [
-                "value"
-              ]
-            }
-          },
-          "semantics": {
-            "operator": "copy-value"
           }
         },
         {
@@ -7011,47 +6936,6 @@
                 ]
               }
             ],
-            "operator": "integer-maximum",
-            "result_kind": "local",
-            "result_typing": {
-              "kind": "same-as-references",
-              "members": [
-                "left",
-                "right"
-              ]
-            }
-          },
-          "id": "runtime.node.maximum",
-          "input": {
-            "contract-probe": [
-              "node",
-              "target",
-              "left",
-              "right"
-            ]
-          },
-          "kind": "node",
-          "node": "maximum"
-        },
-        {
-          "expect": {
-            "charge": 1,
-            "operand_constraints": [
-              {
-                "kind": "same-value-contract",
-                "members": [
-                  "left",
-                  "right"
-                ]
-              },
-              {
-                "kind": "runtime-numeric",
-                "members": [
-                  "left",
-                  "right"
-                ]
-              }
-            ],
             "operator": "integer-multiply",
             "result_kind": "local",
             "result_typing": {
@@ -7114,30 +6998,6 @@
           },
           "kind": "node",
           "node": "subtract"
-        },
-        {
-          "expect": {
-            "charge": 1,
-            "operand_constraints": [],
-            "operator": "copy-value",
-            "result_kind": "local",
-            "result_typing": {
-              "kind": "same-as-references",
-              "members": [
-                "value"
-              ]
-            }
-          },
-          "id": "runtime.node.value",
-          "input": {
-            "contract-probe": [
-              "node",
-              "target",
-              "value"
-            ]
-          },
-          "kind": "node",
-          "node": "value"
         },
         {
           "expect": {

@@ -46,7 +46,6 @@ SUPPORTED_RUNTIME_OPERATORS = frozenset(
         "integer-compare",
         "integer-floor-divide",
         "typed-literal",
-        "integer-maximum",
         "integer-multiply",
         "integer-subtract",
         "invoke-operation",

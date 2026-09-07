@@ -1275,6 +1275,7 @@ class _FormulaParser:
                 self.resolve_contract(fallback),
                 self.conversion_policy,
                 self.source_type_aliases,
+                boolean_contract=self.boolean_contract,
             )
         except ValueError as err:
             raise _FormulaContextError(

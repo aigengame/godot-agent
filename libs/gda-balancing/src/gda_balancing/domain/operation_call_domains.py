@@ -65,6 +65,7 @@ class ConcreteOperationCallDomainInput:
     formula_slot_bindings: frozenset[OperationSlotCoordinate]
     operation_node_ids: frozenset[str]
     conversion_policy: dict[str, Any]
+    boolean_contract: dict[str, Any]
     literal_contract: LiteralContractResolver
     snapshot_contracts: dict[OperationCoordinate, dict[str, dict[str, Any]]]
     snapshot_operand_names: dict[OperationCoordinate, frozenset[str]]
@@ -240,6 +241,7 @@ def project_concrete_operation_call_domains(
                         known_operand_values=known_arguments,
                         known_local_contracts=local_contracts,
                         ignore_unmatched_instructions=True,
+                        boolean_contract=projection_input.boolean_contract,
                     )
                 except ValueError as error:
                     raise ConcreteOperationCallDomainError(
@@ -392,6 +394,7 @@ def project_concrete_operation_call_domains(
                 cast(dict[str, Any], formula_contract_from_operation(result)),
                 projection_input.conversion_policy,
                 {},
+                boolean_contract=projection_input.boolean_contract,
             )
         except ValueError as error:
             raise ConcreteOperationCallDomainError(
@@ -453,6 +456,7 @@ def project_concrete_operation_call_domains(
                             parameter,
                             call,
                             projection_input.conversion_policy,
+                            boolean_contract=projection_input.boolean_contract,
                         )
                     )
                 except ValueError as error:

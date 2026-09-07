@@ -2,7 +2,7 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-periodic-effect.same-time",
   "model": {
-    "rir_semantic_identity": "sha256:465d198c934cdd3cff47a1c3cfc9d30904a25941d90d53382de44cc4ae0b21cc"
+    "rir_semantic_identity": "sha256:34946de95f01cf8d3e52328c9323b93e290421a12b80880d58891c75d05161c2"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",
@@ -18,8 +18,8 @@
         "draw",
         "if",
         "invoke",
+        "less-than",
         "less-than-or-equal",
-        "maximum",
         "multiply",
         "precondition-greater-than-or-equal",
         "schedule",
