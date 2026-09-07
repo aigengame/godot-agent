@@ -88,6 +88,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "composition": (
         "test_current_namespace_public.py",
         "test_current_package_composition.py",
+        "test_formula_interval_inference.py",
         "test_formula_runtime_seam.py",
         "test_public_execution_identity.py",
         "test_public_formula_runtime_seam.py",
