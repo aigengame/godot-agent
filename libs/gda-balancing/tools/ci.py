@@ -66,6 +66,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     ),
     "model": (
         "test_exact_resolved_model_binding.py",
+        "test_model_preparation.py",
         "test_operation_call_domains.py",
         "test_schema2_model_cli.py",
         "test_schema2_model_lowerer_conformance.py",

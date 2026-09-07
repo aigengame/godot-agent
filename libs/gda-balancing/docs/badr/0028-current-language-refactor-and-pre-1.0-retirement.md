@@ -53,6 +53,16 @@ Whole-LDB and Build-receipt execution prerequisites still require closure in #87
 mandatory field/gate/propagation/fallback deletion in #875. Policy contents and their actual checks
 remain binding.
 
+## Model preparation delivery (#873, 2026-09-07)
+
+One checked request now retains immutable Typed HIR preparation and its admitted authority context.
+The compiler reuses that complete snapshot and explicitly derives specialized Operation and
+package-closure views. Duplicate preparation and authority re-admission fallback are removed;
+post-specialization checks, independent imported-artifact admission and publication validation
+remain. The [S4 record](../refactor/current-language/MODEL-PREPARATION.md) maps regression witnesses,
+current resource boundaries, unchanged artifact evidence and rollback. This creates no public IR
+or shared cache and makes no unmeasured performance claim. #612, #874 and #875 retain their scopes.
+
 ## Context and evidence
 
 The project owner states that gda-balancing has not had a formal product release: existing
