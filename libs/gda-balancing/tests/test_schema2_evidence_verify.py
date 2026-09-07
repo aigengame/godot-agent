@@ -505,8 +505,10 @@ def test_application_refuses_a_different_admitted_rir(tmp_path: Path) -> None:
     assert isinstance(result, Schema2RefusalReport)
     assert result.stage == "resolution"
     assert [diagnostic.code for diagnostic in result.diagnostics] == [
-        "model.resolved_authority_mismatch"
+        "language.resolved_authority_mismatch"
     ]
+    assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
+    assert result.diagnostics[0].primary.pointer == "/model/rir_semantic_identity"
 
 
 def test_application_uses_outcome_neutral_publication_diagnostics(
