@@ -48,6 +48,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_execution_law_projection.py",
         "test_execution_resource_applicability.py",
         "test_execution_service_language.py",
+        "test_experiment_ingress_reason_mapping.py",
         "test_isolation.py",
         "test_layer_dependencies.py",
         "test_program_reachability.py",

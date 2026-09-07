@@ -11,7 +11,7 @@ The #869 capability union supplies one current definition per retained package n
 The native wire uses namespace requirements and `{package, id}` nominal Type/Operation references.
 Model, Template, Experiment and LDB policy definitions have no own-version labels; Template
 selection uses its id. Schema/artifact formats and actual Runtime/grammar contracts retain their
-markers. The current #874 work selects final-program execution dependencies and detaches admitted
+markers. Selected execution closure (#874) selects final-program dependencies and detaches admitted
 consumer contracts; the [execution-closure record](docs/refactor/current-language/EXECUTION-CLOSURE.md)
 tracks the detailed boundary and open validation. Whole-LDB/Build-receipt execution bindings remain
 transitional and must be deleted in #875. Content integrity, nominal ownership, actual execution

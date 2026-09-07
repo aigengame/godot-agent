@@ -1,8 +1,10 @@
 # Selected execution dependency closure
 
-Status: implementation in progress for [#874](https://github.com/aigengame/godot-agent/issues/874).
-This record refines bADR-0028 decision 3 and PLAN claim C3. It does not close #874,
-the mandatory deletion in #875, or the parent. The source baseline is
+Implementation and evidence for [#874](https://github.com/aigengame/godot-agent/issues/874).
+Live acceptance, final review and CI are recorded in
+[PR #905](https://github.com/aigengame/godot-agent/pull/905). This record refines
+bADR-0028 decision 3 and PLAN claim C3. It does not itself close #874, the mandatory
+deletion in #875, or the parent. The source baseline is
 `3b661f85cf8a3d1acec84c4e0482a5c59e0a0cf4`.
 
 ## Decision and observed defect
@@ -229,6 +231,21 @@ the selected node refusal signal, so a legal reason rename does not add a host
 constraint. Permanent cases cover enum, type, record-member and resource refusals,
 plus the legal lookup reason rename. The numeric ingress domain check keeps its
 own diagnostic path and does not introduce an irrelevant execution dependency.
+The independent structured-value consumer derives these mappings separately from
+its attached package reasons. Both legal remap cases failed before its correction
+and now compare all observation fields; all 24 current structured-value vectors,
+including their 12 refusals, retain production/reference parity.
+
+Independent Spec review found the same fixed-code defect in numeric and other
+Experiment ingress refusals. The existing refusal constructor now receives the
+explicit selected reason and projects its stage and diagnostic. All six existing
+nonstructured reason roots remain ingress dependencies; they do not enlarge RIR.
+Legal numeric, schema, parse and resolution remaps exercise both input paths and
+an actual HTTP session request. Numeric remapping keeps the program semantic
+identity unchanged while the refused input receives the declared diagnostic.
+An unresolved external Event reference also now reports its declared `resolution`
+stage instead of the old inconsistent `static` stage; its location and message
+are preserved.
 
 ## Alternatives and external checks
 

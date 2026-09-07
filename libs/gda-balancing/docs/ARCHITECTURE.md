@@ -12,10 +12,10 @@ not completion. The [refactor plan](refactor/current-language/PLAN.md) owns the 
 requirement routing, bounded evidence, and rollback. #871 implements namespace-string requirements,
 `{package, id}` nominal Type/Operation references and id-only Template selection. Model, Template,
 Experiment and LDB policy own-version labels are removed. Schema/artifact formats and actual
-Runtime/grammar contract markers remain. The current #874 work closes selected execution inputs
+Runtime/grammar contract markers remain. Selected execution closure (#874) closes execution inputs
 and detaches admitted consumer contracts; the [execution-closure record](refactor/current-language/EXECUTION-CLOSURE.md)
 tracks its dependency matrix and validation limits. Whole-LDB/Build-receipt wrappers remain
-transitional execution prerequisites for mandatory deletion in #875; #874 acceptance remains open.
+transitional execution prerequisites for mandatory deletion in #875; #874 and its PR own live acceptance.
 The [S3 contract record](refactor/current-language/NAMESPACE-CONTRACT.md)
 accounts for #872's final deletion witnesses and rollback; #879 and full conformance retain
 their separate acceptance.

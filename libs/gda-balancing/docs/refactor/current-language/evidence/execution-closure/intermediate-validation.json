@@ -150,6 +150,22 @@
       "failed": 0,
       "errors": 0,
       "skipped": 0
+    },
+    "independent_reason_mapping_and_capability_fixture": {
+      "cases": 6,
+      "passed": 6,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "first_full_required_shards_at_83b247006": {
+      "cases": 1651,
+      "passed": 1625,
+      "failed": 1,
+      "errors": 0,
+      "skipped": 25,
+      "shards": 9,
+      "failure": "synthetic capability fixture omitted newly selected node definition; corrected in84ba1db68 with all9 original assertions preserved"
     }
   },
   "counterexamples": {
@@ -205,11 +221,46 @@
         "resource-exhausted"
       ],
       "lookup_reason_rename": "complete package references updated; original Kernel admits the changed reason identity",
-      "reference_limit": "unchanged-law independent vectors passed; independent legal remap check remains open"
+      "reference_limit": "Closed by independent reason projection and two legally admitted remap cases; only code differed before correction.",
+      "reference_integrated_commit": "40b3471b3"
+    },
+    "experiment_ingress_reason_mapping": {
+      "integrated_commit": "dcc0b7b98f9bcfd8cfc745095bbb447aca3db8b4",
+      "isolated_baseline": {
+        "cases": 9,
+        "failed": 7,
+        "passed": 2
+      },
+      "isolated_fixed_with_structured_mapping": {
+        "cases": 14,
+        "passed": 14
+      },
+      "coverage": [
+        "numeric",
+        "source contract",
+        "file parse",
+        "value parse",
+        "resolution binding",
+        "external Event declared stage",
+        "file source bound",
+        "value source bound",
+        "real HTTP session numeric refusal"
+      ],
+      "numeric_remap_changes_rir_semantic_identity": false,
+      "nonreason_call_arguments_preserved": 33,
+      "new_execution_dependency": false,
+      "runtime_caller_commit": "aaeeb91f2bd197141c22742e729294dd694eea8f",
+      "intermediate_public_caller_failure": "Runtime private constructor calls required the same selected-reason port; public capability test caught the old signature before final integration.",
+      "coherent_isolated_public_and_mapping_checks": {
+        "cases": 28,
+        "passed": 28,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      }
     }
   },
   "remaining": [
-    "independent reference legal structured reason remapping",
     "complete final acceptance matrix and CI",
     "independent Standards, Spec and DDMA review",
     "issue PR integration into development branch",
