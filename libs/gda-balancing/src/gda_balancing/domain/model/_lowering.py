@@ -1958,13 +1958,11 @@ def _specialize_operation_formula_slots(
         list[dict[str, Any]],
         specialized["operations"],
     )
-    operations = {
-        (
-            cast(str, row["package"]),
-            cast(str, cast(dict[str, Any], row["definition"])["id"]),
-        ): cast(dict[str, Any], row["definition"])
-        for row in operation_rows
-    }
+    operations: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in operation_rows:
+        definition = deepcopy(cast(dict[str, Any], row["definition"]))
+        row["definition"] = definition
+        operations[cast(str, row["package"]), cast(str, definition["id"])] = definition
     formulas_by_identity = {
         cast(str, formula["identity"]): cast(dict[str, Any], formula)
         for formula in formulas
