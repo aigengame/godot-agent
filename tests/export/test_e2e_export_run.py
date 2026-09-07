@@ -262,6 +262,50 @@ def test_export_get_under_a_redirect_with_a_template_less_host_names_no_host_roo
 
 
 @pytest.mark.e2e
+def test_export_get_under_a_redirect_whose_root_holds_the_templates_names_no_host_root(
+    godot_project, tmp_path
+):
+    # Both roots populated (PR #883 review round 3): the redirect is in play and
+    # the host has this version, but the CHECKED root has it too — so nothing is
+    # hidden, the reply says installed, and `templates_root_host` stays null. The
+    # engine-side check used to compare only the two roots and the host's
+    # contents, so a healthy redirected root read as hiding templates and the
+    # human line said "installed" and "hidden by" in one breath. The isolated
+    # root's layout is learned from the plain redirected reply rather than spelled
+    # here; the version directory only has to EXIST for the engine's own check.
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    gda = Gda(godot_project)
+    if not templates_installed(gda):
+        pytest.skip(
+            "this host has no export templates installed, so both roots cannot "
+            "hold this version"
+        )
+    isolated = tmp_path / "iso"
+    plain = gda.json(
+        "--user-data-root", str(isolated), "export", "get", "--preset", "Linux/X11"
+    )
+    assert plain["templates_installed"] is False, plain
+    assert plain["templates_root_host"] is not None, plain
+    (Path(plain["templates_root"]) / plain["templates_version"]).mkdir(parents=True)
+
+    got = gda.json(
+        "--user-data-root", str(isolated), "export", "get", "--preset", "Linux/X11"
+    )
+    human = gda(
+        "--user-data-root", str(isolated), "export", "get", "--preset", "Linux/X11"
+    )
+
+    assert got["templates_installed"] is True, got
+    assert str(isolated) in got["templates_root"], got
+    assert got["templates_root_host"] is None, got
+    assert human.returncode == 0, human.stdout + human.stderr
+    assert "templates installed" in human.stdout, human.stdout
+    assert "hidden by" not in human.stdout, human.stdout
+
+
+@pytest.mark.e2e
 def test_export_run_pack_writes_pck_without_templates(godot_project):
     # #170 PROOF: `--mode pack --output <path>.pck` runs Godot's native
     # --export-pack to the OVERRIDDEN path (not the preset's configured

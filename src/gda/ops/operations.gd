@@ -3342,9 +3342,10 @@ func _op_export_get(params: Dictionary) -> void:
 			var templates_root := _export_templates_root(OS.get_data_dir())
 			summary["templates_version"] = version_dir
 			summary["templates_root"] = templates_root
-			summary["templates_installed"] = _export_templates_installed(templates_root, version_dir)
+			var installed := _export_templates_installed(templates_root, version_dir)
+			summary["templates_installed"] = installed
 			summary["templates_root_host"] = _hidden_host_templates_root(
-				_string_param(params, "host_data_path"), templates_root, version_dir
+				_string_param(params, "host_data_path"), templates_root, version_dir, installed
 			)
 			_succeed(summary)
 			return
@@ -3445,12 +3446,14 @@ func _export_templates_installed(templates_root: String, version_dir: String) ->
 # --user-data-root relocates, so a redirected run reports none installed even on a
 # host whose templates are correctly installed. gda passes the host data directory
 # (it resolves it over its own, unredirected environment) so this reply can name the
-# second directory — and it is named ONLY when there is really something there:
-# null when no host directory was passed, when the redirect is not in play (the two
-# roots are the same directory), and when the host has no templates for this version
-# either, which is a plain missing-templates run with nothing to disclose.
-func _hidden_host_templates_root(host_data_dir: String, templates_root: String, version_dir: String) -> Variant:
-	if host_data_dir.is_empty():
+# second directory — and it is named ONLY when something is really HIDDEN: null when
+# no host directory was passed, when the checked root already holds this version
+# (nothing is hidden, whatever the host holds — a redirected root a caller populated
+# is a healthy run, PR #883 review round 3), when the redirect is not in play (the
+# two roots are the same directory), and when the host has no templates for this
+# version either, which is a plain missing-templates run with nothing to disclose.
+func _hidden_host_templates_root(host_data_dir: String, templates_root: String, version_dir: String, installed: bool) -> Variant:
+	if host_data_dir.is_empty() or installed:
 		return null
 	var host_root := _export_templates_root(host_data_dir)
 	if host_root.simplify_path() == templates_root.simplify_path():
