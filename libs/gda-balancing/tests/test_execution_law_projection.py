@@ -218,3 +218,176 @@ def test_overlapping_closed_node_shapes_require_union_not_exclusive_union(compil
     invalid["unowned-law"] = True
     assert not jsonschema.Draft202012Validator(node_schema).is_valid(invalid)
     assert canonical_bytes(constant)
+
+
+# These complementary maintained programs exercise typed values/guarded refusal
+# and transitive invocation/scheduling/cancellation. Each witness is selected by
+# a real Source build; unrelated Kernel nodes are deliberately not manufactured.
+_NODE_WITNESSES = (
+    ("structured-selection", "constant"),
+    ("structured-selection", "draw"),
+    ("structured-selection", "equal"),
+    ("structured-selection", "guard-block"),
+    ("structured-selection", "if"),
+    ("structured-selection", "is-empty"),
+    ("structured-selection", "lookup"),
+    ("structured-selection", "require"),
+    ("structured-selection", "write-state"),
+    ("rpg-combat-cast", "add"),
+    ("rpg-combat-cast", "cancel"),
+    ("rpg-combat-cast", "copy"),
+    ("rpg-combat-cast", "invoke"),
+    ("rpg-combat-cast", "less-than-or-equal"),
+    ("rpg-combat-cast", "maximum"),
+    ("rpg-combat-cast", "multiply"),
+    ("rpg-combat-cast", "precondition-greater-than-or-equal"),
+    ("rpg-combat-cast", "schedule"),
+    ("rpg-combat-cast", "subtract"),
+    ("rpg-combat-cast", "subtract-state"),
+)
+
+_REASON_WITNESSES = (
+    ("structured-selection", "evaluation.reason.observation-unavailable"),
+    ("structured-selection", "runtime.reason.capability-unsupported"),
+    ("structured-selection", "runtime.reason.event-limit"),
+    ("structured-selection", "runtime.reason.logical-time-limit"),
+    ("structured-selection", "runtime.reason.numeric-overflow"),
+    ("structured-selection", "runtime.reason.queue-limit"),
+    ("structured-selection", "runtime.reason.step-limit"),
+    ("structured-selection", "standard.conformance.reason.candidate-mismatch"),
+    ("structured-selection", "structured.reason.lookup-out-of-range"),
+    ("structured-selection", "structured.reason.record-member-mismatch"),
+    ("structured-selection", "structured.reason.resource-exhausted"),
+    ("structured-selection", "structured.reason.type-mismatch"),
+    ("structured-selection", "structured.reason.unknown-enum"),
+    ("rpg-combat-cast", "game.combat.reason.invalid-defeat-threshold"),
+    ("rpg-combat-cast", "runtime.reason.cancel-active"),
+    ("rpg-combat-cast", "runtime.reason.cancel-completed"),
+    ("rpg-combat-cast", "runtime.reason.cancel-unknown"),
+    ("rpg-combat-cast", "runtime.reason.schedule-backward"),
+    ("rpg-combat-cast", "runtime.reason.schedule-hidden-input"),
+    ("rpg-combat-cast", "runtime.reason.schedule-illegal-same-time-priority"),
+    ("rpg-combat-cast", "runtime.reason.zero-time-depth-limit"),
+)
+
+_DIAGNOSTIC_WITNESSES = (
+    ("structured-selection", "evaluation.observation_unavailable"),
+    ("structured-selection", "language.structured_value_record_member_mismatch"),
+    ("structured-selection", "language.structured_value_resource_exhausted"),
+    ("structured-selection", "language.structured_value_type_mismatch"),
+    ("structured-selection", "language.structured_value_unknown_enum"),
+    ("structured-selection", "runtime.capability_unsupported"),
+    ("structured-selection", "runtime.event_limit_exceeded"),
+    ("structured-selection", "runtime.logical_time_exceeded"),
+    ("structured-selection", "runtime.numeric_overflow"),
+    ("structured-selection", "runtime.queue_limit_exceeded"),
+    ("structured-selection", "runtime.step_limit_exceeded"),
+    ("structured-selection", "runtime.structured_lookup_out_of_range"),
+    ("structured-selection", "standard.conformance.candidate_mismatch"),
+    ("rpg-combat-cast", "game.combat.invalid_defeat_threshold"),
+    ("rpg-combat-cast", "runtime.cancel_active"),
+    ("rpg-combat-cast", "runtime.cancel_completed"),
+    ("rpg-combat-cast", "runtime.cancel_unknown"),
+    ("rpg-combat-cast", "runtime.schedule_backward"),
+    ("rpg-combat-cast", "runtime.schedule_hidden_input"),
+    ("rpg-combat-cast", "runtime.schedule_illegal_same_time_priority"),
+    ("rpg-combat-cast", "runtime.zero_time_depth_exceeded"),
+)
+
+
+@pytest.fixture(scope="module")
+def closure_examples():
+    artifacts = {}
+    for example in ("structured-selection", "rpg-combat-cast"):
+        source = json.loads(
+            (
+                Path(__file__).parents[1]
+                / "examples/schema2"
+                / example
+                / "model-source.json"
+            ).read_bytes()
+        )
+        checked = check_model_source_value(source)
+        assert isinstance(checked, CheckedModel), checked
+        built = compile_checked_model(checked)
+        assert admit_resolved_model(_trio(built)).admitted
+        artifacts[example] = built
+    return artifacts
+
+
+def _assert_reidentified_meaning_is_refused(original, mutated, path):
+    _rebind(mutated)
+    assert (
+        mutated["rir-semantic-payload"]["semantic_identity"]
+        != original["rir-semantic-payload"]["semantic_identity"]
+    ), path
+    admission = admit_resolved_model(mutated)
+    assert not admission.admitted, path
+
+
+@pytest.mark.parametrize(
+    "law_path",
+    [
+        ("runtime_program", "version"),
+        ("runtime_program", "numeric"),
+        ("runtime_program", "named_rng"),
+        ("runtime_program", "scheduler"),
+        ("runtime_program", "event_atomicity"),
+        ("runtime_program", "invocation_contract"),
+        ("runtime_program", "runtime_configuration"),
+        ("runtime_program", "transition"),
+        ("runtime_program", "step"),
+        ("runtime_program", "fixed_value_contracts"),
+        ("typed_envelope_profile",),
+    ],
+    ids=lambda path: "/".join(path),
+)
+def test_each_selected_execution_law_is_an_independently_admitted_dependency(
+    compiled, law_path
+):
+    mutated = _trio(compiled)
+    parent = mutated["rir-semantic-payload"]["selected_semantics"]["execution_laws"]
+    for member in law_path[:-1]:
+        parent = parent[member]
+    del parent[law_path[-1]]
+    _assert_reidentified_meaning_is_refused(compiled, mutated, law_path)
+
+
+@pytest.mark.parametrize("example,node_id", _NODE_WITNESSES)
+def test_each_selected_node_charge_is_an_independently_admitted_dependency(
+    closure_examples, example, node_id
+):
+    original = closure_examples[example]
+    mutated = _trio(original)
+    nodes = mutated["rir-semantic-payload"]["selected_semantics"]["execution_laws"][
+        "runtime_program"
+    ]["nodes"]
+    node = next(row for row in nodes if row["id"] == node_id)
+    node["resource_charge"]["amount"] += 1
+    _assert_reidentified_meaning_is_refused(original, mutated, ("nodes", node_id))
+
+
+@pytest.mark.parametrize("example,reason_id", _REASON_WITNESSES)
+def test_each_selected_reason_is_an_independently_admitted_dependency(
+    closure_examples, example, reason_id
+):
+    original = closure_examples[example]
+    mutated = _trio(original)
+    reasons = mutated["rir-semantic-payload"]["selected_semantics"][
+        "diagnostic_reasons"
+    ]
+    reasons.remove(next(row for row in reasons if row["definition"]["id"] == reason_id))
+    _assert_reidentified_meaning_is_refused(original, mutated, ("reasons", reason_id))
+
+
+@pytest.mark.parametrize("example,code", _DIAGNOSTIC_WITNESSES)
+def test_each_selected_diagnostic_is_an_independently_admitted_dependency(
+    closure_examples, example, code
+):
+    original = closure_examples[example]
+    mutated = _trio(original)
+    diagnostics = mutated["rir-semantic-payload"]["selected_semantics"]["diagnostics"]
+    diagnostics.remove(
+        next(row for row in diagnostics if row["definition"]["code"] == code)
+    )
+    _assert_reidentified_meaning_is_refused(original, mutated, ("diagnostics", code))

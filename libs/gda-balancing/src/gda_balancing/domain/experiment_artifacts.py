@@ -1836,6 +1836,14 @@ def _terminal_audit_is_valid(
         exact_event_steps = 0
         exact_node_steps = cast(int, ledger["node_steps"]) + event_formula_fault_charge
     else:
+        step_limit_diagnostics = [
+            row["definition"]["diagnostic"]
+            for row in checked.rir["selected_semantics"]["diagnostic_reasons"]
+            if row["definition"].get("stage") == "runtime"
+            and row["definition"].get("signal") == "step-limit"
+        ]
+        if len(step_limit_diagnostics) != 1:
+            return False
         attempted_operation_charge = _attempted_operation_charge(
             checked,
             refusing_event,
@@ -1844,7 +1852,7 @@ def _terminal_audit_is_valid(
                 cast(int, ledger["node_steps"]) + event_formula_charge
             ),
             bounds=bounds,
-            require_budget_breach=(diagnostic["code"] == "runtime.step_limit_exceeded"),
+            require_budget_breach=(diagnostic["code"] == step_limit_diagnostics[0]),
         )
         if attempted_operation_charge is None:
             return False
