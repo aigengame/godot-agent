@@ -286,8 +286,7 @@ inspect the delivered behavior. It does not define the authority.
 ## Troubleshooting
 
 - Keys must contain exactly 64 lowercase hexadecimal digits.
-- Use the same store and anchor key for Model build and Experiment run.
-- Checked-in Experiments bind the checked-in Model Source and final authority identities.
+- The RIR supplied with `--rir` must match the Experiment's `model.rir_semantic_identity`.
 - After a semantic Model change, rebuild and update `model.rir_semantic_identity`; a build or
   unselected-authority provenance change alone does not require an Experiment rebind.
 - Inspect `member_locators` in a receipt. The `--out` file is only a convenience copy.
