@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.mcp.server import build_server
 from tests.mcp_support import FakeGdaRunner, list_tools, schema_then
+from tests.support import panel_text
 
 
 def test_local_transform_contract_reaches_cli_schema_and_generated_mcp():
@@ -33,5 +34,5 @@ def test_local_transform_contract_reaches_cli_schema_and_generated_mcp():
             if group == "game":
                 help_result = CliRunner().invoke(app, [group, action, "--help"])
                 assert help_result.exit_code == 0
-                help_text = " ".join(help_result.stdout.replace("│", " ").split())
+                help_text = panel_text(help_result.stdout)
                 assert "storage and Node3D local components first" in help_text
