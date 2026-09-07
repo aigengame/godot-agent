@@ -212,8 +212,17 @@ _RECIPE_OPERATIONS = {
     # `input sequence` (#838) names the injection route of each phase it applied,
     # and the harness reply counts the events without enumerating them: only the
     # request holds the per-event kinds, so the recipe completes the sentinel op's
-    # result the way `perf monitors` correlates its reply.
+    # result the way `perf monitors` correlates its reply. Since #854 the same
+    # recipe also correlates the count of events the harness put through the event
+    # door with the count the request asked for.
     "input-sequence",
+    # `input action` / `input tap` (#854) correlate the door the reply says the
+    # harness used with the one the request asked for: a running session can
+    # predate the event mode, ignore the opt-in and answer as an ordinary state
+    # injection, which only the request can contradict. Correlating needs both
+    # halves, and the recipe is where they meet.
+    "input-action",
+    "input-tap",
 }
 
 

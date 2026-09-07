@@ -778,8 +778,11 @@ _MALFORMED_TAP_REPLIES = [
     {**INPUT_TAP_KEY_RESULT, "keycode": 0},
     {**INPUT_TAP_KEY_RESULT, "modifiers": ["control"]},
     # The event mode echoed on a KEY tap: the mode rides an action tap alone
-    # (#854), so a key-family reply carrying it is a drifted harness.
+    # (#854), so a key-family reply carrying the key AT ALL is a drifted harness —
+    # a false echo is not a harmless one, it is a harness answering about a mode
+    # this target does not have.
     {**INPUT_TAP_KEY_RESULT, "as_event": True},
+    {**INPUT_TAP_KEY_RESULT, "as_event": False},
 ]
 
 _MALFORMED_CLICK_REPLIES = [
@@ -2832,7 +2835,9 @@ def test_input_sequence_action_event_mode_names_the_event_route_per_phase(
     data = _input_json(
         monkeypatch,
         tmp_path,
-        {**INPUT_SEQUENCE_RESULT, "events": 3, "frames": 3},
+        # One of the three events opted in, and the reply says so: the count is
+        # the harness's own statement of what it put through the event door.
+        {**INPUT_SEQUENCE_RESULT, "events": 3, "frames": 3, "event_mode_actions": 1},
         "sequence",
         "--events",
         json.dumps(events),
@@ -2849,7 +2854,14 @@ def test_input_sequence_action_event_mode_relays_the_flag(monkeypatch, tmp_path)
     fake = inject_live_runner(
         monkeypatch,
         RunResult(
-            stdout=sentinel({**INPUT_SEQUENCE_RESULT, "events": 1, "frames": 1}),
+            stdout=sentinel(
+                {
+                    **INPUT_SEQUENCE_RESULT,
+                    "events": 1,
+                    "frames": 1,
+                    "event_mode_actions": 1,
+                }
+            ),
             stderr="",
             exit_code=0,
         ),
@@ -3119,3 +3131,212 @@ def test_the_conformance_matrix_is_carried_by_help_schema_and_the_skill():
         cells = rows.pop(hits[0])
         assert [cell.split()[0] for cell in cells] == verdicts, (injection, cells)
     assert rows == {}, rows
+
+
+# --- the event mode's capability gate (#854) -----------------------------------
+#
+# The mode is served by harness v21, and a running engine session can be OLDER than
+# the harness on disk: `gda daemon start` syncs the file without retiring the
+# session it already launched (src/gda/commands/daemon.py). Such a session ignores
+# `as_event`, echoes nothing, and injects the state route — which, without a gate,
+# reads as a plain success: exit 0, and for a sequence a `viewport_event` phase gda
+# derived from the REQUEST. So every opted-in request is correlated with the
+# authoritative applied-mode evidence in the reply, and a disagreement is a
+# contract_violation naming the cause.
+
+
+def _gate_error(monkeypatch, tmp_path, payload, *argv) -> dict:
+    """Run one `gda input` command over a faked live seam; return its error object."""
+    inject_live_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
+    result = CliRunner().invoke(
+        app,
+        ["input", *argv, "--project", str(minimal_project(tmp_path)), "--json"],
+    )
+    assert result.exit_code == EXIT_PARSE, result.stdout + result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "contract_violation", error
+    return error
+
+
+def test_an_opted_in_action_reply_that_echoes_no_mode_is_a_contract_violation(
+    monkeypatch, tmp_path
+):
+    # The exact stale-session shape: the reply is a well-formed state injection and
+    # the request asked for the event door. Only the correlation can see it.
+    error = _gate_error(
+        monkeypatch, tmp_path, INPUT_ACTION_RESULT, "action", "jump", "--as-event"
+    )
+
+    assert "action_state route for a request that asked for" in error["message"]
+    assert "viewport_event" in error["message"]
+    assert "predates harness v21" in error["message"]
+    assert "gda daemon stop" in error["message"]
+
+
+def test_an_action_reply_echoing_a_non_boolean_mode_is_a_contract_violation(
+    monkeypatch, tmp_path
+):
+    # A truthiness test would read `"false"` as True and publish `viewport_event`
+    # for an injection that changed the polled state. The echo is a JSON boolean or
+    # it is drift — and that holds whether or not the request opted in.
+    for payload in (
+        {**INPUT_ACTION_RESULT, "as_event": "false"},
+        {**INPUT_ACTION_RESULT, "as_event": 1},
+    ):
+        error = _gate_error(monkeypatch, tmp_path, payload, "action", "jump")
+        assert "'as_event' echo is not a boolean" in error["message"], payload
+
+
+def test_an_action_reply_claiming_a_mode_nobody_asked_for_is_a_contract_violation(
+    monkeypatch, tmp_path
+):
+    # The correlation runs in BOTH directions: a session that injected an event for
+    # a plain state request is drift too, and it carries no stale-harness diagnosis
+    # — an older harness cannot produce this reply.
+    error = _gate_error(
+        monkeypatch,
+        tmp_path,
+        {**INPUT_ACTION_RESULT, "as_event": True},
+        "action",
+        "jump",
+    )
+
+    assert "viewport_event route for a request that asked for" in error["message"]
+    assert "predates harness v21" not in error["message"]
+
+
+def test_an_opted_in_tap_reply_that_echoes_no_mode_is_a_contract_violation(
+    monkeypatch, tmp_path
+):
+    error = _gate_error(
+        monkeypatch,
+        tmp_path,
+        INPUT_TAP_ACTION_RESULT,
+        "tap",
+        "--action",
+        "jump",
+        "--as-event",
+    )
+
+    assert "action_state route for a request that asked for" in error["message"]
+    assert "predates harness v21" in error["message"]
+
+
+def test_a_tap_reply_echoing_a_non_boolean_mode_is_a_contract_violation(
+    monkeypatch, tmp_path
+):
+    error = _gate_error(
+        monkeypatch,
+        tmp_path,
+        {**INPUT_TAP_ACTION_RESULT, "as_event": "false"},
+        "tap",
+        "--action",
+        "jump",
+    )
+
+    assert "'as_event' echo is not a boolean" in error["message"]
+
+
+def _sequence_gate_error(monkeypatch, tmp_path, payload, events) -> dict:
+    """Run one opted-in `gda input sequence` over a faked reply; return the error."""
+    inject_live_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "sequence",
+            "--events",
+            json.dumps(events),
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+    assert result.exit_code == EXIT_PARSE, result.stdout + result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "contract_violation", error
+    return error
+
+
+_OPTED_IN_SEQUENCE = [
+    {"type": "action", "action": "jump", "frame": 0},
+    {"type": "action", "action": "jump", "as_event": True, "frame": 1},
+]
+
+
+def test_an_opted_in_sequence_reply_without_the_count_is_a_contract_violation(
+    monkeypatch, tmp_path
+):
+    # A sequence cannot correlate a per-event echo — the reply COUNTS the events it
+    # applied — so the harness states how many went through the event door instead.
+    # Silence for a request that asked for one is the stale session.
+    error = _sequence_gate_error(
+        monkeypatch,
+        tmp_path,
+        {**INPUT_SEQUENCE_RESULT, "events": 2, "frames": 2},
+        _OPTED_IN_SEQUENCE,
+    )
+
+    assert "no 'event_mode_actions' count" in error["message"]
+    assert "predates harness v21" in error["message"]
+
+
+def test_a_sequence_reply_counting_a_different_number_is_a_contract_violation(
+    monkeypatch, tmp_path
+):
+    error = _sequence_gate_error(
+        monkeypatch,
+        tmp_path,
+        {
+            **INPUT_SEQUENCE_RESULT,
+            "events": 2,
+            "frames": 2,
+            "event_mode_actions": 2,
+        },
+        _OPTED_IN_SEQUENCE,
+    )
+
+    assert "applied 2 event-mode action events" in error["message"]
+    assert "asked for 1" in error["message"]
+
+
+def test_a_sequence_reply_counting_a_non_integer_is_a_contract_violation(
+    monkeypatch, tmp_path
+):
+    error = _sequence_gate_error(
+        monkeypatch,
+        tmp_path,
+        {
+            **INPUT_SEQUENCE_RESULT,
+            "events": 2,
+            "frames": 2,
+            "event_mode_actions": "1",
+        },
+        _OPTED_IN_SEQUENCE,
+    )
+
+    assert "'event_mode_actions' count is not an integer" in error["message"]
+
+
+def test_a_sequence_that_asked_for_nothing_new_tolerates_a_missing_count(
+    monkeypatch, tmp_path
+):
+    # The other half of the rule, and the reason the count is not simply REQUIRED: a
+    # session predating the mode still answers a request that asked for nothing new
+    # honestly, so `gda input sequence` keeps working against it.
+    data = _input_json(
+        monkeypatch,
+        tmp_path,
+        {**INPUT_SEQUENCE_RESULT, "events": 1, "frames": 1},
+        "sequence",
+        "--events",
+        json.dumps([{"type": "action", "action": "jump", "frame": 0}]),
+    )
+
+    assert data["phases"] == [
+        {"frame": 0, "phase": "press", "injection_route": "action_state"}
+    ]

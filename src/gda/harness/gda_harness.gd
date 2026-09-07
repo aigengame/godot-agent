@@ -1048,6 +1048,12 @@ func _input_viewport() -> Viewport:
 
 var _last_injected_mouse_position: Variant = null
 var _injected_mouse_button_mask := 0
+# How many action events the CURRENT windowed op delivered through the event door
+# (#854). The CLI derives the route of every phase from the REQUEST, so it needs
+# the harness to state what it actually applied; a session that predates the mode
+# reports nothing here and the CLI refuses the opted-in request. Reset when a
+# window arms, exactly like the button mask beside it.
+var _event_mode_actions := 0
 # Whether the root viewport currently believes the mouse is in its area, mirrored
 # from the root Window's mouse_entered/mouse_exited signals (connected at _ready,
 # #647). Starts false: a fresh engine session has received no enter notification.
@@ -1410,6 +1416,7 @@ func _handle_input_sequence(params: Dictionary) -> Variant:
 	var total_frames := max_offset + 1
 	var frame_box := {"n": 0}
 	_injected_mouse_button_mask = 0
+	_event_mode_actions = 0
 	# The sampler applies every event due at the current selected-clock index, then
 	# advances that clock. A bad event type aborts the window with a typed error sample.
 	var sample := func() -> Variant:
@@ -1432,6 +1439,10 @@ func _handle_input_sequence(params: Dictionary) -> Variant:
 			"clock": clock,
 			"events": events.size(),
 			"frames": total_frames,
+			# What the CLI cannot see from outside (#854): how many of those
+			# events went through the event door. It correlates the count with
+			# the request and refuses a reply that answers a different one.
+			"event_mode_actions": _event_mode_actions,
 		})
 	return _begin_window(total_frames, sample, finalize, clock)
 
@@ -1498,6 +1509,7 @@ func _apply_sequence_event(event: Dictionary) -> Variant:
 			if bool(event.get("as_event", false)):
 				_push_action_event(action, not releasing,
 						0.0 if releasing else strength)
+				_event_mode_actions += 1
 			elif releasing:
 				Input.action_release(action)
 			else:
@@ -1710,6 +1722,7 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Va
 		last_event = maxi(last_event, _sequence_event_offset(event))
 	var state := {"n": 0, "observed": null, "outcome": null}
 	_injected_mouse_button_mask = 0
+	_event_mode_actions = 0
 	var sample := func() -> Variant:
 		var current := int(state["n"])
 		state["n"] = current + 1
@@ -1777,7 +1790,15 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Va
 					state["outcome"] = {"error": err}
 		if state["outcome"] != null and current >= last_event:
 			_injected_mouse_button_mask = 0
-			return state["outcome"]
+			var decided: Dictionary = state["outcome"]
+			if decided.has("complete"):
+				# Stamped HERE rather than at the capture (#854): every accepted
+				# event has fired by this tick, so the count answers the whole
+				# request — a capture that matched early would count only the
+				# events applied before it.
+				var captured_reply: Dictionary = decided["complete"]
+				captured_reply["event_mode_actions"] = _event_mode_actions
+			return decided
 		return current
 	var finalize := func(_samples: Array) -> String:
 		# Defensive only: the sampler decides every path within the budget.

@@ -43,7 +43,8 @@ from enum import Enum
 from typing import Annotated, Any, Literal, Optional, get_args
 
 import typer
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
+from pydantic_core.core_schema import ValidatorFunctionWrapHandler
 
 from gda import dispatch
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
@@ -144,6 +145,94 @@ def injection_route(kind: str, *, as_event: bool = False) -> InjectionRoute:
             f"already takes the {route} route"
         )
     return VIEWPORT_EVENT
+
+
+# The one diagnosis every event-mode correlation refusal carries (#854). The mode
+# is served by harness v21; a session the daemon launched before the harness on
+# disk was synced still runs the older copy, which ignores `as_event` and echoes
+# nothing back. `gda daemon start` syncs the FILE without retiring that session
+# (the next one reads the synced copy), so the remedy names the two commands that
+# end it. Written once because four commands report it.
+STALE_EVENT_MODE_HARNESS = (
+    "The running engine session's harness did not apply the event mode: it "
+    "predates harness v21. Run `gda daemon stop`, then `gda daemon start`, so "
+    "the next session loads the synced harness."
+)
+
+
+def echoed_event_mode(data: dict[str, object]) -> bool:
+    """The event mode a single-event reply echoes, or ``False`` when it echoes none.
+
+    The reply is the AUTHORITY on which door the harness used (#854), so the echo
+    is read strictly: only a JSON boolean says anything, and anything else — a
+    ``"false"`` string a truthiness test would read as True, a number, a null —
+    is a drifted harness reply, refused here as the same ``contract_violation``
+    every other reply-shape rule raises. A MISSING key is not drift on its own:
+    it is what a reply meant before the mode existed, so it reads as the state
+    route and the request correlation decides whether that answers the caller.
+    """
+    mode = data.get("as_event", False)
+    if not isinstance(mode, bool):
+        raise ValueError(
+            f"the harness reply's 'as_event' echo is not a boolean: {mode!r}."
+        )
+    return mode
+
+
+def route_correlation_error(
+    requested: InjectionRoute, applied: InjectionRoute
+) -> "str | None":
+    """Why the reply's applied route does not answer this request, or None (#854).
+
+    The capability gate for the single-event ops. gda cannot ask a session which
+    harness it runs, so it correlates instead: the request names the door it asked
+    for, the reply's echo names the door the harness used, and a disagreement is a
+    ``contract_violation`` — never a success that silently injected the OTHER
+    route. Correlated at the CLI because that is the only place both halves exist;
+    the reply alone reads as a perfectly ordinary state injection.
+    """
+    if applied == requested:
+        return None
+    detail = (
+        f"the harness applied the {applied} route for a request that asked for "
+        f"the {requested} route."
+    )
+    if requested == VIEWPORT_EVENT:
+        return f"{detail} {STALE_EVENT_MODE_HARNESS}"
+    return detail
+
+
+def count_correlation_error(applied: object, requested: int) -> "str | None":
+    """Why the reply's event-mode COUNT does not answer this request, or None (#854).
+
+    The capability gate for the two ops that carry a LIST of events — ``input
+    sequence`` and ``screen capture --await-events`` — whose reply counts what it
+    applied instead of enumerating it. The harness reports how many action events
+    it delivered through the event door; gda counts how many the request asked
+    for. A count that disagrees, or is not an integer, is a ``contract_violation``.
+    An ABSENT count is tolerated for a request that asked for nothing new: a
+    session predating the mode still answers such a request honestly. It is
+    refused as soon as the request opted in even once, because then the silence
+    is exactly the failure this gate exists to catch.
+    """
+    if applied is None:
+        if requested == 0:
+            return None
+        return (
+            "the harness reply reports no 'event_mode_actions' count for a "
+            f"request that asked for {requested}. {STALE_EVENT_MODE_HARNESS}"
+        )
+    if isinstance(applied, bool) or not isinstance(applied, int):
+        return (
+            "the harness reply's 'event_mode_actions' count is not an integer: "
+            f"{applied!r}."
+        )
+    if applied != requested:
+        return (
+            f"the harness applied {applied} event-mode action events for a "
+            f"request that asked for {requested}."
+        )
+    return None
 
 
 class MouseButton(str, Enum):
@@ -538,15 +627,16 @@ class InputActionResult(BaseModel):
     def _name_the_route(cls, data: object) -> object:
         # The route follows the MODE the harness echoes, exactly as a tap's follows
         # the target it echoes: the payload says what was injected, and gda derives
-        # which of the engine's two doors that went through (#838, #854). The
-        # declared default stays the state route, which is what a reply naming no
-        # mode meant.
+        # which of the engine's two doors that went through (#838, #854). The echo
+        # is read STRICTLY (`echoed_event_mode`) rather than for truthiness, so a
+        # drifted `"false"` cannot publish the event route. The declared default
+        # stays the state route, which is what a reply naming no mode meant.
         if not isinstance(data, dict):
             return data
         return {
             **data,
             "injection_route": injection_route(
-                "action", as_event=bool(data.get("as_event"))
+                "action", as_event=echoed_event_mode(data)
             ),
         }
 
@@ -766,21 +856,21 @@ class InputTapResult(BaseModel):
         # by `_check_tap_evidence` below; stamping it first only decides which
         # route a phase of a reply that will not survive validation would claim.
         # The event mode (#854) is read the same way, and rides the action family
-        # ALONE — so a key-family reply that echoes it is REFUSED here, the way
-        # `_check_tap_evidence` refuses the other drifted shapes. The check lives
-        # in this validator rather than beside those because the mode is not a
-        # result field (`injection_route` is its whole disclosure), so only the
-        # raw payload has it; a ValueError raised here is the same
-        # contract_violation.
+        # ALONE — so a key-family reply that echoes the key AT ALL, with either
+        # value, is REFUSED here, the way `_check_tap_evidence` refuses the other
+        # drifted shapes. The check lives in this validator rather than beside
+        # those because the mode is not a result field (`injection_route` is its
+        # whole disclosure), so only the raw payload has it; a ValueError raised
+        # here is the same contract_violation.
         if not isinstance(data, dict):
             return data
         action = data.get("action")
-        if action is None and data.get("as_event"):
+        if action is None and "as_event" in data:
             raise ValueError("a key tap result cannot echo the event mode.")
         return _phases_routed(
             data,
             "action" if action is not None else "key",
-            as_event=action is not None and bool(data.get("as_event")),
+            as_event=action is not None and echoed_event_mode(data),
         )
 
     @model_validator(mode="after")
@@ -1323,6 +1413,22 @@ def _event_route(event: "InputSequenceEvent") -> InjectionRoute:
     return injection_route(event.type, as_event=as_event)
 
 
+def requested_event_modes(events: "list[InputSequenceEvent]") -> int:
+    """How many of ``events`` opted into the event mode (#854).
+
+    The request half of the count correlation, read off the union the same way
+    :func:`_event_route` reads a single event's route: the mode is a field of the
+    ACTION variant alone. Shared with ``screen capture --await-events``, which
+    forwards this very union into the same window (#661), so the two channels
+    count one opt-in the same way.
+    """
+    return sum(
+        1
+        for event in events
+        if isinstance(event, ActionSequenceEvent) and event.as_event
+    )
+
+
 def sequence_phases(params: "InputSequenceParams") -> list[InputEventPhase]:
     """The phases a requested sequence injects, in APPLICATION order (#838).
 
@@ -1370,6 +1476,32 @@ class InputSequenceResult(BaseModel):
     injected over the window at frame boundaries (ADR-0020) — plus the ``phases``
     the request injected and the route each took (#838).
     """
+
+    # Whatever the reply put under `event_mode_actions` (#854), unexamined — the
+    # raw echo the recipe hands to `count_correlation_error`, which owns the rule
+    # for both channels that carry one. None means the reply named no count at all.
+    #
+    # The model CARRIES it without publishing it: `injection_route` per phase stays
+    # the whole disclosure of the mode, so the published schema is exactly what it
+    # was — this docstring, which IS the published description, says nothing about
+    # it for the same reason. A private attribute is what a value consumed on the
+    # way through looks like; a field would put it in the schema and on every
+    # result.
+    _event_mode_actions: object = PrivateAttr(default=None)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _keep_the_event_mode_count(
+        cls, data: object, handler: ValidatorFunctionWrapHandler
+    ) -> "InputSequenceResult":
+        # A WRAP validator because the two halves sit on either side of the parse:
+        # only the raw payload has the count, and only the built model can carry it
+        # to the recipe. The parse itself is untouched — the count is not a field,
+        # so the ordinary extra-key handling drops it, and this picks it up again.
+        result = handler(data)
+        if isinstance(data, dict):
+            result._event_mode_actions = data.get("event_mode_actions")
+        return result
 
     kind: str = Field(default="sequence", description="The op kind ('sequence').")
     clock: str = Field(
@@ -1504,13 +1636,67 @@ INPUT_MOUSE_MOVE_COMMAND: HeadlessCommand[InputMouseMoveResult] = HeadlessComman
 )
 
 
+def _input_action_recipe(params, *, project, godot):
+    """Run the action op, then correlate the door it used with the one asked for (#854).
+
+    The event mode is served by ONE harness version, and a running engine session
+    can be older than the harness on disk — `gda daemon start` syncs the file
+    without retiring the session it already launched. Such a session ignores
+    `as_event` and echoes nothing, which reads as an ordinary state injection: exit
+    0, `action_state`, no handler called. So the request and the reply are
+    correlated HERE, where both exist, and a disagreement is a
+    ``contract_violation`` naming the cause. The op runs through the descriptor's
+    own ``execute``, so the runner seam, the classifier and the stderr handling stay
+    the shared ones (as ``_input_sequence_recipe`` does).
+    """
+    outcome = INPUT_ACTION_COMMAND.execute(
+        params, godot=godot, project=project, make_runner=dispatch.make_live_runner
+    )
+    if isinstance(outcome, Failure):
+        return outcome
+    error = route_correlation_error(
+        injection_route("action", as_event=params.as_event), outcome.injection_route
+    )
+    if error is not None:
+        return make_failure("contract_violation", error, "")
+    return outcome
+
+
 INPUT_ACTION_COMMAND: HeadlessCommand[InputActionResult] = HeadlessCommand(
     operation="input-action",
     input_model=InputActionParams,
     output_model=InputActionResult,
     render=render_input_action,
     kind=ExecutionKind.LIVE,
+    recipe=_input_action_recipe,
 )
+
+
+def _input_tap_recipe(params, *, project, godot):
+    """Run the tap op, then correlate the door both phases used with the request (#854).
+
+    The action op's gate, over the target a tap also chooses: the route a tap's
+    phases report follows the family the reply echoes and, for the action family,
+    the mode it echoes with it — so the expected route is the one the REQUEST's
+    target and opt-in name. Both phases carry the one route (``_phases_routed``
+    folds a single value in), so the first phase is the whole applied evidence;
+    ``_check_tap_evidence`` has already refused a reply that does not carry
+    exactly two.
+    """
+    outcome = INPUT_TAP_COMMAND.execute(
+        params, godot=godot, project=project, make_runner=dispatch.make_live_runner
+    )
+    if isinstance(outcome, Failure):
+        return outcome
+    error = route_correlation_error(
+        injection_route(
+            "action" if params.action is not None else "key", as_event=params.as_event
+        ),
+        outcome.phases[0].injection_route,
+    )
+    if error is not None:
+        return make_failure("contract_violation", error, "")
+    return outcome
 
 
 INPUT_TAP_COMMAND: HeadlessCommand[InputTapResult] = HeadlessCommand(
@@ -1519,6 +1705,7 @@ INPUT_TAP_COMMAND: HeadlessCommand[InputTapResult] = HeadlessCommand(
     output_model=InputTapResult,
     render=render_input_tap,
     kind=ExecutionKind.LIVE,
+    recipe=_input_tap_recipe,
 )
 
 
@@ -1548,6 +1735,16 @@ def _input_sequence_recipe(params, *, project, godot):
             f"{len(params.events)}-event request.",
             "",
         )
+    # The SECOND half of the same correlation (#854): the phases below name a
+    # route per event, and the event-mode ones are derived from the request alone,
+    # so a session whose harness ignores `as_event` would have them claim a door
+    # nothing went through. The reply counts what it delivered through that door;
+    # the request says how many asked for it.
+    count_error = count_correlation_error(
+        outcome._event_mode_actions, requested_event_modes(params.events)
+    )
+    if count_error is not None:
+        return make_failure("contract_violation", count_error, "")
     return outcome.model_copy(update={"phases": sequence_phases(params)})
 
 
@@ -1771,7 +1968,7 @@ def input_action(
         strength=strength,
         as_event=as_event,
     )
-    dispatch_domain(
+    dispatch_recipe(
         INPUT_ACTION_COMMAND,
         params,
         json_output=json_output,
@@ -1885,7 +2082,7 @@ def input_tap(
         settle_frames=settle_frames,
         as_event=as_event,
     )
-    dispatch_domain(
+    dispatch_recipe(
         INPUT_TAP_COMMAND,
         params,
         json_output=json_output,
