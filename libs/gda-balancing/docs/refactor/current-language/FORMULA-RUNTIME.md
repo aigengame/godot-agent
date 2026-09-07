@@ -36,8 +36,25 @@ moving the shared Event helpers would add relocation without changing ownership.
 
 Inline Event Formula instructions retain their existing per-instruction total,
 Event and Operation counters and exact failure index. Extracting the program
-function does not replace this ledger with a bulk charge or change the published
-refusal counters, committed prefix or rollback boundary.
+function does not replace this ledger with a bulk charge. The committed prefix
+and rollback boundary remain unchanged.
+
+## Confirmed fault-charge correction
+
+Public runs with admitted Runtime profile node limits of 5 and 20 expose a
+pre-existing failure in the Event and observation Formula fault paths. Both the
+development baseline and the initial extraction return an internal error when
+publication rejects the prepared terminal audit. The call assigning
+`total_steps = _evaluate_initialization_programs(...)` never receives a result
+when the function raises, so the callers report their pre-call counter. The
+independent artifact validator correctly requires the attempted Formula charge.
+
+The shared fault now carries consumed steps. Both callers must retain that value
+before constructing the refusal audit. This repairs conformance to the existing
+charge and audit laws; it does not weaken the validator or change the language,
+resource policy or public refusal schema. Previously valid artifacts retain their
+behavior. The affected runs now publish the required typed refusal instead of an
+internal publication failure. Permanent public tests cover both cases.
 
 ## Consumers and refusal scope
 
@@ -78,7 +95,9 @@ general-purpose program admission implementation.
    domain architecture independently before integration into dev.
 
 The byte comparison preserves Kernel/LDB identities, RIR meaning, admitted Formula
-semantics and semantic execution artifacts. Under the
+semantics and previously valid semantic execution artifacts. The two confirmed
+fault-charge failures above require a separate before/after result, since the
+baseline could not publish a valid refusal artifact. Under the
 [execution identity contract](EXECUTION-IDENTITY.md), source changes must update
 the evaluator implementation fingerprint. Producer manifests and publication
 records that identify their bytes therefore change truthfully. Enumerate those
