@@ -8,7 +8,8 @@ that the implementation or its verification is complete.
 
 ## Problem and boundary
 
-The shipped `_evaluate_value_program_vector` function is called only by tests.
+At the development baseline, the shipped `_evaluate_value_program_vector`
+function is called only by tests.
 It implements its own charge, cache key, numeric refusal and result projection.
 Normal initialization, Event and observation Formula execution uses a different
 program loop. Sharing the instruction interpreter alone does not prove that the
@@ -115,3 +116,45 @@ Completion requires the shared production path, deletion of the vector-only
 function, independent expectation checks, preserved public behavior and complete
 review/CI evidence. It does not delete the value alias or maximum primitive: #876
 owns those separately adopted language and resource-contract changes.
+
+## Recorded implementation evidence
+
+The production source is confined to `domain/runtime/execution.py`. The tested
+source has SHA-256 `3084f48a17a7cd5f00bfce8b53ec059469998d0b4bc1121f2db7a8c7d20d7050`.
+An isolated before/after capture ran 26 actual CLI subprocess calls: six maintained
+Model builds, eight Experiment checks and runs, and two additional numeric-refusal
+build/run pairs. All 28 authority files, eight Model artifact sets, eight successful
+behavior artifact sets, nine resolved Runtime profiles and the inline Formula
+terminal audit stayed byte-identical. Fresh task-owned stores and fixed paths and
+invocation keys prevented publication reuse from hiding execution changes.
+
+The complete changed-file set was nine evaluator manifests, nine dependent
+publication manifests and nine receipt envelopes. The evaluator build identity
+changed from `8c64e8e9d055a7a55fa463656dcf8611b3b8852ee25de9467c212f7935510a70`
+to `6bd51724cf80f41f8c9600c68cef10b5d029b3307fc9c222dc4d7f66c556b30b`.
+Every changed JSON leaf was an evaluator build identity, its manifest content
+identity or a dependent publication/receipt identity; no general normalization was
+used. The source fingerprint was independently reconstructed from Domain files.
+
+Separate public build/check/run probes confirmed the resource-refusal correction:
+Event limit 5 changed from an invalid audit with 3 steps and exit 4 to a valid
+audit with 6 steps and exit 2. Observation limit 20 changed from an invalid audit
+with 18 steps and exit 4 to a valid audit with 21 steps and exit 2. Both preserved
+the exact committed prefix and refusal site. These are corrected failures, not
+part of the previously valid byte-equivalence claim.
+
+Permanent reproduction is in `tests/test_formula_runtime_seam.py`,
+`tests/test_public_formula_runtime_seam.py`, and
+`test_package_value_program_vectors_execute_in_two_consumers` in
+`tests/test_schema2_experiment_cli.py`. Together they pass 24 collected cases;
+the vector case checks all ten shipped expectations independently in both
+consumers, with the production consumer evaluated in each lifecycle phase.
+The public cache-hit case explicitly instruments prewarming; it does not claim
+a naturally occurring hit. These tests use real in-process CLI dispatch, while
+the byte capture above used subprocesses. Neither establishes wheel or Godot
+validation.
+
+Inventory closure accounts for all 1,741 current tests in nine disjoint shards,
+including all 849 required baseline test IDs and 313 current package vectors.
+Ruff, Pyright and sealed-LDB checks pass. These local results do not replace the
+full CI and independent review required by the issue.
