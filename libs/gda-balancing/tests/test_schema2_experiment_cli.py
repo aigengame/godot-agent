@@ -6405,6 +6405,7 @@ def test_reference_runtime_canonical_equality_compares_kernel_booleans():
         ],
         "default_outcome": "equaled",
         "id": "test.boolean-equality",
+        "resource_bounds": {"max_steps": 1},
         "inputs": [
             {"access": "read", "id": "left"},
             {"access": "read", "id": "right"},
@@ -6468,6 +6469,7 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
             scenario,
             root_operation_coordinate=("game.combat", vector["operation"]),
             seed=vector["input"]["seed"],
+            language_bundle=ldb,
             state_names={
                 row["id"]
                 for row in operation["inputs"]
@@ -6481,6 +6483,7 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
             scenario,
             root_operation_coordinate=("game.combat", vector["operation"]),
             seed=vector["input"]["seed"],
+            language_bundle=ldb,
             state_names={
                 row["id"]
                 for row in operation["inputs"]
@@ -8342,8 +8345,10 @@ def _assert_high_damage_event_behavior(
     ]
     assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
     kernel, ldb = mutable_authorities()
-    operations = conformance_operation_index(ldb)
     rir = _member(build_receipt, "rir-semantic-payload")
+    operations = operation_program_module.selected_operation_index(
+        rir["selected_semantics"]
+    )
     resolved_entrypoint = next(
         row for row in rir["entrypoints"] if row["id"] == "combat.cast"
     )
@@ -8360,13 +8365,18 @@ def _assert_high_damage_event_behavior(
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
         resolved_initialization_programs=rir["initialization_programs"],
+        language_bundle=ldb,
+        include_attempt_evidence=True,
     )
-    assert reference == {
+    assert {
+        key: reference[key] for key in ("refusal", "state_before", "state_after")
+    } == {
         "refusal": {
             "reason": audit["refusing_event"]["reason"],
             "operation": audit["refusing_event"]["operation"],
             "call_path": audit["refusing_event"]["call_path"],
             "call_site_identity": audit["refusing_event"]["call_site_identity"],
+            "instruction_index": audit["refusing_event"]["instruction_index"],
         },
         "state_before": audit["rollback"]["state_before"],
         "state_after": audit["rollback"]["state_after"],
@@ -8557,6 +8567,7 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
         resolved_initialization_programs=rir["initialization_programs"],
+        language_bundle=checked.language_bundle,
     )
     assert {
         key: item
@@ -8624,6 +8635,7 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
         resolved_initialization_programs=rir["initialization_programs"],
+        language_bundle=checked.language_bundle,
     )
     assert {
         key: value
@@ -8694,6 +8706,7 @@ def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_c
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
         resolved_initialization_programs=rir["initialization_programs"],
+        language_bundle=checked.language_bundle,
     )
     assert {
         key: value
@@ -8799,6 +8812,7 @@ def test_ordered_writable_alias_write_is_visible_to_later_child_call(
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
         resolved_initialization_programs=rir["initialization_programs"],
+        language_bundle=checked.language_bundle,
     )
     assert {
         key: item

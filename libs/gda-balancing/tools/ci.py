@@ -69,6 +69,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_schema2_authority_cli.py",
     ),
     "language": (
+        "test_bounded_fold_admission.py",
         "test_schema2_bootstrap_language.py",
         "test_schema2_evidence_verify.py",
         "test_schema2_formula_cli.py",
@@ -77,6 +78,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_structured_values.py",
     ),
     "model": (
+        "test_bounded_fold_compiler.py",
         "test_admitted_rir.py",
         "test_model_preparation.py",
         "test_operation_call_domains.py",
@@ -86,6 +88,11 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "experiment": _EXPERIMENT_TESTS[::2],
     "experiment-continuation": _EXPERIMENT_TESTS[1::2],
     "composition": (
+        "test_bounded_fold_independent.py",
+        "test_bounded_fold_public.py",
+        "test_bounded_fold_replay.py",
+        "test_bounded_fold_runtime.py",
+        "test_bounded_fold_terminal_audit.py",
         "test_current_namespace_public.py",
         "test_current_package_composition.py",
         "test_formula_interval_inference.py",
