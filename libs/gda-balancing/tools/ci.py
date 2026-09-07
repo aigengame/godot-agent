@@ -87,13 +87,16 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     ),
     "experiment": _EXPERIMENT_TESTS[::2],
     "experiment-continuation": _EXPERIMENT_TESTS[1::2],
-    "composition": (
+    "bounded-fold": (
         "test_bounded_fold_formula.py",
         "test_bounded_fold_independent.py",
+        "test_bounded_fold_numeric_effects.py",
         "test_bounded_fold_public.py",
         "test_bounded_fold_replay.py",
         "test_bounded_fold_runtime.py",
         "test_bounded_fold_terminal_audit.py",
+    ),
+    "composition": (
         "test_current_namespace_public.py",
         "test_current_package_composition.py",
         "test_formula_interval_inference.py",
