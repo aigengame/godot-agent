@@ -1,6 +1,7 @@
 """Independent Operation execution adapter for development conformance."""
 
 import hashlib
+from copy import deepcopy
 from collections.abc import Mapping
 from typing import Any, cast
 
@@ -93,6 +94,7 @@ class _ReferenceRuntimeRefusal(Exception):
         self.operation: str | None = None
         self.call_path: str | None = None
         self.call_site_identity: str | None = None
+        self.instruction_index: int | None = None
 
 
 def reference_execute_event(
@@ -110,6 +112,8 @@ def reference_execute_event(
     language_bundle: dict[str, Any] | None = None,
     root_operation_coordinate: OperationCoordinate,
     include_execution_evidence: bool = False,
+    include_attempt_evidence: bool = False,
+    resource_limit: int | None = None,
 ) -> dict[str, Any]:
     runtime = kernel["meta_format"]["runtime_program"]
     numeric = runtime["numeric"]
@@ -291,7 +295,11 @@ def reference_execute_event(
     calls: list[dict[str, Any]] = []
     executed_resource_charge = 0
     call_sites = {
-        (row["parent_operation"]["id"], row["site"]): row
+        (
+            row["parent_operation"]["package"],
+            row["parent_operation"]["id"],
+            row["site"],
+        ): row
         for row in (resolved_call_sites or [])
     }
     language = (
@@ -392,6 +400,71 @@ def reference_execute_event(
         assert definition["kind"] == "list"
         return not envelope["value"]
 
+    attempts: list[dict[str, Any]] = []
+    append_copied_cells = 0
+    append_allocated_slots = 0
+    path_contract = runtime["invocation_contract"]["execution_path"]
+
+    def static_segment(value: str) -> str:
+        result = value
+        for raw, encoded in path_contract["segment_encoding"].items():
+            result = result.replace(raw, encoded)
+        return result
+
+    def path_text(path: tuple[str, ...]) -> str:
+        return path_contract["separator"].join(path)
+
+    def reason_for_signal(signal: str) -> str:
+        matches = (
+            [
+                reason["diagnostic"]
+                for reason in language["reasons"]
+                if reason.get("signal") == signal
+            ]
+            if language is not None
+            else []
+        )
+        if len(matches) != 1:
+            raise AssertionError(f"signal has no unique declared reason: {signal}")
+        return matches[0]
+
+    def list_element(envelope: Any, value: Any, formal: dict[str, Any]) -> Any:
+        definition, constructor = structural(envelope["type"])
+        rule = constructor["value_rule"]
+        assert rule["operator"] == "bounded-list"
+        element_type = definition[rule["element_member"]]
+        if isinstance(element_type, dict) and element_type.get("kind") == "nominal":
+            element_type = {key: element_type[key] for key in ("package", "id")}
+        return (
+            {"type": element_type, "value": deepcopy(value)}
+            if formal.get("value_kind") == "nominal-structured"
+            else deepcopy(value)
+        )
+
+    def append_value(envelope: Any, item: Any) -> dict[str, Any]:
+        nonlocal append_copied_cells, append_allocated_slots
+        definition, constructor = structural(envelope["type"])
+        rule = constructor["value_rule"]
+        law = structured_law(envelope["type"], "bounded-list-append")
+        assert rule["operator"] == "bounded-list"
+        values = envelope["value"]
+        assert isinstance(values, list)
+        maximum = definition[rule["maximum_length_member"]]
+        element_type = definition[rule["element_member"]]
+        if isinstance(element_type, dict) and element_type.get("kind") == "nominal":
+            element_type = {key: element_type[key] for key in ("package", "id")}
+        if isinstance(item, dict) and set(item) == {"type", "value"}:
+            assert item["type"] == element_type
+            item = item["value"]
+        if len(values) >= maximum:
+            raise _ReferenceRuntimeRefusal(reason_for_signal(law["refusal_signal"]))
+        append_copied_cells += len(values)
+        append_allocated_slots += len(values) + 1
+        return {
+            "type": deepcopy(envelope["type"]),
+            "value": [*deepcopy(values), deepcopy(item)],
+        }
+
     def exact(value: int, target: dict[str, Any] | None = None) -> int:
         if not numeric["minimum"] <= value <= numeric["maximum"]:
             raise _ReferenceRuntimeRefusal("runtime.numeric_overflow")
@@ -408,14 +481,61 @@ def reference_execute_event(
         arguments: dict[str, dict[str, Any]],
         stack: tuple[OperationCoordinate, ...] = (),
         path: tuple[str, ...] = (),
-    ) -> tuple[str, Any]:
+        *,
+        enclosing_budgets: tuple[dict[str, int], ...] = (),
+        shared_budget: dict[str, int] | None = None,
+        immediate_call_site_identity: str | None = None,
+        instruction_offset: int = 0,
+    ) -> tuple[str | None, Any]:
         nonlocal executed_resource_charge
         assert selected_coordinate not in stack
         locals_: dict[str, dict[str, Any]] = {}
         operation_results: dict[str, Any] = {}
         frame_cells = {id(cell): cell for cell in arguments.values()}
         snapshot = {key: cell["value"] for key, cell in frame_cells.items()}
-        outcome = selected["default_outcome"]
+        pure = selected.get("operation_kind") == "pure-expression"
+        outcome = None if pure else selected["default_outcome"]
+        budget = (
+            shared_budget
+            if shared_budget is not None
+            else {"attempted": 0, "limit": selected["resource_bounds"]["max_steps"]}
+        )
+        budgets = (*enclosing_budgets, budget)
+        instruction_position = instruction_offset
+
+        def charge(
+            amount: int,
+            *,
+            at: tuple[str, ...],
+            owner: dict[str, Any],
+            index: int,
+            call_identity: str | None,
+            kind: str,
+        ) -> None:
+            nonlocal executed_resource_charge
+            executed_resource_charge += amount
+            for active in budgets:
+                active["attempted"] += amount
+            attempt = {
+                "kind": kind,
+                "operation": owner["id"],
+                "call_path": path_text(at),
+                "instruction_index": index,
+                "call_site_identity": call_identity,
+                "charge": amount,
+                "total_steps": executed_resource_charge,
+                "operation_steps": [active["attempted"] for active in budgets],
+            }
+            attempts.append(attempt)
+            if any(active["attempted"] > active["limit"] for active in budgets) or (
+                resource_limit is not None and executed_resource_charge > resource_limit
+            ):
+                refusal = _ReferenceRuntimeRefusal(reason_for_signal("step-limit"))
+                refusal.operation = owner["id"]
+                refusal.call_path = path_text(at)
+                refusal.instruction_index = index
+                refusal.call_site_identity = call_identity
+                raise refusal
 
         def cell(name: str) -> dict[str, Any]:
             if name in locals_:
@@ -444,10 +564,90 @@ def reference_execute_event(
         try:
             for instruction in selected["body"]:
                 node = nodes[instruction["node"]]
-                executed_resource_charge += node["resource_charge"]["amount"]
+                current_position = instruction_position
+                instruction_position += 1 + (
+                    len(instruction["body"])
+                    if node["semantics"]["operator"] == "guarded-outcome-block"
+                    else 0
+                )
+                charge(
+                    node["resource_charge"]["amount"],
+                    at=path,
+                    owner=selected,
+                    index=current_position,
+                    call_identity=immediate_call_site_identity,
+                    kind="instruction",
+                )
                 assert set(instruction) == set(node["required_members"])
                 semantics = node["semantics"]
                 operator = semantics["operator"]
+                if operator == "bounded-pure-fold":
+                    child_coordinate = _operation_coordinate(instruction["operation"])
+                    child = operations[child_coordinate]
+                    assert child["operation_kind"] == "pure-expression"
+                    formals = {formal["id"]: formal for formal in child["inputs"]}
+                    container = cell(instruction["value"])["value"]
+                    accumulator = deepcopy(cell(instruction["initial"])["value"])
+                    captures = {}
+                    for binding in instruction["arguments"]:
+                        operand = binding["operand"]
+                        value = (
+                            arguments[operand["port"]]["value"]
+                            if operand["kind"] == "port"
+                            else locals_[operand["local"]]["value"]
+                            if operand["kind"] == "local"
+                            else operand["literal"]
+                        )
+                        captures[binding["port"]] = deepcopy(value)
+                    for index, item in enumerate(container["value"]):
+                        iteration = path_contract["fold_iteration"]["prefix"] + str(
+                            index
+                        )
+                        child_path = (
+                            *path,
+                            static_segment(instruction["site"]),
+                            iteration,
+                        )
+                        charge(
+                            semantics["invocation_charge"],
+                            at=child_path,
+                            owner=child,
+                            index=0,
+                            call_identity=None,
+                            kind="fold-invocation",
+                        )
+                        child_arguments = {
+                            name: {"value": deepcopy(value)}
+                            for name, value in captures.items()
+                        }
+                        child_arguments[instruction["accumulator_port"]] = {
+                            "value": accumulator
+                        }
+                        child_arguments[instruction["item_port"]] = {
+                            "value": list_element(
+                                container, item, formals[instruction["item_port"]]
+                            )
+                        }
+                        child_outcome, accumulator = execute(
+                            child_coordinate,
+                            child,
+                            child_arguments,
+                            (*stack, selected_coordinate),
+                            child_path,
+                            enclosing_budgets=budgets,
+                        )
+                        assert child_outcome is None
+                    write_local(instruction["target"], accumulator)
+                    continue
+                if operator == "bounded-list-append":
+                    write_local(
+                        instruction["target"],
+                        append_value(
+                            cell(instruction["value"])["value"],
+                            cell(instruction["item"])["value"],
+                        ),
+                    )
+                    continue
                 if operator == "invoke-operation":
                     child_coordinate = _operation_coordinate(instruction["operation"])
                     child = operations[child_coordinate]
@@ -461,22 +661,22 @@ def reference_execute_event(
                         else:
                             actual = {"value": operand["literal"]}
                         child_arguments[binding["port"]] = actual
-                    try:
-                        child_outcome, child_result = execute(
-                            child_coordinate,
-                            child,
-                            child_arguments,
-                            (*stack, selected_coordinate),
-                            (*path, instruction["site"]),
-                        )
-                    except _ReferenceRuntimeRefusal as refusal:
-                        if resolved_call_sites is not None:
-                            refusal.call_site_identity = call_sites[
-                                (selected["id"], instruction["site"])
-                            ]["identity"]
-                        raise
-                    if resolved_call_sites is not None:
-                        call_site = call_sites[(selected["id"], instruction["site"])]
+                    call_site = call_sites.get(
+                        (*selected_coordinate, instruction["site"])
+                    )
+                    child_outcome, child_result = execute(
+                        child_coordinate,
+                        child,
+                        child_arguments,
+                        (*stack, selected_coordinate),
+                        (*path, static_segment(instruction["site"])),
+                        enclosing_budgets=budgets,
+                        immediate_call_site_identity=call_site["identity"]
+                        if call_site is not None
+                        else None,
+                    )
+                    if resolved_call_sites is not None and child_outcome is not None:
+                        assert call_site is not None
                         outcome_row = next(
                             row
                             for row in call_site["outcomes"]
@@ -485,7 +685,9 @@ def reference_execute_event(
                         calls.append(
                             {
                                 "call_site_identity": call_site["identity"],
-                                "site": "/".join((*path, instruction["site"])),
+                                "site": path_text(
+                                    (*path, static_segment(instruction["site"]))
+                                ),
                                 "operation": call_site["operation"],
                                 "outcome": {
                                     "id": child_outcome,
@@ -508,6 +710,9 @@ def reference_execute_event(
                         write_local(result_binding["name"], child_result)
                     elif result_binding["kind"] == "operation-result":
                         operation_results[instruction["site"]] = child_result
+                    if child_outcome is None:
+                        assert instruction["outcomes"] == []
+                        continue
                     action = next(
                         row["action"]
                         for row in instruction["outcomes"]
@@ -531,9 +736,13 @@ def reference_execute_event(
                         != instruction["expected"]
                     ):
                         refusal_reference = semantics["refusal_reference"]
-                        raise _ReferenceRuntimeRefusal(
-                            instruction[refusal_reference["instruction_member"]]
-                        )
+                        reason_id = instruction[refusal_reference["instruction_member"]]
+                        assert language is not None
+                        declared = [
+                            row for row in language["reasons"] if row["id"] == reason_id
+                        ]
+                        assert len(declared) == 1
+                        raise _ReferenceRuntimeRefusal(declared[0]["diagnostic"])
                 elif operator == "guarded-outcome-block":
                     if cell(instruction["condition"])["value"]:
                         unit_contract = runtime["fixed_value_contracts"]["kernel-unit"]
@@ -560,6 +769,10 @@ def reference_execute_event(
                             {**arguments, **locals_},
                             stack,
                             path,
+                            enclosing_budgets=budgets[:-1],
+                            shared_budget=budget,
+                            immediate_call_site_identity=immediate_call_site_identity,
+                            instruction_offset=current_position + 1,
                         )
                         outcome = instruction["outcome"]
                         break
@@ -685,11 +898,15 @@ def reference_execute_event(
                 frame_cells[key]["value"] = value
             if refusal.operation is None:
                 refusal.operation = selected["id"]
-                refusal.call_path = "/".join(path)
+                refusal.call_path = path_text(path)
+                refusal.instruction_index = current_position
+                refusal.call_site_identity = immediate_call_site_identity
             raise
 
-        outcome_definition = next(
-            row for row in selected["outcomes"] if row["id"] == outcome
+        outcome_definition = (
+            {"kind": "success", "state_policy": "commit"}
+            if pure
+            else next(row for row in selected["outcomes"] if row["id"] == outcome)
         )
         if outcome_definition["state_policy"] == "rollback":
             for key, value in snapshot.items():
@@ -740,7 +957,11 @@ def reference_execute_event(
             selected_root_coordinate,
             operation,
             root_frame,
-            path=((resolved_entrypoint["id"],) if resolved_entrypoint else ()),
+            path=(
+                (static_segment(resolved_entrypoint["id"]),)
+                if resolved_entrypoint
+                else ()
+            ),
         )
     except _ReferenceRuntimeRefusal as refusal:
         refused_event = {
@@ -771,6 +992,13 @@ def reference_execute_event(
                     "enqueue_sequence": 0,
                 },
                 "resource_charge": executed_resource_charge,
+            }
+        if include_attempt_evidence:
+            refused_event["refusal"]["instruction_index"] = refusal.instruction_index
+            refused_event["attempts"] = attempts
+            refused_event["construction"] = {
+                "copied_cells": append_copied_cells,
+                "allocated_slots": append_allocated_slots,
             }
         return refused_event
     outcome_definition = next(
@@ -830,5 +1058,11 @@ def reference_execute_event(
                 "enqueue_sequence": 0,
             },
             "resource_charge": executed_resource_charge,
+        }
+    if include_attempt_evidence:
+        event["attempts"] = attempts
+        event["construction"] = {
+            "copied_cells": append_copied_cells,
+            "allocated_slots": append_allocated_slots,
         }
     return event

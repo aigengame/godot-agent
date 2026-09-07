@@ -131,3 +131,204 @@ def test_independent_bootstrap_refuses_changed_fold_law(member, replacement):
     )
     node["semantics"][member] = replacement
     assert not _consumer_b_runtime_authority_is_closed(kernel, language)
+
+
+def _run_independent(
+    items, *, threshold=3, initial=None, mutate=None, resource_limit=None
+):
+    from schema2_operation_execution_independent_support import reference_execute_event
+
+    kernel, language, operations = _independent_fixture()
+    if mutate:
+        mutate(operations)
+
+    def envelope(values):
+        return {"type": {"package": OWNER, "id": "IntList4"}, "value": values}
+
+    return reference_execute_event(
+        kernel,
+        operations[ROOT],
+        operations,
+        {
+            "id": "independent-fold",
+            "values": [
+                {"name": "items", "value": envelope(items)},
+                {"name": "selected_items", "value": envelope(initial or [])},
+                {"name": "selected_count", "value": 0},
+                {"name": "ordered_value", "value": 0},
+                {"name": "threshold", "value": threshold},
+            ],
+        },
+        seed=0,
+        state_names={"selected_items", "selected_count", "ordered_value"},
+        root_operation_coordinate=ROOT,
+        language_bundle=language,
+        include_execution_evidence=True,
+        include_attempt_evidence=True,
+        resource_limit=resource_limit,
+    )
+
+
+@pytest.mark.parametrize(
+    "items", [[], [1], [1, 2, 3, 4], [1, 2, 3, 5], [4, 3, 2, 1], [3, 4], [1, 2, 1, 2]]
+)
+def test_independent_fold_executes_varied_values_and_actual_work(items):
+    event = _run_independent(items)
+    assert "refusal" not in event
+    selected = [item for item in items if item < 3]
+    state = {row["name"]: row["value"] for row in event["state_after"]}
+    assert state["selected_items"]["value"] == selected
+    assert state["selected_count"] == len(selected)
+    assert state["ordered_value"] == sum(
+        value * 10 ** (len(items) - position - 1)
+        for position, value in enumerate(items)
+    )
+    assert event["execution_evidence"]["resource_charge"] == 8 + 8 * len(
+        items
+    ) + 3 * len(selected)
+    # Every attempted append copies the accumulator prefix, including rejected branches.
+    copies = sum(
+        sum(previous < 3 for previous in items[:position])
+        for position in range(len(items))
+    )
+    assert event["construction"] == {
+        "copied_cells": copies,
+        "allocated_slots": copies + len(items),
+    }
+    assert not event.get("calls")
+
+
+def test_independent_fold_eager_append_refuses_before_later_work():
+    def nonempty(operations):
+        operations[ROOT]["body"][2]["initial"] = "selected_items"
+
+    event = _run_independent([9], initial=[1, 2, 3, 4], mutate=nonempty)
+    assert "capacity" in event["refusal"]["reason"]
+    assert event["refusal"]["call_path"] == "filter-items/@0"
+    assert event["refusal"]["instruction_index"] == 1
+    assert event["refusal"]["call_site_identity"] is None
+    assert event["execution_evidence"]["resource_charge"] == 6
+    assert event["state_after"] == event["state_before"]
+    assert len(event["attempts"]) == 6
+
+
+def test_independent_fold_preserves_first_numeric_refusal():
+    event = _run_independent([(1 << 63) - 1, 1])
+    assert event["refusal"]["reason"] == "runtime.numeric_overflow"
+    assert event["refusal"]["call_path"] == "ordered-items/@1"
+    assert event["refusal"]["instruction_index"] == 1
+    assert event["execution_evidence"]["resource_charge"] == 23
+    assert event["state_after"] == event["state_before"]
+
+
+@pytest.mark.parametrize(
+    "limit,last_kind", [(3, "fold-invocation"), (4, "instruction")]
+)
+def test_independent_fold_distinguishes_attempt_from_first_body_charge(
+    limit, last_kind
+):
+    event = _run_independent([1], resource_limit=limit)
+    assert event["refusal"]["reason"] == "runtime.step_limit_exceeded"
+    assert event["refusal"]["call_path"] == "filter-items/@0"
+    assert event["refusal"]["instruction_index"] == 0
+    assert event["attempts"][-1]["kind"] == last_kind
+    assert event["execution_evidence"]["resource_charge"] == limit + 1
+    assert event["attempts"][-1]["operation_steps"] == ([4] if limit == 3 else [5, 1])
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_independent_fold_new_step_budget_starts_at_zero(empty):
+    def change_step(operations):
+        step = operations[(OWNER, "bounded.count-step")]
+        step["body"] = (
+            []
+            if empty
+            else [{"node": "copy", "target": "same-count", "value": "count"}]
+        )
+        step["result"]["source"] = (
+            {"kind": "port", "name": "count"}
+            if empty
+            else {"kind": "local", "name": "same-count"}
+        )
+        step["resource_bounds"]["max_steps"] = 1
+
+    event = _run_independent([1], mutate=change_step)
+    assert "refusal" not in event
+    assert event["execution_evidence"]["resource_charge"] == (17 if empty else 18)
+    attempts = [
+        row for row in event["attempts"] if row["operation"] == "bounded.count-step"
+    ]
+    assert attempts[0]["kind"] == "fold-invocation"
+    assert len(attempts[0]["operation_steps"]) == 1
+    if not empty:
+        assert attempts[1]["operation_steps"][-1] == 1
+
+
+def test_independent_guard_fold_bounds_belong_to_enclosing_operation():
+    kernel, language, operations = _independent_fixture()
+    root = operations[ROOT]
+    root["body"] = [
+        {
+            "node": "equal",
+            "left": "threshold",
+            "right": "threshold",
+            "target": "enabled",
+        },
+        {
+            "node": "guard-block",
+            "condition": "enabled",
+            "body": root["body"],
+            "outcome": root["default_outcome"],
+        },
+    ]
+    root["resource_bounds"]["max_steps"] = 54
+    root["result"]["source"] = {"kind": "port", "name": "ordered_value"}
+    bounds = {}
+    assert not _consumer_b_operation_composition_subjects(
+        kernel, language, selected_operations=operations, fold_input_bounds=bounds
+    )
+    assert {(owner, site, bound) for (owner, site), bound in bounds.items()} == {
+        (ROOT, "filter-items", 4),
+        (ROOT, "count-selected", 4),
+        (ROOT, "ordered-items", 4),
+    }
+    duplicate = deepcopy(root["body"][1]["body"][2])
+    duplicate["target"] = "duplicate-result"
+    root["body"].append(duplicate)
+    assert _consumer_b_operation_composition_subjects(
+        kernel, language, selected_operations=operations
+    )
+
+
+def test_independent_pure_invoke_shares_value_boundary_without_event_outcome():
+    def invoke(operations):
+        step = operations[(OWNER, "bounded.count-step")]
+        step["body"] = [
+            {
+                "node": "invoke",
+                "site": "identity/with~escape",
+                "operation": {"package": "core.quantity", "id": "quantity.identity"},
+                "arguments": [
+                    {"port": "value", "operand": {"kind": "port", "port": "count"}}
+                ],
+                "result": {"kind": "local", "name": "next-count"},
+                "outcomes": [],
+            }
+        ]
+        step["resource_bounds"]["max_steps"] = 2
+
+    kernel, language, operations = _independent_fixture()
+    invoke(operations)
+    assert not _consumer_b_operation_composition_subjects(
+        kernel, language, selected_operations=operations
+    )
+    event = _run_independent([1], mutate=invoke)
+    assert "refusal" not in event
+    assert event["execution_evidence"]["resource_charge"] == 19
+    nested = [
+        row for row in event["attempts"] if row["operation"] == "quantity.identity"
+    ]
+    assert len(nested) == 1
+    assert nested[0]["call_path"] == "count-selected/@0/identity~1with~0escape"
+    assert nested[0]["operation_steps"][-2:] == [2, 1]
+    assert not event.get("calls")

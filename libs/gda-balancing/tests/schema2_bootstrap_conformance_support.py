@@ -7425,10 +7425,6 @@ def _consumer_b_operation_composition_subjects(
     fold_input_bounds: dict[tuple[tuple[str, str], str], int] | None = None,
     closed_operations: dict[tuple[str, str], tuple[set[str], set[str], int]]
     | None = None,
-    produced_value_contracts: dict[
-        tuple[tuple[str, str], str], tuple[dict[str, Any], ...]
-    ]
-    | None = None,
 ) -> tuple[str, ...]:
     """Independently close exact nested calls without using production admission."""
     language = ldb.get("language")
@@ -7556,6 +7552,7 @@ def _consumer_b_operation_composition_subjects(
     found: set[str] = set()
     closed: dict[tuple[str, str], tuple[set[str], set[str], int]] = {}
     guard_body_coordinates: set[tuple[str, str]] = set()
+    guard_owners: dict[tuple[str, str], tuple[str, str]] = {}
 
     def subject(
         coordinate: tuple[str, str],
@@ -8021,6 +8018,29 @@ def _consumer_b_operation_composition_subjects(
         if not isinstance(body, list):
             return None
         charge = len(body)
+        # A guard does not introduce an Operation frame: its static sites share
+        # the enclosing namespace even though lexical validation recurses.
+        sites = []
+        pending_instructions = list(body)
+        while pending_instructions:
+            current = pending_instructions.pop()
+            if not isinstance(current, dict):
+                continue
+            current_node = node_definitions.get(current.get("node"), {})
+            if current_node.get("semantics", {}).get("operator") in {
+                "invoke-operation",
+                "bounded-pure-fold",
+            }:
+                sites.append(current.get("site"))
+            if current_node.get("semantics", {}).get(
+                "operator"
+            ) == "guarded-outcome-block" and isinstance(current.get("body"), list):
+                pending_instructions.extend(current["body"])
+        if any(not isinstance(site, str) or not site for site in sites) or len(
+            sites
+        ) != len(set(sites)):
+            found.add(subject(coordinate, "sites", "site"))
+            return None
         operation_result_sites: set[str] = set()
         source_producer_reached = False
         seen_sites: set[str] = set()
@@ -8189,7 +8209,9 @@ def _consumer_b_operation_composition_subjects(
                     node["semantics"]["invocation_charge"] + child_charge
                 )
                 if fold_input_bounds is not None:
-                    fold_input_bounds[(coordinate, str(site))] = maximum
+                    fold_input_bounds[
+                        (guard_owners.get(coordinate, coordinate), str(site))
+                    ] = maximum
                 continue
             if operator == "bounded-list-append":
                 containers = scope.get(cast(str, instruction.get("value")), ())
@@ -8473,10 +8495,14 @@ def _consumer_b_operation_composition_subjects(
                     }
                     by_coordinate[guard_coordinate] = synthetic
                     guard_body_coordinates.add(guard_coordinate)
+                    guard_owners[guard_coordinate] = guard_owners.get(
+                        coordinate, coordinate
+                    )
                     try:
                         guard_closure = close(guard_coordinate, (*stack, coordinate))
                     finally:
                         guard_body_coordinates.discard(guard_coordinate)
+                        guard_owners.pop(guard_coordinate, None)
                         by_coordinate.pop(guard_coordinate, None)
                         closed.pop(guard_coordinate, None)
                     if guard_closure is None:
@@ -8850,10 +8876,6 @@ def _consumer_b_operation_composition_subjects(
         if charge > operation.get("resource_bounds", {}).get("max_steps", -1):
             found.add(subject(coordinate, None, "resource_bounds"))
             return None
-        if produced_value_contracts is not None:
-            produced_value_contracts.update(
-                {(coordinate, name): values for name, values in locals_.items()}
-            )
         closed[coordinate] = (effects, refusals, charge)
         return closed[coordinate]
 
