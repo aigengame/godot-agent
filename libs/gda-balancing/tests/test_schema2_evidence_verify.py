@@ -722,8 +722,9 @@ def test_application_preserves_the_runtime_refusal_member_admission_diagnostic(
     )
 
 
-def test_application_refuses_an_authenticated_incomplete_terminal_audit(
+def test_public_cli_refuses_an_authenticated_incomplete_terminal_audit(
     tmp_path: Path,
+    run_cli,
 ) -> None:
     inp = _prepare_runtime_refusal_input(tmp_path, 550)
     artifact_set = EXPERIMENT_RUN.refusal_artifact_sets[0].members
@@ -784,15 +785,27 @@ def test_application_refuses_an_authenticated_incomplete_terminal_audit(
         canonical_bytes(cast(JsonValue, malformed_receipt))
     )
 
-    result = _verify(
-        replace(
-            inp,
-            experiment_run_artifact_set_receipt=str(malformed_receipt_path),
-        )
+    exit_code, stdout, stderr = run_cli(
+        [
+            "evidence",
+            "verify",
+            "--claim-kind",
+            "evaluable",
+            "--rir",
+            inp.rir,
+            "--specification",
+            inp.specification,
+            "--experiment-run-artifact-set-receipt",
+            str(malformed_receipt_path),
+        ]
     )
 
-    assert isinstance(result, Schema2RefusalReport)
-    assert result.stage == "evaluation"
-    assert result.diagnostics[0].code == (
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "evaluation"
+    assert [row["code"] for row in error["diagnostics"]] == [
         "evaluation.evaluable_mismatched_prerequisite"
+    ]
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/prerequisites/experiment-run-artifact-set-receipt"
     )

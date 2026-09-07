@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
+
 from gda_balancing.interfaces.cli.evidence_verify import EVIDENCE_VERIFY
 from gda_balancing.interfaces.cli.experiment_run import EXPERIMENT_RUN
 from gda_balancing.interfaces.cli.surface import surface_manifest
@@ -153,3 +155,36 @@ def test_public_cli_maps_missing_inputs_to_usage_exit_three(run_cli) -> None:
 
     assert (exit_code, stdout) == (3, "")
     assert json.loads(stderr)["error"]["code"] == "invalid_argument"
+
+
+@pytest.mark.parametrize(
+    ("changed_input", "stage", "code"),
+    (
+        ("receipt", "ingress", "kernel.identity_mismatch"),
+        ("experiment", "evaluation", "evaluation.evaluable_mismatched_prerequisite"),
+    ),
+)
+def test_public_cli_refuses_corrupt_or_mismatched_run_inputs(
+    run_cli, invocation, changed_input: str, stage: str, code: str
+) -> None:
+    argv = invocation(EVIDENCE_VERIFY)
+    option = (
+        "--experiment-run-artifact-set-receipt"
+        if changed_input == "receipt"
+        else "--specification"
+    )
+    path = Path(argv[argv.index(option) + 1])
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if changed_input == "receipt":
+        value["content_identity"] = "sha256:" + "0" * 64
+    else:
+        value["metrics"][0]["target"]["maximum"] = 999
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(argv)
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == stage
+    assert {row["code"] for row in error["diagnostics"]} == {code}
+    assert all(row["primary"]["kind"] == "artifact" for row in error["diagnostics"])
