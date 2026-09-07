@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:40b08f5a4e519f11d589781e62cbf0ec4f10f69a608d71649e353609332a02b0"
+    "sha256:b91fea27d53ec123d759462fca1a2c050d3f1b4b3f0315b071a2b69b18a0f2fa"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -6741,6 +6741,83 @@ def _consumer_b_component_contract_matches(runtime: dict[str, Any]) -> bool:
     return observed_relation_roles == expected_relation_roles
 
 
+EXECUTION_PATH_CONTRACT = {
+    "root_source": "resolved-entrypoint-id",
+    "segment_encoding": {"~": "~0", "/": "~1"},
+    "separator": "/",
+    "static_identity_input": "raw-authored-site",
+    "fold_iteration": {
+        "prefix": "@",
+        "index_pattern": "^(0|[1-9][0-9]*)$",
+        "scope": "only-after-resolved-fold-site",
+    },
+    "immediate_call_site_identity": {
+        "invoke": "resolved-static-call-site-identity",
+        "fold": "null",
+    },
+    "iteration_attempt_position": {
+        "operation": "fold-step",
+        "instruction_index": 0,
+        "empty_body": "allowed",
+        "budget_owner": "existing-enclosing-operation-frames",
+    },
+}
+FOLD_NODE_CONTRACTS = {
+    "fold": {
+        "family": "control",
+        "id": "fold",
+        "operand_constraints": [],
+        "refusals": [],
+        "required_members": [
+            "node",
+            "site",
+            "target",
+            "value",
+            "initial",
+            "operation",
+            "accumulator_port",
+            "item_port",
+            "arguments",
+        ],
+        "resource_charge": {"amount": 1, "counter": "event-steps"},
+        "result": {
+            "kind": "local",
+            "typing": {"kind": "same-as-references", "members": ["initial"]},
+        },
+        "semantics": {
+            "operator": "bounded-pure-fold",
+            "input_bound": "selected-list-maximum-length",
+            "iteration_order": "left-to-right",
+            "step_operation": "static-pure-closed-operation",
+            "accumulator": "exact-initial-formal-result-contract",
+            "item": "selected-list-element-contract",
+            "arguments": "remaining-formal-declaration-order",
+            "scope": "explicit-read-only-arguments",
+            "resource_charge": "base-plus-length-times-invocation-and-attempted-step",
+            "static_bound": "base-plus-maximum-length-times-invocation-and-step-bound",
+            "invocation_charge": 1,
+            "refusal_order": "first-attempted-refusal",
+            "empty_result": "initial",
+            "invocation_budget_owner": "existing-enclosing-operation-frames",
+            "step_budget_entry": "zero-after-invocation-charge",
+        },
+    },
+    "list-append": {
+        "family": "expression",
+        "id": "list-append",
+        "operand_constraints": [],
+        "refusals": ["structured-list-capacity-exceeded"],
+        "required_members": ["node", "target", "value", "item"],
+        "resource_charge": {"amount": 1, "counter": "event-steps"},
+        "result": {
+            "kind": "local",
+            "typing": {"kind": "same-as-references", "members": ["value"]},
+        },
+        "semantics": {"operator": "bounded-list-append"},
+    },
+}
+
+
 def _consumer_b_runtime_authority_is_closed(
     kernel: dict[str, Any], ldb: dict[str, Any]
 ) -> bool:
@@ -7035,6 +7112,13 @@ def _consumer_b_runtime_authority_is_closed(
         != "exactly-one-compatible-producer-on-every-success-path"
         or set(invocation_contract.get("outcome_actions", []))
         != {"continue", "propagate"}
+    ):
+        return False
+    if invocation_contract.get("execution_path") != EXECUTION_PATH_CONTRACT:
+        return False
+    if any(
+        nodes_by_id.get(name) != contract
+        for name, contract in FOLD_NODE_CONTRACTS.items()
     ):
         return False
     vectors = runtime.get("vectors")
@@ -7335,6 +7419,16 @@ def _consumer_b_runtime_authority_is_closed(
 def _consumer_b_operation_composition_subjects(
     kernel: dict[str, Any],
     ldb: dict[str, Any],
+    *,
+    selected_operations: dict[tuple[str, str], dict[str, Any]] | None = None,
+    snapshot_contracts: dict[tuple[str, str], dict[str, dict[str, Any]]] | None = None,
+    fold_input_bounds: dict[tuple[tuple[str, str], str], int] | None = None,
+    closed_operations: dict[tuple[str, str], tuple[set[str], set[str], int]]
+    | None = None,
+    produced_value_contracts: dict[
+        tuple[tuple[str, str], str], tuple[dict[str, Any], ...]
+    ]
+    | None = None,
 ) -> tuple[str, ...]:
     """Independently close exact nested calls without using production admission."""
     language = ldb.get("language")
@@ -7457,6 +7551,8 @@ def _consumer_b_operation_composition_subjects(
             if coordinate in by_coordinate:
                 return (f"language.operations.{package_id}",)
             by_coordinate[coordinate] = operation
+    if selected_operations is not None:
+        by_coordinate = dict(selected_operations)
     found: set[str] = set()
     closed: dict[tuple[str, str], tuple[set[str], set[str], int]] = {}
     guard_body_coordinates: set[tuple[str, str]] = set()
@@ -7627,6 +7723,38 @@ def _consumer_b_operation_composition_subjects(
         if type_expression.get("kind") in {"list", "ref"}:
             return {"type": type_expression, "value_kind": "nominal-structured"}
         return None
+
+    def list_contract(
+        value_contract: dict[str, Any],
+    ) -> tuple[dict[str, Any], int] | None:
+        resolved = structural_contract(value_contract.get("type"))
+        if resolved is None:
+            return None
+        definition, _constructor, rule = resolved
+        if rule.get("operator") != "bounded-list":
+            return None
+        element_member = rule.get("element_member")
+        maximum_member = rule.get("maximum_length_member")
+        if not isinstance(element_member, str) or not isinstance(maximum_member, str):
+            return None
+        element = structured_contract(definition.get(element_member))
+        maximum = definition.get(maximum_member)
+        if element is None or type(maximum) is not int or maximum < 0:
+            return None
+        return element, maximum
+
+    def pure(operation: dict[str, Any]) -> bool:
+        return (
+            operation.get("operation_kind") == "pure-expression"
+            and operation.get("purity") == "pure"
+            and operation.get("effects") == []
+            and "outcomes" not in operation
+            and "default_outcome" not in operation
+            and "standard.snapshot-operands" not in operation.get("extensions", {})
+            and all(
+                port.get("access") == "read" for port in operation.get("inputs", [])
+            )
+        )
 
     def lookup_contract(
         value_contract: dict[str, Any],
@@ -7803,6 +7931,9 @@ def _consumer_b_operation_composition_subjects(
         operation = by_coordinate.get(coordinate)
         if not isinstance(operation, dict):
             return None
+        if operation.get("operation_kind") == "pure-expression" and not pure(operation):
+            found.add(subject(coordinate, None, "purity"))
+            return None
         result = operation.get("result")
         source = result.get("source") if isinstance(result, dict) else None
         source_kind = source.get("kind") if isinstance(source, dict) else None
@@ -7853,6 +7984,36 @@ def _consumer_b_operation_composition_subjects(
         scope: dict[str, tuple[dict[str, Any], ...]] = {
             name: (contract,) for name, contract in parent_ports.items()
         }
+        snapshot_extension = operation.get("extensions", {}).get(
+            "standard.snapshot-operands"
+        )
+        if snapshot_extension is not None:
+            snapshot_rows = (
+                snapshot_extension.get("operands")
+                if isinstance(snapshot_extension, dict)
+                else None
+            )
+            contracts = (snapshot_contracts or {}).get(coordinate, {})
+            names = (
+                [row.get("name") for row in snapshot_rows if isinstance(row, dict)]
+                if isinstance(snapshot_rows, list)
+                else []
+            )
+            if (
+                pure(operation)
+                or not isinstance(snapshot_rows, list)
+                or len(names) != len(snapshot_rows)
+                or any(
+                    not isinstance(name, str) or not name or name in scope
+                    for name in names
+                )
+                or len(set(names)) != len(names)
+                or set(names) != set(contracts)
+            ):
+                found.add(subject(coordinate, "snapshot", "arguments"))
+                return None
+            scope.update({name: (contract,) for name, contract in contracts.items()})
+            locals_.update({name: (contract,) for name, contract in contracts.items()})
         local_producers: dict[str, int] = {}
         effects = set(cast(list[str], operation.get("effects", [])))
         refusals = set(cast(list[str], operation.get("refusals", [])))
@@ -7862,6 +8023,7 @@ def _consumer_b_operation_composition_subjects(
         charge = len(body)
         operation_result_sites: set[str] = set()
         source_producer_reached = False
+        seen_sites: set[str] = set()
 
         def shared_contracts(
             groups: list[tuple[dict[str, Any], ...]],
@@ -7910,6 +8072,165 @@ def _consumer_b_operation_composition_subjects(
                 found.add(subject(coordinate, str(instruction_index), "members"))
                 return None
             target = instruction.get("target")
+            operator = node.get("semantics", {}).get("operator")
+            if (
+                pure(operation)
+                and node["family"] != "expression"
+                and operator not in {"invoke-operation", "bounded-pure-fold"}
+            ):
+                found.add(subject(coordinate, str(instruction_index), "purity"))
+                return None
+            if operator in {"invoke-operation", "bounded-pure-fold"}:
+                site = instruction.get("site")
+                if not isinstance(site, str) or not site or site in seen_sites:
+                    found.add(subject(coordinate, str(instruction_index), "site"))
+                    return None
+                seen_sites.add(site)
+            if operator == "bounded-pure-fold":
+                reference = instruction.get("operation")
+                child_coordinate = type_key(reference)
+                child = (
+                    by_coordinate.get(child_coordinate)
+                    if child_coordinate is not None
+                    else None
+                )
+                if not isinstance(child, dict) or not pure(child):
+                    found.add(subject(coordinate, str(site), "operation"))
+                    return None
+                if child_coordinate in (*stack, coordinate):
+                    found.add(subject(coordinate, "cycle", "operation"))
+                    return None
+                values = scope.get(cast(str, instruction.get("value")), ())
+                lists = [list_contract(value) for value in values]
+                if len(lists) != 1 or lists[0] is None:
+                    found.add(subject(coordinate, str(site), "typing"))
+                    return None
+                element, maximum = lists[0]
+                formals = {row["id"]: row for row in child["inputs"]}
+                accumulator = instruction.get("accumulator_port")
+                item = instruction.get("item_port")
+                initial = scope.get(cast(str, instruction.get("initial")), ())
+                if (
+                    accumulator == item
+                    or accumulator not in formals
+                    or item not in formals
+                    or not value_contract_matches(element, formals[item])
+                    or len(
+                        [
+                            value
+                            for value in initial
+                            if value_contract_matches(value, formals[accumulator])
+                        ]
+                    )
+                    != 1
+                    or not value_contract_matches(child["result"], formals[accumulator])
+                ):
+                    found.add(subject(coordinate, str(site), "typing"))
+                    return None
+                arguments = instruction.get("arguments")
+                remaining = [
+                    row
+                    for row in child["inputs"]
+                    if row["id"] not in {accumulator, item}
+                ]
+                if not isinstance(arguments, list) or [
+                    row.get("port") for row in arguments
+                ] != [row["id"] for row in remaining]:
+                    found.add(subject(coordinate, str(site), "arguments"))
+                    return None
+                for formal, argument in zip(remaining, arguments, strict=True):
+                    operand = argument.get("operand", {})
+                    kind = operand.get("kind")
+                    actuals = (
+                        (parent_ports[operand["port"]],)
+                        if kind == "port" and operand.get("port") in parent_ports
+                        else locals_.get(operand.get("local"), ())
+                        if kind == "local"
+                        else literal_contracts(operand.get("literal"))
+                        if kind == "literal"
+                        else ()
+                    )
+                    expected_members = (
+                        {"kind", kind}
+                        if kind in {"port", "local", "literal"}
+                        else set()
+                    )
+                    if (
+                        set(operand) != expected_members
+                        or len(
+                            [
+                                value
+                                for value in actuals
+                                if value_contract_matches(value, formal)
+                            ]
+                        )
+                        != 1
+                    ):
+                        found.add(subject(coordinate, str(site), "arguments"))
+                        return None
+                assert child_coordinate is not None
+                child_closure = close(child_coordinate, (*stack, coordinate))
+                if child_closure is None:
+                    return None
+                child_effects, child_refusals, child_charge = child_closure
+                if child_effects or not child_refusals <= refusals:
+                    found.add(subject(coordinate, str(site), "refusals"))
+                    return None
+                if not isinstance(target, str) or not target or target in scope:
+                    found.add(subject(coordinate, str(instruction_index), "target"))
+                    return None
+                produced = (formals[accumulator],)
+                scope[target] = produced
+                locals_[target] = produced
+                local_producers[target] = 1
+                if source_kind == "local" and target == source.get("name"):
+                    source_producer_reached = True
+                charge += maximum * (
+                    node["semantics"]["invocation_charge"] + child_charge
+                )
+                if fold_input_bounds is not None:
+                    fold_input_bounds[(coordinate, str(site))] = maximum
+                continue
+            if operator == "bounded-list-append":
+                containers = scope.get(cast(str, instruction.get("value")), ())
+                items = scope.get(cast(str, instruction.get("item")), ())
+                contracts = [list_contract(value) for value in containers]
+                if (
+                    len(contracts) != 1
+                    or contracts[0] is None
+                    or len(
+                        [
+                            value
+                            for value in items
+                            if value_contract_matches(value, contracts[0][0])
+                        ]
+                    )
+                    != 1
+                ):
+                    found.add(subject(coordinate, str(instruction_index), "typing"))
+                    return None
+                resolved = structural_contract(containers[0]["type"])
+                assert resolved is not None
+                law = operation_law(resolved[1], "bounded-list-append")
+                if not isinstance(law, dict) or law != {
+                    "operator": "bounded-list-append",
+                    "capacity": "length-less-than-maximum",
+                    "duplicates": "preserve",
+                    "element_projection": "list-element-type",
+                    "order": "append-after-existing",
+                    "refusal_signal": "structured-list-capacity-exceeded",
+                    "result_projection": "same-list-type",
+                }:
+                    found.add(subject(coordinate, str(instruction_index), "typing"))
+                    return None
+                signal = law["refusal_signal"]
+                if (
+                    signal not in node["refusals"]
+                    or len(reasons_by_signal.get(signal, [])) != 1
+                    or reasons_by_signal[signal][0] not in refusals
+                ):
+                    found.add(subject(coordinate, str(instruction_index), "refusals"))
+                    return None
             if instruction.get("node") != "invoke":
                 if (
                     source_kind in {"local", "operation-result"}
@@ -8307,6 +8628,9 @@ def _consumer_b_operation_composition_subjects(
             if not isinstance(child, dict):
                 found.add(subject(coordinate, site, "operation"))
                 return None
+            if pure(operation) and not pure(child):
+                found.add(subject(coordinate, site, "purity"))
+                return None
             child_ports = cast(list[dict[str, Any]], child.get("inputs", []))
             arguments = instruction.get("arguments")
             if not isinstance(arguments, list) or [
@@ -8526,11 +8850,17 @@ def _consumer_b_operation_composition_subjects(
         if charge > operation.get("resource_bounds", {}).get("max_steps", -1):
             found.add(subject(coordinate, None, "resource_bounds"))
             return None
+        if produced_value_contracts is not None:
+            produced_value_contracts.update(
+                {(coordinate, name): values for name, values in locals_.items()}
+            )
         closed[coordinate] = (effects, refusals, charge)
         return closed[coordinate]
 
     for coordinate in sorted(by_coordinate):
         close(coordinate, ())
+    if closed_operations is not None:
+        closed_operations.update(closed)
     return tuple(sorted(found))
 
 
