@@ -19,7 +19,10 @@ from schema2_bootstrap_conformance_support import (
     _encoded,
     _reidentify_package_release,
 )
-from schema2_bootstrap_production_support import _reidentify_graph_root
+from schema2_bootstrap_production_support import (
+    _append_empty_namespace,
+    _reidentify_graph_root,
+)
 
 
 _OWNERS = ("genre.economy", "genre.rebate")
@@ -188,7 +191,6 @@ def _candidate(
             "language.nominal_types": [
                 {
                     "id": "Token",
-                    "package": owner,
                     "constructor": "standard.schema.enum",
                     "definition": {
                         "kind": "enum",
@@ -197,7 +199,6 @@ def _candidate(
                 },
                 {
                     "id": "Receipt",
-                    "package": owner,
                     "constructor": "standard.schema.record",
                     "definition": {
                         "kind": "record",
@@ -329,7 +330,13 @@ def _source() -> dict[str, Any]:
 
 
 class _PublicCandidate:
-    def __init__(self, directory: Path, *, duplicate_owner: bool = False):
+    def __init__(
+        self,
+        directory: Path,
+        *,
+        duplicate_owner: bool = False,
+        authorities: tuple[dict[str, Any], LanguageBundleIndex] | None = None,
+    ):
         self.directory = directory
         self.runtime = directory / "runtime"
         package_source = Path(gda_balancing.__file__).parent
@@ -339,7 +346,11 @@ class _PublicCandidate:
             package_copy,
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
         )
-        self.kernel, self.ldb = _candidate(duplicate_owner=duplicate_owner)
+        self.kernel, self.ldb = (
+            authorities
+            if authorities is not None
+            else _candidate(duplicate_owner=duplicate_owner)
+        )
         authority = package_copy / "schema2" / "authorities"
         (authority / "kernel.json").write_bytes(_encoded(self.kernel))
         (authority / "language-bundle.json").write_bytes(_encoded(self.ldb.root))
@@ -708,3 +719,176 @@ def test_public_same_owner_duplicate_refuses_after_reidentification(
     }
     assert not (tmp_path / "refused-build").exists()
     assert not list((tmp_path / "store" / "anchors").rglob("*.json"))
+
+
+@pytest.mark.parametrize("claimed_owner", ("genre.economy", "genre.rebate"))
+def test_public_nominal_definition_rejects_retired_owner_field(
+    tmp_path: Path, claimed_owner: str
+) -> None:
+    kernel, ldb = _candidate()
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "genre.economy"
+    )
+    nominal = next(
+        row["definitions"]
+        for row in package["semantic_closure"]
+        if row["authority_path"] == "language.nominal_types"
+    )
+    token = next(row for row in nominal if row["id"] == "Token")
+    assert set(token) == {"id", "constructor", "definition"}
+    token["package"] = claimed_owner
+    # The retired claim is refused even if it agrees with the containing owner.
+    # Reidentify the actual attached definition; an outdated hash is not the oracle.
+    _reidentify_package_release(package)
+    _reidentify_graph_root(ldb)
+    attached = next(row for row in ldb.package_releases if row["id"] == "genre.economy")
+    assert (
+        next(
+            row["definitions"]
+            for row in attached["semantic_closure"]
+            if row["authority_path"] == "language.nominal_types"
+        )[0]["package"]
+        == claimed_owner
+    )
+    resealed = deepcopy(attached)
+    _reidentify_package_release(resealed)
+    assert resealed["content_identity"] == attached["content_identity"]
+    assert resealed["semantic_identity"] == attached["semantic_identity"]
+    candidate = _PublicCandidate(tmp_path, authorities=(kernel, ldb))
+    checked = candidate.cli("model", "check", str(candidate.source), success=False)
+    built = candidate.cli(
+        "model",
+        "build",
+        str(candidate.source),
+        "--out",
+        str(tmp_path / "refused-build"),
+        "--invocation-key",
+        "05" * 32,
+        success=False,
+    )
+    assert checked == built
+    error = checked["error"]
+    assert error["category"] == "refusal"
+    assert error["stage"] == "static"
+    assert [
+        (row["code"], row["primary"]["pointer"]) for row in error["diagnostics"]
+    ] == [("kernel.vector_mismatch", "/language/definitions")]
+    assert not (tmp_path / "refused-build").exists()
+    assert not list((tmp_path / "store" / "anchors").rglob("*.json"))
+
+
+def test_public_unselected_nominal_shadow_cannot_change_selected_type(
+    tmp_path: Path,
+) -> None:
+    kernel, ldb = _candidate()
+    shadow = _append_empty_namespace(ldb, "genre.shadow")
+    shadow["dependencies"]["required"] = ["standard.schema"]
+    shadow["exports"]["nominal_types"] = ["Token"]
+    shadow["exports"]["types"] = [
+        {"id": "Token", "constructor": "standard.schema.enum"}
+    ]
+    shadow["runtime_semantic_paths"] = ["language.nominal_types"]
+    next(
+        row
+        for row in shadow["semantic_closure"]
+        if row["authority_path"] == "language.nominal_types"
+    )["definitions"] = [
+        {
+            "id": "Token",
+            "constructor": "standard.schema.enum",
+            "definition": {"kind": "enum", "members": ["shadow-only"]},
+        }
+    ]
+    _reidentify_package_release(shadow)
+    _reidentify_graph_root(ldb)
+    candidate = _PublicCandidate(tmp_path, authorities=(kernel, ldb))
+    assert candidate.cli("model", "check", str(candidate.source))["checked"] is True
+    artifacts = _members(
+        candidate.cli(
+            "model",
+            "build",
+            str(candidate.source),
+            "--out",
+            str(tmp_path / "build"),
+            "--invocation-key",
+            "06" * 32,
+        )
+    )
+    selected = artifacts["rir-semantic-payload"]["selected_semantics"]
+    assert "genre.shadow" not in {row["id"] for row in selected["packages"]}
+    assert {row["package"] for row in selected["nominal_types"]} == set(_OWNERS)
+    assert all(
+        set(row["definition"]) == {"id", "constructor", "definition"}
+        for row in selected["nominal_types"]
+    )
+    tokens = {
+        row["package"]: row["definition"]["definition"]
+        for row in selected["nominal_types"]
+        if row["definition"]["id"] == "Token"
+    }
+    assert tokens == {
+        owner: {"kind": "enum", "members": ["adjust-v1", "genre.economy", "1.0.0"]}
+        for owner in _OWNERS
+    }
+    experiment_path = tmp_path / "experiment.json"
+    experiment_path.write_text(json.dumps(_experiment(artifacts["build-receipt"])))
+    assert candidate.cli("experiment", "check", str(experiment_path))["checked"] is True
+    evaluation = _members(
+        candidate.cli(
+            "experiment",
+            "run",
+            str(experiment_path),
+            "--out",
+            str(tmp_path / "evaluation"),
+            "--invocation-key",
+            "07" * 32,
+        )
+    )
+    events = [
+        row for row in evaluation["event-trace"]["events"] if row["observation"] is None
+    ]
+    assert [
+        {row["name"]: row["value"] for row in event["state_after"]}["account_balance"]
+        for event in events
+    ] == [75, 100]
+    for owner, event in zip(_OWNERS, events, strict=True):
+        output = next(
+            row
+            for row in event["facts"]
+            if row["name"] == f"{owner.split('.')[1]}_receipt"
+        )
+        assert output["value"] == _receipt(owner)
+    assert evaluation["metric-dataset"]["samples"][0]["value"] == 100
+    assert evaluation["metric-dataset"]["samples"][0]["within_target"] is True
+    source = _source()
+    source["entrypoints"][0]["arguments"][2]["operand"]["value"]["value"]["id"] = (
+        "shadow-only"
+    )
+    candidate.write_source(source)
+    anchors_before = {
+        path: path.read_bytes()
+        for path in (tmp_path / "store" / "anchors").rglob("*.json")
+    }
+    checked = candidate.cli("model", "check", str(candidate.source), success=False)
+    built = candidate.cli(
+        "model",
+        "build",
+        str(candidate.source),
+        "--out",
+        str(tmp_path / "refused-build"),
+        "--invocation-key",
+        "08" * 32,
+        success=False,
+    )
+    assert checked == built
+    assert checked["error"]["category"] == "refusal"
+    assert checked["error"]["stage"] == "static"
+    assert [
+        (row["code"], row["primary"]["pointer"])
+        for row in checked["error"]["diagnostics"]
+    ] == [("language.source_contract_mismatch", "/entrypoints/0/arguments/2/operand")]
+    assert not (tmp_path / "refused-build").exists()
+    assert {
+        path: path.read_bytes()
+        for path in (tmp_path / "store" / "anchors").rglob("*.json")
+    } == anchors_before
