@@ -50,6 +50,12 @@ the Godot ports; outbound producer adapters stay local.
 
 ## Consequences and alternatives
 
+[aADR-0003](0003-project-prompts-and-concept-references.md) refines preparation:
+project prompts are preserved before generation, and selected image-gen concepts
+are delivered to new model/sprite authoring. Existing-file and saved-source paths
+retain their independent scope. This adds local application behavior, not a new
+context or reverse dependency on gda.
+
 Keeping the original Panda pipeline would minimize edits but leave a raster-shaped
 orchestrator and continued game coupling. A generic plugin/workflow framework would
 add configuration and lifecycle mechanisms before two concrete paths work. The

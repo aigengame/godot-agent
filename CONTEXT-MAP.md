@@ -21,9 +21,11 @@ owned by gda. Runtime callbacks through those ports do not create reverse source
 imports: `gda-assets` never imports `gda` or invokes its CLI.
 
 Blender and image-generation systems are external producers. Asset Pipeline owns
-their outbound adapters and anti-corruption layers. Project recipes, art direction,
-and gameplay expectations are project-owned inputs. Panda Adventure is a one-time
-scaffold source for this work; it is not a runtime dependency or a migration target.
+their outbound adapters and anti-corruption layers. Its application also owns
+prompt preparation and concept-reference handoff. Project recipes, prompts,
+selected concepts, art direction, and gameplay expectations are project-owned
+inputs. Panda Adventure is a one-time scaffold source for this work; it is not a
+runtime dependency or a migration target.
 Its planned archival does not mean that it has already been archived.
 
 The gda-side integration contract is owned by

@@ -2,16 +2,18 @@
 
 Asset Pipeline is a supporting subdomain implemented as the internal `gda_assets`
 package. It turns producer outputs into usable, checked Godot assets by coordinating
-production, file processing, installation, import, and selected acceptance steps.
+prompt/reference preparation, production, file processing, installation, import,
+and selected acceptance steps.
 Users access it through `gda asset-pipeline`; they do not operate a second product.
 This is the accepted target vocabulary, with implementation tracked by
 [#907](https://github.com/aigengame/godot-agent/issues/907).
 
 ## Boundary
 
-Asset Pipeline owns workflow order, project expectation evaluation, compatible
-report comparison, and producer adaptation. gda owns engine operations and the
-meaning of engine facts. A project owns its recipes and acceptance policy. Blender
+Asset Pipeline owns workflow order, prompt preservation and reference selection,
+project expectation evaluation, compatible report comparison, and producer
+adaptation. gda owns engine operations and the meaning of engine facts. A project
+owns its recipes and acceptance policy. Blender
 and image-generation systems own their native authoring/generation models.
 
 The context initially serves Blender and image-generation outputs. Aseprite is a
@@ -22,8 +24,23 @@ compatibility requirement.
 ## Language
 
 **Asset recipe**: Project-owned input selecting a producer or existing files,
-output locations, applicable processing/import choices, and optional acceptance or
-preview settings. A small declarative input, not a programming language or workflow DAG.
+output locations, applicable preparation/processing/import choices, and optional
+acceptance or preview settings. A small declarative input, not a programming
+language or workflow DAG.
+
+**Prompt record**: Project-local saved input for one generation attempt: authored
+text/template and inputs, resolved prompt, selected reference inputs, and requested
+producer options. Output files and reported details can be associated afterward.
+It supports inspect, explicit revision, and reuse; it is not a content receipt,
+provider-execution proof, or guarantee of reproducible output.
+
+**Concept reference**: An explicitly selected image-gen result used to guide new
+model or sprite authoring. Its role differs from a finished runtime asset. Project
+art direction determines suitable views, poses, and style.
+
+**Authoring handoff**: Selected usable concept files, their prompt-record links,
+intended use, and project instructions delivered to a tool or agent before authoring.
+It is a small prepared input, not a persisted workflow aggregate.
 
 **Producer**: A boundary that supplies asset files from a native source or generation
 request. Its adapter owns vendor options and failure translation. A producer need

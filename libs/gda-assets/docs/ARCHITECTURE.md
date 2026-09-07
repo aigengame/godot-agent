@@ -14,6 +14,9 @@ The repeated cost is establishing what a producer exported, what Godot loaded,
 and what the current scene uses. The pipeline coordinates those steps and reduces
 project-specific scripts for structure checks, import adjustments, preview, and
 package acceptance. It initially supports Blender and image-generation outputs.
+Preparation also preserves project prompts and supplies selected image-gen concept
+references before new model or sprite authoring. Existing-file and saved-source
+handoff remain independently usable.
 
 | Authority | Owns |
 | --- | --- |
@@ -21,8 +24,8 @@ package acceptance. It initially supports Blender and image-generation outputs.
 | Root CONTEXT-MAP and ADR-0042 | Context routing and integration with gda |
 | Local ASSETS-CONTEXT | Asset Pipeline vocabulary and ownership |
 | This document | Target module structure, complete workflow, delivery and validation mapping |
-| aADR-0001 / aADR-0002 | Internal decomposition and minimum-result decisions |
-| Project recipes and scenes | Art direction, output paths, gameplay expectations, authored overrides |
+| aADR-0001 / aADR-0002 / aADR-0003 | Internal decomposition, minimum results, and prompt/reference preparation |
+| Project recipes and scenes | Prompts, concept choices, art direction, output paths, gameplay expectations, authored overrides |
 | gda operation contracts | Engine facts, import/cache semantics, sessions, capture, export |
 
 The agreed drivers are: a single gda entry; additive integration into its existing
@@ -88,6 +91,7 @@ import-state rules, two result registries, or an integration framework.
 | Godot 3D properties and loaded resource/instance facts | Existing gda groups and engine payloads |
 | Import metadata, option mutation, and actual engine work | gda resource operations |
 | Production, installation, check ordering, selected comparison | Asset Pipeline Application |
+| Prompt preservation/reuse, candidate selection, authoring handoff | Asset Pipeline Application, using local Domain values/rules and file handling |
 | Expectation evaluation and comparison compatibility | Asset Pipeline Domain |
 | Producer-specific preprocessing/export and native structure analysis | Producer adapter, with project-selected native operations |
 | Raster normalization and format processing | Local processors; only for matching artifact kinds |
@@ -116,10 +120,12 @@ libs/gda-assets/
       recipe.py
       artifacts.py
       expectations.py
+      preparation.py                 # prompt/reference values when needed
     application/
       ports.py
       integrate.py
       produce.py
+      prepare.py                     # save inputs, register outputs, select references
       preview.py                      # when preview slice lands
       package_check.py                # when package slice lands
     adapters/outbound/
@@ -141,6 +147,14 @@ it is not a wholesale re-export of internal modules. There is no second CLI.
 decomposition. Start with `AssetRecipe`, `ProducedFiles`, `AssetExpectations`,
 `AssetCheckResult`, and `PipelineResult` as ordinary data/value types. The current
 workflow has no demonstrated entity/aggregate/repository lifecycle requirement.
+
+[aADR-0003](adr/0003-project-prompts-and-concept-references.md) adds `PromptRecord`
+and `AuthoringHandoff` as ordinary project-local data. The recipe selects reusable
+project art direction; a prompt record preserves the resolved input for one attempt.
+This saved input is not a second editable authority for the project's current style.
+Preparation precedes `AssetProducer.produce` and can finish with an explicit external
+handoff. A missing candidate is not a successful produced-file result. Do not enlarge
+every producer into a prompt manager or general authoring interface.
 
 The intended contract shape is small; these are design signatures, not a shipped
 Python API or frozen serialization schema:
@@ -173,6 +187,11 @@ tests its concrete input/result schemas across CLI and generated MCP.
 
 1. Validate the recipe, selected producer/inputs, destination paths, and requested
    capabilities. Validate project configuration without contacting unused providers.
+   For enabled generation, preserve the resolved prompt and selected inputs before
+   external work. For new model/sprite authoring, generate or explicitly reuse a
+   concept, select its references, and deliver them to the authoring consumer before
+   that consumer starts. Record preparation, generation, selection, and consumption
+   separately. Existing-file admission and saved-source export skip this preparation.
 2. Obtain files from the selected producer or explicit existing-file handoff.
    Blender native preprocessing/export belongs in its adapter; style/export choices
    belong to the project. Report which saved source or supported live source was used.
@@ -206,6 +225,12 @@ outside the Python command. A callable provider adapter can later automate that
 step without changing the host integration; no invented background tool access or
 automatic retry after an unknown provider outcome is assumed.
 
+The concept-reference slice extends that handoff with saved prompts, candidates,
+selection, and real authoring examples. It must prove usable reference delivery to
+Blender and a small sprite-sheet workflow. It does not make the saved-source export
+adapter a model generator or add full Aseprite support. Concept images have their
+own role and are not installed as runtime assets without explicit mapping.
+
 ## Existing seams and required additions
 
 | Seam | Treatment |
@@ -218,6 +243,7 @@ automatic retry after an unknown provider outcome is assumed.
 | Shared property projection/coercion | Extend through [#885](https://github.com/aigengame/godot-agent/issues/885), retaining engine/harness parity |
 | Import options and effective result verification | Extend resource operations through [#888](https://github.com/aigengame/godot-agent/issues/888); cached does not prove options applied |
 | Producer ports, local ACLs, workflow API, Godot host ports | New narrow seams in this design |
+| Prompt preparation and concept-reference handoff | Extend the local workflow API and file/producer adapters through #912/#913; no new Godot port or core prompt model |
 | Optional content receipt / runtime content sampling | Add only scoped facts required by [#889](https://github.com/aigengame/godot-agent/issues/889)/[#890](https://github.com/aigengame/godot-agent/issues/890), with independent core operation use |
 | Preview and package acceptance | Compose existing capabilities plus the missing bounded probes; no generic renderer/export verifier |
 
@@ -229,6 +255,8 @@ The following is a delivery map, not a second editable acceptance checklist.
 | Slice | Primary owner and independently observable result | Blocked by |
 | --- | --- | --- |
 | [#908](https://github.com/aigengame/godot-agent/issues/908) | Unified entry: existing files / generated-image handoff through processing, installation, real Godot import/load; installable internal library | None |
+| [#912](https://github.com/aigengame/godot-agent/issues/912) | Save, inspect, revise, and reuse project prompts before generation; register associated outputs | [#908](https://github.com/aigengame/godot-agent/issues/908) |
+| [#913](https://github.com/aigengame/godot-agent/issues/913) | Generate/select concept references and demonstrate their use before Blender and sprite authoring | [#912](https://github.com/aigengame/godot-agent/issues/912) |
 | [#909](https://github.com/aigengame/godot-agent/issues/909) | Saved Blender source, bounded source inspection, export-only scale preparation, same integration path, and Godot load/dimension check | [#908](https://github.com/aigengame/godot-agent/issues/908) |
 | [#885](https://github.com/aigengame/godot-agent/issues/885) | gda: structured Vector3 and Node3D local transform operations | None |
 | [#886](https://github.com/aigengame/godot-agent/issues/886) | gda: bounded imported model facts | None |
@@ -244,6 +272,11 @@ tracking/architecture, not one giant implementation task. Blocking edges express
 technical prerequisites, not a waterfall: [#885](https://github.com/aigengame/godot-agent/issues/885), [#886](https://github.com/aigengame/godot-agent/issues/886), [#888](https://github.com/aigengame/godot-agent/issues/888) and the first integration
 slice can progress independently. Producer integration does not wait for runtime
 refresh or delivery-package features.
+
+The new preparation branch is #908 → #912 → #913. The saved-source branch remains
+#908 → #909: exporting an already authored source does not require generating a
+new concept. For the new-authoring demonstration, #913 supplies the reference
+consumer workflow; it does not rely on #909 to provide a modeling capability.
 
 Panda extraction is part of the first applicable vertical slice: reuse acquisition
 boundaries, selected raster transforms, deterministic emitters, and isolation test
@@ -266,6 +299,7 @@ The architecture was accepted; the mechanisms have not passed production tests.
 | AP-03 | Reliable option-only reimport; gda [#888](https://github.com/aigengame/godot-agent/issues/888). Current import fast path and engine docs inspected | Unchanged GLB plus changed root scale returns cached success with old dimensions. Real engine option-only, no-op, invalid, and failed cases |
 | AP-04 | Honest runtime freshness; [#890](https://github.com/aigengame/godot-agent/issues/890). Current session/capture semantics inspected | A/B share path, names, counts, bounds, material refs but differ in supported content and compare equal. Test selected-instance content, stale/wrong instance, runtime replacement, session and capture scope |
 | AP-05 | Minimum machinery with usable recovery; aADR-0002. Existing scripts offer reusable stages, no generic resume proof | Import failure or unknown producer outcome triggers regeneration or false completion. Inject stage failures, retain outputs, and explicitly retry remaining steps without production replay |
+| AP-06 | Prompt preservation and usable concept references; aADR-0003, #912/#913. Panda prompt composition and post-acquisition manifest recording inspected; implementation evidence remains open | Editing style/reference inputs changes an earlier attempt, reuse regenerates silently, or an authoring consumer loads an unselected candidate. Test separate attempts, explicit reuse/revision, failure ordering, real image generation, and selected-reference consumption in Blender and sprite examples |
 
 The design's boundary review covers known owners and source cycles, but does not
 prove runtime conformance. Each slice must test its complete public path and real

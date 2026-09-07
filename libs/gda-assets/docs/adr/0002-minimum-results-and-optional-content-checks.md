@@ -38,6 +38,11 @@ mechanisms change gda's resource, scene, game, capture, or export behavior.
 
 ## Failure and effect boundary
 
+[aADR-0003](0003-project-prompts-and-concept-references.md) adds required prompt
+records for enabled preparation/generation. These are reusable project inputs,
+not optional content receipts or a persistent job history. They add no prerequisite
+to existing-file import, saved-source export, or ordinary gda operations.
+
 Validate input and output targets before mutation. Produce/process files in a
 selected workspace before installing them. The workflow reports each installed
 file and stops before import if multi-file installation is incomplete. A set of
