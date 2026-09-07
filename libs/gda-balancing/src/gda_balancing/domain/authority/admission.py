@@ -72,7 +72,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:9034564a7ab519b9cc00dd80cf86974a9ce50065cb41004ea6143d09ab91ab55"
+    "sha256:26575c99fefafbb39395ea866ed76f85b303d9e10c3f0764017790270d02112d"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -2000,7 +2000,7 @@ def _runtime_projection_is_closed(
     edge_operators = set(cast(list[Any], contract.get("edge_operators", [])))
     output_kinds = set(cast(list[Any], contract.get("output_kinds", [])))
     if (
-        source_kinds != {"lock-member", "semantic-closure"}
+        source_kinds != {"namespace-member", "semantic-closure"}
         or output_shapes
         != {"as-is", "package-definition", "definition", "closure-only"}
         or seed_operators != {"declaration-field"}
@@ -2014,7 +2014,7 @@ def _runtime_projection_is_closed(
         != {
             "required_members": ["id", "source", "output_member", "output_shape"],
             "optional_members": ["excluded_extension_members"],
-            "lock_source_members": ["kind", "member", "package_path"],
+            "namespace_source_members": ["kind", "member", "package_path"],
             "closure_source_members": ["kind", "authority_path"],
         }
         or contract.get("seed")
@@ -2068,7 +2068,7 @@ def _runtime_projection_is_closed(
         or contract.get("path_typing")
         != {
             "declaration": "terminal-fact-contract",
-            "lock": "package-lock-wire-schema",
+            "namespace": "rir-selected-semantics-member-schema",
             "semantic_closure": "kernel-language-definition-contract",
             "empty_path": "identity",
         }
@@ -2231,11 +2231,11 @@ def _runtime_projection_is_closed(
         ):
             return False
         source = collection["source"]
-        if source.get("kind") == "lock-member":
+        if source.get("kind") == "namespace-member":
             if (
                 set(source) != {"kind", "member", "package_path"}
                 or not isinstance(source.get("member"), str)
-                or not source["member"]
+                or source["member"] not in {"types", "capability_bindings"}
                 or not path_is_closed(source.get("package_path"))
             ):
                 return False
@@ -2334,11 +2334,6 @@ def _runtime_projection_is_closed(
         selected_schema.get("properties") if isinstance(selected_schema, dict) else None
     )
     packages = language.get("packages") if isinstance(language, dict) else None
-    lock_schemas = [
-        item.get("schema")
-        for item in wire_schemas
-        if isinstance(item, dict) and item.get("artifact_kind") == "package-lock"
-    ]
     if not isinstance(selected_properties, dict) or not _execution_projection_is_closed(
         contract.get("execution_closure"),
         meta_format,
@@ -2362,12 +2357,8 @@ def _runtime_projection_is_closed(
             for package in packages
             if isinstance(package, dict)
         )
-        and len(lock_schemas) == 1
-        and isinstance(lock_schemas[0], dict)
-        and isinstance(lock_schemas[0].get("properties"), dict)
     ):
         return False
-    lock_properties = lock_schemas[0]["properties"]
 
     def fact_contract(path: list[str]) -> dict[str, Any] | None:
         if not path or path[0] not in declaration_fields:
@@ -2401,8 +2392,8 @@ def _runtime_projection_is_closed(
     collection_shapes: dict[str, tuple[str, Any]] = {}
     for collection in collections:
         source = collection["source"]
-        if source["kind"] == "lock-member":
-            member_schema = lock_properties.get(source["member"])
+        if source["kind"] == "namespace-member":
+            member_schema = selected_properties.get(source["member"])
             if (
                 not isinstance(member_schema, dict)
                 or member_schema.get("type") != "array"
@@ -2497,7 +2488,7 @@ def _runtime_projection_is_closed(
         else:
             return False
     for output in outputs:
-        source_schema = lock_properties.get(output["source_member"])
+        source_schema = selected_properties.get(output["source_member"])
         target_schema = selected_properties.get(output["output_member"])
         if (
             not isinstance(source_schema, dict)

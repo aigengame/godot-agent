@@ -1,194 +1,116 @@
-"""One detached exact Resolved Model binding for Experiment admission."""
+"""Independent admission and detached ownership of one executable RIR input."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+import hashlib
+from pathlib import Path
+from typing import Any, cast
 
-from gda_balancing.domain.artifacts import verify_artifact
 from gda_balancing.domain.authority.context import AdmittedAuthorityContext
 from gda_balancing.domain.canonical import (
     JsonValue,
     canonical_bytes,
     parse_canonical_object,
 )
-from gda_balancing.domain.model._admission import admit_resolved_model
-from gda_balancing.domain.publication import find_published_artifacts
-
-
-EXACT_RESOLVED_MODEL_BINDING_MEMBERS = (
-    ("build-receipt", "build-receipt"),
-    ("package-lock", "package-lock"),
-    ("resolved-model", "resolved-model"),
-    ("rir-semantic-payload", "rir-semantic-payload"),
+from gda_balancing.domain.diagnostics import Schema2RefusalReport, reason_by_id
+from gda_balancing.domain.errors import UnreadableInputError
+from gda_balancing.domain.model._admission import _standalone_rir_is_admitted
+from gda_balancing.domain.model._resolution import _model_lowering, _refusal
+from gda_balancing.infrastructure.atomic_files import (
+    read_regular_bytes_following_symlink,
 )
 
-_MEMBER_KINDS = dict(EXACT_RESOLVED_MODEL_BINDING_MEMBERS)
 
+class RirAdmissionError(ValueError):
+    """One exact RIR input failed its current Model-owned admission contract."""
 
-class ExactResolvedModelBindingError(ValueError):
-    """One required member or relationship failed exact binding admission."""
-
-    def __init__(
-        self,
-        reason: Literal[
-            "member-set-mismatch",
-            "member-admission-failed",
-            "resolved-model-admission-failed",
-            "build-receipt-binding-mismatch",
-        ],
-        member: str | None,
-        message: str,
-    ) -> None:
+    def __init__(self, reason: str, diagnostic: str, message: str) -> None:
         super().__init__(message)
         self.reason = reason
-        self.member = member
+        self.diagnostic = diagnostic
         self.message = message
 
 
 @dataclass(frozen=True, init=False)
-class ExactResolvedModelBinding:
-    """Canonical detached bytes for one admitted four-member Model binding."""
+class AdmittedRir:
+    """Canonical detached RIR bytes with their exact and semantic identities."""
 
-    _canonical_members: tuple[tuple[str, bytes], ...]
-    resolved_model_identity: str
+    _canonical_rir: bytes
+    content_identity: str
+    semantic_identity: str
 
     def __init__(self) -> None:
-        raise TypeError(
-            "ExactResolvedModelBinding values come from Model binding admission"
+        raise TypeError("AdmittedRir values come from Model RIR admission")
+
+    def artifact(self) -> dict[str, Any]:
+        """Materialize a detached artifact for one Experiment admission."""
+        return parse_canonical_object(self._canonical_rir, artifact_name="RIR")
+
+
+def _admission_error(
+    context: AdmittedAuthorityContext, reason: str, message: str
+) -> RirAdmissionError:
+    definition = reason_by_id(context.language_bundle, reason)
+    return RirAdmissionError(reason, cast(str, definition["diagnostic"]), message)
+
+
+def admit_rir(
+    value: dict[str, Any], *, authority_context: AdmittedAuthorityContext
+) -> AdmittedRir:
+    """Admit a supplied RIR against current owners, without producing wrappers."""
+    try:
+        data = canonical_bytes(cast(JsonValue, value))
+        candidate = parse_canonical_object(data, artifact_name="RIR")
+    except (TypeError, ValueError, UnicodeError, RecursionError) as error:
+        raise _admission_error(
+            authority_context,
+            "model.reason.source-parse-failure",
+            "RIR input is not canonical JSON data",
+        ) from error
+    if not _standalone_rir_is_admitted(candidate, authority_context):
+        reason = cast(
+            str, _model_lowering(authority_context.language_bundle)["admission_reason"]
         )
-
-    def artifacts(self) -> dict[str, dict[str, Any]]:
-        """Materialize a detached copy for one Experiment admission."""
-        return {
-            name: parse_canonical_object(data, artifact_name=name)
-            for name, data in self._canonical_members
-        }
-
-
-def project_compiled_model_binding(
-    artifacts: dict[str, dict[str, JsonValue]],
-    authority_context: AdmittedAuthorityContext,
-) -> ExactResolvedModelBinding:
-    """Project verified compiler output into the exact Experiment Model binding."""
-    selected: dict[str, dict[str, Any]] = {}
-    for name in _MEMBER_KINDS:
-        artifact = artifacts.get(name)
-        if artifact is None:
-            raise ExactResolvedModelBindingError(
-                "member-set-mismatch",
-                name,
-                f"exact Model binding has no {name} member",
-            )
-        selected[name] = cast(dict[str, Any], artifact)
-    return _admit_exact_resolved_model_binding(selected, authority_context)
-
-
-def resolve_published_model_binding(
-    identities: dict[str, str],
-    authority_context: AdmittedAuthorityContext,
-) -> ExactResolvedModelBinding:
-    """Acquire and admit one committed exact Model binding in one traversal."""
-    requested_names = set(_MEMBER_KINDS)
-    if set(identities) != requested_names:
-        missing = sorted(requested_names - set(identities))
-        extra = sorted(set(identities) - requested_names)
-        member = missing[0] if missing else extra[0]
-        raise ExactResolvedModelBindingError(
-            "member-set-mismatch",
-            member,
-            "exact published Model request member set is not closed",
+        raise _admission_error(
+            authority_context, reason, "RIR input does not match its admitted semantics"
         )
-    artifacts = find_published_artifacts(
-        tuple(
-            (logical_name, artifact_kind, identities[logical_name])
-            for logical_name, artifact_kind in EXACT_RESOLVED_MODEL_BINDING_MEMBERS
-        ),
-        authority_context.language_bundle,
-    )
-    return _admit_exact_resolved_model_binding(artifacts, authority_context)
+    admitted = object.__new__(AdmittedRir)
+    object.__setattr__(admitted, "_canonical_rir", data)
+    object.__setattr__(admitted, "content_identity", candidate["content_identity"])
+    object.__setattr__(admitted, "semantic_identity", candidate["semantic_identity"])
+    return admitted
 
 
-def _admit_exact_resolved_model_binding(
-    artifacts: dict[str, dict[str, Any]],
-    authority_context: AdmittedAuthorityContext,
-) -> ExactResolvedModelBinding:
-    """Detach and admit exactly the four artifacts required by Experiment."""
-    names = set(artifacts)
-    expected_names = set(_MEMBER_KINDS)
-    if names != expected_names:
-        missing = sorted(expected_names - names)
-        extra = sorted(names - expected_names)
-        member = missing[0] if missing else extra[0]
-        raise ExactResolvedModelBindingError(
-            "member-set-mismatch",
-            member,
-            "exact Model binding member set is not closed",
+def read_rir(
+    path: str, *, authority_context: AdmittedAuthorityContext
+) -> AdmittedRir | Schema2RefusalReport:
+    """Read one explicit public RIR file through the existing artifact ingress."""
+    try:
+        data = read_regular_bytes_following_symlink(Path(path))
+    except OSError as error:
+        raise UnreadableInputError(f"cannot read input document: {path}") from error
+    identity = "sha256:" + hashlib.sha256(data).hexdigest()
+    try:
+        candidate = parse_canonical_object(data, artifact_name="RIR")
+    except (TypeError, ValueError, UnicodeError, RecursionError):
+        reason = reason_by_id(
+            authority_context.language_bundle, "model.reason.source-parse-failure"
         )
-
-    detached: dict[str, dict[str, Any]] = {}
-    canonical_members: list[tuple[str, bytes]] = []
-    for name, expected_kind in _MEMBER_KINDS.items():
-        artifact = artifacts[name]
-        try:
-            data = canonical_bytes(cast(JsonValue, artifact))
-            candidate = parse_canonical_object(data, artifact_name=name)
-        except (TypeError, ValueError, UnicodeError) as error:
-            raise ExactResolvedModelBindingError(
-                "member-admission-failed",
-                name,
-                f"exact Model binding member is not canonical: {name}",
-            ) from error
-        if candidate.get("artifact_kind") != expected_kind or not verify_artifact(
-            candidate, authority_context.language_bundle
-        ):
-            raise ExactResolvedModelBindingError(
-                "member-admission-failed",
-                name,
-                f"exact Model binding member failed admission: {name}",
-            )
-        detached[name] = candidate
-        canonical_members.append((name, data))
-
-    if not admit_resolved_model(
-        {
-            "package-lock": detached["package-lock"],
-            "resolved-model": detached["resolved-model"],
-            "rir-semantic-payload": detached["rir-semantic-payload"],
-        },
-        authority_context=authority_context,
-    ).admitted:
-        raise ExactResolvedModelBindingError(
-            "resolved-model-admission-failed",
-            None,
-            "exact Model binding does not contain one admitted Resolved Model",
+        return _refusal(
+            cast(str, reason["diagnostic"]),
+            identity,
+            "",
+            "RIR input is not canonical JSON data",
+            authority_context.language_bundle,
         )
-
-    build = detached["build-receipt"]
-    expected_build_bindings = {
-        "kernel_identity": authority_context.kernel["content_identity"],
-        "language_bundle_identity": authority_context.language_bundle[
-            "content_identity"
-        ],
-        "package_lock_identity": detached["package-lock"]["content_identity"],
-        "resolved_model_identity": detached["resolved-model"]["content_identity"],
-        "rir_identity": detached["rir-semantic-payload"]["content_identity"],
-    }
-    if any(
-        build.get(member) != expected
-        for member, expected in expected_build_bindings.items()
-    ):
-        raise ExactResolvedModelBindingError(
-            "build-receipt-binding-mismatch",
-            "build-receipt",
-            "Build receipt does not bind the exact Resolved Model members",
+    try:
+        return admit_rir(candidate, authority_context=authority_context)
+    except RirAdmissionError as error:
+        return _refusal(
+            error.diagnostic,
+            identity,
+            "",
+            error.message,
+            authority_context.language_bundle,
         )
-
-    binding = object.__new__(ExactResolvedModelBinding)
-    object.__setattr__(binding, "_canonical_members", tuple(canonical_members))
-    object.__setattr__(
-        binding,
-        "resolved_model_identity",
-        cast(str, detached["resolved-model"]["content_identity"]),
-    )
-    return binding

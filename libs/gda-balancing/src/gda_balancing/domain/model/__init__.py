@@ -2,11 +2,10 @@
 
 from ._admission import admit_resolved_model
 from ._binding import (
-    EXACT_RESOLVED_MODEL_BINDING_MEMBERS,
-    ExactResolvedModelBinding,
-    ExactResolvedModelBindingError,
-    project_compiled_model_binding,
-    resolve_published_model_binding,
+    AdmittedRir,
+    RirAdmissionError,
+    admit_rir,
+    read_rir,
 )
 from ._checking import check_model_source, check_model_source_value
 from ._compilation import (
@@ -32,11 +31,11 @@ __all__ = (
     "MODEL_REFUSAL_CATALOG",
     "CheckedModel",
     "CompiledArtifactAdmissionError",
-    "EXACT_RESOLVED_MODEL_BINDING_MEMBERS",
-    "ExactResolvedModelBinding",
-    "ExactResolvedModelBindingError",
+    "AdmittedRir",
+    "RirAdmissionError",
     "ModelInspectAdmissionError",
     "admit_resolved_model",
+    "admit_rir",
     "authority_context_for_checked",
     "check_model_source",
     "check_model_source_value",
@@ -44,8 +43,7 @@ __all__ = (
     "compile_checked_model",
     "model_build_command_input_identity",
     "model_source_identity_domain",
-    "project_compiled_model_binding",
-    "resolve_published_model_binding",
+    "read_rir",
     "read_model_explanation",
     "validate_compiled_artifacts",
     "verify_checked_model",

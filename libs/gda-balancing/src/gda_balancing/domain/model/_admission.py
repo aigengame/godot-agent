@@ -13,7 +13,10 @@ from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     packaged_authority_context,
 )
-from gda_balancing.domain.authority.graph import resolve_current_namespaces
+from gda_balancing.domain.authority.graph import (
+    NamespaceSelection,
+    resolve_current_namespaces,
+)
 from gda_balancing.domain.canonical import (
     JsonValue,
     canonical_bytes,
@@ -67,6 +70,8 @@ from gda_balancing.domain.model._lowering import (
     _formula_operation_identity,
     _formula_symbol_dependencies,
     _package_lock,
+    _namespace_packages,
+    _namespace_type_exports,
     _reachable_derived_formula_sites,
     _reachable_operation_formula_dependencies,
     _resolved_alias_rows,
@@ -1709,7 +1714,7 @@ def _formula_pairs_are_admitted(
     if (
         not isinstance(formulas, list)
         or not isinstance(declarations, list)
-        or not isinstance(requirements, list)
+        or (requirements is not None and not isinstance(requirements, list))
     ):
         return False
     by_module: dict[str, list[dict[str, Any]]] = {}
@@ -1749,7 +1754,9 @@ def _formula_pairs_are_admitted(
                 admit_formula_pair(
                     {
                         "schema_version": formula_schema_version(authority_context),
-                        "package_requirements": requirements,
+                        "package_requirements": requirements
+                        if requirements is not None
+                        else [],
                         "modules": modules,
                         "module": module,
                         "formula": formula,
@@ -1757,6 +1764,15 @@ def _formula_pairs_are_admitted(
                     authority_context,
                     canonical_body=cast(
                         dict[str, Any], _rir_notation_body_projection(body)
+                    ),
+                    operation_coordinates=(
+                        frozenset(
+                            (node["operation"]["package"], node["operation"]["id"])
+                            for node in body.get("nodes", [])
+                            if node.get("node") == "operation-call"
+                        )
+                        if requirements is None
+                        else None
                     ),
                 )
     except (
@@ -1768,22 +1784,6 @@ def _formula_pairs_are_admitted(
     ):
         return False
     return True
-
-
-def _rir_formula_pairs_are_admitted(
-    rir: dict[str, Any],
-    lock: dict[str, Any],
-    authority_context: AdmittedAuthorityContext,
-) -> bool:
-    output_member = _model_lowering(authority_context.language_bundle).get(
-        "output_member"
-    )
-    return _formula_pairs_are_admitted(
-        rir.get("formulas"),
-        rir.get(output_member) if isinstance(output_member, str) else None,
-        lock.get("root_requirements"),
-        authority_context,
-    )
 
 
 def _model_explanation_pairs_are_admitted(
@@ -1801,6 +1801,171 @@ def _model_explanation_pairs_are_admitted(
         lock.get("root_requirements"),
         authority_context,
     )
+
+
+def _rir_semantics_are_admitted(
+    rir: dict[str, Any],
+    context: AdmittedAuthorityContext,
+    selection: NamespaceSelection,
+    *,
+    formula_requirements: list[str] | None,
+) -> bool:
+    """Independently derive one RIR from current namespace-owned definitions."""
+    kernel = context.kernel
+    ldb = context.language_bundle
+    lowering = _model_lowering(ldb)
+    declarations = rir.get(cast(str, lowering["output_member"]))
+    if not isinstance(declarations, list):
+        return False
+    try:
+        if rir.get("semantic_identity") != _rir_semantic_identity(
+            ldb, cast(dict[str, JsonValue], rir)
+        ):
+            return False
+    except (KeyError, TypeError, ValueError):
+        return False
+    try:
+        projection_budget = _runtime_projection_budget(kernel, ldb)
+        expected_runtime_projection = _runtime_projection(
+            selection,
+            ldb,
+            cast(list[dict[str, JsonValue]], declarations),
+            lowering,
+            projection_budget,
+        )
+        expected_initialization_programs = _compile_initialization_programs(
+            expected_runtime_projection,
+            cast(list[dict[str, JsonValue]], rir.get("formulas")),
+            cast(list[dict[str, JsonValue]], rir.get("formula_bindings")),
+            _formula_policy(ldb),
+        )
+        expected_runtime_projection = _specialize_operation_formula_slots(
+            expected_runtime_projection,
+            cast(list[dict[str, JsonValue]], rir.get("formulas")),
+            cast(list[dict[str, JsonValue]], rir.get("formula_bindings")),
+        )
+        expected_runtime_projection = close_execution_dependencies(
+            kernel,
+            ldb,
+            {
+                "selected_semantics": expected_runtime_projection,
+                "entrypoints": rir["entrypoints"],
+                "initialization_programs": expected_initialization_programs,
+            },
+            projection_budget.consume,
+        )
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        _RuntimeProjectionResourceExhausted,
+    ):
+        return False
+    if (
+        rir.get("selected_semantics") != expected_runtime_projection
+        or rir.get("initialization_programs") != expected_initialization_programs
+    ):
+        return False
+    language = _language(ldb)
+    rules = {rule["id"]: rule for rule in cast(list[dict[str, Any]], language["rules"])}
+    try:
+        terminal_kinds = {
+            "quantity": rules[lowering["rule_chain"][-1]["rule"]]["conclusion"][
+                "fact_kind"
+            ],
+            "nominal-structured": rules[lowering["structured_rule_chain"][-1]["rule"]][
+                "conclusion"
+            ]["fact_kind"],
+        }
+    except (KeyError, IndexError, TypeError):
+        return False
+    resolved_keys: list[tuple[str, str, str]] = []
+    selected_types = {
+        (item["package"], item["id"])
+        for item in _namespace_type_exports(_namespace_packages(selection, ldb))
+    }
+    for item in declarations:
+        terminal_kind = terminal_kinds[
+            "nominal-structured"
+            if isinstance(item, dict) and item.get("value_kind") == "nominal-structured"
+            else "quantity"
+        ]
+        if not isinstance(item, dict) or not _fact_is_admitted(
+            {"kind": terminal_kind, "fields": item}, kernel, ldb
+        ):
+            return False
+        resolved_symbol = cast(dict[str, str], item["resolved_symbol"])
+        resolved_keys.append(
+            (
+                resolved_symbol["model"],
+                resolved_symbol["module"],
+                resolved_symbol["name"],
+            )
+        )
+        type_identity = cast(dict[str, str], item["type_identity"])
+        if (type_identity["package"], type_identity["id"]) not in selected_types:
+            return False
+    if resolved_keys != sorted(resolved_keys) or len(resolved_keys) != len(
+        set(resolved_keys)
+    ):
+        return False
+    try:
+        if not _formula_graph_is_admitted(
+            kernel,
+            ldb,
+            cast(list[dict[str, Any]], declarations),
+            rir.get("formulas"),
+            rir.get("formula_bindings"),
+            rir.get("entrypoints"),
+            rir.get("selected_semantics"),
+        ):
+            return False
+        if not _formula_pairs_are_admitted(
+            rir.get("formulas"),
+            declarations,
+            formula_requirements,
+            context,
+        ):
+            return False
+        if not _resolved_entrypoint_graph_is_admitted(
+            kernel,
+            ldb,
+            cast(list[dict[str, Any]], declarations),
+            cast(dict[str, Any], expected_runtime_projection),
+            cast(list[dict[str, Any]], rir.get("formulas")),
+            cast(list[dict[str, Any]], rir.get("formula_bindings")),
+            rir.get("entrypoints"),
+        ):
+            return False
+        if rir.get("call_sites") != _resolved_call_sites(
+            kernel,
+            cast(dict[str, Any], expected_runtime_projection),
+            _composition_policy(_model_lowering(ldb)),
+        ):
+            return False
+    except (KeyError, TypeError, ValueError):
+        return False
+    return True
+
+
+def _standalone_rir_is_admitted(
+    rir: dict[str, Any], context: AdmittedAuthorityContext
+) -> bool:
+    """Admit exact RIR bytes without any producing Model wrapper."""
+    try:
+        if rir.get("artifact_kind") != "rir-semantic-payload" or not _verify_artifact(
+            rir, context.language_bundle
+        ):
+            return False
+        namespaces = [row["id"] for row in rir["selected_semantics"]["packages"]]
+        selection = resolve_current_namespaces(
+            context.current_namespace_packages(), namespaces
+        )
+        return _rir_semantics_are_admitted(
+            rir, context, selection, formula_requirements=None
+        )
+    except (KeyError, TypeError, ValueError, IndexError, RecursionError):
+        return False
 
 
 def admit_resolved_model(
@@ -1833,13 +1998,6 @@ def admit_resolved_model(
     resolved = artifacts["resolved-model"]
     if not all(_verify_artifact(item, ldb) for item in (lock, rir, resolved)):
         return ResolvedModelAdmission(False, diagnostic)
-    try:
-        if rir.get("semantic_identity") != _rir_semantic_identity(
-            ldb, cast(dict[str, JsonValue], rir)
-        ):
-            return ResolvedModelAdmission(False, diagnostic)
-    except (KeyError, TypeError, ValueError):
-        return ResolvedModelAdmission(False, diagnostic)
     root_requirements = lock.get("root_requirements")
     output_member = cast(str, lowering["output_member"])
     declarations = rir.get(output_member)
@@ -1861,121 +2019,12 @@ def admit_resolved_model(
         expected_lock = _package_lock(synthetic)
     except (KeyError, TypeError, ValueError, jsonschema.ValidationError):
         return ResolvedModelAdmission(False, diagnostic)
-    try:
-        projection_budget = _runtime_projection_budget(kernel, ldb)
-        expected_runtime_projection = _runtime_projection(
-            lock,
-            cast(list[dict[str, JsonValue]], declarations),
-            lowering,
-            projection_budget,
-        )
-        expected_initialization_programs = _compile_initialization_programs(
-            expected_runtime_projection,
-            cast(list[dict[str, JsonValue]], rir.get("formulas")),
-            cast(list[dict[str, JsonValue]], rir.get("formula_bindings")),
-            _formula_policy(ldb),
-        )
-        expected_runtime_projection = _specialize_operation_formula_slots(
-            expected_runtime_projection,
-            cast(list[dict[str, JsonValue]], rir.get("formulas")),
-            cast(list[dict[str, JsonValue]], rir.get("formula_bindings")),
-        )
-        expected_runtime_projection = close_execution_dependencies(
-            kernel,
-            ldb,
-            {
-                "selected_semantics": expected_runtime_projection,
-                "entrypoints": rir["entrypoints"],
-                "initialization_programs": expected_initialization_programs,
-            },
-            projection_budget.consume,
-        )
-    except (
-        KeyError,
-        TypeError,
-        ValueError,
-        _RuntimeProjectionResourceExhausted,
+    if lock != expected_lock or not _rir_semantics_are_admitted(
+        rir,
+        context,
+        selection,
+        formula_requirements=cast(list[str], root_requirements),
     ):
-        return ResolvedModelAdmission(False, diagnostic)
-    if (
-        lock != expected_lock
-        or rir.get("selected_semantics") != expected_runtime_projection
-        or rir.get("initialization_programs") != expected_initialization_programs
-    ):
-        return ResolvedModelAdmission(False, diagnostic)
-    language = _language(ldb)
-    rules = {rule["id"]: rule for rule in cast(list[dict[str, Any]], language["rules"])}
-    try:
-        terminal_kinds = {
-            "quantity": rules[lowering["rule_chain"][-1]["rule"]]["conclusion"][
-                "fact_kind"
-            ],
-            "nominal-structured": rules[lowering["structured_rule_chain"][-1]["rule"]][
-                "conclusion"
-            ]["fact_kind"],
-        }
-    except (KeyError, IndexError, TypeError):
-        return ResolvedModelAdmission(False, diagnostic)
-    resolved_keys: list[tuple[str, str, str]] = []
-    selected_types = {
-        (item["package"], item["id"])
-        for item in cast(list[dict[str, Any]], lock["types"])
-    }
-    for item in declarations:
-        terminal_kind = terminal_kinds[
-            "nominal-structured"
-            if isinstance(item, dict) and item.get("value_kind") == "nominal-structured"
-            else "quantity"
-        ]
-        if not isinstance(item, dict) or not _fact_is_admitted(
-            {"kind": terminal_kind, "fields": item}, kernel, ldb
-        ):
-            return ResolvedModelAdmission(False, diagnostic)
-        resolved_symbol = cast(dict[str, str], item["resolved_symbol"])
-        resolved_keys.append(
-            (
-                resolved_symbol["model"],
-                resolved_symbol["module"],
-                resolved_symbol["name"],
-            )
-        )
-        type_identity = cast(dict[str, str], item["type_identity"])
-        if (type_identity["package"], type_identity["id"]) not in selected_types:
-            return ResolvedModelAdmission(False, diagnostic)
-    if resolved_keys != sorted(resolved_keys) or len(resolved_keys) != len(
-        set(resolved_keys)
-    ):
-        return ResolvedModelAdmission(False, diagnostic)
-    try:
-        if not _formula_graph_is_admitted(
-            kernel,
-            ldb,
-            cast(list[dict[str, Any]], declarations),
-            rir.get("formulas"),
-            rir.get("formula_bindings"),
-            rir.get("entrypoints"),
-            rir.get("selected_semantics"),
-        ):
-            return ResolvedModelAdmission(False, diagnostic)
-        if not _rir_formula_pairs_are_admitted(rir, lock, context):
-            return ResolvedModelAdmission(False, diagnostic)
-        if not _resolved_entrypoint_graph_is_admitted(
-            kernel,
-            ldb,
-            cast(list[dict[str, Any]], declarations),
-            cast(dict[str, Any], expected_runtime_projection),
-            cast(list[dict[str, Any]], rir.get("formulas")),
-            cast(list[dict[str, Any]], rir.get("formula_bindings")),
-            rir.get("entrypoints"),
-        ):
-            return ResolvedModelAdmission(False, diagnostic)
-        if rir.get("call_sites") != _resolved_call_sites(
-            kernel,
-            cast(dict[str, Any], expected_runtime_projection),
-            _composition_policy(_model_lowering(ldb)),
-        ):
-            return ResolvedModelAdmission(False, diagnostic)
-    except (KeyError, TypeError, ValueError):
         return ResolvedModelAdmission(False, diagnostic)
     expected_resolved = _identified_artifact(
         ldb,
