@@ -1867,7 +1867,10 @@ def evaluate_prepared_experiment(
                     formal = instruction["symbol"]
                     actual = state_references[formal]
                     value = (
-                        state[actual] - variables[instruction["value"]]
+                        _require_runtime_integer(state[actual], structured_authority)
+                        - _require_runtime_integer(
+                            variables[instruction["value"]], structured_authority
+                        )
                         if operator == "state-integer-subtract"
                         else variables[instruction["value"]]
                     )
