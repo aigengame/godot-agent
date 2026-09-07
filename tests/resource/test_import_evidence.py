@@ -103,9 +103,6 @@ def test_no_destination_sidecar_with_matching_receipt_is_cached(tmp_path):
     assert evidence.dest_files == []
 
 
-# --- the .md5 receipt: the engine's own freshness proof -------------------------
-
-
 def test_an_asset_with_no_sidecar_is_missing(tmp_path):
     # The fourth evidence state asked of the adapter directly: no `.import`
     # sidecar at all is `missing` — a pass would run — with no sidecar facts to
@@ -118,6 +115,9 @@ def test_an_asset_with_no_sidecar_is_missing(tmp_path):
     assert evidence.status == "missing"
     assert evidence.sidecar is None
     assert evidence.dest_files == []
+
+
+# --- the .md5 receipt: the engine's own freshness proof -------------------------
 
 
 def test_missing_md5_receipt_is_stale_not_cached(tmp_path):

@@ -60,10 +60,13 @@ EvidenceStatus = Literal["cached", "missing", "stale", "invalid"]
 CreatedFileClass = Literal["cache_owned", "source_adjacent"]
 """Which side of the cache root a file the engine pass created falls on."""
 
-# The engine's cache directory, project-relative: the single authority for that
-# layout, read by every consumer rather than spelled again (#741). `resource
-# import` reports it as the explicit `cache_root` and classifies created files
-# against it; `export run`'s tree-mutation report reuses the same rule (#839).
+# The engine's DEFAULT cache directory name, project-relative: the authority for
+# gda's cache-layout READS — `resource import`'s explicit `cache_root` and its
+# created-file classification, and `export run`'s tree-mutation report (#839) —
+# so those spell it once (#741). Godot derives the name from
+# `application/config/use_hidden_project_data_directory` (`godot/` when false),
+# which this module does not read; `gda.project` models both spellings for its
+# UID-cache probe, and `operations.gd` carries the engine-side `ENGINE_CACHE_DIR`.
 CACHE_ROOT_REL = ".godot"
 
 
@@ -85,10 +88,12 @@ class AssetEvidence:
 def classify_created_file(rel: str) -> CreatedFileClass:
     """Which side of the cache root a created file falls on (#741).
 
-    ``rel`` is a project-relative posix path. A file under the project's
-    ``.godot/`` is ``cache_owned``; anything else the engine pass wrote beside
-    the sources (an asset's ``.import`` sidecar, a script's ``.uid``) is
-    ``source_adjacent``.
+    ``rel`` is a project-relative posix path, as ``_project_files`` yields them.
+    The cache root itself and every file under it are ``cache_owned``; anything
+    else a gda-run engine pass created beside the sources (an asset's ``.import``
+    sidecar, a script's ``.uid``) is ``source_adjacent``. The rule is a prefix test
+    on that form only: a ``res://``-prefixed or absolute spelling reads as
+    ``source_adjacent``, so callers pass the project-relative path.
     """
     return (
         "cache_owned"
