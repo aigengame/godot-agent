@@ -7,9 +7,11 @@ from typing import Any, cast
 
 import pytest
 
+import gda_balancing.application.experiment_execution as application_execution
 import gda_balancing.domain.experiment_artifacts as result_validation
 import gda_balancing.domain.model._compilation as compilation
 import gda_balancing.domain.runtime.projections as projections
+import gda_balancing.domain.runtime.execution as runtime_execution
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.authority.graph import LanguageBundleIndex
 from gda_balancing.domain.canonical import canonical_bytes
@@ -25,7 +27,8 @@ from gda_balancing.domain.model import (
 )
 from gda_balancing.domain.runtime.execution import (
     EvaluationArtifacts,
-    evaluate_experiment,
+    PreparedExperiment,
+    evaluate_prepared_experiment,
     prepare_experiment,
 )
 from gda_balancing.interfaces.cli.experiment_fixtures import (
@@ -54,9 +57,16 @@ def _checked(tmp_path: Path, outcome: str = "success") -> CheckedExperiment:
 
 
 def _evaluate(checked: CheckedExperiment) -> dict[str, dict[str, Any]]:
-    outcome = evaluate_experiment(checked)
+    prepared = prepare_experiment(checked)
+    assert isinstance(prepared, PreparedExperiment)
+    outcome = evaluate_prepared_experiment(prepared)
     if isinstance(outcome, projections.RuntimeRefusalOutcome):
-        members = result_validation.runtime_terminal_audit_members(checked, outcome)
+        members = result_validation.runtime_terminal_audit_members(
+            checked,
+            outcome,
+            evaluator=prepared.evaluator,
+            resolved_runtime=prepared.resolved_runtime,
+        )
     else:
         assert isinstance(outcome, EvaluationArtifacts)
         members = outcome.members
@@ -142,7 +152,7 @@ def test_original_outcome_survives_a_different_producer(
             )
 
         monkeypatch.setattr(
-            result_validation, "_evaluator_manifest", unexpected_current_producer
+            projections, "evaluator_manifest", unexpected_current_producer
         )
         assert result_validation.validate_experiment_artifact_set(checked, original)
     finally:
@@ -241,3 +251,34 @@ def test_reidentified_outcome_still_requires_semantic_evidence(tmp_path, outcome
         for name, value in artifacts.items()
     )
     assert not result_validation.validate_experiment_artifact_set(checked, artifacts)
+
+
+def test_terminal_provenance_retains_the_prepared_actual_producer(
+    tmp_path, monkeypatch
+):
+    checked = _checked(tmp_path, "runtime-refusal")
+    prepared = prepare_experiment(checked)
+    assert isinstance(prepared, PreparedExperiment)
+    original_producer = deepcopy(prepared.evaluator.value)
+    execute_instruction = runtime_execution._execute_value_instruction
+    changed_during_execution = False
+
+    def change_producer_during_instruction(*args, **kwargs):
+        nonlocal changed_during_execution
+        changed_during_execution = True
+        monkeypatch.setattr(projections, "EVALUATOR_IMPLEMENTATION", "later-producer")
+        return execute_instruction(*args, **kwargs)
+
+    monkeypatch.setattr(
+        runtime_execution,
+        "_execute_value_instruction",
+        change_producer_during_instruction,
+    )
+    outcome = application_execution.execute_prepared_experiment(prepared)
+    assert changed_during_execution
+    assert isinstance(outcome, application_execution.ExperimentExecutionRefusal)
+    assert outcome.report.stage == "runtime"
+    assert outcome.members[_PRODUCER].value == original_producer
+    assert projections.evaluator_manifest(checked).value != original_producer
+    artifacts = {name: member.value for name, member in outcome.members.items()}
+    assert result_validation.validate_experiment_artifact_set(checked, artifacts)

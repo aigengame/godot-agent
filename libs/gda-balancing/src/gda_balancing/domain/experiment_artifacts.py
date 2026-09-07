@@ -37,7 +37,6 @@ from gda_balancing.domain.runtime.projections import (
     artifact as _artifact,
     committed_event_projection as _committed_event_projection,
     empty_runtime_journal_identity as _empty_runtime_journal_identity,
-    evaluator_manifest as _evaluator_manifest,
     event_catalog_record as _event_catalog_record,
     extend_runtime_journal_identity as _extend_runtime_journal_identity,
     metric_definition_identity as _metric_definition_identity,
@@ -966,13 +965,14 @@ def _resolved_declarations(
 def runtime_terminal_audit_members(
     checked: CheckedExperiment,
     outcome: RuntimeRefusalOutcome,
+    *,
+    evaluator: PublicationMember,
+    resolved_runtime: PublicationMember,
 ) -> dict[str, PublicationMember]:
     """Prepare the complete terminal-only artifact set for runtime refusal."""
     report = outcome.report
     if report.stage != "runtime":
         raise ValueError("terminal audit requires one runtime refusal")
-    evaluator = _evaluator_manifest(checked)
-    resolved_runtime = _resolved_runtime_profile(checked)
     diagnostic = report.diagnostics[0]
     audit = _artifact(
         checked,
