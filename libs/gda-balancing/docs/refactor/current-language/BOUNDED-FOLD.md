@@ -25,6 +25,27 @@ Design is accepted under the owner's implementation delegation; production accep
 These observations guide implementation; they are not a completed public fold or an
 independent-conformance result. The six original probes remain at their historical bases.
 
+The first actual CLI build comparison uses identical Source bytes and unchanged baseline
+production code in correctly sealed candidate trees. The control replaces the new nodes
+with copies solely to test Source/types/packaging: it builds successfully. The intended
+fold/append candidate refuses at the two new instruction shapes during static authority
+admission, with exit 2 and empty stderr. This is a public integration RED, not Runtime
+execution evidence. Nine additional compiler-projection regressions reproduce the missing
+pure-call outcome handling and rejection of a valid value-produced local argument.
+
+Independent baseline artifact mutations confirm that full result-set validation accepts
+a substituted real call-site identity in numeric-overflow and step-limit audits. It also
+accepts a forged root path in a first-call step refusal, and a different selected non-step
+diagnostic substituted into both reason fields of a numeric refusal. Each artifact was
+reidentified without changing counters, rollback or call rows. The corresponding original
+sets validate; changed instruction positions refuse. These bounded counterexamples require
+exact first-refusal reconstruction, rather than a comparison of the step-limit category.
+
+Independent design review exposed a budget ambiguity: charging an iteration attempt inside
+the new step budget would reject a legal one-copy step with `max_steps=1`. The adopted rule
+charges the enclosing invocation attempt first, then creates the zeroed step budget. Its
+permanent regression must distinguish that boundary from the first body charge.
+
 ## Public witness
 
 The small readable witness uses a bounded List of exact integers, an explicit threshold,

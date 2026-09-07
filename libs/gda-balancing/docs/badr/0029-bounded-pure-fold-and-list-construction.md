@@ -99,6 +99,12 @@ with the declared Operation limit. Runtime charges actual attempted work, includ
 refusing attempt, against the same run, Event and active Operation budget owners. Fold does
 not reserve every possible iteration at runtime. A guard shares its enclosing Operation
 budget; entering a pure call creates a call budget, not another run/Event counter.
+The invocation-attempt charge belongs to the already active enclosing budgets. Charge it
+before creating the step's own budget frame, which starts at zero. The first body instruction
+then charges both that frame and its enclosing frames. Otherwise a legal one-instruction
+step with `max_steps=1` would incorrectly spend two steps in its own frame. Refusal location
+and budget ownership are separate: a failed iteration attempt names the intended step frame
+without charging a body instruction or creating a completed call.
 
 Step counts are not a claim about constant-time host work. Immutable append copies prior
 elements: successful all-selected construction from empty copies `N*(N-1)/2` prior cells
@@ -126,6 +132,9 @@ position. Entering through an ordinary invocation binds the existing static call
 identity; entering an intrinsic fold step uses `null`. The iteration invocation-attempt
 charge is attributed to that step frame at instruction index 0, before its first body
 instruction; the independent charge sequence distinguishes those consecutive attempts.
+That entry position also represents an attempt to enter an admitted empty step body;
+it does not assert that a body instruction exists or has run. Existing body admission
+remains authoritative, without a fold-specific nonempty restriction.
 
 Independent validation reconstructs the exact first refusal, reason, location and counters.
 It consumes every genuine Event call row exactly once and rejects additional or fabricated
