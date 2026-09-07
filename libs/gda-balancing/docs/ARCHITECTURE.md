@@ -13,7 +13,9 @@ requirement routing, bounded evidence, and rollback. #871 implements namespace-s
 `{package, id}` nominal Type/Operation references and id-only Template selection. Model, Template,
 Experiment and LDB policy own-version labels are removed. Schema/artifact formats and actual
 Runtime/grammar contract markers remain. Whole-LDB/Build-receipt wrappers still describe current
-execution prerequisites pending #874–#875; #872, #879 and full conformance remain open.
+execution prerequisites pending #874–#875. The [S3 contract record](refactor/current-language/NAMESPACE-CONTRACT.md)
+accounts for #872's final deletion witnesses and rollback; #879 and full conformance retain
+their separate acceptance.
 
 The refactor keeps typed language, compiler and Runtime responsibilities, real execution-policy
 identity, exact content integrity, and consistent in-flight inputs. It does not activate the
@@ -1134,7 +1136,8 @@ Kernel fixed-value Type namespaces are excluded from package owners using the ex
 contracts.
 
 S2 (#869) supplies the current capability union; #870–#871 implement current namespace resolution
-and native wire shapes. #872 and #879 retain their remaining deletion and cross-artifact checks.
+and native wire shapes. The [S3 contract record](refactor/current-language/NAMESPACE-CONTRACT.md)
+accounts for #872's transition deletions and public witnesses; #879 retains final cross-artifact checks.
 The whole-LDB/Build-receipt execution-binding deletion remains separately required by #874–#875.
 
 ## 7. Extension and genre architecture

@@ -13,7 +13,9 @@ Model, Template, Experiment and LDB policy definitions have no own-version label
 selection uses its id. Schema/artifact formats and actual Runtime/grammar contracts retain their
 markers. The remaining whole-LDB/Build-receipt execution bindings must close in #874 and be deleted
 in #875. Content integrity, nominal ownership, actual execution policies, and consistent in-flight
-inputs remain; this migration does not close #872, #879 or the full refactor.
+inputs remain. The [S3 contract record](docs/refactor/current-language/NAMESPACE-CONTRACT.md)
+maps #872's final deletion witnesses and whole-stage rollback; #879 and the full refactor
+retain their own acceptance.
 
 ## Language
 
