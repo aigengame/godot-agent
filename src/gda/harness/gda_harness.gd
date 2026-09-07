@@ -430,21 +430,11 @@ func _run(request) -> Variant:
 # unbounded, which stays the caller's choice on a large tree. Both counters ride
 # back so a partial read is never mistaken for a complete one.
 func _handle_game_tree(params: Dictionary) -> String:
-	var scene: Node
-	var root_param: Variant = params.get("root")
-	if root_param is String:
-		scene = _resolve_runtime_node(root_param)
-		if scene == null:
-			return _error(LIVE_ERROR_NODE_NOT_FOUND,
-					"no node at runtime path: " + String(root_param))
-	else:
-		scene = get_tree().current_scene
-		if scene == null:
-			scene = get_tree().root
-
-	# A missing bound is -1, the "unbounded" sentinel _serialize reads; the CLI
-	# refuses a negative --max-depth, so a caller cannot spell it.
-	var max_depth := _int_param(params, "max_depth", -1)
+	var bounds := _tree_bounds(params)
+	if bounds.has("error"):
+		return bounds["error"]
+	var scene: Node = bounds["root"]
+	var max_depth: int = bounds["max_depth"]
 	var counts := {"omitted_nodes": 0}
 	var tree := _serialize(scene, max_depth, counts)
 	var omitted := int(counts["omitted_nodes"])
@@ -453,6 +443,29 @@ func _handle_game_tree(params: Dictionary) -> String:
 		"truncated": omitted > 0,
 		"omitted_nodes": omitted,
 	})
+
+
+# The root and the depth bound a `game tree` read and a `game find` search SHARE
+# (#849, #855), decided in one place so the two cannot drift: the running current
+# scene unless `root` names a node, the tree root when no scene is current, and
+# the shared `live_node_not_found` refusal for a path that resolves to nothing. A
+# missing bound is -1, the "unbounded" sentinel both walks read; the CLI refuses a
+# negative --max-depth, so a caller cannot spell it. Returns
+# {"root": Node, "max_depth": int}, or {"error": <finished reply>} for the handler
+# to return as-is.
+func _tree_bounds(params: Dictionary) -> Dictionary:
+	var root: Node
+	var root_param: Variant = params.get("root")
+	if root_param is String:
+		root = _resolve_runtime_node(root_param)
+		if root == null:
+			return {"error": _error(LIVE_ERROR_NODE_NOT_FOUND,
+					"no node at runtime path: " + String(root_param))}
+	else:
+		root = get_tree().current_scene
+		if root == null:
+			root = get_tree().root
+	return {"root": root, "max_depth": _int_param(params, "max_depth", -1)}
 
 
 # game find: walk from the SAME root game tree reads (the running current scene
@@ -470,21 +483,11 @@ func _handle_game_tree(params: Dictionary) -> String:
 # Children are pushed in reverse so the LIFO pops them in document order, which
 # is the order the result promises.
 func _handle_game_find(params: Dictionary) -> String:
-	var root: Node
-	var root_param: Variant = params.get("root")
-	if root_param is String:
-		root = _resolve_runtime_node(root_param)
-		if root == null:
-			return _error(LIVE_ERROR_NODE_NOT_FOUND,
-					"no node at runtime path: " + String(root_param))
-	else:
-		root = get_tree().current_scene
-		if root == null:
-			root = get_tree().root
-
-	# A missing bound is -1, the same "unbounded" sentinel game tree reads; the
-	# CLI refuses a negative --max-depth, so a caller cannot spell it.
-	var max_depth := _int_param(params, "max_depth", -1)
+	var bounds := _tree_bounds(params)
+	if bounds.has("error"):
+		return bounds["error"]
+	var root: Node = bounds["root"]
+	var max_depth: int = bounds["max_depth"]
 	var matches: Array = []
 	var omitted := 0
 	var pending: Array = [{"node": root, "depth": 0}]

@@ -348,9 +348,9 @@ whole tree:
    node in the subtree, which on a production UI is the same very large result. Zero
    matches is a success with an empty list, not an error. Several matches are data too:
    every candidate comes back and you choose, because the ops that need one node still
-   take an exact path. 3. **Address exactly.** With the path in hand, use `game get` /
-   `game rect` / `game set` / `game call` on that path. Do not re-read the tree per
-   node.
+   take an exact path.
+3. **Address exactly.** With the path in hand, use `game get` / `game rect` /
+   `game set` / `game call` on that path. Do not re-read the tree per node.
 
 A bounded read says what it left out, so you never mistake it for a complete one:
 `omitted_nodes` counts every unserialized node at any depth below the selected root,

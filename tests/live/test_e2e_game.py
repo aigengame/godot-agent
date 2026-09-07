@@ -987,6 +987,16 @@ def test_game_find_locates_nodes_by_selector_and_counts_what_it_left_unsearched(
         assert doc["count"] == 2
         assert doc["truncated"] is False and doc["omitted_nodes"] == 0
 
+        # AC4: `--group` on its own, so the group check is proven alone rather
+        # than only ANDed with `--type` — a search that ignored the group would
+        # return every node in the scene here, while the combination above would
+        # still narrow it to the Buttons (PR #900 review round 3).
+        grouped = run("game", "find", "--group", "hud")
+        assert grouped.returncode == 0, grouped.stdout + grouped.stderr
+        in_group = json.loads(grouped.stdout)
+        assert _paths(in_group) == ["/root/Main/HUD/Ok", "/root/Main/HUD/Toggle"]
+        assert in_group["count"] == 2
+
         # AC2: `--script` reaches what `--type` cannot — the node carrying that
         # script AND the ones whose script extends it, by PATH and by the global
         # `class_name` (the GDA-DF-051 shape) — and each match names the script

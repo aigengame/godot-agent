@@ -125,9 +125,12 @@ class GameTreeParams(RelayedLiveParams):
             "gives."
         ),
     )
+    # strict=True: the published schema says `integer`, so the runtime refuses
+    # what the schema refuses — `true` or `"1"` are not coerced to 1 (ADR-0015).
     max_depth: int | None = Field(
         default=None,
         ge=0,
+        strict=True,
         description=(
             "Serialize at most this many levels BELOW the read's root: 0 is the "
             "root node alone, 1 adds its children. Unset reads the whole "
@@ -303,9 +306,12 @@ class GameFindParams(RelayedLiveParams):
             "`live_node_not_found`, the same refusal every other live op gives."
         ),
     )
+    # strict=True, as on `game tree`'s bound: the schema's `integer` is the
+    # accepted type, so a boolean or numeric string is refused, not coerced.
     max_depth: int | None = Field(
         default=None,
         ge=0,
+        strict=True,
         description=(
             "Search at most this many levels BELOW the search root: 0 tests the "
             "root node alone, 1 adds its children. Unset searches the whole "

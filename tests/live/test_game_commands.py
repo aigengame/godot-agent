@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.commands.game import GameFindParams
+from gda.commands.game import GameFindParams, GameTreeParams
 from gda.exit_codes import EXIT_LIVE
 from gda.runner import RunResult
 from tests.support import (
@@ -487,14 +487,45 @@ def test_game_find_schema_and_model_agree_on_the_selector_rule():
         ({"type": None}, False),
         ({"type": None, "script": None, "group": None}, False),
         ({"type": ""}, False),
-        # The bound rides the same contract.
+        # The bound rides the same contract — and it is a STRICT integer: the
+        # schema says `integer`, so a boolean or a numeric string is refused by
+        # the model too rather than coerced to 1 (PR #900 review round 3).
         ({"type": "Button", "max_depth": -1}, False),
+        ({"type": "Button", "max_depth": True}, False),
+        ({"type": "Button", "max_depth": "1"}, False),
     ]
 
     for payload, expected in corpus:
         schema_ok = validator.is_valid(payload)
         try:
             GameFindParams(**payload)
+            model_ok = True
+        except ValidationError:
+            model_ok = False
+        assert schema_ok == expected, f"schema verdict for {payload}"
+        assert model_ok == expected, f"model verdict for {payload}"
+
+
+def test_game_tree_schema_and_model_agree_on_the_bound():
+    # `game tree`'s bound is the one `game find` mirrors, so it carries the same
+    # strict-integer rule at the same boundary (ADR-0015): what the schema refuses
+    # the model refuses, and a `--params-json` bound of `true` or `"1"` cannot
+    # reach the harness through the read when the search refuses it.
+    schema = GameTreeParams.model_json_schema()
+    validator = jsonschema.Draft202012Validator(schema)
+    corpus = [
+        ({}, True),
+        ({"max_depth": 0}, True),
+        ({"root": "/root/Main", "max_depth": 2}, True),
+        ({"max_depth": -1}, False),
+        ({"max_depth": True}, False),
+        ({"max_depth": "1"}, False),
+    ]
+
+    for payload, expected in corpus:
+        schema_ok = validator.is_valid(payload)
+        try:
+            GameTreeParams(**payload)
             model_ok = True
         except ValidationError:
             model_ok = False
