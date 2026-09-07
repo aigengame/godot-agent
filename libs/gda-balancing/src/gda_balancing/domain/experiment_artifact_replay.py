@@ -51,12 +51,14 @@ class ReplayInitializationProgramFault(Exception):
         program: str,
         evaluation_site_identity: str,
         frame_identity: str,
+        consumed_steps: int,
     ) -> None:
         super().__init__(signal)
         self.signal = signal
         self.program = program
         self.evaluation_site_identity = evaluation_site_identity
         self.frame_identity = frame_identity
+        self.consumed_steps = consumed_steps
 
 
 class _NonpositiveDivisorError(ValueError):
@@ -574,6 +576,7 @@ def evaluate_initialization_programs(
                         str, cast(dict[str, Any], program["site"])["identity"]
                     ),
                     frame_identity=frame_identity,
+                    consumed_steps=consumed_steps,
                 )
             cache_key = canonical_bytes(
                 cast(
@@ -611,6 +614,7 @@ def evaluate_initialization_programs(
                                 str, row["evaluation_site_identity"]
                             ),
                             frame_identity=frame_identity,
+                            consumed_steps=consumed_steps,
                         ) from error
                 result = cast(dict[str, Any], program["result"])
                 result_value = _admit_numeric(
@@ -975,7 +979,9 @@ def _replay_operation_event(
             indices = guard_expanded_instruction_indices(instructions, offset=offset)
             for body_index, instruction in enumerate(instructions):
                 index = indices[body_index]
-                site = sites.get(index)
+                # Formula provenance uses authored top-level positions; expanded
+                # indices locate audit faults across lexical guard bodies.
+                site = sites.get(body_index) if offset == 0 else None
                 node = node_contracts[instruction["node"]]
                 semantics = node["semantics"]
                 operator = semantics["operator"]
@@ -1366,7 +1372,7 @@ def _replay_operation_event(
                             "admitted structured operation violated its type contract"
                         ) from error
                     fail(reason["signal"], operation, path, call_identity, index, site)
-                if site is not None and sites.get(index + 1) != site:
+                if site is not None and sites.get(body_index + 1) != site:
                     evaluation = operation_formula_evaluation_record(
                         operation,
                         formula_bindings[site],
