@@ -344,7 +344,10 @@ def test_input_action_presses_an_action_through_the_live_channel(monkeypatch, tm
     assert data["action"] == "jump"
     assert data["pressed"] is True
     assert fake.calls == [
-        ("input-action", {"action": "jump", "release": False, "strength": 1.0})
+        (
+            "input-action",
+            {"action": "jump", "release": False, "strength": 1.0, "as_event": False},
+        )
     ]
 
 
@@ -369,7 +372,15 @@ def test_input_action_release_and_strength_are_threaded(monkeypatch, tmp_path):
     )
 
     assert fake.calls == [
-        ("input-action", {"action": "move_right", "release": False, "strength": 0.5})
+        (
+            "input-action",
+            {
+                "action": "move_right",
+                "release": False,
+                "strength": 0.5,
+                "as_event": False,
+            },
+        )
     ]
 
 
@@ -478,6 +489,7 @@ def test_input_tap_key_dispatches_the_press_hold_release_window(monkeypatch, tmp
                 "strength": None,
                 "hold_frames": 2,
                 "settle_frames": 2,
+                "as_event": False,
             },
         )
     ]
@@ -523,6 +535,7 @@ def test_input_tap_action_threads_strength_and_frame_counts(monkeypatch, tmp_pat
                 "strength": 0.5,
                 "hold_frames": 6,
                 "settle_frames": 0,
+                "as_event": False,
             },
         )
     ]
