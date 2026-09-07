@@ -432,24 +432,11 @@ def _members(receipt: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _experiment(build: dict[str, Any]) -> dict[str, Any]:
+def _experiment(rir: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": "2.0.0",
         "id": "example.namespace-ownership",
-        "kernel_identity": build["kernel_identity"],
-        "language_bundle_identity": build["language_bundle_identity"],
-        "model": {
-            member: build[
-                "content_identity" if member == "build_receipt_identity" else member
-            ]
-            for member in (
-                "source_identity",
-                "build_receipt_identity",
-                "resolved_model_identity",
-                "package_lock_identity",
-                "rir_identity",
-            )
-        },
+        "model": {"rir_semantic_identity": rir["semantic_identity"]},
         "runtime": {
             "profile": "standard.exact-int64-event-v1",
             "required_evaluator": {
@@ -571,14 +558,28 @@ def test_public_namespace_owned_operations_and_literal_data(tmp_path: Path) -> N
         if row.get("value_kind") == "nominal-structured"
     ]
     assert {row["type_identity"]["package"] for row in structured} == set(_OWNERS)
+    rir_path = next(
+        row["locator"]
+        for row in receipt["member_locators"]
+        if row["logical_name"] == "rir-semantic-payload"
+    )
     experiment_path = tmp_path / "experiment.json"
-    experiment_path.write_text(json.dumps(_experiment(artifacts["build-receipt"])))
-    assert candidate.cli("experiment", "check", str(experiment_path))["checked"] is True
+    experiment_path.write_text(
+        json.dumps(_experiment(artifacts["rir-semantic-payload"]))
+    )
+    assert (
+        candidate.cli("experiment", "check", str(experiment_path), "--rir", rir_path)[
+            "checked"
+        ]
+        is True
+    )
     evaluation = _members(
         candidate.cli(
             "experiment",
             "run",
             str(experiment_path),
+            "--rir",
+            rir_path,
             "--out",
             str(tmp_path / "evaluation"),
             "--invocation-key",
@@ -803,17 +804,16 @@ def test_public_unselected_nominal_shadow_cannot_change_selected_type(
     _reidentify_graph_root(ldb)
     candidate = _PublicCandidate(tmp_path, authorities=(kernel, ldb))
     assert candidate.cli("model", "check", str(candidate.source))["checked"] is True
-    artifacts = _members(
-        candidate.cli(
-            "model",
-            "build",
-            str(candidate.source),
-            "--out",
-            str(tmp_path / "build"),
-            "--invocation-key",
-            "06" * 32,
-        )
+    receipt = candidate.cli(
+        "model",
+        "build",
+        str(candidate.source),
+        "--out",
+        str(tmp_path / "build"),
+        "--invocation-key",
+        "06" * 32,
     )
+    artifacts = _members(receipt)
     selected = artifacts["rir-semantic-payload"]["selected_semantics"]
     assert "genre.shadow" not in {row["id"] for row in selected["packages"]}
     assert {row["package"] for row in selected["nominal_types"]} == set(_OWNERS)
@@ -830,14 +830,28 @@ def test_public_unselected_nominal_shadow_cannot_change_selected_type(
         owner: {"kind": "enum", "members": ["adjust-v1", "genre.economy", "1.0.0"]}
         for owner in _OWNERS
     }
+    rir_path = next(
+        row["locator"]
+        for row in receipt["member_locators"]
+        if row["logical_name"] == "rir-semantic-payload"
+    )
     experiment_path = tmp_path / "experiment.json"
-    experiment_path.write_text(json.dumps(_experiment(artifacts["build-receipt"])))
-    assert candidate.cli("experiment", "check", str(experiment_path))["checked"] is True
+    experiment_path.write_text(
+        json.dumps(_experiment(artifacts["rir-semantic-payload"]))
+    )
+    assert (
+        candidate.cli("experiment", "check", str(experiment_path), "--rir", rir_path)[
+            "checked"
+        ]
+        is True
+    )
     evaluation = _members(
         candidate.cli(
             "experiment",
             "run",
             str(experiment_path),
+            "--rir",
+            rir_path,
             "--out",
             str(tmp_path / "evaluation"),
             "--invocation-key",

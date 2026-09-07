@@ -50,25 +50,24 @@ def test_progression_drives_periodic_effect_through_cli_and_http(
         row["target"]["name"] for row in experiment["scenarios"][0]["assignments"]
     } == {"target_health", "level", "damage_per_level"}
 
-    build = _members(
-        _cli(
-            "model",
-            "build",
-            str(_EXAMPLE / "model-source.json"),
-            "--out",
-            str(tmp_path / "build"),
-            "--invocation-key",
-            "01" * 32,
-        )
-    )["build-receipt"]
-    # The maintained source and checked-in Experiment bind exactly; no test-time
-    # compatibility rebinding is allowed to hide a stale public example.
-    assert experiment["kernel_identity"] == build["kernel_identity"]
-    assert experiment["language_bundle_identity"] == build["language_bundle_identity"]
-    assert experiment["model"] == {
-        key: build["content_identity" if key == "build_receipt_identity" else key]
-        for key in experiment["model"]
-    }
+    receipt = _cli(
+        "model",
+        "build",
+        str(_EXAMPLE / "model-source.json"),
+        "--out",
+        str(tmp_path / "build"),
+        "--invocation-key",
+        "01" * 32,
+    )
+    rir = _members(receipt)["rir-semantic-payload"]
+    rir_path = next(
+        row["locator"]
+        for row in receipt["member_locators"]
+        if row["logical_name"] == "rir-semantic-payload"
+    )
+    # The checked-in Experiment must bind the maintained source's RIR meaning;
+    # test-time rebinding must not hide a stale public example.
+    assert experiment["model"] == {"rir_semantic_identity": rir["semantic_identity"]}
 
     for assignment in experiment["scenarios"][0]["assignments"]:
         if assignment["target"]["name"] == "level":
@@ -83,6 +82,8 @@ def test_progression_drives_periodic_effect_through_cli_and_http(
             "experiment",
             "run",
             str(path),
+            "--rir",
+            rir_path,
             "--out",
             str(tmp_path / "run"),
             "--invocation-key",
