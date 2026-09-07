@@ -3575,6 +3575,8 @@ def _resolved_call_sites(
         language_bundle,
         operations=operations,
         snapshot_contracts=operation_snapshot_contracts(
+            kernel,
+            language_bundle,
             operations,
             {
                 (row["resolved_symbol"]["module"], row["resolved_symbol"]["name"]): row

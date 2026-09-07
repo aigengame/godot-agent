@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 from gda_balancing.domain.authority.runtime_validation import (
+    derive_operation_value_contracts,
     fixed_operation_value_contract,
     operation_literal_context_contract,
 )
@@ -242,9 +243,7 @@ def build_operation_call_domain_input(
         ),
         literal_contract=_literal_contract_resolver(kernel, language_bundle),
         iteration_contract=_iteration_contract_resolver(kernel),
-        snapshot_contracts=operation_snapshot_contracts(
-            operations, declarations_by_symbol
-        ),
+        snapshot_contracts=_snapshot_declarations(operations, declarations_by_symbol),
         snapshot_operand_names=_snapshot_operand_names(operations),
     )
 
@@ -283,6 +282,42 @@ def _formula_slot_bindings(
 
 
 def operation_snapshot_contracts(
+    kernel: dict[str, Any],
+    language_bundle: dict[str, Any],
+    operations: dict[OperationCoordinate, dict[str, Any]],
+    declarations_by_symbol: dict[tuple[str, str], dict[str, Any]],
+) -> dict[OperationCoordinate, dict[str, dict[str, Any]]]:
+    """Project declared Snapshot values into selected Operation value contracts.
+
+    Formula call-domain analysis retains each declaration's numeric interval.
+    Lexical Operation admission instead uses the authority's actual-value
+    contract, with the declaration's nominal type and scalar dimensions intact.
+    """
+    value_contracts = derive_operation_value_contracts(kernel, language_bundle)
+    if value_contracts is None:
+        raise ValueError("Operation value contracts are not admitted")
+    resolved: dict[OperationCoordinate, dict[str, dict[str, Any]]] = {}
+    for coordinate, declarations in _snapshot_declarations(
+        operations, declarations_by_symbol
+    ).items():
+        contracts: dict[str, dict[str, Any]] = {}
+        for name, declaration in declarations.items():
+            contract = value_contracts.contract_for_type(declaration["type_identity"])
+            members = (
+                ("value_kind",)
+                if declaration.get("value_kind") == "nominal-structured"
+                else ("representation", "kind", "unit", "numeric_policy")
+            )
+            if contract is None or any(
+                declaration.get(member) != contract.get(member) for member in members
+            ):
+                raise ValueError("Snapshot declaration has no Operation value contract")
+            contracts[name] = contract
+        resolved[coordinate] = contracts
+    return resolved
+
+
+def _snapshot_declarations(
     operations: dict[OperationCoordinate, dict[str, Any]],
     declarations_by_symbol: dict[tuple[str, str], dict[str, Any]],
 ) -> dict[OperationCoordinate, dict[str, dict[str, Any]]]:
