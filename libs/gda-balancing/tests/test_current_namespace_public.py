@@ -886,7 +886,12 @@ def test_public_unselected_nominal_shadow_cannot_change_selected_type(
     assert [
         (row["code"], row["primary"]["pointer"])
         for row in checked["error"]["diagnostics"]
-    ] == [("language.source_contract_mismatch", "/entrypoints/0/arguments/2/operand")]
+    ] == [
+        (
+            "language.source_contract_mismatch",
+            "/entrypoints/0/arguments/2/operand/value/value/id",
+        )
+    ]
     assert not (tmp_path / "refused-build").exists()
     assert {
         path: path.read_bytes()

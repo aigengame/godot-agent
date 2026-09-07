@@ -1,7 +1,7 @@
 {
   "required_tests_before": 668,
-  "required_tests_after": 676,
-  "current_collected_tests": 1501,
+  "required_tests_after": 683,
+  "current_collected_tests": 1508,
   "test_dispositions": [
     {
       "before": "tests/test_schema2_authority_cli.py::test_authority_loader_refuses_an_unreadable_declared_child[packages/core-quantity/core.quantity@2.2.0.conformance-vectors.json-language-bundle.package_descriptors.0.conformance_vectors]",
@@ -500,5 +500,17 @@
       "after": "standard.runtime:runtime.refuse.step-limit"
     }
   ],
-  "allowed_skips_unchanged": true
+  "allowed_skips_unchanged": true,
+  "nominal_owner_review_regressions": {
+    "reason": "Delete redundant nominal owner claims and preserve recursive selected ownership through independent and public consumers.",
+    "added_test_ids": [
+      "tests/test_schema2_model_lowerer_conformance.py::test_independent_lowerers_close_recursive_nominal_types_by_owner",
+      "tests/test_current_namespace_public.py::test_public_nominal_definition_rejects_retired_owner_field[genre.economy]",
+      "tests/test_current_namespace_public.py::test_public_nominal_definition_rejects_retired_owner_field[genre.rebate]",
+      "tests/test_current_namespace_public.py::test_public_unselected_nominal_shadow_cannot_change_selected_type",
+      "tests/test_schema2_bootstrap_language.py::test_independent_recursive_nominal_values_resolve_attached_owners",
+      "tests/test_schema2_bootstrap_language.py::test_both_consumers_refuse_authored_nominal_owner_even_when_matching[test.nominal.alpha]",
+      "tests/test_schema2_bootstrap_language.py::test_both_consumers_refuse_authored_nominal_owner_even_when_matching[test.nominal.beta]"
+    ]
+  }
 }

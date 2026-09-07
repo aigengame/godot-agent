@@ -158,12 +158,65 @@ def _reidentify_graph_root(ldb: LanguageBundleIndex) -> None:
     ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
 
 
+def _recursive_nominal_owner_candidate():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    for namespace, member in (
+        ("test.nominal.alpha", "alpha"),
+        ("test.nominal.beta", "beta"),
+    ):
+        package = _append_empty_namespace(ldb, namespace)
+        package["dependencies"]["required"] = ["standard.schema"]
+        package["runtime_semantic_paths"] = ["language.nominal_types"]
+        package["exports"]["nominal_types"] = ["Token", "Node"]
+        package["exports"]["types"] = [
+            {"id": "Token", "constructor": "standard.schema.enum"},
+            {"id": "Node", "constructor": "standard.schema.record"},
+        ]
+        nominal = next(
+            entry
+            for entry in package["semantic_closure"]
+            if entry["authority_path"] == "language.nominal_types"
+        )
+        nominal["definitions"] = [
+            {
+                "id": "Token",
+                "constructor": "standard.schema.enum",
+                "definition": {"kind": "enum", "members": [member]},
+            },
+            {
+                "id": "Node",
+                "constructor": "standard.schema.record",
+                "definition": {
+                    "kind": "record",
+                    "fields": [
+                        {"name": name, "type": {"package": namespace, "id": "Token"}}
+                        for name in ("id", "package", "version")
+                    ]
+                    + [
+                        {
+                            "name": "children",
+                            "type": {
+                                "kind": "list",
+                                "maximum_length": 2,
+                                "element": {"package": namespace, "id": "Node"},
+                            },
+                        }
+                    ],
+                },
+            },
+        ]
+    _reidentify_graph_root(ldb)
+    return authority
+
+
 __all__ = [
     "_append_empty_namespace",
     "_authority_candidate",
     "_consumer_a",
     "_refresh_package_closure_and_reidentify",
     "_reidentify_graph_root",
+    "_recursive_nominal_owner_candidate",
     "admit_authorities",
     "packaged_authority_context",
     "production_bootstrap",

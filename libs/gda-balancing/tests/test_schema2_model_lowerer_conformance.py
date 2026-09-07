@@ -42,6 +42,7 @@ from schema2_authority_support import (
     refresh_package_semantic_closures,
     mutable_authorities,
 )
+from schema2_bootstrap_production_support import _recursive_nominal_owner_candidate
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
@@ -1090,6 +1091,11 @@ def _reference_resolved_symbols(checked: CheckedModel) -> list[dict[str, Any]]:
                 "package": package_key,
                 "id": imported[profile["import_symbol_member"]],
             }
+            if (
+                imported[profile["import_symbol_member"]]
+                in package["exports"]["nominal_types"]
+            ):
+                fields["value_kind"] = "nominal-structured"
             rows.append(fields)
     assert resolved_symbol_ids == selected_symbol_ids
     return sorted(
@@ -2542,8 +2548,11 @@ def _reference_rir(
         lock = _reference_package_lock(checked)
     declarations = []
     for symbol in _reference_resolved_symbols(checked):
-        fact = {"kind": lowering["initial_fact_kind"], "fields": symbol}
-        for invocation in lowering["rule_chain"]:
+        rule_prefix = (
+            "structured_" if symbol.get("value_kind") == "nominal-structured" else ""
+        )
+        fact = {"kind": lowering[f"{rule_prefix}initial_fact_kind"], "fields": symbol}
+        for invocation in lowering[f"{rule_prefix}rule_chain"]:
             fact = _reference_apply(language, invocation, fact)
         declarations.append(fact["fields"])
     formulas, formula_bindings = _reference_formulas_and_bindings(
@@ -3596,20 +3605,25 @@ def _reference_runtime_projection(
     type_closure = profile["type_reference_closure"]
 
     def nested_type_terms(value: Any):
-        consume()
-        if isinstance(value, list):
-            for child in value:
-                yield from nested_type_terms(child)
-        elif isinstance(value, dict):
-            coordinate_members = type_closure["coordinate_members"]
-            if set(coordinate_members) <= set(value):
-                yield "reference", tuple(value[member] for member in coordinate_members)
-            else:
-                structural_kind = value.get(type_closure["structural_kind_member"])
-                if isinstance(structural_kind, str):
-                    yield "constructor", structural_kind
-                for child in value.values():
-                    yield from nested_type_terms(child)
+        references = set()
+        kinds = set()
+        pending = [value]
+        while pending:
+            term = pending.pop()
+            consume()
+            if isinstance(term, list):
+                pending.extend(term)
+            elif isinstance(term, dict):
+                coordinate = tuple(
+                    term.get(member) for member in type_closure["coordinate_members"]
+                )
+                if all(isinstance(member, str) and member for member in coordinate):
+                    references.add(coordinate)
+                kind = term.get(type_closure["structural_kind_member"])
+                if isinstance(kind, str) and kind:
+                    kinds.add(kind)
+                pending.extend(term.values())
+        return references, kinds
 
     previous = None
     while previous != selected:
@@ -3632,27 +3646,28 @@ def _reference_runtime_projection(
                         continue
                     if actual == expected:
                         selected[edge["target_collection"]].add(target_index)
+        references = set()
+        constructor_kinds = set()
         for source_index in sorted(selected[type_closure["source_collection"]]):
             source = catalogs[type_closure["source_collection"]][source_index]
             definition = descend(source[2], type_closure["source_definition_path"])
-            for kind, expected in nested_type_terms(definition):
-                collection = type_closure[
-                    "target_type_collection"
-                    if kind == "reference"
-                    else "target_constructor_collection"
-                ]
-                matches = []
-                for index, row in enumerate(catalogs[collection]):
-                    consume()
-                    actual = (
-                        (row[0], row[2]["id"])
-                        if kind == "reference"
-                        else descend(row[2], type_closure["constructor_kind_path"])
-                    )
-                    if actual == expected:
-                        matches.append(index)
-                assert len(matches) == 1
-                selected[collection].update(matches)
+            nested_references, nested_kinds = nested_type_terms(definition)
+            references.update(nested_references)
+            constructor_kinds.update(nested_kinds)
+        type_collection = type_closure["target_type_collection"]
+        for index, row in enumerate(catalogs[type_collection]):
+            consume()
+            if (row[0], row[2]["id"]) in references:
+                selected[type_collection].add(index)
+        constructor_collection = type_closure["target_constructor_collection"]
+        for index, row in enumerate(catalogs[constructor_collection]):
+            consume()
+            try:
+                kind = descend(row[2], type_closure["constructor_kind_path"])
+            except (KeyError, TypeError):
+                continue
+            if kind in constructor_kinds:
+                selected[constructor_collection].add(index)
 
     selected_packages = {
         catalogs[name][index][0]
@@ -4186,6 +4201,71 @@ def test_independent_lowerers_mutually_consume_byte_identical_rir(tmp_path):
             )
         }
     ).admitted
+
+
+def test_independent_lowerers_close_recursive_nominal_types_by_owner(
+    tmp_path, monkeypatch
+):
+    authority = _recursive_nominal_owner_candidate()
+    kernel, language_bundle = authority["kernel"], authority["language_bundle"]
+    _inject_authority_context(monkeypatch, kernel, language_bundle)
+    source = _source([])
+    owners = ("test.nominal.alpha", "test.nominal.beta")
+    source["package_requirements"] = list(owners)
+    module = source["modules"][0]
+    module["imports"] = [
+        {"alias": owner, "package": owner, "symbol": "Node"} for owner in owners
+    ]
+    module["symbols"] = [
+        {
+            "symbol": owner.rsplit(".", 1)[1],
+            "type": owner,
+            "role": "state",
+            "value_policy": {"mode": "experiment-required"},
+        }
+        for owner in owners
+    ]
+    path = tmp_path / "source.json"
+    _write_source(path, source)
+    production_checked = check_model_source(str(path))
+    reference_checked = _reference_check_source(source, kernel, language_bundle)
+    assert isinstance(production_checked, CheckedModel)
+    assert isinstance(reference_checked, CheckedModel)
+    production = lower_checked_model(production_checked)
+    reference = _reference_semantic_artifacts(reference_checked)
+    for name in ("package-lock", "rir-semantic-payload", "resolved-model", "debug-map"):
+        assert production[name] == reference[name], name
+    assert _reference_admits_semantic_artifacts(production, reference_checked)
+    assert admit_resolved_model(
+        {
+            name: reference[name]
+            for name in ("package-lock", "rir-semantic-payload", "resolved-model")
+        }
+    ).admitted
+    selected = reference["rir-semantic-payload"]["selected_semantics"]
+    definitions = {
+        (row["package"], row["definition"]["id"]): row["definition"]
+        for row in selected["nominal_types"]
+    }
+    assert set(definitions) == {
+        (owner, local) for owner in owners for local in ("Node", "Token")
+    }
+    for owner in owners:
+        assert set(definitions[(owner, "Node")]) == {"id", "constructor", "definition"}
+        assert definitions[(owner, "Token")]["definition"]["members"] == [
+            owner.rsplit(".", 1)[1]
+        ]
+        fields = definitions[(owner, "Node")]["definition"]["fields"]
+        assert fields[-1]["type"] == {
+            "kind": "list",
+            "maximum_length": 2,
+            "element": {"package": owner, "id": "Node"},
+        }
+    assert {row["id"] for row in selected["constructors"]} == {
+        "standard.schema.enum",
+        "standard.schema.record",
+        "standard.schema.list",
+    }
 
 
 def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():

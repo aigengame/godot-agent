@@ -1,14 +1,14 @@
 {
   "schema_version": "2.0.0",
   "id": "example.rpg-stat-composition.golden-attack",
-  "kernel_identity": "sha256:a1a0b6b93cf9bb6ec8813c8af044ce473cce2e53db361f9ae1bf87d7c89b3a5f",
-  "language_bundle_identity": "sha256:ff86be8a48e1286a0e7d9e3727823e2bb37ea5f436976fd912c7733f53043afc",
+  "kernel_identity": "sha256:9c1c88e55c239fb6c3b3d022ea7099c2f952c15c8339e292bb29c74f75387202",
+  "language_bundle_identity": "sha256:4072bc7fb9817b7d9c8ebf14a6e666bcc5d3c739e7d61a2157c5038bc5cf9d32",
   "model": {
     "source_identity": "sha256:979a800d62fbd815f076ef22db9f5caa0e0c00404e18e88fbb88935bf26aa4e3",
-    "build_receipt_identity": "sha256:86b38da543e3abbefddb303014fc21a731f9fe2a4581b3dc283eb6f690b0ee3f",
-    "resolved_model_identity": "sha256:5c5736d202f69f7b2d3ee05d40c37a92b4ade202f3a599babb79d0b5a300f751",
-    "package_lock_identity": "sha256:01f8b4029e13542ea86003149447e414fd1c4f30da9f5d38bbc4bc7029abde30",
-    "rir_identity": "sha256:c83c3516747da9448486c7fbf8f85920d95ff496e6b090dd03cfa1cbcf370265"
+    "build_receipt_identity": "sha256:15e713202af5fa13f3f71f246dbb219a2de9532cc4dc6cf0b363ff4376147782",
+    "resolved_model_identity": "sha256:493e8e1040b8c70b6f05e86d7c765a1296ad7e75a35da16de86c18d00b424b15",
+    "package_lock_identity": "sha256:5cd9807587d358d59b112560b7a4a4e70dc30187b5b0b4da4e917da2063063b2",
+    "rir_identity": "sha256:9f6e7c43e4b59f0e02c11437650106941606a75a030f2b2a74498154d90241be"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",

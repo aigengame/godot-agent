@@ -1125,8 +1125,10 @@ requirements remain typed refusals. There is no exact-version selection field, s
 judgment, version-range solver or old-shape fallback.
 
 Operations, Components, Conversions and nominal Types have package-scoped local ids. Their owners
-come from the attached semantic closure, without a second authored owner field. Different
-namespaces may reuse a local id; duplicate ids within one owner refuse. Constructors and structured
+come from the attached semantic closure, without a second authored owner field. Nominal definitions
+contain `{id, constructor, definition}`; only their TypeReferences and outer RIR selection rows
+carry `package`. Different namespaces may reuse a local id; duplicate ids within one owner refuse.
+Constructors and structured
 Operations retain global identity, and capability contracts require a unique selected provider.
 Kernel fixed-value Type namespaces are excluded from package owners using the existing Kernel
 contracts.

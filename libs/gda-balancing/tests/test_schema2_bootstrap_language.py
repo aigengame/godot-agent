@@ -1620,57 +1620,6 @@ def test_two_consumers_admit_cross_owner_calls_with_the_same_local_operation_id(
     assert first["diagnostics"] == []
 
 
-def _recursive_nominal_owner_candidate():
-    authority = _authority_candidate()
-    ldb = authority["language_bundle"]
-    for namespace, member in (
-        ("test.nominal.alpha", "alpha"),
-        ("test.nominal.beta", "beta"),
-    ):
-        package = _append_empty_namespace(ldb, namespace)
-        package["dependencies"]["required"] = ["standard.schema"]
-        package["exports"]["nominal_types"] = ["Token", "Node"]
-        package["exports"]["types"] = [
-            {"id": "Token", "constructor": "standard.schema.enum"},
-            {"id": "Node", "constructor": "standard.schema.record"},
-        ]
-        nominal = next(
-            entry
-            for entry in package["semantic_closure"]
-            if entry["authority_path"] == "language.nominal_types"
-        )
-        nominal["definitions"] = [
-            {
-                "id": "Token",
-                "constructor": "standard.schema.enum",
-                "definition": {"kind": "enum", "members": [member]},
-            },
-            {
-                "id": "Node",
-                "constructor": "standard.schema.record",
-                "definition": {
-                    "kind": "record",
-                    "fields": [
-                        {"name": name, "type": {"package": namespace, "id": "Token"}}
-                        for name in ("id", "package", "version")
-                    ]
-                    + [
-                        {
-                            "name": "children",
-                            "type": {
-                                "kind": "list",
-                                "maximum_length": 2,
-                                "element": {"package": namespace, "id": "Node"},
-                            },
-                        }
-                    ],
-                },
-            },
-        ]
-    _reidentify_graph_root(ldb)
-    return authority
-
-
 def test_independent_recursive_nominal_values_resolve_attached_owners():
     authority = _recursive_nominal_owner_candidate()
     kernel, ldb = authority["kernel"], authority["language_bundle"]
@@ -1742,6 +1691,6 @@ def test_both_consumers_refuse_authored_nominal_owner_even_when_matching(
     first = _consumer_a(authority["kernel"], ldb)
     assert first == _consumer_b(authority["kernel"], ldb)
     assert first["admitted"] is False
-    assert any(
-        code == "kernel.member_set_mismatch" for _, code, _ in first["diagnostics"]
-    )
+    assert first["diagnostics"] == [
+        ("static", "kernel.vector_mismatch", "language.definitions")
+    ]

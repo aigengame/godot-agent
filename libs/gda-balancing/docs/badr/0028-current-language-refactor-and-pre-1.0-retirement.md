@@ -38,8 +38,10 @@ historical records.
 
 Package-owned Operations, Components, Conversions and nominal Types retain local ids scoped to the
 owner derived from the attached closure. Different namespaces may share local ids; duplicates
-within one owner refuse. Kernel fixed-value Type owners are reserved through the existing Kernel
-contracts. Global constructors/structured Operations and unique selected capability providers retain
+within one owner refuse. The nominal definition's redundant authored `package` field is deleted from Kernel/LDB and RIR
+definition schemas. References retain `{package, id}`; RIR rows retain their derived outer owner.
+Kernel fixed-value Type owners are reserved through the existing Kernel contracts.
+Global constructors/structured Operations and unique selected capability providers retain
 their laws. No new owner registry or authored owner field is introduced. Namespace closure, missing
 package/capability refusal, canonical integrity and active-session stability remain.
 

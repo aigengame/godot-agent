@@ -16,6 +16,7 @@ intermediate failures and actual integration receipt.
 | Package required/optional dependencies, Source requirements, Lock root requirements | Lists of namespace strings |
 | Imports | `{alias, package, symbol}` |
 | Nominal Type identities/references and Operation references | `{package, id}` |
+| Nominal Type definitions | `{id, constructor, definition}`; namespace comes from the containing package or the RIR row |
 | Package descriptors and selected package rows | Namespace `id` plus meaningful content, semantic and resource fields |
 | Model manifest | `id` and `entry_module` |
 | Package and Template selection | Current namespace or Template id; no version argument |
@@ -60,6 +61,12 @@ index must not accidentally impose global bare-id uniqueness. Do not add a secon
 authored owner field or registry. Two namespaces may own the same local declaration
 id; each qualified Operation reference must execute its own body. Duplicate
 definitions within one owner refuse.
+
+Delete the nominal definition's redundant authored `package` member. Its closed
+schema refuses that member even when it matches the containing owner. Nested
+TypeReferences retain `{package, id}`; a Record field or literal named `package`
+remains authored data. Package admission, Model symbol classification, structured
+value indexes and selected RIR indexes all use the attached owner.
 
 Constructors, structured-operation vocabulary and capability contract identifiers
 retain their existing global meanings. Each required capability has one provider
@@ -134,7 +141,7 @@ The checked public witnesses are reproducible from the maintained tests:
 
 | Witness | Retained observation |
 | --- | --- |
-| `tests/test_current_namespace_public.py` | Two owners execute different bodies under the same local Operation id; distinct nominal types remain distinct; authored Record data named `version` survives. Four Source negatives retain ownership/type/dependency diagnostics. A resealed invalid installed graph refuses without publishing artifacts. |
+| `tests/test_current_namespace_public.py` | Two owners execute different bodies under the same local Operation id; distinct nominal types remain distinct; authored Record data named `version` survives. Four Source negatives retain ownership/type/dependency diagnostics. Resealed owner claims refuse even when matching. An unselected same-name nominal type cannot supply values to the selected type. Refused invocations publish no artifacts. |
 | Model CLI tests | Missing/duplicate roots reach machine-defined judgments before selection finalization. Zero or two selected capability providers refuse; one provider builds and appears in Lock. |
 | Formula CLI tests | Both production and independent consumers reject a retired import version member under the admitted closed Source import schema. |
 | Model lowerer conformance | All 34 declared Model vectors retain their verdict obligations. Positive artifact observations agree with the independently implemented consumer and declared oracles. |
@@ -171,11 +178,30 @@ Ruff, Pyright and sealed-graph verification pass at the checked integration stat
 
 The [inventory disposition](evidence/wire-migration/inventory-disposition.json)
 maps 21 changed required test identifiers and all 84 required vector identifiers
-to native obligations. The required test floor is now 676; all 1,501 collected
+to native obligations, and adds seven nominal-owner review regressions. The required test floor is
+now 683; all 1,508 collected
 cases belong to exactly one CI shard. No allowed-skip entry was changed. Full CI
 and independent review remain the PR's responsibility. These witnesses do not
 close #872, #875, incremental Runtime #745, simulation policy #509, or the later
 non-RPG extension challenge #878.
+
+Independent Spec and DDMA review of `57a939d` found the same ownership defect:
+an unselected package could copy a nominal definition, claim another owner through
+its inner `package`, and change the selected type's accepted values. Both admission
+consumers and the public build/run path admitted that graph, although RIR omitted
+the unselected package. The fix deletes all 20 redundant nominal owner fields and
+their Kernel/RIR schema members, and derives type indexes from attached owners.
+The independent lowerer now also executes the declared structured rule chain and
+recursive TypeReference closure. A two-owner recursive Record/List witness checks
+byte-identical artifacts, mutual admission and distinct enum definitions. The
+public and independent regression tests retain the actual static refusal code and
+pointer; they do not infer a different stage from the schema alone.
+
+After this correction, the combined Model-lowerer, public-namespace, bootstrap-language
+and structured-value selection passes all 118 tests. All 34 Model vector verdicts
+remain unchanged; 13 positive expectations are refreshed only after independent
+artifact comparison. Runtime consumers are rebuilt against the new sealed graph;
+the PR records their final execution and CI results.
 
 ## Rollback
 
