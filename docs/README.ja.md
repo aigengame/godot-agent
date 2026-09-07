@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e225ed00bc75daf0ba46f85f056196e35987afe39341d354b4ec0454b64733a2 -->
+<!-- gda-readme-i18n: source=README.md sha256=ee5d00fce018fc5861a9fd976b007d5311fd0cabc8a51d521e70a41c3ab2eaf8 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -540,8 +540,8 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `input key` | キーイベントを(修飾キー付きで)注入します。 |
 | `input mouse-click` | `(x, y)` の位置に完全なクリックジェスチャ(移動、押下、解放)を注入します。 |
 | `input mouse-move` | `(x, y)` へのマウス移動を注入します。 |
-| `input action` | マッピング済みの入力アクションを押下/解放します(ポーリング状態のみが変化し、`_input`/`_gui_input` には届きません)。 |
-| `input tap` | キーまたはアクションを 1 回タップします(押下、保持、解放を複数フレームで実行。`--key` はイベントを届け、`--action` はポーリング状態のみを変えます)。 |
+| `input action` | マッピング済みの入力アクションを押下/解放します(ポーリング状態のみが変化。`--as-event` を付けると `_input`/`_gui_input` に届きます)。 |
+| `input tap` | キーまたはアクションを 1 回タップします(押下、保持、解放を複数フレームで実行。`--key` はイベントを届け、`--action` はポーリング状態を変えます。`--as-event` を付けた場合を除く)。 |
 | `input sequence` | 複数フレームにわたるイベントのタイムラインを注入します。 |
 
 注入されたマウス座標は `event.position` から読み取ってください——デーモンセッションでは

@@ -261,6 +261,23 @@ modal, a scrollable) with a key or mouse event, and use an action where the game
 polls `Input.is_action_*`. A successful action injection is not evidence that the
 event path works.
 
+`--as-event` is the explicit opt-in to the OTHER door for an action: gda pushes an
+`InputEventAction` through the root viewport, so handlers matching the action
+receive it and the polled state stays untouched. It rides `input action`,
+`input tap --action`, and a sequence `action` event (`"as_event": true`), and the
+opted-in result reports `viewport_event`. The default is unchanged. The matrix, for
+one action and the key it is mapped to:
+
+| injection | `Input.is_action_pressed` | `_input` / `_unhandled_input` | `_gui_input` |
+| --- | --- | --- | --- |
+| `input action` (state route) | yes | no | no |
+| `input action --as-event` | no | yes | yes (focused Control) |
+| `input key` of the mapped key | no | yes | yes (focused Control) |
+
+Reach for it when a Control, a modal or another event-driven handler must react to
+an ACTION rather than to the key it is bound to — otherwise a key or mouse event is
+the plainer tool.
+
 For a UI activation, use the gesture commands, not a lone event. Godot activates a
 `Button` on the RELEASE, so a bare press never emits `pressed`; and a focused UI
 does not advance when the press and the release land on the same process frame.
