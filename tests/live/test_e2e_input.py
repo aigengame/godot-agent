@@ -217,17 +217,22 @@ TAP_ACTION_PLAYER_GD = (
     "\t\treleased_edges += 1\n"
 )
 
-# The #854 conformance subject: ONE Control that observes all three cells of the
-# matrix at once — `_process` polls `Input.is_action_pressed`, `_gui_input` sees
-# what the focused Control is given, and `_unhandled_input` sees what nothing
-# consumed. It grabs focus at startup (a bare Control's focus_mode is NONE, and
-# the `_gui_input` row is about the FOCUSED Control) and accepts nothing, so an
-# event it counts still travels on to `_unhandled_input`.
+# The #854 conformance subject: ONE Control that observes all FOUR observers the
+# matrix names at once — `_process` polls `Input.is_action_pressed`, `_input` sees
+# every event the viewport dispatches, `_gui_input` sees what the focused Control
+# is given, and `_unhandled_input` sees what nothing consumed. The issue names
+# `_input` beside the other two, and it is the FIRST of the three the engine calls,
+# so a route that reached only the later two would still be the wrong answer. It
+# grabs focus at startup (a bare Control's focus_mode is NONE, and the `_gui_input`
+# row is about the FOCUSED Control) and consumes nothing — no `accept_event()`, no
+# `set_input_as_handled()` — so one event is counted by all three handlers in turn.
 MATRIX_UI_GD = (
     "extends Control\n"
     "@export var polled_frames: int = 0\n"
+    "@export var input_hits: int = 0\n"
     "@export var gui_input_hits: int = 0\n"
     "@export var unhandled_hits: int = 0\n"
+    "@export var input_release_hits: int = 0\n"
     "@export var gui_release_hits: int = 0\n"
     "@export var unhandled_release_hits: int = 0\n"
     "func _ready() -> void:\n"
@@ -236,6 +241,11 @@ MATRIX_UI_GD = (
     "func _process(_delta: float) -> void:\n"
     '\tif Input.is_action_pressed("move_right"):\n'
     "\t\tpolled_frames += 1\n"
+    "func _input(event: InputEvent) -> void:\n"
+    '\tif event.is_action_pressed("move_right"):\n'
+    "\t\tinput_hits += 1\n"
+    '\telif event.is_action_released("move_right"):\n'
+    "\t\tinput_release_hits += 1\n"
     "func _gui_input(event: InputEvent) -> void:\n"
     '\tif event.is_action_pressed("move_right"):\n'
     "\t\tgui_input_hits += 1\n"
@@ -1012,12 +1022,27 @@ def test_action_event_mode_conformance_matrix_against_a_live_session(
             name: _property_value(gda, node, name)
             for name in (
                 "polled_frames",
+                "input_hits",
                 "gui_input_hits",
                 "unhandled_hits",
+                "input_release_hits",
                 "gui_release_hits",
                 "unhandled_release_hits",
             )
         }
+
+    def assert_handlers(seen: dict, presses: int, releases: int) -> None:
+        # The three event handlers are ONE claim about the route: an event that
+        # took the viewport door is dispatched to `_input` first, then to the
+        # focused Control, then to whatever nothing consumed. Asserting them
+        # together is what makes a partial delivery a failure instead of a
+        # counter nobody reads.
+        assert seen["input_hits"] == presses, seen
+        assert seen["gui_input_hits"] == presses, seen
+        assert seen["unhandled_hits"] == presses, seen
+        assert seen["input_release_hits"] == releases, seen
+        assert seen["gui_release_hits"] == releases, seen
+        assert seen["unhandled_release_hits"] == releases, seen
 
     try:
         assert gda("daemon", "start").returncode == 0
@@ -1031,10 +1056,7 @@ def test_action_event_mode_conformance_matrix_against_a_live_session(
         assert released.returncode == 0, released.stdout + released.stderr
         after_state = observed()
         assert after_state["polled_frames"] > 0
-        assert after_state["gui_input_hits"] == 0
-        assert after_state["unhandled_hits"] == 0
-        assert after_state["gui_release_hits"] == 0
-        assert after_state["unhandled_release_hits"] == 0
+        assert_handlers(after_state, presses=0, releases=0)
 
         # Row 2 — the opt-in: an InputEventAction through the root viewport reaches
         # the focused Control's `_gui_input` and `_unhandled_input`, and the polled
@@ -1043,8 +1065,7 @@ def test_action_event_mode_conformance_matrix_against_a_live_session(
         assert as_event.returncode == 0, as_event.stdout + as_event.stderr
         assert json.loads(as_event.stdout)["injection_route"] == "viewport_event"
         after_event = observed()
-        assert after_event["gui_input_hits"] == 1
-        assert after_event["unhandled_hits"] == 1
+        assert_handlers(after_event, presses=1, releases=0)
         assert after_event["polled_frames"] == after_state["polled_frames"]
 
         # The RELEASE half of the opt-in on the single-frame op, observed as its
@@ -1058,10 +1079,7 @@ def test_action_event_mode_conformance_matrix_against_a_live_session(
         assert release_doc["injection_route"] == "viewport_event"
         assert release_doc["pressed"] is False
         after_event_release = observed()
-        assert after_event_release["gui_release_hits"] == 1
-        assert after_event_release["unhandled_release_hits"] == 1
-        assert after_event_release["gui_input_hits"] == 1
-        assert after_event_release["unhandled_hits"] == 1
+        assert_handlers(after_event_release, presses=1, releases=1)
         assert after_event_release["polled_frames"] == after_state["polled_frames"]
 
         # Row 3 — the mapped key, the route the opt-in joins: same handlers, same
@@ -1070,10 +1088,7 @@ def test_action_event_mode_conformance_matrix_against_a_live_session(
         assert key.returncode == 0, key.stdout + key.stderr
         assert json.loads(key.stdout)["injection_route"] == "viewport_event"
         after_key = observed()
-        assert after_key["gui_input_hits"] == 2
-        assert after_key["unhandled_hits"] == 2
-        assert after_key["gui_release_hits"] == 1
-        assert after_key["unhandled_release_hits"] == 1
+        assert_handlers(after_key, presses=2, releases=1)
         assert after_key["polled_frames"] == after_state["polled_frames"]
 
         # A tap in the event mode takes the same door on both phases.
@@ -1084,14 +1099,16 @@ def test_action_event_mode_conformance_matrix_against_a_live_session(
             "viewport_event",
         ]
         after_tap = observed()
-        assert after_tap["gui_input_hits"] == 3
-        assert after_tap["unhandled_hits"] == 3
-        assert after_tap["gui_release_hits"] == 2  # the tap's own release edge
-        assert after_tap["unhandled_release_hits"] == 2
+        # The tap injects its own release edge, so both halves move by one.
+        assert_handlers(after_tap, presses=3, releases=2)
         assert after_tap["polled_frames"] == after_state["polled_frames"]
 
-        # And one sequence mixes the two routes, reporting one per phase — the
-        # state event drives the polled state, the opt-in one reaches the handlers.
+        # And one sequence mixes the two routes, reporting one per phase. It
+        # carries BOTH edges of the opt-in and both edges of the state route, so
+        # the two are told apart on the same clock: the opted-in release must
+        # reach the handlers, and the state release beside it must reach none.
+        # Without its own opted-in release event, the harness could deliver every
+        # release as a press and the press counters would not notice.
         sequence = gda(
             "input",
             "sequence",
@@ -1108,8 +1125,15 @@ def test_action_event_mode_conformance_matrix_against_a_live_session(
                     {
                         "type": "action",
                         "action": "move_right",
+                        "as_event": True,
                         "release": True,
                         "frame": 2,
+                    },
+                    {
+                        "type": "action",
+                        "action": "move_right",
+                        "release": True,
+                        "frame": 3,
                     },
                 ]
             ),
@@ -1118,14 +1142,14 @@ def test_action_event_mode_conformance_matrix_against_a_live_session(
         assert json.loads(sequence.stdout)["phases"] == [
             {"frame": 0, "phase": "press", "injection_route": "action_state"},
             {"frame": 1, "phase": "press", "injection_route": "viewport_event"},
-            {"frame": 2, "phase": "release", "injection_route": "action_state"},
+            {"frame": 2, "phase": "release", "injection_route": "viewport_event"},
+            {"frame": 3, "phase": "release", "injection_route": "action_state"},
         ]
         after_sequence = observed()
-        assert after_sequence["gui_input_hits"] == 4
-        assert after_sequence["unhandled_hits"] == 4
-        # The sequence's release is a STATE event: no handler sees it.
-        assert after_sequence["gui_release_hits"] == 2
-        assert after_sequence["unhandled_release_hits"] == 2
+        # One press edge and one release edge more — the opted-in pair. The state
+        # pair on the same clock moved neither counter, which is what says the
+        # release the handlers saw is the opted-in one and not the state one.
+        assert_handlers(after_sequence, presses=4, releases=3)
         assert after_sequence["polled_frames"] > after_tap["polled_frames"]
     finally:
         gda("daemon", "stop")
