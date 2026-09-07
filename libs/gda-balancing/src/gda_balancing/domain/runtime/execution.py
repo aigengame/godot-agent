@@ -2376,12 +2376,16 @@ def evaluate_prepared_experiment(
                         ),
                     },
                     entrypoint_id=(
-                        entrypoint["id"]
+                        f"input:{event_spec['root_event_ref']}"
+                        if external_input
+                        else entrypoint["id"]
                         if entrypoint is not None
                         else f"scheduled:{event_spec['call_site_identity']}"
                     ),
                     entrypoint_identity=(
-                        entrypoint["identity"]
+                        event_id
+                        if external_input
+                        else entrypoint["identity"]
                         if entrypoint is not None
                         else event_spec["call_site_identity"]
                     ),
