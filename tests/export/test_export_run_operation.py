@@ -26,7 +26,7 @@ from gda.commands.export import (  # EXPORT_RUN_COMMAND: the single fully-bound 
     EXPORT_RUN_COMMAND,
     ExportRunMode,
     ExportRunResult,
-    host_data_path,
+    resolve_host_data_path,
     run_export_operation,
 )
 from gda.errors import Failure
@@ -45,7 +45,7 @@ from tests.support import (
 
 # The host data directory gda hands the export-get op (#840), computed by the
 # production default so the assertion follows the host it runs on.
-_HOST_DATA_PATH = host_data_path()
+_HOST_DATA_PATH = resolve_host_data_path()
 
 # The two export-templates directories of #840: the one an isolated
 # ``--user-data-root`` makes the engine check, and the host's standard one.
