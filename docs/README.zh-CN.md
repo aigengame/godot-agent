@@ -428,7 +428,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `project set` | 设置一个项目设置，并把值强制转换为它声明的类型。 |
 | `project add-autoload` | 注册一个 autoload 单例（名称 → 脚本/场景）。 |
 | `project remove-autoload` | 按名称注销一个 autoload 单例。 |
-| `project add-input-action` | 注册一个绑定按键的 InputMap 动作（`--key` 键名或键码、`--deadzone`、`--physical`）。 |
+| `project add-input-action` | 注册一个绑定按键和/或手柄的 InputMap 动作（`--key`、`--joy-button`、`--joy-axis` 形如 `<轴>[:<符号>]`、`--device`、`--deadzone`、`--physical`）；至少需要一个绑定。 |
 | `project remove-input-action` | 按名称注销一个 InputMap 动作。 |
 | `project find-references` | 找出引用了给定资源的每一个项目文件。 |
 | `project dependencies` | 把每个场景/资源映射到它所依赖的资源。 |
