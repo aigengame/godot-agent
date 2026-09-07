@@ -912,7 +912,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:b91fea27d53ec123d759462fca1a2c050d3f1b4b3f0315b071a2b69b18a0f2fa",
+  "content_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -5314,7 +5314,8 @@
           "authority_path"
         ],
         "optional_members": [
-          "excluded_extension_members"
+          "excluded_extension_members",
+          "excluded_members"
         ]
       },
       "seed": {

@@ -79,7 +79,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:b91fea27d53ec123d759462fca1a2c050d3f1b4b3f0315b071a2b69b18a0f2fa"
+    "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -2020,7 +2020,7 @@ def _runtime_projection_is_closed(
         or contract.get("collection")
         != {
             "required_members": ["id", "source", "output_member", "output_shape"],
-            "optional_members": ["excluded_extension_members"],
+            "optional_members": ["excluded_extension_members", "excluded_members"],
             "namespace_source_members": ["kind", "member", "package_path"],
             "closure_source_members": ["kind", "authority_path"],
         }
@@ -2203,8 +2203,11 @@ def _runtime_projection_is_closed(
             "output_member",
             "output_shape",
         }
-        if "excluded_extension_members" in collection:
-            expected_collection_members.add("excluded_extension_members")
+        expected_collection_members.update(
+            member
+            for member in ("excluded_extension_members", "excluded_members")
+            if member in collection
+        )
         if (
             set(collection) != expected_collection_members
             or not isinstance(collection.get("id"), str)
@@ -2222,18 +2225,18 @@ def _runtime_projection_is_closed(
                     or not collection["output_member"]
                 )
             )
-            or (
-                "excluded_extension_members" in collection
+            or any(
+                member in collection
                 and (
-                    not isinstance(collection["excluded_extension_members"], list)
-                    or not collection["excluded_extension_members"]
+                    not isinstance(collection[member], list)
+                    or not collection[member]
                     or not all(
-                        isinstance(member, str) and member
-                        for member in collection["excluded_extension_members"]
+                        isinstance(excluded, str) and excluded
+                        for excluded in collection[member]
                     )
-                    or len(collection["excluded_extension_members"])
-                    != len(set(collection["excluded_extension_members"]))
+                    or len(collection[member]) != len(set(collection[member]))
                 )
+                for member in ("excluded_extension_members", "excluded_members")
             )
         ):
             return False
@@ -2461,6 +2464,38 @@ def _runtime_projection_is_closed(
         if source_kind is None or source_kind != target_kind:
             return False
     for collection in collections:
+        representation, payload = collection_shapes[collection["id"]]
+        excluded_members = set(collection.get("excluded_members", []))
+        if excluded_members:
+            field_member = "properties" if representation == "schema" else "field_types"
+            required_member = (
+                "required" if representation == "schema" else "required_members"
+            )
+            fields = payload.get(field_member)
+            required = payload.get(required_member)
+            if (
+                not isinstance(fields, dict)
+                or not isinstance(required, list)
+                or not excluded_members <= set(fields)
+            ):
+                return False
+            payload = {
+                **payload,
+                field_member: {
+                    name: value
+                    for name, value in fields.items()
+                    if name not in excluded_members
+                },
+                required_member: [
+                    name for name in required if name not in excluded_members
+                ],
+            }
+            if "optional_members" in payload:
+                payload["optional_members"] = [
+                    name
+                    for name in payload["optional_members"]
+                    if name not in excluded_members
+                ]
         output_member = collection["output_member"]
         if output_member is None:
             continue
@@ -2471,7 +2506,6 @@ def _runtime_projection_is_closed(
             or not isinstance(target.get("items"), dict)
         ):
             return False
-        representation, payload = collection_shapes[collection["id"]]
         shape = collection["output_shape"]
         if representation == "schema":
             if shape != "as-is" or not _schema_items_match(payload, target["items"]):
