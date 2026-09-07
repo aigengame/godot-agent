@@ -11,6 +11,8 @@ The adapter answers with EVIDENCE only — the four states below. A settlement
 (``imported`` / ``not_importable`` / ``failed``) is the command's post-pass
 verdict over the same artifacts, never something this module can return.
 
+The contract, as the command carried it (moved intact, #741):
+
 One asset's evidence state, read as the engine's own reimport test reads it.
 
 A faithful adaptation of ``EditorFileSystem::_test_for_reimport`` (#738
@@ -76,7 +78,7 @@ class AssetEvidence:
     """
 
     status: EvidenceStatus
-    sidecar: "str | None" = None
+    sidecar: str | None = None
     dest_files: list[str] = field(default_factory=list)
 
 

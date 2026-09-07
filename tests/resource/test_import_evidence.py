@@ -106,6 +106,20 @@ def test_no_destination_sidecar_with_matching_receipt_is_cached(tmp_path):
 # --- the .md5 receipt: the engine's own freshness proof -------------------------
 
 
+def test_an_asset_with_no_sidecar_is_missing(tmp_path):
+    # The fourth evidence state asked of the adapter directly: no `.import`
+    # sidecar at all is `missing` — a pass would run — with no sidecar facts to
+    # report. (The CLI smoke covers the same state through the wire; this pins
+    # the adapter's own branch so a later per-state `reason` (#853) has a home.)
+    project = icon_project(tmp_path)
+
+    evidence = asset_state(project, "res://icon.png")
+
+    assert evidence.status == "missing"
+    assert evidence.sidecar is None
+    assert evidence.dest_files == []
+
+
 def test_missing_md5_receipt_is_stale_not_cached(tmp_path):
     # #738 review [P1]: without the receipt the engine cannot prove freshness
     # and re-imports; gda must not claim a hit the engine would not.
