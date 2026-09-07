@@ -199,6 +199,15 @@ The separately reproduced roguelike publication failure comes from confusing
 guard-expanded audit positions with authored Formula positions in Replay. Correcting
 that lookup restores the two affected public paths while retaining post-state checks.
 
+A legal external-input Event could also fail during observation with a missing
+Operation call-site key. Its diagnostic now uses the existing input label and canonical
+Event identity, without selecting a Model entrypoint. Two public regressions cover
+logical-time and terminal observation boundaries; these and three existing lifecycle
+cases pass. Independent paired execution accepts the real artifact set and rejects six
+individually resealed context or ledger mutations. The public Runtime refusal returns
+exit 2 with a terminal audit instead of an internal error. The new tests belong to the
+required composition shard.
+
 A [separate successful-termination defect](evidence/bounded-fold/pending-root-followup.json)
 reproduces both before this slice and on its review head: a legal root Event left
 pending after early scenario termination causes full-set admission to fail. The

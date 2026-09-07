@@ -124,8 +124,9 @@ decimal iteration index. The admitted Operation determines whether that next seg
 iteration or a static invocation site; ordinary names such as `@0` remain legal. Require
 canonical escaping and unique static sites in each Operation frame.
 
-Validation derives the root from the actual entrypoint or scheduled Event, then follows
-the admitted instruction graph. It must not trust a root copied from the reported path.
+For an Operation refusal, validation derives the root from the actual entrypoint or
+scheduled Event, then follows the admitted instruction graph. It must not trust a root
+copied from the reported path.
 Independent value replay proves that a fold index is within this execution's actual input
 length, not just its type bound. The final frame determines the Operation and instruction
 position. Entering through an ordinary invocation binds the existing static call-site
@@ -140,6 +141,16 @@ Independent validation reconstructs the exact first refusal, reason, location an
 It consumes every genuine Event call row exactly once and rejects additional or fabricated
 rows. Pure invocation requires no synthetic Event outcome evidence. This replaces any
 assumption that a static successful prefix alone can establish dynamic fold work.
+
+A Formula refusal also binds the actual dispatch context and completed call prefix.
+The existing audit member named `entrypoint` carries diagnostic dispatch metadata; it
+does not imply that every Event selects a Model entrypoint. An external-input Event
+selects none. For its observation refusal, use `input:<root_event_ref>` as the raw
+diagnostic id, its existing canonical Event identity, the existing `external-input`
+operation label, and the same static-segment escaping for the path. Root and scheduled
+Operation observations retain their actual completed calls; a pre-Operation Formula
+refusal has none. These locations introduce no Model entrypoint, Operation, identity
+domain or Runtime phase.
 
 ## Alternatives and supporting evidence
 
