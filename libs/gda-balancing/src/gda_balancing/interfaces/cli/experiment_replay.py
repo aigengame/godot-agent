@@ -47,6 +47,7 @@ class ExperimentReplayInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     specification: str
+    rir: str
     original_experiment_run_artifact_set_receipt: str
     out: str = Field(min_length=1)
     invocation_key: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -73,7 +74,6 @@ _REPLAY_SUCCESS_ARTIFACT_SET = (
     ArtifactSetMemberSpec("event-trace", "event-trace"),
     ArtifactSetMemberSpec("snapshot-series", "snapshot-series"),
     ArtifactSetMemberSpec("metric-dataset", "metric-dataset"),
-    ArtifactSetMemberSpec("reproduction-receipt", "reproduction-receipt"),
     ArtifactSetMemberSpec("resolved-runtime-profile", "resolved-runtime-profile"),
     ArtifactSetMemberSpec(
         "evaluator-capability-manifest", "evaluator-capability-manifest"
@@ -116,11 +116,11 @@ def experiment_replay_handler(
                 inp.out,
                 inp.invocation_key,
                 descriptor_identity(EXPERIMENT_REPLAY),
-                descriptor_identity(original_input.producer),
                 artifact_sets_for_input(original_input),
                 EXPERIMENT_REPLAY.artifact_set,
                 EXPERIMENT_REPLAY.verdict_artifact_set,
                 EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
+                rir=inp.rir,
                 publication_fault=publication_fault,
             )
         except InputReadError as error:
@@ -144,11 +144,13 @@ def experiment_replay_handler(
 
 def _prepare_replay_args(root: Path, token: int, refusing: bool) -> tuple[str, ...]:
     specification = root / f"replay-experiment-{token}.json"
-    specification_value = json.loads(prepare_valid_experiment(root, token))
+    fixture = prepare_valid_experiment(root, token)
+    specification_value = json.loads(fixture.specification)
     specification.write_bytes(canonical_bytes(cast(JsonValue, specification_value)))
     original = run_experiment_run(
         ExperimentRunInput(
             specification=str(specification),
+            rir=fixture.rir,
             out=str(root / f"replay-original-{token}.json"),
             invocation_key=f"{token:064x}",
         )
@@ -164,6 +166,8 @@ def _prepare_replay_args(root: Path, token: int, refusing: bool) -> tuple[str, .
         specification.write_bytes(canonical_bytes(cast(JsonValue, specification_value)))
     return (
         str(specification),
+        "--rir",
+        fixture.rir,
         "--original-experiment-run-artifact-set-receipt",
         str(receipt),
     )

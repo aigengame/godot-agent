@@ -31,14 +31,6 @@ EXACT_REPLAY_REFUSAL_REASONS = (
 )
 _EXACT_REPLAY_POLICY = "exact-replay-v1"
 _EXACT_REPLAY_INPUT_IDENTITY_DOMAIN = "experiment-replay-command-input-v1"
-_REPRODUCTION_BINDINGS = (
-    "experiment_identity",
-    "kernel_identity",
-    "language_bundle_identity",
-    "package_lock_identity",
-    "resolved_model_identity",
-    "rir_identity",
-)
 
 
 @dataclass(frozen=True)
@@ -48,8 +40,6 @@ class ExactReplayContract:
     policy_binding: Mapping[str, Any]
     reasons: Mapping[str, Mapping[str, Any]]
     artifact: ArtifactContract
-    # Transitional broad binding retained until #875; never a semantics lookup.
-    language_bundle_identity: str
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "policy_binding", _deep_freeze(self.policy_binding))
@@ -76,7 +66,6 @@ def select_exact_replay_contract(
         artifact=select_artifact_contract(
             authority_context.language_bundle, "replay-comparison"
         ),
-        language_bundle_identity=authority_context.language_bundle["content_identity"],
     )
 
 
@@ -151,23 +140,26 @@ def exact_replay_original_refusal(
     return None
 
 
-def exact_replay_reproduction_refusal(
+def exact_replay_runtime_profile_refusal(
     checked: CheckedExperiment,
-    original_reproduction: dict[str, Any],
-    prepared_reproduction: dict[str, Any],
+    original_runtime: dict[str, Any],
+    prepared_runtime: dict[str, Any],
     replay_contract: ExactReplayContract,
 ) -> Schema2RefusalReport | None:
-    """Require exact complete reproduction equality before Replay dispatch."""
-    if canonical_bytes(cast(JsonValue, original_reproduction)) == canonical_bytes(
-        cast(JsonValue, prepared_reproduction)
+    """Require the same admitted semantic execution identity before dispatch."""
+    contract = checked.output_contracts["resolved-runtime-profile"]
+    if (
+        contract.verify(original_runtime)
+        and contract.verify(prepared_runtime)
+        and original_runtime["content_identity"] == prepared_runtime["content_identity"]
     ):
         return None
     return _exact_replay_refusal(
         checked,
         replay_contract,
         "evaluation.reason.replay-reproduction-mismatch",
-        "/original_experiment_run_artifact_set_receipt/reproduction-receipt",
-        "The prepared Runtime does not match the original reproduction identity",
+        "/original_experiment_run_artifact_set_receipt/resolved-runtime-profile",
+        "The prepared Runtime does not match the original semantic execution identity",
     )
 
 
@@ -209,72 +201,30 @@ def _member_value(
     return member.value
 
 
-def _reproduction_members(
-    members: dict[str, PublicationMember],
-    output_contracts: Mapping[str, ArtifactContract],
-    replay_contract: ExactReplayContract,
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-    reproduction = _member_value(members, "reproduction-receipt", output_contracts)
-    resolved_runtime = _member_value(
-        members, "resolved-runtime-profile", output_contracts
-    )
-    evaluator = _member_value(
-        members, "evaluator-capability-manifest", output_contracts
-    )
-    if any(
-        reproduction.get(name) != resolved_runtime.get(name)
-        for name in _REPRODUCTION_BINDINGS
-    ):
-        raise ValueError("Replay reproduction does not bind the Resolved Runtime")
-    if (
-        reproduction.get("resolved_runtime_profile_identity")
-        != resolved_runtime["content_identity"]
-        or reproduction.get("evaluator_manifest_identity")
-        != evaluator["content_identity"]
-        or resolved_runtime.get("evaluator_manifest_identity")
-        != evaluator["content_identity"]
-        or evaluator.get("kernel_identity") != reproduction.get("kernel_identity")
-        or evaluator.get("language_bundle_identity")
-        != reproduction.get("language_bundle_identity")
-        or reproduction.get("language_bundle_identity")
-        != replay_contract.language_bundle_identity
-    ):
-        raise ValueError("Replay reproduction support is inconsistent")
-    return reproduction, resolved_runtime, evaluator
-
-
 def _producing_outcome(
     members: dict[str, PublicationMember],
     output_contracts: Mapping[str, ArtifactContract],
-    replay_contract: ExactReplayContract,
     *,
     require_primary: bool,
 ) -> tuple[dict[str, str], str, str, dict[str, Any]]:
-    reproduction, resolved_runtime, evaluator = _reproduction_members(
-        members, output_contracts, replay_contract
+    resolved_runtime = _member_value(
+        members, "resolved-runtime-profile", output_contracts
     )
+    _member_value(members, "evaluator-capability-manifest", output_contracts)
     trace = _member_value(members, "event-trace", output_contracts)
     snapshots = _member_value(members, "snapshot-series", output_contracts)
     metrics = _member_value(members, "metric-dataset", output_contracts)
-    experiment_identity = reproduction["experiment_identity"]
+    experiment_identity = resolved_runtime["experiment_identity"]
     runtime_identity = resolved_runtime["content_identity"]
     if any(
         artifact.get("experiment_identity") != experiment_identity
         or artifact.get("resolved_runtime_profile_identity") != runtime_identity
         for artifact in (trace, snapshots, metrics)
     ):
-        raise ValueError("Replay observations do not bind the reproduction")
-    provenance = metrics.get("source_provenance")
-    if (
-        snapshots.get("event_trace_identity") != trace["content_identity"]
-        or snapshots.get("root_event_map") != trace.get("root_event_map")
-        or not isinstance(provenance, dict)
-        or provenance.get("resolved_model_identity")
-        != reproduction.get("resolved_model_identity")
-        or provenance.get("resolved_runtime_profile_identity") != runtime_identity
-        or provenance.get("evaluator_manifest_identity")
-        != evaluator["content_identity"]
-    ):
+        raise ValueError("Replay observations do not bind the semantic execution")
+    if snapshots.get("event_trace_identity") != trace[
+        "content_identity"
+    ] or snapshots.get("root_event_map") != trace.get("root_event_map"):
         raise ValueError("Replay observation support is inconsistent")
 
     samples = metrics.get("samples")
@@ -295,17 +245,12 @@ def _producing_outcome(
         "event_trace_identity": cast(str, trace["content_identity"]),
         "snapshot_series_identity": cast(str, snapshots["content_identity"]),
         "metric_dataset_identity": cast(str, metrics["content_identity"]),
-        "reproduction_receipt_identity": cast(str, reproduction["content_identity"]),
         "root_event_map": cast(JsonValue, trace["root_event_map"]),
         "terminal_statuses": cast(JsonValue, trace["terminal_statuses"]),
         "outcome": outcome_status,
     }
     if failed_metrics:
         payload["failed_metrics"] = cast(JsonValue, failed_metrics)
-    else:
-        payload["evaluator_manifest_identity"] = cast(
-            str, evaluator["content_identity"]
-        )
     expected_outcome = output_contracts[outcome_kind].identify(payload)
     present_primary_names = [
         name for name in ("evaluation-run", "experiment-verdict") if name in members
@@ -330,19 +275,18 @@ def _producing_outcome(
         observation,
         outcome_kind,
         cast(str, expected_outcome["content_identity"]),
-        reproduction,
+        resolved_runtime,
     )
 
 
 def _observation(
     members: dict[str, PublicationMember],
     output_contracts: Mapping[str, ArtifactContract],
-    replay_contract: ExactReplayContract,
     *,
     original: bool,
 ) -> tuple[dict[str, str], str, str]:
-    observation, primary_name, primary_identity, _reproduction = _producing_outcome(
-        members, output_contracts, replay_contract, require_primary=True
+    observation, primary_name, primary_identity, _resolved_runtime = _producing_outcome(
+        members, output_contracts, require_primary=True
     )
     if original and primary_name != "evaluation-run":
         raise ValueError("the original producing outcome is not an Evaluation run")
@@ -361,21 +305,20 @@ def _comparison_value(
         raise ValueError("the original Artifact-set receipt identity is empty")
     policy, policy_checks = _policy_binding(replay_contract.policy_binding)
     original, original_kind, original_identity = _observation(
-        original_members, output_contracts, replay_contract, original=True
+        original_members, output_contracts, original=True
     )
     replay, replay_kind, replay_identity = _observation(
-        replay_members, output_contracts, replay_contract, original=False
+        replay_members, output_contracts, original=False
     )
-    original_reproduction = _member_value(
-        original_members, "reproduction-receipt", output_contracts
+    original_runtime = _member_value(
+        original_members, "resolved-runtime-profile", output_contracts
     )
-    replay_reproduction = _member_value(
-        replay_members, "reproduction-receipt", output_contracts
+    replay_runtime = _member_value(
+        replay_members, "resolved-runtime-profile", output_contracts
     )
-    if canonical_bytes(cast(JsonValue, original_reproduction)) != canonical_bytes(
-        cast(JsonValue, replay_reproduction)
-    ):
-        raise ValueError("Replay inputs do not share one complete reproduction")
+    if original_runtime["content_identity"] != replay_runtime["content_identity"]:
+        raise ValueError("Replay inputs do not share one semantic execution identity")
+
     observations = {
         "evaluation-outcome-status": "evaluation_outcome_status",
         "event-trace-identity": "event_trace_identity",
@@ -401,7 +344,6 @@ def _comparison_value(
                 "comparison_implementation_identity": (
                     EXACT_REPLAY_COMPARISON_IMPLEMENTATION
                 ),
-                "language_bundle_identity": replay_contract.language_bundle_identity,
                 "original_artifact_set_receipt_identity": (
                     original_artifact_set_receipt_identity
                 ),
@@ -495,21 +437,19 @@ def validate_published_exact_replay_comparison(
     try:
         policy, policy_checks = _policy_binding(replay_contract.policy_binding)
         original, original_kind, original_identity = _observation(
-            original_members, output_contracts, replay_contract, original=True
+            original_members, output_contracts, original=True
         )
-        replay, replay_kind, replay_identity, replay_reproduction = _producing_outcome(
+        replay, replay_kind, replay_identity, replay_runtime = _producing_outcome(
             replay_members,
             output_contracts,
-            replay_contract,
             require_primary=False,
         )
-        original_reproduction = _member_value(
-            original_members, "reproduction-receipt", output_contracts
+        original_runtime = _member_value(
+            original_members, "resolved-runtime-profile", output_contracts
         )
-        if canonical_bytes(cast(JsonValue, original_reproduction)) != canonical_bytes(
-            cast(JsonValue, replay_reproduction)
-        ):
+        if original_runtime["content_identity"] != replay_runtime["content_identity"]:
             return False
+
         observations = {
             "evaluation-outcome-status": "evaluation_outcome_status",
             "event-trace-identity": "event_trace_identity",
@@ -536,8 +476,6 @@ def validate_published_exact_replay_comparison(
             and replay_contract.artifact.verify(value)
             and value.get("comparison_implementation_identity")
             == EXACT_REPLAY_COMPARISON_IMPLEMENTATION
-            and value.get("language_bundle_identity")
-            == replay_contract.language_bundle_identity
             and value.get("original_artifact_set_receipt_identity")
             == original_artifact_set_receipt_identity
             and value.get("original_evaluation_run_identity") == original_identity
