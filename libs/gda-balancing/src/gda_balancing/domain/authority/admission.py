@@ -55,6 +55,7 @@ from gda_balancing.domain.authority.vector_validation import (
 from gda_balancing.domain.operation_program import (
     FoldSite,
     OperationCoordinate,
+    operation_body_instructions,
     project_operation_program,
 )
 
@@ -3715,6 +3716,21 @@ def _derive_operation_composition(
         effects = set(cast(list[str], operation["effects"]))
         refusals = set(cast(list[str], operation["refusals"]))
         seen_sites: set[str] = set()
+        for body_instruction in operation_body_instructions(operation["body"]):
+            body_node = node_definitions.get(body_instruction.get("node"))
+            if not isinstance(body_node, dict) or body_node["semantics"][
+                "operator"
+            ] not in {"invoke-operation", "bounded-pure-fold"}:
+                continue
+            body_site = body_instruction.get("site")
+            if (
+                not isinstance(body_site, str)
+                or not body_site
+                or body_site in seen_sites
+            ):
+                refuse(owner, operation, str(body_site), "site")
+                return None
+            seen_sites.add(body_site)
         operation_result_sites: set[str] = set()
         source_producer_reached = False
 
@@ -4065,6 +4081,11 @@ def _derive_operation_composition(
                     try:
                         guard_closure = close(guard_key, (*stack, key))
                     finally:
+                        for fold_site in tuple(fold_input_bounds):
+                            if fold_site[0] == guard_key:
+                                fold_input_bounds[(key, fold_site[1])] = (
+                                    fold_input_bounds.pop(fold_site)
+                                )
                         guard_body_keys.discard(guard_key)
                         operations.pop(guard_key, None)
                         cache.pop(guard_key, None)
@@ -4232,10 +4253,9 @@ def _derive_operation_composition(
                         source_producer_reached = True
                 continue
             site = instruction.get("site")
-            if not isinstance(site, str) or not site or site in seen_sites:
+            if not isinstance(site, str) or not site:
                 refuse(owner, operation, str(site), "site")
                 return None
-            seen_sites.add(site)
             child_ref = instruction.get("operation")
             if (
                 not isinstance(child_ref, dict)

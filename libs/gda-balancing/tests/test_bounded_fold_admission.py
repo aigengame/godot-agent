@@ -1,6 +1,8 @@
 """Bounded pure collection composition through the actual authority judgment."""
 
 from copy import deepcopy
+import json
+from pathlib import Path
 from operator import setitem
 from typing import Any, cast
 
@@ -347,3 +349,164 @@ def test_selected_runtime_node_wire_covers_each_declared_law_with_closed_semanti
         invalid = deepcopy(node)
         invalid["semantics"]["undeclared_host_behavior"] = True
         assert not validator.is_valid(invalid), node["id"]
+
+
+def test_guarded_fold_bounds_use_the_real_operation_frame():
+    kernel, language, operations = _inputs()
+    wrapper = operations[_ROOT]
+    wrapper["body"] = [
+        {"node": "constant", "target": "boundary-zero", "literal": 0},
+        {
+            "node": "less-than",
+            "target": "enter",
+            "left": "boundary-zero",
+            "right": "threshold",
+        },
+        {
+            "node": "guard-block",
+            "condition": "enter",
+            "body": wrapper["body"],
+            "outcome": "folded",
+        },
+    ]
+    wrapper["result"]["source"] = {"kind": "port", "name": "ordered_value"}
+    wrapper["resource_bounds"]["max_steps"] = 55
+    projection = _judge(kernel, language, operations)
+    assert projection.diagnostics == ()
+    assert {coordinate for coordinate, _site in projection.fold_input_bounds} == {_ROOT}
+    assert len(projection.fold_input_bounds) == 3
+    assert _program(operations, projection).resource_charge == 55
+
+
+def test_transparent_guard_and_outer_body_cannot_reuse_one_call_site():
+    kernel, language, operations = _inputs()
+    wrapper = operations[_ROOT]
+    filtering = deepcopy(wrapper["body"][2])
+    ordering = deepcopy(wrapper["body"][4])
+    ordering["site"] = filtering["site"]
+    wrapper["body"] = [
+        *wrapper["body"][:2],
+        {"node": "less-than", "target": "enter", "left": "zero", "right": "threshold"},
+        {
+            "node": "guard-block",
+            "condition": "enter",
+            "body": [filtering],
+            "outcome": "folded",
+        },
+        ordering,
+    ]
+    wrapper["resource_bounds"]["max_steps"] = 100
+    projection = _judge(kernel, language, operations)
+    assert projection.diagnostics == (
+        f"language.operations.{_OWNER}.bounded-fold-v1.body.filter-items.site",
+    )
+
+
+def test_transparent_guard_and_outer_invoke_share_site_uniqueness():
+    kernel, language, operations = _inputs()
+    wrapper = operations[_ROOT]
+    call = {
+        "node": "invoke",
+        "site": "count-items",
+        "operation": {"package": _OWNER, "id": "bounded.count-step"},
+        "arguments": [
+            {"port": "count", "operand": {"kind": "port", "port": "selected_count"}},
+            {"port": "item", "operand": {"kind": "port", "port": "threshold"}},
+        ],
+        "result": {"kind": "local", "name": "next-count"},
+        "outcomes": [],
+    }
+    wrapper["body"] = [
+        {"node": "constant", "target": "zero", "literal": 0},
+        {"node": "less-than", "target": "enter", "left": "zero", "right": "threshold"},
+        {
+            "node": "guard-block",
+            "condition": "enter",
+            "body": [deepcopy(call)],
+            "outcome": "folded",
+        },
+        call,
+    ]
+    wrapper["result"]["source"] = {"kind": "port", "name": "ordered_value"}
+    wrapper["resource_bounds"]["max_steps"] = 9
+    assert _judge(kernel, language, operations).diagnostics == (
+        f"language.operations.{_OWNER}.bounded-fold-v1.body.count-items.site",
+    )
+    # A distinct site changes no type, call graph, or resource requirement.
+    call["site"] = "outside-count"
+    projection = _judge(kernel, language, operations)
+    assert projection.diagnostics == ()
+    assert _program(operations, projection).resource_charge == 9
+
+
+def test_empty_pure_fold_step_survives_admitted_model_check_and_build():
+    from gda_balancing.domain.authority.admission import admit_authorities
+    from gda_balancing.domain.model import (
+        CheckedModel,
+        check_model_source_value,
+        compile_checked_model,
+    )
+    from schema2_bootstrap_conformance_support import _bind_package_vector_set
+    from schema2_bootstrap_production_support import _reidentify_graph_root
+
+    kernel, language = packaged_authority_context().mutable_pair()
+    package = next(
+        row for row in language["language"]["packages"] if row["id"] == _OWNER
+    )
+    step = next(
+        definition
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.operations"
+        for definition in closure["definitions"]
+        if definition["id"] == "bounded.count-step"
+    )
+    step["body"] = []
+    step["result"]["source"] = {"kind": "port", "name": "count"}
+    step["resource_bounds"]["max_steps"] = 1
+    vectors = next(
+        row
+        for row in language.package_conformance_vector_sets
+        if row["package_id"] == _OWNER
+    )
+    for vector in vectors["vector_definitions"]:
+        if (
+            vector.get("operation") == step["id"]
+            and vector["kind"] == "operation-contract"
+        ):
+            if vector["probe"]["path"] == "body":
+                vector["expect"] = []
+            elif vector["probe"]["path"] == "resource_bounds.max_steps":
+                vector["expect"] = 1
+    _bind_package_vector_set(package, vectors)
+    _reidentify_graph_root(language)
+    admission = admit_authorities(kernel, language)
+    assert admission.admitted, admission.diagnostics
+    source = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/bounded-fold/model-source.json"
+        ).read_text()
+    )
+    checked = check_model_source_value(source, kernel=kernel, language_bundle=language)
+    assert isinstance(checked, CheckedModel), checked
+    artifacts = compile_checked_model(checked)
+    assert set(artifacts) == {
+        "build-receipt",
+        "capability-manifest",
+        "debug-map",
+        "model-explanation",
+        "package-lock",
+        "resolution-receipt",
+        "resolved-model",
+        "rir-semantic-payload",
+    }
+    selected = cast(
+        dict[str, Any], artifacts["rir-semantic-payload"]["selected_semantics"]
+    )
+    selected_step = next(
+        row["definition"]
+        for row in selected["operations"]
+        if row["package"] == _OWNER and row["definition"]["id"] == step["id"]
+    )
+    assert selected_step["body"] == []
+    assert selected_step["result"]["source"] == {"kind": "port", "name": "count"}
