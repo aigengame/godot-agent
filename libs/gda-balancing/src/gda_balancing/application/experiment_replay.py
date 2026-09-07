@@ -10,9 +10,10 @@ from gda_balancing.application.experiment_execution import (
     prepare_checked_experiment,
 )
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
-from gda_balancing.domain.artifacts import verify_artifact
+from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.comparison import (
     compare_exact_replay,
+    select_exact_replay_contract,
     exact_replay_input_identity,
     exact_replay_original_refusal,
     exact_replay_reproduction_refusal,
@@ -30,6 +31,7 @@ from gda_balancing.domain.experiment_artifacts import (
 from gda_balancing.domain.experiment import CheckedExperiment, check_experiment
 from gda_balancing.domain.publication import (
     publication_authentication_key,
+    select_publication_contracts,
     publish_artifact_set,
     read_authenticated_declared_artifact_set,
     recover_committed_artifact_set,
@@ -84,11 +86,13 @@ def replay_experiment(
     | Schema2RefusalReport
 ):
     """Authenticate one original run and publish an exact Replay comparison."""
+    authority_context = packaged_authority_context()
     try:
         original = read_authenticated_declared_artifact_set(
             original_receipt,
             experiment_run_descriptor_identity,
             original_artifact_sets,
+            authority_context=authority_context,
         )
     except PublicationAdmissionError as error:
         return ingress_refusal(error.code, error.subject, error.message)
@@ -108,10 +112,12 @@ def replay_experiment(
         original_receipt_identity,
     )
     authentication_key = publication_authentication_key()
+    publication_contracts = select_publication_contracts(checked.language_bundle)
+    replay_contract = select_exact_replay_contract(authority_context)
 
     def validate_member(logical_name: str, value: dict[str, Any]) -> bool:
         if logical_name == "replay-comparison":
-            return verify_artifact(value, checked.language_bundle)
+            return replay_contract.artifact.verify(value)
         return validate_experiment_member(checked, logical_name, value)
 
     def validate_set(artifacts: dict[str, dict[str, Any]]) -> bool:
@@ -122,7 +128,8 @@ def replay_experiment(
             return False
         return validate_published_exact_replay_comparison(
             comparison,
-            authority_context=authority_context,
+            replay_contract=replay_contract,
+            output_contracts=checked.output_contracts,
             original_artifact_set_receipt_identity=original_receipt_identity,
             original_members=original_members,
             replay_members=_publication_members(
@@ -139,7 +146,7 @@ def replay_experiment(
         invocation_key,
         descriptor_identity,
         input_identity,
-        checked.language_bundle,
+        publication_contracts,
         (success_artifact_set, verdict_artifact_set, runtime_refusal_artifact_set),
         validate_member,
         artifact_set_validator=validate_set,
@@ -172,7 +179,9 @@ def replay_experiment(
             terminal_audit=recovered.receipt,
         )
 
-    original_refusal = exact_replay_original_refusal(checked, original.artifacts)
+    original_refusal = exact_replay_original_refusal(
+        checked, original.artifacts, replay_contract
+    )
     if original_refusal is not None:
         return original_refusal
     prepared = prepare_checked_experiment(checked)
@@ -184,6 +193,7 @@ def replay_experiment(
         checked,
         original_reproduction,
         prepared.reproduction.value,
+        replay_contract,
     )
     if reproduction_refusal is not None:
         return reproduction_refusal
@@ -197,7 +207,7 @@ def replay_experiment(
             invocation_key,
             descriptor_identity,
             input_identity,
-            checked.language_bundle,
+            publication_contracts,
             runtime_refusal_artifact_set,
             validate_member,
             publication_fault,
@@ -207,7 +217,8 @@ def replay_experiment(
         return execution.report.model_copy(update={"terminal_audit": receipt})
 
     comparison = compare_exact_replay(
-        authority_context=authority_context,
+        replay_contract=replay_contract,
+        output_contracts=checked.output_contracts,
         original_artifact_set_receipt_identity=original_receipt_identity,
         original_members=original_members,
         replay_members=execution.members,
@@ -231,7 +242,7 @@ def replay_experiment(
         invocation_key,
         descriptor_identity,
         input_identity,
-        checked.language_bundle,
+        publication_contracts,
         artifact_set,
         validate_member,
         publication_fault,

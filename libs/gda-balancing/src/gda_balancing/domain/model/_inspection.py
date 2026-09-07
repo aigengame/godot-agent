@@ -3,6 +3,7 @@
 from typing import Any, cast
 
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.canonical import JsonValue
 from gda_balancing.domain.model._compilation import validate_compiled_artifacts
 from gda_balancing.domain.model._inspection_types import ModelInspectAdmissionError
@@ -22,6 +23,7 @@ def read_model_explanation(
             receipt_path,
             expected_descriptor_identity,
             artifact_set,
+            authority_context=packaged_authority_context(),
         )
     except PublicationAdmissionError as err:
         raise ModelInspectAdmissionError(err.code, err.subject, err.message) from err

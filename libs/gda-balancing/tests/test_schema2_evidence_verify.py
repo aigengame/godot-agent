@@ -44,6 +44,7 @@ from gda_balancing.domain.evidence_verification import (
 )
 from gda_balancing.domain.model import ExactResolvedModelBindingError
 from gda_balancing.domain.publication import (
+    select_publication_contracts,
     publish_artifact_set,
     read_authenticated_artifact_set,
 )
@@ -823,6 +824,7 @@ def test_application_refuses_an_authenticated_incomplete_terminal_audit(
         inp.experiment_run_artifact_set_receipt,
         descriptor_identity(EXPERIMENT_RUN),
         artifact_set,
+        authority_context=packaged_authority_context(),
     )
     values = deepcopy(admitted.artifacts)
     audit = values["runtime-terminal-audit"]
@@ -864,7 +866,7 @@ def test_application_refuses_an_authenticated_incomplete_terminal_audit(
         "a" * 64,
         descriptor_identity(EXPERIMENT_RUN),
         "sha256:" + "1" * 64,
-        admitted.authority_context.language_bundle,
+        select_publication_contracts(admitted.authority_context.language_bundle),
         artifact_set,
         lambda _name, value: verify_artifact(
             value, admitted.authority_context.language_bundle

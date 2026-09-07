@@ -21,6 +21,7 @@ from gda_balancing.domain.experiment import (
 )
 from gda_balancing.domain.publication import (
     publication_authentication_key,
+    select_publication_contracts,
     publish_artifact_set,
     recover_committed_artifact_set,
 )
@@ -63,12 +64,13 @@ def run_experiment(
     assert isinstance(checked, CheckedExperiment)
     input_identity = experiment_input_identity(checked.value)
     authentication_key = publication_authentication_key()
+    publication_contracts = select_publication_contracts(checked.language_bundle)
     recovered = recover_committed_artifact_set(
         out,
         invocation_key,
         descriptor_identity,
         input_identity,
-        checked.language_bundle,
+        publication_contracts,
         (
             success_artifact_set,
             verdict_artifact_set,
@@ -115,7 +117,7 @@ def run_experiment(
             invocation_key,
             descriptor_identity,
             input_identity,
-            checked.language_bundle,
+            publication_contracts,
             runtime_refusal_artifact_set,
             lambda logical_name, value: validate_experiment_member(
                 checked, logical_name, value
@@ -139,7 +141,7 @@ def run_experiment(
         invocation_key,
         descriptor_identity,
         input_identity,
-        checked.language_bundle,
+        publication_contracts,
         artifact_set,
         lambda logical_name, value: validate_experiment_member(
             checked, logical_name, value

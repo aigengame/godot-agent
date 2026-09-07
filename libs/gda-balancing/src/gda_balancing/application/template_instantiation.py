@@ -5,6 +5,7 @@ from typing import Any
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.domain.publication import (
     publication_authentication_key,
+    select_publication_contracts,
     publish_artifact_set,
 )
 from gda_balancing.domain.template import (
@@ -42,7 +43,7 @@ def instantiate_template(
         invocation_key,
         descriptor_identity,
         plan.command_input_identity,
-        plan.language_bundle,
+        select_publication_contracts(plan.language_bundle),
         artifact_set,
         plan.member_is_admitted,
         publication_fault,

@@ -14,13 +14,16 @@ from gda_balancing.domain.artifact_errors import (
     PublishedArtifactIntegrityError,
     PublishedArtifactUnavailable,
 )
-from gda_balancing.domain.artifacts import _identified_artifact, _verify_artifact
+from gda_balancing.domain.artifacts import (
+    ArtifactContract,
+    _verify_artifact,
+    select_artifact_contract,
+)
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.domain.authority.admission import BootstrapAdmission
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     admit_authority_context,
-    packaged_authority_context,
 )
 from gda_balancing.domain.canonical import (
     JsonValue,
@@ -66,6 +69,26 @@ type ArtifactSetProvider = Callable[[], dict[str, dict[str, JsonValue]]]
 type ModelArtifactValidator = Callable[
     [dict[str, dict[str, JsonValue]], str, AdmittedAuthorityContext], None
 ]
+
+
+@dataclass(frozen=True)
+class PublicationContracts:
+    """The three selected immutable contracts of the publication protocol."""
+
+    manifest: ArtifactContract
+    receipt: ArtifactContract
+    index: ArtifactContract
+
+
+def select_publication_contracts(
+    language_bundle: dict[str, Any],
+) -> PublicationContracts:
+    """Detach publication framing from an already admitted language authority."""
+    return PublicationContracts(
+        manifest=select_artifact_contract(language_bundle, "artifact-set-manifest"),
+        receipt=select_artifact_contract(language_bundle, "artifact-set-receipt"),
+        index=select_artifact_contract(language_bundle, "publication-index"),
+    )
 
 
 @dataclass(frozen=True)
@@ -351,12 +374,15 @@ def read_authenticated_artifact_set(
     receipt_path: str,
     expected_descriptor_identity: str,
     artifact_set: tuple[ArtifactSetMemberSpec, ...],
+    *,
+    authority_context: AdmittedAuthorityContext,
 ) -> AuthenticatedArtifactSet:
     """Authenticate and load all members of one committed artifact set."""
     return _read_authenticated_artifact_set(
         receipt_path,
         expected_descriptor_identity,
         (artifact_set,),
+        authority_context=authority_context,
     )
 
 
@@ -364,6 +390,8 @@ def read_authenticated_declared_artifact_set(
     receipt_path: str,
     expected_descriptor_identity: str,
     artifact_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
+    *,
+    authority_context: AdmittedAuthorityContext,
 ) -> AuthenticatedArtifactSet:
     """Authenticate one publication against its producer-declared member sets."""
     if not artifact_sets:
@@ -374,6 +402,7 @@ def read_authenticated_declared_artifact_set(
         receipt_path,
         expected_descriptor_identity,
         artifact_sets,
+        authority_context=authority_context,
     )
 
 
@@ -381,13 +410,20 @@ def _read_authenticated_artifact_set(
     receipt_path: str,
     expected_descriptor_identity: str,
     artifact_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
+    *,
+    authority_context: AdmittedAuthorityContext,
 ) -> AuthenticatedArtifactSet:
     path = _normalized_absolute_path(receipt_path)
     receipt = _read_receipt_input(path)
-    context = packaged_authority_context()
-    language_bundle = context.language_bundle
+    contracts = select_publication_contracts(authority_context.language_bundle)
+    member_contracts = {
+        kind: select_artifact_contract(authority_context.language_bundle, kind)
+        for kind in sorted(
+            {member.artifact_kind for members in artifact_sets for member in members}
+        )
+    }
     if (
-        not _verify_artifact(receipt, language_bundle)
+        not contracts.receipt.verify(receipt)
         or receipt.get("artifact_kind") != "artifact-set-receipt"
     ):
         raise PublicationAdmissionError(
@@ -452,7 +488,7 @@ def _read_authenticated_artifact_set(
             "Artifact-set publication anchor failed authentication",
         ) from err
     if (
-        not _verify_artifact(index, language_bundle)
+        not contracts.index.verify(index)
         or committed_index != index
         or index.get("descriptor_identity") != expected_descriptor_identity
         or index.get("invocation_key") != invocation_key
@@ -469,7 +505,7 @@ def _read_authenticated_artifact_set(
         code="kernel.binding_mismatch",
         subject="manifest",
     )
-    if not _verify_artifact(manifest, language_bundle) or manifest.get(
+    if not contracts.manifest.verify(manifest) or manifest.get(
         "content_identity"
     ) != receipt.get("manifest_identity"):
         raise PublicationAdmissionError(
@@ -539,7 +575,7 @@ def _read_authenticated_artifact_set(
             subject=name,
         )
         if (
-            not _verify_artifact(artifact, language_bundle)
+            not member_contracts[expected_kinds[name]].verify(artifact)
             or artifact.get("artifact_kind") != row.get("artifact_kind")
             or artifact.get("content_identity") != row.get("content_identity")
             or artifact.get("wire_schema_identity") != row.get("wire_schema_identity")
@@ -552,7 +588,7 @@ def _read_authenticated_artifact_set(
         artifacts[name] = artifact
 
     return AuthenticatedArtifactSet(
-        authority_context=context,
+        authority_context=authority_context,
         receipt=receipt,
         artifacts=artifacts,
     )
@@ -678,7 +714,7 @@ def _authenticated_publication_index(
     invocation_path: Path,
     descriptor_identity: str,
     invocation_key: str,
-    language_bundle: dict[str, Any],
+    index_contract: ArtifactContract,
     authentication_key: bytes,
 ) -> dict[str, Any]:
     """Authenticate the immutable index that owns one invocation key."""
@@ -689,7 +725,7 @@ def _authenticated_publication_index(
     anchor = _verified_anchor(anchor_path, authentication_key)
     index = _read_canonical_artifact(invocation_path / "publication-index.json")
     if (
-        not _verify_artifact(index, language_bundle)
+        not index_contract.verify(index)
         or index != anchor
         or index.get("descriptor_identity") != descriptor_identity
         or index.get("invocation_key") != invocation_key
@@ -835,7 +871,7 @@ def _recover_publication(
         invocation_path,
         descriptor_identity,
         invocation_key,
-        language_bundle,
+        select_artifact_contract(language_bundle, "publication-index"),
         authentication_key,
     )
     _require_matching_command_input(index, command_input_identity)
@@ -906,7 +942,7 @@ def publish_artifact_set(
     invocation_key: str,
     descriptor_identity: str,
     command_input_identity: str,
-    language_bundle: dict[str, Any],
+    contracts: PublicationContracts,
     artifact_set: tuple[ArtifactSetMemberSpec, ...],
     member_validator: Callable[[str, dict[str, Any]], bool],
     publication_fault: str | None = None,
@@ -974,7 +1010,7 @@ def publish_artifact_set(
                 invocation_key,
                 descriptor_identity,
                 command_input_identity,
-                language_bundle,
+                contracts,
                 artifact_set,
                 artifacts,
                 member_validator,
@@ -991,7 +1027,7 @@ def publish_artifact_set(
             invocation_key,
             descriptor_identity,
             command_input_identity,
-            language_bundle,
+            contracts,
             artifact_set,
             artifacts,
             member_validator,
@@ -1005,7 +1041,7 @@ def recover_committed_artifact_set(
     invocation_key: str,
     descriptor_identity: str,
     command_input_identity: str,
-    language_bundle: dict[str, Any],
+    contracts: PublicationContracts,
     candidate_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
     member_validator: Callable[[str, dict[str, Any]], bool],
     *,
@@ -1036,14 +1072,14 @@ def recover_committed_artifact_set(
             invocation_path,
             descriptor_identity,
             invocation_key,
-            language_bundle,
+            contracts.index,
             authentication_key,
         )
         _require_matching_command_input(index, command_input_identity)
         manifest = _read_canonical_artifact(
             invocation_path / "artifact-set-manifest.json"
         )
-        if not _verify_artifact(manifest, language_bundle):
+        if not contracts.manifest.verify(manifest):
             raise RuntimeError("committed artifact-set manifest failed revalidation")
         rows = manifest.get("members")
         if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
@@ -1069,8 +1105,7 @@ def recover_committed_artifact_set(
                 invocation_path / f"{member.logical_name}.json"
             )
             if (
-                not _verify_artifact(artifact, language_bundle)
-                or not member_validator(member.logical_name, artifact)
+                not member_validator(member.logical_name, artifact)
                 or artifact.get("artifact_kind") != member.artifact_kind
                 or artifact.get("content_identity") != row.get("content_identity")
                 or artifact.get("wire_schema_identity")
@@ -1094,7 +1129,7 @@ def recover_committed_artifact_set(
             invocation_key,
             descriptor_identity,
             command_input_identity,
-            language_bundle,
+            contracts,
             artifact_set,
             expected,
             member_validator,
@@ -1114,7 +1149,7 @@ def _recover_generic_publication(
     invocation_key: str,
     descriptor_identity: str,
     command_input_identity: str,
-    language_bundle: dict[str, Any],
+    contracts: PublicationContracts,
     artifact_set: tuple[ArtifactSetMemberSpec, ...],
     expected_artifacts: dict[str, PublicationMember],
     member_validator: Callable[[str, dict[str, Any]], bool],
@@ -1129,7 +1164,7 @@ def _recover_generic_publication(
             invocation_path,
             descriptor_identity,
             invocation_key,
-            language_bundle,
+            contracts.index,
             authentication_key,
         )
     _require_matching_command_input(index, command_input_identity)
@@ -1137,9 +1172,9 @@ def _recover_generic_publication(
     receipt = _read_canonical_artifact(invocation_path / "artifact-set-receipt.json")
     manifest = _read_canonical_artifact(invocation_path / "artifact-set-manifest.json")
     if (
-        not _verify_artifact(receipt, language_bundle)
+        not contracts.receipt.verify(receipt)
         or receipt.get("content_identity") != index.get("receipt_identity")
-        or not _verify_artifact(manifest, language_bundle)
+        or not contracts.manifest.verify(manifest)
         or manifest.get("content_identity") != receipt.get("manifest_identity")
     ):
         raise RuntimeError("committed artifact-set framing failed revalidation")
@@ -1194,7 +1229,7 @@ def _commit_generic_publication(
     invocation_key: str,
     descriptor_identity: str,
     command_input_identity: str,
-    language_bundle: dict[str, Any],
+    contracts: PublicationContracts,
     artifact_set: tuple[ArtifactSetMemberSpec, ...],
     artifacts: dict[str, PublicationMember],
     member_validator: Callable[[str, dict[str, Any]], bool],
@@ -1233,17 +1268,13 @@ def _commit_generic_publication(
         }
         for member in artifact_set
     ]
-    manifest = _identified_artifact(
-        language_bundle,
-        "artifact-set-manifest",
+    manifest = contracts.manifest.identify(
         {
             "frame": "typed-logical-member-map-v1",
             "members": cast(JsonValue, members),
         },
     )
-    receipt = _identified_artifact(
-        language_bundle,
-        "artifact-set-receipt",
+    receipt = contracts.receipt.identify(
         {
             "descriptor_identity": descriptor_identity,
             "invocation_key": invocation_key,
@@ -1254,9 +1285,7 @@ def _commit_generic_publication(
             "member_locators": cast(JsonValue, member_locators),
         },
     )
-    index = _identified_artifact(
-        language_bundle,
-        "publication-index",
+    index = contracts.index.identify(
         {
             "adapter": "local-filesystem-directory-rename-v1",
             "descriptor_identity": descriptor_identity,
@@ -1275,19 +1304,19 @@ def _commit_generic_publication(
             if publication_fault == "after-member-write" and index_value == 0:
                 raise RuntimeError("injected publication fault after member write")
         framing = {
-            "artifact-set-manifest": manifest,
-            "artifact-set-receipt": receipt,
-            "publication-index": index,
+            "artifact-set-manifest": (manifest, contracts.manifest),
+            "artifact-set-receipt": (receipt, contracts.receipt),
+            "publication-index": (index, contracts.index),
         }
-        for name, artifact in framing.items():
+        for name, (artifact, _contract) in framing.items():
             _write_json(stage / f"{name}.json", artifact)
         for name, member in artifacts.items():
             staged = _read_canonical_artifact(stage / f"{name}.json")
             if staged != member.value or not member_validator(name, staged):
                 raise RuntimeError("staged artifact verification failed")
-        for name, artifact in framing.items():
+        for name, (artifact, contract) in framing.items():
             staged = _read_canonical_artifact(stage / f"{name}.json")
-            if staged != artifact or not _verify_artifact(staged, language_bundle):
+            if staged != artifact or not contract.verify(staged):
                 raise RuntimeError("staged artifact verification failed")
         _fsync_directory(stage)
         if publication_fault == "before-commit":
@@ -1446,7 +1475,7 @@ def _publish_lazy_artifact_set_locked(
         invocation_key,
         descriptor_identity,
         command_input_identity,
-        language_bundle,
+        select_publication_contracts(language_bundle),
         artifact_set,
         publication_artifacts,
         lambda _name, value: _verify_artifact(value, language_bundle),
