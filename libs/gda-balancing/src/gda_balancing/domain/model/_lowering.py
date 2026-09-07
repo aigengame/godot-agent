@@ -39,6 +39,7 @@ from gda_balancing.domain.structured_values import (
     StructuredValueFault,
     admit_typed_value,
     language_structured_value_index,
+    structured_fault_reason,
 )
 
 from gda_balancing.domain.model._resolution import (
@@ -3279,7 +3280,7 @@ def _resolved_entrypoints(
                     except StructuredValueFault as fault:
                         raise _EntrypointBindingError(
                             f"{operand_pointer}/value{fault.pointer}",
-                            f"structured literal was refused: {fault.code}",
+                            f"structured literal was refused: {structured_fault_reason(fault, authority=structured_authority)['diagnostic']}",
                         ) from fault
                 context_type = _literal_context_contract(
                     value,

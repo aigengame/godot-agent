@@ -60,6 +60,7 @@ from gda_balancing.domain.structured_values import (
     StructuredValueFault,
     admit_typed_value,
     selected_structured_value_index,
+    structured_fault_reason,
     typed_envelope_members,
 )
 
@@ -179,13 +180,13 @@ def _first_schema_error(
     return errors[0] if errors else None
 
 
-def _declared_value_fault(
+def _declared_value_diagnostic(
     value: Any,
     declaration: dict[str, Any],
     *,
     structured_authority: StructuredValueIndex,
     resource_limit: int | None,
-) -> StructuredValueFault | None:
+) -> tuple[str, str, str] | None:
     type_identity = cast(dict[str, str], declaration["type_identity"])
     declared_type: JsonValue = {
         "id": type_identity["id"],
@@ -199,11 +200,14 @@ def _declared_value_fault(
                 authority=structured_authority,
                 resource_limit=resource_limit,
             )
+            if canonical_bytes(admitted[type_member]) != canonical_bytes(declared_type):
+                raise StructuredValueFault("structured.reason.type-mismatch", "/type")
         except StructuredValueFault as fault:
-            return fault
-        if canonical_bytes(admitted[type_member]) != canonical_bytes(declared_type):
-            return StructuredValueFault(
-                "language.structured_value_type_mismatch", "/type"
+            reason = structured_fault_reason(fault, authority=structured_authority)
+            return (
+                cast(str, reason["stage"]),
+                cast(str, reason["diagnostic"]),
+                fault.pointer,
             )
         return None
     domain = declaration["domain"]
@@ -212,7 +216,7 @@ def _declared_value_fault(
         or isinstance(value, bool)
         or not domain["minimum"] <= value <= domain["maximum"]
     ):
-        return StructuredValueFault("language.invalid_domain", "")
+        return "static", "language.invalid_domain", ""
     return None
 
 
@@ -789,19 +793,20 @@ def _check_experiment_value(
                 declaration = declarations[
                     canonical_bytes(cast(JsonValue, row["target"]))
                 ]
-                fault = _declared_value_fault(
+                fault = _declared_value_diagnostic(
                     row["value"],
                     declaration,
                     structured_authority=structured_authority,
                     resource_limit=structured_resource_limit,
                 )
                 if fault is not None:
+                    stage, code, value_pointer = fault
                     return _refusal(
-                        stage="static",
-                        code=fault.code,
+                        stage=stage,
+                        code=code,
                         identity=experiment_identity,
                         pointer=(
-                            f"{payload_pointer}/{payload_index}/value{fault.pointer}"
+                            f"{payload_pointer}/{payload_index}/value{value_pointer}"
                         ),
                         message="Event-local payload does not match its declared value",
                     )
@@ -938,20 +943,21 @@ def _check_experiment_value(
             )
         for assignment_index, row in enumerate(scenario["assignments"]):
             declaration = declarations[canonical_bytes(cast(JsonValue, row["target"]))]
-            fault = _declared_value_fault(
+            fault = _declared_value_diagnostic(
                 row["value"],
                 declaration,
                 structured_authority=structured_authority,
                 resource_limit=structured_resource_limit,
             )
             if fault is not None:
+                stage, code, value_pointer = fault
                 return _refusal(
-                    stage="static",
-                    code=fault.code,
+                    stage=stage,
+                    code=code,
                     identity=experiment_identity,
                     pointer=(
                         f"/scenarios/{scenario_index}/assignments/"
-                        f"{assignment_index}/value{fault.pointer}"
+                        f"{assignment_index}/value{value_pointer}"
                     ),
                     message="Scenario assignment does not match its declared value",
                 )
@@ -977,18 +983,19 @@ def _check_experiment_value(
                         ),
                     )
                 declaration = declarations[identity]
-                fault = _declared_value_fault(
+                fault = _declared_value_diagnostic(
                     fact["value"],
                     declaration,
                     structured_authority=structured_authority,
                     resource_limit=structured_resource_limit,
                 )
                 if fault is not None:
+                    stage, code, value_pointer = fault
                     return _refusal(
-                        stage="static",
-                        code=fault.code,
+                        stage=stage,
+                        code=code,
                         identity=experiment_identity,
-                        pointer=f"{pointer}/value{fault.pointer}",
+                        pointer=f"{pointer}/value{value_pointer}",
                         message="External-input fact does not match its declared value",
                     )
     expected_requirements = {
