@@ -1124,9 +1124,56 @@ a missing action is `unknown_setting`, mirroring `remove-autoload`. A failed sav
 | `gda resource create` | Create a `.tres` resource file |
 | `gda resource delete` | Delete a resource file |
 | `gda resource get` | Load and inspect a resource |
+| `gda resource inspect-model` | Inspect a Godot-loaded PackedScene: structure, static bounds, materials, skin and animation targets |
 | `gda resource set` | Edit a resource file |
 | `gda resource uid` | Resolve UID ↔ resource path (both directions) |
 | `gda resource import` | Ensure assets are imported into the project cache (clean-worktree loading) |
+
+`resource inspect-model PATH [--subtree PATH] [--max-nodes 256] [--max-items 1024]`
+loads and instantiates a PackedScene off-tree. It accepts an imported GLB or an
+authored PackedScene; import a cold source explicitly first. It never starts an
+import pass, saves the resource, or plays the selected scene. Loading still uses
+the Trusted project execution surface: autoload constructors, resource/node
+initializers and custom property metadata can run. The engine can create its
+usual logs/user-data/cache files; this is not a zero-filesystem-effects promise.
+
+The JSON result identifies the source, engine version and selected root-inclusive
+subtree. All node paths remain relative to the resource root. Transforms contain
+origin and three basis **columns**. Resource-space static bounds merge each visited
+MeshInstance3D's transformed mesh AABB, including the resource root's local
+transform; plain Node parents and `top_level` cut spatial inheritance as in Godot.
+No geometry means `bounds: null`. Mesh instances and unique loaded Mesh resources
+are counted separately; identical bytes do not imply shared resource identity.
+These bounds do not sample animation, skin deformation, blend shapes or visibility.
+
+Surfaces report effective materials (instance override, surface override, then
+mesh material) and BaseMaterial3D texture roles from the running engine. An absent
+material is null; pathless resources and unsupported material classes have explicit
+unavailable reasons. Texture references do not prove active shader use. Primitive
+type and compact vertex/index counts require ArrayMesh; other meshes retain their
+surface/material/bounds facts with unavailable count reasons. Triangle counts use
+index slots, or vertex slots for unindexed surfaces; triangle strips use `N - 2`,
+including degenerate slots. Other topology has no triangle count.
+
+Skeleton bones contain parent indices and parent-relative rest transforms.
+Explicit Skin binds resolve by bone name or index against the instance's selected
+Skeleton3D. Runtime-generated skins are not observed. AnimationPlayer reports
+duration, loop mode and track paths without keys or playback. Transform tracks
+locate nodes/bones; value/bezier tracks can locate a declared top-level property.
+Missing targets are `unresolved`; nested property evaluation and other track
+semantics are `unavailable`, with the located node retained when possible. A
+`resolved` target proves identity at its stated scope, not playback or writability.
+
+Node traversal stops at `max_nodes` (1–4096); one shared `max_items` budget
+(1–16384) covers surfaces, textures, bones, binds, animations and tracks. The
+`omissions` identify node/section and limit; `truncated` prevents interpreting an
+empty partial list as absence. Summary counts and bounds cover visited nodes only.
+These are report/traversal limits, not byte or engine-load memory limits: Godot
+loads and instantiates the resource first. Human output is a summary; use `--json`
+for the complete bounded facts. Missing files, absent subtrees, non-PackedScene
+resources and unavailable loads use `path_not_found`, `node_not_found`,
+`not_a_scene` and `missing_dependency`, respectively. Project expectations and
+cross-version comparisons belong to Asset Pipeline; this command gives facts.
 
 **Scoped import surface** (shipped, #668, per the issue's revised contract): a clean
 worktree carries the sources and their committed `.import` sidecars but not the gitignored

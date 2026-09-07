@@ -353,6 +353,10 @@ a missing or stale cache runs the **engine import pass** — importer code (and
 any import plugins the project registers) over project content, WITHOUT the
 autoloads: the pass boots the editor importer path, not the game's scene
 stack.
+`gda resource inspect-model` (#886) loads and instantiates a selected PackedScene
+off-tree: resource/node initializers and custom property metadata can run, but
+the inspected scene is not added to the active tree or played. Its bounded
+report is an engine observation, not a project acceptance verdict.
 `gda scene validate` (#664) is a point too, and a narrow one: it compiles
 every script the scene binds — which runs their static initializers — while
 instantiating nothing, so none of the scene's own nodes reach `_init` or
