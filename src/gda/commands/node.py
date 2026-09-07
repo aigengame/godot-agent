@@ -30,6 +30,7 @@ from gda.headless import (
     project_option,
 )
 from gda.models import (
+    NODE3D_LOCAL_TRANSFORM_DESC,
     NodeProperty,
     NormalizedPath,
     OBJECT_SET_ECHO_DESC,
@@ -217,9 +218,9 @@ class NodeGetResult(BaseModel):
     """The result of ``gda node get``: a node's properties as typed JSON (issue #55).
 
     Echoes the addressed node (``path``/``name``/``type``) and its storage
-    properties — the ones that serialize into the ``.tscn`` — each as a typed
+    properties plus Node3D's local position, rotation and scale, each as a typed
     :class:`NodeProperty`, so an agent reads a node's state without parsing the
-    scene file and can feed any property straight back into ``node set``.
+    scene file and can edit supported types with ``node set``.
     """
 
     scene_path: str
@@ -228,7 +229,7 @@ class NodeGetResult(BaseModel):
     )
     name: str
     type: str = Field(description="The node's engine class (e.g. Sprite2D).")
-    properties: list[NodeProperty]
+    properties: list[NodeProperty] = Field(description=NODE3D_LOCAL_TRANSFORM_DESC)
 
 
 class NodeSetParams(BaseModel):
@@ -247,7 +248,10 @@ class NodeSetParams(BaseModel):
             "itself, 'Player/Arm' a nested node."
         )
     )
-    property: str = Field(description="The property to set (e.g. position, visible).")
+    property: str = Field(
+        description="The property to set (e.g. position, visible). "
+        + NODE3D_LOCAL_TRANSFORM_DESC
+    )
     value: str = Field(
         description=(
             "The value to set, as a string. The operation coerces it to the "
@@ -765,7 +769,11 @@ def get(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Read a node's properties (by node path) as typed JSON."""
+    """Read storage properties and Node3D local position, rotation and scale.
+
+    Vector3 values are [x, y, z]. Local components use parent space; rotation
+    uses Euler radians under the node's rotation_order. This read does not save.
+    """
     dispatch_domain(
         NODE_GET_COMMAND,
         NodeGetParams(path=path, node=node),
@@ -794,7 +802,7 @@ def set_property(
         "--value",
         help=(
             "The value to set, as a string. Coerced to the property's declared "
-            "Godot type: Vector2/Vector2i/Color take comma-separated components "
+            "Godot type: Vector2/Vector2i/Vector3/Color take comma-separated components "
             '(e.g. "48,72", "0.2,0.6,1,1"), and a property expecting a Resource '
             "(sub)class takes a res:// path to an existing Resource of that class. "
             "An uncoercible value is a clean error."
@@ -806,7 +814,12 @@ def set_property(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Set a node property, coercing the value to its declared Godot type."""
+    """Set a node property, coercing the value to its declared Godot type.
+
+    Node3D position, rotation and scale are local to the parent; rotation uses
+    Euler radians. Use three comma-separated numbers for Vector3, such as 1,2,3.
+    The resulting scene is saved; node get reads it back in a fresh engine.
+    """
     dispatch_domain(
         NODE_SET_COMMAND,
         NodeSetParams(path=path, node=node, property=property, value=value),

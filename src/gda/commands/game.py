@@ -39,6 +39,7 @@ from gda.headless import (
 )
 from gda.live_numbers import LIVE_ENGINE_PRECISION, MAX_EXACT_JSON_INT
 from gda.models import (
+    NODE3D_LOCAL_TRANSFORM_DESC,
     RelayedLiveParams,
     NodeProperty,
     RUNTIME_NODE_DESC,
@@ -168,7 +169,7 @@ class GameGetParams(RelayedLiveParams):
     (absolute) node path rather than a ``.tscn`` file + root-relative node path:
     there is no file, only the live SceneTree of the engine session. ``property``
     optionally narrows the read to one property. When explicitly named, a plain
-    attached-script variable is addressable after storage properties are checked;
+    Node3D local component or attached-script variable is also addressable;
     unfiltered reads still list only the storage-property surface.
     """
 
@@ -177,8 +178,9 @@ class GameGetParams(RelayedLiveParams):
         default=None,
         description=(
             "If set, read only this one property. Explicit names first match the "
-            "storage surface, then attached-script variables; unset keeps the "
-            "default storage-property listing."
+            "storage surface and Node3D local components, then attached-script "
+            "variables; unset keeps the default storage-property listing. "
+            + NODE3D_LOCAL_TRANSFORM_DESC
         ),
     )
     texture_digest: bool = Field(
@@ -200,7 +202,7 @@ class GameGetResult(BaseModel):
     The live counterpart of :class:`NodeGetResult` (no ``scene_path`` — there is
     no file): echoes the addressed node (runtime ``path``/``name``/``type``) and
     its storage properties, each a typed :class:`NodeProperty`; an explicitly named
-    plain attached-script variable can also appear as the single returned property.
+    Node3D local component or plain attached-script variable can also appear alone.
     Each value goes through the same recursive value projection the headless reads
     use (ADR-0035): compound values arrive structured; a ``res://``-pathed Resource
     is a :class:`ReferenceProjection`, a path-less ``Texture2D`` a
@@ -269,7 +271,7 @@ class GameSetParams(RelayedLiveParams):
     string value, coerced to the property's declared or inferred target Godot type
     by the gda harness (the SAME coercion table headless ``node set`` uses) and
     applied at a frame boundary (ADR-0020). Explicit names first target storage
-    properties, then plain attached-script variables; script-variable mutations
+    properties and Node3D local components, then plain attached-script variables; mutations
     are bound to the session, not persisted.
     """
 
@@ -277,7 +279,8 @@ class GameSetParams(RelayedLiveParams):
     property: str = Field(
         description=(
             "The property to set (e.g. position, visible). Explicit names first "
-            "target storage properties, then attached-script variables."
+            "target storage properties and Node3D local components, then "
+            "attached-script variables. " + NODE3D_LOCAL_TRANSFORM_DESC
         )
     )
     value: str = Field(
@@ -655,8 +658,9 @@ def game_get(
         None,
         "--property",
         help=(
-            "If set, read only this property: storage first, then an attached "
-            "script variable. Without it, list only the storage surface."
+            "If set, read only this property: storage and Node3D local components "
+            "first, then an attached script variable. Without it, list only the "
+            "storage surface."
         ),
     ),
     texture_digest: bool = typer.Option(
@@ -684,6 +688,8 @@ def game_get(
     `live_unknown_property`. A named plain script variable on the node's attached
     script is addressable explicitly after storage properties are checked; unfiltered
     reads keep the storage-property listing and do not dump script variables.
+    Node3D position, rotation and scale are explicitly addressable local components;
+    rotation is in radians and Vector3 values read as [x, y, z].
     A path-less Texture2D value projects as a TextureProjection ({type, width,
     height, object_string, digest}, ADR-0035 amendment #666); `--texture-digest`
     opts into its content digest.
@@ -749,8 +755,8 @@ def game_set(
         ...,
         "--property",
         help=(
-            "The property to set (e.g. position, visible): storage first, then an "
-            "attached script variable."
+            "The property to set (e.g. position, visible): storage and Node3D local "
+            "components first, then an attached script variable."
         ),
     ),
     value: str = typer.Option(
@@ -776,6 +782,8 @@ def game_set(
     The gda harness coerces `--value` to the property's declared or inferred target
     Godot type — the SAME coercion table `node set` uses — and applies it at a frame
     boundary (ADR-0020); the mutation is bound to the session, not persisted to disk.
+    Node3D position, rotation and scale use local parent space; rotation uses radians.
+    Vector3 input is three comma-separated numbers, such as `--value 1,2,3`.
     A named plain script variable on the node's attached script is settable explicitly
     after storage properties are checked. The success result includes `verified`:
     true when the observed read-back value equals the coerced requested value,

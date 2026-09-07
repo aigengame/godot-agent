@@ -330,7 +330,8 @@ out-of-range indexes fail with `invalid_child_index` (exit 4), leaving the file 
 
 **Property reporting and value coercion** (established by #55): `gda node get` instantiates the
 scene and reports the addressed node's **storage** properties (the ones that serialize into the
-`.tscn`) as typed JSON — each a `{name, type, value}` triple where `type` is the property's
+`.tscn`), plus Node3D's local `position`, `rotation` and `scale`, as typed JSON — each a
+`{name, type, value}` triple where `type` is the property's
 declared Godot type name and `value` is its JSON projection. `gda node set` takes the property's
 declared type as the coercion target and converts the CLI `--value` **string** to it; the value
 the node ends up holding is reported back in the same JSON projection `node get` uses, so a `set`
@@ -353,6 +354,7 @@ mutation integrity boundary above. The supported target types and the string for
 | `Array` | a JSON array string (e.g. `["wine","key"]`) | a JSON array |
 | `Vector2` | two comma-separated floats: `x,y` (e.g. `10,20`) | `[x, y]` |
 | `Vector2i` | two comma-separated integers: `x,y` | `[x, y]` |
+| `Vector3` | three comma-separated floats: `x,y,z` (e.g. `1,2,3`) | `[x, y, z]` |
 | `Color` | `#rrggbb` / `#rrggbbaa`, or 3–4 comma-separated floats in 0..1 (`r,g,b[,a]`) | `[r, g, b, a]` |
 
 For `Dictionary` / `Array` JSON values, JSON integer literals stay Godot `int` and JSON float
@@ -369,6 +371,25 @@ reported by `node get` — compound values arrive structured through the shared 
 projection or the `str()` fallback (see [`project`](#project)) — but `node set` cannot coerce to
 those remaining types yet and refuses with `uncoercible_value` unless a separate assignment contract
 below applies.
+
+**Node3D local transforms** (#885): `position`, `rotation` and `scale` are explicitly
+settable through `node set` and live `game set`. They use the node's local transform,
+relative to its parent; `rotation` uses Euler angles in **radians** and the node's
+`rotation_order`. For example, `node set res://main.tscn --node Model --property position
+--value 1,2,3` places the model at local `[1, 2, 3]`. The same `value` string is used in
+`--params-json` and generated MCP inputs; a JSON array or constructor literal is not
+the Vector3 write form. `node get` includes all three components; `game get` reads each
+when named with `--property`. The live unfiltered storage listing stays unchanged.
+
+Godot's setters update the selected component and preserve the other local components
+within engine precision. Headless writes save the resulting transform; live writes
+report the observed value and `verified` without saving. Vector3 uses the engine build's
+component precision (normally 32-bit), followed by gda's full-precision JSON transport.
+Godot can normalize Euler or scale representations when it reconstructs a basis;
+use nonzero, same-sign scale components for a stable decomposition, as described in
+the [Node3D scale contract](https://docs.godotengine.org/en/stable/classes/class_node3d.html#class-node3d-property-scale).
+Global-transform editing, Quaternion, Basis and Transform3D assignment are outside this
+slice. Shared Vector3 projection also applies inside containers and PackedVector3Array.
 
 **`Control.position` convenience assignment** (#464): `Control.position` is layout-derived from
 offsets rather than a normal serialized storage field, but it is a common authoring target. For a
@@ -410,7 +431,7 @@ as `node set` round-trips through `node get`; here `unknown_property` names a pr
 **resource** rather than a node. The live `gda game set` (#220) applies the same coercion table to a
 **running** node's runtime property (the gda harness carries a verbatim copy of the coercion helpers,
 kept in sync by a drift test). When a `game get` / `game set` property name is explicit, the harness
-checks storage properties first, then attached-script variables; unfiltered `game get` keeps the
+checks storage properties and Node3D local components first, then attached-script variables; unfiltered `game get` keeps the
 storage-property listing and does not dump plain script variables. Live set success results keep
 `value` as the observed read-back value and add `verified`: `true` when that read-back equals the
 coerced requested value, `false` when the set completed but the read-back differs. The harness does
@@ -1368,7 +1389,7 @@ re-derives every verdict from a running engine.
   properties — the live counterparts of headless `node get` / `node set`, applying the
   **same** value-coercion table and returning the observed read-back value plus
   `verified` to distinguish a matched read-back from a completed set whose value did not
-  stick. When a property is explicitly named, storage properties are preferred and plain
+  stick. When a property is explicitly named, storage properties and Node3D local components are preferred and plain
   attached-script variables are addressable as a fallback; unfiltered `game get` keeps the
   storage-property listing. `game get --texture-digest` (shipped, #666) opts a read into
   the content digest of each PATH-LESS `Texture2D` value's **texture projection**

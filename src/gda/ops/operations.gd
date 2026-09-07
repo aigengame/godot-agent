@@ -1784,9 +1784,9 @@ func _op_node_get(params: Dictionary) -> void:
 
 	var properties: Array = []
 	for prop in node.get_property_list():
-		if not _is_storage_property(prop):
-			continue
 		var prop_name := String(prop.get("name", ""))
+		if not _is_storage_property(prop) and not _is_node3d_local_transform(node, prop_name):
+			continue
 		properties.append({
 			"name": prop_name,
 			"type": _type_name(int(prop.get("type", TYPE_NIL))),
@@ -6596,24 +6596,32 @@ func _int_param(params: Dictionary, key: String) -> int:
 # one file. tests/harness/test_harness_coercion_mirror.py asserts the two blocks are
 # byte-identical (modulo leading tabs), so an edit here must be mirrored there.
 # Whether a property-list entry is a STORAGE property — the ones node get
-# reports and node set targets: the properties that serialize into the .tscn,
-# excluding the engine's category headers, group separators, and editor-only
+# ordinarily reports and node set targets: the properties that serialize into
+# the .tscn, excluding the engine's category headers, group separators, and editor-only
 # (non-storage) entries. This is the same usage flag the scene serializer keys
-# on, so node get reports exactly the surface a saved scene can carry.
+# on. Node3D local components have a separate, narrow exception below (#885).
 func _is_storage_property(prop: Dictionary) -> bool:
 	var usage := int(prop.get("usage", 0))
 	return (usage & PROPERTY_USAGE_STORAGE) != 0
 
 
 # The declared Godot type of a settable property on the node, or TYPE_NIL if the
-# node has no storage property by that name. node set keys coercion off this:
+# node has no supported property by that name. node set keys coercion off this:
 # the value's target type comes from the property the node actually declares,
 # never from guessing.
 func _property_type(node: Node, prop_name: String) -> int:
 	for prop in node.get_property_list():
-		if String(prop.get("name", "")) == prop_name and _is_storage_property(prop):
+		if String(prop.get("name", "")) == prop_name \
+				and (_is_storage_property(prop) or _is_node3d_local_transform(node, prop_name)):
 			return int(prop.get("type", TYPE_NIL))
 	return TYPE_NIL
+
+
+# Node3D serializes one Transform3D, but these three derived Vector3 properties
+# are the editable local components (#885). Keep the exception node-specific;
+# neither other non-storage properties nor global transform editing is admitted.
+func _is_node3d_local_transform(node: Node, prop_name: String) -> bool:
+	return node is Node3D and prop_name in ["position", "rotation", "scale"]
 
 
 # Read a string param defensively: a non-string value (the params arrive as
@@ -6655,8 +6663,8 @@ const JSONIFY_BOOKKEEPING_PROPS: Array[String] = [
 # The read-side Value projection (ADR-0035, grown from issue #55): render a
 # Godot Variant into the structured JSON a result's value field carries.
 # Scalars pass through; the fixed-shape value types node set supports become
-# flat number arrays so node get's output is exactly the projection node set
-# accepts back: Vector2 → [x, y], Vector2i likewise, Color → [r, g, b, a].
+# flat number arrays: Vector2 → [x, y], Vector2i likewise, Vector3 → [x, y, z],
+# Color → [r, g, b, a]. The write form uses comma-separated components.
 # A Dictionary projects to a JSON object (keys stringified), an Array and the
 # packed-array family to a JSON array, each value re-entering the projection;
 # an Object renders as a reference projection, an inline value projection, or
@@ -6672,6 +6680,8 @@ func _jsonify(value: Variant, depth: int = 0, texture_digest: bool = false) -> V
 			return [value.x, value.y]
 		TYPE_VECTOR2I:
 			return [value.x, value.y]
+		TYPE_VECTOR3:
+			return [value.x, value.y, value.z]
 		TYPE_COLOR:
 			return [value.r, value.g, value.b, value.a]
 		TYPE_DICTIONARY:
@@ -6695,8 +6705,8 @@ func _jsonify(value: Variant, depth: int = 0, texture_digest: bool = false) -> V
 				return str(value)
 			var items := []
 			# Element-wise re-entry: a PackedVector2Array element projects as
-			# [x, y]; an element type with no structured arm of its own (e.g.
-			# Vector3) stays str(), per the fixed-shape list above.
+			# [x, y], a PackedVector3Array element as [x, y, z]; types without
+			# their own structured arm keep the string fallback.
 			for element in value:
 				items.append(_jsonify(element, depth + 1, texture_digest))
 			return items
@@ -6802,6 +6812,9 @@ func _coerce_value(raw: String, type: int, current: Variant = null) -> Variant:
 		TYPE_VECTOR2I:
 			var parts: Variant = _coerce_int_list(raw, 2)
 			return Vector2i(parts[0], parts[1]) if parts != null else null
+		TYPE_VECTOR3:
+			var parts: Variant = _coerce_float_list(raw, 3)
+			return Vector3(parts[0], parts[1], parts[2]) if parts != null else null
 		TYPE_COLOR:
 			return _coerce_color(raw)
 		_:
@@ -6829,8 +6842,8 @@ func _coerce_int(raw: String) -> Variant:
 # --- Float fidelity: the WRITE side of the engine's number domain (#772, #805) ---
 #
 # The rule below is about a LITERAL, not about a property type, so it reaches every
-# float a write can spell: the scalar `--value` and the components of a Vector2 or a
-# Color, which `_coerce_float` parses one at a time, and the JSON numbers inside a
+# float a write can spell: the scalar `--value` and the components of a Vector2,
+# Vector3 or Color, which `_coerce_float` parses one at a time, and the JSON numbers inside a
 # Dictionary or an Array value, which no per-element step parses at all and which
 # `_destroyed_json_number` therefore reads from the raw text (#805). Until that was
 # added the container was the one path where a destroyed float still landed
@@ -6974,8 +6987,8 @@ func _destroyed_json_number(raw: String) -> String:
 # The literal whose destruction ACTUALLY refused this coercion, or "" when the
 # refusal was anything else. A note must never explain a failure it did not
 # diagnose, so this walks exactly what `_coerce_value` walks for `type`, in the
-# same order and behind the same gates: only TYPE_FLOAT, TYPE_VECTOR2, TYPE_COLOR
-# (through `_coerce_float`) and TYPE_DICTIONARY / TYPE_ARRAY (through the raw-text
+# same order and behind the same gates: TYPE_FLOAT, TYPE_VECTOR2, TYPE_VECTOR3,
+# TYPE_COLOR (through `_coerce_float`) and TYPE_DICTIONARY / TYPE_ARRAY (through the raw-text
 # scan) refuse on a destroyed literal at all — TYPE_INT, TYPE_VECTOR2I and the rest
 # refuse for reasons of their own and no float spelling would help them; a wrong
 # component count refuses on ARITY before a component is parsed; a Color in hex
@@ -6998,6 +7011,10 @@ func _destroyed_float_literal(raw: String, type: int) -> String:
 		TYPE_VECTOR2:
 			components = raw.split(",")
 			if components.size() != 2:
+				return ""
+		TYPE_VECTOR3:
+			components = raw.split(",")
+			if components.size() != 3:
 				return ""
 		TYPE_COLOR:
 			var trimmed := raw.strip_edges()

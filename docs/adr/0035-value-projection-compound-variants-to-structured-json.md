@@ -66,6 +66,22 @@ get-exports`, and the live `game get` read (and any future live value-returning 
 - **Both `.gd` files change byte-identically**; the mirror invariant and
   `tests/harness/test_harness_coercion_mirror.py` are preserved, not bypassed.
 
+## Vector3 and local Node3D components (2026-09-07, #885)
+
+The shared projection now includes `Vector3` as `[x, y, z]`, including recursive
+container and packed-array elements. Its write form uses the existing component
+parser with three comma-separated floats and the existing numeric-fidelity policy.
+Both engine payloads retain the byte-identical shared block and its drift guard.
+
+Node3D stores one `transform`, while its `position`, `rotation` and `scale` are
+derived, non-storage Vector3 properties. A narrow Node3D-only exception admits
+these local components through the existing node operations. Headless `node get`
+lists them; live `game get` reads them when explicitly named and retains the
+unfiltered storage listing. Both setters use Godot's own property setters, and
+the existing headless save and live frame-boundary/read-back semantics remain.
+Global properties and other compound transform types are not added. This extends
+the Godot property contract without any dependency on the supporting asset workflow.
+
 ## Considered options
 
 - **A `project get`-only compound renderer, leaving the shared `_jsonify` untouched** — **rejected.**
