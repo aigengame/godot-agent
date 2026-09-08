@@ -19,9 +19,14 @@ def evaluate_value_program_vector(
         "resource_bounds": {"max_steps": len(inp["instructions"])},
     }
     operands = {row["name"]: row["value"] for row in inp["operands"]}
-    nodes = {
-        row["id"]: row for row in kernel["meta_format"]["runtime_program"]["nodes"]
-    }
+    runtime_program = kernel["meta_format"]["runtime_program"]
+    nodes = {row["id"]: row for row in runtime_program["nodes"]}
+    configuration = runtime_program["runtime_configuration"]
+    phases = (
+        configuration["formula_initialization_phase"],
+        configuration["lifecycle_roles"]["active"],
+        runtime_program["scheduler"]["observation"]["phase"],
+    )
     cache: dict[bytes, int] | None = {} if inp["cache"] else None
     consumed_steps = 0
     value = None
@@ -36,6 +41,7 @@ def evaluate_value_program_vector(
                 runtime_nodes=nodes,
                 frame_identity=inp["site"],
                 phase=phase,
+                lifecycle_phases=phases,
                 consumed_steps=consumed_steps,
                 runtime_limit=inp["resource_limit"],
                 cache=cache,

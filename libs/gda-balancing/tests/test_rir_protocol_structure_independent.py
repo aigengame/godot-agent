@@ -190,8 +190,15 @@ def test_independent_package_notation_owner_preserves_other_roles_and_opaque_dat
     )
     # Annotate projection inputs after admission; these are not new vector oracles.
     operation["extensions"]["audit-note"] = {member: [member]}
-    profile = next(iter(_definitions(authored, "language.runtime_profiles")))
-    profile.setdefault("extensions", {})[member] = {"literal": member}
+    capability = next(
+        definition
+        for package in packages
+        if "language.capabilities" in package["runtime_semantic_paths"]
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.capabilities"
+        for definition in entry["definitions"]
+    )
+    capability.setdefault("extensions", {})[member] = {"literal": member}
 
     def unavailable(*_args, **_kwargs):
         raise AssertionError("Consumer B called A's package projection")
@@ -216,7 +223,7 @@ def test_independent_package_notation_owner_preserves_other_roles_and_opaque_dat
     assert any(
         definition.get("extensions", {}).get(member) == {"literal": member}
         for entry in projected
-        if entry["authority_path"] == "language.runtime_profiles"
+        if entry["authority_path"] == "language.capabilities"
         for definition in entry["definitions"]
     )
     assert any(

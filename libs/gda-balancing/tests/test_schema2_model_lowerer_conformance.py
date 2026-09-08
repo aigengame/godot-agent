@@ -1516,6 +1516,16 @@ def _reference_selected_operation_coordinates(
     return selected
 
 
+def _reference_formula_phases(kernel: dict[str, Any]) -> tuple[str, str, str]:
+    runtime = kernel["meta_format"]["runtime_program"]
+    configuration = runtime["runtime_configuration"]
+    return (
+        configuration["formula_initialization_phase"],
+        configuration["lifecycle_roles"]["active"],
+        runtime["scheduler"]["observation"]["phase"],
+    )
+
+
 def _reference_formulas_and_bindings(
     checked: ModelSourceContext,
     declarations: list[dict[str, Any]],
@@ -1545,20 +1555,9 @@ def _reference_formulas_and_bindings(
     )
     policy = profile["formula_resolution"]
     domains = policy["identity_domains"]
-    formula_profiles = [
-        runtime["extensions"]["standard.formula"]["contexts"]
-        for runtime in language["runtime_profiles"]
-        if "standard.formula" in runtime.get("extensions", {})
-    ]
-    assert len(formula_profiles) == 1
     formula_contexts = {
-        context["phase"]: {
-            "phase": context["phase"],
-            "frame": context["frame"],
-        }
-        for context in formula_profiles[0]
+        phase: {"phase": phase} for phase in _reference_formula_phases(checked.kernel)
     }
-    assert set(formula_contexts) == {"initialization", "event", "observation"}
     actual_operand_domain = checked.kernel["meta_format"]["runtime_program"][
         "invocation_contract"
     ]["identity_domains"]["actual_operand"]
@@ -1964,6 +1963,15 @@ def _reference_formulas_and_bindings(
                     "Formula binding site is not one unique selected Operation slot",
                 )
             slot, operation_identity_value = slots[key]
+            active = checked.kernel["meta_format"]["runtime_program"][
+                "runtime_configuration"
+            ]["lifecycle_roles"]["active"]
+            if slot.get("context") != formula_contexts[active]:
+                raise _ReferenceFormulaError(
+                    "model.reason.formula-context-mismatch",
+                    f"/formula_bindings/{binding_index}/site",
+                    "Formula Operation slot has no admitted lifecycle context",
+                )
             bound_slots.add(key)
             arguments = []
             for argument in source_binding["arguments"]:
@@ -2015,7 +2023,7 @@ def _reference_formulas_and_bindings(
                     "context": formula_contexts[phase],
                     "resolved_symbol": declaration["resolved_symbol"],
                 }
-                for phase in ("initialization", "event", "observation")
+                for phase in formula_contexts
             ]
         arguments.sort(key=lambda item: item["parameter"])
         for site_body in site_bodies:
@@ -3657,7 +3665,7 @@ def _reference_execution_closure(
     }
     # Formula reachability is separate for each lifecycle phase. A target in
     # another phase must not make an otherwise unused Formula executable.
-    for phase in ("initialization", "event", "observation"):
+    for phase in _reference_formula_phases(checked.kernel):
         programs = [
             program
             for program in rir["initialization_programs"]

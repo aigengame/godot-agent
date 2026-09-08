@@ -37,10 +37,10 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:fdcd2bcd31edd1b0d9f8154644bdcf5380540ea5a6bfcef76cd5d07d65d1a059"
+    "sha256:362ae9a429d39751924e1c2d1f730f708ecddce23b9a8ce209944a6f142ae314"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
-    "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
+    "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
 )
 
 
@@ -3315,26 +3315,14 @@ def _consumer_b_rir_schema(
             "closure": container("formula_closure", {"resource_charge": max_steps}),
         },
     )
-    contexts = [
-        row["extensions"]["standard.formula"]["contexts"]
-        for row in language["runtime_profiles"]
-        if "standard.formula" in row.get("extensions", {})
-    ]
-    context_rows = one(contexts)
-    context = alternatives(
-        [
-            obj(
-                {
-                    key: {"const": deepcopy(value)}
-                    for key, value in row.items()
-                    if key in {"phase", "frame"}
-                }
-            )
-            for row in context_rows
-        ]
+    configuration = runtime["runtime_configuration"]
+    active = configuration["lifecycle_roles"]["active"]
+    phases = (
+        configuration["formula_initialization_phase"],
+        active,
+        runtime["scheduler"]["observation"]["phase"],
     )
-    active = runtime["runtime_configuration"]["lifecycle_roles"]["active"]
-    active_context = one([row for row in context_rows if row["phase"] == active])
+    context = alternatives([obj({"phase": {"const": phase}}) for phase in phases])
     binding_sites = []
     for kind in formula_law["binding_sites"]:
         if kind == "derived-symbol":
@@ -3355,13 +3343,7 @@ def _consumer_b_rir_schema(
                     {
                         "kind": {"const": kind},
                         "operation": operation,
-                        "context": obj(
-                            {
-                                key: {"const": deepcopy(value)}
-                                for key, value in active_context.items()
-                                if key in {"phase", "frame"}
-                            }
-                        ),
+                        "context": obj({"phase": {"const": active}}),
                     },
                 )
             )

@@ -960,50 +960,16 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
     ]["runtime_profiles"]
     assert "formula_evaluation" not in runtime_profile_contract["field_types"]
     assert "formula_evaluation" not in runtime_profile_contract["optional_members"]
-    assert runtime_profile["extensions"]["standard.formula"] == {
-        "cache": {
-            "admission": "optional-non-semantic",
-            "charge_policy": "same-as-uncached-evaluation",
-            "key_members": [
-                "evaluation-site-identity",
-                "frame-or-snapshot-identity",
-                "canonical-operands",
-                "numeric-profile-identity",
-            ],
-            "snapshot_change": "requires-reevaluation",
-        },
-        "contexts": [
-            {
-                "frame": "pre-snapshot",
-                "phase": "initialization",
-                "publication": "atomic-before-snapshot-0",
-                "reads": "immutable-initialization-frame",
-            },
-            {
-                "frame": "pre-event-snapshot",
-                "phase": "event",
-                "publication": "inside-atomic-event",
-                "reads": "committed-pre-event-state",
-            },
-            {
-                "frame": "post-transition-snapshot",
-                "phase": "observation",
-                "publication": "after-atomic-event",
-                "reads": "committed-post-transition-state",
-            },
-        ],
-        "initialization_refusal": {
-            "published_artifacts": [],
-            "published_audit": False,
-            "published_events": False,
-            "published_snapshots": False,
-        },
-        "resource_charge": {
-            "basis": "specialized-operation-instruction-closure",
-            "cache_hit": "same-as-evaluation",
-        },
-        "snapshot_identity_domain": "runtime-snapshot-v2",
-    }
+    assert "extensions" not in runtime_profile_contract["field_types"]
+    assert "extensions" not in runtime_profile_contract["optional_members"]
+    assert "extensions" not in runtime_profile
+    runtime = kernel["meta_format"]["runtime_program"]
+    assert (
+        runtime["runtime_configuration"]["formula_initialization_phase"]
+        == "initialization"
+    )
+    assert runtime["runtime_configuration"]["lifecycle_roles"]["active"] == "event"
+    assert runtime["scheduler"]["observation"]["phase"] == "observation"
     expected_vector_ids = {
         "standard.schema": {
             "formula.schema.accept.named-typed-pure-graph",
