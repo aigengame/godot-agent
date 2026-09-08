@@ -16,6 +16,10 @@ from gda_balancing.domain.experiment import (
     _ordered_root_events_under,
     _scenario_root_events,
 )
+from gda_balancing.domain.operation_program import (
+    OperationCoordinate,
+    selected_operation_index,
+)
 from gda_balancing.domain.program_reachability import (
     project_reachable_program_structure,
 )
@@ -638,22 +642,33 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
     runtime = runtime_contract(checked)
     entrypoints = {row["id"]: row for row in checked.rir["entrypoints"]}
     reachable_nodes: set[str] = set()
+    reachable_operations: set[OperationCoordinate] = set()
     for scenario in checked.value["scenarios"]:
         selected_entrypoints = [
             entrypoints[event["entrypoint"]]
             for event in scenario_transition_events(scenario)
         ]
-        reachable_nodes.update(
-            project_reachable_program_structure(
-                checked.rir,
-                selected_entrypoints,
-            ).runtime_node_ids
+        reachable = project_reachable_program_structure(
+            checked.rir,
+            selected_entrypoints,
         )
+        reachable_nodes.update(reachable.runtime_node_ids)
+        reachable_operations.update(reachable.operation_coordinates)
     nodes = sorted(
         row["id"]
         for row in runtime["nodes"]
         if row["id"] in reachable_nodes
         and row["semantics"]["operator"] in SUPPORTED_RUNTIME_OPERATORS
+    )
+    operations = selected_operation_index(checked.rir["selected_semantics"])
+    # Effect IDs label the admitted Operation closure. Instruction support is
+    # checked separately before dispatch; these labels add no host behavior.
+    effects = sorted(
+        {
+            effect
+            for coordinate in reachable_operations
+            for effect in operations[coordinate]["effects"]
+        }
     )
     supported_profiles = sorted(
         row["id"]
@@ -681,15 +696,6 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
                 "total_events": "per-scenario",
                 "zero_time_depth": "per-descendant-chain",
             }
-            and set(row["effects"])
-            <= {
-                "event.cancel",
-                "event.commit",
-                "event.schedule",
-                "metric.observe",
-                "rng.named-stream",
-                "snapshot.commit",
-            }
         )
     )
     build_identity = evaluator_build_identity()
@@ -707,14 +713,7 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
             },
             "operation_kinds": ["event-fragment", "event-program", "pure-expression"],
             "instruction_nodes": nodes,
-            "effects": [
-                "event.cancel",
-                "event.commit",
-                "event.schedule",
-                "metric.observe",
-                "rng.named-stream",
-                "snapshot.commit",
-            ],
+            "effects": effects,
             "numeric_policies": ["exact-int64"],
             "rng_algorithms": [runtime["named_rng"]["algorithm"]],
             "runtime_profiles": supported_profiles,
