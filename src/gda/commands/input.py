@@ -202,6 +202,24 @@ def route_correlation_error(
     return detail
 
 
+def event_mode_echo_error(requested: bool, echoed: bool) -> "str | None":
+    """Why an event-mode request has no authoritative reply echo, or None (#854).
+
+    A public result can carry its derived ``injection_route`` back through model
+    validation without the private ``as_event`` echo. A raw harness reply can have
+    the same dictionary shape, so the result model cannot infer the payload's source
+    from that public field. The recipe has both the request and the private evidence;
+    it therefore requires the echo for an opted-in request even when the supplied
+    public route happens to agree.
+    """
+    if not requested or echoed:
+        return None
+    return (
+        "the harness reply carries no 'as_event' echo for the requested event mode. "
+        + STALE_EVENT_MODE_HARNESS
+    )
+
+
 def count_correlation_error(applied: object, requested: int) -> "str | None":
     """Why the reply's event-mode COUNT does not answer this request, or None (#854).
 
@@ -462,9 +480,11 @@ def _phases_routed(data: object, kind: str, *, as_event: bool = False) -> object
 def _phases_published(data: dict[str, object]) -> bool:
     """Whether every phase of a payload already names its route (#854).
 
-    A harness reply never does — the route is gda's to derive, folded in by
-    :func:`_phases_routed` — so phases that all carry one are a PUBLISHED result
-    coming back through validation (its own dump), not a reply to normalize.
+    This is the shape of a published result coming back through validation (its own
+    dump), so its routes must be kept. It is not proof of the payload's source: a
+    raw harness reply reaches the same validator and can carry the same fields. The
+    recipe separately checks the private ``as_event`` echo before it accepts an
+    opted-in request.
     """
     phases = data.get("phases")
     return (
@@ -625,6 +645,21 @@ class InputActionResult(BaseModel):
     input result already speaks.
     """
 
+    # Whether the raw payload carried the private applied-mode evidence (#854).
+    # The public route survives revalidation without it, but an opted-in command
+    # recipe still requires it before treating a harness reply as authoritative.
+    _event_mode_echoed: bool = PrivateAttr(default=False)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _keep_event_mode_echo_presence(
+        cls, data: object, handler: ValidatorFunctionWrapHandler
+    ) -> "InputActionResult":
+        result = handler(data)
+        if isinstance(data, dict):
+            result._event_mode_echoed = "as_event" in data
+        return result
+
     kind: str = Field(
         default="action", description="The injected event kind ('action')."
     )
@@ -649,13 +684,13 @@ class InputActionResult(BaseModel):
         # drifted `"false"` cannot publish the event route. The declared default
         # stays the state route, which is what a reply naming no mode meant.
         #
-        # A payload that carries NO echo but already names its route is not a
-        # harness reply: it is a published result validated again — its own dump.
-        # The echo that decided that route was consumed on the way in (it is no
-        # field, by design), so re-deriving here would turn truthful event-route
-        # evidence back into the state route at every serialize/revalidate
-        # boundary. The published route is kept instead; the field's own
-        # vocabulary check still runs on it (#854 review round 4).
+        # A payload that carries NO echo but already names its route can be a
+        # published result validated again — its own dump. The echo that decided
+        # that route was consumed on the way in (it is no field, by design), so
+        # re-deriving here would turn truthful event-route evidence back into the
+        # state route at every serialize/revalidate boundary. The public route is
+        # kept and its vocabulary still checked; the recipe separately requires
+        # `_event_mode_echoed` on an opted-in raw reply (#854 review round 5).
         if not isinstance(data, dict):
             return data
         if "as_event" not in data and "injection_route" in data:
@@ -809,6 +844,21 @@ class InputTapResult(BaseModel):
     validation (``contract_violation``) instead of passing through as a success.
     """
 
+    # The single-event capability gate needs the same private evidence as action:
+    # public phase routes survive a second validation, while the command recipe
+    # still knows whether the raw harness reply carried its ``as_event`` echo.
+    _event_mode_echoed: bool = PrivateAttr(default=False)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _keep_event_mode_echo_presence(
+        cls, data: object, handler: ValidatorFunctionWrapHandler
+    ) -> "InputTapResult":
+        result = handler(data)
+        if isinstance(data, dict):
+            result._event_mode_echoed = "as_event" in data
+        return result
+
     kind: Literal["tap"] = Field(
         default="tap", description="The injected event kind ('tap')."
     )
@@ -899,12 +949,11 @@ class InputTapResult(BaseModel):
             # value on every pass: a reply and its dump validate alike.
             return _phases_routed(data, "key")
         if "as_event" not in data and _phases_published(data):
-            # An action tap is the one target whose route is NOT a function of the
-            # public fields: the echo decides it, and the echo is consumed here. So
-            # a payload that names its routes without echoing a mode is a published
-            # result validated again (its own dump), and the routes it carries are
-            # kept — re-deriving would read the missing echo as the state route
-            # and change the meaning of truthful evidence (#854 review round 4).
+            # An action tap is the one target whose route is NOT a function of its
+            # other public fields: the echo decides it, and the echo is consumed
+            # here. Keep already-published routes across revalidation; the recipe
+            # separately checks `_event_mode_echoed` before it accepts an opted-in
+            # raw reply, because this field shape cannot identify the source.
             return data
         return _phases_routed(data, "action", as_event=echoed_event_mode(data))
 
@@ -936,6 +985,10 @@ class InputTapResult(BaseModel):
             raise ValueError(
                 "a tap result reports exactly the phases press@0 and "
                 "release@hold_frames."
+            )
+        if len({phase.injection_route for phase in self.phases}) != 1:
+            raise ValueError(
+                "a tap result reports one injection route across both phases."
             )
         return self
 
@@ -1692,6 +1745,8 @@ def _input_action_recipe(params, *, project, godot):
     error = route_correlation_error(
         injection_route("action", as_event=params.as_event), outcome.injection_route
     )
+    if error is None:
+        error = event_mode_echo_error(params.as_event, outcome._event_mode_echoed)
     if error is not None:
         return make_failure("contract_violation", error, "")
     return outcome
@@ -1729,6 +1784,8 @@ def _input_tap_recipe(params, *, project, godot):
         ),
         outcome.phases[0].injection_route,
     )
+    if error is None:
+        error = event_mode_echo_error(params.as_event, outcome._event_mode_echoed)
     if error is not None:
         return make_failure("contract_violation", error, "")
     return outcome

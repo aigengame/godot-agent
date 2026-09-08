@@ -3175,6 +3175,25 @@ def test_an_opted_in_action_reply_that_echoes_no_mode_is_a_contract_violation(
     assert "gda daemon stop" in error["message"]
 
 
+def test_an_opted_in_action_reply_cannot_substitute_a_public_route_for_the_echo(
+    monkeypatch, tmp_path
+):
+    # The result model also validates its own public dump. A raw harness reply must
+    # not impersonate that shape to bypass the authoritative private echo: the
+    # recipe still has to know that this session applied the opt-in mode.
+    error = _gate_error(
+        monkeypatch,
+        tmp_path,
+        {**INPUT_ACTION_RESULT, "injection_route": "viewport_event"},
+        "action",
+        "jump",
+        "--as-event",
+    )
+
+    assert "no 'as_event' echo" in error["message"]
+    assert "predates harness v21" in error["message"]
+
+
 def test_an_action_reply_echoing_a_non_boolean_mode_is_a_contract_violation(
     monkeypatch, tmp_path
 ):
@@ -3224,6 +3243,55 @@ def test_an_opted_in_tap_reply_that_echoes_no_mode_is_a_contract_violation(
     assert "predates harness v21" in error["message"]
 
 
+def test_an_opted_in_tap_reply_cannot_substitute_public_routes_for_the_echo(
+    monkeypatch, tmp_path
+):
+    error = _gate_error(
+        monkeypatch,
+        tmp_path,
+        {
+            **INPUT_TAP_ACTION_RESULT,
+            "phases": [
+                {**phase, "injection_route": "viewport_event"}
+                for phase in INPUT_TAP_ACTION_RESULT["phases"]
+            ],
+        },
+        "tap",
+        "--action",
+        "jump",
+        "--as-event",
+    )
+
+    assert "no 'as_event' echo" in error["message"]
+    assert "predates harness v21" in error["message"]
+
+
+def test_an_action_tap_reply_cannot_publish_two_different_routes(monkeypatch, tmp_path):
+    error = _gate_error(
+        monkeypatch,
+        tmp_path,
+        {
+            **INPUT_TAP_ACTION_RESULT,
+            "phases": [
+                {
+                    **INPUT_TAP_ACTION_RESULT["phases"][0],
+                    "injection_route": "viewport_event",
+                },
+                {
+                    **INPUT_TAP_ACTION_RESULT["phases"][1],
+                    "injection_route": "action_state",
+                },
+            ],
+        },
+        "tap",
+        "--action",
+        "jump",
+        "--as-event",
+    )
+
+    assert "one injection route across both phases" in error["message"]
+
+
 def test_a_tap_reply_echoing_a_non_boolean_mode_is_a_contract_violation(
     monkeypatch, tmp_path
 ):
@@ -3257,8 +3325,10 @@ def test_an_event_mode_action_result_survives_a_serialize_revalidate_boundary():
     again = InputActionResult.model_validate(published.model_dump())
     from_json = InputActionResult.model_validate_json(published.model_dump_json())
 
-    assert again == published
-    assert from_json == published
+    # The private echo-presence evidence belongs to the command recipe, not the
+    # public value contract. Compare the public dumps across the boundary.
+    assert again.model_dump() == published.model_dump()
+    assert from_json.model_dump() == published.model_dump()
     assert again.injection_route == "viewport_event"
 
 
@@ -3276,8 +3346,8 @@ def test_an_event_mode_action_tap_result_survives_a_serialize_revalidate_boundar
     again = InputTapResult.model_validate(published.model_dump())
     from_json = InputTapResult.model_validate_json(published.model_dump_json())
 
-    assert again == published
-    assert from_json == published
+    assert again.model_dump() == published.model_dump()
+    assert from_json.model_dump() == published.model_dump()
     assert [phase.injection_route for phase in again.phases] == [
         "viewport_event",
         "viewport_event",
