@@ -128,7 +128,6 @@ def operation_literal_context_contract(
             for profile in profiles
             if isinstance(profile, dict)
             and isinstance(typed_envelope_contract, dict)
-            and profile.get("id") == typed_envelope_contract.get("id")
             and profile.get("source_kind") == "typed-envelope"
             and profile.get("value_kind") == typed_envelope_contract.get("value_kind")
             and formal.get("value_kind") == profile.get("value_kind")
@@ -346,6 +345,28 @@ class OperationValueContracts:
             return None
 
 
+def admitted_numeric_policy_ids(
+    language_bundle: dict[str, Any],
+) -> tuple[str, ...] | None:
+    """Project IDs whose definitions satisfy the admitted exact Quantity contract."""
+    policies = (
+        language_bundle.get("language", {}).get("quantity", {}).get("numeric_policies")
+    )
+    if not isinstance(policies, list) or not policies:
+        return None
+    identifiers: list[str] = []
+    for policy in policies:
+        if (
+            not isinstance(policy, dict)
+            or not isinstance(policy.get("id"), str)
+            or not policy["id"]
+            or policy["id"] in identifiers
+        ):
+            return None
+        identifiers.append(policy["id"])
+    return tuple(identifiers)
+
+
 def derive_operation_value_contracts(
     kernel: dict[str, Any], language_bundle: dict[str, Any]
 ) -> OperationValueContracts | None:
@@ -366,14 +387,7 @@ def derive_operation_value_contracts(
         if isinstance(runtime_program, dict)
         else None
     )
-    numeric = (
-        runtime_program.get("numeric") if isinstance(runtime_program, dict) else None
-    )
-    runtime_numeric_policies = (
-        numeric.get("compatible_value_numeric_policies")
-        if isinstance(numeric, dict)
-        else None
-    )
+    runtime_numeric_policies = admitted_numeric_policy_ids(language_bundle)
     resource_limit = kernel.get("resources", {}).get("max_ldb_admission_work")
     if (
         not isinstance(literal_typing, dict)
@@ -382,7 +396,7 @@ def derive_operation_value_contracts(
         or not all(isinstance(profile, dict) for profile in literal_profiles)
         or not isinstance(typed_envelope_contract, dict)
         or not isinstance(fixed_value_contracts, dict)
-        or not isinstance(runtime_numeric_policies, list)
+        or runtime_numeric_policies is None
         or not runtime_numeric_policies
         or not all(isinstance(policy, str) for policy in runtime_numeric_policies)
         or not isinstance(resource_limit, int)
@@ -1186,7 +1200,6 @@ def _runtime_authority_is_closed(
         not isinstance(numeric, dict)
         or numeric
         != {
-            "compatible_value_numeric_policies": ["exact-int64"],
             "id": "signed-int64-v1",
             "minimum": -(1 << 63),
             "maximum": (1 << 63) - 1,

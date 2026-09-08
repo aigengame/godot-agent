@@ -3656,13 +3656,11 @@ def _reference_execution_closure(
                     "package": package["id"],
                     "definition": deepcopy(definition),
                 }
-    requested_reasons = {
-        row["id"] for row in reasons["roots"] if applicable[row["when"]] and "id" in row
-    }
+    requested_reasons: set[str] = set()
     signals = {
         (row["stage"], row["signal"])
         for row in reasons["roots"]
-        if applicable[row["when"]] and "signal" in row
+        if applicable[row["when"]]
     }
     for node in selected_nodes:
         signals.update(

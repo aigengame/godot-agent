@@ -670,13 +670,16 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
             for effect in operations[coordinate]["effects"]
         }
     )
+    numeric_policies = sorted(
+        row["id"] for row in checked.rir["selected_semantics"]["numeric_profiles"]
+    )
     supported_profiles = sorted(
         row["id"]
         for row in checked.rir["selected_semantics"]["runtime_profiles"]
         if (
             row.get("evaluation") == runtime["version"]
             and row.get("runtime_program_version") == runtime["version"]
-            and row.get("numeric_policy") == "exact-int64"
+            and row.get("numeric_policy") in numeric_policies
             and row.get("numeric_law") == runtime["numeric"]["id"]
             and row.get("rng")
             == {
@@ -714,7 +717,7 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
             "operation_kinds": ["event-fragment", "event-program", "pure-expression"],
             "instruction_nodes": nodes,
             "effects": effects,
-            "numeric_policies": ["exact-int64"],
+            "numeric_policies": numeric_policies,
             "rng_algorithms": [runtime["named_rng"]["algorithm"]],
             "runtime_profiles": supported_profiles,
         },

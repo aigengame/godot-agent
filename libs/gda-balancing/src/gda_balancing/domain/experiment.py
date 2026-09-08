@@ -58,18 +58,37 @@ from gda_balancing.domain.structured_values import (
 
 _EXPERIMENT_IDENTITY_DOMAIN = "experiment-specification-v2"
 
-EXPERIMENT_CHECK_REFUSAL_REASONS = (
+_EXPERIMENT_CHECK_REFUSAL_REASONS = (
     "model.reason.source-too-large",
     "model.reason.source-parse-failure",
     "model.reason.source-contract-mismatch",
     "quantity.reason.invalid-domain",
-    "structured.reason.resource-exhausted",
-    "structured.reason.type-mismatch",
-    "structured.reason.unknown-enum",
-    "structured.reason.record-member-mismatch",
     "model.reason.resolved-authority-mismatch",
     "model.reason.resolution-binding-mismatch",
 )
+
+
+def experiment_check_refusal_reasons() -> tuple[str, ...]:
+    """Select current ingress reasons from the declared structured fault roots."""
+    context = packaged_authority_context()
+    roots = context.kernel["meta_format"]["runtime_projection"]["execution_closure"][
+        "reasons"
+    ]["roots"]
+    reasons = context.language_bundle["language"]["reasons"]
+    selected = list(_EXPERIMENT_CHECK_REFUSAL_REASONS)
+    for root in roots:
+        if root["when"] != "typed-values":
+            continue
+        matches = [
+            reason
+            for reason in reasons
+            if reason.get("stage") == root["stage"]
+            and reason.get("signal") == root["signal"]
+        ]
+        if len(matches) != 1:
+            raise ValueError("structured ingress signal has no unique admitted reason")
+        selected.append(matches[0]["id"])
+    return tuple(selected)
 
 
 @dataclass(frozen=True)
@@ -190,7 +209,7 @@ def _declared_value_diagnostic(
                 resource_limit=resource_limit,
             )
             if canonical_bytes(admitted[type_member]) != canonical_bytes(declared_type):
-                raise StructuredValueFault("structured.reason.type-mismatch", "/type")
+                raise StructuredValueFault("structured-value-type-mismatch", "/type")
         except StructuredValueFault as fault:
             reason = structured_fault_reason(fault, authority=structured_authority)
             return reason, fault.pointer

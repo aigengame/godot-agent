@@ -186,7 +186,7 @@ def test_runtime_canonical_equality_rechecks_typed_envelope_identity():
             structured_resource_limit=1024,
         )
     assert fault.value == StructuredValueFault(
-        "structured.reason.type-mismatch", "/type"
+        "structured-value-type-mismatch", "/type"
     )
 
 

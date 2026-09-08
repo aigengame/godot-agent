@@ -261,7 +261,9 @@ def _projection_input() -> ConcreteOperationCallDomainInput:
             ]
         ),
         literal_contract=_literal_contract,
-        iteration_contract=_iteration_contract_resolver(context.kernel),
+        iteration_contract=_iteration_contract_resolver(
+            context.kernel, context.language_bundle
+        ),
         snapshot_contracts={MIDDLE: {"bonus": _quantity_formula_contract(3, 3)}},
         snapshot_operand_names={MIDDLE: frozenset({"bonus"})},
     )

@@ -2,7 +2,7 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-combat-cast.reciprocal",
   "model": {
-    "rir_semantic_identity": "sha256:c6cf2287cf892f41db74455b1e4be6f8a506e16e46445cfb817941073104f246"
+    "rir_semantic_identity": "sha256:d7d2ec130835e82c0644d3865cefb783c108ccb43232e9b303c068277b2a452f"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",

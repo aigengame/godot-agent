@@ -182,15 +182,30 @@ def _supported_shape(specification, rir):
         raise IndependentRuntimeUnsupported(
             f"unimplemented instruction semantics: {missing}"
         )
+    numeric_policies = sorted(
+        row["id"] for row in rir["selected_semantics"]["numeric_profiles"]
+    )
+    profiles = [
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row.get("evaluation") == runtime["version"]
+        and row.get("runtime_program_version") == runtime["version"]
+        and row.get("numeric_policy") in numeric_policies
+        and row.get("numeric_law") == runtime["numeric"]["id"]
+    ]
+    if specification["runtime"]["profile"] not in {row["id"] for row in profiles}:
+        raise IndependentRuntimeUnsupported(
+            "runtime profile has no supported numeric law"
+        )
     available = {
         "operation_kinds": ["event-program", "event-fragment", "pure-expression"],
         "instruction_nodes": sorted(
             node for node, operator in operators.items() if operator in allowed
         ),
         "effects": sorted(supported_effects),
-        "numeric_policies": ["exact-int64"],
+        "numeric_policies": numeric_policies,
         "rng_algorithms": [runtime["named_rng"]["algorithm"]],
-        "runtime_profiles": [specification["runtime"]["profile"]],
+        "runtime_profiles": sorted(row["id"] for row in profiles),
     }
     for member, values in required.items():
         if not set(values) <= set(available[member]):

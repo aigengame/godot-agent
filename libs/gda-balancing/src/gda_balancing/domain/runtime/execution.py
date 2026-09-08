@@ -304,7 +304,7 @@ def _admit_declared_value(
         if canonical_bytes(admitted[type_member]) != canonical_bytes(
             cast(JsonValue, declared_type)
         ):
-            raise StructuredValueFault("structured.reason.type-mismatch", "/type")
+            raise StructuredValueFault("structured-value-type-mismatch", "/type")
         return cast(JsonValue, admitted)
     value_member = "value"
     if (
@@ -322,13 +322,11 @@ def _admit_declared_value(
                 cast(JsonValue, declared_type)
             ):
                 raise StructuredValueFault(
-                    "structured.reason.type-mismatch", f"/{type_member}"
+                    "structured-value-type-mismatch", f"/{type_member}"
                 )
             value = admitted[value_member]
     if not isinstance(value, int) or isinstance(value, bool):
-        raise StructuredValueFault(
-            "structured.reason.type-mismatch", f"/{value_member}"
-        )
+        raise StructuredValueFault("structured-value-type-mismatch", f"/{value_member}")
     return _admit_declared_numeric(value, numeric, declaration)
 
 
@@ -604,7 +602,7 @@ def _execute_value_instruction(
                     right[type_member]
                 ):
                     raise StructuredValueFault(
-                        "structured.reason.type-mismatch", f"/{type_member}"
+                        "structured-value-type-mismatch", f"/{type_member}"
                     )
             result = left_integer == right_integer
         elif left_integer is None and right_integer is None:

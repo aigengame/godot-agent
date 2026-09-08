@@ -7,7 +7,7 @@ from gda_balancing.interfaces.cli.descriptors import (
     CommandDescriptor,
     ConformanceFixtures,
 )
-from gda_balancing.domain.experiment import EXPERIMENT_CHECK_REFUSAL_REASONS
+from gda_balancing.domain.experiment import experiment_check_refusal_reasons
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.infrastructure.input_bytes import InputReadError
 from gda_balancing.interfaces.cli.experiment_fixtures import prepare_experiment_args
@@ -63,7 +63,7 @@ EXPERIMENT_CHECK = CommandDescriptor(
     positional_field="specification",
     schema_major=2,
     structured_params=True,
-    refusal_catalog=refusal_catalog_for_reasons(EXPERIMENT_CHECK_REFUSAL_REASONS),
+    refusal_catalog=refusal_catalog_for_reasons(experiment_check_refusal_reasons()),
     usage_codes=(
         "argument_conflict",
         "invalid_argument",

@@ -751,7 +751,6 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
         "kernel-unit",
     }
     assert runtime["numeric"] == {
-        "compatible_value_numeric_policies": ["exact-int64"],
         "id": "signed-int64-v1",
         "minimum": -(1 << 63),
         "maximum": (1 << 63) - 1,

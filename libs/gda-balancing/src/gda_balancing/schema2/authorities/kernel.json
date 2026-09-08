@@ -912,7 +912,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+  "content_identity": "sha256:82c67a6d19daf616e680f25bf4b9dbda811d2bdfc9ac4d76a683b7e49af35f8a",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -5607,19 +5607,23 @@
             },
             {
               "when": "typed-values",
-              "id": "structured.reason.resource-exhausted"
+              "stage": "static",
+              "signal": "structured-value-resource-exhausted"
             },
             {
               "when": "typed-values",
-              "id": "structured.reason.type-mismatch"
+              "stage": "static",
+              "signal": "structured-value-type-mismatch"
             },
             {
               "when": "typed-values",
-              "id": "structured.reason.unknown-enum"
+              "stage": "static",
+              "signal": "structured-value-unknown-enum"
             },
             {
               "when": "typed-values",
-              "id": "structured.reason.record-member-mismatch"
+              "stage": "static",
+              "signal": "structured-value-record-member-mismatch"
             }
           ]
         }
@@ -6645,9 +6649,6 @@
         }
       ],
       "numeric": {
-        "compatible_value_numeric_policies": [
-          "exact-int64"
-        ],
         "id": "signed-int64-v1",
         "maximum": 9223372036854775807,
         "minimum": -9223372036854775808,
@@ -8345,13 +8346,6 @@
           "resource_charge_per_node": 1,
           "type_relation": "exact-selected-type"
         },
-        "id": "standard.schema.nominal-structured",
-        "required_constructors": [
-          "standard.schema.enum",
-          "standard.schema.list",
-          "standard.schema.record",
-          "standard.schema.ref"
-        ],
         "selection": "exact-envelope-type",
         "type_member": "type",
         "value_kind": "nominal-structured",

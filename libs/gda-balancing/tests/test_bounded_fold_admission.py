@@ -256,8 +256,8 @@ def test_typed_append_capacity_is_a_distinct_selected_runtime_refusal():
             authority=authority,
             resource_limit=100,
         )
-    assert (fault.value.reason_id, fault.value.pointer) == (
-        "structured.reason.list-capacity-exceeded",
+    assert (fault.value.signal, fault.value.pointer) == (
+        "structured-list-capacity-exceeded",
         "/value",
     )
 
@@ -272,7 +272,7 @@ def test_typed_append_rejects_bool_in_a_quantity_list_before_capacity():
             authority=authority,
             resource_limit=100,
         )
-    assert fault.value.reason_id == "structured.reason.type-mismatch"
+    assert fault.value.signal == "structured-value-type-mismatch"
 
 
 @pytest.mark.parametrize("body_steps, expected_bound", [(0, 44), (1, 48)])

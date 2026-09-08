@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 from gda_balancing.domain.authority.runtime_validation import (
+    admitted_numeric_policy_ids,
     derive_operation_value_contracts,
     fixed_operation_value_contract,
     operation_literal_context_contract,
@@ -242,7 +243,7 @@ def build_operation_call_domain_input(
             ),
         ),
         literal_contract=_literal_contract_resolver(kernel, language_bundle),
-        iteration_contract=_iteration_contract_resolver(kernel),
+        iteration_contract=_iteration_contract_resolver(kernel, language_bundle),
         snapshot_contracts=_snapshot_declarations(operations, declarations_by_symbol),
         snapshot_operand_names=_snapshot_operand_names(operations),
     )
@@ -402,9 +403,13 @@ def _literal_contract_resolver(
 
 def _iteration_contract_resolver(
     kernel: dict[str, Any],
+    language_bundle: dict[str, Any],
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Bound successful scalar iteration values by their admitted representation."""
     numeric = kernel["meta_format"]["runtime_program"]["numeric"]
+    numeric_policies = admitted_numeric_policy_ids(language_bundle)
+    if numeric_policies is None:
+        raise ValueError("admitted Quantity numeric policies are unavailable")
 
     def resolve(formal: dict[str, Any]) -> dict[str, Any]:
         if formal.get("value_kind") == "nominal-structured":
@@ -412,10 +417,7 @@ def _iteration_contract_resolver(
         contract = cast(dict[str, Any], formula_contract_from_operation(formal))
         domain = formal.get("domain")
         if domain == {"kind": "actual"}:
-            if (
-                formal.get("numeric_policy")
-                not in numeric["compatible_value_numeric_policies"]
-            ):
+            if formal.get("numeric_policy") not in numeric_policies:
                 raise ValueError("fold iteration has no admitted numeric domain")
             domain = {"minimum": numeric["minimum"], "maximum": numeric["maximum"]}
         elif isinstance(domain, dict) and domain.get("kind") == "closed-interval":

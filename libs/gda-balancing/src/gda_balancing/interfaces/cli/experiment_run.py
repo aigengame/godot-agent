@@ -21,7 +21,7 @@ from gda_balancing.domain.artifact_set import (
     EXPERIMENT_SUCCESS_ARTIFACT_SET,
     EXPERIMENT_VERDICT_ARTIFACT_SET,
 )
-from gda_balancing.domain.experiment import EXPERIMENT_CHECK_REFUSAL_REASONS
+from gda_balancing.domain.experiment import experiment_check_refusal_reasons
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.infrastructure.input_bytes import InputReadError
 from gda_balancing.interfaces.cli.experiment_fixtures import (
@@ -95,7 +95,7 @@ _EXPERIMENT_RUN_NON_OPERATION_REFUSAL_REASONS = (
 def _experiment_run_refusal_catalog() -> tuple[tuple[str, str], ...]:
     """Resolve the run-only catalog after the CLI has selected this surface."""
     return refusal_catalog_for_reasons(
-        EXPERIMENT_CHECK_REFUSAL_REASONS
+        experiment_check_refusal_reasons()
         + _EXPERIMENT_RUN_NON_OPERATION_REFUSAL_REASONS
         + _operation_refusal_reasons()
     )

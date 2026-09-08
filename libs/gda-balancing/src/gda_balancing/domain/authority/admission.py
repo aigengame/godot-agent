@@ -79,7 +79,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da"
+    "sha256:82c67a6d19daf616e680f25bf4b9dbda811d2bdfc9ac4d76a683b7e49af35f8a"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1945,10 +1945,7 @@ def _execution_projection_is_closed(
             "typed-values",
         }:
             return False
-        if set(root) == {"when", "id"} and isinstance(root["id"], str):
-            matches = [row for row in catalog if row.get("id") == root["id"]]
-            key = (root["when"], root["id"])
-        elif (
+        if (
             set(root) == {"when", "stage", "signal"}
             and isinstance(root["stage"], str)
             and isinstance(root["signal"], str)
@@ -3283,6 +3280,45 @@ def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
     return schema_modes == declared_mode_ids
 
 
+def _profile_owner_covers_structured_constructors(
+    kernel: dict[str, Any], language_bundle: dict[str, Any], exports: dict[str, Any]
+) -> bool:
+    """Require one owned constructor for each declared structured value-rule role."""
+    contract = kernel["meta_format"]["language_definitions"]["collections"][
+        "constructors"
+    ]
+    variants = contract["field_types"]["value_rule"]["variants"]
+    roles = {
+        operator: branch
+        for operator, branch in variants.items()
+        if "definition_kind" in branch["field_types"]
+    }
+    identifiers = exports.get("constructors")
+    if (
+        not roles
+        or not isinstance(identifiers, list)
+        or len(set(identifiers)) != len(identifiers)
+    ):
+        return False
+    definitions = language_bundle["language"].get("constructors", [])
+    covered: set[str] = set()
+    for identifier in identifiers:
+        matches = [row for row in definitions if row.get("id") == identifier]
+        if len(matches) != 1 or not _definition_is_closed(
+            matches[0], contract, language_bundle
+        ):
+            return False
+        rule = matches[0].get("value_rule", {})
+        operator = rule.get("operator")
+        if operator in roles:
+            if operator in covered or not _value_matches_contract(
+                rule, roles[operator], language_bundle
+            ):
+                return False
+            covered.add(operator)
+    return covered == set(roles)
+
+
 def _literal_typing_profiles_are_closed(
     kernel: dict[str, Any],
     language_bundle: dict[str, Any],
@@ -3324,13 +3360,6 @@ def _literal_typing_profiles_are_closed(
                 "resource_charge_per_node": 1,
                 "type_relation": "exact-selected-type",
             },
-            "id": "standard.schema.nominal-structured",
-            "required_constructors": [
-                "standard.schema.enum",
-                "standard.schema.list",
-                "standard.schema.record",
-                "standard.schema.ref",
-            ],
             "selection": "exact-envelope-type",
             "type_member": "type",
             "value_kind": "nominal-structured",
@@ -3396,6 +3425,16 @@ def _literal_typing_profiles_are_closed(
     typed_profile_contract = cast(
         dict[str, Any], literal_contract["typed_envelope_profile"]
     )
+    if (
+        sum(
+            isinstance(profile, dict)
+            and profile.get("source_kind") == "typed-envelope"
+            and profile.get("value_kind") == typed_profile_contract["value_kind"]
+            for profile in profiles
+        )
+        != 1
+    ):
+        return False
     numeric_profiles: list[dict[str, Any]] = []
     for profile in profiles:
         profile_id = profile.get("id") if isinstance(profile, dict) else None
@@ -3410,11 +3449,11 @@ def _literal_typing_profiles_are_closed(
             if (
                 set(profile) != {"admission", "id", "source_kind", "value_kind"}
                 or profile.get("admission") != typed_profile_contract["admission"]
-                or profile_id != typed_profile_contract["id"]
                 or profile.get("value_kind") != typed_profile_contract["value_kind"]
                 or not isinstance(owner_exports, dict)
-                or set(cast(list[Any], owner_exports.get("constructors", [])))
-                != set(typed_profile_contract["required_constructors"])
+                or not _profile_owner_covers_structured_constructors(
+                    kernel, language_bundle, owner_exports
+                )
                 or not any(
                     formal.get("value_kind") == typed_profile_contract["value_kind"]
                     and isinstance(formal.get("type"), dict)

@@ -122,10 +122,7 @@ def close_execution_dependencies(
     for root in reason_contract["roots"]:
         if not applicable[root["when"]]:
             continue
-        if "id" in root:
-            reason_ids.add(root["id"])
-        else:
-            signals.add((root["stage"], root["signal"]))
+        signals.add((root["stage"], root["signal"]))
     for node in selected_nodes:
         signals.update(
             (reason_contract["node_signal_stage"], signal)

@@ -2,7 +2,7 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-stat-composition.golden-attack",
   "model": {
-    "rir_semantic_identity": "sha256:5592eba00c0fd77126b28d4199d36bf3ef6f69283fe10779cc91c0f075d37377"
+    "rir_semantic_identity": "sha256:9dfa259d1032027a1abf48de12b8d7ee8d62c9836e1bbed8379d246f40ef0cdf"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",

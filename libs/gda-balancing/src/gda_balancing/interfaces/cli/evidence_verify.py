@@ -16,7 +16,7 @@ from gda_balancing.domain.diagnostics import (
     refusal_catalog_for_reasons,
 )
 from gda_balancing.domain.evidence_verification import EvidenceCandidate
-from gda_balancing.domain.experiment import EXPERIMENT_CHECK_REFUSAL_REASONS
+from gda_balancing.domain.experiment import experiment_check_refusal_reasons
 from gda_balancing.domain.model import MODEL_REFUSAL_CATALOG
 from gda_balancing.infrastructure.input_bytes import InputReadError
 from gda_balancing.domain.errors import UnreadableInputError
@@ -58,7 +58,6 @@ class EvidenceVerifyResult(BaseModel):
 
 
 _EVIDENCE_REFUSAL_REASONS = (
-    *EXPERIMENT_CHECK_REFUSAL_REASONS,
     "evaluation.reason.evaluable-cyclic-prerequisite",
     "evaluation.reason.evaluable-extra-prerequisite",
     "evaluation.reason.evaluable-ineligible-outcome",
@@ -74,7 +73,11 @@ def _refusal_catalog() -> tuple[tuple[str, str], ...]:
         sorted(
             set(BOOTSTRAP_REFUSAL_CATALOG)
             | set(MODEL_REFUSAL_CATALOG)
-            | set(refusal_catalog_for_reasons(_EVIDENCE_REFUSAL_REASONS))
+            | set(
+                refusal_catalog_for_reasons(
+                    experiment_check_refusal_reasons() + _EVIDENCE_REFUSAL_REASONS
+                )
+            )
         )
     )
 

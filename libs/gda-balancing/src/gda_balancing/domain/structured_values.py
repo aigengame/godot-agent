@@ -33,31 +33,33 @@ class StructuredValueIndex:
 class StructuredValueFault(Exception):
     """A deterministic refusal while admitting or operating on a typed value."""
 
-    reason_id: str
+    signal: str
     pointer: str
+    stage: str = "static"
 
 
 def structured_fault_reason(
     fault: StructuredValueFault, *, authority: StructuredValueIndex
 ) -> dict[str, Any]:
     """Resolve an intrinsic fault through the caller's admitted reason selection."""
-    reason = authority.reasons.get(fault.reason_id)
-    if reason is None:
-        raise ValueError(f"structured fault has no selected reason: {fault.reason_id}")
-    return reason
+    reasons = [
+        reason
+        for reason in authority.reasons.values()
+        if reason.get("stage") == fault.stage and reason.get("signal") == fault.signal
+    ]
+    if len(reasons) != 1:
+        raise ValueError(
+            f"structured signal has no unique selected reason: {fault.stage}/{fault.signal}"
+        )
+    return reasons[0]
 
 
 def _runtime_structured_fault(
     signal: str, pointer: str, *, authority: StructuredValueIndex
 ) -> StructuredValueFault:
-    reasons = [
-        reason
-        for reason in authority.reasons.values()
-        if reason.get("stage") == "runtime" and reason.get("signal") == signal
-    ]
-    if len(reasons) != 1:
-        raise ValueError(f"structured signal has no unique selected reason: {signal}")
-    return StructuredValueFault(cast(str, reasons[0]["id"]), pointer)
+    fault = StructuredValueFault(signal, pointer, stage="runtime")
+    structured_fault_reason(fault, authority=authority)
+    return fault
 
 
 def _reason_index(definitions: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -76,7 +78,7 @@ class _Budget:
 
     def consume(self, pointer: str) -> None:
         if self.remaining < 1:
-            raise StructuredValueFault("structured.reason.resource-exhausted", pointer)
+            raise StructuredValueFault("structured-value-resource-exhausted", pointer)
         self.remaining -= 1
 
 
@@ -166,7 +168,7 @@ def _typed_envelope_profile(
         raise ValueError("admitted language has no unique typed-envelope profile")
     if matches[0] != {
         "admission": kernel_profile.get("admission"),
-        "id": kernel_profile.get("id"),
+        "id": matches[0].get("id"),
         "source_kind": "typed-envelope",
         "value_kind": kernel_profile.get("value_kind"),
     }:
@@ -451,10 +453,10 @@ def _structural_type_contract(
             or constructor is None
             or "definition" not in type_definition
         ):
-            raise StructuredValueFault("structured.reason.type-mismatch", pointer)
+            raise StructuredValueFault("structured-value-type-mismatch", pointer)
         type_expression = type_definition["definition"]
     if not isinstance(type_expression, dict):
-        raise StructuredValueFault("structured.reason.type-mismatch", pointer)
+        raise StructuredValueFault("structured-value-type-mismatch", pointer)
     if constructor is None:
         kind = type_expression.get("kind")
         matches = [
@@ -466,11 +468,11 @@ def _structural_type_contract(
             == kind
         ]
         if len(matches) != 1:
-            raise StructuredValueFault("structured.reason.type-mismatch", pointer)
+            raise StructuredValueFault("structured-value-type-mismatch", pointer)
         constructor = matches[0]
     rule = constructor.get("value_rule")
     if not isinstance(rule, dict):
-        raise StructuredValueFault("structured.reason.type-mismatch", pointer)
+        raise StructuredValueFault("structured-value-type-mismatch", pointer)
     return type_expression, constructor, rule
 
 
@@ -490,7 +492,7 @@ def _structured_operation_law(
         and operation["law"].get("operator") == operator
     ]
     if len(matches) != 1:
-        raise StructuredValueFault("structured.reason.type-mismatch", pointer)
+        raise StructuredValueFault("structured-value-type-mismatch", pointer)
     operation = matches[0]
     node = authority.value_nodes.get(operator)
     resource_charge = node.get("resource_charge") if isinstance(node, dict) else None
@@ -504,7 +506,7 @@ def _structured_operation_law(
         or isinstance(resource_bounds["max_steps"], bool)
         or resource_charge["amount"] > resource_bounds["max_steps"]
     ):
-        raise StructuredValueFault("structured.reason.type-mismatch", pointer)
+        raise StructuredValueFault("structured-value-type-mismatch", pointer)
     return cast(dict[str, Any], operation["law"])
 
 
@@ -525,7 +527,7 @@ def lookup_type_contract(
     projection = law.get("result_projection")
     refusal_signal = law.get("refusal_signal")
     if not isinstance(refusal_signal, str) or not refusal_signal:
-        raise StructuredValueFault("structured.reason.type-mismatch", "/type")
+        raise StructuredValueFault("structured-value-type-mismatch", "/type")
     if (
         selector == "static-field"
         and projection == "record-field-type"
@@ -562,7 +564,7 @@ def lookup_type_contract(
             ),
             refusal_signal,
         )
-    raise StructuredValueFault("structured.reason.type-mismatch", "/key")
+    raise StructuredValueFault("structured-value-type-mismatch", "/key")
 
 
 def list_type_contract(
@@ -579,7 +581,7 @@ def list_type_contract(
         or isinstance(maximum, bool)
         or maximum < 0
     ):
-        raise StructuredValueFault("structured.reason.type-mismatch", "/type")
+        raise StructuredValueFault("structured-value-type-mismatch", "/type")
     return (
         _canonical_type_expression(
             definition[cast(str, rule["element_member"])], authority
@@ -616,13 +618,13 @@ def append_typed_value(
         "capacity": "length-less-than-maximum",
         "refusal_signal": "structured-list-capacity-exceeded",
     }:
-        raise StructuredValueFault("structured.reason.type-mismatch", "/type")
+        raise StructuredValueFault("structured-value-type-mismatch", "/type")
     if isinstance(item, dict) and set(item) == {type_member, value_member}:
         admitted_item = admit_typed_value(
             item, authority=authority, resource_limit=resource_limit
         )
         if admitted_item[type_member] != element:
-            raise StructuredValueFault("structured.reason.type-mismatch", "/item/type")
+            raise StructuredValueFault("structured-value-type-mismatch", "/item/type")
         item_value = admitted_item[value_member]
     else:
         item_value = admit_typed_value(
@@ -650,7 +652,7 @@ def equal_result_contract(
     )
     result_contract = law.get("result_contract")
     if not isinstance(result_contract, str) or not result_contract:
-        raise StructuredValueFault("structured.reason.type-mismatch", "/type")
+        raise StructuredValueFault("structured-value-type-mismatch", "/type")
     return result_contract
 
 
@@ -670,7 +672,7 @@ def is_empty_result_contract(
         or not isinstance(result_contract, str)
         or not result_contract
     ):
-        raise StructuredValueFault("structured.reason.type-mismatch", "/type")
+        raise StructuredValueFault("structured-value-type-mismatch", "/type")
     return result_contract
 
 
@@ -692,7 +694,7 @@ def _validate(
     if nominal_key is not None:
         type_definition = authority.types.get(nominal_key)
         if type_definition is None:
-            raise StructuredValueFault("structured.reason.type-mismatch", pointer)
+            raise StructuredValueFault("structured-value-type-mismatch", pointer)
         constructor_id = type_definition.get("constructor")
         constructor = (
             authority.constructors.get(constructor_id)
@@ -700,7 +702,7 @@ def _validate(
             else None
         )
         if constructor is None:
-            raise StructuredValueFault("structured.reason.type-mismatch", pointer)
+            raise StructuredValueFault("structured-value-type-mismatch", pointer)
         if "definition" in type_definition:
             return _validate(
                 type_definition["definition"], value, authority, budget, pointer
@@ -713,10 +715,10 @@ def _validate(
             <= value
             <= cast(int, value_rule["maximum"])
         ):
-            raise StructuredValueFault("structured.reason.type-mismatch", pointer)
+            raise StructuredValueFault("structured-value-type-mismatch", pointer)
         return value
     if not isinstance(type_expression, dict):
-        raise StructuredValueFault("structured.reason.type-mismatch", pointer)
+        raise StructuredValueFault("structured-value-type-mismatch", pointer)
     kind = type_expression.get("kind")
     matches = [
         constructor
@@ -727,18 +729,18 @@ def _validate(
         == kind
     ]
     if len(matches) != 1:
-        raise StructuredValueFault("structured.reason.type-mismatch", pointer)
+        raise StructuredValueFault("structured-value-type-mismatch", pointer)
     rule = cast(dict[str, Any], matches[0]["value_rule"])
     operator = rule.get("operator")
     if operator == "enum-member":
         members = type_expression.get(cast(str, rule["members_member"]))
         if not isinstance(value, str) or value not in cast(list[Any], members):
-            raise StructuredValueFault("structured.reason.unknown-enum", pointer)
+            raise StructuredValueFault("structured-value-unknown-enum", pointer)
         return value
     if operator == "closed-record":
         fields = type_expression.get(cast(str, rule["fields_member"]))
         if not isinstance(fields, list) or not isinstance(value, dict):
-            raise StructuredValueFault("structured.reason.type-mismatch", pointer)
+            raise StructuredValueFault("structured-value-type-mismatch", pointer)
         name_member = cast(str, rule["field_name_member"])
         type_member = cast(str, rule["field_type_member"])
         expected = [row.get(name_member) for row in fields if isinstance(row, dict)]
@@ -753,12 +755,12 @@ def _validate(
         )
         if missing:
             raise StructuredValueFault(
-                "structured.reason.record-member-mismatch",
+                "structured-value-record-member-mismatch",
                 _member_pointer(pointer, cast(str, missing[0])),
             )
         if extra:
             raise StructuredValueFault(
-                "structured.reason.record-member-mismatch",
+                "structured-value-record-member-mismatch",
                 _member_pointer(pointer, extra[0]),
             )
         return cast(
@@ -784,7 +786,7 @@ def _validate(
             or maximum < 0
             or len(value) > maximum
         ):
-            raise StructuredValueFault("structured.reason.type-mismatch", pointer)
+            raise StructuredValueFault("structured-value-type-mismatch", pointer)
         return cast(
             JsonValue,
             [
@@ -813,15 +815,15 @@ def _validate(
             or len(value_members) != 1
             or not isinstance(value.get(value_members[0]), str)
         ):
-            raise StructuredValueFault("structured.reason.type-mismatch", pointer)
+            raise StructuredValueFault("structured-value-type-mismatch", pointer)
         try:
             key_matches = re.fullmatch(key_pattern, value[value_members[0]]) is not None
         except re.error as error:
             raise ValueError("admitted Ref key pattern is invalid") from error
         if not key_matches:
-            raise StructuredValueFault("structured.reason.type-mismatch", pointer)
+            raise StructuredValueFault("structured-value-type-mismatch", pointer)
         return cast(JsonValue, {value_members[0]: value[value_members[0]]})
-    raise StructuredValueFault("structured.reason.type-mismatch", pointer)
+    raise StructuredValueFault("structured-value-type-mismatch", pointer)
 
 
 def admit_typed_value(
@@ -841,7 +843,7 @@ def admit_typed_value(
         or isinstance(resource_limit, bool)
         or resource_limit < 1
     ):
-        raise StructuredValueFault("structured.reason.type-mismatch", "")
+        raise StructuredValueFault("structured-value-type-mismatch", "")
     return {
         type_member: _canonical_type_expression(envelope[type_member], authority),
         value_member: _validate(
@@ -860,7 +862,7 @@ def lookup_selector_kind(envelope: Any, *, authority: StructuredValueIndex) -> s
     profile = cast(dict[str, Any], authority.typed_envelope_profile)
     envelope_members = cast(list[str], profile["admission"]["envelope_members"])
     if not isinstance(envelope, dict) or set(envelope) != set(envelope_members):
-        raise StructuredValueFault("structured.reason.type-mismatch", "/type")
+        raise StructuredValueFault("structured-value-type-mismatch", "/type")
     type_expression = envelope[type_member]
     _definition, constructor, _rule = _structural_type_contract(
         type_expression, authority, pointer="/type"
@@ -870,7 +872,7 @@ def lookup_selector_kind(envelope: Any, *, authority: StructuredValueIndex) -> s
     )
     selector = law.get("selector")
     if selector not in {"static-field", "local-index"}:
-        raise StructuredValueFault("structured.reason.type-mismatch", "/type")
+        raise StructuredValueFault("structured-value-type-mismatch", "/type")
     return cast(str, selector)
 
 
@@ -918,7 +920,7 @@ def lookup_typed_value(
             type_member: result_type,
             value_member: value[key],
         }
-    raise StructuredValueFault("structured.reason.type-mismatch", "/key")
+    raise StructuredValueFault("structured-value-type-mismatch", "/key")
 
 
 def equal_typed_values(
@@ -939,7 +941,7 @@ def equal_typed_values(
     if canonical_bytes(admitted_left[type_member]) != canonical_bytes(
         admitted_right[type_member]
     ):
-        raise StructuredValueFault("structured.reason.type-mismatch", "/right/type")
+        raise StructuredValueFault("structured-value-type-mismatch", "/right/type")
     equality_node = authority.value_nodes["canonical-equal"]
     result = cast(dict[str, Any], equality_node["result"])
     typing = result.get("typing")
@@ -952,10 +954,10 @@ def equal_typed_values(
         != kernel_result_contract
         or kernel_result_contract not in authority.fixed_value_contracts
     ):
-        raise StructuredValueFault("structured.reason.type-mismatch", "/left/type")
+        raise StructuredValueFault("structured-value-type-mismatch", "/left/type")
     result_type = authority.fixed_value_contracts[kernel_result_contract].get("type")
     if not isinstance(result_type, dict):
-        raise StructuredValueFault("structured.reason.type-mismatch", "/left/type")
+        raise StructuredValueFault("structured-value-type-mismatch", "/left/type")
     return {
         type_member: cast(JsonValue, result_type),
         value_member: canonical_bytes(admitted_left[value_member])
@@ -986,10 +988,10 @@ def is_empty_typed_value(
         or kernel_result_contract not in authority.fixed_value_contracts
         or not isinstance(admitted[value_member], list)
     ):
-        raise StructuredValueFault("structured.reason.type-mismatch", "/type")
+        raise StructuredValueFault("structured-value-type-mismatch", "/type")
     result_type = authority.fixed_value_contracts[kernel_result_contract].get("type")
     if not isinstance(result_type, dict):
-        raise StructuredValueFault("structured.reason.type-mismatch", "/type")
+        raise StructuredValueFault("structured-value-type-mismatch", "/type")
     return {
         type_member: cast(JsonValue, result_type),
         value_member: not admitted[value_member],
