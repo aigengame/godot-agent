@@ -194,7 +194,7 @@ def _project_replay_verdict_for_conformance(
         raise ValueError("Replay conformance projection requires a success result")
     return ExperimentReplayVerdictResult(
         outcome="mismatched",
-        mismatches=["evaluation-outcome-status"],
+        mismatches=["evaluation_outcome_status"],
         artifact_set=result.artifact_set,
     )
 

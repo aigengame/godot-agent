@@ -17,6 +17,7 @@ from gda_balancing.domain.comparison import (
     validate_exact_replay_comparison,
     validate_published_exact_replay_comparison,
 )
+from gda_balancing.interfaces.cli.experiment_replay import EXPERIMENT_REPLAY
 from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_conformance_support import _consumer_b
 from test_current_namespace_public import _PublicCandidate, _members
@@ -187,3 +188,11 @@ def test_public_build_run_and_replay_use_actual_observation_members(tmp_path):
     assert [row["key"] for row in comparison["checks"]] == _MEMBERS
     assert all(row["match"] for row in comparison["checks"])
     assert comparison["original_observation"] == comparison["replay_observation"]
+
+    # The existing generic Verdict channel fixture names an actual check too.
+    # This is a framing projection; the separate public mismatch test executes
+    # the real evaluator before deliberately changing one returned observation.
+    projector = EXPERIMENT_REPLAY.fixtures.project_verdict_for_conformance
+    assert projector is not None
+    projected = projector(EXPERIMENT_REPLAY.output_model.model_validate(replay))
+    assert projected.model_dump()["mismatches"] == [_MEMBERS[0]]
