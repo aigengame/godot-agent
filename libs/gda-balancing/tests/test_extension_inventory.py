@@ -304,7 +304,15 @@ def test_enum_member_and_same_spelling_ref_key_keep_distinct_meanings(witness):
     assert any(
         o.token == token and o.pointer == enum_path for o in inventory.occurrences
     )
-    assert not any(o.pointer == ref_path for o in inventory.occurrences)
+    assert not any(
+        o.pointer == ref_path and o.location == "value" for o in inventory.occurrences
+    )
+    assert any(
+        o.pointer == ref_path
+        and o.location == "key"
+        and o.token.role == "constructor-member"
+        for o in inventory.occurrences
+    )
     assert reference["value"]["key"] == "primary"
 
 
@@ -1141,3 +1149,110 @@ def test_constructor_member_addresses_are_closed_and_dimension_identity_is_cover
     nominal["definition"]["unclassified"] = "dimensionless"
     with pytest.raises(InventoryRefusal, match="undeclared members"):
         read_extension_inventory(kernel, changed)
+
+
+def test_lawful_constructor_selector_rename_keeps_every_address_owned(witness):
+    from schema2_bootstrap_conformance_support import _reidentify_package_release
+    from schema2_bootstrap_production_support import _reidentify_graph_root
+
+    kernel, language = mutable_authorities()
+    constructor = next(
+        definition
+        for package in language["language"]["packages"]
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.constructors"
+        for definition in closure["definitions"]
+        if definition.get("value_rule", {}).get("operator") == "enum-member"
+    )
+    constructor["parameters"] = ["labels"]
+    constructor["value_rule"]["members_member"] = "labels"
+    count = 0
+    for package in language["language"]["packages"]:
+        for closure in package["semantic_closure"]:
+            if closure["authority_path"] != "language.nominal_types":
+                continue
+            for nominal in closure["definitions"]:
+                definition = nominal["definition"]
+                if definition["kind"] == "enum":
+                    definition["labels"] = definition.pop("members")
+                    count += 1
+        _reidentify_package_release(package)
+    _reidentify_graph_root(language)
+    assert count > 0
+    a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
+    assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
+    graph = {
+        "packages": language.package_releases,
+        "ldb_root": language.root,
+        "vector_sets": language.package_conformance_vector_sets,
+    }
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    token = AuthorityToken(
+        "constructor-member", (constructor["id"], "definition"), "labels"
+    )
+    assert token in inventory.tokens - inventory.reserved
+    declarations = [
+        o for o in inventory.occurrences if o.token == token and o.use == "declaration"
+    ]
+    keys = [
+        o for o in inventory.occurrences if o.token == token and o.location == "key"
+    ]
+    assert len(declarations) == 1 and len(keys) == count
+    incomplete = replace(
+        inventory, occurrences=tuple(o for o in inventory.occurrences if o != keys[0])
+    )
+    with pytest.raises(InventoryRefusal, match="constructor address"):
+        validate_extension_inventory(kernel, graph, incomplete)
+
+
+def test_assignment_modes_follow_selected_policy_and_symbol_role(witness):
+    kernel, graph, inventory = witness
+    modes = {
+        token
+        for token in inventory.tokens
+        if token.role == "assignment-mode" and token.name == "none"
+    }
+    assert {token.owner[-1] for token in modes} == {"derived", "output"}
+    assert not modes & inventory.reserved
+    reference = next(
+        o
+        for o in inventory.occurrences
+        if o.token.role == "assignment-mode"
+        and o.pointer.startswith("/source/")
+        and o.use == "reference"
+    )
+    without = replace(
+        inventory, occurrences=tuple(o for o in inventory.occurrences if o != reference)
+    )
+    with pytest.raises(InventoryRefusal, match="missing or incorrectly owned"):
+        validate_extension_inventory(kernel, graph, without)
+    incomplete_class = replace(
+        inventory,
+        tokens=frozenset(t for t in inventory.tokens if t.role != "assignment-mode"),
+        occurrences=tuple(
+            o for o in inventory.occurrences if o.token.role != "assignment-mode"
+        ),
+    )
+    with pytest.raises(InventoryRefusal, match="missing or incorrectly owned"):
+        validate_extension_inventory(kernel, graph, incomplete_class)
+
+
+@pytest.mark.parametrize("target", ["root", "resources", "descriptor"])
+def test_ldb_root_framing_has_no_unclassified_authored_members(witness, target):
+    kernel, graph, inventory = witness
+    assert not any(gap.pointer == "/ldb_root" for gap in inventory.uncovered)
+    changed = deepcopy(graph)
+    root = changed["ldb_root"]
+    container = (
+        root
+        if target == "root"
+        else root["resources"]
+        if target == "resources"
+        else root["package_descriptors"][0]
+    )
+    container["shadow_identity"] = "uncovered"
+    with pytest.raises(InventoryRefusal, match="LDB"):
+        read_extension_inventory(kernel, changed)
+    with pytest.raises(InventoryRefusal, match="LDB"):
+        validate_extension_inventory(kernel, changed, inventory)

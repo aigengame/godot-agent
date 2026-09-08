@@ -361,6 +361,17 @@ def _source_format_role(kernel: Mapping[str, Any], graph: Mapping[str, Any]) -> 
     return role
 
 
+def _constructor_member_selectors(constructor: Mapping[str, Any]):
+    for selector, name in constructor["value_rule"].items():
+        if selector.endswith("_member"):
+            area = (
+                "record-field"
+                if selector in {"field_name_member", "field_type_member"}
+                else "definition"
+            )
+            yield selector, name, area
+
+
 class _Reader:
     def __init__(self, kernel: Mapping[str, Any], graph: Mapping[str, Any]):
         self.kernel = kernel
@@ -536,7 +547,32 @@ class _Reader:
                 )
         if "ldb_root" in self.graph:
             root = self.graph["ldb_root"]
+            root_contract = self.meta["language_bundle"]
+            if not _consumer_b_definition_is_closed(
+                root,
+                {
+                    "required_members": root_contract["required_members"],
+                    "field_types": root_contract["member_types"],
+                },
+                {},
+            ) or not _consumer_b_definition_is_closed(
+                root["resources"], root_contract["resources"], {}
+            ):
+                raise InventoryRefusal(
+                    "LDB root does not close its Kernel member contracts"
+                )
+            if root["kernel_identity"] != self.kernel["content_identity"]:
+                raise InventoryRefusal("LDB root does not bind the supplied Kernel")
             descriptors = root["package_descriptors"]
+            if not all(
+                _consumer_b_definition_is_closed(
+                    row, root_contract["package_descriptor"], {}
+                )
+                for row in descriptors
+            ):
+                raise InventoryRefusal(
+                    "LDB package descriptor does not close its Kernel contract"
+                )
             if sorted(row["id"] for row in descriptors) != sorted(package_ids):
                 raise InventoryRefusal(
                     "LDB descriptor graph does not exactly cover packages"
@@ -548,11 +584,9 @@ class _Reader:
                     "reference",
                     "/meta_format/language_bundle/package_descriptor",
                 )
-            self.gap(
-                "/ldb_root",
-                "/meta_format/language_bundle",
-                "generated content/byte-size framing must be rederived on rename",
-            )
+            # All remaining root fields are Kernel format/resource parameters or
+            # generated identity/byte framing. Renaming's existing seal consumer
+            # rederives that framing; it is not an authored nominal token.
         else:
             self.gap(
                 "/ldb_root",
@@ -658,6 +692,16 @@ class _Reader:
             )
         rule = constructor["value_rule"]
         law = cp + "/value_rule"
+        for member in constructor["parameters"]:
+            self.occurrence(
+                AuthorityToken(
+                    "constructor-member", (constructor["id"], "definition"), member
+                ),
+                _child(pointer, member),
+                "reference",
+                law,
+                location="key",
+            )
         operator = rule["operator"]
         if operator == "enum-member":
             member = rule["members_member"]
@@ -682,6 +726,19 @@ class _Reader:
                 if set(field) != {rule["field_name_member"], rule["field_type_member"]}:
                     raise InventoryRefusal(
                         f"Record field has undeclared members at {fp}"
+                    )
+                for selector in ("field_name_member", "field_type_member"):
+                    member = rule[selector]
+                    self.occurrence(
+                        AuthorityToken(
+                            "constructor-member",
+                            (constructor["id"], "record-field"),
+                            member,
+                        ),
+                        _child(fp, member),
+                        "reference",
+                        law,
+                        location="key",
                     )
                 if owner is None:
                     self.gap(fp, law, "anonymous Record scope is not yet represented")
@@ -797,7 +854,22 @@ class _Reader:
                     value[field[rule["field_name_member"]]],
                     _child(pointer, field[rule["field_name_member"]]),
                 )
-        elif rule["operator"] != "canonical-ref-key":
+        elif rule["operator"] == "canonical-ref-key":
+            if set(value) != set(rule["value_members"]):
+                raise InventoryRefusal(
+                    "Ref value does not close its declared member addresses"
+                )
+            for member in rule["value_members"]:
+                self.occurrence(
+                    AuthorityToken(
+                        "constructor-member", (constructor["id"], "ref-value"), member
+                    ),
+                    _child(pointer, member),
+                    "reference",
+                    law,
+                    location="key",
+                )
+        else:
             raise InventoryRefusal(f"unknown typed value law at {pointer}")
         # A canonical Ref key is authored instance data; its target Type was
         # traversed above. Equal spelling does not make the key an Enum label.
@@ -937,6 +1009,35 @@ class _Reader:
                 if not isinstance(rule, dict):
                     raise InventoryRefusal("constructor has no declared value rule")
                 if "definition_kind" in rule:
+                    for selector, member, area in _constructor_member_selectors(value):
+                        self.occurrence(
+                            AuthorityToken(
+                                "constructor-member", (value["id"], area), member
+                            ),
+                            pointer + "/value_rule/" + selector,
+                            "declaration",
+                            pointer + "/value_rule",
+                        )
+                    for i, member in enumerate(value["parameters"]):
+                        self.occurrence(
+                            AuthorityToken(
+                                "constructor-member",
+                                (value["id"], "definition"),
+                                member,
+                            ),
+                            f"{pointer}/parameters/{i}",
+                            "reference",
+                            pointer + "/value_rule",
+                        )
+                    for i, member in enumerate(rule.get("value_members", [])):
+                        self.occurrence(
+                            AuthorityToken(
+                                "constructor-member", (value["id"], "ref-value"), member
+                            ),
+                            f"{pointer}/value_rule/value_members/{i}",
+                            "declaration",
+                            pointer + "/value_rule",
+                        )
                     nested = {"field_name_member", "field_type_member"}
                     members = {
                         item
@@ -1258,6 +1359,106 @@ class _Reader:
                         "reference",
                         "/meta_format/rule_selection",
                     )
+
+    def assignment_policies(self) -> None:
+        for (_, role, _), (lowering, pointer) in self.definitions.items():
+            if role != "language.model_lowerings":
+                continue
+            policy = lowering["assignment_policy"]
+            pp = pointer + "/assignment_policy"
+            scope = (lowering["id"],)
+            self.occurrence(
+                AuthorityToken("assignment-policy", scope, policy["id"]),
+                pp + "/id",
+                "declaration",
+                "/meta_format/language_definitions/collections/model_lowerings/field_types/assignment_policy",
+            )
+            for ri, row in enumerate(policy["roles"]):
+                rp = f"{pp}/roles/{ri}"
+                self.reference(
+                    "language.quantity.symbol_roles", row["role"], rp + "/role", pp
+                )
+                names = [mode["id"] for mode in row["modes"]]
+                if len(names) != len(set(names)):
+                    raise InventoryRefusal(
+                        "duplicate assignment mode within a Symbol role"
+                    )
+                for mi, mode in enumerate(row["modes"]):
+                    self.occurrence(
+                        AuthorityToken(
+                            "assignment-mode",
+                            (*scope, policy["id"], row["role"]),
+                            mode["id"],
+                        ),
+                        f"{rp}/modes/{mi}/id",
+                        "declaration",
+                        pp,
+                    )
+
+    def source_assignment_policy(self) -> tuple[dict[str, Any], str, str]:
+        profiles = [
+            definition
+            for (_, role, _), (definition, _) in self.definitions.items()
+            if role == "language.resolution_profiles"
+            and definition.get("default") is True
+        ]
+        if len(profiles) != 1:
+            raise InventoryRefusal("Source has no unique default resolution profile")
+        owners = [
+            (definition, pointer)
+            for (_, role, name), (definition, pointer) in self.definitions.items()
+            if role == "language.model_lowerings"
+            and name == profiles[0]["model_lowering"]
+        ]
+        if len(owners) != 1:
+            raise InventoryRefusal(
+                "Source assignment policy has no unique lowering owner"
+            )
+        lowering, pointer = owners[0]
+        return (
+            lowering["assignment_policy"],
+            pointer + "/assignment_policy",
+            lowering["id"],
+        )
+
+    def source_value_policy(
+        self, symbol: dict[str, Any], pointer: str, type_reference: dict[str, str]
+    ) -> None:
+        policy, law, lowering = self.source_assignment_policy()
+        roles = [row for row in policy["roles"] if row["role"] == symbol["role"]]
+        if len(roles) != 1:
+            raise InventoryRefusal(
+                "Source Symbol role does not select one assignment contract"
+            )
+        value = symbol["value_policy"]
+        modes = [mode for mode in roles[0]["modes"] if mode["id"] == value["mode"]]
+        if len(modes) != 1:
+            raise InventoryRefusal("Source value policy does not select one mode")
+        expected = {"mode"} | (
+            {"value"} if modes[0]["value_member"] == "required" else set()
+        )
+        if set(value) != expected:
+            raise InventoryRefusal(
+                "Source value policy does not match its mode's closed members"
+            )
+        self.occurrence(
+            AuthorityToken(
+                "assignment-mode",
+                (lowering, policy["id"], symbol["role"]),
+                value["mode"],
+            ),
+            pointer + "/value_policy/mode",
+            "reference",
+            law,
+        )
+        if "value" in value:
+            literal = value["value"]
+            if isinstance(literal, dict) and set(literal) == {"type", "value"}:
+                self.typed_literal(literal, pointer + "/value_policy/value")
+            else:
+                self.typed_value(
+                    type_reference, literal, pointer + "/value_policy/value"
+                )
 
     def packages(self) -> None:
         for pi, package in enumerate(self.graph["packages"]):
@@ -1869,12 +2070,17 @@ class _Reader:
                 law,
             )
             aliases = {}
+            alias_types = {}
             for ii, import_ in enumerate(module["imports"]):
                 ip = f"{mp}/imports/{ii}"
                 alias = AuthorityToken(
                     "source-type-alias", module_scope, import_["alias"]
                 )
                 aliases[import_["alias"]] = alias
+                alias_types[import_["alias"]] = {
+                    "package": import_["package"],
+                    "id": import_["symbol"],
+                }
                 self.occurrence(alias, ip + "/alias", "declaration", law)
                 self.namespace(import_["package"], ip + "/package", "reference", law)
                 self.occurrence(
@@ -1898,15 +2104,7 @@ class _Reader:
                 self.value_contract(
                     {k: v for k, v in symbol.items() if k != "type"}, sp
                 )
-                if symbol["value_policy"]["mode"] not in {
-                    "experiment-required",
-                    "none",
-                }:
-                    self.gap(
-                        sp + "/value_policy",
-                        law,
-                        "Source initializer roles are not yet complete",
-                    )
+                self.source_value_policy(symbol, sp, alias_types[symbol["type"]])
             if module.get("formulas"):
                 self.formulas(source, module, mp, aliases)
         self.formula_bindings(source)
@@ -2316,6 +2514,7 @@ class _Reader:
         self.type_identity_edges()
         self.packages()
         self.rule_chain_links()
+        self.assignment_policies()
         self.formula_aliases()
         self.source()
         declarations = {o.token for o in self.occurrences if o.use == "declaration"}
@@ -2396,6 +2595,138 @@ def validate_token_bijection(
             "bijection splits one shared authored reference occurrence"
         )
     inventory.require_complete()
+
+
+def _verify_constructor_address_coverage(
+    kernel: Mapping[str, Any], graph: Mapping[str, Any], inventory: ExtensionInventory
+) -> None:
+    """Reverse-check constructor declarations and addressed keys; no type inference."""
+    expected = set()
+    constructors = {}
+
+    def required(
+        token: AuthorityToken,
+        pointer: str,
+        use: str = "reference",
+        location: str = "value",
+    ) -> None:
+        expected.add((token, pointer, use, location))
+
+    for _, constructor, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.constructors"
+    ):
+        rule = constructor.get("value_rule", {})
+        if "definition_kind" not in rule:
+            continue
+        constructors[rule["definition_kind"]] = constructor
+        for selector, member, area in _constructor_member_selectors(constructor):
+            required(
+                AuthorityToken("constructor-member", (constructor["id"], area), member),
+                pointer + "/value_rule/" + selector,
+                "declaration",
+            )
+        for i, member in enumerate(constructor["parameters"]):
+            required(
+                AuthorityToken(
+                    "constructor-member", (constructor["id"], "definition"), member
+                ),
+                f"{pointer}/parameters/{i}",
+            )
+        for i, member in enumerate(rule.get("value_members", [])):
+            required(
+                AuthorityToken(
+                    "constructor-member", (constructor["id"], "ref-value"), member
+                ),
+                f"{pointer}/value_rule/value_members/{i}",
+                "declaration",
+            )
+
+    def definition(
+        value: dict[str, Any], pointer: str, owner: tuple[str, str] | None
+    ) -> None:
+        if "package" in value:
+            required(
+                AuthorityToken("namespace", (), value["package"]), pointer + "/package"
+            )
+            required(
+                AuthorityToken("type", (value["package"],), value["id"]),
+                pointer + "/id",
+            )
+            return
+        constructor = constructors[value["kind"]]
+        rule = constructor["value_rule"]
+        for member in constructor["parameters"]:
+            required(
+                AuthorityToken(
+                    "constructor-member", (constructor["id"], "definition"), member
+                ),
+                _child(pointer, member),
+                location="key",
+            )
+        if rule["operator"] == "enum-member" and owner is not None:
+            for i, member in enumerate(value[rule["members_member"]]):
+                required(
+                    AuthorityToken("enum-member", owner, member),
+                    f"{pointer}/{rule['members_member']}/{i}",
+                    "declaration",
+                )
+        elif rule["operator"] == "bounded-list":
+            definition(
+                value[rule["element_member"]],
+                _child(pointer, rule["element_member"]),
+                None,
+            )
+        elif rule["operator"] == "canonical-ref-key":
+            definition(
+                value[rule["target_member"]],
+                _child(pointer, rule["target_member"]),
+                None,
+            )
+        elif rule["operator"] == "closed-record":
+            for i, field in enumerate(value[rule["fields_member"]]):
+                fp = f"{pointer}/{rule['fields_member']}/{i}"
+                for selector in ("field_name_member", "field_type_member"):
+                    required(
+                        AuthorityToken(
+                            "constructor-member",
+                            (constructor["id"], "record-field"),
+                            rule[selector],
+                        ),
+                        _child(fp, rule[selector]),
+                        location="key",
+                    )
+                if owner is not None:
+                    required(
+                        AuthorityToken(
+                            "record-field", owner, field[rule["field_name_member"]]
+                        ),
+                        _child(fp, rule["field_name_member"]),
+                        "declaration",
+                    )
+                definition(
+                    field[rule["field_type_member"]],
+                    _child(fp, rule["field_type_member"]),
+                    None,
+                )
+
+    for namespace, nominal, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.nominal_types"
+    ):
+        if not isinstance(namespace, str):
+            raise InventoryRefusal("nominal definition has no attached owner")
+        definition(
+            nominal["definition"], pointer + "/definition", (namespace, nominal["id"])
+        )
+    actual = {(o.token, o.pointer, o.use, o.location) for o in inventory.occurrences}
+    if not expected <= actual:
+        raise InventoryRefusal(
+            "constructor address or nominal member coverage is incomplete"
+        )
+    positions = {row[1:] for row in expected}
+    if any(row[1:] in positions and row not in expected for row in actual):
+        raise InventoryRefusal(
+            "constructor address or nominal member has the wrong owner"
+        )
 
 
 def _verify_formula_coverage(
@@ -2715,6 +3046,7 @@ def validate_extension_inventory(
     is implemented; require_complete still refuses that inventory.
     """
     validate_inventory_occurrences(kernel, graph, inventory)
+    _verify_constructor_address_coverage(kernel, graph, inventory)
     source_format_role = _source_format_role(kernel, graph)
     _verify_formula_coverage(kernel, graph, inventory)
     rule_required = set()
@@ -2779,6 +3111,29 @@ def validate_extension_inventory(
             "Language rule occurrence has an incorrect role or owner"
         )
     meta = kernel["meta_format"]
+    if "ldb_root" in graph:
+        root, shape = graph["ldb_root"], meta["language_bundle"]
+        if (
+            not _consumer_b_definition_is_closed(
+                root,
+                {
+                    "required_members": shape["required_members"],
+                    "field_types": shape["member_types"],
+                },
+                {},
+            )
+            or not _consumer_b_definition_is_closed(
+                root["resources"], shape["resources"], {}
+            )
+            or root["kernel_identity"] != kernel["content_identity"]
+            or not all(
+                _consumer_b_definition_is_closed(row, shape["package_descriptor"], {})
+                for row in root["package_descriptors"]
+            )
+        ):
+            raise InventoryRefusal(
+                "LDB root or descriptor has an unclassified member or binding"
+            )
     projections = meta["package_release"]["semantic_closure"]["projections"]
     unique = next(
         row
@@ -2795,6 +3150,75 @@ def validate_extension_inventory(
         if o.location == "value"
     }
     required: set[tuple[AuthorityToken, str, str]] = set()
+    lowering_rows = list(
+        _authority_path_rows(kernel, graph, "language_bundle.language.model_lowerings")
+    )
+    for _, lowering, pointer in lowering_rows:
+        policy = lowering["assignment_policy"]
+        pp = pointer + "/assignment_policy"
+        required.add(
+            (
+                AuthorityToken("assignment-policy", (lowering["id"],), policy["id"]),
+                pp + "/id",
+                "declaration",
+            )
+        )
+        for ri, row in enumerate(policy["roles"]):
+            rp = f"{pp}/roles/{ri}"
+            required.add(
+                (
+                    AuthorityToken("language.quantity.symbol_roles", (), row["role"]),
+                    rp + "/role",
+                    "reference",
+                )
+            )
+            for mi, mode in enumerate(row["modes"]):
+                required.add(
+                    (
+                        AuthorityToken(
+                            "assignment-mode",
+                            (lowering["id"], policy["id"], row["role"]),
+                            mode["id"],
+                        ),
+                        f"{rp}/modes/{mi}/id",
+                        "declaration",
+                    )
+                )
+    if graph.get("source"):
+        default_profiles = [
+            profile
+            for _, profile, _ in _authority_path_rows(
+                kernel, graph, "language_bundle.language.resolution_profiles"
+            )
+            if profile.get("default") is True
+        ]
+        if len(default_profiles) != 1:
+            raise InventoryRefusal("Source has no unique default profile")
+        selected = [
+            row
+            for _, row, _ in lowering_rows
+            if row["id"] == default_profiles[0]["model_lowering"]
+        ]
+        if len(selected) != 1:
+            raise InventoryRefusal("Source has no unique assignment policy")
+        lowering = selected[0]
+        for mi, module in enumerate(graph["source"]["modules"]):
+            for si, symbol in enumerate(module["symbols"]):
+                required.add(
+                    (
+                        AuthorityToken(
+                            "assignment-mode",
+                            (
+                                lowering["id"],
+                                lowering["assignment_policy"]["id"],
+                                symbol["role"],
+                            ),
+                            symbol["value_policy"]["mode"],
+                        ),
+                        f"/source/modules/{mi}/symbols/{si}/value_policy/mode",
+                        "reference",
+                    )
+                )
     for _, unit, pointer in _authority_path_rows(
         kernel, graph, "language_bundle.language.quantity.units"
     ):
@@ -3208,9 +3632,22 @@ def _renamed_owner(
         return ()
     if token.role == "rule-variable":
         return (name(AuthorityToken("language.rules", (), token.owner[0])),)
+    if token.role == "constructor-member":
+        return (
+            name(AuthorityToken("language.constructors", (), token.owner[0])),
+            token.owner[1],
+        )
     if token.role == "formula-fixed-alias":
         return (
             name(AuthorityToken("language.resolution_profiles", (), token.owner[0])),
+        )
+    if token.role == "assignment-policy":
+        return (name(AuthorityToken("language.model_lowerings", (), token.owner[0])),)
+    if token.role == "assignment-mode":
+        return (
+            name(AuthorityToken("language.model_lowerings", (), token.owner[0])),
+            name(AuthorityToken("assignment-policy", token.owner[:1], token.owner[1])),
+            name(AuthorityToken("language.quantity.symbol_roles", (), token.owner[2])),
         )
     if token.role == "diagnostic-signal":
         return token.owner  # Stage is the Kernel refusal-stage enum, not a namespace.
