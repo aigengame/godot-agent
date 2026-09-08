@@ -4,6 +4,12 @@ from pathlib import Path
 
 from gda_assets.application.check import check_model as _check_model
 from gda_assets.application.ports import ModelInspectionPort
+from gda_assets.application.ports import GodotImportObservationPort
+from gda_assets.domain.observations import (
+    CollectionRequest,
+    ContentObservations,
+    ImportAssetFacts,
+)
 from gda_assets.domain.model import (
     ModelFacts,
     ModelCheckResult,
@@ -34,6 +40,10 @@ from gda_assets.domain.artifacts import (
 from gda_assets.domain.recipe import AssetFile, AssetRecipe, Resize
 
 __all__ = [
+    "CollectionRequest",
+    "ContentObservations",
+    "ImportAssetFacts",
+    "GodotImportObservationPort",
     "check_model",
     "ModelFacts",
     "NodeFacts",
@@ -69,9 +79,12 @@ def run_pipeline(
     project_root: Path,
     godot: GodotAssetPort,
     production: ProductionRequest | None = None,
+    collection: CollectionRequest | None = None,
+    import_observer: GodotImportObservationPort | None = None,
 ) -> PipelineResult:
     """Compose local file handling with the host's injected Godot capabilities."""
     from gda_assets.adapters.files import LocalFiles
+    from gda_assets.adapters.observations import LocalObservationFiles
 
     producer = None
     if production is not None and production.kind == "blender_saved":
@@ -87,6 +100,9 @@ def run_pipeline(
         files=LocalFiles(),
         production=production,
         producer=producer,
+        collection=collection,
+        import_observer=import_observer,
+        observation_files=LocalObservationFiles(project_root) if collection else None,
     )
 
 

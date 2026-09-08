@@ -36,6 +36,38 @@ def test_scene_create_input_object_builds_params_json_dispatch():
     assert json.loads(dispatch_stdin) == arguments
 
 
+def test_asset_observation_input_and_typed_result_relay_through_mcp():
+    from dataclasses import asdict
+    from gda_assets.api import ContentObservations
+
+    payload = {
+        "project_root": "/tmp/consumer",
+        "pipeline": {
+            "completed": [],
+            "outputs": [],
+            "observations": [],
+            "content_observations": asdict(ContentObservations()),
+        },
+    }
+    runner = FakeGdaRunner(
+        schema_then(lambda args, stdin: gda_result(json.dumps(payload)))
+    )
+    server = build_server(runner)
+    arguments = {
+        "files": [{"source": "/tmp/model.glb", "target": "res://model.glb"}],
+        "collect_observations": True,
+        "observations_output": "/tmp/observations.json",
+        "declared_output_sha256": {"res://model.glb": "a" * 64},
+    }
+    result = call_tool(server, "asset_pipeline_run", arguments)
+    assert result.is_error is False
+    assert result.structured_content == json.loads(json.dumps(payload))
+    args, stdin, _ = runner.calls[-1]
+    assert args == ["asset-pipeline", "run", "--params-json", "-", "--json"]
+    assert stdin is not None
+    assert json.loads(stdin) == arguments
+
+
 def test_multiword_command_name_maps_back_to_the_right_argv():
     # The MCP tool name `scene_get_exports` must dispatch to `scene get-exports`
     # (hyphen restored), proving the argv comes from the dump's own name — not a

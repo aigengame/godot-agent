@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=45a25a690000e9c729f1038676fb3bbd3f05c81ff42b4272eb5dfc9a0d203541 -->
+<!-- gda-readme-i18n: source=README.md sha256=6324aeff733992b590137cfa9277e8e40be99d85639956efb945a03be592688d -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -472,7 +472,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `asset-pipeline run` | 导出已保存的 Blender 资产子树，或暂存 PNG/GLB 文件，再安装、导入并检查 Godot 实际加载的结果。 |
+| `asset-pipeline run` | 导出已保存的 Blender 资产子树，或暂存 PNG/GLB 文件，再安装、导入并检查 Godot 实际加载的结果。可选收集所选文件与导入产物的摘要，并说明覆盖范围。 |
 | `asset-pipeline check` | 按项目要求验收模型，并比较范围兼容的 Godot 检查报告。完成检查后退出码为 0，是否符合要求以结果中的 verdict 为准。 |
 
 请使用明确的源文件到目标位置映射，并指定覆盖策略。图像生成完成后的文件沿用同一流程，

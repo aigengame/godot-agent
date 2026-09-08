@@ -1,7 +1,7 @@
 # Asset Pipeline architecture
 
 **Status:** accepted design; file handoff (#908), saved Blender production (#909),
-and model expectation checks (#887) are implemented. Other workflows remain
+model expectation checks (#887), and optional content observations (#889) are implemented. Other workflows remain
 planned. Accepted by the project owner
 on 2026-09-07 after review of the Blender-to-Godot workflow and milestone #14.
 Source baseline inspected: `cfcb8658e67df418a69694840a37a22a9cd3cbe0`.

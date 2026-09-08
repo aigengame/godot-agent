@@ -10,6 +10,14 @@ from gda_assets.application.ports import (
     PortFailure,
     AssetProducer,
     ProductionRequest,
+    GodotImportObservationPort,
+    ObservationFilesPort,
+)
+from gda_assets.application.observe import observe_before, finish_collection
+from gda_assets.domain.observations import (
+    CollectionRequest,
+    ContentObservations,
+    validate_collection,
 )
 from gda_assets.domain.artifacts import PipelineFailure, PipelineResult
 from gda_assets.domain.recipe import AssetRecipe, validate_recipe
@@ -24,13 +32,34 @@ def run_pipeline(
     files: AssetFilesPort,
     production: ProductionRequest | None = None,
     producer: AssetProducer | None = None,
+    collection: CollectionRequest | None = None,
+    import_observer: GodotImportObservationPort | None = None,
+    observation_files: ObservationFilesPort | None = None,
 ) -> PipelineResult:
     result = PipelineResult(
         source_mode=recipe.source_mode, caller_declared_provenance=recipe.provenance
     )
     stage = "validate"
     workspace = None
+    import_attempted = False
     try:
+        if collection is not None:
+            if import_observer is None or observation_files is None:
+                raise PortFailure(
+                    "invalid_collection", "Collection requires observation ports"
+                )
+            try:
+                validate_collection(
+                    collection,
+                    [
+                        item.target
+                        for item in (production.outputs if production else recipe.files)
+                    ],
+                )
+            except ValueError as exc:
+                raise PortFailure("invalid_collection", str(exc)) from exc
+            if collection.save_to is not None:
+                observation_files.validate_output(collection.save_to)
         with TemporaryDirectory(prefix="gda-assets-") as workspace:
             if production is not None:
                 if recipe.files:
@@ -68,6 +97,20 @@ def run_pipeline(
                 result.outputs.append(files.install(item, overwrite=recipe.overwrite))
             result.completed.append(stage)
             stage = "import"
+            if collection is not None:
+                assert import_observer is not None and observation_files is not None
+                stage = "observe"
+                result.content_observations = ContentObservations(
+                    declared_output_sha256=dict(collection.declared_output_sha256)
+                )
+                observe_before(
+                    result.content_observations,
+                    recipe,
+                    import_observer,
+                    observation_files,
+                )
+                stage = "import"
+            import_attempted = True
             result.import_result = godot.import_assets(
                 [item.target for item in recipe.files]
             )
@@ -81,6 +124,19 @@ def run_pipeline(
     except OSError as exc:
         result.failure = PipelineFailure(stage, "file_io_failed", str(exc))
     finally:
+        if (
+            result.content_observations is not None
+            and collection is not None
+            and import_observer is not None
+            and observation_files is not None
+        ):
+            finish_collection(
+                result,
+                collection,
+                import_observer,
+                observation_files,
+                import_attempted=import_attempted,
+            )
         if production is not None and workspace is not None:
             result.cleanup = {"workspace_removed": not Path(workspace).exists()}
     return result

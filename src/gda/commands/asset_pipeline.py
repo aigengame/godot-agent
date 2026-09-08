@@ -17,6 +17,8 @@ from gda_assets.api import (
     run_pipeline,
     ProductionRequest,
     ProductionOutput,
+    CollectionRequest,
+    ContentObservations,
 )
 
 from gda.dispatch import dispatch_recipe, params_or_bad_parameter
@@ -132,9 +134,27 @@ class AssetPipelineRunParams(BaseModel):
         default=None,
         description="Optional caller-declared producer metadata; never an engine observation.",
     )
+    collect_observations: bool = Field(
+        default=False,
+        description="Collect bounded selected disk/import observations; no runtime or full reproducibility claim.",
+    )
+    observations_output: Path | None = Field(
+        default=None,
+        description="Optional new JSON output file for collected observations; never overwritten. Requires collect_observations.",
+    )
+    declared_output_sha256: dict[str, str] = Field(
+        default_factory=dict,
+        description="Optional caller-declared SHA-256 per installed res:// output; checked only with collect_observations.",
+    )
 
     @model_validator(mode="after")
     def _relative_sources_require_a_base(self) -> "AssetPipelineRunParams":
+        if not self.collect_observations and (
+            self.observations_output is not None or self.declared_output_sha256
+        ):
+            raise ValueError(
+                "observations_output and declared_output_sha256 require collect_observations"
+            )
         if bool(self.files) == (self.production is not None):
             raise ValueError("Select exactly one of files or production")
         if self.production is not None and self.source_mode != "existing":
@@ -182,6 +202,7 @@ class PipelineRunResult(BaseModel):
     production: dict[str, Any] | None = None
     cleanup: dict[str, bool] | None = None
     caller_declared_provenance: dict[str, Any] | None = None
+    content_observations: ContentObservations | None = None
 
 
 class AssetPipelineRunResult(BaseModel):
@@ -302,6 +323,12 @@ def run_asset_pipeline(
             if params.production
             else None
         ),
+        collection=CollectionRequest(
+            params.observations_output, params.declared_output_sha256
+        )
+        if params.collect_observations
+        else None,
+        import_observer=port if params.collect_observations else None,
     )
     typed_result = _pipeline_result(pipeline)
     serialized = typed_result.model_dump(mode="json")
@@ -354,6 +381,13 @@ def render_asset_pipeline(result: AssetPipelineRunResult) -> str:
         lines.append(
             f"  loaded {observed['path']} as {observed['resource_type']}{suffix}"
         )
+    if pipeline["content_observations"] is not None:
+        content = pipeline["content_observations"]
+        lines.append(
+            f"  disk/import observations: {content['status']} (selected file bytes only)"
+        )
+        if content["saved_to"]:
+            lines.append(f"  saved observations: {content['saved_to']}")
     return "\n".join(lines)
 
 
@@ -407,6 +441,21 @@ def asset_pipeline_run(
         "--provenance",
         help="JSON object containing optional caller-declared provenance.",
     ),
+    collect_observations: bool = typer.Option(
+        False,
+        "--collect-observations",
+        help="Collect selected disk/import hashes and coverage; no runtime proof.",
+    ),
+    observations_output: Optional[Path] = typer.Option(
+        None,
+        "--observations-output",
+        help="Save collected observations to a new JSON file; never overwrite.",
+    ),
+    declared_output_sha256: str = typer.Option(
+        "{}",
+        "--declared-output-sha256",
+        help="JSON res:// output-to-SHA-256 declarations; requires collection.",
+    ),
     json_output: bool = json_option(),
     schema: bool = ASSET_PIPELINE_RUN_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
@@ -418,6 +467,7 @@ def asset_pipeline_run(
         decoded_files = json.loads(files)
         decoded_production = json.loads(production) if production is not None else None
         decoded_provenance = json.loads(provenance) if provenance is not None else None
+        decoded_hashes = json.loads(declared_output_sha256)
     except json.JSONDecodeError as exc:
         raise typer.BadParameter(f"invalid JSON: {exc.msg}") from exc
     params = params_or_bad_parameter(
@@ -428,6 +478,9 @@ def asset_pipeline_run(
         overwrite=overwrite,
         source_mode=source_mode,
         provenance=decoded_provenance,
+        collect_observations=collect_observations,
+        observations_output=observations_output,
+        declared_output_sha256=decoded_hashes,
     )
     dispatch_recipe(
         ASSET_PIPELINE_RUN_COMMAND,

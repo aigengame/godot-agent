@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from gda_assets.domain.recipe import Resize
+from gda_assets.domain.observations import ContentObservations
 
 
 @dataclass(frozen=True)
@@ -47,3 +48,4 @@ class PipelineResult:
     failure: PipelineFailure | None = None
     production: dict[str, Any] | None = None
     cleanup: dict[str, bool] | None = None
+    content_observations: ContentObservations | None = None
