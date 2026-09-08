@@ -2709,7 +2709,7 @@ def _formula_failure_pointer(
     source: dict[str, Any], message: str, language_bundle: dict[str, Any]
 ) -> str:
     profile = _resolution_profile(language_bundle)
-    policy = profile["extensions"]["standard.formula"]
+    policy = profile["formula_resolution"]
     binding_pointer = _pointer((policy["bindings_member"],))
     if "binding" in message.lower() or "derived Symbol" in message:
         return binding_pointer

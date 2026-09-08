@@ -1496,7 +1496,7 @@ def _reference_formulas_and_bindings(
         for item in language["resolution_profiles"]
         if item["id"] == lowering["resolution_profile"]
     )
-    policy = profile["extensions"]["standard.formula"]
+    policy = profile["formula_resolution"]
     domains = policy["identity_domains"]
     formula_profiles = [
         runtime["extensions"]["standard.formula"]["contexts"]
@@ -2363,7 +2363,7 @@ def _reference_initialization_programs(
             "resolution_profile"
         ]
     )
-    domains = profile["extensions"]["standard.formula"]["identity_domains"]
+    domains = profile["formula_resolution"]["identity_domains"]
     programs = []
     for binding in bindings:
         site = binding["site"]

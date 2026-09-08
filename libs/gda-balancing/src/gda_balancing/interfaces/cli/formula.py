@@ -82,7 +82,7 @@ def _formula_conversion_result_schema() -> dict[str, object]:
         for row in context.language_bundle["language"]["resolution_profiles"]
         if row.get("default") is True
     )
-    policy = profile["extensions"]["standard.formula"]
+    policy = profile["formula_resolution"]
     body_schema = source_schema["properties"][profile["modules_member"]]["items"][
         "properties"
     ][policy["module_formulas_member"]]["items"]["properties"][

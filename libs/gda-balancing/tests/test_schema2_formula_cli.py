@@ -1113,7 +1113,7 @@ def test_standard_compiler_owns_formula_notation_contextual_policy(run_cli) -> N
         for definition in closure["definitions"]
         if definition["id"] == "exact-import-resolution-v1"
     )
-    conversion = profile["extensions"]["standard.formula"]["notation_conversion"]
+    conversion = profile["formula_resolution"]["notation_conversion"]
     assert conversion["condition_contract"] == "kernel-boolean"
     assert conversion["formula_argument_compatibility"] == "exact-resolved-contract"
     assert conversion["formula_result_compatibility"] == "exact-resolved-contract"
@@ -2377,17 +2377,18 @@ def test_independent_consumer_requires_exact_context_and_algorithm(
         for row in language_bundle["language"]["resolution_profiles"]
         if row.get("default") is True
     )
-    profile["extensions"]["standard.formula"]["notation_conversion"]["infix_parser"][
+    profile["formula_resolution"]["notation_conversion"]["infix_parser"][
         "algorithm"
     ] = "ignored-host-algorithm"
     _refresh_package_closure_and_reidentify(language_bundle)
     drifted = authority_module.admit_authority_context(kernel, language_bundle)
-    assert isinstance(drifted, authority_module.AdmittedAuthorityContext)
+    assert not isinstance(drifted, authority_module.AdmittedAuthorityContext)
+    assert not drifted.admitted
     request["schema_version"] = "2.0.0"
     request["module"] = {"id": "main", "imports": []}
 
     assert not independently_admit_pair(
-        request, drifted.language_bundle, kernel=drifted.kernel
+        request, language_bundle, kernel=kernel
     )
 
     kernel, language_bundle = pristine_authority_context.mutable_pair()
@@ -2396,15 +2397,16 @@ def test_independent_consumer_requires_exact_context_and_algorithm(
         for row in language_bundle["language"]["resolution_profiles"]
         if row.get("default") is True
     )
-    profile["extensions"]["standard.formula"]["notation_conversion"][
+    profile["formula_resolution"]["notation_conversion"][
         "symbol_resolution"
     ] = "ignored-host-resolution"
     _refresh_package_closure_and_reidentify(language_bundle)
     drifted = authority_module.admit_authority_context(kernel, language_bundle)
-    assert isinstance(drifted, authority_module.AdmittedAuthorityContext)
+    assert not isinstance(drifted, authority_module.AdmittedAuthorityContext)
+    assert not drifted.admitted
 
     assert not independently_admit_pair(
-        request, drifted.language_bundle, kernel=drifted.kernel
+        request, language_bundle, kernel=kernel
     )
 
 

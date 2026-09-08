@@ -263,33 +263,7 @@ def _formula_resolution_profile(
 
 def _formula_policy(authority_context: AdmittedAuthorityContext) -> dict[str, Any]:
     profile = _formula_resolution_profile(authority_context)
-    extensions = profile.get("extensions")
-    policy = (
-        extensions.get("standard.formula") if isinstance(extensions, dict) else None
-    )
-    if not isinstance(policy, dict):
-        raise ValueError("Formula conversion has no selected Formula policy")
-    conversion = policy.get("notation_conversion")
-    infix_parser = (
-        conversion.get("infix_parser") if isinstance(conversion, dict) else None
-    )
-    if (
-        not isinstance(conversion, dict)
-        or conversion.get("condition_contract") != "kernel-boolean"
-        or conversion.get("formula_argument_compatibility") != "exact-resolved-contract"
-        or conversion.get("formula_result_compatibility") != "exact-resolved-contract"
-        or conversion.get("literal_typing") != "selected-unique-formal-match"
-        or conversion.get("literal_result_inference") != "contextual-anchor"
-        or conversion.get("operation_argument_compatibility")
-        != "exact-operation-formal"
-        or conversion.get("symbol_resolution") != "exact-module-coordinate"
-        or not isinstance(infix_parser, dict)
-        or infix_parser.get("algorithm") != "shunting-yard"
-        or not isinstance(infix_parser.get("generated_local_separator"), str)
-        or not infix_parser["generated_local_separator"]
-    ):
-        raise ValueError("Formula conversion policy is incomplete")
-    return policy
+    return profile["formula_resolution"]
 
 
 def _formula_source_schema(

@@ -1100,7 +1100,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         for definition in entry["definitions"]
         if definition["id"] == "exact-import-resolution-v1"
     )
-    assert resolution_profile["extensions"]["standard.formula"][
+    assert resolution_profile["formula_resolution"][
         "fixed_value_type_aliases"
     ] == [{"alias": "Boolean", "contract": "kernel-boolean"}]
     quantity_operations = {
@@ -1212,6 +1212,7 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
         "admitted_language_index",
         "authority_wire_schema_projection",
         "fact",
+        "formula_resolution",
         "term",
         "rule",
         "rule_selection",

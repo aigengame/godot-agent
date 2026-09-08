@@ -80,7 +80,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:b13ab5a5e3a6741bfca0ccd70b8e033bdeea0d11bf076aef54d021ae59c0e582"
+    "sha256:95b192495e898c75a407066131572c9061a21e01d90bc6143bb700d58d0500a6"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -399,6 +399,217 @@ def _language_bundle_is_closed(
             for name in resource_members
         )
     )
+
+
+def _formula_resolution_contract_is_supported(contract: Any) -> bool:
+    return contract == {
+        "source_protocol_role": "model-source-package",
+        "body_nodes": ["conditional", "formula-call", "operation-call"],
+        "operand_kinds": ["literal", "local", "parameter", "symbol"],
+        "binding_sites": ["derived-symbol", "operation-slot"],
+        "static_callees": [
+            {
+                "node": "formula-call",
+                "member": "formula",
+                "coordinate_members": ["module", "id"],
+            },
+            {
+                "node": "operation-call",
+                "member": "operation",
+                "coordinate_members": ["package", "id"],
+            },
+        ],
+        "inference_operators": {
+            "closed-interval-add": "integer-add",
+            "literal-closed-interval": "typed-literal",
+            "copy-contract": "copy-value",
+            "closed-interval-floor-divide": "integer-floor-divide",
+            "closed-interval-select": "select-value",
+            "closed-interval-less-than": "integer-compare",
+            "closed-interval-multiply": "integer-multiply",
+            "closed-interval-subtract": "integer-subtract",
+        },
+    }
+
+
+def _formula_resolution_is_closed(
+    language_bundle: dict[str, Any], meta: dict[str, Any]
+) -> bool:
+    """Relate compiler selectors to Source grammar and inference to Kernel nodes."""
+    contract = meta.get("formula_resolution")
+    if not _formula_resolution_contract_is_supported(contract):
+        return False
+    contract = cast(dict[str, Any], contract)
+
+    def member(
+        schema: dict[str, Any],
+        name: str,
+        kind: str | None = None,
+        *,
+        optional: bool = False,
+    ) -> dict[str, Any]:
+        value = _json_schema_path(schema, [name])
+        if (
+            value is None
+            or (not optional and name not in schema.get("required", []))
+            or (kind is not None and _schema_value_kind(value) != kind)
+        ):
+            raise ValueError("Formula selector does not name the required Source field")
+        return value
+
+    def variants(schema: dict[str, Any], discriminator: str) -> dict[str, Any]:
+        rows = schema["oneOf"]
+        result = {member(row, discriminator)["const"]: row for row in rows}
+        if len(result) != len(rows):
+            raise ValueError("Formula alternatives are not unique")
+        return result
+
+    try:
+        sources = [
+            row
+            for row in language_bundle["language"]["wire_schemas"]
+            if row.get("protocol_role") == contract["source_protocol_role"]
+        ]
+        if len(sources) != 1:
+            return False
+        schema = sources[0]["schema"]
+        runtime = meta["runtime_program"]
+        nodes = {row["id"]: row for row in runtime["nodes"]}
+        for profile in language_bundle["language"]["resolution_profiles"]:
+            policy = profile["formula_resolution"]
+            if any(
+                not policy[key]
+                or len(policy[key]) != len(set(policy[key]))
+                or not set(policy[key]) <= set(contract[name])
+                for key, name in (
+                    ("allowed_body_nodes", "body_nodes"),
+                    ("allowed_operand_kinds", "operand_kinds"),
+                    ("allowed_binding_sites", "binding_sites"),
+                )
+            ):
+                return False
+            module = member(schema, profile["modules_member"], "array")["items"]
+            # Declarations may be omitted from a module; when present they are arrays.
+            declarations = _json_schema_path(module, [policy["module_formulas_member"]])
+            if declarations is None or declarations.get("type") != "array":
+                return False
+            declaration = declarations["items"]
+            member(declaration, policy["formula_id_member"], "string")
+            parameters = member(
+                declaration, policy["formula_parameters_member"], "array"
+            )["items"]
+            member(parameters, policy["parameter_id_member"], "string")
+            member(declaration, policy["formula_result_member"])
+            bodies = member(declaration, policy["formula_body_member"])["oneOf"]
+            if len(bodies) != 2:
+                return False
+            programs = [branch for branch in bodies if branch.get("type") == "object"]
+            inlines = [branch for branch in bodies if "oneOf" in branch]
+            if len(programs) != 1 or len(inlines) != 1:
+                return False
+            program, inline = programs[0], inlines[0]
+            inline_nodes = variants(inline, "node")
+            normalizations = policy["inline_body_normalizations"]
+            if len(normalizations) != len(inline_nodes):
+                return False
+            for row in normalizations:
+                if row["node"] != "parameter" or row["result_kind"] != "parameter":
+                    return False
+                member(inline_nodes[row["node"]], row["parameter_member"], "string")
+            body_nodes = variants(
+                member(program, policy["body_nodes_member"], "array")["items"], "node"
+            )
+            if set(body_nodes) != set(contract["body_nodes"]):
+                return False
+            if set(
+                variants(member(program, policy["body_result_member"]), "kind")
+            ) != set(contract["operand_kinds"]):
+                return False
+            for node_schema in body_nodes.values():
+                member(node_schema, policy["node_id_member"], "string")
+            for callee in contract["static_callees"]:
+                coordinate = member(
+                    body_nodes[callee["node"]], callee["member"], "object"
+                )
+                if set(coordinate["properties"]) != set(callee["coordinate_members"]):
+                    return False
+                for name in callee["coordinate_members"]:
+                    member(coordinate, name, "string")
+            bindings = member(
+                schema, policy["bindings_member"], "array", optional=True
+            )["items"]
+            if set(
+                variants(member(bindings, policy["binding_site_member"]), "kind")
+            ) != set(contract["binding_sites"]):
+                return False
+            coordinate = member(bindings, policy["binding_formula_member"], "object")
+            for name in contract["static_callees"][0]["coordinate_members"]:
+                member(coordinate, name, "string")
+            argument = member(bindings, policy["binding_arguments_member"], "array")[
+                "items"
+            ]
+            member(argument, policy["binding_parameter_member"], "string")
+            member(argument, policy["binding_operand_member"])
+            aliases = policy["fixed_value_type_aliases"]
+            if len({row["alias"] for row in aliases}) != len(aliases) or any(
+                row["contract"] not in runtime["fixed_value_contracts"]
+                for row in aliases
+            ):
+                return False
+            conversion = policy["notation_conversion"]
+            result_source = conversion["operation_result_source"]
+            if result_source["source_member"] != "source" or set(
+                runtime["invocation_contract"]["result_source_shapes"][
+                    result_source["kind"]
+                ]
+            ) != {"kind", result_source["name_member"]}:
+                return False
+            rules = conversion["local_result_inference"]
+            if len({row["node"] for row in rules}) != len(rules):
+                return False
+            for rule in rules:
+                node = nodes[rule["node"]]
+                if (
+                    node["family"] != "expression"
+                    or node["semantics"]["operator"]
+                    != contract["inference_operators"][rule["rule"]]
+                ):
+                    return False
+                if (
+                    node["result"]["kind"] != "local"
+                    or rule["target_member"] != "target"
+                    or rule["target_member"] not in node["required_members"]
+                ):
+                    return False
+                selected = rule.get(
+                    "operand_members",
+                    [rule.get("source_member", rule.get("literal_member"))],
+                )
+                if not set(selected) <= set(node["required_members"]):
+                    return False
+                typing = node["result"]["typing"]
+                if node["semantics"]["operator"] == "integer-compare":
+                    if node["semantics"].get("comparison") != "less-than" or typing != {
+                        "kind": "fixed",
+                        "contract": conversion["condition_contract"],
+                    }:
+                        return False
+                    if {"kind": "runtime-numeric", "members": selected} not in node[
+                        "operand_constraints"
+                    ]:
+                        return False
+                elif node["semantics"]["operator"] == "integer-floor-divide":
+                    if (
+                        typing["members"] != selected[:1]
+                        or {"kind": "runtime-numeric", "members": selected}
+                        not in node["operand_constraints"]
+                    ):
+                        return False
+                elif typing["members"] != selected:
+                    return False
+        return True
+    except (KeyError, TypeError, ValueError, IndexError):
+        return False
 
 
 def _source_notation_contract_is_supported(contract: Any) -> bool:
@@ -2795,6 +3006,8 @@ def _language_definitions_are_closed(
         language_bundle,
         authority.get("wire_schema_protocol_roles", {}).get("source_notation"),
     ):
+        return False
+    if not _formula_resolution_is_closed(language_bundle, meta_format):
         return False
     quantity = language.get("quantity")
     quantity_contract = authority.get("quantity")
@@ -5628,6 +5841,12 @@ def admit_authorities(
         )
     if not _runtime_authority_is_closed(kernel, language_bundle):
         refuse("kernel.vector_mismatch", "static", "language.runtime")
+    if not _formula_resolution_contract_is_supported(
+        meta_format.get("formula_resolution")
+    ):
+        refuse(
+            "kernel.vector_mismatch", "static", "kernel.meta-format.formula-resolution"
+        )
     if not _source_notation_contract_is_supported(
         meta_format.get("language_definitions", {})
         .get("wire_schema_protocol_roles", {})

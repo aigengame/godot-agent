@@ -737,27 +737,47 @@ def test_formula_parameter_sugar_normalizes_to_same_formula_and_rir_through_conv
 
 
 def test_formula_policy_uses_authority_values_without_host_spelling_or_limit_pins():
-    _kernel, language_bundle = mutable_authorities()
+    kernel, language_bundle = mutable_authorities()
     candidate = deepcopy(language_bundle)
     profile = next(
         row
         for row in candidate["language"]["resolution_profiles"]
         if row["id"] == "exact-import-resolution-v1"
     )
-    policy = profile["extensions"]["standard.formula"]
+    policy = profile["formula_resolution"]
     policy["body_nodes_member"] = "authority-owned-expressions"
-    policy["allowed_body_nodes"] = ["authority-owned-node"]
+    policy["allowed_body_nodes"] = ["operation-call"]
     policy["max_nodes_per_formula"] = 37
     policy["resource_charge_per_node"] = 41
-    policy["identity_domains"]["formula"] = "authority-formula-domain"
+    policy["identity_domains"]["declaration"] = "authority-formula-domain"
 
-    resolved = model_module._formula_policy(candidate)
+    source = next(
+        row["schema"]
+        for row in candidate["language"]["wire_schemas"]
+        if row.get("protocol_role") == "model-source-package"
+    )
+    bodies = source["properties"]["modules"]["items"]["properties"]["formulas"][
+        "items"
+    ]["properties"]["body"]["oneOf"]
+    program = next(row for row in bodies if row.get("type") == "object")
+    program["properties"][policy["body_nodes_member"]] = program["properties"].pop(
+        "nodes"
+    )
+    program["required"] = [
+        policy["body_nodes_member"] if name == "nodes" else name
+        for name in program["required"]
+    ]
+    _reidentify_language_bundle(candidate)
+    context = authority_module.admit_authority_context(kernel, candidate)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext), context
+
+    resolved = model_module._formula_policy(context.language_bundle)
 
     assert resolved["body_nodes_member"] == "authority-owned-expressions"
-    assert resolved["allowed_body_nodes"] == ["authority-owned-node"]
+    assert resolved["allowed_body_nodes"] == ["operation-call"]
     assert resolved["max_nodes_per_formula"] == 37
     assert resolved["resource_charge_per_node"] == 41
-    assert resolved["identity_domains"]["formula"] == "authority-formula-domain"
+    assert resolved["identity_domains"]["declaration"] == "authority-formula-domain"
 
 
 def test_model_build_publishes_the_formula_explanation(tmp_path, run_cli):
@@ -7307,7 +7327,7 @@ def test_unselected_resolution_profile_owner_still_reidentifies_lock():
         for row in candidate_ldb["language"]["resolution_profiles"]
         if row["id"] == "exact-import-resolution-v1"
     )
-    profile["extensions"]["standard.formula"]["max_nodes_per_formula"] += 1
+    profile["formula_resolution"]["max_nodes_per_formula"] += 1
     _reidentify_language_bundle(candidate_ldb)
     candidate = _check_with_candidate_ldb(source, packaged.kernel, candidate_ldb)
     mutated = model_compilation_module.lower_checked_model(candidate)

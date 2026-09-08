@@ -245,87 +245,7 @@ def _formula_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
     profile = _resolution_profile(
         language_bundle, cast(str, lowering["resolution_profile"])
     )
-    extensions = profile.get("extensions")
-    policy = (
-        extensions.get("standard.formula") if isinstance(extensions, dict) else None
-    )
-    string_members = (
-        "module_formulas_member",
-        "bindings_member",
-        "formula_id_member",
-        "formula_parameters_member",
-        "formula_result_member",
-        "formula_body_member",
-        "body_nodes_member",
-        "body_result_member",
-        "node_id_member",
-        "parameter_id_member",
-        "binding_arguments_member",
-        "binding_parameter_member",
-        "binding_operand_member",
-        "binding_site_member",
-        "binding_formula_member",
-        "binding_cardinality",
-        "argument_cardinality",
-        "argument_order",
-        "same_name_capture",
-        "declaration_scope",
-    )
-    list_members = (
-        "allowed_binding_sites",
-        "allowed_body_nodes",
-        "allowed_operand_kinds",
-    )
-    identity_domains = (
-        policy.get("identity_domains") if isinstance(policy, dict) else None
-    )
-    inline_body_normalizations = (
-        policy.get("inline_body_normalizations") if isinstance(policy, dict) else None
-    )
-    if (
-        not isinstance(policy, dict)
-        or any(
-            not isinstance(policy.get(member), str) or not policy[member]
-            for member in string_members
-        )
-        or any(
-            not isinstance(policy.get(member), list)
-            or not policy[member]
-            or not all(isinstance(item, str) and item for item in policy[member])
-            for member in list_members
-        )
-        or not isinstance(policy.get("first_class_values"), bool)
-        or not isinstance(policy.get("dynamic_lookup"), bool)
-        or not isinstance(policy.get("max_nodes_per_formula"), int)
-        or cast(int, policy["max_nodes_per_formula"]) <= 0
-        or not isinstance(policy.get("resource_charge_per_node"), int)
-        or cast(int, policy["resource_charge_per_node"]) <= 0
-        or not isinstance(inline_body_normalizations, list)
-        or not inline_body_normalizations
-        or not all(
-            isinstance(normalization, dict)
-            and set(normalization) == {"node", "parameter_member", "result_kind"}
-            and all(
-                isinstance(normalization.get(member), str) and normalization[member]
-                for member in ("node", "parameter_member", "result_kind")
-            )
-            for normalization in inline_body_normalizations
-        )
-        or len(
-            {
-                cast(str, normalization["node"])
-                for normalization in inline_body_normalizations
-            }
-        )
-        != len(inline_body_normalizations)
-        or not isinstance(identity_domains, dict)
-        or any(
-            not isinstance(domain, str) or not domain
-            for domain in identity_domains.values()
-        )
-    ):
-        raise ValueError("the admitted resolution profile has no closed Formula policy")
-    return cast(dict[str, Any], policy)
+    return cast(dict[str, Any], profile["formula_resolution"])
 
 
 def _operation_formula_slots(
@@ -659,7 +579,7 @@ def _formula_pair_diagnostics(
 ) -> list[Schema2Diagnostic]:
     diagnostics: list[Schema2Diagnostic] = []
     profile = _resolution_profile(authority_context.language_bundle)
-    policy = profile["extensions"]["standard.formula"]
+    policy = profile["formula_resolution"]
     modules_member = cast(str, profile["modules_member"])
     formulas_member = cast(str, policy["module_formulas_member"])
     requirements = source.get(cast(str, profile["requirements_member"]))

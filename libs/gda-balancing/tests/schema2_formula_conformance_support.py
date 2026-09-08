@@ -57,11 +57,7 @@ def _resolution_profile(language_bundle: dict[str, Any]) -> dict[str, Any]:
 
 
 def _formula_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
-    policy = (
-        _resolution_profile(language_bundle)
-        .get("extensions", {})
-        .get("standard.formula")
-    )
+    policy = _resolution_profile(language_bundle)["formula_resolution"]
     if not isinstance(policy, dict):
         raise ValueError("independent consumer found no Formula policy")
     return policy

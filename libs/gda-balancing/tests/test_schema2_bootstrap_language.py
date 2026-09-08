@@ -391,7 +391,7 @@ def test_current_quantity_composition_inference_and_positive_divisor_contract():
         for definition in entry["definitions"]
         if definition["id"] == "exact-import-resolution-v1"
     )
-    policy = profile["extensions"]["standard.formula"]["notation_conversion"]
+    policy = profile["formula_resolution"]["notation_conversion"]
     boolean_contract = formula_contract_from_operation(
         _authority_candidate()["kernel"]["meta_format"]["runtime_program"][
             "fixed_value_contracts"

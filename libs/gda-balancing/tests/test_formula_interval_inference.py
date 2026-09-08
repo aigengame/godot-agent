@@ -27,7 +27,7 @@ def inference_authority():
         if row.get("default") is True
     )
     return (
-        profile["extensions"]["standard.formula"]["notation_conversion"],
+        profile["formula_resolution"]["notation_conversion"],
         formula_contract_from_operation(
             context.kernel["meta_format"]["runtime_program"]["fixed_value_contracts"][
                 "kernel-boolean"

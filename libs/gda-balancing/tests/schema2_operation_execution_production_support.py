@@ -205,7 +205,7 @@ def _formula_sources(
     numeric = cast(dict[str, int], runtime["numeric"])
     policy = next(
         row for row in language["resolution_profiles"] if row.get("default") is True
-    )["extensions"]["standard.formula"]["notation_conversion"]
+    )["formula_resolution"]["notation_conversion"]
     boolean_contract = formula_contract_from_operation(
         runtime["fixed_value_contracts"]["kernel-boolean"]
     )
