@@ -18,6 +18,7 @@ from schema2_extension_inventory_support import (
 )
 from schema2_extension_renaming_support import (
     _member_path_values,
+    _renamed_pointer,
     _render_formulas,
     _reseal_authored_graph,
     _rewrite_positions,
@@ -102,7 +103,7 @@ def test_incomplete_real_graph_cannot_authorize_renaming(authored_graph):
     pairs = token_bijection_from_names(
         inventory,
         {
-            token: f"renamed.token.{i}"
+            token: f"renamed_token_{i}"
             for i, token in enumerate(sorted(inventory.tokens - inventory.reserved))
         },
     )
@@ -111,9 +112,10 @@ def test_incomplete_real_graph_cannot_authorize_renaming(authored_graph):
     assert graph == before
 
 
+@pytest.mark.parametrize("rename_modules", [False, True])
 @pytest.mark.parametrize("miss_ast_reference", [False, True])
 def test_formula_renaming_renders_actual_ast_and_detects_a_missed_reference(
-    authored_graph, miss_ast_reference
+    authored_graph, miss_ast_reference, rename_modules
 ):
     kernel, graph = authored_graph
     inventory = read_extension_inventory(kernel, graph)
@@ -124,7 +126,21 @@ def test_formula_renaming_renders_actual_ast_and_detects_a_missed_reference(
     )
     occurrences = [o for o in inventory.occurrences if o.token == parameter]
     values = {o.pointer: "measured_value" for o in occurrences if o.location == "value"}
-    candidate = _rewrite_positions(graph, values, {})
+    keys = {}
+    if rename_modules:
+        modules = next(
+            token
+            for token in inventory.tokens
+            if token.role == "source-field"
+            and len(token.owner) == 2
+            and token.name == "modules"
+        )
+        for occurrence in inventory.occurrences:
+            if occurrence.token == modules:
+                assert occurrence.location in {"key", "value"}
+                edits = keys if occurrence.location == "key" else values
+                edits[occurrence.pointer] = "opaque/modules~"
+    candidate = _rewrite_positions(graph, values, keys)
     bodies = _formula_projections(kernel, graph)
     if not miss_ast_reference:
         for pointer, body in bodies.items():
@@ -134,8 +150,9 @@ def test_formula_renaming_renders_actual_ast_and_detects_a_missed_reference(
                 if o.location == "formula" and o.pointer == pointer
             }
             bodies[pointer] = _rewrite_positions(body, edits, {})
+    bodies = {_renamed_pointer(pointer, keys): body for pointer, body in bodies.items()}
     if miss_ast_reference:
-        with pytest.raises(InventoryRefusal, match="body and expression disagree"):
+        with pytest.raises(InventoryRefusal, match="does not close independently"):
             _render_formulas(kernel, candidate, bodies)
     else:
         _render_formulas(kernel, candidate, bodies)

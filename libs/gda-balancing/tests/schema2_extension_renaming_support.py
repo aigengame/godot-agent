@@ -27,6 +27,7 @@ from schema2_extension_inventory_support import (
     _formula_projections,
     _pointer_value,
     read_extension_inventory,
+    source_formula_requests,
     validate_extension_inventory,
     validate_token_bijection,
 )
@@ -74,31 +75,29 @@ def _member_path_values(
     return result
 
 
+def _renamed_pointer(pointer: str, keys: Mapping[str, str]) -> str:
+    original = renamed = ""
+    for part in pointer.split("/")[1:]:
+        original += "/" + part
+        member = part.replace("~1", "/").replace("~0", "~")
+        renamed = _child(renamed, keys.get(original, member))
+    return renamed
+
+
 def _render_formulas(
     kernel: dict[str, Any],
     candidate: dict[str, Any],
     bodies: Mapping[str, Any],
 ) -> None:
     language = _attached_language(kernel, candidate)
-    source = candidate.get("source")
-    if not source:
-        return
+    requests = source_formula_requests(kernel, candidate)
+    if set(bodies) != set(requests):
+        raise InventoryRefusal("renamed Formula paths do not close")
     for pointer, body in bodies.items():
-        formula = _pointer_value(candidate, pointer.rpartition("/")[0])
-        module = _pointer_value(candidate, pointer.split("/formulas/")[0])
-        request = {
-            "schema_version": source["schema_version"],
-            "package_requirements": source["package_requirements"],
-            "module": module,
-            "modules": source["modules"],
-            "formula": formula,
-        }
-        # Body and expression are separate inventoried surfaces. Compare both
-        # renders rather than erasing a missed AST occurrence by copying body.
-        expression = render_body(body, request, language)
-        if render_body(formula["body"], request, language) != expression:
-            raise InventoryRefusal("renamed Formula body and expression disagree")
-        formula["expression"] = expression
+        request = requests[pointer]
+        request["formula"]["expression"] = render_body(body, request, language)
+    # Independently compare the rewritten expression with the actual authored
+    # body. Copying the body into the expression would hide missed occurrences.
     _formula_projections(kernel, candidate)
 
 
@@ -201,7 +200,9 @@ def apply_extension_renaming(
     inputs = {k: v for k, v in graph.items() if k not in {"artifacts", "results"}}
     candidate = _rewrite_positions(inputs, values, keys)
     bodies = {
-        pointer: _rewrite_positions(body, formula_values.get(pointer, {}), {})
+        _renamed_pointer(pointer, keys): _rewrite_positions(
+            body, formula_values.get(pointer, {}), {}
+        )
         for pointer, body in _formula_projections(kernel, graph).items()
     }
     _render_formulas(kernel, candidate, bodies)

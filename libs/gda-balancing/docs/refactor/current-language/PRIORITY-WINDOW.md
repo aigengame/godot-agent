@@ -487,6 +487,48 @@ CI collection accounts for 2175 tests and 347 package vectors with no missing,
 overlapping or unassigned tests. Ruff and full Pyright pass. This is collection and
 focused execution evidence; all-shard CI and the final complete rename remain open.
 
+## Source address routing and build-freeze evidence
+
+The first Source `modules` rename probe omitted the authored lowering selector and
+five Model-check selector references. Its unresolved operand is not evidence of a
+consumer defect. After those declarations are changed consistently, the existing
+bounded-fold Model builds and runs. Separate Formula consumers still used the old
+field address: pair checking skipped malformed expressions, the CLI output-schema
+projection failed, and Debug Map/refusal pointers named the old field.
+
+`b2df9a1bf` removes those literal reads and follows the existing profile mappings.
+Fifteen permanent public cases pass under the original address and two changed
+addresses, including `/` and `~`. For both bounded fold and the maintained RPG combat
+Source, complete RIR and all six Runtime member bytes match across address changes.
+Independent compilation matches four semantic members for both Sources. Independent
+six-member Runtime exchange is verified for bounded fold; no independent whole-Runtime
+claim is made for RPG combat. Static failures retain the exact Source identity and
+escaped authored pointer. No Kernel, language authority or maintained Source changes
+are needed for this repair.
+
+The inventory now derives Source member addresses from the existing independent typed
+selector. It publishes addresses only after the entire judgment succeeds. Schema
+property declarations, required members, profile paths and actual Source keys share
+the same field owner. Dot-path targets must be representable by that encoding; this
+does not prohibit dots in unrelated token names. Formula authoring transports exact
+expression pointers through field renames and reuses the actual mapped requests.
+Negative lookup vectors retain proven absent names as references: renaming cannot
+capture them into a declaration or exempt an ordinary missing provider.
+
+An independent build audit confirms that the four-file reference Runtime identity is
+not complete freeze evidence. Actual Formula helpers, shared data containers and
+installed JSON Schema dependencies also execute. The final experiment must fix a
+verified A wheel, complete B harness/driver, Python and installed dependency files
+before inventory derivation, then compare the same file membership and hashes after
+all exchanges. This is an external experiment condition; it does not add a product
+manifest or change provenance fields. Existing wheel filenames alone are insufficient
+to select the final implementation. The final freeze has not run.
+
+The [integration record](evidence/priority-window/source-address-integration.json)
+preserves scoped results, the incomplete-probe adjudication and the build audit.
+The reader still reports 56 explicit gaps; these corrections do not establish a
+complete inventory or a final #878 pass.
+
 ## Remaining proof and integration
 
 - Complete the semantic-token inventory and resolve remaining demonstrated name
