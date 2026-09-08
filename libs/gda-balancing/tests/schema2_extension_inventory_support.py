@@ -1455,8 +1455,7 @@ def _value_vector_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
                 or set(inp["numeric"]) != {"minimum", "maximum"}
                 or not isinstance(inp["operands"], list)
                 or not all(set(row) == {"name", "value"} for row in inp["operands"])
-                or [row["name"] for row in inp["operands"]]
-                != sorted({row["name"] for row in inp["operands"]})
+                or len(inp["operands"]) != len({row["name"] for row in inp["operands"]})
             ):
                 raise InventoryRefusal(
                     "value program does not close its instruction or operand shape"

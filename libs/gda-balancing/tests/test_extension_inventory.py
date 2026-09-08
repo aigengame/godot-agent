@@ -2102,6 +2102,8 @@ def test_value_vector_occurrences_preserve_lexical_and_typed_ownership(witness):
 
 @pytest.mark.parametrize("family", ["value-program", "structured-value"])
 def test_value_vector_renaming_retains_two_actual_consumers(witness, family):
+    from itertools import permutations
+
     from gda_balancing.domain.authority.graph import LanguageBundleGraph
     from gda_balancing.domain.structured_values import evaluate_structured_value_vector
     from schema2_bootstrap_conformance_support import (
@@ -2195,6 +2197,10 @@ def test_value_vector_renaming_retains_two_actual_consumers(witness, family):
             for i, token in enumerate(sorted(inventory.tokens))
             if token.role in {"vector-local", "vector-site"}
         }
+        # A coherent rename need not preserve lexical input-row order.
+        scope = ("formula.runtime.maximum.extrema",)
+        selected[AuthorityToken("vector-local", scope, "left")] = "z_left"
+        selected[AuthorityToken("vector-local", scope, "right")] = "a_right"
     else:
         selected = {
             AuthorityToken(
@@ -2260,6 +2266,21 @@ def test_value_vector_renaming_retains_two_actual_consumers(witness, family):
                 b = _consumer_b_evaluate_structured_value_vector(vector, **args)
             assert a == vector["expect"]
             assert b == vector["expect"]
+            if family == "value-program":
+                # Input bindings are a map. Instruction order still determines
+                # results, exact charges, cache behavior and the first refusal.
+                for ordering in permutations(vector["input"]["operands"]):
+                    permuted = deepcopy(vector)
+                    permuted["input"]["operands"] = list(ordering)
+                    assert (
+                        reference_evaluate_value_program_vector(permuted)
+                        == vector["expect"]
+                    )
+                    for phase in ("initialization", "event", "observation"):
+                        assert (
+                            evaluate_value_program_vector(kernel, permuted, phase=phase)
+                            == vector["expect"]
+                        )
     if family == "value-program":
         # Renaming carries identity sites, never recalculates numerical oracles.
         original = {
@@ -2276,6 +2297,34 @@ def test_value_vector_renaming_retains_two_actual_consumers(witness, family):
                         for k, x in original[v["id"]]["expect"].items()
                         if k != "site"
                     }
+
+
+@pytest.mark.parametrize("position", [0, 2], ids=["first", "last"])
+def test_value_vector_duplicate_bindings_refuse_before_order_can_choose_a_value(
+    position,
+):
+    from test_schema2_template_cli import _reidentify_language_bundle
+
+    kernel, language = mutable_authorities()
+    vector = next(
+        vector
+        for vector_set in language.package_conformance_vector_sets
+        for vector in vector_set["vector_definitions"]
+        if vector["id"] == "formula.runtime.maximum.extrema"
+    )
+    vector["input"]["operands"].insert(position, {"name": "right", "value": 0})
+    _reidentify_language_bundle(kernel, language)
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, language)
+        assert not result["admitted"]
+        assert [row[1] for row in result["diagnostics"]] == ["kernel.vector_mismatch"]
+    graph = {
+        "packages": language.package_releases,
+        "ldb_root": language.root,
+        "vector_sets": language.package_conformance_vector_sets,
+    }
+    with pytest.raises(InventoryRefusal, match="instruction or operand shape"):
+        read_extension_inventory(kernel, graph)
 
 
 def test_value_vector_literal_data_and_unclosed_negatives_cannot_claim_identity(

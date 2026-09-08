@@ -622,6 +622,29 @@ retains the four failing baseline cases, unchanged original/renamed public execu
 the 11-test worker scope and 97-test integrated scope. The new permanent tests are
 registered in required CI; this result does not close the remaining inventory proof.
 
+## Unordered value-program bindings
+
+Independent review found that the first finite value-program rename used names whose
+lexical order matched the original inputs. Changing `left/right` to `z_left/a_right`
+preserves both actual evaluators' results but the two authority consumers reject it.
+Their shared sorting restriction is absent from the Kernel's value-program contract.
+It is also unnecessary: both executors immediately construct a name-to-value mapping;
+their cache keys normalize that mapping separately. Instructions retain their execution
+order and determine charging and the first refusal.
+
+The adopted correction deletes the sorting requirement in both admission implementations
+and the inventory. It retains name uniqueness, input shape and numeric checks. No
+authoring sorter or new Kernel field is introduced. Permanent checks exercise a
+non-order-preserving rename and all finite input permutations against unchanged
+observations, including cache entries, charges and refusal sites. Duplicate names still
+refuse at either end of the input list, where accepting them would let row order choose
+different values. This correction does not change instruction ordering or vector oracles.
+
+The [correction record](evidence/priority-window/value-operand-order.json) preserves
+the independent 2276-permutation recapture, the failing rename, six passing targeted
+checks and 177 passing inventory/authority/CI-policy integration tests. Source fingerprints
+are verified at the recorded review head; required whole-issue CI remains separate.
+
 ## Remaining proof and integration
 
 - Complete the semantic-token inventory and resolve remaining demonstrated name

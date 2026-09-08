@@ -518,8 +518,7 @@ def _package_evidence_vectors_are_closed(
                     and _signed_int64(row.get("value"))
                     for row in inp["operands"]
                 )
-                or [row["name"] for row in inp["operands"]]
-                != sorted({row["name"] for row in inp["operands"]})
+                or len(inp["operands"]) != len({row["name"] for row in inp["operands"]})
                 or not isinstance(inp.get("resource_limit"), int)
                 or isinstance(inp["resource_limit"], bool)
                 or inp["resource_limit"] < 0
