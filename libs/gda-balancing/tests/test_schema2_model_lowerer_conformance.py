@@ -48,6 +48,9 @@ from schema2_authority_support import (
     mutable_authorities,
 )
 from schema2_bootstrap_production_support import _recursive_nominal_owner_candidate
+from schema2_bootstrap_conformance_support import (
+    _consumer_b_operation_composition_subjects,
+)
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
@@ -2233,6 +2236,31 @@ def _reference_specialize_formula_slots(
     for coordinate, operation_replacements in replacements.items():
         operation = operations[coordinate]
         ordered = sorted(operation_replacements, key=lambda row: row[0])
+        occupied = {port["id"] for port in operation["inputs"]}
+        occupied.update(
+            instruction["target"]
+            for instruction in operation["body"]
+            if isinstance(instruction.get("target"), str)
+        )
+        occupied.update(
+            instruction["target"]
+            for _, _, compiled, _ in ordered
+            for instruction in compiled
+            if isinstance(instruction.get("target"), str)
+        )
+        next_charge = 0
+        for _, _, compiled, _ in ordered:
+            for instruction in compiled:
+                if (
+                    instruction.get("node") == "copy"
+                    and instruction["target"] == instruction["value"]
+                ):
+                    while f"formula.invocation-charge.{next_charge}" in occupied:
+                        next_charge += 1
+                    name = f"formula.invocation-charge.{next_charge}"
+                    instruction["target"] = name
+                    occupied.add(name)
+                    next_charge += 1
         for start, length, compiled, _site_identity in reversed(ordered):
             operation["body"][start : start + length] = compiled
         snapshot_sources = snapshot_sources_by_operation.get(coordinate, {})
@@ -2627,7 +2655,7 @@ def _reference_rir(
         "call_sites": _reference_call_sites(
             checked,
             selected_semantics,
-            lowering,
+            declarations=declarations,
         ),
         "selected_semantics": selected_semantics,
     }
@@ -2663,11 +2691,11 @@ def _reference_value_contract_matches(
     declaration: dict[str, Any],
     contract: dict[str, Any],
 ) -> bool:
-    expected_type = contract["type"]
-    return declaration["type_identity"] == {
-        "package": expected_type["package"],
-        "id": expected_type["id"],
-    } and all(
+    if declaration["type_identity"] != contract["type"]:
+        return False
+    if "value_kind" in declaration or "value_kind" in contract:
+        return declaration.get("value_kind") == contract.get("value_kind")
+    return all(
         declaration[member] == contract[member]
         for member in ("representation", "kind", "unit", "numeric_policy")
     )
@@ -2889,15 +2917,23 @@ def _reference_entrypoints(
             resolved_symbol: dict[str, Any],
             target_identity: str,
         ) -> None:
-            if declaration["role"] != "input":
+            cardinality = _reference_assignment_mode(declaration, roles)[
+                "external_fact_cardinality"
+            ]
+            if cardinality == "forbidden":
                 return
             target = {
                 "target": resolved_symbol,
                 "target_identity": target_identity,
                 "owner": "external-source",
-                "cardinality": "optional",
+                "cardinality": cardinality,
                 "value_source": "external-input-fact",
                 "value_contract": {
+                    "type_identity": declaration["type_identity"],
+                    "value_kind": "nominal-structured",
+                }
+                if declaration.get("value_kind") == "nominal-structured"
+                else {
                     member: declaration[member]
                     for member in (
                         "type_identity",
@@ -3254,27 +3290,62 @@ def _reference_operation_contract_matches(
 def _reference_call_sites(
     checked: ModelSourceContext,
     selected_semantics: dict[str, Any],
-    lowering: dict[str, Any],
+    *,
+    declarations: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    composition_policy = lowering["composition_policy"]
-    effect_policy = composition_policy["effects"]
-    refusal_policy = composition_policy["refusals"]
-    resource_policy = composition_policy["resources"]
-
     operation_rows = selected_semantics["operations"]
     operations = {
-        (
-            row["package"],
-            row["definition"]["id"],
-        ): row
-        for row in operation_rows
+        (row["package"], row["definition"]["id"]): row for row in operation_rows
     }
-    domains = checked.kernel["meta_format"]["runtime_program"]["invocation_contract"][
-        "identity_domains"
-    ]
+    definitions = {
+        coordinate: row["definition"] for coordinate, row in operations.items()
+    }
+    if len(definitions) != len(operation_rows):
+        raise ValueError("selected Operation coordinate is duplicated")
+    declared = {_reference_encoded(row["resolved_symbol"]): row for row in declarations}
+    snapshots = {}
+    for coordinate, definition in definitions.items():
+        operands = (
+            definition.get("extensions", {})
+            .get("standard.snapshot-operands", {})
+            .get("operands", [])
+        )
+        if not operands:
+            continue
+        contracts = {}
+        for operand in operands:
+            declaration = declared[_reference_encoded(operand["resolved_symbol"])]
+            if declaration.get("value_kind") == "nominal-structured":
+                contract = {
+                    "type": declaration["type_identity"],
+                    "value_kind": "nominal-structured",
+                }
+            else:
+                contract = {
+                    member: declaration[member]
+                    for member in ("representation", "kind", "unit", "numeric_policy")
+                }
+                contract.update(
+                    type=declaration["type_identity"], domain={"kind": "actual"}
+                )
+            contracts[operand["name"]] = contract
+        snapshots[coordinate] = contracts
+    closures = {}
+    subjects = _consumer_b_operation_composition_subjects(
+        deepcopy(checked.kernel),
+        deepcopy(checked.language_bundle),
+        selected_operations=definitions,
+        snapshot_contracts=snapshots,
+        closed_operations=closures,
+    )
+    if subjects:
+        raise ValueError(
+            "independent selected composition refuses: " + ", ".join(subjects)
+        )
+    runtime = checked.kernel["meta_format"]["runtime_program"]
+    domains = runtime["invocation_contract"]["identity_domains"]
     node_operators = {
-        row["id"]: row["semantics"]["operator"]
-        for row in checked.kernel["meta_format"]["runtime_program"]["nodes"]
+        row["id"]: row["semantics"]["operator"] for row in runtime["nodes"]
     }
 
     def expanded_body(body: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -3286,65 +3357,13 @@ def _reference_call_sites(
         return instructions
 
     rows = []
-    cache: dict[tuple[str, str], tuple[set[str], set[str], int]] = {}
-
-    def close(
-        operation_row: dict[str, Any],
-        stack: tuple[tuple[str, str], ...],
-    ) -> tuple[set[str], set[str], int]:
-        parent_ref = _reference_exact_operation(operation_row)
-        parent_key = (
-            parent_ref["package"],
-            parent_ref["id"],
-        )
-        if parent_key in stack:
-            raise ValueError("Operation call graph contains a cycle")
-        if parent_key in cache:
-            return cache[parent_key]
+    for parent_key, operation_row in sorted(operations.items()):
         operation = operation_row["definition"]
-        parent_ports = {row["id"]: row for row in operation["inputs"]}
-        parent_outcomes = {row["id"] for row in operation.get("outcomes", [])}
-        local_contracts: dict[str, dict[str, Any]] = {}
-        effects = set(operation["effects"])
-        refusals = set(operation["refusals"])
-        charge = len(expanded_body(operation["body"]))
-        for instruction in expanded_body(operation["body"]):
-            if node_operators[instruction["node"]] != "invoke-operation":
-                continue
-            child_ref = instruction["operation"]
-            child_row = operations.get(
-                (
-                    child_ref["package"],
-                    child_ref["id"],
-                )
-            )
-            if child_row is None:
-                raise ValueError("nested Operation is not selected")
-            child_effects, child_refusals, child_charge = close(
-                child_row, (*stack, parent_key)
-            )
-            if effect_policy["containment"] == (
-                "callee-subset-of-caller-declaration"
-            ) and not child_effects <= set(operation["effects"]):
-                raise ValueError("nested effect closure exceeds caller declaration")
-            if refusal_policy["containment"] == (
-                "callee-subset-of-caller-declaration"
-            ) and not child_refusals <= set(operation["refusals"]):
-                raise ValueError("nested refusal closure exceeds caller declaration")
-            if effect_policy["aggregation"] == "union":
-                effects.update(child_effects)
-            if refusal_policy["aggregation"] == "union":
-                refusals.update(child_refusals)
-            if resource_policy["aggregation"] == "sum":
-                charge += child_charge
-        seen_sites: set[str] = set()
-        for order, instruction in enumerate(operation["body"]):
+        parent_ref = _reference_exact_operation(operation_row)
+        for order, instruction in enumerate(expanded_body(operation["body"])):
             if instruction["node"] != "invoke":
                 continue
             site = instruction["site"]
-            if site in seen_sites:
-                raise ValueError("duplicate nested call site")
-            seen_sites.add(site)
             child_ref = instruction["operation"]
             child_row = operations.get(
                 (
@@ -3358,26 +3377,12 @@ def _reference_call_sites(
             exact_child = _reference_exact_operation(child_row)
             child_ports = child["inputs"]
             authored_arguments = instruction["arguments"]
-            if [row["port"] for row in authored_arguments] != [
-                row["id"] for row in child_ports
-            ]:
-                raise ValueError("nested arguments do not close formal ports")
             aliases: dict[str, list[tuple[str, str]]] = {}
             arguments = []
             for formal, authored in zip(child_ports, authored_arguments, strict=True):
                 formal_body = {"operation": exact_child, "name": formal["id"]}
                 operand = authored["operand"]
                 if operand["kind"] == "port":
-                    contract = parent_ports.get(operand["port"])
-                    if (
-                        contract is None
-                        or not _reference_operation_contract_matches(contract, formal)
-                        or (
-                            formal["access"] in {"read-write", "write"}
-                            and contract["access"] not in {"read-write", "write"}
-                        )
-                    ):
-                        raise ValueError("nested port operand is incompatible")
                     operand_body = {
                         "kind": "port",
                         "parent_operation": parent_ref,
@@ -3391,13 +3396,6 @@ def _reference_call_sites(
                         ),
                     }
                 elif operand["kind"] == "local":
-                    contract = local_contracts.get(operand["local"])
-                    if (
-                        contract is None
-                        or formal["access"] != "read"
-                        or not _reference_operation_contract_matches(contract, formal)
-                    ):
-                        raise ValueError("nested local operand is incompatible")
                     operand_body = {
                         "kind": "local",
                         "parent_operation": parent_ref,
@@ -3454,21 +3452,6 @@ def _reference_call_sites(
                 )
             alias_rows = _reference_alias_rows(child, aliases)
             authored_result = instruction["result"]
-            if authored_result["kind"] == "discard":
-                if child["result"]["discardable"] is not True:
-                    raise ValueError("required nested result is discarded")
-            elif authored_result["kind"] == "local":
-                name = authored_result["name"]
-                if name in local_contracts:
-                    raise ValueError("nested result local is repeated")
-                local_contracts[name] = child["result"]
-            elif authored_result["kind"] == "operation-result":
-                if not _reference_operation_contract_matches(
-                    child["result"], operation["result"]
-                ):
-                    raise ValueError("nested result is incompatible")
-            else:
-                raise ValueError("unknown nested result binding")
             result_body = {
                 "parent_operation": parent_ref,
                 "site": site,
@@ -3480,18 +3463,9 @@ def _reference_call_sites(
                 "binding": authored_result,
             }
             authored_outcomes = instruction["outcomes"]
-            if [row["outcome"] for row in authored_outcomes] != [
-                row["id"] for row in child["outcomes"]
-            ]:
-                raise ValueError("nested outcome mapping is not exhaustive")
             outcomes = []
             for mapping in authored_outcomes:
                 action = mapping["action"]
-                if (
-                    action["kind"] == "propagate"
-                    and action["outcome"] not in parent_outcomes
-                ):
-                    raise ValueError("nested outcome is not admitted by caller")
                 outcome_body = {
                     "parent_operation": parent_ref,
                     "site": site,
@@ -3508,9 +3482,9 @@ def _reference_call_sites(
                         "action": action,
                     }
                 )
-            child_effects, child_refusals, child_charge = close(
-                child_row, (*stack, parent_key)
-            )
+            child_effects, child_refusals, child_charge = closures[
+                (child_ref["package"], child_ref["id"])
+            ]
             body = {
                 "parent_operation": parent_ref,
                 "site": site,
@@ -3532,19 +3506,6 @@ def _reference_call_sites(
                     "identity": _reference_content_identity(domains["call_site"], body),
                 }
             )
-        if (
-            resource_policy["containment"] == "transitive-charge-within-caller-bound"
-            and charge > operation["resource_bounds"]["max_steps"]
-        ):
-            raise ValueError("transitive resource charge exceeds caller bound")
-        cache[parent_key] = effects, refusals, charge
-        return effects, refusals, charge
-
-    for operation_row in sorted(
-        operation_rows,
-        key=lambda row: (row["package"], row["definition"]["id"]),
-    ):
-        close(operation_row, ())
     return sorted(
         rows,
         key=lambda row: (
@@ -3930,18 +3891,21 @@ def _reference_runtime_projection(
     selected_closure_values: dict[tuple[str, str], list[Any]] = {}
 
     def projected_runtime_value(specification: dict[str, Any], value: Any) -> Any:
-        excluded = specification.get("excluded_extension_members", [])
-        if not excluded or not isinstance(value, dict):
+        if not isinstance(value, dict):
             return value
-        extensions = value.get("extensions")
-        if not isinstance(extensions, dict):
+        members = specification.get("excluded_members", [])
+        extensions = specification.get("excluded_extension_members", [])
+        if not members and not extensions:
             return value
-        projected = deepcopy(value)
-        projected_extensions = projected["extensions"]
-        for member in excluded:
-            projected_extensions.pop(member, None)
-        if not projected_extensions:
-            projected.pop("extensions")
+        projected = {
+            key: deepcopy(item) for key, item in value.items() if key not in members
+        }
+        projected_extensions = projected.get("extensions")
+        if extensions and isinstance(projected_extensions, dict):
+            for member in extensions:
+                projected_extensions.pop(member, None)
+            if not projected_extensions:
+                projected.pop("extensions")
         return projected
 
     for specification in profile["collections"]:
@@ -4630,6 +4594,12 @@ def test_independent_lowerer_counts_guard_body_in_nested_operation_charge():
         for row in operation_rows
         if row["definition"]["id"] == "game.combat.damage-v1"
     )
+    read_port = next(
+        port["id"] for port in damage["inputs"] if port["access"] == "read"
+    )
+    damage["body"].append(
+        {"node": "equal", "target": "enabled", "left": read_port, "right": read_port}
+    )
     damage["body"].append(
         {
             "node": "guard-block",
@@ -4643,17 +4613,26 @@ def test_independent_lowerer_counts_guard_body_in_nested_operation_charge():
                         "package": "core.quantity",
                         "id": "quantity.identity",
                     },
+                    "arguments": [
+                        {"port": "value", "operand": {"kind": "local", "local": "one"}}
+                    ],
+                    "result": {"kind": "local", "name": "guard-identity"},
+                    "outcomes": [],
                 },
             ],
-            "outcome": "complete",
+            "outcome": damage["default_outcome"],
         }
     )
-    lowering = checked.language_bundle["language"]["model_lowerings"][0]
 
     production = model_lowering_module._resolved_call_sites(
-        checked.kernel, selected_semantics, lowering["composition_policy"]
+        checked.kernel,
+        selected_semantics,
+        language_bundle=checked.language_bundle,
+        declarations=rir["declarations"],
     )
-    independent = _reference_call_sites(checked, selected_semantics, lowering)
+    independent = _reference_call_sites(
+        checked, selected_semantics, declarations=rir["declarations"]
+    )
 
     assert independent == production
     production_rows = cast(list[dict[str, Any]], production)
@@ -4665,7 +4644,7 @@ def test_independent_lowerer_counts_guard_body_in_nested_operation_charge():
     assert damage_calls
     assert {
         cast(dict[str, Any], row["closure"])["resource_charge"] for row in damage_calls
-    } == {17}
+    } == {18}
 
 
 def test_operation_formula_dependency_closure_includes_guard_invocations():

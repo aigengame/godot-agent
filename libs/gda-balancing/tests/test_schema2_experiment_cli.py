@@ -968,8 +968,9 @@ def _experiment(
     }
 
 
-def _write_built_experiment(tmp_path, run_cli, *, base_damage=24):
-    source_value = _rpg_model_source()
+def _write_built_experiment(tmp_path, run_cli, *, base_damage=24, source_value=None):
+    if source_value is None:
+        source_value = _rpg_model_source()
     source = tmp_path / "rpg-model.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
     build_exit, build_stdout, build_stderr = run_cli(
@@ -3433,19 +3434,12 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
     decoy["definition"]["body"] = []
     selected_semantics["packages"].append({"id": "example.decoy"})
     selected_semantics["operations"].append(decoy)
-    budget = audit["budget_counters"]
-    replay_profile = next(
-        row
-        for row in selected_semantics["runtime_profiles"]
-        if row["id"] == checked.value["runtime"]["profile"]
+    decoy_checked = replace(checked, rir=replay_rir)
+    # Revalidate through the real artifact consumer. A same-named empty
+    # Operation in another namespace must not replace the actual entrypoint.
+    assert experiment_artifacts_module.validate_experiment_artifact_set(
+        decoy_checked, values
     )
-    assert experiment_artifact_replay_module.attempted_operation_charge(
-        replace(checked, rir=replay_rir),
-        audit["refusing_event"],
-        audit["refusing_event"]["event_spec"],
-        node_steps_before_operation=budget["node_steps"] - budget["event_steps"],
-        bounds=replay_profile["resource_bounds"],
-    ) == (budget["event_steps"], True)
 
     drifted_audit = deepcopy(audit)
     drifted_audit["budget_counters"]["event_steps"] = 0
@@ -3477,6 +3471,10 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
     )
     assert not experiment_artifacts_module.validate_experiment_artifact_set(
         checked,
+        drifted_values,
+    )
+    assert not experiment_artifacts_module.validate_experiment_artifact_set(
+        decoy_checked,
         drifted_values,
     )
 
@@ -3545,16 +3543,21 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
     )
 
     coordinated_proof = deepcopy(audit)
-    assert coordinated_proof["budget_counters"]["event_steps"] == 8
-    assert coordinated_proof["budget_counters"]["node_steps"] == 14
-    assert coordinated_proof["refusing_event"]["instruction_index"] == 2
-    assert len(coordinated_proof["refusing_event"]["attempted_calls"]) == 2
-    coordinated_proof["budget_counters"]["event_steps"] = 4
-    coordinated_proof["budget_counters"]["node_steps"] = 10
-    coordinated_proof["refusing_event"]["instruction_index"] = 1
-    coordinated_proof["refusing_event"]["attempted_calls"] = coordinated_proof[
-        "refusing_event"
-    ]["attempted_calls"][:1]
+    # The root's two-step limit includes its invoke and both attempted child
+    # instructions. The write is the third charge, before any call completes;
+    # the six reserved Formula steps precede these Operation attempts.
+    assert coordinated_proof["budget_counters"]["event_steps"] == 3
+    assert coordinated_proof["budget_counters"]["node_steps"] == 9
+    assert (
+        coordinated_proof["refusing_event"]["call_path"] == "combat.cast/spend-resource"
+    )
+    assert coordinated_proof["refusing_event"]["instruction_index"] == 1
+    assert coordinated_proof["refusing_event"]["attempted_calls"] == []
+    # Claim the earlier precondition with consistent, still-positive counters.
+    # It fits the limit and cannot be the actual step-limit refusal.
+    coordinated_proof["budget_counters"]["event_steps"] = 2
+    coordinated_proof["budget_counters"]["node_steps"] = 8
+    coordinated_proof["refusing_event"]["instruction_index"] = 0
     payload = {
         key: value
         for key, value in coordinated_proof.items()
@@ -6403,6 +6406,7 @@ def test_reference_runtime_canonical_equality_compares_kernel_booleans():
         ],
         "default_outcome": "equaled",
         "id": "test.boolean-equality",
+        "resource_bounds": {"max_steps": 1},
         "inputs": [
             {"access": "read", "id": "left"},
             {"access": "read", "id": "right"},
@@ -6466,6 +6470,7 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
             scenario,
             root_operation_coordinate=("game.combat", vector["operation"]),
             seed=vector["input"]["seed"],
+            language_bundle=ldb,
             state_names={
                 row["id"]
                 for row in operation["inputs"]
@@ -6479,6 +6484,7 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
             scenario,
             root_operation_coordinate=("game.combat", vector["operation"]),
             seed=vector["input"]["seed"],
+            language_bundle=ldb,
             state_names={
                 row["id"]
                 for row in operation["inputs"]
@@ -6586,6 +6592,12 @@ def test_neutral_structured_operation_vectors_cover_control_paths():
         if package_id == "standard.conformance.structured"
     ]
     assert {vector["id"] for _package, vector in vectors} == {
+        "bounded-fold.duplicates",
+        "bounded-fold.empty",
+        "bounded-fold.full",
+        "bounded-fold.numeric-overflow",
+        "bounded-fold.reverse",
+        "bounded-fold.tail-difference",
         "structured.select.success",
         "structured.select.empty-outcome",
         "structured.select.guard-refusal",
@@ -6911,6 +6923,20 @@ def test_candidate_graph_executes_every_operation_vector_in_two_consumers(monkey
             kernel,
             ldb,
             execution_evidence_expectations={
+                **{
+                    ("standard.conformance.structured", f"bounded-fold.{case}"): {
+                        "ordering_key": root_ordering_key,
+                        "resource_charge": steps,
+                    }
+                    for case, steps in (
+                        ("empty", 8),
+                        ("full", 46),
+                        ("reverse", 46),
+                        ("duplicates", 52),
+                        ("tail-difference", 46),
+                        ("numeric-overflow", 23),
+                    )
+                },
                 ("game.combat", "game.combat.cast.eligible-action"): {
                     "ordering_key": root_ordering_key,
                     "resource_charge": 31,
@@ -7929,7 +7955,6 @@ def test_operation_closure_includes_guard_body_nodes_and_invocations():
         invocation_node_ids={"invoke"},
     )
     assert projection.reachable_operations == {root, child}
-    assert projection.invocation_paths == ((("child",), child),)
     assert projection.node_ids == {"guard-block", "copy", "invoke", "constant"}
     assert projection.effects == {"event.commit", "snapshot.commit"}
     assert projection.refusals == {
@@ -8017,12 +8042,11 @@ def test_operation_program_projects_descendants_for_each_invocation_path():
         invocation_node_ids={"invoke"},
     )
 
-    assert projection.invocation_paths == (
-        (("a",), child),
-        (("a", "g"), grandchild),
-        (("b",), child),
-        (("b", "g"), grandchild),
-    )
+    assert projection.reachable_operations == {root, child, grandchild}
+    assert projection.node_ids == {"invoke"}
+    assert projection.effects == frozenset()
+    assert projection.refusals == frozenset()
+    assert projection.resource_charge == 4
 
 
 def test_operation_program_projects_guard_expanded_audit_positions():
@@ -8342,8 +8366,10 @@ def _assert_high_damage_event_behavior(
     ]
     assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
     kernel, ldb = mutable_authorities()
-    operations = conformance_operation_index(ldb)
     rir = _member(build_receipt, "rir-semantic-payload")
+    operations = operation_program_module.selected_operation_index(
+        rir["selected_semantics"]
+    )
     resolved_entrypoint = next(
         row for row in rir["entrypoints"] if row["id"] == "combat.cast"
     )
@@ -8360,13 +8386,18 @@ def _assert_high_damage_event_behavior(
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
         resolved_initialization_programs=rir["initialization_programs"],
+        language_bundle=ldb,
+        include_attempt_evidence=True,
     )
-    assert reference == {
+    assert {
+        key: reference[key] for key in ("refusal", "state_before", "state_after")
+    } == {
         "refusal": {
             "reason": audit["refusing_event"]["reason"],
             "operation": audit["refusing_event"]["operation"],
             "call_path": audit["refusing_event"]["call_path"],
             "call_site_identity": audit["refusing_event"]["call_site_identity"],
+            "instruction_index": audit["refusing_event"]["instruction_index"],
         },
         "state_before": audit["rollback"]["state_before"],
         "state_after": audit["rollback"]["state_after"],
@@ -8506,7 +8537,8 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
     rir["call_sites"] = model_lowering_module._resolved_call_sites(
         checked.kernel,
         rir["selected_semantics"],
-        lowering["composition_policy"],
+        language_bundle=checked.language_bundle,
+        declarations=rir[lowering["output_member"]],
     )
     alias = next(
         row
@@ -8556,6 +8588,7 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
         resolved_initialization_programs=rir["initialization_programs"],
+        language_bundle=checked.language_bundle,
     )
     assert {
         key: item
@@ -8600,7 +8633,8 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
     rir["call_sites"] = model_lowering_module._resolved_call_sites(
         checked.kernel,
         rir["selected_semantics"],
-        lowering["composition_policy"],
+        language_bundle=checked.language_bundle,
+        declarations=rir[lowering["output_member"]],
     )
     candidate = replace(checked, rir=rir)
 
@@ -8622,6 +8656,7 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
         resolved_initialization_programs=rir["initialization_programs"],
+        language_bundle=checked.language_bundle,
     )
     assert {
         key: value
@@ -8669,7 +8704,8 @@ def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_c
     rir["call_sites"] = model_lowering_module._resolved_call_sites(
         checked.kernel,
         rir["selected_semantics"],
-        lowering["composition_policy"],
+        language_bundle=checked.language_bundle,
+        declarations=rir[lowering["output_member"]],
     )
     candidate = replace(checked, rir=rir)
 
@@ -8691,6 +8727,7 @@ def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_c
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
         resolved_initialization_programs=rir["initialization_programs"],
+        language_bundle=checked.language_bundle,
     )
     assert {
         key: value
@@ -8796,6 +8833,7 @@ def test_ordered_writable_alias_write_is_visible_to_later_child_call(
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
         resolved_initialization_programs=rir["initialization_programs"],
+        language_bundle=checked.language_bundle,
     )
     assert {
         key: item
@@ -9643,7 +9681,23 @@ def test_periodic_terminal_audit_rejects_coherent_formula_evidence_mutation(
 def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
     tmp_path, run_cli, monkeypatch, outcome
 ):
-    specification, rir_path = _write_built_experiment(tmp_path, run_cli)
+    source_value = _rpg_model_source()
+    if outcome == "runtime":
+        base_damage = next(
+            row
+            for row in source_value["modules"][0]["symbols"]
+            if row["symbol"] == "base_damage"
+        )
+        base_damage["domain"]["maximum"] = (1 << 63) - 1
+        _widen_mitigated_damage_formula(
+            source_value, damage_before_defense_maximum=(1 << 63) - 1
+        )
+    specification, rir_path = _write_built_experiment(
+        tmp_path,
+        run_cli,
+        base_damage=(1 << 62) if outcome == "runtime" else 24,
+        source_value=source_value,
+    )
     specification_value = json.loads(specification.read_text(encoding="utf-8"))
     if outcome == "verdict":
         specification_value["metrics"][0]["target"] = {
@@ -9651,21 +9705,14 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
             "maximum": 1000,
         }
     elif outcome == "runtime":
-        admit_numeric = experiment_runtime_module._admit_numeric
-        numeric_admissions = 0
-
-        def overflow_at_runtime(value, numeric):
-            nonlocal numeric_admissions
-            numeric_admissions += 1
-            if numeric_admissions <= 6:
-                return admit_numeric(value, numeric)
-            raise OverflowError
-
-        monkeypatch.setattr(
-            experiment_runtime_module,
-            "_admit_numeric",
-            overflow_at_runtime,
+        # A real critical-damage overflow also passes independent audit replay;
+        # an injected arithmetic fault is not a valid published Runtime outcome.
+        threshold = next(
+            row
+            for row in specification_value["scenarios"][0]["assignments"]
+            if row["target"]["name"] == "critical_threshold"
         )
+        threshold["value"] = 100
     specification.write_text(json.dumps(specification_value), encoding="utf-8")
     out = tmp_path / "recovered-evaluation.json"
     key = "3" * 64
@@ -9725,7 +9772,7 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
         audit = _member(error["terminal_audit"], "runtime-terminal-audit")
         assert audit["refusing_event"]["entrypoint"]["id"] == "combat.cast"
         assert audit["refusing_event"]["entrypoint"]["identity"].startswith("sha256:")
-        assert audit["refusing_event"]["call_path"] == ("combat.cast/spend-resource")
+        assert audit["refusing_event"]["call_path"] == "combat.cast/apply-damage"
         assert audit["refusing_event"]["call_site_identity"].startswith("sha256:")
         assert audit["diagnostic"] == {
             "stage": "runtime",

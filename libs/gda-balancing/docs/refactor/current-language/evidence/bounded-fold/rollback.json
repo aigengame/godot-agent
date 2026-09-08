@@ -1,0 +1,61 @@
+{
+  "base": "970f0323e259769fdc45dc363a1baf28081a8ef6",
+  "scope": "Whole baseline code, authority and maintained Source/Experiment restored in a clean isolated checkout; fresh public CLI processes. No old/new compatibility mode.",
+  "environment": "Task-local store and public test anchor key. Prior inherited invalid anchor refused before Model execution; excluded from product evidence.",
+  "model_members": 8,
+  "execution_members": 6,
+  "commands": [
+    {
+      "name": "model-build",
+      "arguments": [
+        "model",
+        "build",
+        "$CHECKOUT/examples/schema2/roguelike-reward-build/model-source.json",
+        "--out",
+        "$OUT/build",
+        "--invocation-key",
+        "0101010101010101010101010101010101010101010101010101010101010101"
+      ],
+      "exit_code": 0,
+      "stderr_empty": true
+    },
+    {
+      "name": "experiment-check",
+      "arguments": [
+        "experiment",
+        "check",
+        "$CHECKOUT/examples/schema2/roguelike-reward-build/experiment.json",
+        "--rir",
+        "$RIR"
+      ],
+      "exit_code": 0,
+      "stderr_empty": true
+    },
+    {
+      "name": "experiment-run",
+      "arguments": [
+        "experiment",
+        "run",
+        "$CHECKOUT/examples/schema2/roguelike-reward-build/experiment.json",
+        "--rir",
+        "$RIR",
+        "--out",
+        "$OUT/run",
+        "--invocation-key",
+        "0202020202020202020202020202020202020202020202020202020202020202"
+      ],
+      "exit_code": 0,
+      "stderr_empty": true
+    }
+  ],
+  "inputs": {
+    "model-source.json": "1ee6d1368cb548d70a9c731f75ec2c2d1d42e48b583ed28a38830adfaf82a912",
+    "experiment.json": "6765a2ba70dfabc7469188f6bec645877a8e92b7c066c5190627c90abcaef3f8"
+  },
+  "receipt_source_sha256": "3bdbb9be3d1c5f30ba0febb042746e2e7b3a462b041ff14c2a90123dc5943eee",
+  "command_path_note": "Executed absolute checkout/output paths below are normalized to $CHECKOUT, $OUT and $RIR; command arguments and outcomes are otherwise unchanged.",
+  "limitations": [
+    "Fresh CLI processes only; no live service sessions existed to invalidate.",
+    "This drill proves restoration of the complete previous tree, not compatibility between old and new artifacts."
+  ]
+}

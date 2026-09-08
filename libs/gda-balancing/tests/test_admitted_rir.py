@@ -301,6 +301,44 @@ def test_coherently_reidentified_rir_tampering_is_refused(mutation, compiled, co
     assert error.value.diagnostic == "language.resolved_authority_mismatch"
 
 
+@pytest.mark.parametrize("copy", ("direct", "closure"))
+def test_rir_rejects_reinserted_operation_vector_references(copy, compiled, context):
+    candidate = deepcopy(compiled["structured-selection"]["rir-semantic-payload"])
+    selected = candidate["selected_semantics"]
+    direct = selected["operations"][0]
+    mirror = next(
+        definition
+        for closure in selected["package_semantic_closures"]
+        if closure["package"] == direct["package"]
+        for entry in closure["definitions"]
+        if entry["authority_path"] == "language.operations"
+        for definition in entry["definitions"]
+        if definition["id"] == direct["definition"]["id"]
+    )
+    assert "vectors" not in direct["definition"] and "vectors" not in mirror
+    original = next(
+        definition
+        for package in context.language_bundle["language"]["packages"]
+        if package["id"] == direct["package"]
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.operations"
+        for definition in closure["definitions"]
+        if definition["id"] == direct["definition"]["id"]
+    )
+    assert original["vectors"]
+    target = direct["definition"] if copy == "direct" else mirror
+    target["vectors"] = deepcopy(original["vectors"])
+    candidate.pop("content_identity")
+    candidate["semantic_identity"] = _lowering._rir_semantic_identity(
+        context.language_bundle, candidate
+    )
+    contract = select_artifact_contract(context.language_bundle, "rir-semantic-payload")
+    _reidentify(candidate, contract.definition["identity_domain"])
+    assert contract.verify(candidate) is (copy == "closure")
+    with pytest.raises(RirAdmissionError):
+        admit_rir(candidate, authority_context=context)
+
+
 def test_explicit_rir_file_ingress_retains_format_and_file_checks(
     tmp_path, compiled, context
 ):

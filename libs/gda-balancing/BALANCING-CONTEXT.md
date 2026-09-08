@@ -582,6 +582,15 @@ body whose nested calls use explicit port-to-operand bindings. An evaluator impl
 contract; its host-language function is not the authority (bADR-0012/0016).
 _Avoid_: function registration, evaluator hook, opcode documentation
 
+**Bounded pure fold**:
+A left-to-right traversal of an admitted bounded List using a statically referenced pure
+Operation and explicit initial accumulator. Each successful step supplies the next accumulator;
+the first refusal stops traversal. Bounds and complete pure-call dependencies are derived from
+the selected List and Operation contracts. It is neither an Event loop nor a host callback.
+[bADR-0029](docs/badr/0029-bounded-pure-fold-and-list-construction.md) accepts this design;
+#877 retains its implementation and independent-conformance gates.
+_Avoid_: arbitrary loop, effectful fold, implicit closure
+
 **Formal port**:
 A named, typed input declared once by an LDB `Operation specification`. The formal port is the sole
 authority for that Operation's reusable consumption interface. Model symbols, caller locals, and

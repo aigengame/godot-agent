@@ -1,0 +1,38 @@
+{
+  "runner_sha256": "9aed297d129fe684a5624244cb1e7d957ffdc409c518d7b323ce639c1fbc2fb7",
+  "original_production_files_verified": 124,
+  "raw_index_unique_contents_verified": 162,
+  "ruff_check": "passed",
+  "ruff_format_check": "passed",
+  "pyright": "0 errors, 0 warnings, 0 informations",
+  "portable_script_runs": [
+    {
+      "raw_receipt": "/private/tmp/gda-877-public-portable-measure-final/receipt.json",
+      "raw_receipt_sha256": "b70e3663cac55d3a2b329094ac4d44d1a9409b7f6df0fc428618d0eeb24fb902",
+      "capacity": 4,
+      "mode": "all-selected",
+      "build_exit": 0,
+      "check_exit": 0,
+      "run_exit_codes": [
+        0,
+        0
+      ],
+      "actual_node_steps": 52,
+      "all_member_bytes_equal": true
+    },
+    {
+      "raw_receipt": "/private/tmp/gda-877-public-portable-measure-boundary/receipt.json",
+      "raw_receipt_sha256": "8f57b59aeb1f37fa92c81689c25c960efb0180563865cc1ba1803ecff5621fb1",
+      "capacity": 23,
+      "mode": "all-selected",
+      "build_exit": 0,
+      "check_exit": 0,
+      "run_exit_codes": [
+        2
+      ],
+      "actual_node_steps": null,
+      "all_member_bytes_equal": null
+    }
+  ],
+  "scope": "These bounded runner checks are separate from the original nine-case measurement. N4 includes one fresh bare and one separately instrumented run; N23 performs the budget-boundary refusal. Final tracked script executed for both checks."
+}

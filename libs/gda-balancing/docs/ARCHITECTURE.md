@@ -52,7 +52,7 @@ module, or prototype may become an accidental second specification.
 | --- | --- | --- |
 | This `ARCHITECTURE.md` | Macro topology, subsystem responsibilities, cross-subsystem invariants, delivery order | Machine semantics, detailed decision rationale, acceptance status |
 | [`BALANCING-CONTEXT.md`](../BALANCING-CONTEXT.md) | Canonical domain terms and distinctions | Architecture planning or executable semantics |
-| [bADR-0012…0028](badr/) | Binding detailed decisions and their rationale, including scoped supersession | Consolidated system narrative or implementation status |
+| [bADR-0012…0029](badr/) | Binding detailed decisions and their rationale, including scoped supersession | Consolidated system narrative or implementation status |
 | [Product PRD #501](https://github.com/aigengame/godot-agent/issues/501) | `gda-balancing` product outcomes, milestones, and relationship to the `gda` family | Standard Schema 2.0 architecture details |
 | [PRD #534](https://github.com/aigengame/godot-agent/issues/534) | Product requirements, acceptance criteria, and live completion tracking | Macro architecture or machine semantics |
 | [`standard-schema-2.0/`](standard-schema-2.0/) | Acceptance artifacts, coverage matrices, and prototype evidence status | Language authority or proof by prose |
@@ -979,6 +979,17 @@ and internal generated roles do not appear on either entrypoint surface.
 
 `math.equation` is reserved for a possible future algebraic/continuous subset and is refused by the
 initial 2.0 LDB. It cannot be approximated through evaluator-specific behavior.
+
+The bounded collection design in [bADR-0029](badr/0029-bounded-pure-fold-and-list-construction.md)
+adds a pure fold over an explicitly bounded List and typed List append. Static pure Operation
+references reuse existing ports, results and closed-call ownership. Compiler composition derives
+the finite transitive work bound; Runtime charges actual attempts, while independent consumers
+reconstruct values and the first refusal. Pure steps do not create Event outcomes or another
+scheduler phase. Selected dependencies must include every called step and consumed law.
+[#877](https://github.com/aigengame/godot-agent/issues/877) retains the public, independent and
+resource validation gates; the [delivery record](refactor/current-language/BOUNDED-FOLD.md)
+does not claim that accepting the design completes its implementation. #878 subsequently tests
+extension under unchanged candidate core and host dispatch.
 
 ### 5.3 Static effects and runtime facts
 
@@ -2175,6 +2186,7 @@ Use this map when a macro statement needs its detailed decision or live acceptan
 | Area | Detailed decision | Acceptance/evidence surface |
 | --- | --- | --- |
 | Current language, pre-v1.0 retirement, mandatory execution-binding deletion | [bADR-0028](badr/0028-current-language-refactor-and-pre-1.0-retirement.md) | [Refactor plan](refactor/current-language/PLAN.md), linked deletion ACs and requirement matrix |
+| Bounded pure traversal and typed List construction | [bADR-0029](badr/0029-bounded-pure-fold-and-list-construction.md) | [#877 delivery record](refactor/current-language/BOUNDED-FOLD.md), permanent public/independent cases and #878 extension witness |
 | Authority domains and artifact ownership | [bADR-0012](badr/0012-language-and-artifact-authority-domains.md) | PRD #534 authority criteria |
 | Compiler stages, RIR, Debug Map, Model explanation, EIR | [bADR-0013](badr/0013-compiler-stages-and-semantic-equivalence-boundary.md) | Kernel/LDB, Formula/explanation, and independent-lowerer vectors |
 | Deterministic atomic runtime and profiles | [bADR-0014](badr/0014-deterministic-atomic-event-runtime.md) | Runtime, refusal, Replay, and fault vectors |

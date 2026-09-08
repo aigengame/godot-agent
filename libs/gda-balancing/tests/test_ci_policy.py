@@ -75,8 +75,10 @@ def test_shards_pairwise_partition_every_balancing_test_file():
         "authority",
         "language",
         "model",
+        "model-admission",
         "experiment",
         "experiment-continuation",
+        "bounded-fold",
         "composition",
         "interfaces",
     )

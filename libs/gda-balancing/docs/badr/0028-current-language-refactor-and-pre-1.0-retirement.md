@@ -116,6 +116,12 @@ this record retain their historical meaning; they do not restore the deleted mec
 
 ## Context and evidence
 
+[bADR-0029](0029-bounded-pure-fold-and-list-construction.md) refines S6's bounded
+collection promotion for #877: static pure Operation steps, typed List construction,
+transitive bounds, actual refusal-prefix charging and independently reconstructed
+iteration context. Its [delivery record](../refactor/current-language/BOUNDED-FOLD.md)
+keeps implementation acceptance open; accepted design is not completed conformance.
+
 The [S6a record](../refactor/current-language/PRIMITIVE-COMPOSITION.md) refines
 the accepted primitive-deletion decision after a real Model-admission
 counterexample. Replacing maximum with comparison/selection alone loses Formula

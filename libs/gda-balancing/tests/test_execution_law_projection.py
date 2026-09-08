@@ -220,10 +220,12 @@ def test_overlapping_closed_node_shapes_require_union_not_exclusive_union(compil
     assert canonical_bytes(constant)
 
 
-# These complementary maintained programs exercise typed values/guarded refusal
-# and transitive invocation/scheduling/cancellation. Each witness is selected by
-# a real Source build; unrelated Kernel nodes are deliberately not manufactured.
+# These maintained programs exercise typed values, guarded refusal, transitive
+# invocation/scheduling/cancellation, and bounded collection folds. Each witness
+# comes from a real Source build and selects its executable laws.
 _NODE_WITNESSES = (
+    ("bounded-fold", "fold"),
+    ("bounded-fold", "list-append"),
     ("structured-selection", "constant"),
     ("structured-selection", "draw"),
     ("structured-selection", "equal"),
@@ -249,6 +251,7 @@ _NODE_WITNESSES = (
 )
 
 _REASON_WITNESSES = (
+    ("bounded-fold", "structured.reason.list-capacity-exceeded"),
     ("structured-selection", "evaluation.reason.observation-unavailable"),
     ("structured-selection", "runtime.reason.capability-unsupported"),
     ("structured-selection", "runtime.reason.event-limit"),
@@ -277,6 +280,7 @@ _REASON_WITNESSES = (
 )
 
 _DIAGNOSTIC_WITNESSES = (
+    ("bounded-fold", "runtime.structured_list_capacity_exceeded"),
     ("structured-selection", "evaluation.observation_unavailable"),
     ("structured-selection", "language.structured_value_record_member_mismatch"),
     ("structured-selection", "language.structured_value_resource_exhausted"),

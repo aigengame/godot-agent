@@ -1,6 +1,7 @@
 """Public execution follows selected meaning across unrelated Build changes."""
 
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -33,8 +34,16 @@ def _members(receipt):
 
 def _changed_authorities(context, mutation):
     kernel, bundle = context.mutable_pair()
+    reference_change = mutation in {
+        "selected-vector-reference-order",
+        "selected-vector-reference-addition",
+    }
     namespace = (
-        "game.combat" if mutation == "unselected-package-semantics" else "core.quantity"
+        "game.generation"
+        if reference_change
+        else "game.combat"
+        if mutation == "unselected-package-semantics"
+        else "core.quantity"
     )
     package = next(
         row for row in bundle["language"]["packages"] if row["id"] == namespace
@@ -46,7 +55,29 @@ def _changed_authorities(context, mutation):
         if row["package_id"] == namespace
     )
     previous_vectors = canonical_bytes(vectors)
-    if mutation == "unselected-package-semantics":
+    if reference_change:
+        operation = next(
+            definition
+            for closure in package["semantic_closure"]
+            if closure["authority_path"] == "language.operations"
+            for definition in closure["definitions"]
+            if definition["id"] == "game.generation.select-reward-v1"
+        )
+        if mutation == "selected-vector-reference-order":
+            operation["vectors"].reverse()
+        else:
+            vector = deepcopy(
+                next(
+                    row
+                    for row in vectors["vector_definitions"]
+                    if row["id"] == "generation.select.effects"
+                )
+            )
+            vector["id"] = "generation.select.additional-effect-witness"
+            vectors["vectors"].append(vector["id"])
+            vectors["vector_definitions"].append(vector)
+            operation["vectors"].append(vector["id"])
+    elif mutation == "unselected-package-semantics":
         operations = next(
             row["definitions"]
             for row in package["semantic_closure"]
@@ -75,9 +106,11 @@ def _changed_authorities(context, mutation):
         vector["input"] = {"minimum": 2, "maximum": 2}
         assert vector["matched"] is False
     _bind_package_vector_set(package, vectors)
-    assert canonical_bytes(vectors) != previous_vectors
+    assert (canonical_bytes(vectors) != previous_vectors) == (
+        mutation != "selected-vector-reference-order"
+    )
     assert (package["semantic_identity"] != previous_semantic_identity) == (
-        mutation == "unselected-package-semantics"
+        mutation == "unselected-package-semantics" or reference_change
     )
     _reidentify_graph_root(bundle)
     changed = authority.admit_authority_context(kernel, bundle)
@@ -97,6 +130,8 @@ def _changed_authorities(context, mutation):
         "unselected-package-semantics",
         "selected-vector-order",
         "selected-vector-content",
+        "selected-vector-reference-order",
+        "selected-vector-reference-addition",
     ),
 )
 def test_public_execution_and_replay_ignore_unrelated_build_changes(
@@ -126,6 +161,10 @@ def test_public_execution_and_replay_ignore_unrelated_build_changes(
     original_build = _members(build(1))
     assert len(original_build) == 8
     original_rir = original_build["rir-semantic-payload"]
+    assert all(
+        "vectors" not in row["definition"]
+        for row in original_rir["selected_semantics"]["operations"]
+    )
     selected_packages = {
         row["id"] for row in original_build["package-lock"]["packages"]
     }

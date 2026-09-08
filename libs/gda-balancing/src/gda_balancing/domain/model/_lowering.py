@@ -12,6 +12,7 @@ from gda_balancing.domain.artifacts import (
 )
 from gda_balancing.domain.artifact_semantics import artifact_semantic_projection
 from gda_balancing.domain.authority.graph import NamespaceSelection
+from gda_balancing.domain.authority.admission import project_operation_composition
 from gda_balancing.domain.canonical import (
     JsonValue,
     canonical_bytes,
@@ -30,6 +31,7 @@ from gda_balancing.domain.authority.runtime_validation import (
 )
 from gda_balancing.domain.operation_program import (
     closed_operation_coordinates,
+    operation_body_instructions,
     project_operation_program,
     record_instruction_evaluation_sites,
 )
@@ -61,6 +63,7 @@ from gda_balancing.domain.model._resolution import (
 )
 from gda_balancing.domain.model._operation_call_domain_adapters import (
     build_operation_call_domain_input,
+    operation_snapshot_contracts,
     resolved_source_entrypoint_call,
     resolved_source_formula_call,
 )
@@ -2235,10 +2238,39 @@ def _specialize_operation_formula_slots(
             for left, right in zip(ordered, ordered[1:], strict=False)
         ):
             raise ValueError("Operation Formula slot placeholders overlap")
+        snapshot_sources = snapshot_sources_by_operation.get(coordinate, {})
+        # Formula invocation charges use ordinary copies. Give those copies fresh
+        # results so the specialized program obeys the same single-definition law
+        # as an authored Operation, without changing its value or step count.
+        occupied = {port["id"] for port in operation["inputs"]} | set(snapshot_sources)
+        occupied.update(
+            instruction["target"]
+            for instruction in operation_body_instructions(operation["body"])
+            if isinstance(instruction.get("target"), str)
+        )
+        occupied.update(
+            instruction["target"]
+            for _start, _length, compiled, _identity in ordered
+            for instruction in compiled
+            if isinstance(instruction.get("target"), str)
+        )
+        charge_index = 0
+        for _start, _length, compiled, _identity in ordered:
+            for instruction in compiled:
+                if instruction.get("node") != "copy" or instruction.get(
+                    "target"
+                ) != instruction.get("value"):
+                    continue
+                name = f"formula.invocation-charge.{charge_index}"
+                while name in occupied:
+                    charge_index += 1
+                    name = f"formula.invocation-charge.{charge_index}"
+                instruction["target"] = name
+                occupied.add(name)
+                charge_index += 1
         for start, length, compiled, _site_identity in reversed(ordered):
             operation["body"][start : start + length] = compiled
         extensions = cast(dict[str, Any], operation.setdefault("extensions", {}))
-        snapshot_sources = snapshot_sources_by_operation.get(coordinate, {})
         if snapshot_sources:
             extensions["standard.snapshot-operands"] = {
                 "kind": "pre-event-snapshot-symbols",
@@ -3523,203 +3555,103 @@ def _resolved_alias_rows(
     return rows
 
 
-def _composition_policy(lowering: dict[str, Any]) -> dict[str, Any]:
-    policy = lowering.get("composition_policy")
-    if not isinstance(policy, dict):
-        raise ValueError("the admitted lowering has no closed composition policy")
-    return policy
-
-
 def _resolved_call_sites(
     kernel: dict[str, Any],
     selected_semantics: dict[str, Any],
-    composition_policy: dict[str, Any],
+    *,
+    language_bundle: dict[str, Any],
+    declarations: list[dict[str, Any]],
 ) -> list[dict[str, JsonValue]]:
-    """Resolve LDB-authored nested calls without flattening caller/callee names."""
-    effect_policy = cast(dict[str, str], composition_policy["effects"])
-    refusal_policy = cast(dict[str, str], composition_policy["refusals"])
-    resource_policy = cast(dict[str, str], composition_policy["resources"])
+    """Project identities after the shared lexical composition judgment admits calls."""
     operation_rows = cast(list[dict[str, Any]], selected_semantics["operations"])
     operations = {
-        (row["package"], row["definition"]["id"]): row for row in operation_rows
+        (row["package"], row["definition"]["id"]): row["definition"]
+        for row in operation_rows
     }
+    if len(operations) != len(operation_rows):
+        raise ValueError("selected Operation coordinate is duplicated")
+    composition = project_operation_composition(
+        kernel,
+        language_bundle,
+        operations=operations,
+        snapshot_contracts=operation_snapshot_contracts(
+            kernel,
+            language_bundle,
+            operations,
+            {
+                (row["resolved_symbol"]["module"], row["resolved_symbol"]["name"]): row
+                for row in declarations
+            },
+        ),
+    )
+    if composition.diagnostics:
+        raise ValueError(
+            "selected Operation composition is not admitted: "
+            + ", ".join(composition.diagnostics)
+        )
+    runtime_program = kernel["meta_format"]["runtime_program"]
     domains = cast(
-        dict[str, str],
-        kernel["meta_format"]["runtime_program"]["invocation_contract"][
-            "identity_domains"
-        ],
+        dict[str, str], runtime_program["invocation_contract"]["identity_domains"]
     )
-    resolved_rows: list[dict[str, JsonValue]] = []
-    operation_definitions = {
-        coordinate: cast(dict[str, Any], row["definition"])
-        for coordinate, row in operations.items()
-    }
-    runtime_nodes = cast(
-        list[dict[str, Any]],
-        kernel["meta_format"]["runtime_program"]["nodes"],
-    )
-    operation_node_ids = {
-        cast(str, node["id"])
-        for node in runtime_nodes
-        if node["semantics"]["operator"] in {"invoke-operation", "schedule-operation"}
-    }
+    operation_node_ids = _operation_reference_node_ids(kernel)
     invocation_node_ids = {
-        cast(str, node["id"])
-        for node in runtime_nodes
+        node["id"]
+        for node in runtime_program["nodes"]
         if node["semantics"]["operator"] == "invoke-operation"
     }
-    closure_cache: dict[
-        tuple[str, str], tuple[frozenset[str], frozenset[str], int]
-    ] = {}
-
-    def operation_closure(
-        operation_row: dict[str, Any],
-        stack: tuple[tuple[str, str], ...],
-    ) -> tuple[frozenset[str], frozenset[str], int]:
-        parent_ref = _exact_operation_coordinate(operation_row)
-        parent_key = (parent_ref["package"], parent_ref["id"])
-        if parent_key in stack:
-            raise ValueError("Operation call graph contains a cycle")
-        if parent_key in closure_cache:
-            return closure_cache[parent_key]
-        operation = cast(dict[str, Any], operation_row["definition"])
-        projection = project_operation_program(
-            parent_key,
-            operation_definitions,
+    programs = {
+        coordinate: project_operation_program(
+            coordinate,
+            operations,
             operation_node_ids=operation_node_ids,
             invocation_node_ids=invocation_node_ids,
+            fold_input_bounds=composition.fold_input_bounds,
         )
-        parent_ports = {
-            row["id"]: row for row in cast(list[dict[str, Any]], operation["inputs"])
-        }
-        parent_outcomes = {
-            row["id"]
-            for row in cast(list[dict[str, Any]], operation.get("outcomes", []))
-        }
-        locals_: dict[str, dict[str, Any]] = {}
-        seen_sites: set[str] = set()
+        for coordinate in operations
+    }
+    resolved_rows: list[dict[str, JsonValue]] = []
+    for parent_key, operation in sorted(operations.items()):
+        parent_ref = {"package": parent_key[0], "id": parent_key[1]}
         for order, instruction in enumerate(
-            cast(list[dict[str, Any]], operation["body"])
+            operation_body_instructions(operation["body"])
         ):
-            if instruction["node"] != "invoke":
+            if instruction["node"] not in invocation_node_ids:
                 continue
             site = cast(str, instruction["site"])
-            if site in seen_sites:
-                raise ValueError("Operation repeats a nested call-site id")
-            seen_sites.add(site)
             child_ref = cast(dict[str, str], instruction["operation"])
-            child_row = operations.get((child_ref["package"], child_ref["id"]))
-            if child_row is None:
-                raise ValueError("nested Operation is not in the selected closure")
-            exact_child = _exact_operation_coordinate(child_row)
-            child = cast(dict[str, Any], child_row["definition"])
-            child_ports = cast(list[dict[str, Any]], child["inputs"])
-            authored_arguments = cast(list[dict[str, Any]], instruction["arguments"])
-            if [row["port"] for row in authored_arguments] != [
-                row["id"] for row in child_ports
-            ]:
-                raise ValueError("nested call does not exactly close formal ports")
+            child_key = (child_ref["package"], child_ref["id"])
+            child = operations[child_key]
             aliases: dict[str, list[tuple[str, str]]] = {}
             arguments: list[dict[str, JsonValue]] = []
-            for formal, authored in zip(child_ports, authored_arguments, strict=True):
-                formal_body = cast(
-                    JsonValue,
-                    {"operation": exact_child, "name": formal["id"]},
-                )
+            for formal, authored in zip(
+                child["inputs"], instruction["arguments"], strict=True
+            ):
                 operand = cast(dict[str, Any], authored["operand"])
-                if operand["kind"] == "port":
-                    parent_port = parent_ports.get(operand["port"])
-                    if (
-                        parent_port is None
-                        or not operation_value_contract_matches(parent_port, formal)
-                        or (
-                            formal["access"] in {"read-write", "write"}
-                            and parent_port["access"] not in {"read-write", "write"}
-                        )
-                    ):
-                        raise ValueError("nested call port operand is incompatible")
-                    operand_body = cast(
-                        dict[str, JsonValue],
-                        {
-                            "kind": "port",
-                            "parent_operation": parent_ref,
-                            "port": operand["port"],
-                        },
-                    )
-                    resolved_operand = cast(
-                        dict[str, JsonValue],
-                        {
-                            "kind": "port",
-                            "port": operand["port"],
-                            "identity": content_identity(
-                                domains["actual_operand"],
-                                cast(JsonValue, operand_body),
-                            ),
-                        },
-                    )
-                elif operand["kind"] == "local":
-                    local_contract = locals_.get(operand["local"])
-                    if (
-                        local_contract is None
-                        or formal["access"] != "read"
-                        or not operation_value_contract_matches(local_contract, formal)
-                    ):
-                        raise ValueError("nested call local operand is incompatible")
-                    operand_body = cast(
-                        dict[str, JsonValue],
-                        {
-                            "kind": "local",
-                            "parent_operation": parent_ref,
-                            "local": operand["local"],
-                        },
-                    )
-                    resolved_operand = cast(
-                        dict[str, JsonValue],
-                        {
-                            "kind": "local",
-                            "local": operand["local"],
-                            "identity": content_identity(
-                                domains["actual_operand"],
-                                cast(JsonValue, operand_body),
-                            ),
-                        },
-                    )
-                elif operand["kind"] == "literal":
-                    value = operand.get("literal")
+                kind = operand["kind"]
+                if kind in {"port", "local"}:
+                    resolved_operand = {"kind": kind, kind: operand[kind]}
+                elif kind == "literal":
+                    value = operand["literal"]
                     context_type = _literal_context_contract(
-                        value,
-                        formal,
-                        kernel,
-                        selected_semantics,
+                        value, formal, kernel, selected_semantics
                     )
-                    if formal["access"] != "read" or context_type is None:
-                        raise ValueError("nested call literal operand is incompatible")
-                    operand_body = cast(
-                        dict[str, JsonValue],
-                        {
-                            "kind": "literal",
-                            "parent_operation": parent_ref,
-                            "value": value,
-                            "context_type": context_type,
-                        },
-                    )
-                    resolved_operand = cast(
-                        dict[str, JsonValue],
-                        {
-                            "kind": "literal",
-                            "value": value,
-                            "context_type": context_type,
-                            "identity": content_identity(
-                                domains["actual_operand"],
-                                cast(JsonValue, operand_body),
-                            ),
-                        },
-                    )
+                    if context_type is None:
+                        raise ValueError(
+                            "admitted call literal has no selected context type"
+                        )
+                    resolved_operand = {
+                        "kind": "literal",
+                        "value": value,
+                        "context_type": context_type,
+                    }
                 else:
-                    raise ValueError("nested call operand kind is not admitted")
-                identity = cast(str, resolved_operand["identity"])
+                    raise ValueError("admitted call operand kind is unavailable")
+                operand_body = {**resolved_operand, "parent_operation": parent_ref}
+                identity = content_identity(
+                    domains["actual_operand"], cast(JsonValue, operand_body)
+                )
                 aliases.setdefault(identity, []).append(
-                    (cast(str, formal["id"]), cast(str, formal["access"]))
+                    (formal["id"], formal["access"])
                 )
                 arguments.append(
                     cast(
@@ -3727,145 +3659,83 @@ def _resolved_call_sites(
                         {
                             "port": {
                                 "identity": content_identity(
-                                    domains["formal_port"], formal_body
+                                    domains["formal_port"],
+                                    cast(
+                                        JsonValue,
+                                        {
+                                            "operation": child_ref,
+                                            "name": formal["id"],
+                                        },
+                                    ),
                                 ),
-                                "operation": exact_child,
+                                "operation": child_ref,
                                 "name": formal["id"],
                             },
-                            "operand": resolved_operand,
+                            "operand": {**resolved_operand, "identity": identity},
                             "access": formal["access"],
                         },
                     )
                 )
-            alias_rows = _resolved_alias_rows(child, aliases)
             authored_result = cast(dict[str, Any], instruction["result"])
-            if authored_result["kind"] == "discard":
-                if child["result"]["discardable"] is not True:
-                    raise ValueError("nested call discards a required result")
-            elif authored_result["kind"] == "local":
-                name = cast(str, authored_result["name"])
-                if name in locals_:
-                    raise ValueError("nested call repeats a caller local result")
-                locals_[name] = cast(dict[str, Any], child["result"])
-            elif authored_result["kind"] == "operation-result":
-                if not operation_value_contract_matches(
-                    cast(dict[str, Any], child["result"]),
-                    cast(dict[str, Any], operation["result"]),
-                ):
-                    raise ValueError("nested result is incompatible with caller result")
-            else:
-                raise ValueError("nested call result binding is not admitted")
-            result_body = cast(
-                JsonValue,
-                {
-                    "parent_operation": parent_ref,
-                    "site": site,
-                    "operation": exact_child,
-                    "binding": authored_result,
-                },
-            )
-            result = {
-                "identity": content_identity(domains["result"], result_body),
+            result_body = {
+                "parent_operation": parent_ref,
+                "site": site,
+                "operation": child_ref,
                 "binding": authored_result,
             }
-            child_outcome_ids = [
-                row["id"] for row in cast(list[dict[str, Any]], child["outcomes"])
+            outcomes = [
+                {
+                    "identity": content_identity(
+                        domains["outcome"],
+                        cast(
+                            JsonValue,
+                            {
+                                "parent_operation": parent_ref,
+                                "site": site,
+                                "operation": child_ref,
+                                "outcome": mapping["outcome"],
+                                "action": mapping["action"],
+                            },
+                        ),
+                    ),
+                    "outcome": mapping["outcome"],
+                    "action": mapping["action"],
+                }
+                for mapping in instruction["outcomes"]
             ]
-            authored_outcomes = cast(list[dict[str, Any]], instruction["outcomes"])
-            if [row["outcome"] for row in authored_outcomes] != child_outcome_ids:
-                raise ValueError("nested outcome mapping is not exhaustive")
-            outcomes: list[dict[str, JsonValue]] = []
-            for mapping in authored_outcomes:
-                action = cast(dict[str, Any], mapping["action"])
-                if (
-                    action["kind"] == "propagate"
-                    and action.get("outcome") not in parent_outcomes
-                ):
-                    raise ValueError("nested outcome propagates an unknown outcome")
-                outcome_body = cast(
-                    JsonValue,
-                    {
-                        "parent_operation": parent_ref,
-                        "site": site,
-                        "operation": exact_child,
-                        "outcome": mapping["outcome"],
-                        "action": action,
-                    },
-                )
-                outcomes.append(
-                    {
-                        "identity": content_identity(domains["outcome"], outcome_body),
-                        "outcome": mapping["outcome"],
-                        "action": action,
-                    }
-                )
-            child_effects, child_refusals, child_charge = operation_closure(
-                child_row, (*stack, parent_key)
-            )
-            if effect_policy["containment"] == (
-                "callee-subset-of-caller-declaration"
-            ) and not child_effects <= set(cast(list[str], operation["effects"])):
-                raise ValueError(
-                    "nested Operation effect closure exceeds caller declaration"
-                )
-            if refusal_policy["containment"] == (
-                "callee-subset-of-caller-declaration"
-            ) and not child_refusals <= set(cast(list[str], operation["refusals"])):
-                raise ValueError(
-                    "nested Operation refusal closure exceeds caller declaration"
-                )
+            closure = programs[child_key]
             call_body = cast(
                 dict[str, JsonValue],
                 {
                     "parent_operation": parent_ref,
                     "site": site,
                     "order": order,
-                    "operation": exact_child,
+                    "operation": child_ref,
                     "arguments": arguments,
-                    "result": result,
+                    "result": {
+                        "identity": content_identity(
+                            domains["result"], cast(JsonValue, result_body)
+                        ),
+                        "binding": authored_result,
+                    },
                     "outcomes": outcomes,
-                    "aliases": alias_rows,
+                    "aliases": _resolved_alias_rows(child, aliases),
                     "closure": {
-                        "effects": sorted(child_effects),
-                        "refusals": sorted(child_refusals),
-                        "resource_charge": 1 + child_charge,
+                        "effects": sorted(closure.effects),
+                        "refusals": sorted(closure.refusals),
+                        "resource_charge": 1 + closure.resource_charge,
                     },
                 },
             )
             resolved_rows.append(
                 {
                     **call_body,
-                    "identity": content_identity(domains["call_site"], call_body),
+                    "identity": content_identity(
+                        domains["call_site"], cast(JsonValue, call_body)
+                    ),
                 }
             )
-        if (
-            resource_policy["containment"] == "transitive-charge-within-caller-bound"
-            and projection.resource_charge > operation["resource_bounds"]["max_steps"]
-        ):
-            raise ValueError("Operation transitive resource charge exceeds its bound")
-        closure_cache[parent_key] = (
-            projection.effects,
-            projection.refusals,
-            projection.resource_charge,
-        )
-        return closure_cache[parent_key]
-
-    for operation_row in sorted(
-        operation_rows,
-        key=lambda row: (
-            cast(str, row["package"]),
-            cast(str, row["definition"]["id"]),
-        ),
-    ):
-        operation_closure(operation_row, ())
-    return sorted(
-        resolved_rows,
-        key=lambda row: (
-            cast(dict[str, str], row["parent_operation"])["package"],
-            cast(dict[str, str], row["parent_operation"])["id"],
-            cast(int, row["order"]),
-        ),
-    )
+    return resolved_rows
 
 
 def _namespace_packages(
@@ -4346,17 +4216,21 @@ def _runtime_projection(
     closure_values: dict[tuple[str, str], list[Any]] = {}
 
     def projected_runtime_value(collection: dict[str, Any], value: Any) -> Any:
-        excluded = collection.get("excluded_extension_members", [])
-        if not excluded:
+        excluded_members = collection.get("excluded_members", [])
+        excluded_extensions = collection.get("excluded_extension_members", [])
+        if not excluded_members and not excluded_extensions:
             return value
-        if not isinstance(value, dict) or not isinstance(value.get("extensions"), dict):
-            return value
+        if not isinstance(value, dict):
+            raise ValueError("runtime member exclusion requires a definition")
         projected_value = deepcopy(value)
-        extensions = cast(dict[str, Any], projected_value["extensions"])
-        for member in cast(list[str], excluded):
-            extensions.pop(member, None)
-        if not extensions:
-            projected_value.pop("extensions")
+        for member in cast(list[str], excluded_members):
+            projected_value.pop(member, None)
+        extensions = projected_value.get("extensions")
+        if isinstance(extensions, dict):
+            for member in cast(list[str], excluded_extensions):
+                extensions.pop(member, None)
+            if not extensions:
+                projected_value.pop("extensions")
         return projected_value
 
     for collection in cast(list[dict[str, Any]], profile["collections"]):

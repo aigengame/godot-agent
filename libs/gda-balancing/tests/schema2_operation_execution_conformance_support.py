@@ -75,8 +75,15 @@ def independent_operation_execution_projection(
         row["id"] for row in operation["inputs"] if row["access"] == "read-write"
     ]
     if "refusal" in event:
+        declared_reasons = [
+            reason["id"]
+            for reason in ldb["language"]["reasons"]
+            if reason.get("diagnostic") == event["refusal"]["reason"]
+            and reason["id"] in operation["refusals"]
+        ]
+        assert len(declared_reasons) == 1
         observation = {
-            "completion": {"kind": "refusal", "reason": event["refusal"]["reason"]},
+            "completion": {"kind": "refusal", "reason": declared_reasons[0]},
             "result": {"kind": "not-produced"},
             "rng_draws": [],
             "state_after": [

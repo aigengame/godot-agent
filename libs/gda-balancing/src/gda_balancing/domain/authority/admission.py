@@ -9,6 +9,8 @@ import json
 
 import jsonschema
 from dataclasses import dataclass
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any, cast
 
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
@@ -50,7 +52,12 @@ from gda_balancing.domain.authority.vector_validation import (
     _rule_is_closed,
     _vector_header_is_closed,
 )
-from gda_balancing.domain.operation_program import project_operation_program
+from gda_balancing.domain.operation_program import (
+    FoldSite,
+    OperationCoordinate,
+    operation_body_instructions,
+    project_operation_program,
+)
 
 SCHEMA2_REFUSAL_STAGES = (
     "ingress",
@@ -72,7 +79,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:40b08f5a4e519f11d589781e62cbf0ec4f10f69a608d71649e353609332a02b0"
+    "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -2013,7 +2020,7 @@ def _runtime_projection_is_closed(
         or contract.get("collection")
         != {
             "required_members": ["id", "source", "output_member", "output_shape"],
-            "optional_members": ["excluded_extension_members"],
+            "optional_members": ["excluded_extension_members", "excluded_members"],
             "namespace_source_members": ["kind", "member", "package_path"],
             "closure_source_members": ["kind", "authority_path"],
         }
@@ -2196,8 +2203,11 @@ def _runtime_projection_is_closed(
             "output_member",
             "output_shape",
         }
-        if "excluded_extension_members" in collection:
-            expected_collection_members.add("excluded_extension_members")
+        expected_collection_members.update(
+            member
+            for member in ("excluded_extension_members", "excluded_members")
+            if member in collection
+        )
         if (
             set(collection) != expected_collection_members
             or not isinstance(collection.get("id"), str)
@@ -2215,18 +2225,18 @@ def _runtime_projection_is_closed(
                     or not collection["output_member"]
                 )
             )
-            or (
-                "excluded_extension_members" in collection
+            or any(
+                member in collection
                 and (
-                    not isinstance(collection["excluded_extension_members"], list)
-                    or not collection["excluded_extension_members"]
+                    not isinstance(collection[member], list)
+                    or not collection[member]
                     or not all(
-                        isinstance(member, str) and member
-                        for member in collection["excluded_extension_members"]
+                        isinstance(excluded, str) and excluded
+                        for excluded in collection[member]
                     )
-                    or len(collection["excluded_extension_members"])
-                    != len(set(collection["excluded_extension_members"]))
+                    or len(collection[member]) != len(set(collection[member]))
                 )
+                for member in ("excluded_extension_members", "excluded_members")
             )
         ):
             return False
@@ -2454,6 +2464,38 @@ def _runtime_projection_is_closed(
         if source_kind is None or source_kind != target_kind:
             return False
     for collection in collections:
+        representation, payload = collection_shapes[collection["id"]]
+        excluded_members = set(collection.get("excluded_members", []))
+        if excluded_members:
+            field_member = "properties" if representation == "schema" else "field_types"
+            required_member = (
+                "required" if representation == "schema" else "required_members"
+            )
+            fields = payload.get(field_member)
+            required = payload.get(required_member)
+            if (
+                not isinstance(fields, dict)
+                or not isinstance(required, list)
+                or not excluded_members <= set(fields)
+            ):
+                return False
+            payload = {
+                **payload,
+                field_member: {
+                    name: value
+                    for name, value in fields.items()
+                    if name not in excluded_members
+                },
+                required_member: [
+                    name for name in required if name not in excluded_members
+                ],
+            }
+            if "optional_members" in payload:
+                payload["optional_members"] = [
+                    name
+                    for name in payload["optional_members"]
+                    if name not in excluded_members
+                ]
         output_member = collection["output_member"]
         if output_member is None:
             continue
@@ -2464,7 +2506,6 @@ def _runtime_projection_is_closed(
             or not isinstance(target.get("items"), dict)
         ):
             return False
-        representation, payload = collection_shapes[collection["id"]]
         shape = collection["output_shape"]
         if representation == "schema":
             if shape != "as-is" or not _schema_items_match(payload, target["items"]):
@@ -3488,9 +3529,42 @@ def _operation_aliases_are_admitted(
     )
 
 
-def _operation_composition_diagnostic_subjects(
+@dataclass(frozen=True)
+class OperationCompositionProjection:
+    """One lexical admission judgment and its derived finite fold input bounds."""
+
+    diagnostics: tuple[str, ...]
+    fold_input_bounds: Mapping[FoldSite, int]
+
+
+def project_operation_composition(
     kernel: dict[str, Any],
     language_bundle: dict[str, Any],
+    *,
+    operations: Mapping[OperationCoordinate, dict[str, Any]] | None = None,
+    snapshot_contracts: Mapping[OperationCoordinate, Mapping[str, dict[str, Any]]]
+    | None = None,
+) -> OperationCompositionProjection:
+    """Admit current Operation composition and retain its type-derived fold bounds."""
+    bounds: dict[FoldSite, int] = {}
+    diagnostics = _derive_operation_composition(
+        kernel, language_bundle, bounds, operations, snapshot_contracts or {}
+    )
+    return OperationCompositionProjection(diagnostics, MappingProxyType(bounds))
+
+
+def _operation_composition_diagnostic_subjects(
+    kernel: dict[str, Any], language_bundle: dict[str, Any]
+) -> tuple[str, ...]:
+    return project_operation_composition(kernel, language_bundle).diagnostics
+
+
+def _derive_operation_composition(
+    kernel: dict[str, Any],
+    language_bundle: dict[str, Any],
+    fold_input_bounds: dict[FoldSite, int],
+    selected_operations: Mapping[OperationCoordinate, dict[str, Any]] | None,
+    snapshot_contracts: Mapping[OperationCoordinate, Mapping[str, dict[str, Any]]],
 ) -> tuple[str, ...]:
     language = language_bundle.get("language")
     packages = getattr(language_bundle, "package_releases", None)
@@ -3556,6 +3630,17 @@ def _operation_composition_diagnostic_subjects(
                 if key in operations:
                     return (f"language.operations.{package_id}",)
                 operations[key] = (f"{package_id}", operation)
+    if selected_operations is not None:
+        namespaces = {package["id"] for package in packages}
+        if any(
+            coordinate[0] not in namespaces or definition.get("id") != coordinate[1]
+            for coordinate, definition in selected_operations.items()
+        ):
+            return ("language.operations",)
+        operations = {
+            coordinate: (coordinate[0], definition)
+            for coordinate, definition in selected_operations.items()
+        }
     if not all(
         _operation_alias_policy_is_closed(operation)
         for _owner, operation in operations.values()
@@ -3564,7 +3649,8 @@ def _operation_composition_diagnostic_subjects(
     operation_node_ids = {
         node_id
         for node_id, node in node_definitions.items()
-        if node["semantics"]["operator"] in {"invoke-operation", "schedule-operation"}
+        if node["semantics"]["operator"]
+        in {"invoke-operation", "schedule-operation", "bounded-pure-fold"}
     }
     invocation_node_ids = {
         node_id
@@ -3589,6 +3675,16 @@ def _operation_composition_diagnostic_subjects(
         if key in cache:
             return cache[key]
         owner, operation = operations[key]
+        pure = operation.get("operation_kind") == "pure-expression"
+        if pure and (
+            operation.get("purity") != "pure"
+            or operation.get("effects") != []
+            or any(port.get("access") != "read" for port in operation.get("inputs", []))
+            or any(member in operation for member in ("outcomes", "default_outcome"))
+            or "standard.snapshot-operands" in operation.get("extensions", {})
+        ):
+            refuse(owner, operation, "pure", "effects")
+            return None
         if not _operation_result_source_shape_is_closed(
             operation, result_source_shapes
         ):
@@ -3616,10 +3712,59 @@ def _operation_composition_diagnostic_subjects(
         lexical_environment: dict[str, tuple[dict[str, Any], ...]] = {
             name: (contract,) for name, contract in parent_ports.items()
         }
+        snapshot_extension = operation.get("extensions", {}).get(
+            "standard.snapshot-operands"
+        )
+        if snapshot_extension is not None:
+            rows = (
+                snapshot_extension.get("operands")
+                if isinstance(snapshot_extension, dict)
+                else None
+            )
+            contracts = snapshot_contracts.get(key, {})
+            names = (
+                [row.get("name") for row in rows if isinstance(row, dict)]
+                if isinstance(rows, list)
+                else []
+            )
+            if (
+                pure
+                or not isinstance(rows, list)
+                or len(names) != len(rows)
+                or any(
+                    not isinstance(name, str) or not name or name in lexical_environment
+                    for name in names
+                )
+                or len(names) != len(set(names))
+                or set(names) != set(contracts)
+            ):
+                refuse(owner, operation, "snapshot", "arguments")
+                return None
+            lexical_environment.update(
+                {name: (contracts[name],) for name in cast(list[str], names)}
+            )
+            locals_.update(
+                {name: (contracts[name],) for name in cast(list[str], names)}
+            )
         local_producers: dict[str, int] = {}
         effects = set(cast(list[str], operation["effects"]))
         refusals = set(cast(list[str], operation["refusals"]))
         seen_sites: set[str] = set()
+        for body_instruction in operation_body_instructions(operation["body"]):
+            body_node = node_definitions.get(body_instruction.get("node"))
+            if not isinstance(body_node, dict) or body_node["semantics"][
+                "operator"
+            ] not in {"invoke-operation", "bounded-pure-fold"}:
+                continue
+            body_site = body_instruction.get("site")
+            if (
+                not isinstance(body_site, str)
+                or not body_site
+                or body_site in seen_sites
+            ):
+                refuse(owner, operation, str(body_site), "site")
+                return None
+            seen_sites.add(body_site)
         operation_result_sites: set[str] = set()
         source_producer_reached = False
 
@@ -3675,7 +3820,16 @@ def _operation_composition_diagnostic_subjects(
                 refuse(owner, operation, str(instruction_index), "members")
                 return None
             target = instruction.get("target")
-            if instruction.get("node") != "invoke":
+            operator = node["semantics"]["operator"]
+            is_fold = operator == "bounded-pure-fold"
+            if (
+                pure
+                and node["family"] != "expression"
+                and operator not in {"invoke-operation", "bounded-pure-fold"}
+            ):
+                refuse(owner, operation, str(instruction_index), "purity")
+                return None
+            if operator not in {"invoke-operation", "bounded-pure-fold"}:
                 if (
                     source_kind in {"local", "operation-result"}
                     and not source_producer_reached
@@ -3961,6 +4115,11 @@ def _operation_composition_diagnostic_subjects(
                     try:
                         guard_closure = close(guard_key, (*stack, key))
                     finally:
+                        for fold_site in tuple(fold_input_bounds):
+                            if fold_site[0] == guard_key:
+                                fold_input_bounds[(key, fold_site[1])] = (
+                                    fold_input_bounds.pop(fold_site)
+                                )
                         guard_body_keys.discard(guard_key)
                         operations.pop(guard_key, None)
                         cache.pop(guard_key, None)
@@ -4077,6 +4236,47 @@ def _operation_composition_diagnostic_subjects(
                             for member in cast(list[str], typing["members"])
                         ]
                         result_candidates = compatible_candidates(literal_candidates)
+                    if operator == "bounded-list-append":
+                        value_name, item_name = (
+                            instruction.get("value"),
+                            instruction.get("item"),
+                        )
+                        value_candidates = (
+                            lexical_environment.get(value_name, ())
+                            if isinstance(value_name, str)
+                            else ()
+                        )
+                        item_candidates = (
+                            lexical_environment.get(item_name, ())
+                            if isinstance(item_name, str)
+                            else ()
+                        )
+                        result_candidates = tuple(
+                            candidate
+                            for candidate in value_candidates
+                            if (
+                                list_contract := value_contracts.declared_list_contract(
+                                    candidate
+                                )
+                            )
+                            is not None
+                            and len(
+                                [
+                                    item
+                                    for item in item_candidates
+                                    if value_contracts.matches(item, list_contract[0])
+                                ]
+                            )
+                            == 1
+                        )
+                        signal = "structured-list-capacity-exceeded"
+                        if (
+                            signal not in node["refusals"]
+                            or len(reasons_by_signal.get(signal, [])) != 1
+                            or reasons_by_signal[signal][0] not in refusals
+                        ):
+                            refuse(owner, operation, str(instruction_index), "refusals")
+                            return None
                     if not result_candidates:
                         refuse(owner, operation, str(instruction_index), "typing")
                         return None
@@ -4087,12 +4287,18 @@ def _operation_composition_diagnostic_subjects(
                         source_producer_reached = True
                 continue
             site = instruction.get("site")
-            if not isinstance(site, str) or not site or site in seen_sites:
+            if not isinstance(site, str) or not site:
                 refuse(owner, operation, str(site), "site")
                 return None
-            seen_sites.add(site)
             child_ref = instruction.get("operation")
-            if not isinstance(child_ref, dict):
+            if (
+                not isinstance(child_ref, dict)
+                or set(child_ref) != {"package", "id"}
+                or not all(
+                    isinstance(child_ref.get(member), str) and child_ref[member]
+                    for member in ("package", "id")
+                )
+            ):
                 refuse(owner, operation, site, "operation")
                 return None
             child_key = (
@@ -4104,10 +4310,81 @@ def _operation_composition_diagnostic_subjects(
                 return None
             _child_owner, child = operations[cast(tuple[str, str], child_key)]
             child_ports = cast(list[dict[str, Any]], child["inputs"])
+            if (pure or is_fold) and (
+                child.get("operation_kind") != "pure-expression"
+                or child.get("purity") != "pure"
+                or child.get("effects") != []
+            ):
+                refuse(owner, operation, site, "purity")
+                return None
+            if is_fold:
+                accumulator_port = instruction.get("accumulator_port")
+                item_port = instruction.get("item_port")
+                formals = {port["id"]: port for port in child_ports}
+                value_name, initial_name = (
+                    instruction.get("value"),
+                    instruction.get("initial"),
+                )
+                value_candidates = (
+                    lexical_environment.get(value_name, ())
+                    if isinstance(value_name, str)
+                    else ()
+                )
+                initial_candidates = (
+                    lexical_environment.get(initial_name, ())
+                    if isinstance(initial_name, str)
+                    else ()
+                )
+                lists = [
+                    value_contracts.declared_list_contract(candidate)
+                    for candidate in value_candidates
+                ]
+                if (
+                    not isinstance(accumulator_port, str)
+                    or not isinstance(item_port, str)
+                    or accumulator_port == item_port
+                    or accumulator_port not in formals
+                    or item_port not in formals
+                    or any(port.get("access") != "read" for port in child_ports)
+                    or len(lists) != 1
+                    or lists[0] is None
+                    or not value_contracts.matches(lists[0][0], formals[item_port])
+                    or len(
+                        [
+                            candidate
+                            for candidate in initial_candidates
+                            if value_contracts.matches(
+                                candidate, formals[accumulator_port]
+                            )
+                        ]
+                    )
+                    != 1
+                    or not value_contracts.matches(
+                        child["result"], formals[accumulator_port]
+                    )
+                    or not isinstance(target, str)
+                    or not target
+                    or target in lexical_environment
+                ):
+                    refuse(owner, operation, site, "typing")
+                    return None
+                fold_input_bounds[(key, site)] = lists[0][1]
+                child_ports = [
+                    port
+                    for port in child_ports
+                    if port["id"] not in {accumulator_port, item_port}
+                ]
             arguments = instruction.get("arguments")
-            if not isinstance(arguments, list) or [
-                item.get("port") for item in arguments
-            ] != [item["id"] for item in child_ports]:
+            if (
+                not isinstance(arguments, list)
+                or any(
+                    not isinstance(argument, dict)
+                    or set(argument) != {"port", "operand"}
+                    for argument in arguments
+                )
+                or [item.get("port") for item in arguments]
+                != [item["id"] for item in child_ports]
+            ):
                 refuse(owner, operation, site, "arguments")
                 return None
             aliases: dict[str, list[tuple[str, str]]] = {}
@@ -4117,6 +4394,12 @@ def _operation_composition_diagnostic_subjects(
                     refuse(owner, operation, site, "arguments")
                     return None
                 kind = operand.get("kind")
+                if is_fold and (
+                    kind not in {"port", "local", "literal"}
+                    or set(operand) != {"kind", kind}
+                ):
+                    refuse(owner, operation, site, "arguments")
+                    return None
                 if kind == "port":
                     operand_port = operand.get("port")
                     actual = (
@@ -4174,6 +4457,21 @@ def _operation_composition_diagnostic_subjects(
             if not _operation_aliases_are_admitted(child, aliases):
                 refuse(owner, operation, site, "aliases")
                 return None
+            if is_fold:
+                child_closure = close(cast(tuple[str, str], child_key), (*stack, key))
+                if child_closure is None:
+                    return None
+                child_effects, child_refusals, _child_charge = child_closure
+                if child_effects or not child_refusals <= refusals:
+                    refuse(owner, operation, site, "refusals")
+                    return None
+                assert isinstance(target, str)
+                locals_[target] = (child["result"],)
+                lexical_environment[target] = (child["result"],)
+                local_producers[target] = 1
+                if source_kind == "local" and source.get("name") == target:
+                    source_producer_reached = True
+                continue
             result = instruction.get("result")
             if not isinstance(result, dict):
                 refuse(owner, operation, site, "result")
@@ -4341,6 +4639,7 @@ def _operation_composition_diagnostic_subjects(
                 },
                 operation_node_ids=operation_node_ids,
                 invocation_node_ids=invocation_node_ids,
+                fold_input_bounds=fold_input_bounds,
             )
         except (KeyError, TypeError, ValueError):
             refuse(owner, operation, "closure", "operation")

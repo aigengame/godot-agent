@@ -49,7 +49,6 @@ from gda_balancing.domain.model._lowering import (
     _EntrypointBindingError,
     _FormulaResolutionError,
     _RuntimeProjectionResourceExhausted,
-    _composition_policy,
     _compile_initialization_programs,
     _specialize_operation_formula_slots,
     _formula_failure_pointer,
@@ -341,7 +340,8 @@ def _check_model_source_bytes(
         call_sites = _resolved_call_sites(
             kernel,
             selected_semantics,
-            _composition_policy(admitted_lowering),
+            language_bundle=ldb,
+            declarations=cast(list[dict[str, Any]], declarations),
         )
         selected_semantics = close_execution_dependencies(
             kernel,

@@ -17,6 +17,7 @@ from gda_balancing.domain.operation_program import OperationCoordinate
 
 OperationSlotCoordinate = tuple[str, str, str]
 LiteralContractResolver = Callable[[Any, dict[str, Any]], dict[str, Any] | None]
+IterationContractResolver = Callable[[dict[str, Any]], dict[str, Any]]
 
 
 class ConcreteOperationCallDomainError(ValueError):
@@ -67,6 +68,7 @@ class ConcreteOperationCallDomainInput:
     conversion_policy: dict[str, Any]
     boolean_contract: dict[str, Any]
     literal_contract: LiteralContractResolver
+    iteration_contract: IterationContractResolver
     snapshot_contracts: dict[OperationCoordinate, dict[str, dict[str, Any]]]
     snapshot_operand_names: dict[OperationCoordinate, frozenset[str]]
 
@@ -292,6 +294,16 @@ def project_concrete_operation_call_domains(
                 }
                 child_arguments: dict[str, dict[str, Any]] = {}
                 child_known_arguments: dict[str, Any] = {}
+                is_fold = node == "fold"
+                if is_fold:
+                    # Admission already relates these formals to the selected
+                    # List element and initial accumulator. Later iterations
+                    # cannot inherit the initial value's narrower domain.
+                    for member in ("accumulator_port", "item_port"):
+                        port_id = cast(str, instruction[member])
+                        child_arguments[port_id] = projection_input.iteration_contract(
+                            child_ports[port_id]
+                        )
                 for authored in cast(list[dict[str, Any]], instruction["arguments"]):
                     port_id = cast(str, authored["port"])
                     formal = child_ports[port_id]
@@ -337,6 +349,10 @@ def project_concrete_operation_call_domains(
                     result_by_site[site] = child_result
                 if isinstance(result, dict) and result.get("kind") == "local":
                     local_contracts[cast(str, result["name"])] = child_result
+                if is_fold:
+                    local_contracts[cast(str, instruction["target"])] = child_arguments[
+                        cast(str, instruction["accumulator_port"])
+                    ]
 
         body = operation.get("body")
         if not isinstance(body, list) or not all(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any, cast
 from gda_balancing.domain.artifact_set import (
     EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
@@ -19,6 +20,7 @@ from gda_balancing.domain.operation_program import (
     OperationCoordinate,
     instruction_evaluation_sites,
     operation_coordinate,
+    operation_body_instructions,
     selected_operation_index,
 )
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
@@ -26,8 +28,11 @@ from gda_balancing.domain.experiment import (
     CheckedExperiment,
 )
 from gda_balancing.domain.experiment_artifact_replay import (
+    ReplayEventEvidence,
     ReplayInitializationProgramFault as _InitializationProgramFault,
-    attempted_operation_charge as _attempted_operation_charge,
+    replay_refusing_operation as _replay_refusing_operation,
+    execution_path_segment as _execution_path_segment,
+    operation_at_execution_path as _operation_at_execution_path,
     evaluate_initialization_programs as _evaluate_initialization_programs,
     execute_value_instruction as _execute_value_instruction,
     replay_event_evidence as _replay_event_evidence,
@@ -57,7 +62,6 @@ from gda_balancing.domain.runtime.projections import (
     scheduler_contract as _scheduler_contract,
     unsupported_evaluator_requirement as _unsupported_evaluator_requirement,
 )
-from gda_balancing.domain.program_reachability import reachable_formula_programs
 
 _INVALID_FORMULA_EVIDENCE = object()
 _EXPERIMENT_RUNTIME_REFUSAL_NAMES = frozenset(
@@ -188,6 +192,7 @@ def _evaluate_formula_evidence_result(
 
 
 def _event_operation_executions(
+    checked: CheckedExperiment,
     event: dict[str, Any],
     root_reference: dict[str, Any] | None,
 ) -> dict[str, OperationCoordinate] | None:
@@ -198,11 +203,13 @@ def _event_operation_executions(
             return None
         entrypoint = event.get("entrypoint")
         root_path = (
-            cast(str, entrypoint["id"])
+            _execution_path_segment(cast(str, entrypoint["id"]))
             if isinstance(entrypoint, dict)
             else f"scheduled:{event.get('schedule_call_site_identity')}"
         )
         executions[root_path] = operation_coordinate(root_reference)
+    else:
+        return executions
     for call in cast(list[dict[str, Any]], event.get("calls", [])):
         call_operation = call.get("operation")
         call_path = call.get("site")
@@ -210,9 +217,26 @@ def _event_operation_executions(
             not isinstance(call_path, str)
             or not isinstance(call_operation, dict)
             or call_path in executions
+            or _operation_at_execution_path(
+                checked, root_reference, root_path, call_path
+            )
+            != operation_coordinate(call_operation)
         ):
             return None
         executions[call_path] = operation_coordinate(call_operation)
+    # Pure invocations have no Event outcome rows. Their selected Formula sites
+    # still have graph-owned frames; the later value replay verifies that each
+    # claimed dynamic frame actually executed with these exact inputs/results.
+    for evaluation in cast(list[dict[str, Any]], event.get("formula_evaluations", [])):
+        path = evaluation.get("call_path")
+        if not isinstance(path, str):
+            return None
+        coordinate = _operation_at_execution_path(
+            checked, root_reference, root_path, path
+        )
+        if coordinate is None:
+            return None
+        executions[path] = coordinate
     return executions
 
 
@@ -236,7 +260,7 @@ def _trace_formula_evaluations_are_authoritative(
             if isinstance(entrypoint, dict)
             else scheduled_operations.get(cast(str, event.get("event_id")))
         )
-        executions = _event_operation_executions(event, root_reference)
+        executions = _event_operation_executions(checked, event, root_reference)
         if executions is None or not _event_formula_evaluations_are_authoritative(
             checked, event, executions
         ):
@@ -381,11 +405,37 @@ def _expected_root_event_catalog(
     return expected
 
 
+def _scenario_initial_values(
+    checked: CheckedExperiment, scenario: dict[str, Any]
+) -> tuple[dict[bytes, Any], list[dict[str, Any]]]:
+    """Recover authored initial inputs, before any Formula or Event work."""
+    entrypoints = {cast(str, row["id"]): row for row in checked.rir["entrypoints"]}
+    selected = [
+        entrypoints[cast(str, event["entrypoint"])]
+        for event in _scenario_transition_events(scenario)
+    ]
+    values: dict[bytes, Any] = {}
+    for entrypoint in selected:
+        for initializer in entrypoint["scenario_input_contract"]["initializers"]:
+            identity = canonical_bytes(cast(JsonValue, initializer["target"]))
+            value = initializer["value"]
+            if identity in values and values[identity] != value:
+                raise ValueError("Scenario initializers disagree")
+            values[identity] = value
+    for assignment in scenario["assignments"]:
+        values[canonical_bytes(cast(JsonValue, assignment["target"]))] = assignment[
+            "value"
+        ]
+    return values, selected
+
+
 def _authoritative_event_actual_values(
     checked: CheckedExperiment,
-    event: dict[str, JsonValue],
     event_spec: dict[str, JsonValue],
     *,
+    event_index: int,
+    state_before: list[dict[str, JsonValue]],
+    snapshot_identity: str,
     scenario_id: str,
     catalog_by_id: dict[str, dict[str, JsonValue]],
     events_by_id: dict[str, dict[str, JsonValue]],
@@ -398,26 +448,10 @@ def _authoritative_event_actual_values(
     )
     if scenario is None:
         return None
-    entrypoints = {cast(str, row["id"]): row for row in checked.rir["entrypoints"]}
-    scenario_entrypoints: list[dict[str, Any]] = []
-    actual_values: dict[bytes, Any] = {}
     try:
-        for root_event in _scenario_transition_events(scenario):
-            selected_entrypoint = entrypoints[cast(str, root_event["entrypoint"])]
-            scenario_entrypoints.append(selected_entrypoint)
-            contract = cast(
-                dict[str, Any], selected_entrypoint["scenario_input_contract"]
-            )
-            for initializer in cast(list[dict[str, Any]], contract["initializers"]):
-                identity = canonical_bytes(cast(JsonValue, initializer["target"]))
-                value = initializer["value"]
-                if identity in actual_values and actual_values[identity] != value:
-                    return None
-                actual_values[identity] = value
-        for assignment in scenario["assignments"]:
-            actual_values[canonical_bytes(cast(JsonValue, assignment["target"]))] = (
-                assignment["value"]
-            )
+        actual_values, scenario_entrypoints = _scenario_initial_values(
+            checked, scenario
+        )
         _evaluate_initialization_programs(
             checked,
             actual_values,
@@ -428,7 +462,7 @@ def _authoritative_event_actual_values(
             frame_token={"scenario": scenario_id, "recovery": "initialization"},
             phase="initialization",
         )
-        parent_index = cast(int, event["index"])
+        parent_index = event_index
         for prior_event in sorted(
             events_by_id.values(), key=lambda row: cast(int, row["index"])
         ):
@@ -444,16 +478,13 @@ def _authoritative_event_actual_values(
                 actual_values[canonical_bytes(cast(JsonValue, fact["target"]))] = fact[
                     "value"
                 ]
-        state_before = {
-            cast(str, row["name"]): row["value"]
-            for row in cast(list[dict[str, JsonValue]], event["state_before"])
-        }
+        state_by_name = {cast(str, row["name"]): row["value"] for row in state_before}
         for identity, display_name in display_names.items():
             if (
                 declarations[identity]["role"] == "state"
-                and display_name in state_before
+                and display_name in state_by_name
             ):
-                actual_values[identity] = state_before[display_name]
+                actual_values[identity] = state_by_name[display_name]
         if event_spec["kind"] == "transition-invocation":
             for payload in cast(list[dict[str, JsonValue]], event_spec["payload"]):
                 actual_values[canonical_bytes(cast(JsonValue, payload["target"]))] = (
@@ -466,7 +497,7 @@ def _authoritative_event_actual_values(
             runtime_limit=(1 << 63) - 1,
             cache=None,
             selected_entrypoints=scenario_entrypoints,
-            frame_identity=cast(str, event["snapshot_before_identity"]),
+            frame_identity=snapshot_identity,
             phase="event",
         )
     except (
@@ -480,14 +511,17 @@ def _authoritative_event_actual_values(
     return actual_values
 
 
-def _committed_event_arguments(
+def _event_arguments(
     checked: CheckedExperiment,
-    event: dict[str, JsonValue],
     event_spec: dict[str, JsonValue],
     *,
+    event_index: int,
+    state_before: list[dict[str, JsonValue]],
+    snapshot_identity: str,
     scenario_id: str,
     catalog_by_id: dict[str, dict[str, JsonValue]],
     events_by_id: dict[str, dict[str, JsonValue]],
+    actual_values: dict[bytes, Any] | None = None,
 ) -> (
     tuple[
         dict[str, JsonValue],
@@ -496,14 +530,17 @@ def _committed_event_arguments(
     ]
     | None
 ):
-    actual_values = _authoritative_event_actual_values(
-        checked,
-        event,
-        event_spec,
-        scenario_id=scenario_id,
-        catalog_by_id=catalog_by_id,
-        events_by_id=events_by_id,
-    )
+    if actual_values is None:
+        actual_values = _authoritative_event_actual_values(
+            checked,
+            event_spec,
+            event_index=event_index,
+            state_before=state_before,
+            snapshot_identity=snapshot_identity,
+            scenario_id=scenario_id,
+            catalog_by_id=catalog_by_id,
+            events_by_id=events_by_id,
+        )
     if actual_values is None:
         return None
     if event_spec["kind"] == "scheduled-transition":
@@ -592,17 +629,13 @@ def _replayed_event_evidence(
     scenario_id: str,
     catalog_by_id: dict[str, dict[str, JsonValue]],
     events_by_id: dict[str, dict[str, JsonValue]],
-) -> (
-    tuple[
-        tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None,
-        list[dict[str, JsonValue]],
-    ]
-    | None
-):
-    root_arguments = _committed_event_arguments(
+) -> ReplayEventEvidence | None:
+    root_arguments = _event_arguments(
         checked,
-        parent_event,
         parent_spec,
+        event_index=cast(int, parent_event["index"]),
+        state_before=cast(list[dict[str, JsonValue]], parent_event["state_before"]),
+        snapshot_identity=cast(str, parent_event["snapshot_before_identity"]),
         scenario_id=scenario_id,
         catalog_by_id=catalog_by_id,
         events_by_id=events_by_id,
@@ -640,7 +673,7 @@ def _replayed_schedule_arguments(
         catalog_by_id=catalog_by_id,
         events_by_id=events_by_id,
     )
-    return replayed[0] if replayed is not None else None
+    return replayed.schedule_arguments if replayed is not None else None
 
 
 def _event_formula_evaluations_match_replay(
@@ -669,7 +702,7 @@ def _event_formula_evaluations_match_replay(
         catalog_by_id=catalog_by_id,
         events_by_id=events_by_id,
     )
-    return replayed is not None and evaluations == replayed[1]
+    return replayed is not None and evaluations == replayed.formula_evaluations
 
 
 def _scheduled_catalog_record_is_authoritative(
@@ -743,7 +776,7 @@ def _scheduled_catalog_record_is_authoritative(
     if not isinstance(root_reference, dict):
         return False
     executions = _event_operation_executions(
-        cast(dict[str, Any], parent_event), root_reference
+        checked, cast(dict[str, Any], parent_event), root_reference
     )
     if executions is None:
         return False
@@ -756,13 +789,13 @@ def _scheduled_catalog_record_is_authoritative(
     if operation is None:
         return False
     root_path = (
-        cast(str, parent_entrypoint["id"])
+        _execution_path_segment(cast(str, parent_entrypoint["id"]))
         if isinstance(parent_entrypoint, dict)
         else f"scheduled:{parent_event.get('schedule_call_site_identity')}"
     )
     schedule_identity = _scheduler_contract(checked)["call_site_identity"]["schedule"]
     matching_instructions = []
-    for instruction in operation["body"]:
+    for instruction in operation_body_instructions(operation["body"]):
         if instruction["node"] != "schedule":
             continue
         call_site_identity = content_identity(
@@ -823,10 +856,12 @@ def _scheduled_catalog_record_is_authoritative(
     ):
         return False
     parent_arguments = (
-        _committed_event_arguments(
+        _event_arguments(
             checked,
-            parent_event,
             parent_spec,
+            event_index=cast(int, parent_event["index"]),
+            state_before=cast(list[dict[str, JsonValue]], parent_event["state_before"]),
+            snapshot_identity=cast(str, parent_event["snapshot_before_identity"]),
             scenario_id=cast(str, record["scenario"]),
             catalog_by_id=catalog_by_id,
             events_by_id=events_by_id,
@@ -1359,55 +1394,252 @@ def _runtime_state_rows_are_valid(rows: list[dict[str, Any]]) -> bool:
     )
 
 
-def _formula_charge_through_evaluation_site(
+@dataclass(frozen=True)
+class _TerminalPrefixEvidence:
+    snapshot_event_steps: int
+    snapshot_node_steps: int
+    node_steps: int
+    actual_values: dict[bytes, Any]
+    state: list[dict[str, JsonValue]]
+    selected_entrypoints: list[dict[str, Any]]
+    observation_fault: _InitializationProgramFault | None
+
+
+def _terminal_prefix_evidence(
     checked: CheckedExperiment,
+    events: list[dict[str, Any]],
+    catalog_by_id: dict[str, dict[str, JsonValue]],
     *,
-    phase: str,
-    evaluation_site_identity: str | None,
-    selected_entrypoints: Sequence[dict[str, Any]],
-) -> int | None:
-    if evaluation_site_identity is None:
-        return None
-    programs = reachable_formula_programs(
-        checked.rir,
-        selected_entrypoints,
-        phase=phase,
-    )
-    program_targets = {
-        canonical_bytes(cast(JsonValue, program["target"])) for program in programs
+    scenario_index: int,
+    refusing_event_id: str,
+    runtime_limit: int,
+) -> _TerminalPrefixEvidence:
+    """Replay completed work from checked inputs; snapshots do not supply counters.
+
+    A committed Snapshot precedes observation Formula work. Keep that ledger
+    separate from the cumulative run charge used by the following Event.
+    """
+    declarations = _resolved_declarations(checked)
+    names = _resolved_display_names(declarations)
+    state_ids = {
+        name: identity
+        for identity, name in names.items()
+        if declarations[identity]["role"] == "state"
     }
-    completed_targets: set[bytes] = set()
-    pending = list(programs)
-    consumed = 0
-    while pending:
-        progressed = False
-        for program in list(pending):
-            dependencies = {
-                canonical_bytes(cast(JsonValue, operand["resolved_symbol"]))
-                for row in cast(list[dict[str, Any]], program["inputs"])
-                if (operand := cast(dict[str, Any], row["operand"]))["kind"]
-                != "literal"
-                and canonical_bytes(cast(JsonValue, operand["resolved_symbol"]))
-                in program_targets
-            }
-            if not dependencies <= completed_targets:
+    scheduler = RuntimeScheduler(_scheduler_contract(checked))
+    step = _runtime_contract(checked)["step"]
+    roles, stops = step["boundary_roles"], step["stop"]
+    events_by_id = {cast(str, event["event_id"]): event for event in events}
+    node_steps = 0
+    snapshot_node_steps = 0
+    snapshot_event_steps = 0
+    actual_values: dict[bytes, Any] = {}
+    selected: list[dict[str, Any]] = []
+    observation_fault = None
+    for position, scenario in enumerate(
+        checked.value["scenarios"][: scenario_index + 1]
+    ):
+        scenario_id = scenario["id"]
+        actual_values, selected = _scenario_initial_values(checked, scenario)
+        node_steps = _evaluate_initialization_programs(
+            checked,
+            actual_values,
+            consumed_steps=node_steps,
+            runtime_limit=runtime_limit,
+            cache=None,
+            selected_entrypoints=selected,
+            frame_token={"scenario": scenario_id, "recovery": "initialization"},
+            phase="initialization",
+        )
+        state = {
+            name: actual_values[identity]
+            for name, identity in state_ids.items()
+            if identity in actual_values
+        }
+        snapshot_node_steps, snapshot_event_steps = node_steps, 0
+        pending = {
+            event_id
+            for event_id, record in catalog_by_id.items()
+            if record["scenario"] == scenario_id
+            and cast(dict[str, Any], record["event_spec"]).get("root_event_ref")
+            is not None
+        }
+        scenario_events = [
+            event
+            for event in events
+            if catalog_by_id[cast(str, event["event_id"])]["scenario"] == scenario_id
+        ]
+        condition = scenario["terminal_condition"]
+        maximum = condition["maximum"] if condition["kind"] == "event-count" else None
+        event_position = 0
+        terminal = False
+        observation_count = 0
+        for event in scenario_events:
+            event_id = cast(str, event["event_id"])
+            spec = cast(dict[str, Any], catalog_by_id[event_id]["event_spec"])
+            if event["state_before"] != _named_value_rows(state):
+                raise ValueError("Committed prefix does not start from checked state")
+            if spec["kind"] == "observation":
+                if not terminal or event["state_after"] != event["state_before"]:
+                    raise ValueError("Metric observation precedes scenario completion")
+                if event["formula_evaluations"] != []:
+                    raise ValueError("Metric observation invents Formula work")
+                observation_count += 1
+                snapshot_node_steps, snapshot_event_steps = node_steps, 0
                 continue
-            consumed += cast(int, program["resource_bounds"]["max_steps"])
-            program_sites = {
-                cast(str, cast(dict[str, Any], program["site"])["identity"]),
-                *(
-                    cast(str, row["evaluation_site_identity"])
-                    for row in cast(list[dict[str, Any]], program["body"])
+            if (
+                terminal
+                or not pending
+                or event_id
+                != min(
+                    pending,
+                    key=lambda identity: scheduler.ordering_key(
+                        cast(dict[str, Any], catalog_by_id[identity]["ordering_key"])
+                    ),
+                )
+            ):
+                raise ValueError("Committed prefix is not the next scheduled Event")
+            pending.remove(event_id)
+            event_values = dict(actual_values)
+            for payload in spec.get("payload", []):
+                event_values[canonical_bytes(cast(JsonValue, payload["target"]))] = (
+                    payload["value"]
+                )
+            if spec["kind"] == "external-input":
+                if (
+                    event["state_after"] != event["state_before"]
+                    or event["formula_evaluations"] != []
+                ):
+                    raise ValueError("External input invents state or Formula work")
+                for fact in spec["facts"]:
+                    event_values[canonical_bytes(cast(JsonValue, fact["target"]))] = (
+                        fact["value"]
+                    )
+                actual_values.update(event_values)
+                event_steps = 0
+            else:
+                node_steps = _evaluate_initialization_programs(
+                    checked,
+                    event_values,
+                    consumed_steps=node_steps,
+                    runtime_limit=runtime_limit,
+                    cache=None,
+                    selected_entrypoints=selected,
+                    frame_identity=event["snapshot_before_identity"],
+                    phase="event",
+                )
+                arguments = _event_arguments(
+                    checked,
+                    spec,
+                    event_index=event["index"],
+                    state_before=event["state_before"],
+                    snapshot_identity=event["snapshot_before_identity"],
+                    scenario_id=scenario_id,
+                    catalog_by_id=catalog_by_id,
+                    events_by_id=events_by_id,
+                    actual_values=event_values,
+                )
+                replay = (
+                    None
+                    if arguments is None
+                    else _replay_event_evidence(
+                        checked,
+                        event,
+                        spec,
+                        None,
+                        arguments,
+                        scenario_id=scenario_id,
+                        catalog_by_id=catalog_by_id,
+                        events_by_id=events_by_id,
+                        node_steps_before_operation=node_steps,
+                    )
+                )
+                if (
+                    replay is None
+                    or event["formula_evaluations"] != replay.formula_evaluations
+                ):
+                    raise ValueError("Committed Event does not replay")
+                node_steps, event_steps = replay.node_steps, replay.event_steps
+                state = {row["name"]: row["value"] for row in event["state_after"]}
+                for name, value in state.items():
+                    actual_values[state_ids[name]] = value
+            pending.update(row["event_id"] for row in event["schedules"])
+            pending.difference_update(row["event_id"] for row in event["cancellations"])
+            event_position += 1
+            snapshot_node_steps, snapshot_event_steps = node_steps, event_steps
+            later_time = (
+                bool(pending)
+                and min(
+                    cast(dict[str, Any], catalog_by_id[identity]["ordering_key"])[
+                        "logical_time"
+                    ]
+                    for identity in pending
+                )
+                != event["ordering_key"]["logical_time"]
+            )
+            boundary = (
+                roles["terminal"]
+                if not pending
+                or (later_time and maximum is not None and event_position >= maximum)
+                else roles["logical"]
+                if later_time
+                else None
+            )
+            if boundary not in stops:
+                continue
+            terminal = boundary == roles["terminal"]
+            try:
+                node_steps = _evaluate_initialization_programs(
+                    checked,
+                    actual_values,
+                    consumed_steps=node_steps,
+                    runtime_limit=runtime_limit,
+                    cache=None,
+                    selected_entrypoints=selected,
+                    frame_identity=event["snapshot_after_identity"],
+                    phase="observation",
+                )
+            except _InitializationProgramFault as fault:
+                if (
+                    position != scenario_index
+                    or event_id != refusing_event_id
+                    or event is not events[-1]
+                ):
+                    raise ValueError(
+                        "Claimed prefix continues past a Formula refusal"
+                    ) from fault
+                observation_fault = fault
+                node_steps = fault.consumed_steps
+        if position < scenario_index and (
+            not terminal or observation_count != len(checked.value["metrics"])
+        ):
+            raise ValueError("Claimed prefix omits a prior scenario's work")
+    if observation_fault is None:
+        refusing_record = catalog_by_id.get(refusing_event_id)
+        if refusing_record is None:
+            if not terminal:
+                raise ValueError("Metric refusal precedes scenario completion")
+        elif (
+            terminal
+            or not pending
+            or refusing_event_id
+            != min(
+                pending,
+                key=lambda identity: scheduler.ordering_key(
+                    cast(dict[str, Any], catalog_by_id[identity]["ordering_key"])
                 ),
-            }
-            if evaluation_site_identity in program_sites:
-                return consumed
-            completed_targets.add(canonical_bytes(cast(JsonValue, program["target"])))
-            pending.remove(program)
-            progressed = True
-        if not progressed:
-            return None
-    return None
+            )
+        ):
+            raise ValueError("Refusal skips the next scheduled Event")
+    return _TerminalPrefixEvidence(
+        snapshot_event_steps,
+        snapshot_node_steps,
+        node_steps,
+        actual_values,
+        _named_value_rows(state),
+        selected,
+        observation_fault,
+    )
 
 
 def _terminal_audit_is_valid(
@@ -1502,18 +1734,6 @@ def _terminal_audit_is_valid(
         return False
     catalog_by_id = {cast(str, row["event_id"]): row for row in catalog}
     events_by_id = {cast(str, row["event_id"]): row for row in events}
-    if any(
-        (record := catalog_by_id.get(cast(str, event["event_id"]))) is None
-        or not _event_formula_evaluations_match_replay(
-            checked,
-            cast(dict[str, JsonValue], event),
-            record,
-            catalog_by_id=catalog_by_id,
-            events_by_id=events_by_id,
-        )
-        for event in events
-    ):
-        return False
     if refusing_event.get("index") != len(events):
         return False
     event_scenarios: dict[str, str] = {}
@@ -1616,6 +1836,7 @@ def _terminal_audit_is_valid(
     catalog_by_id = {cast(str, row["event_id"]): row for row in catalog}
     refusing_catalog_record = catalog_by_id.get(refusing_event_id)
     continuation = cast(dict[str, Any], last_snapshot["continuation"])
+    refusing_metric: dict[str, Any] | None = None
     if refusing_catalog_record is not None:
         if (
             refusing_catalog_record["scenario"] != scenario_id
@@ -1630,7 +1851,7 @@ def _terminal_audit_is_valid(
             == "observation"
             for record in catalog
         )
-        metric = (
+        refusing_metric = (
             checked.value["metrics"][committed_observation_count]
             if committed_observation_count < len(checked.value["metrics"])
             else None
@@ -1642,8 +1863,8 @@ def _terminal_audit_is_valid(
             "enqueue_sequence": continuation["next_enqueue_sequence"],
         }
         if (
-            metric is None
-            or _metric_definition_identity(metric) != metric_identity
+            refusing_metric is None
+            or _metric_definition_identity(refusing_metric) != metric_identity
             or ordering_key != expected_ordering_key
             or _observation_event_id(
                 checked,
@@ -1782,80 +2003,181 @@ def _terminal_audit_is_valid(
         if row["id"] == checked.value["runtime"]["profile"]
     )
     bounds = cast(dict[str, int], runtime_profile["resource_bounds"])
-    evaluation_site_identity = cast(
-        str | None, refusing_event.get("evaluation_site_identity")
-    )
-    scenario = next(
-        row for row in checked.value["scenarios"] if row["id"] == scenario_id
-    )
+    try:
+        prefix = _terminal_prefix_evidence(
+            checked,
+            events,
+            catalog_by_id,
+            scenario_index=scenario_index,
+            refusing_event_id=refusing_event_id,
+            runtime_limit=bounds["max_node_steps"],
+        )
+    except _InitializationProgramFault:
+        return False
+    if (
+        last_snapshot_values != prefix.state
+        or ledger["event_steps"] != prefix.snapshot_event_steps
+        or ledger["node_steps"] != prefix.snapshot_node_steps
+    ):
+        return False
     resolved_entrypoints = {
         cast(str, row["id"]): row for row in checked.rir["entrypoints"]
     }
-    selected_entrypoints = [
-        resolved_entrypoints[cast(str, event["entrypoint"])]
-        for event in _scenario_transition_events(scenario)
-    ]
-    event_formula_programs = reachable_formula_programs(
-        checked.rir,
-        selected_entrypoints,
-        phase="event",
-    )
-    event_formula_charge = sum(
-        cast(int, program["resource_bounds"]["max_steps"])
-        for program in event_formula_programs
-    )
-    event_formula_fault_charge = _formula_charge_through_evaluation_site(
-        checked,
-        phase="event",
-        evaluation_site_identity=evaluation_site_identity,
-        selected_entrypoints=selected_entrypoints,
-    )
-    observation_formula_fault_charge = _formula_charge_through_evaluation_site(
-        checked,
-        phase="observation",
-        evaluation_site_identity=evaluation_site_identity,
-        selected_entrypoints=selected_entrypoints,
-    )
+    expected_entrypoint = None
+    root_operation = None
+    root_path = None
+    if refusing_event_spec["kind"] == "transition-invocation":
+        root_entrypoint = resolved_entrypoints[refusing_event_spec["entrypoint"]]
+        expected_entrypoint = {
+            "id": root_entrypoint["id"],
+            "identity": root_entrypoint["identity"],
+        }
+        root_operation = root_entrypoint["operation"]["id"]
+        root_path = _execution_path_segment(root_entrypoint["id"])
+    elif refusing_event_spec["kind"] == "scheduled-transition":
+        identity = refusing_event_spec["call_site_identity"]
+        expected_entrypoint = {"id": f"scheduled:{identity}", "identity": identity}
+        root_operation = refusing_event_spec["operation"]["id"]
+        root_path = _execution_path_segment(f"scheduled:{identity}")
+    elif refusing_event_spec["kind"] == "external-input" and boundary_formula_refusal:
+        entrypoint_id = f"input:{refusing_event_spec['root_event_ref']}"
+        expected_entrypoint = {"id": entrypoint_id, "identity": refusing_event_id}
+        root_operation = "external-input"
+        root_path = _execution_path_segment(entrypoint_id)
+    event_values = dict(prefix.actual_values)
+    formula_fault = prefix.observation_fault
+    node_steps = prefix.node_steps
+    if not boundary_formula_refusal and refusing_event_spec["kind"] != "observation":
+        for payload in refusing_event_spec.get("payload", []):
+            event_values[canonical_bytes(cast(JsonValue, payload["target"]))] = payload[
+                "value"
+            ]
+        try:
+            node_steps = _evaluate_initialization_programs(
+                checked,
+                event_values,
+                consumed_steps=node_steps,
+                runtime_limit=bounds["max_node_steps"],
+                cache=None,
+                selected_entrypoints=prefix.selected_entrypoints,
+                frame_identity=refusing_event["snapshot_before_identity"],
+                phase="event",
+            )
+        except _InitializationProgramFault as fault:
+            formula_fault = fault
     if refusing_event_spec["kind"] == "observation":
         exact_event_steps = 0
-        exact_node_steps = cast(int, ledger["node_steps"])
-    elif boundary_formula_refusal:
-        if observation_formula_fault_charge is None:
+        exact_node_steps = node_steps
+        if (
+            formula_fault is not None
+            or len(scenario_catalog) < bounds["max_total_events"]
+            or refusing_metric is None
+            or refusing_event["entrypoint"]
+            != {
+                "id": f"observation:{refusing_metric['id']}",
+                "identity": _metric_definition_identity(refusing_metric),
+            }
+            or refusing_event["operation"] != "observation"
+            or refusing_event["call_path"] != f"observation/{refusing_metric['id']}"
+            or refusing_event["attempted_calls"] != []
+            or refusing_event["call_site_identity"] is not None
+            or refusing_event["evaluation_site_identity"] is not None
+            or refusing_event["instruction_index"] is not None
+            or not any(
+                reason.get("stage") == "runtime"
+                and reason["diagnostic"] == diagnostic["code"]
+                and reason.get("signal") == "event-limit"
+                for row in checked.rir["selected_semantics"]["diagnostic_reasons"]
+                for reason in [row["definition"]]
+            )
+        ):
             return False
-        exact_event_steps = cast(int, ledger["event_steps"])
-        exact_node_steps = (
-            cast(int, ledger["node_steps"]) + observation_formula_fault_charge
+    elif formula_fault is not None:
+        expected_calls = (
+            events_by_id[refusing_event_id]["calls"] if boundary_formula_refusal else []
         )
-    elif event_formula_fault_charge is not None:
-        exact_event_steps = 0
-        exact_node_steps = cast(int, ledger["node_steps"]) + event_formula_fault_charge
+        if (
+            expected_entrypoint is None
+            or refusing_event["entrypoint"] != expected_entrypoint
+            or refusing_event["operation"] != root_operation
+            or refusing_event["call_path"] != root_path
+            or refusing_event["attempted_calls"] != expected_calls
+            or refusing_event["evaluation_site_identity"]
+            != formula_fault.evaluation_site_identity
+            or refusing_event["instruction_index"] is not None
+            or refusing_event["call_site_identity"] is not None
+            or not any(
+                reason.get("stage") == "runtime"
+                and reason["diagnostic"] == diagnostic["code"]
+                and reason.get("signal") == formula_fault.signal
+                for row in checked.rir["selected_semantics"]["diagnostic_reasons"]
+                for reason in [row["definition"]]
+            )
+        ):
+            return False
+        exact_event_steps = (
+            prefix.snapshot_event_steps if boundary_formula_refusal else 0
+        )
+        exact_node_steps = formula_fault.consumed_steps
+    elif boundary_formula_refusal:
+        return False
     else:
-        attempted_operation_charge = _attempted_operation_charge(
+        if (
+            expected_entrypoint is None
+            or refusing_event["entrypoint"] != expected_entrypoint
+        ):
+            return False
+        root_arguments = _event_arguments(
             checked,
-            refusing_event,
             refusing_event_spec,
-            node_steps_before_operation=(
-                cast(int, ledger["node_steps"]) + event_formula_charge
-            ),
+            event_index=cast(int, refusing_event["index"]),
+            state_before=cast(list[dict[str, JsonValue]], state_before),
+            snapshot_identity=cast(str, refusing_event["snapshot_before_identity"]),
+            scenario_id=cast(str, scenario_id),
+            catalog_by_id=catalog_by_id,
+            events_by_id=cast(dict[str, dict[str, JsonValue]], events_by_id),
+            actual_values=event_values,
+        )
+        if root_arguments is None:
+            return False
+        replayed = _replay_refusing_operation(
+            checked,
+            refusing_event_spec,
+            root_arguments,
+            index=cast(int, refusing_event["index"]),
+            state_before=cast(list[dict[str, JsonValue]], state_before),
+            snapshot_identity=cast(str, refusing_event["snapshot_before_identity"]),
+            attempted_calls=refusing_event["attempted_calls"],
+            scenario_id=cast(str, scenario_id),
+            catalog_by_id=catalog_by_id,
+            events_by_id=cast(dict[str, dict[str, JsonValue]], events_by_id),
+            node_steps_before_operation=node_steps,
             bounds=bounds,
         )
-        if attempted_operation_charge is None:
+        if replayed is None or any(
+            refusing_event.get(member) != getattr(replayed, member)
+            for member in (
+                "operation",
+                "call_path",
+                "call_site_identity",
+                "instruction_index",
+                "evaluation_site_identity",
+            )
+        ):
             return False
-        exact_event_steps, budget_breached = attempted_operation_charge
-        # Diagnostic mappings need not be injective. Match the independently
-        # replayed charge condition against all selected reasons for this code.
+        # A diagnostic may represent several reasons. Require the exact first
+        # executed signal to be one of those selected reasons, not just a match
+        # of the broad step-limit/non-step category.
         if not any(
             reason.get("stage") == "runtime"
             and reason["diagnostic"] == diagnostic["code"]
-            and isinstance(reason.get("signal"), str)
-            and (reason.get("signal") == "step-limit") == budget_breached
+            and reason.get("signal") == replayed.signal
             for row in checked.rir["selected_semantics"]["diagnostic_reasons"]
             for reason in [row["definition"]]
         ):
             return False
-        exact_node_steps = (
-            cast(int, ledger["node_steps"]) + event_formula_charge + exact_event_steps
-        )
+        exact_event_steps = replayed.event_steps
+        exact_node_steps = replayed.node_steps
     if (
         budget["total_events"] != len(scenario_catalog)
         or budget["queue_events"] != expected_queue_events

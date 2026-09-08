@@ -1,0 +1,672 @@
+{
+  "head": "060d0989f544926e7e006de0c3caa016069213b3",
+  "environment": {
+    "head": "060d0989f544926e7e006de0c3caa016069213b3",
+    "python": "3.13.13 (main, Jun  2 2026, 22:33:40) [Clang 22.1.3 ]",
+    "executable": "/Users/lelej/projects/godot-agent-worktree/codex-dev/libs/gda-balancing/.venv/bin/python",
+    "platform": "macOS-26.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "logical_cpus": 8
+  },
+  "source_manifest_sha256": "f00873943a97628696d9de3b8ecc136d20de966343ac77991a7795a3e9bcee4b",
+  "measurement": [
+    {
+      "capacity": 4,
+      "mode": "all-selected",
+      "declared_operation_bound": 52,
+      "event_budget": 256,
+      "kernel_identity": "sha256:b91fea27d53ec123d759462fca1a2c050d3f1b4b3f0315b071a2b69b18a0f2fa",
+      "ldb_identity": "sha256:aea0fe1461d0dda7b691ff63f2d41a048254d5873bff9904ff806955e7c1b9a8",
+      "rir_semantic_identity": "sha256:219cd82a4501807a915f14d498e5473fe592b00c9e0274efb4a65e7c05c36c13",
+      "build_exit": 0,
+      "check_exit": 0,
+      "actual_node_steps": 52,
+      "actual_metrics": [
+        {
+          "metric": "ordered_value",
+          "value": 0
+        },
+        {
+          "metric": "selected_count",
+          "value": 4
+        }
+      ],
+      "fresh_run_exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "all_six_member_bytes_equal_across_four_fresh_runs": true,
+      "bare_wall_seconds": [
+        1.8471768340095878,
+        1.9940985420253128,
+        1.7720563750481233
+      ],
+      "bare_wall_median_seconds": 1.8471768340095878,
+      "bare_peak_rss_bytes": [
+        94191616,
+        94011392,
+        94437376
+      ],
+      "instrumented_wall_seconds": 36.05906999995932,
+      "instrumented_tracemalloc_peak_bytes": 48591437,
+      "instrumented_call_counts": [
+        {
+          "file": "domain/runtime/execution.py",
+          "function": "_execute_value_instruction",
+          "total_calls": 34,
+          "primitive_calls": 34
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "admit_typed_value",
+          "total_calls": 97,
+          "primitive_calls": 97
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "append_typed_value",
+          "total_calls": 4,
+          "primitive_calls": 4
+        },
+        {
+          "file": "domain/canonical.py",
+          "function": "_validate",
+          "total_calls": 730242,
+          "primitive_calls": 4165
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "_validate",
+          "total_calls": 1196,
+          "primitive_calls": 97
+        }
+      ],
+      "runtime_append_calls": 4,
+      "derived_prefix_admission_copy_slots": 6,
+      "derived_append_result_slots": 10,
+      "derived_two_constructions_total_slots": 16
+    },
+    {
+      "capacity": 4,
+      "mode": "last-rejected",
+      "declared_operation_bound": 52,
+      "event_budget": 256,
+      "kernel_identity": "sha256:b91fea27d53ec123d759462fca1a2c050d3f1b4b3f0315b071a2b69b18a0f2fa",
+      "ldb_identity": "sha256:aea0fe1461d0dda7b691ff63f2d41a048254d5873bff9904ff806955e7c1b9a8",
+      "rir_semantic_identity": "sha256:219cd82a4501807a915f14d498e5473fe592b00c9e0274efb4a65e7c05c36c13",
+      "build_exit": 0,
+      "check_exit": 0,
+      "actual_node_steps": 49,
+      "actual_metrics": [
+        {
+          "metric": "ordered_value",
+          "value": 2
+        },
+        {
+          "metric": "selected_count",
+          "value": 3
+        }
+      ],
+      "fresh_run_exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "all_six_member_bytes_equal_across_four_fresh_runs": true,
+      "bare_wall_seconds": [
+        2.164005500031635,
+        2.3324173329165205,
+        2.2075925830285996
+      ],
+      "bare_wall_median_seconds": 2.2075925830285996,
+      "bare_peak_rss_bytes": [
+        93552640,
+        94322688,
+        94814208
+      ],
+      "instrumented_wall_seconds": 50.923249874962494,
+      "instrumented_tracemalloc_peak_bytes": 48606263,
+      "instrumented_call_counts": [
+        {
+          "file": "domain/structured_values.py",
+          "function": "append_typed_value",
+          "total_calls": 4,
+          "primitive_calls": 4
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "admit_typed_value",
+          "total_calls": 97,
+          "primitive_calls": 97
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "_validate",
+          "total_calls": 1193,
+          "primitive_calls": 97
+        },
+        {
+          "file": "domain/canonical.py",
+          "function": "_validate",
+          "total_calls": 730143,
+          "primitive_calls": 4165
+        },
+        {
+          "file": "domain/runtime/execution.py",
+          "function": "_execute_value_instruction",
+          "total_calls": 32,
+          "primitive_calls": 32
+        }
+      ],
+      "runtime_append_calls": 4,
+      "derived_prefix_admission_copy_slots": 6,
+      "derived_append_result_slots": 10,
+      "derived_two_constructions_total_slots": 16
+    },
+    {
+      "capacity": 8,
+      "mode": "all-selected",
+      "declared_operation_bound": 96,
+      "event_budget": 256,
+      "kernel_identity": "sha256:b91fea27d53ec123d759462fca1a2c050d3f1b4b3f0315b071a2b69b18a0f2fa",
+      "ldb_identity": "sha256:5830b337952a50fca05cc0e90dfd31b29759715e95c3a55ffb22ca5305af14ee",
+      "rir_semantic_identity": "sha256:5fbffbf2770c9fa351f6650300247c421b20f673647484434e62e7e67470a5bc",
+      "build_exit": 0,
+      "check_exit": 0,
+      "actual_node_steps": 96,
+      "actual_metrics": [
+        {
+          "metric": "ordered_value",
+          "value": 0
+        },
+        {
+          "metric": "selected_count",
+          "value": 8
+        }
+      ],
+      "fresh_run_exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "all_six_member_bytes_equal_across_four_fresh_runs": true,
+      "bare_wall_seconds": [
+        6.394164208089933,
+        6.959426374989562,
+        3.7447299170307815
+      ],
+      "bare_wall_median_seconds": 6.394164208089933,
+      "bare_peak_rss_bytes": [
+        94928896,
+        93044736,
+        94568448
+      ],
+      "instrumented_wall_seconds": 50.40112337493338,
+      "instrumented_tracemalloc_peak_bytes": 48607103,
+      "instrumented_call_counts": [
+        {
+          "file": "domain/structured_values.py",
+          "function": "admit_typed_value",
+          "total_calls": 113,
+          "primitive_calls": 113
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "append_typed_value",
+          "total_calls": 8,
+          "primitive_calls": 8
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "_validate",
+          "total_calls": 1288,
+          "primitive_calls": 113
+        },
+        {
+          "file": "domain/canonical.py",
+          "function": "_validate",
+          "total_calls": 730758,
+          "primitive_calls": 4165
+        },
+        {
+          "file": "domain/runtime/execution.py",
+          "function": "_execute_value_instruction",
+          "total_calls": 66,
+          "primitive_calls": 66
+        }
+      ],
+      "runtime_append_calls": 8,
+      "derived_prefix_admission_copy_slots": 28,
+      "derived_append_result_slots": 36,
+      "derived_two_constructions_total_slots": 64
+    },
+    {
+      "capacity": 8,
+      "mode": "last-rejected",
+      "declared_operation_bound": 96,
+      "event_budget": 256,
+      "kernel_identity": "sha256:b91fea27d53ec123d759462fca1a2c050d3f1b4b3f0315b071a2b69b18a0f2fa",
+      "ldb_identity": "sha256:5830b337952a50fca05cc0e90dfd31b29759715e95c3a55ffb22ca5305af14ee",
+      "rir_semantic_identity": "sha256:5fbffbf2770c9fa351f6650300247c421b20f673647484434e62e7e67470a5bc",
+      "build_exit": 0,
+      "check_exit": 0,
+      "actual_node_steps": 93,
+      "actual_metrics": [
+        {
+          "metric": "ordered_value",
+          "value": 2
+        },
+        {
+          "metric": "selected_count",
+          "value": 7
+        }
+      ],
+      "fresh_run_exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "all_six_member_bytes_equal_across_four_fresh_runs": true,
+      "bare_wall_seconds": [
+        3.701310124946758,
+        6.24799762503244,
+        5.62938395794481
+      ],
+      "bare_wall_median_seconds": 5.62938395794481,
+      "bare_peak_rss_bytes": [
+        92848128,
+        92094464,
+        91766784
+      ],
+      "instrumented_wall_seconds": 72.33775145804975,
+      "instrumented_tracemalloc_peak_bytes": 48610602,
+      "instrumented_call_counts": [
+        {
+          "file": "domain/runtime/execution.py",
+          "function": "_execute_value_instruction",
+          "total_calls": 64,
+          "primitive_calls": 64
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "append_typed_value",
+          "total_calls": 8,
+          "primitive_calls": 8
+        },
+        {
+          "file": "domain/canonical.py",
+          "function": "_validate",
+          "total_calls": 730659,
+          "primitive_calls": 4165
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "admit_typed_value",
+          "total_calls": 113,
+          "primitive_calls": 113
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "_validate",
+          "total_calls": 1285,
+          "primitive_calls": 113
+        }
+      ],
+      "runtime_append_calls": 8,
+      "derived_prefix_admission_copy_slots": 28,
+      "derived_append_result_slots": 36,
+      "derived_two_constructions_total_slots": 64
+    },
+    {
+      "capacity": 16,
+      "mode": "all-selected",
+      "declared_operation_bound": 184,
+      "event_budget": 256,
+      "kernel_identity": "sha256:b91fea27d53ec123d759462fca1a2c050d3f1b4b3f0315b071a2b69b18a0f2fa",
+      "ldb_identity": "sha256:b6bf3c206a9d6facd310df70f8fee5fdf6fd9af988353c3bbc9afa5471fa9547",
+      "rir_semantic_identity": "sha256:b86d7447cc173ec5b00dd782d6502bc530745cd7e6ffef69a390d4d82827e688",
+      "build_exit": 0,
+      "check_exit": 0,
+      "actual_node_steps": 184,
+      "actual_metrics": [
+        {
+          "metric": "ordered_value",
+          "value": 0
+        },
+        {
+          "metric": "selected_count",
+          "value": 16
+        }
+      ],
+      "fresh_run_exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "all_six_member_bytes_equal_across_four_fresh_runs": true,
+      "bare_wall_seconds": [
+        3.7457584580406547,
+        3.5648060420062393,
+        3.7377617500023916
+      ],
+      "bare_wall_median_seconds": 3.7377617500023916,
+      "bare_peak_rss_bytes": [
+        94519296,
+        95764480,
+        90882048
+      ],
+      "instrumented_wall_seconds": 61.50254291691817,
+      "instrumented_tracemalloc_peak_bytes": 48607189,
+      "instrumented_call_counts": [
+        {
+          "file": "domain/structured_values.py",
+          "function": "admit_typed_value",
+          "total_calls": 145,
+          "primitive_calls": 145
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "append_typed_value",
+          "total_calls": 16,
+          "primitive_calls": 16
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "_validate",
+          "total_calls": 1568,
+          "primitive_calls": 145
+        },
+        {
+          "file": "domain/canonical.py",
+          "function": "_validate",
+          "total_calls": 731790,
+          "primitive_calls": 4165
+        },
+        {
+          "file": "domain/runtime/execution.py",
+          "function": "_execute_value_instruction",
+          "total_calls": 130,
+          "primitive_calls": 130
+        }
+      ],
+      "runtime_append_calls": 16,
+      "derived_prefix_admission_copy_slots": 120,
+      "derived_append_result_slots": 136,
+      "derived_two_constructions_total_slots": 256
+    },
+    {
+      "capacity": 16,
+      "mode": "last-rejected",
+      "declared_operation_bound": 184,
+      "event_budget": 256,
+      "kernel_identity": "sha256:b91fea27d53ec123d759462fca1a2c050d3f1b4b3f0315b071a2b69b18a0f2fa",
+      "ldb_identity": "sha256:b6bf3c206a9d6facd310df70f8fee5fdf6fd9af988353c3bbc9afa5471fa9547",
+      "rir_semantic_identity": "sha256:b86d7447cc173ec5b00dd782d6502bc530745cd7e6ffef69a390d4d82827e688",
+      "build_exit": 0,
+      "check_exit": 0,
+      "actual_node_steps": 181,
+      "actual_metrics": [
+        {
+          "metric": "ordered_value",
+          "value": 2
+        },
+        {
+          "metric": "selected_count",
+          "value": 15
+        }
+      ],
+      "fresh_run_exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "all_six_member_bytes_equal_across_four_fresh_runs": true,
+      "bare_wall_seconds": [
+        2.6242615840164945,
+        2.2668511249357834,
+        2.125285042100586
+      ],
+      "bare_wall_median_seconds": 2.2668511249357834,
+      "bare_peak_rss_bytes": [
+        94289920,
+        94584832,
+        94158848
+      ],
+      "instrumented_wall_seconds": 46.040153542067856,
+      "instrumented_tracemalloc_peak_bytes": 48606493,
+      "instrumented_call_counts": [
+        {
+          "file": "domain/structured_values.py",
+          "function": "_validate",
+          "total_calls": 1565,
+          "primitive_calls": 145
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "append_typed_value",
+          "total_calls": 16,
+          "primitive_calls": 16
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "admit_typed_value",
+          "total_calls": 145,
+          "primitive_calls": 145
+        },
+        {
+          "file": "domain/canonical.py",
+          "function": "_validate",
+          "total_calls": 731691,
+          "primitive_calls": 4165
+        },
+        {
+          "file": "domain/runtime/execution.py",
+          "function": "_execute_value_instruction",
+          "total_calls": 128,
+          "primitive_calls": 128
+        }
+      ],
+      "runtime_append_calls": 16,
+      "derived_prefix_admission_copy_slots": 120,
+      "derived_append_result_slots": 136,
+      "derived_two_constructions_total_slots": 256
+    },
+    {
+      "capacity": 22,
+      "mode": "all-selected",
+      "declared_operation_bound": 250,
+      "event_budget": 256,
+      "kernel_identity": "sha256:b91fea27d53ec123d759462fca1a2c050d3f1b4b3f0315b071a2b69b18a0f2fa",
+      "ldb_identity": "sha256:01df9cfbbeb574ad05678f9e3682d6ea872c21a248c56ac558c092dd24dcf465",
+      "rir_semantic_identity": "sha256:40531cea3b598f04c4ba7f05346ee834ac730dad884a58344890a968380d1d37",
+      "build_exit": 0,
+      "check_exit": 0,
+      "actual_node_steps": 250,
+      "actual_metrics": [
+        {
+          "metric": "ordered_value",
+          "value": 0
+        },
+        {
+          "metric": "selected_count",
+          "value": 22
+        }
+      ],
+      "fresh_run_exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "all_six_member_bytes_equal_across_four_fresh_runs": true,
+      "bare_wall_seconds": [
+        1.6992268330650404,
+        1.7323448330862448,
+        1.9620272499741986
+      ],
+      "bare_wall_median_seconds": 1.7323448330862448,
+      "bare_peak_rss_bytes": [
+        94060544,
+        94175232,
+        93929472
+      ],
+      "instrumented_wall_seconds": 48.57036695803981,
+      "instrumented_tracemalloc_peak_bytes": 48608353,
+      "instrumented_call_counts": [
+        {
+          "file": "domain/structured_values.py",
+          "function": "append_typed_value",
+          "total_calls": 22,
+          "primitive_calls": 22
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "admit_typed_value",
+          "total_calls": 169,
+          "primitive_calls": 169
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "_validate",
+          "total_calls": 1862,
+          "primitive_calls": 169
+        },
+        {
+          "file": "domain/canonical.py",
+          "function": "_validate",
+          "total_calls": 732564,
+          "primitive_calls": 4165
+        },
+        {
+          "file": "domain/runtime/execution.py",
+          "function": "_execute_value_instruction",
+          "total_calls": 178,
+          "primitive_calls": 178
+        }
+      ],
+      "runtime_append_calls": 22,
+      "derived_prefix_admission_copy_slots": 231,
+      "derived_append_result_slots": 253,
+      "derived_two_constructions_total_slots": 484
+    },
+    {
+      "capacity": 22,
+      "mode": "last-rejected",
+      "declared_operation_bound": 250,
+      "event_budget": 256,
+      "kernel_identity": "sha256:b91fea27d53ec123d759462fca1a2c050d3f1b4b3f0315b071a2b69b18a0f2fa",
+      "ldb_identity": "sha256:01df9cfbbeb574ad05678f9e3682d6ea872c21a248c56ac558c092dd24dcf465",
+      "rir_semantic_identity": "sha256:40531cea3b598f04c4ba7f05346ee834ac730dad884a58344890a968380d1d37",
+      "build_exit": 0,
+      "check_exit": 0,
+      "actual_node_steps": 247,
+      "actual_metrics": [
+        {
+          "metric": "ordered_value",
+          "value": 2
+        },
+        {
+          "metric": "selected_count",
+          "value": 21
+        }
+      ],
+      "fresh_run_exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "all_six_member_bytes_equal_across_four_fresh_runs": true,
+      "bare_wall_seconds": [
+        2.160460334038362,
+        2.169103791937232,
+        2.0864857910200953
+      ],
+      "bare_wall_median_seconds": 2.160460334038362,
+      "bare_peak_rss_bytes": [
+        94011392,
+        94257152,
+        94175232
+      ],
+      "instrumented_wall_seconds": 36.08622558391653,
+      "instrumented_tracemalloc_peak_bytes": 48611286,
+      "instrumented_call_counts": [
+        {
+          "file": "domain/structured_values.py",
+          "function": "append_typed_value",
+          "total_calls": 22,
+          "primitive_calls": 22
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "admit_typed_value",
+          "total_calls": 169,
+          "primitive_calls": 169
+        },
+        {
+          "file": "domain/structured_values.py",
+          "function": "_validate",
+          "total_calls": 1859,
+          "primitive_calls": 169
+        },
+        {
+          "file": "domain/canonical.py",
+          "function": "_validate",
+          "total_calls": 732465,
+          "primitive_calls": 4165
+        },
+        {
+          "file": "domain/runtime/execution.py",
+          "function": "_execute_value_instruction",
+          "total_calls": 176,
+          "primitive_calls": 176
+        }
+      ],
+      "runtime_append_calls": 22,
+      "derived_prefix_admission_copy_slots": 231,
+      "derived_append_result_slots": 253,
+      "derived_two_constructions_total_slots": 484
+    },
+    {
+      "capacity": 23,
+      "mode": "all-selected",
+      "declared_operation_bound": 261,
+      "event_budget": 256,
+      "kernel_identity": "sha256:b91fea27d53ec123d759462fca1a2c050d3f1b4b3f0315b071a2b69b18a0f2fa",
+      "ldb_identity": "sha256:f6473b385e02d73a6df4bc038b68edb5e783922e9b4e54166a83a034ada5b32d",
+      "rir_semantic_identity": "sha256:2cebdc9f20d2a2ac7623272209d9a2324080fa8274d1e18cd7c22afef414ff44",
+      "build_exit": 0,
+      "check_exit": 0,
+      "refusal": {
+        "code": "runtime.step_limit_exceeded",
+        "stage": "runtime",
+        "event_steps": 257,
+        "node_steps": 257,
+        "path": "fold/ordered-items/@22",
+        "instruction_index": 1,
+        "committed": false
+      }
+    }
+  ],
+  "causal_scope": [
+    "Real subprocess Model build, Experiment check and run; three fresh uninstrumented invocations and a separate full-command instrumented invocation for each successful case. No evaluator replacement.",
+    "Private nominal capacity and derived Operation bound variants; Kernel and global resource/profile limits are unchanged. The published example still has capacity four.",
+    "Bare wall/RSS samples run on a shared development host; startup/admission/publication dominate. They are not an isolated Runtime benchmark or evidence of an optimization.",
+    "cProfile/tracemalloc cover the entire public run and materially increase wall time. Counts distinguish canonical JSON validation from typed-value validation and actual runtime append calls.",
+    "The two inspected production constructions copy k existing slots on input typed admission and k+1 slots on append for k=0..N-1: N squared slots in these two paths alone. Further argument/result/replay/publication validation adds work. This is a total-copy lower bound, not a claim of quadratic live peak memory.",
+    "All-selected and last-rejected traverse the same growing prefixes; the latter still eagerly constructs the discarded final append. Its count fold saves exactly three attempted steps.",
+    "N22 all-selected is the largest full successful wrapper under unchanged Event256: 250 attempts. N23 compiles and checks, then refuses the actual attempted Event step257 with an atomic audit. Capacity rejection and Event budget refusal are separate boundaries.",
+    "Observed bare medians are non-monotonic across capacities (1.73\u20136.39 seconds); concurrent shared-host work was not isolated. No speedup or latency-scaling conclusion is drawn. CPU user/system time was not recorded."
+  ],
+  "raw_root": "/private/tmp/gda-877-public-run-evidence",
+  "raw_measurement_receipt": "/private/tmp/gda-877-public-run-evidence/measurement-01/receipt.json",
+  "reproduce": "From libs/gda-balancing with its installed development dependencies: python docs/refactor/current-language/evidence/bounded-fold/measure.py --output /path/to/fresh-output",
+  "source_manifest_hash_encoding": "SHA256 of UTF-8 json.dumps(source-manifest.json.files, sort_keys=True, separators=(comma, colon))"
+}

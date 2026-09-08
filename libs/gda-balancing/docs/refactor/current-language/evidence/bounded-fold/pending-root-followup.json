@@ -1,0 +1,34 @@
+{
+  "owner_issue": 879,
+  "status": "confirmed pre-existing; implementation pending",
+  "subject": "Successful early termination must retain authenticated unexecuted root Events in the catalog",
+  "baseline": "970f0323e259769fdc45dc363a1baf28081a8ef6",
+  "refactor_head": "ef02b0bfc69b15bdcc5aa1dec8a7a582bfc10007",
+  "model_source": "examples/schema2/progression-periodic-effect/model-source.json",
+  "experiment_source": "examples/schema2/progression-periodic-effect/experiment.json",
+  "reproduction": [
+    "Admit current authorities, check and compile the maintained Model Source, then independently admit its RIR.",
+    "Bind the maintained Experiment to that RIR and set the first scenario terminal_condition to event-count with maximum 1.",
+    "Control: keep the original root Event. Check, prepare and evaluate the Experiment, then validate each member and the complete result set.",
+    "Variant: copy the first event_plan item, change root_event_ref to unexecuted-later-root and logical_time to 10, and append it to the same scenario. Repeat the complete checked execution."
+  ],
+  "observations_at_both_heads": {
+    "control": {
+      "runtime": "EvaluationArtifacts",
+      "all_members_valid": true,
+      "full_set_valid": true
+    },
+    "pending_root_variant": {
+      "runtime": "EvaluationArtifacts",
+      "all_members_valid": true,
+      "full_set_valid": false
+    },
+    "variant_with_only_success_catalog_set_equality_disabled_in_memory": {
+      "full_set_valid": true
+    }
+  },
+  "cause": "The successful journal catalog equality includes committed, scheduled and canceled Event IDs but omits authenticated, unexecuted authored roots already owned by expected_root_map.",
+  "required_followup": "Use the authoritative root map when checking catalog completeness. Retain individual record, scheduling, state and Formula evidence checks; add a permanent legitimate early-termination regression and a counterfeit-root rejection.",
+  "probe_sha256": "aded89671a67e72a14f4b72d21d46cd3de7eceb7b9723876df57728e2b730adc",
+  "scope": "This issue reproduces before #877 and remains assigned to #879. The in-memory equality bypass is causal evidence only, not the proposed production fix."
+}

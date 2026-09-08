@@ -670,6 +670,8 @@ def test_public_authority_owns_structured_values_and_their_conformance_package(
     assert nodes["constant"]["semantics"]["operator"] == "typed-literal"
     assert nodes["lookup"]["semantics"] == {"operator": "bounded-lookup"}
     assert nodes["equal"]["semantics"] == {"operator": "canonical-equal"}
+    assert nodes["list-append"]["semantics"] == {"operator": "bounded-list-append"}
+    assert nodes["fold"]["semantics"]["operator"] == "bounded-pure-fold"
 
     releases = {release["id"]: release for release in authority["package_releases"]}
     schema = releases["standard.schema"]
@@ -685,6 +687,7 @@ def test_public_authority_owns_structured_values_and_their_conformance_package(
         "standard.schema.record-field-v1",
         "standard.schema.ref-equal-v1",
         "standard.schema.list-empty-v1",
+        "standard.schema.list-append",
     ]
     constructors = {
         definition["id"]: definition["parameters"]
@@ -706,6 +709,7 @@ def test_public_authority_owns_structured_values_and_their_conformance_package(
         {"constructor": "standard.schema.record", "id": "Candidate"},
         {"constructor": "standard.schema.record", "id": "SelectionResult"},
         {"constructor": "standard.schema.record", "id": "SelectionState"},
+        {"constructor": "standard.schema.list", "id": "IntList4"},
     ]
     definitions = next(
         entry["definitions"]
@@ -718,6 +722,7 @@ def test_public_authority_owns_structured_values_and_their_conformance_package(
         "CandidateRef",
         "SelectionResult",
         "SelectionState",
+        "IntList4",
     }
 
 
@@ -2071,6 +2076,7 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         ("runtime.step_limit_exceeded", "runtime"),
         ("runtime.numeric_overflow", "runtime"),
         ("runtime.structured_lookup_out_of_range", "runtime"),
+        ("runtime.structured_list_capacity_exceeded", "runtime"),
         ("runtime.schedule_backward", "runtime"),
         ("runtime.schedule_hidden_input", "runtime"),
         ("runtime.schedule_illegal_same_time_priority", "runtime"),

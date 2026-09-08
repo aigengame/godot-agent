@@ -123,6 +123,7 @@ def _kernel_structured_value_contracts(
         "bounded-lookup",
         "canonical-equal",
         "collection-is-empty",
+        "bounded-list-append",
     }:
         raise ValueError("Kernel structured-value operator is unavailable")
     return (
@@ -143,6 +144,7 @@ def _structured_value_nodes(
             "bounded-lookup",
             "canonical-equal",
             "collection-is-empty",
+            "bounded-list-append",
         }:
             if operator in value_nodes:
                 raise ValueError("Kernel structured-value operator is duplicated")
@@ -561,6 +563,79 @@ def lookup_type_contract(
             refusal_signal,
         )
     raise StructuredValueFault("structured.reason.type-mismatch", "/key")
+
+
+def list_type_contract(
+    type_expression: Any, *, authority: StructuredValueIndex
+) -> tuple[JsonValue, int]:
+    """Project the element type and finite bound of the selected List constructor."""
+    definition, _constructor, rule = _structural_type_contract(
+        type_expression, authority, pointer="/type"
+    )
+    maximum = definition.get(cast(str, rule.get("maximum_length_member")))
+    if (
+        rule.get("operator") != "bounded-list"
+        or not isinstance(maximum, int)
+        or isinstance(maximum, bool)
+        or maximum < 0
+    ):
+        raise StructuredValueFault("structured.reason.type-mismatch", "/type")
+    return (
+        _canonical_type_expression(
+            definition[cast(str, rule["element_member"])], authority
+        ),
+        maximum,
+    )
+
+
+def append_typed_value(
+    envelope: Any,
+    item: Any,
+    *,
+    authority: StructuredValueIndex,
+    resource_limit: int | None,
+) -> dict[str, JsonValue]:
+    """Append one compatible value under the selected finite List capacity law."""
+    admitted = admit_typed_value(
+        envelope, authority=authority, resource_limit=resource_limit
+    )
+    type_member, value_member = typed_envelope_members(authority)
+    element, maximum = list_type_contract(admitted[type_member], authority=authority)
+    _definition, constructor, _rule = _structural_type_contract(
+        admitted[type_member], authority, pointer="/type"
+    )
+    law = _structured_operation_law(
+        authority, constructor, "bounded-list-append", pointer="/type"
+    )
+    if law != {
+        "operator": "bounded-list-append",
+        "element_projection": "list-element-type",
+        "result_projection": "same-list-type",
+        "order": "append-after-existing",
+        "duplicates": "preserve",
+        "capacity": "length-less-than-maximum",
+        "refusal_signal": "structured-list-capacity-exceeded",
+    }:
+        raise StructuredValueFault("structured.reason.type-mismatch", "/type")
+    if isinstance(item, dict) and set(item) == {type_member, value_member}:
+        admitted_item = admit_typed_value(
+            item, authority=authority, resource_limit=resource_limit
+        )
+        if admitted_item[type_member] != element:
+            raise StructuredValueFault("structured.reason.type-mismatch", "/item/type")
+        item_value = admitted_item[value_member]
+    else:
+        item_value = admit_typed_value(
+            {type_member: element, value_member: item},
+            authority=authority,
+            resource_limit=resource_limit,
+        )[value_member]
+    values = cast(list[JsonValue], admitted[value_member])
+    if len(values) >= maximum:
+        raise _runtime_structured_fault(
+            cast(str, law["refusal_signal"]), "/value", authority=authority
+        )
+    return {type_member: admitted[type_member], value_member: [*values, item_value]}
 
 
 def equal_result_contract(

@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 from gda_balancing.domain.authority.runtime_validation import (
+    derive_operation_value_contracts,
     fixed_operation_value_contract,
     operation_literal_context_contract,
 )
@@ -241,7 +242,8 @@ def build_operation_call_domain_input(
             ),
         ),
         literal_contract=_literal_contract_resolver(kernel, language_bundle),
-        snapshot_contracts=_snapshot_contracts(operations, declarations_by_symbol),
+        iteration_contract=_iteration_contract_resolver(kernel),
+        snapshot_contracts=_snapshot_declarations(operations, declarations_by_symbol),
         snapshot_operand_names=_snapshot_operand_names(operations),
     )
 
@@ -279,7 +281,43 @@ def _formula_slot_bindings(
     return frozenset(selected)
 
 
-def _snapshot_contracts(
+def operation_snapshot_contracts(
+    kernel: dict[str, Any],
+    language_bundle: dict[str, Any],
+    operations: dict[OperationCoordinate, dict[str, Any]],
+    declarations_by_symbol: dict[tuple[str, str], dict[str, Any]],
+) -> dict[OperationCoordinate, dict[str, dict[str, Any]]]:
+    """Project declared Snapshot values into selected Operation value contracts.
+
+    Formula call-domain analysis retains each declaration's numeric interval.
+    Lexical Operation admission instead uses the authority's actual-value
+    contract, with the declaration's nominal type and scalar dimensions intact.
+    """
+    value_contracts = derive_operation_value_contracts(kernel, language_bundle)
+    if value_contracts is None:
+        raise ValueError("Operation value contracts are not admitted")
+    resolved: dict[OperationCoordinate, dict[str, dict[str, Any]]] = {}
+    for coordinate, declarations in _snapshot_declarations(
+        operations, declarations_by_symbol
+    ).items():
+        contracts: dict[str, dict[str, Any]] = {}
+        for name, declaration in declarations.items():
+            contract = value_contracts.contract_for_type(declaration["type_identity"])
+            members = (
+                ("value_kind",)
+                if declaration.get("value_kind") == "nominal-structured"
+                else ("representation", "kind", "unit", "numeric_policy")
+            )
+            if contract is None or any(
+                declaration.get(member) != contract.get(member) for member in members
+            ):
+                raise ValueError("Snapshot declaration has no Operation value contract")
+            contracts[name] = contract
+        resolved[coordinate] = contracts
+    return resolved
+
+
+def _snapshot_declarations(
     operations: dict[OperationCoordinate, dict[str, Any]],
     declarations_by_symbol: dict[tuple[str, str], dict[str, Any]],
 ) -> dict[OperationCoordinate, dict[str, dict[str, Any]]]:
@@ -357,6 +395,33 @@ def _literal_contract_resolver(
                 "domain_kind": "closed-interval",
                 "domain": {"minimum": value, "maximum": value},
             }
+        return contract
+
+    return resolve
+
+
+def _iteration_contract_resolver(
+    kernel: dict[str, Any],
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Bound successful scalar iteration values by their admitted representation."""
+    numeric = kernel["meta_format"]["runtime_program"]["numeric"]
+
+    def resolve(formal: dict[str, Any]) -> dict[str, Any]:
+        if formal.get("value_kind") == "nominal-structured":
+            return {"type_identity": formal["type"], "value_kind": "nominal-structured"}
+        contract = cast(dict[str, Any], formula_contract_from_operation(formal))
+        domain = formal.get("domain")
+        if domain == {"kind": "actual"}:
+            if (
+                formal.get("numeric_policy")
+                not in numeric["compatible_value_numeric_policies"]
+            ):
+                raise ValueError("fold iteration has no admitted numeric domain")
+            domain = {"minimum": numeric["minimum"], "maximum": numeric["maximum"]}
+        elif isinstance(domain, dict) and domain.get("kind") == "closed-interval":
+            domain = {"minimum": domain["minimum"], "maximum": domain["maximum"]}
+        if isinstance(domain, dict) and set(domain) == {"minimum", "maximum"}:
+            contract = {**contract, "domain_kind": "closed-interval", "domain": domain}
         return contract
 
     return resolve

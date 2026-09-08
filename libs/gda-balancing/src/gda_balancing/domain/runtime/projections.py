@@ -39,6 +39,8 @@ SUPPORTED_RUNTIME_OPERATORS = frozenset(
         "cancel-event",
         "canonical-equal",
         "bounded-lookup",
+        "bounded-list-append",
+        "bounded-pure-fold",
         "collection-is-empty",
         "gameplay-precondition",
         "guarded-outcome-block",
@@ -122,6 +124,15 @@ def runtime_execution_contract(checked: CheckedExperiment) -> dict[str, Any]:
         member: cast(dict[str, Any], runtime[member])
         for member in ("runtime_configuration", "transition", "step")
     }
+
+
+def execution_path_segment(checked: CheckedExperiment, segment: str) -> str:
+    """Encode one authored segment under the selected invocation path law."""
+    encoding = runtime_contract(checked)["invocation_contract"]["execution_path"][
+        "segment_encoding"
+    ]
+    # Escape the escape character first; the encoded slash must not be escaped twice.
+    return segment.replace("~", encoding["~"]).replace("/", encoding["/"])
 
 
 def runtime_lifecycle_roles(checked: CheckedExperiment) -> dict[str, str]:
@@ -694,7 +705,7 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
                 "system": platform.system(),
                 "machine": platform.machine() or "unknown",
             },
-            "operation_kinds": ["event-fragment", "event-program"],
+            "operation_kinds": ["event-fragment", "event-program", "pure-expression"],
             "instruction_nodes": nodes,
             "effects": [
                 "event.cancel",

@@ -35,6 +35,7 @@ from gda_balancing.domain.runtime.projections import (
     event_catalog_record as _event_catalog_record,
     extend_runtime_journal_identity as _extend_runtime_journal_identity,
     external_input_identity as _external_input_identity,
+    execution_path_segment as _execution_path_segment,
     metric_definition_identity as _metric_definition_identity,
     observation_event_id as _observation_event_id,
     operation_formula_evaluation_record as _operation_formula_evaluation_record,
@@ -69,6 +70,8 @@ from gda_balancing.domain.structured_values import (
     StructuredValueIndex,
     StructuredValueFault,
     admit_typed_value,
+    append_typed_value,
+    list_type_contract,
     equal_typed_values,
     is_empty_typed_value,
     lookup_selector_kind,
@@ -126,6 +129,12 @@ class _RuntimeExecutionFault(Exception):
 class _FormulaProgramResult:
     value: int
     consumed_steps: int
+
+
+@dataclass
+class _OperationBudget:
+    limit: int
+    used: int = 0
 
 
 class _NonpositiveDivisorError(ValueError):
@@ -559,6 +568,16 @@ def _execute_value_instruction(
         variables[cast(str, instruction["target"])] = lookup_typed_value(
             envelope,
             key,
+            authority=structured_authority,
+            resource_limit=structured_resource_limit,
+        )
+        return
+    elif operator == "bounded-list-append":
+        if structured_authority is None:
+            raise ValueError("structured authority is required for List append")
+        variables[cast(str, instruction["target"])] = append_typed_value(
+            variables[cast(str, instruction["value"])],
+            variables[cast(str, instruction["item"])],
             authority=structured_authority,
             resource_limit=structured_resource_limit,
         )
@@ -1257,12 +1276,16 @@ def evaluate_prepared_experiment(
             state_references: dict[str, bytes],
             call_path: tuple[str, ...],
             call_site_identity: str | None,
-            operation_step_counter: list[int] | None = None,
+            enclosing_budgets: tuple[_OperationBudget, ...] = (),
+            *,
+            guarded_body: list[dict[str, Any]] | None = None,
+            guarded_outcome: str | None = None,
             instruction_index_offset: int = 0,
-        ) -> tuple[str, Any]:
+        ) -> tuple[str | None, Any]:
             nonlocal admitted_event_count
             nonlocal event_steps, next_enqueue_sequence, total_steps
-            operation_before: dict[bytes, Any] = dict(state)
+            pure = selected_operation["operation_kind"] == "pure-expression"
+            operation_before: dict[bytes, Any] = {} if pure else dict(state)
             variables: dict[str, Any] = dict(arguments)
             extensions = selected_operation.get("extensions", {})
             snapshot_operands = (
@@ -1270,7 +1293,9 @@ def evaluate_prepared_experiment(
                 if isinstance(extensions, dict)
                 else None
             )
-            if isinstance(snapshot_operands, dict):
+            if pure and (snapshot_operands is not None or state_references):
+                raise ValueError("pure Operation cannot capture Snapshot or state")
+            if guarded_body is None and isinstance(snapshot_operands, dict):
                 for row in cast(
                     list[dict[str, Any]],
                     snapshot_operands.get("operands", []),
@@ -1278,12 +1303,73 @@ def evaluate_prepared_experiment(
                     identity = canonical_bytes(cast(JsonValue, row["resolved_symbol"]))
                     variables[cast(str, row["name"])] = actual_values[identity]
             operation_results: dict[str, Any] = {}
-            outcome = selected_operation["default_outcome"]
-            operation_steps = (
-                operation_step_counter if operation_step_counter is not None else [0]
+            outcome = (
+                None
+                if pure
+                else guarded_outcome
+                if guarded_body is not None
+                else selected_operation["default_outcome"]
             )
-            evaluation_sites = instruction_evaluation_sites(selected_operation)
-            body = cast(list[dict[str, Any]], selected_operation["body"])
+            budgets = (
+                enclosing_budgets
+                if guarded_body is not None
+                else (
+                    *enclosing_budgets,
+                    _OperationBudget(
+                        selected_operation["resource_bounds"]["max_steps"]
+                    ),
+                )
+            )
+
+            def charge_attempt(
+                amount: int,
+                *,
+                operation_id: str,
+                path: tuple[str, ...],
+                site_identity: str | None,
+                evaluation_identity: str | None,
+                index: int,
+            ) -> None:
+                nonlocal total_steps, event_steps
+                total_steps += amount
+                event_steps += amount
+                for budget in budgets:
+                    budget.used += amount
+                if (
+                    total_steps > runtime_limit
+                    or event_steps > root_step_limit
+                    or any(budget.used > budget.limit for budget in budgets)
+                ):
+                    raise _RuntimeExecutionFault(
+                        signal="step-limit",
+                        operation=operation_id,
+                        call_path=path,
+                        call_site_identity=site_identity,
+                        evaluation_site_identity=evaluation_identity,
+                        instruction_index=index,
+                    )
+
+            def argument_values(bindings: list[dict[str, Any]]) -> dict[str, Any]:
+                return {
+                    binding["port"]: (
+                        variables[actual[actual["kind"]]]
+                        if actual["kind"] in {"port", "local"}
+                        else actual["literal"]
+                    )
+                    for binding in bindings
+                    for actual in [binding["operand"]]
+                }
+
+            evaluation_sites = (
+                instruction_evaluation_sites(selected_operation)
+                if guarded_body is None
+                else {}
+            )
+            body = (
+                guarded_body
+                if guarded_body is not None
+                else cast(list[dict[str, Any]], selected_operation["body"])
+            )
             expanded_indices = guard_expanded_instruction_indices(
                 body, offset=instruction_index_offset
             )
@@ -1292,23 +1378,14 @@ def evaluate_prepared_experiment(
                 evaluation_site_identity = evaluation_sites.get(body_index)
                 node_contract = node_contracts[instruction["node"]]
                 charge = node_contract["resource_charge"]["amount"]
-                total_steps += charge
-                event_steps += charge
-                operation_steps[0] += charge
-                if (
-                    total_steps > runtime_limit
-                    or event_steps > root_step_limit
-                    or operation_steps[0]
-                    > selected_operation["resource_bounds"]["max_steps"]
-                ):
-                    raise _RuntimeExecutionFault(
-                        signal="step-limit",
-                        operation=selected_operation["id"],
-                        call_path=call_path,
-                        call_site_identity=call_site_identity,
-                        evaluation_site_identity=evaluation_site_identity,
-                        instruction_index=instruction_index,
-                    )
+                charge_attempt(
+                    charge,
+                    operation_id=selected_operation["id"],
+                    path=call_path,
+                    site_identity=call_site_identity,
+                    evaluation_identity=evaluation_site_identity,
+                    index=instruction_index,
+                )
                 semantics = node_contract["semantics"]
                 operator = semantics["operator"]
                 if operator == "invoke-operation":
@@ -1322,7 +1399,10 @@ def evaluate_prepared_experiment(
                         actual = binding["operand"]
                         if actual["kind"] == "port":
                             child_arguments[binding["port"]] = variables[actual["port"]]
-                            if actual["port"] in state_references:
+                            if (
+                                child["operation_kind"] != "pure-expression"
+                                and actual["port"] in state_references
+                            ):
                                 child_state_references[binding["port"]] = (
                                     state_references[actual["port"]]
                                 )
@@ -1332,14 +1412,26 @@ def evaluate_prepared_experiment(
                             ]
                         else:
                             child_arguments[binding["port"]] = actual["literal"]
+                    child_path = (
+                        *call_path,
+                        _execution_path_segment(checked, instruction["site"]),
+                    )
                     child_outcome, child_result = execute_operation(
                         operation_coordinate(instruction["operation"]),
                         child,
                         child_arguments,
                         child_state_references,
-                        (*call_path, instruction["site"]),
+                        child_path,
                         resolved_call_site["identity"],
+                        budgets,
                     )
+                    result_binding = instruction["result"]
+                    if result_binding["kind"] == "local":
+                        variables[result_binding["name"]] = child_result
+                    elif result_binding["kind"] == "operation-result":
+                        operation_results[instruction["site"]] = child_result
+                    if child["operation_kind"] == "pure-expression":
+                        continue
                     resolved_outcome = next(
                         row
                         for row in resolved_call_site["outcomes"]
@@ -1347,7 +1439,7 @@ def evaluate_prepared_experiment(
                     )
                     call_trace.append(
                         {
-                            "site": "/".join((*call_path, instruction["site"])),
+                            "site": "/".join(child_path),
                             "call_site_identity": resolved_call_site["identity"],
                             "operation": resolved_call_site["operation"],
                             "outcome": {
@@ -1366,11 +1458,6 @@ def evaluate_prepared_experiment(
                             "result_identity": resolved_call_site["result"]["identity"],
                         }
                     )
-                    result_binding = instruction["result"]
-                    if result_binding["kind"] == "local":
-                        variables[result_binding["name"]] = child_result
-                    elif result_binding["kind"] == "operation-result":
-                        operation_results[instruction["site"]] = child_result
                     for alias, actual in state_references.items():
                         variables[alias] = state[actual]
                     mapping = next(
@@ -1381,6 +1468,59 @@ def evaluate_prepared_experiment(
                     if mapping["action"]["kind"] == "propagate":
                         outcome = mapping["action"]["outcome"]
                         break
+                    continue
+                if operator == "bounded-pure-fold":
+                    child_coordinate = operation_coordinate(instruction["operation"])
+                    child = operations[child_coordinate]
+                    if child["operation_kind"] != "pure-expression":
+                        raise ValueError("fold step is not an admitted pure Operation")
+                    type_member, value_member = typed_envelope_members(
+                        structured_authority
+                    )
+                    collection = variables[instruction["value"]]
+                    element_type, _maximum = list_type_contract(
+                        collection[type_member], authority=structured_authority
+                    )
+                    accumulator = variables[instruction["initial"]]
+                    explicit_arguments = argument_values(instruction["arguments"])
+                    path_law = runtime_contract["invocation_contract"]["execution_path"]
+                    fold_path = (
+                        *call_path,
+                        _execution_path_segment(checked, instruction["site"]),
+                    )
+                    for item_index, item in enumerate(collection[value_member]):
+                        step_path = (
+                            *fold_path,
+                            path_law["fold_iteration"]["prefix"] + str(item_index),
+                        )
+                        charge_attempt(
+                            semantics["invocation_charge"],
+                            operation_id=child["id"],
+                            path=step_path,
+                            site_identity=None,
+                            evaluation_identity=None,
+                            index=path_law["iteration_attempt_position"][
+                                "instruction_index"
+                            ],
+                        )
+                        child_arguments = {
+                            **explicit_arguments,
+                            instruction["accumulator_port"]: accumulator,
+                            instruction["item_port"]: {
+                                type_member: element_type,
+                                value_member: item,
+                            },
+                        }
+                        _child_outcome, accumulator = execute_operation(
+                            child_coordinate,
+                            child,
+                            child_arguments,
+                            {},
+                            step_path,
+                            None,
+                            budgets,
+                        )
+                    variables[instruction["target"]] = accumulator
                     continue
                 if operator == "schedule-operation":
                     child_operation = operations[
@@ -1647,35 +1787,17 @@ def evaluate_prepared_experiment(
                         )
                 elif operator == "guarded-outcome-block":
                     if variables[instruction["condition"]]:
-                        unit_contract = runtime_contract["fixed_value_contracts"][
-                            "kernel-unit"
-                        ]
-                        guarded_operation = {
-                            "body": instruction["body"],
-                            "default_outcome": instruction["outcome"],
-                            "effects": selected_operation["effects"],
-                            "id": selected_operation["id"],
-                            "inputs": [],
-                            "outcomes": list(selected_operation["outcomes"]),
-                            "refusals": selected_operation["refusals"],
-                            "resource_bounds": selected_operation["resource_bounds"],
-                            "result": {
-                                **unit_contract,
-                                "access": "read",
-                                "discardable": True,
-                                "id": "result",
-                                "source": {"kind": "unit"},
-                            },
-                        }
                         execute_operation(
                             selected_coordinate,
-                            guarded_operation,
+                            selected_operation,
                             dict(variables),
                             state_references,
                             call_path,
                             call_site_identity,
-                            operation_steps,
-                            instruction_index + 1,
+                            budgets,
+                            guarded_body=instruction["body"],
+                            guarded_outcome=instruction["outcome"],
+                            instruction_index_offset=instruction_index + 1,
                         )
                         for alias, actual in state_references.items():
                             variables[alias] = state[actual]
@@ -1709,9 +1831,13 @@ def evaluate_prepared_experiment(
                             structured_authority=structured_authority,
                             structured_resource_limit=structured_resource_limit,
                         )
-                    except OverflowError as error:
+                    except (OverflowError, _NonpositiveDivisorError) as error:
                         raise _RuntimeExecutionFault(
-                            signal="numeric-overflow",
+                            signal=(
+                                "invalid-domain"
+                                if isinstance(error, _NonpositiveDivisorError)
+                                else "numeric-overflow"
+                            ),
                             operation=selected_operation["id"],
                             call_path=call_path,
                             call_site_identity=call_site_identity,
@@ -1741,7 +1867,10 @@ def evaluate_prepared_experiment(
                     formal = instruction["symbol"]
                     actual = state_references[formal]
                     value = (
-                        state[actual] - variables[instruction["value"]]
+                        _require_runtime_integer(state[actual], structured_authority)
+                        - _require_runtime_integer(
+                            variables[instruction["value"]], structured_authority
+                        )
                         if operator == "state-integer-subtract"
                         else variables[instruction["value"]]
                     )
@@ -1791,14 +1920,19 @@ def evaluate_prepared_experiment(
                             "admitted Formula evaluation record is incomplete"
                         )
                     formula_evaluations.append(evaluation)
-            outcome_definition = next(
-                row for row in selected_operation["outcomes"] if row["id"] == outcome
-            )
-            if outcome_definition["state_policy"] == "rollback":
-                state.clear()
-                state.update(operation_before)
             result_source = selected_operation["result"]["source"]
-            if outcome_definition["kind"] != "success":
+            successful = True
+            if not pure:
+                outcome_definition = next(
+                    row
+                    for row in selected_operation["outcomes"]
+                    if row["id"] == outcome
+                )
+                if outcome_definition["state_policy"] == "rollback":
+                    state.clear()
+                    state.update(operation_before)
+                successful = outcome_definition["kind"] == "success"
+            if not successful or guarded_body is not None:
                 result = None
             elif result_source["kind"] in {"local", "port"}:
                 result = variables[result_source["name"]]
@@ -1806,7 +1940,7 @@ def evaluate_prepared_experiment(
                 result = operation_results[result_source["site"]]
             else:
                 result = None
-            return cast(str, outcome), result
+            return outcome, result
 
         pending_events = list(ordered_events)
         event_position = 0
@@ -1875,6 +2009,9 @@ def evaluate_prepared_experiment(
                     if entrypoint is not None
                     else (f"scheduled:{event_spec['call_site_identity']}",)
                 )
+            )
+            dispatch_path = tuple(
+                _execution_path_segment(checked, segment) for segment in dispatch_path
             )
             event_formula_fault: _RuntimeExecutionFault | None = None
             if not external_input:
@@ -1951,6 +2088,10 @@ def evaluate_prepared_experiment(
                         dispatch_path,
                         None,
                     )
+                    if outcome is None:
+                        raise ValueError(
+                            "admitted Event entrypoint has no Event outcome"
+                        )
             except _RuntimeExecutionFault as fault:
                 state.clear()
                 state.update(before)
@@ -2235,12 +2376,16 @@ def evaluate_prepared_experiment(
                         ),
                     },
                     entrypoint_id=(
-                        entrypoint["id"]
+                        f"input:{event_spec['root_event_ref']}"
+                        if external_input
+                        else entrypoint["id"]
                         if entrypoint is not None
                         else f"scheduled:{event_spec['call_site_identity']}"
                     ),
                     entrypoint_identity=(
-                        entrypoint["identity"]
+                        event_id
+                        if external_input
+                        else entrypoint["identity"]
                         if entrypoint is not None
                         else event_spec["call_site_identity"]
                     ),

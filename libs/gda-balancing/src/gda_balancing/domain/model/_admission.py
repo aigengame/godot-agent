@@ -65,7 +65,6 @@ from gda_balancing.domain.model._lowering import (
     _assignment_policy,
     _assignment_policy_by_role,
     _compile_initialization_programs,
-    _composition_policy,
     _exact_operation_coordinate,
     _formula_operation_identity,
     _formula_symbol_dependencies,
@@ -1940,7 +1939,8 @@ def _rir_semantics_are_admitted(
         if rir.get("call_sites") != _resolved_call_sites(
             kernel,
             cast(dict[str, Any], expected_runtime_projection),
-            _composition_policy(_model_lowering(ldb)),
+            language_bundle=ldb,
+            declarations=cast(list[dict[str, Any]], declarations),
         ):
             return False
     except (KeyError, TypeError, ValueError):
