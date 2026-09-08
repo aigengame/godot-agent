@@ -87,7 +87,8 @@ def test_relative_sources_need_an_explicit_base_independent_of_cwd(
         (directory / "icon.png").write_bytes(content)
     calls = []
 
-    def fake_run(recipe, *, source_root, project_root, godot):
+    def fake_run(recipe, *, source_root, project_root, godot, production=None):
+        assert production is None
         calls.append((recipe.files[0].source, source_root, project_root))
         return PipelineResult(source_mode=recipe.source_mode)
 
@@ -189,7 +190,8 @@ def test_argv_and_params_json_build_the_same_recipe(monkeypatch, tmp_path):
     source_root.mkdir()
     calls = []
 
-    def fake_run(recipe, *, source_root, project_root, godot):
+    def fake_run(recipe, *, source_root, project_root, godot, production=None):
+        assert production is None
         calls.append((recipe, source_root, project_root))
         return PipelineResult(
             completed=["validate", "stage", "install", "import", "load"],
@@ -381,3 +383,42 @@ def test_nested_project_target_is_rejected_before_pipeline_install(
     assert outcome.error.evidence.owning_project == str(nested.resolve())
     assert outcome.error.partial_result is not None
     assert outcome.error.partial_result["completed"] == []
+
+
+def test_production_binding_requires_json_and_structured_input_matches(
+    monkeypatch, godot_project
+):
+    calls = []
+
+    def observe(recipe, *, source_root, project_root, godot, production=None):
+        calls.append(production)
+        return PipelineResult(source_mode="blender_saved")
+
+    monkeypatch.setattr("gda.commands.asset_pipeline.run_pipeline", observe)
+    production = {
+        "kind": "blender_saved",
+        "outputs": [{"role": "model", "target": "res://model.glb"}],
+        "options": {
+            "source": "/production/source.blend",
+            "scene": "Scene",
+            "root": "Cube",
+        },
+    }
+    runner = CliRunner()
+    for args in (
+        ["--production", json.dumps(production)],
+        ["--params-json", json.dumps({"production": production})],
+    ):
+        result = runner.invoke(
+            app,
+            ["asset-pipeline", "run", *args, "--project", str(godot_project), "--json"],
+        )
+        assert result.exit_code == 0, result.output
+    assert calls[0] == calls[1]
+    assert calls[0].options == production["options"]
+    schema = json.loads(
+        runner.invoke(app, ["asset-pipeline", "run", "--schema"]).stdout
+    )
+    bindings = {item["input_property"]: item for item in schema["argv"]}
+    assert bindings["production"]["option"] == "--production"
+    assert bindings["production"]["json_value"] is True

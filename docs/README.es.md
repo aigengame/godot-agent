@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=29b7207be8231ce46160c34b0e1336b4412f3a788196bf583b581dafd6b27806 -->
+<!-- gda-readme-i18n: source=README.md sha256=e37039b783e1b1822c93cf395cf57a1bf7afdb777d15fce8c18206342b009e53 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -496,12 +496,12 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 
 | Comando | Qué hace |
 | ------- | ------------ |
-| `asset-pipeline run` | Prepara los archivos PNG/GLB seleccionados, permite redimensionar los PNG, los instala e importa y comprueba el tipo y las dimensiones o la escena que Godot carga realmente. |
+| `asset-pipeline run` | Exporta un subárbol de un archivo de Blender guardado o prepara archivos PNG/GLB; después los instala e importa y comprueba el resultado que Godot carga realmente. |
 
 Usa correspondencias explícitas entre origen y destino y define una política de sobrescritura.
 Los archivos que complete la generación de imágenes siguen el mismo flujo y pueden incluir metadatos
-declarados por quien realiza la llamada. La [guía de entrega de archivos](../libs/gda-assets/README.md)
-explica las entradas, las referencias y los fallos parciales. Este flujo se incluye con gda y no requiere
+declarados por quien realiza la llamada. La [guía del flujo de assets](../libs/gda-assets/README.md)
+explica la exportación desde Blender, los archivos de entrada, las referencias y los fallos parciales. Este flujo se incluye con gda y no requiere
 una herramienta de assets aparte.
 
 ### Comandos live — vía `gda-daemon`; Godot 4.6+, macOS/Linux

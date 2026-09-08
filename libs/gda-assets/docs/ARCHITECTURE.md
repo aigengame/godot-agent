@@ -1,6 +1,7 @@
 # Asset Pipeline architecture
 
-**Status:** accepted design; first file-handoff slice implemented by #908. Other
+**Status:** accepted design; file handoff (#908) and saved Blender production (#909)
+are implemented. Other
 workflows remain planned. Accepted by the project owner
 on 2026-09-07 after review of the Blender-to-Godot workflow and milestone #14.
 Source baseline inspected: `cfcb8658e67df418a69694840a37a22a9cd3cbe0`.
@@ -142,7 +143,13 @@ package API exports only supported service inputs/results and required ports;
 it is not a wholesale re-export of internal modules. There is no second CLI.
 Root `pyproject.toml` packages both source roots in one gda distribution; this
 support context has no separate package manifest or release lifecycle. The
-[file-handoff guide](../README.md) documents the first implemented path.
+[asset pipeline guide](../README.md) documents file handoff and saved Blender
+production. The latter adds the Application-owned `ProductionRequest`,
+`ProductionOutput`, `ProducedFiles` and `AssetProducer` contracts. API composition
+selects the local adapter only when production is requested. The host transports
+generic options and injects the same Godot import/load port; native source
+inspection and export stay inside the Blender adapter and its bundled worker.
+The [Blender guide](blender.md) owns the supported execution and measurement policy.
 
 ## Tactical model and interfaces
 
@@ -313,7 +320,10 @@ checks. #908 adds file-handoff evidence in `tests/asset_pipeline`, bounded resou
 load tests in `tests/resource`, and `scripts/smoke_asset_pipeline.py` for a clean
 built-distribution consumer. These cover PNG/GLB import and loading, declarations,
 resize, no-op repeat, admission failures and partial file effects. They do not
-establish Blender production, runtime refresh or package-only acceptance.
+establish runtime refresh or package-only acceptance. #909 adds real saved-source
+Blender export through that same integration path, Godot-loaded dimension checks,
+and native export/import fault cases in `test_e2e_blender_producer.py`. The native
+result is bounded per invocation; it adds no persisted run or source identity model.
 
 ## Research basis and retained limits
 

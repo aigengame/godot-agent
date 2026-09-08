@@ -22,6 +22,8 @@ runner = CliRunner()
 for argv in [['--help'], ['--version'], ['asset-pipeline', 'run', '--schema']]:
     outcome = runner.invoke(app, argv)
     assert outcome.exit_code == 0, (argv, outcome.output, outcome.exception)
+assert 'gda_assets.adapters.blender' not in sys.modules
+assert 'gda_assets.adapters._blender_worker' not in sys.modules
 """
     outcome = subprocess.run(
         [sys.executable, "-I", "-c", probe],

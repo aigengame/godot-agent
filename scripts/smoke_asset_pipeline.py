@@ -76,6 +76,8 @@ def smoke(gda: Path, godot: str | None) -> None:
 
     for resource in ("ops/operations.gd", "harness/gda_harness.gd", "skill/SKILL.md"):
         assert files("gda").joinpath(resource).is_file(), resource
+    for resource in ("adapters/blender.py", "adapters/_blender_worker.py"):
+        assert files("gda_assets").joinpath(resource).is_file(), resource
     with tempfile.TemporaryDirectory(prefix="gda-assets-smoke-") as directory:
         root = Path(directory)
         source, project = root / "source", root / "consumer"

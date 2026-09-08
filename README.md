@@ -481,11 +481,11 @@ names the file, and only `preflight` catches a first-frame failure.
 
 | Command | What it does |
 | ------- | ------------ |
-| `asset-pipeline run` | Stage selected PNG/GLB files, optionally resize PNGs, install them, then import and check their actual Godot-loaded type and dimensions/scene. |
+| `asset-pipeline run` | Export a saved Blender subtree or stage PNG/GLB files, then install, import and check the actual Godot-loaded result. |
 
 Use explicit source-to-target mappings and an overwrite policy. Completed
 image-generation files use the same path with optional caller-declared metadata.
-The [file-handoff guide](libs/gda-assets/README.md) covers inputs, references and
+The [asset pipeline guide](libs/gda-assets/README.md) covers Blender production, file inputs, references and
 partial failures. The workflow ships with gda; it needs no separate asset tool.
 
 ### Live commands — via `gda-daemon`; Godot 4.6+, macOS/Linux

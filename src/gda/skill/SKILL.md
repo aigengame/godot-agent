@@ -7,7 +7,7 @@ description: Drive the Godot game engine from the command line with `gda`, an ag
 with structured JSON output, so you build and inspect a game without opening the
 editor. Two kinds of operation: **headless** (a one-shot `godot --headless` per
 call — scenes, scripts, exports) and **live** (against a running game via the
-`gda-daemon`). The `asset-pipeline` workflow composes file processing, installation,
+`gda-daemon`). The `asset-pipeline` workflow composes saved Blender export, file processing, installation,
 import, and engine loading through the same entry.
 
 ## Grammar
@@ -32,6 +32,16 @@ caller-declared. This command does not generate or retry images. Read actual
 Godot observations on success, or `error.partial_result` for completed stages,
 file effects and the failed step on a nonzero result. An installed file alone
 does not prove that Godot loaded it.
+
+For saved Blender sources, replace `--files` with `--production` containing
+`{"kind":"blender_saved","outputs":[{"role":"model","target":"res://art/model.glb"}],"options":{"source":"/production/model.blend","scene":"AssetScene","root":"AssetRoot","uniform_scale":2}}`.
+Set `GDA_BLENDER` or `options.executable`; the source must be saved and scene/root
+names explicit. Relative sources require `--source-root`. Scaling and export run
+in a separate background process without saving or accessing the active session.
+Non-unit scaling of animated/driven roots is unsupported. Read `production` for
+native inspect/prepare/export facts and `observations` for actual Godot loading.
+After import failure, use the installed GLB for an explicit import retry; repeating
+`--production` runs a new export. No concept/prompt record is required.
 
 ## Setup
 
@@ -224,7 +234,7 @@ Every headless reply carries its floats at full binary64 precision, so a value r
 
 | Group | Commands |
 | --- | --- |
-| `asset-pipeline` | `run` (selected PNG/GLB handoff, staging, installation, import and actual engine load) |
+| `asset-pipeline` | `run` (saved Blender export or PNG/GLB handoff, installation, import and actual engine load) |
 
 ## Live operations (via the daemon; Godot 4.6+, macOS/Linux)
 

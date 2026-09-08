@@ -45,3 +45,5 @@ class PipelineResult:
     import_result: ImportOutcome | None = None
     observations: list[LoadObservation] = field(default_factory=list)
     failure: PipelineFailure | None = None
+    production: dict[str, Any] | None = None
+    cleanup: dict[str, bool] | None = None
