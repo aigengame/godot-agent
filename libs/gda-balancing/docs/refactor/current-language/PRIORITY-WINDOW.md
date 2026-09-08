@@ -19,7 +19,7 @@ form the initial candidate. Resolution must inspect the actual pending graph in
 reverse order. A counter proposal does not immediately erase its target; cancellation
 occurs prospectively during resolution after the window closes. A valid pass-choice
 variant must change the final result under the same rules. An invalid responder or
-counter target must have a declared refusal. These are proposed scenario boundaries,
+counter target must have a declared rollback outcome. These are proposed scenario boundaries,
 not implemented observations.
 
 The first checks target two independent risks: whether the current value/Operation
@@ -58,6 +58,36 @@ schema-owner refusal at Authority admission. On the preserved old implementation
 the Formula rename case fails and the other three pass; after the correction these
 and related Formula/namespace cases pass (17 tests). Kernel/LDB resources are unchanged.
 Final fixed-build and complete inventory acceptance still require the work below.
+
+## Scheduled-argument counterexamples
+
+The [second evidence record](evidence/priority-window/scheduled-arguments-counterexamples.json)
+preserves the original typed protocol and a diagnostic scalar contrast at the same dev
+base. The original candidate adds admitted `game.action` and `game.turn` content,
+builds all eight Model artifacts, and passes Experiment check. Runtime captures legal
+nominal arguments for the final scheduled resolution, but Event Trace publication
+raises an internal validation error. Two LDB wire positions still allow only integer
+scheduled values: Event Trace and the committed trace prefix in Runtime Terminal Audit.
+The existing integer-or-closed-typed-value carrier is the appropriate correction;
+the selected nominal contracts and independently replayed capture remain mandatory.
+
+The diagnostic contrast adjudicates the same pending graph before scheduling a scalar
+final effect. Under one RIR, the full counter chain computes cancellation `[2]` and
+final power 7, while the consecutive-pass variant computes cancellation `[1]` and
+final power 0. The baseline result is incorrectly refused by complete artifact
+admission: a duplicate check compares a captured port with its pre-Event value even
+though an earlier invocation in that Event legitimately changed it. The same owner
+already reconstructs the actual capture through Replay. Removing the stale comparison
+must retain that exact reconstruction, schedule instruction, ordering, identities and
+StateRefs, with coordinated forgery tests.
+
+These are generic authority/consumer repairs. They require neither a new Kernel
+primitive nor a genre dispatch branch. The scalar contrast does not replace the
+original typed protocol. Public success after the repairs, dynamic conformance,
+negative boundary cases and complete fixed-build invariance remain open. Wrong
+priority or target may be declared gameplay-alternative rollback outcomes; those
+outcomes must not be mislabeled as Runtime failures. Bounds and illegal callback or
+phase cases retain their actual refusal requirements.
 
 ## Remaining proof and integration
 

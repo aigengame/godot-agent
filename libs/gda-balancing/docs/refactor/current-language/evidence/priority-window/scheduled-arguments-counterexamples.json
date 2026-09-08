@@ -1,0 +1,64 @@
+{
+  "evidence_kind": "bounded-counterexamples",
+  "issue": 878,
+  "source_commit": "1596e77ea6807d4b91b8709da52c72eed346b0de",
+  "original_typed_protocol": {
+    "source_sha256": "cf8533d08fe527d194a9926b3c9b9dd46864394688fa49f8371968878675af7f",
+    "experiment_sha256": "71c97117d1ac68425df1c49a479a5083438b1245042ce520043e76b70ec33075",
+    "rir_semantic_identity": "sha256:2d811cec998ff81eebef37496c54b90a719f8fa0bc8bfe4e36d8f0a98f1d1af6",
+    "authority_admitted": true,
+    "model_build_exit": 0,
+    "model_member_count": 8,
+    "experiment_check_exit": 0,
+    "experiment_run_exit": 4,
+    "failure": "Event Trace publication raises ValidationError for a captured nominal value; the wire schema permits only an integer.",
+    "owner": "src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+    "affected_contracts": [
+      {
+        "artifact_kind": "event-trace",
+        "schema_pointer": "/properties/events/items/properties/schedules/items/properties/arguments/items/properties/value"
+      },
+      {
+        "artifact_kind": "runtime-terminal-audit",
+        "schema_pointer": "/properties/committed_trace_prefix/items/properties/schedules/items/properties/arguments/items/properties/value"
+      }
+    ],
+    "required_correction": "Use the existing integer-or-closed-typed-value carrier. Retain selected nominal type and replayed capture checks."
+  },
+  "scalar_diagnostic_contrast": {
+    "source_sha256": "89acc1380d0084aa0570a78ee950819a4778177f54111cad84246f21212b45a0",
+    "rir_semantic_identity": "sha256:138312f98cb89a1252cb393f7ef163175bf332cf5ae13ada4ad32213530845da",
+    "same_rules_for_both_inputs": true,
+    "baseline": {
+      "choices": ["A proposes", "B counters the root", "A counters B", "B passes", "A passes"],
+      "canceled_ids": [2],
+      "final_power": 7,
+      "run_node_steps": 128,
+      "artifact_set_admitted": false,
+      "experiment_check_exit": 0,
+      "experiment_run_exit": 4,
+      "members_sha256": "fdb33ff96e0e3dcd851a5dacbcac382b909d60a2340c635c31aa0564541d5110"
+    },
+    "pass_variant": {
+      "choices": ["A proposes", "B counters the root", "A passes", "B passes"],
+      "canceled_ids": [1],
+      "final_power": 0,
+      "run_node_steps": 91,
+      "artifact_set_admitted": true,
+      "experiment_check_exit": 0,
+      "experiment_run_exit": 0,
+      "published_member_count": 6,
+      "members_sha256": "d3654a49ab0c08ff248442ff608696b1b2a92165e86e5f15356b7d749c9afb5f"
+    },
+    "owner": "src/gda_balancing/domain/experiment_artifacts.py::_scheduled_catalog_record_is_authoritative",
+    "failure": "The baseline writes survival from 0 to 1 before scheduling. A redundant gate compares its legal captured port value to the pre-Event argument 0, despite the existing Replay-derived exact capture being 1.",
+    "required_correction": "Delete the stale pre-Event comparison; retain the authoritative schedule instruction, ordering, identities, Replay-derived arguments and StateRefs."
+  },
+  "proof_limits": [
+    "The original typed protocol has not completed public execution at this source commit.",
+    "The scalar contrast diagnoses a consumer defect; it does not replace the typed protocol.",
+    "The candidate computes a bounded target graph from authored choices and generated IDs, but its admission-only operation-contract vectors do not prove dynamic conformance.",
+    "These observations do not prove complete token inventory, exhaustive renaming, independent six-member result production, repeated-window lifecycle or full genre coverage.",
+    "Hashes identify the captured inputs and outputs; they are not authentication or an Extension Invariance Receipt."
+  ]
+}
