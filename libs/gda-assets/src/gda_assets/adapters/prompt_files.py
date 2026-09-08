@@ -62,7 +62,7 @@ def _regular_input(path: Path, limit: int) -> os.stat_result:
     return observed
 
 
-def _read_bounded(path: Path, limit: int) -> bytes:
+def read_bounded_file(path: Path, limit: int) -> bytes:
     try:
         before_path = _regular_input(path, limit)
         with path.open("rb") as stream:
@@ -133,7 +133,9 @@ def _dump(record: PromptRecord, path: Path) -> None:
 class PromptFiles:
     def read_text(self, path: Path) -> str:
         try:
-            return _read_bounded(path.resolve(strict=True), _TEXT_LIMIT).decode("utf-8")
+            return read_bounded_file(path.resolve(strict=True), _TEXT_LIMIT).decode(
+                "utf-8"
+            )
         except (OSError, UnicodeDecodeError) as exc:
             raise PortFailure(
                 "invalid_prompt", f"Invalid prompt text {path}: {exc}"
@@ -243,7 +245,7 @@ class PromptFiles:
         try:
             root = record.resolve(strict=True)
             result = _RECORD.validate_json(
-                _read_bounded(root / "record.json", _JSON_LIMIT), strict=True
+                read_bounded_file(root / "record.json", _JSON_LIMIT), strict=True
             )
             result = self._rebase(result, root)
             outputs = []
@@ -258,7 +260,7 @@ class PromptFiles:
                     raise ValueError("Prompt record has too many output registrations")
                 for registration in registrations:
                     output = _OUTPUT.validate_json(
-                        _read_bounded(registration, _JSON_LIMIT), strict=True
+                        read_bounded_file(registration, _JSON_LIMIT), strict=True
                     )
                     file = self._rebase_file(output.file, root)
                     assert file is not None
@@ -317,7 +319,7 @@ class PromptFiles:
                 or not item.path.is_file()
             ):
                 raise ValueError("Prompt record contains an unavailable saved file")
-            data = _read_bounded(
+            data = read_bounded_file(
                 item.path, _PNG_LIMIT if item.width is not None else _TEXT_LIMIT
             )
             if (
@@ -327,7 +329,7 @@ class PromptFiles:
                 raise ValueError("Prompt record saved input or output changed")
         if not record.resolved_path.resolve().is_relative_to(record.record):
             raise ValueError("Prompt record resolved text escapes its directory")
-        resolved = _read_bounded(record.resolved_path, _TEXT_LIMIT)
+        resolved = read_bounded_file(record.resolved_path, _TEXT_LIMIT)
         if (
             resolved.decode() != record.resolved_prompt
             or hashlib.sha256(resolved).hexdigest() != record.resolved_sha256

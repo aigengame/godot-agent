@@ -42,7 +42,10 @@ art direction determines suitable views, poses, and style.
 
 **Authoring handoff**: Selected usable concept files, their prompt-record links,
 intended use, and project instructions delivered to a tool or agent before authoring.
-It is a small prepared input, not a persisted workflow aggregate.
+It is a small prepared input, not a persisted workflow aggregate. The initial
+examples each consume exactly one selected PNG: a Blender reference blockout records
+pixel-derived material influence, and a sprite example records reference-derived
+frames. They do not claim general authoring, similarity, or production quality.
 
 **Producer**: A boundary that supplies asset files from a native source or generation
 request. Its adapter owns vendor options and failure translation. A producer need

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=40e478a5d338ee83ba3ba811623d831ed075bd1af73499a68310544b2bb8e50e -->
+<!-- gda-readme-i18n: source=README.md sha256=d5809235a582579160cb9b6183987697a7703eeaf5280f3e074a124989b2b95b -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -499,8 +499,9 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `asset-pipeline check-package` | 隔離されたエクスポート済み PCK からリソースを読み込み、同じモデル条件で検証するとともに、明示された除外対象を正確なパスで確認します。 |
 | `asset-pipeline prompt-prepare` / `prompt-inspect` | 外部ツールで生成する前に、1 回の試行で使うプロンプトと PNG 参照画像を保存し、保存済みの入力を再利用します。 |
 | `asset-pipeline prompt-revise` / `prompt-register-output` | 修正内容を別の試行として保存するか、生成済みのローカル PNG と、呼び出し側の申告・プロバイダーの報告を記録します。 |
+| `asset-pipeline concept-prepare` / `concept-select` / `concept-author` | モデルまたはスプライトの概要を保存し、登録済み PNG 参照画像を選択して、用途を限定した参照利用例を実行します。 |
 
-[プロンプト用コマンド](../libs/gda-assets/docs/prompts.md)はローカルで動作し、Godot や生成サービスへの接続は不要です。準備後は外部ツールに渡す入力を返します。画像の生成は行いません。
+[プロンプト用コマンド](../libs/gda-assets/docs/prompts.md)はローカルで動作し、Godot や生成サービスへの接続は不要です。準備後は外部ツールに渡す入力を返します。画像の生成は行いません。[コンセプト参照画像のワークフロー](../libs/gda-assets/docs/concepts.md)でも生成は明示的に外部ツールへ委ね、参照画像を Godot にインストールしません。
 
 ソースからターゲットへのマッピングと上書きポリシーを明示してください。生成が完了した画像ファイルも
 同じ手順で処理でき、呼び出し側が指定したメタデータを任意で付加できます。[アセットパイプラインガイド](../libs/gda-assets/README.md)では、

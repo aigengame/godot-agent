@@ -9,8 +9,8 @@ override rules are declared in its own `AGENTS.md`.
 - [gda-balancing](libs/gda-balancing/BALANCING-CONTEXT.md) — the standalone numeric design & balancing toolkit.
 - [Asset Pipeline](libs/gda-assets/ASSETS-CONTEXT.md) — the internal supporting
   context, physically carried by `libs/gda-assets` and exposed through
-  `gda asset-pipeline`. The `run` file-handoff slice is implemented by #908;
-  other planned workflows are tracked by #907.
+  `gda asset-pipeline`. Workflow requirements and delivery status are tracked by
+  [#907](https://github.com/aigengame/godot-agent/issues/907).
 
 ## Asset Pipeline integration
 

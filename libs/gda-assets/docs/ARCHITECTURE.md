@@ -3,8 +3,9 @@
 **Status:** accepted design; file handoff (#908), saved Blender production (#909),
 model expectation checks (#887), optional content observations (#889), controlled
 runtime refresh (#890), preview (#891), package acceptance (#892), and local prompt
-records (#912) are implemented. Concept selection and authoring consumers remain
-planned. Accepted by the project owner
+records (#912) are implemented. Concept selection and authoring consumers (#913)
+have real external-generation, Blender, and sprite observations; final independent
+review, CI, and delivery status remain issue-owned. Accepted by the project owner
 on 2026-09-07 after review of the Blender-to-Godot workflow and milestone #14.
 Source baseline inspected: `cfcb8658e67df418a69694840a37a22a9cd3cbe0`.
 Acceptance and delivery status are owned by
@@ -124,12 +125,15 @@ libs/gda-assets/
       artifacts.py
       expectations.py
       prompt.py                       # prompt inputs, values, and composition rules
+      concept.py                      # brief, selection, and authoring values
     application/
       ports.py
       integrate.py
       produce.py
       prompt.py                       # prepare, inspect, revise, register outputs
       prompt_ports.py                 # required local file persistence
+      concept.py                      # prepare, select, and author workflows
+      concept_ports.py                # local handoff and bounded consumer ports
       preview.py                      # isolated model preview orchestration
       package.py                      # isolated package acceptance orchestration
     adapters/
@@ -137,6 +141,7 @@ libs/gda-assets/
       imagegen/
       files.py
       prompt_files.py                 # ordinary prompt snapshots and PNG copies
+      concept_files.py                # movable selected-reference handoffs
       raster.py
     bootstrap.py                      # producer composition, lazy setup
   tests/
@@ -250,11 +255,13 @@ outside the Python command. A callable provider adapter can later automate that
 step without changing the host integration; no invented background tool access or
 automatic retry after an unknown provider outcome is assumed.
 
-The concept-reference slice extends that handoff with saved prompts, candidates,
-selection, and real authoring examples. It must prove usable reference delivery to
-Blender and a small sprite-sheet workflow. It does not make the saved-source export
-adapter a model generator or add full Aseprite support. Concept images have their
-own role and are not installed as runtime assets without explicit mapping.
+The concept-reference slice extends that handoff with saved briefs, registered PNG
+candidates, explicit selection, and two bounded authoring examples. Blender consumes
+one selected image before geometry and records pixel-derived material influence; the
+sprite example consumes one before deriving and checking a fixed sheet. These are
+observable reference-use examples, not general authoring, image-similarity or quality
+claims. They do not make the saved-source exporter a model generator or add Aseprite
+support. Concept images are not installed as runtime assets without explicit mapping.
 
 ## Existing seams and required additions
 
@@ -281,7 +288,7 @@ The following is a delivery map, not a second editable acceptance checklist.
 | --- | --- | --- |
 | [#908](https://github.com/aigengame/godot-agent/issues/908) | Unified entry: existing files / generated-image handoff through processing, installation, real Godot import/load; installable internal library | None |
 | [#912](https://github.com/aigengame/godot-agent/issues/912) | Save, inspect, revise, and reuse project prompts before generation; register associated outputs | [#908](https://github.com/aigengame/godot-agent/issues/908) |
-| [#913](https://github.com/aigengame/godot-agent/issues/913) | Generate/select concept references and demonstrate their use before Blender and sprite authoring | [#912](https://github.com/aigengame/godot-agent/issues/912) |
+| [#913](https://github.com/aigengame/godot-agent/issues/913) | Preserve a concept brief, select registered PNG references, and demonstrate one-reference Blender blockout and sprite-sheet use | [#912](https://github.com/aigengame/godot-agent/issues/912) |
 | [#909](https://github.com/aigengame/godot-agent/issues/909) | Saved Blender source, bounded source inspection, export-only scale preparation, same integration path, and Godot load/dimension check | [#908](https://github.com/aigengame/godot-agent/issues/908) |
 | [#885](https://github.com/aigengame/godot-agent/issues/885) | gda: structured Vector3 and Node3D local transform operations | None |
 | [#886](https://github.com/aigengame/godot-agent/issues/886) | gda: bounded imported model facts | None |
@@ -314,9 +321,9 @@ original Panda codebase or mark it archived as part of this work.
 
 [aADR-0002](adr/0002-minimum-results-and-optional-content-checks.md) owns the minimum
 result policy. The following stable claims are implementation validation items,
-not a product evidence/profile framework. Evidence is recorded per slice: completed
-slices below have implementation and native coverage in their owning tests, while
-AP-06 remains open. Review, CI, and delivery status remain in the linked issues.
+not a product evidence/profile framework. Evidence is recorded per slice in its
+owning tests and validation reports. Review, CI, and delivery status remain in the
+linked issues.
 
 | Claim | Driver, owner, and available evidence | Disconfirming case and required validation |
 | --- | --- | --- |
@@ -325,7 +332,7 @@ AP-06 remains open. Review, CI, and delivery status remain in the linked issues.
 | AP-03 | Reliable option-only reimport; gda [#888](https://github.com/aigengame/godot-agent/issues/888). Current import fast path and engine docs inspected | Unchanged GLB plus changed root scale returns cached success with old dimensions. Real engine option-only, no-op, invalid, and failed cases |
 | AP-04 | Honest runtime freshness; [#890](https://github.com/aigengame/godot-agent/issues/890). Current session/capture semantics inspected | A/B share path, names, counts, bounds, material refs but differ in supported content and compare equal. Test selected-instance content, stale/wrong instance, runtime replacement, session and capture scope |
 | AP-05 | Minimum machinery with usable recovery; aADR-0002. Existing scripts offer reusable stages, no generic resume proof | Import failure or unknown producer outcome triggers regeneration or false completion. Inject stage failures, retain outputs, and explicitly retry remaining steps without production replay |
-| AP-06 | Prompt preservation and usable concept references; aADR-0003, #912/#913. Local prompt commands preserve and reuse separate attempts and register external outputs. Real concept generation and authoring-reference consumption remain open under #913 | Editing style/reference inputs changes an earlier attempt, reuse regenerates silently, or an authoring consumer loads an unselected candidate. Test separate attempts, explicit reuse/revision, failure ordering, real image generation, and selected-reference consumption in Blender and sprite examples |
+| AP-06 | Prompt preservation and usable concept references; aADR-0003, #912/#913. One saved prompt produced a registered agent-native PNG; without another provider call, its selected bytes were consumed first by Blender 5.2.1 to write a one-cube material-influenced `.blend`/GLB and separately to write a checked four-frame sprite sheet. Final tests and independent review remain issue-owned | Editing style/reference inputs changes an earlier attempt, reuse regenerates silently, or an authoring consumer loads an unselected candidate. Retain separate-attempt, explicit reuse/reselection, failure-ordering, and selected-versus-unselected regressions |
 | AP-07 | Package-only acceptance; [#892](https://github.com/aigengame/godot-agent/issues/892) and aADR-0002. Real cold-export tests apply the same mesh, material, and animation rules to source and PCK facts, detect omitted models and included exclusions, and verify isolation, package hash, and cleanup | A warm source project masks an omitted packaged model, an exclusion scans outside selected exact paths, or an editor probe is reported as native release behavior. Unsupported-editor gating has separate runner tests; native executable behavior is outside this check |
 
 The design's boundary review covers known owners and source cycles, but does not
