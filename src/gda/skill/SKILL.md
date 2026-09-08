@@ -43,6 +43,16 @@ native inspect/prepare/export facts and `observations` for actual Godot loading.
 After import failure, use the installed GLB for an explicit import retry; repeating
 `--production` runs a new export. No concept/prompt record is required.
 
+Add `--collect-observations` to `asset-pipeline run` for selected installed
+source, configuration-file and import-artifact SHA-256 values. Optional
+`--declared-output-sha256 '{"res://art/model.glb":"<64 hex characters>"}'`
+checks caller declarations before import; `--observations-output /reports/new.json`
+saves to a new file without overwriting one. Read `content_observations` and its
+coverage limitations; `stable` means no change detected in the covered disk reads,
+not runtime proof or full reproducibility. Changed or unavailable required file
+facts fail with retained partial observations. See the
+[observation guide](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/docs/observations.md).
+
 Use `gda asset-pipeline check --expectations /project/art/model.expectations.json
 --path res://art/model.glb --json` for project acceptance. The JSON document contains
 `checks`, each with a unique `id` and a `kind`: `node`, `count`, `dimensions`,

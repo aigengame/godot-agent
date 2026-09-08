@@ -36,6 +36,71 @@ def test_asset_pipeline_run_is_discoverable_with_typed_file_input():
     assert bindings["provenance"]["option"] == "--provenance"
 
 
+def test_collection_is_opt_in_and_schema_describes_file_observations():
+    from gda.commands.asset_pipeline import AssetPipelineRunResult
+
+    result = CliRunner().invoke(app, ["asset-pipeline", "run", "--schema"])
+    schema = json.loads(result.stdout)
+    assert schema["input"]["properties"]["collect_observations"]["default"] is False
+    bindings = {item["input_property"]: item for item in schema["argv"]}
+    assert bindings["collect_observations"]["option"] == "--collect-observations"
+    assert bindings["declared_output_sha256"]["json_value"] is True
+    definitions = AssetPipelineRunResult.model_json_schema()["$defs"]
+    assert definitions["FileDigest"]["properties"]["sha256"]
+    assert definitions["ContentObservations"]["properties"]["status"]["enum"] == [
+        "incomplete",
+        "stable",
+        "changed",
+    ]
+
+
+def test_collection_flags_and_structured_params_forward_the_same_request(
+    monkeypatch, tmp_path
+):
+    from pathlib import Path
+    from gda_assets.api import ContentObservations
+
+    project = minimal_project(tmp_path / "project")
+    calls = []
+
+    def run(recipe, **kwargs):
+        assert kwargs["import_observer"] is kwargs["godot"]
+        calls.append(kwargs["collection"])
+        return PipelineResult(content_observations=ContentObservations())
+
+    monkeypatch.setattr("gda.commands.asset_pipeline.run_pipeline", run)
+    files = [{"source": str(tmp_path / "icon.png"), "target": "res://icon.png"}]
+    declared = {"res://icon.png": "a" * 64}
+    params = {
+        "files": files,
+        "collect_observations": True,
+        "observations_output": "observations.json",
+        "declared_output_sha256": declared,
+    }
+    outputs = []
+    for args in (
+        [
+            "--files",
+            json.dumps(files),
+            "--collect-observations",
+            "--observations-output",
+            "observations.json",
+            "--declared-output-sha256",
+            json.dumps(declared),
+        ],
+        ["--params-json", json.dumps(params)],
+    ):
+        result = CliRunner().invoke(
+            app, ["asset-pipeline", "run", *args, "--project", str(project), "--json"]
+        )
+        assert result.exit_code == 0, result.output
+        outputs.append(json.loads(result.stdout))
+    assert calls[0] == calls[1]
+    assert calls[0].save_to == Path("observations.json")
+    assert calls[0].declared_output_sha256 == declared
+    assert outputs[0] == outputs[1]
+
+
 def test_no_resolved_project_is_a_structured_failure_on_both_input_paths(
     monkeypatch, tmp_path
 ):
@@ -87,7 +152,17 @@ def test_relative_sources_need_an_explicit_base_independent_of_cwd(
         (directory / "icon.png").write_bytes(content)
     calls = []
 
-    def fake_run(recipe, *, source_root, project_root, godot, production=None):
+    def fake_run(
+        recipe,
+        *,
+        source_root,
+        project_root,
+        godot,
+        production=None,
+        collection=None,
+        import_observer=None,
+    ):
+        assert collection is None and import_observer is None
         assert production is None
         calls.append((recipe.files[0].source, source_root, project_root))
         return PipelineResult(source_mode=recipe.source_mode)
@@ -190,7 +265,17 @@ def test_argv_and_params_json_build_the_same_recipe(monkeypatch, tmp_path):
     source_root.mkdir()
     calls = []
 
-    def fake_run(recipe, *, source_root, project_root, godot, production=None):
+    def fake_run(
+        recipe,
+        *,
+        source_root,
+        project_root,
+        godot,
+        production=None,
+        collection=None,
+        import_observer=None,
+    ):
+        assert collection is None and import_observer is None
         assert production is None
         calls.append((recipe, source_root, project_root))
         return PipelineResult(
@@ -390,7 +475,17 @@ def test_production_binding_requires_json_and_structured_input_matches(
 ):
     calls = []
 
-    def observe(recipe, *, source_root, project_root, godot, production=None):
+    def observe(
+        recipe,
+        *,
+        source_root,
+        project_root,
+        godot,
+        production=None,
+        collection=None,
+        import_observer=None,
+    ):
+        assert collection is None and import_observer is None
         calls.append(production)
         return PipelineResult(source_mode="blender_saved")
 

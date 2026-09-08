@@ -982,6 +982,20 @@ class ResourceImportAsset(BaseModel):
             "empty when there is no sidecar or it declares none (importer=keep)."
         ),
     )
+    declared_importer: str | None = Field(
+        default=None,
+        description=(
+            "The importer name declared by the observed sidecar; null when "
+            "unavailable. This does not prove that the importer is registered "
+            "or active."
+        ),
+    )
+    declared_source_file: str | None = Field(
+        default=None,
+        description=(
+            "The source path declared by the observed sidecar; null when unavailable."
+        ),
+    )
 
 
 class ImportCreatedFile(BaseModel):
@@ -1365,6 +1379,8 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
     if not sidecar_fs.is_file():
         return ResourceImportAsset(path=res_path, status="missing")
     sidecar_res = res_path + ".import"
+    declared_importer: str | None = None
+    declared_source_file: str | None = None
 
     def state(
         status: AssetStatus, dests: "list[str] | None" = None
@@ -1374,6 +1390,8 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
             status=status,
             sidecar=sidecar_res,
             dest_files=dests or [],
+            declared_importer=declared_importer,
+            declared_source_file=declared_source_file,
         )
 
     try:
@@ -1381,16 +1399,21 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
     except UnicodeDecodeError:
         # The engine's parse-error branch: skip, never auto-reimport.
         return state("invalid")
+    importer_match = _IMPORTER_LINE.search(text)
+    source_file_match = _SOURCE_FILE_LINE.search(text)
+    declared_importer = importer_match.group(1) if importer_match is not None else None
+    declared_source_file = (
+        source_file_match.group(1) if source_file_match is not None else None
+    )
     if _INVALID_LINE.search(text):
         return state("invalid")
-    importer = _IMPORTER_LINE.search(text)
-    if importer is None:
+    if declared_importer is None:
         # No importer DECLARED: nothing proves this sidecar's cache.
         # Conservatively stale (#738 re-review 2). Whether a declared name
         # still RESOLVES is engine state (an open registry) — part of the
         # declared remainder, not decidable here.
         return state("stale")
-    if importer.group(1) in ("keep", "skip"):
+    if declared_importer in ("keep", "skip"):
         return state("cached")
     dest_match = _DEST_FILES_LINE.search(text)
     dests: list[str] = []
@@ -1414,8 +1437,7 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
     for ref in to_check:
         if ref.startswith("res://") and not (project / ref[len("res://") :]).is_file():
             return state("stale", dests)
-    source_file = _SOURCE_FILE_LINE.search(text)
-    if source_file is not None and source_file.group(1) != res_path:
+    if declared_source_file is not None and declared_source_file != res_path:
         return state("stale", dests)  # a copied sidecar names another source
     # The engine's one .md5 receipt per asset, at the path-derived import
     # base — read whether or not destinations are declared, exactly as

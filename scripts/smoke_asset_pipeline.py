@@ -5,6 +5,7 @@ Godot caches live in an owned temporary directory and are removed on completion.
 """
 
 import argparse
+import hashlib
 from importlib.resources import files
 import json
 from pathlib import Path
@@ -118,6 +119,11 @@ def smoke(gda: Path, godot: str | None) -> None:
             },
             {"source": "model.glb", "target": "res://art/model.glb"},
         ]
+        observations_output = root / "content-observations.json"
+        declared_model_hash = hashlib.sha256(
+            (source / "model.glb").read_bytes()
+        ).hexdigest()
+        assert not observations_output.exists()
         first = call(
             "asset-pipeline",
             "run",
@@ -125,15 +131,59 @@ def smoke(gda: Path, godot: str | None) -> None:
             json.dumps(mapping),
             "--source-root",
             str(source),
+            "--collect-observations",
+            "--observations-output",
+            str(observations_output),
+            "--declared-output-sha256",
+            json.dumps({"res://art/model.glb": declared_model_hash}),
             *common,
         )["pipeline"]
-        assert first["completed"] == ["validate", "stage", "install", "import", "load"]
+        assert first["completed"] == [
+            "validate",
+            "stage",
+            "install",
+            "import",
+            "load",
+            "observe",
+        ]
         assert first["observations"][0]["texture_size"] == [2, 1]
         assert first["observations"][1]["resource_type"] == "PackedScene"
         assert first["observations"][1]["scene_node_count"] >= 1
         assert all(
             observation["engine"]["major"] >= 4 for observation in first["observations"]
         )
+        collected = first["content_observations"]
+        assert collected["status"] == "stable"
+        assert collected["saved_to"] == str(observations_output.resolve())
+        assert collected["declared_output_sha256"] == {
+            "res://art/model.glb": declared_model_hash
+        }
+        assert collected["issues"] == []
+        assert collected["changes"] == []
+        assert json.loads(observations_output.read_text()) == collected
+        assert [item["path"] for item in collected["assets"]] == [
+            "res://art/icon.png",
+            "res://art/model.glb",
+        ]
+        for asset in collected["assets"]:
+            assert asset["import_before"]["cache_status"] == "missing"
+            assert asset["import_after"]["cache_status"] == "cached"
+            assert asset["configuration_before"] is None
+            for digest in (
+                asset["source_before"],
+                asset["source_after"],
+                asset["configuration_after"],
+                *asset["artifacts"],
+            ):
+                assert digest["state"] == "observed"
+                assert len(digest["sha256"]) == 64
+                assert digest["size"] > 0
+                assert digest["reason"] is None
+            assert asset["source_before"] == asset["source_after"]
+            assert asset["artifacts"]
+            assert asset["engine"]["major"] >= 4
+        model_collection = collected["assets"][1]
+        assert model_collection["source_before"]["sha256"] == declared_model_hash
         assert (source / "icon.png").read_bytes() == original
         expectations = root / "model.expectations.json"
         expectations.write_text(
@@ -229,7 +279,7 @@ def smoke(gda: Path, godot: str | None) -> None:
         assert not (project / "not-installed.png").exists()
         assert not (project / "missing.png").exists()
     print(
-        "Installed asset pipeline smoke passed: PNG resize, GLB load, model expectations, saved comparison, repeat, declarations, refusal, cleanup."
+        "Installed asset pipeline smoke passed: PNG resize, GLB load, selected disk/import observations, saved observation JSON, model expectations, saved comparison, repeat, declarations, refusal, cleanup."
     )
 
 

@@ -33,6 +33,13 @@ values on the ordinary CLI. Select `--source-mode imagegen` with optional
 outputs. The result labels this metadata `caller_declared_provenance`; it is not
 proof of generation or an engine observation. No prompt record is required.
 
+Add `--collect-observations` when you need bounded hashes and import facts for the
+selected installed outputs. The optional result is returned as
+`pipeline.content_observations`. `--observations-output` can also save it to a new
+local JSON file, and `--declared-output-sha256` checks caller-declared output hashes
+before import. See the [content observations guide](docs/observations.md) for the
+command examples, result semantics, failure behavior, and limits.
+
 ## File sets and processing
 
 A handoff contains one to 32 explicit mappings. PNG resizing accepts positive

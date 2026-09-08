@@ -3,7 +3,13 @@
 from pathlib import Path
 from typing import NoReturn
 
-from gda_assets.api import ImportOutcome, LoadObservation, PortFailure, ModelFacts
+from gda_assets.api import (
+    ImportOutcome,
+    LoadObservation,
+    PortFailure,
+    ModelFacts,
+    ImportAssetFacts,
+)
 
 from gda.commands.resource import (
     ResourceImportParams,
@@ -58,6 +64,30 @@ class GdaGodotAssetPort:
                 cause=facts,
             )
         return ImportOutcome(facts=facts)
+
+    def observe_import(self, paths: list[str]) -> list[ImportAssetFacts]:
+        outcome = run_resource_import_operation(
+            self._project,
+            ResourceImportParams(assets=paths, dry_run=True),
+            godot=self._godot,
+        )
+        if isinstance(outcome, Failure):
+            # A best-effort post-failure observation must not replace the native
+            # import/load failure already retained for the caller.
+            if self.last_failure is None:
+                self._raise(outcome)
+            raise PortFailure(outcome.error.code, outcome.error.message)
+        return [
+            ImportAssetFacts(
+                path=item.path,
+                cache_status=item.status,
+                configuration=item.sidecar,
+                artifacts=tuple(item.dest_files),
+                declared_importer=item.declared_importer,
+                declared_source_file=item.declared_source_file,
+            )
+            for item in outcome.assets
+        ]
 
     def check_load(self, path: str) -> LoadObservation:
         outcome = run_resource_load_operation(self._project, path, godot=self._godot)

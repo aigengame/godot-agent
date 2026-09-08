@@ -70,6 +70,51 @@ def test_host_adapter_projects_returning_gda_operations(monkeypatch, tmp_path):
     assert observation.engine["string"] == "4.6.3"
 
 
+def test_import_observation_uses_published_dry_run_facts(monkeypatch, tmp_path):
+    seen = []
+
+    def run(project, params, **kwargs):
+        seen.append((project, params.dry_run, params.assets))
+        return ResourceImportResult(
+            dry_run=True,
+            cache_root="res://custom-cache",
+            engine_pass=False,
+            assets=[
+                ResourceImportAsset(
+                    path="res://art/model.glb",
+                    status="cached",
+                    sidecar="res://art/model.glb.import",
+                    dest_files=["res://custom-cache/model.scn"],
+                    declared_importer="scene",
+                    declared_source_file="res://art/model.glb",
+                )
+            ],
+            created=[],
+            summary=ResourceImportSummary(
+                requested=1,
+                cached=1,
+                missing=0,
+                stale=0,
+                invalid=0,
+                imported=0,
+                not_importable=0,
+                failed=0,
+                created_cache_owned=0,
+                created_source_adjacent=0,
+            ),
+        )
+
+    monkeypatch.setattr(
+        "gda.integrations.asset_pipeline.run_resource_import_operation", run
+    )
+    facts = GdaGodotAssetPort(tmp_path).observe_import(["res://art/model.glb"])
+    assert seen == [(tmp_path, True, ["res://art/model.glb"])]
+    assert facts[0].configuration == "res://art/model.glb.import"
+    assert facts[0].artifacts == ("res://custom-cache/model.scn",)
+    assert facts[0].declared_importer == "scene"
+    assert facts[0].cache_status == "cached"
+
+
 def test_host_adapter_retains_the_underlying_gda_failure(monkeypatch, tmp_path):
     failure = make_failure("operation_failed", "import failed", "engine stderr\n")
     monkeypatch.setattr(

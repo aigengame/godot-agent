@@ -8,6 +8,11 @@ from typing import Any
 from gda_assets.domain.artifacts import ImportOutcome, InstalledFile, LoadObservation
 from gda_assets.domain.recipe import AssetFile, AssetRecipe
 from gda_assets.domain.model import ModelFacts
+from gda_assets.domain.observations import (
+    FileDigest,
+    ImportAssetFacts,
+    ContentObservations,
+)
 
 
 @dataclass(frozen=True)
@@ -74,6 +79,18 @@ class GodotAssetPort(Protocol):
     def import_assets(self, paths: list[str]) -> ImportOutcome: ...
 
     def check_load(self, path: str) -> LoadObservation: ...
+
+
+class GodotImportObservationPort(Protocol):
+    def observe_import(self, paths: list[str]) -> list[ImportAssetFacts]: ...
+
+
+class ObservationFilesPort(Protocol):
+    def digest(self, resource: str) -> FileDigest: ...
+
+    def validate_output(self, path: Path) -> None: ...
+
+    def save(self, observations: ContentObservations, path: Path) -> None: ...
 
 
 class ModelInspectionPort(Protocol):

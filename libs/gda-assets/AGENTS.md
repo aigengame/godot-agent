@@ -2,7 +2,8 @@
 
 This subtree carries **Asset Pipeline**, gda's internal asset-workflow supporting
 context. It is not a sibling user-facing product. File handoff (#908), saved
-Blender production (#909), and model expectation checks (#887) are implemented;
+Blender production (#909), model expectation checks (#887), and optional content
+observations (#889) are implemented;
 other workflows remain planned. Requirements and delivery status live in
 [#907](https://github.com/aigengame/godot-agent/issues/907).
 
