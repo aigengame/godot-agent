@@ -19,8 +19,8 @@ form the initial candidate. Resolution must inspect the actual pending graph in
 reverse order. A counter proposal does not immediately erase its target; cancellation
 occurs prospectively during resolution after the window closes. A valid pass-choice
 variant must change the final result under the same rules. An invalid responder or
-counter target must have a declared rollback outcome. These are proposed scenario boundaries,
-not implemented observations.
+counter target must have a declared rollback outcome. The permanent candidate below
+now executes these boundaries; its complete invariance proof remains open.
 
 The first checks target two independent risks: whether the current value/Operation
 basis can represent that protocol without fabricated state, and whether complete
@@ -122,7 +122,113 @@ counter, pass, pass. The original diagnostic's slot at time 5 cannot cover that
 sequence because it closes at time 6. Inputs outside the stated timing contract must
 retain the existing scheduling refusal; no clock primitive, new phase, reset protocol
 or reentrant window is introduced. The maximum valid sequence must complete under
-the unchanged Event/run budgets. These corrections await their permanent public tests.
+the unchanged Event/run budgets.
+
+The permanent candidate is implemented at `f2809d98e` in
+`tests/priority_protocol_support.py`, with 16 public cases in
+`tests/test_priority_protocol_public.py`. These authored candidate packages remain
+separate from installed package promotion and full #575 conformance. The tests execute
+real admitted content through public build/check/run and validate the produced artifacts.
+They do not supply expected traces as Runtime input. The unchanged rules produce power
+7 for the counter chain and power 0 for both the pass variant and a same-depth variant
+whose two counters both target the root. This last case distinguishes target-graph
+semantics from a shortcut based on response depth.
+
+The permanent Source and Experiment builders establish bounded public execution
+evidence. Their metadata vectors do not establish complete package conformance.
+Promotion into the maintained LDB requires applicable manifest-bound execution
+vectors and independent conformance checks under bADR-0016. #878 does not promote
+these candidate packages or duplicate that future #575 work.
+
+Action's target, root-existence and single-proposal guards propagate rollback outcomes
+through Turn. Direct Action calls and attempts to reopen a closed window do not allocate
+new IDs or overwrite the pending graph. The longest seven-choice sequence completes at
+the fixed slot. Baseline, pass and longest paths charge 127, 90 and 151 node steps;
+their maximum Event charges are 44, 28 and 44. The same-depth retarget path charges
+133 steps with a maximum Event charge of 50. All stay within 256/Event and 4096/run.
+Depth overflow and backward scheduling produce validated Runtime Terminal Audits.
+Callback, extra phase and unbounded List mutations update their body probes and seals
+before the actual admission checks reject them. The integrated public suite and CI
+policy checks pass (28 tests).
+
+## Independent consumer checkpoints
+
+The original typed protocol independently lowers to four equal Model members and both
+consumers admit the semantic trio at `c0a204f2d`. This is compiler evidence only.
+`20f1c967e` and `e3c446fe4` then extend the existing independent Event walker and add a
+Scenario/artifact driver. The bounded proof uses one Scenario with two transition roots
+and Snapshot scalar Metrics. B produces all six result members before A runs; A admits
+B's members, and B compares A's members with fresh independent execution. Five semantic
+members agree exactly; the truthful producer manifests differ. The driver consumes
+selected RIR semantics and refuses unsupported scope. Its checked Source context supplies
+independent RIR admission, artifact wire selection and artifact identity domains; it
+does not replace the selected RIR execution laws.
+
+Formula lifecycle, external inputs, scheduled events, Scenario RNG continuation and
+refusal artifact production are not closed by that checkpoint. Its partial build
+fingerprint must include the actual transitive independent semantic support before the
+final build freeze. No complete priority-result exchange is claimed yet.
+
+The independent consumer also finds a new integrity counterexample: change a genuine
+Metric sample from 1234 to 1235, reseal the dataset, update the primary artifact's dataset
+identity and reseal the primary. At `1776d4556`, all individual members and the complete
+production set still admit although the authenticated observation remains 1234 and
+`within_target` remains true for target 1234. B's fresh consumer rejects it. The existing
+complete-set validator must verify exact samples and verdicts from already replayed
+observations and admitted Metric contracts.
+
+The repair is integrated at `ee64df662`: complete-set admission reconstructs the complete
+canonical sample set from already validated observations and checks exact values,
+metadata, target flags and primary verdicts. It adds no Runtime interpreter. The old
+implementation fails 17 of 22 permanent cases; all 22 pass after repair, including five
+legitimate controls. The integrated Metric, independent-consumer and CI policy suite
+passes (48 tests). The separate authenticated-pending-root defect remains owned by #879.
+
+At `33ec7b73f`, the existing independent structured-value validator also accepts the
+selected RIR input view. It uses exactly one input mode, retains missing-owner/profile
+refusals, and shares the existing recursive judgment with the package-vector path.
+The build fingerprint now includes its bootstrap support dependency. Six selected-value
+cases, the 14 mutual-consumption cases and two existing diagnostics cases pass in the
+worker checkpoint. This does not yet close external-input or scheduled-event execution.
+The integrated selected-value, inventory and CI policy suite passes (59 tests); the
+CI inventory contains 2066 unique tests and 347 maintained package vectors, with no
+missing, overlapping or uncovered tests. This is collection evidence, not a full CI run.
+
+The required `extension` CI partition owns the inventory, public priority and independent
+Runtime tests. The earlier composition partition took 329.641 seconds in the final #877 run;
+the new public suite alone took 83.76 seconds before integration. Separating the added
+extension work preserves the existing 480-second per-shard budget as validation grows.
+
+## Inventory and equivalence boundaries
+
+The inventory checkpoint at `36d86e2ce` records scoped declarations and references,
+source entry points, vector identities and Operation operands. A projection of the
+existing independent composition judgment distinguishes a Record field identity from
+a dynamic List key with the same spelling; no second type checker is added. The
+integrated inventory, independent compiler and CI policy checks pass (40 tests).
+The inventory still reports uncovered DSL, vector and artifact surfaces and refuses
+to certify completeness. Its present token count is not a full-graph acceptance claim.
+
+The [named-stream counterexample](evidence/priority-window/named-stream-renaming.json)
+also limits the equivalence judgment. Kernel `named_rng` explicitly hashes the UTF-8
+stream name into initial RNG state. Thus `selection` is both a non-Kernel binding
+identity and an entropy input: with seed 20260811, its first bounded draw is 0, while
+`renamed.selection` draws 1. A real admitted Source/Experiment then changes from success
+to the declared `candidate_mismatch` refusal. Both complete result sets validate, and
+production and independent execution agree on each graph. The one tested normative
+vector passes its original numerical expectation only before renaming.
+
+The complete inventory must include and rename the stream; its entropy role is not an
+exemption. For this tracer, the declared comparison preserves the same Kernel laws,
+core projections and builds and requires independent agreement on each graph. When a
+renamed identity is an explicit input to a Kernel numerical law, compare the derived
+value against that law for the renamed input and retain its downstream behavioral
+consequences. This is a specific dependency, not permission to accept arbitrary output
+differences merely because two implementations agree. Ordinary bound-name observations
+still compare under the inverse mapping, and exact artifact identities stay distinct.
+Keep the unchanged golden assertion's failure visible; do not rewrite numerical
+expectations or report renamed all-vector conformance. This interpretation does not
+change RNG semantics or activate an authenticated Extension Invariance claim.
 
 ## Remaining proof and integration
 
