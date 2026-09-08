@@ -34,8 +34,6 @@
 > `gda` está en **pre-1.0**: hoy cada comando funciona de extremo a extremo, pero la superficie de comandos
 > todavía puede cambiar antes de 1.0.
 
----
-
 ## Índice
 
 - [¿Por qué `gda`?](#why-gda)
@@ -48,8 +46,6 @@
 - [Configuración](#configuration)
 - [Contribuir](#contributing)
 - [Licencia](#license)
-
----
 
 <a id="why-gda"></a>
 ## ¿Por qué `gda`?
@@ -79,8 +75,6 @@ Estas capacidades se perfeccionaron mientras
 [se desarrollaba un juego real](https://aigengame.xyz/#showcase); el trabajo quedó documentado
 en un [registro público de dogfooding](https://github.com/aigengame/godot-agent/milestone/10).
 
----
-
 <a id="capabilities-at-a-glance"></a>
 ## Capacidades de un vistazo
 
@@ -91,8 +85,6 @@ en un [registro público de dogfooding](https://github.com/aigengame/godot-agent
 | Verificar el comportamiento en runtime (Live) | Leer el estado de runtime, llamar a métodos declarados, simular entradas, capturar frames, recopilar registros y errores, y medir el rendimiento | `gda daemon start`, luego `game` / `input` / `screen` / `diag` / `logger` / `perf` |
 | Conectar un agente de programación con IA | Usar la CLI directamente, la orientación reutilizable de Agent Skill o el descubrimiento y las llamadas de herramientas MCP | `gda` / `gda skill` / `gda-mcp` |
 | Ejecutar automatización de forma fiable | Recibir resultados estructurados, esquemas y fallos tipados, ejecución acotada, registros aislados y diagnósticos útiles | `--json` / `--schema` / `--user-data-root` / timeouts |
-
----
 
 <a id="installation"></a>
 ## Instalación
@@ -125,8 +117,6 @@ uv sync                  # create the environment + install dependencies
 uv run gda --help
 ```
 </details>
-
----
 
 <a id="quick-start"></a>
 ## Inicio rápido
@@ -178,8 +168,6 @@ gda daemon stop
 
 (`gda screen capture` también funciona en vivo, pero necesita una sesión con ventana — arranca el daemon
 con `gda daemon start --windowed`.)
-
----
 
 <a id="choose-your-integration"></a>
 ## Elige tu integración
@@ -326,8 +314,6 @@ funciona en el ámbito de proyecto; usa el ámbito de proyecto para varios proye
 > [recetas de registro](gda-mcp-registration.md).
 </details>
 
----
-
 <a id="how-it-works"></a>
 ## Cómo funciona
 
@@ -365,8 +351,6 @@ se autodeshabilita en el juego exportado — de modo que un juego publicado nunc
 ¹ Headless es multiplataforma por diseño (procesos de una sola pasada, sin dependencias específicas de
   plataforma) — Windows conserva toda la superficie headless, aunque la CI todavía no la ejercita.
 ² Las operaciones live usan sockets de dominio Unix, por lo que Windows todavía no es compatible.
-
----
 
 <a id="command-reference"></a>
 ## Referencia de comandos
@@ -570,8 +554,6 @@ Lee las coordenadas de ratón inyectadas desde `event.position` — en una sesi�
 | `--version` | Imprime la versión instalada de `gda`. Con `--json`, también de dónde viene: el tipo de instalación (`wheel`, `editable` o `unknown`) y, para una instalación editable, la revisión de Git del código fuente. |
 | `--help`    | Muestra el uso de `gda` o de cualquier comando.                     |
 
----
-
 <a id="configuration"></a>
 ## Configuración
 
@@ -605,8 +587,6 @@ proyecto es de confianza ([ADR-0009](adr/0009-trust-boundary-trusted-project.md)
   invoca nada que no esté declarado.
 
 </details>
-
----
 
 <details>
 <summary><strong>Bajo el capó</strong> — el contrato de salida estructurada y los códigos de salida</summary>
@@ -706,8 +686,6 @@ CONTEXT.md          # the project's shared domain language
 rápidas: lanzar un proceso headless de una sola pasada (`runner.py`) y comunicarse con un juego en ejecución
 a través del daemon (`live_runner.py`). La suite e2e maneja un motor real a través de ambas.
 </details>
-
----
 
 <a id="contributing"></a>
 ## Contribuir
