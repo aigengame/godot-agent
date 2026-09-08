@@ -334,7 +334,17 @@
         "selected framing after-commit recovery without ambient lookup"
       ]
     },
-    "limits": "Core reviews exclude this documentation change and the two subsequent CI-registration lines; no full CI, wheel, maintained-artifact rebuild or whole #878 acceptance is implied."
+    "documentation_and_ci": {
+      "head": "3bd13d86ec2bac682c746d183393b241bc617310",
+      "findings": [],
+      "scope": "Seven-file documentation and CI increment after the separately reviewed production head; no test rerun.",
+      "receipt": {
+        "path": "/private/tmp/gda-878-publication-final-standards-wwc4skon/FINAL-REVIEW-RECEIPT.json",
+        "bytes": 4856,
+        "sha256": "8530ab3e5c55b6d4f69bef2079377830ad716527b92e54c0908f5426d8b6542e"
+      }
+    },
+    "limits": "Core reviews use the production head; the documentation and CI increment has its separate fixed-head review. No full CI, wheel, maintained-artifact rebuild or whole #878 acceptance is implied."
   },
   "inventory": {
     "before": {
