@@ -7,7 +7,7 @@ from typing import Any, cast
 
 
 from gda_balancing.domain.artifacts import (
-    artifact_contract_for_role as _artifact_contract,
+    artifact_contract_for_role,
     _identified_artifact,
 )
 from gda_balancing.domain.artifact_semantics import artifact_semantic_projection
@@ -170,7 +170,7 @@ def _rir_semantic_projection(
     rir: dict[str, JsonValue],
 ) -> dict[str, JsonValue]:
     """Project an RIR artifact or payload to executable semantics only."""
-    contract = _artifact_contract(language_bundle, "rir-semantic-payload")
+    contract = artifact_contract_for_role(language_bundle, "rir-semantic-payload")
     projection = contract.get("semantic_identity_projection")
     if not isinstance(projection, dict):
         raise ValueError("RIR artifact contract has no semantic identity projection")
@@ -180,7 +180,7 @@ def _rir_semantic_projection(
 def _rir_semantic_identity(
     language_bundle: dict[str, Any], rir: dict[str, JsonValue]
 ) -> str:
-    contract = _artifact_contract(language_bundle, "rir-semantic-payload")
+    contract = artifact_contract_for_role(language_bundle, "rir-semantic-payload")
     domain = contract.get("semantic_identity_domain")
     if not isinstance(domain, str) or not domain:
         raise ValueError("RIR artifact contract has no semantic identity domain")

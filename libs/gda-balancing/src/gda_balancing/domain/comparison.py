@@ -262,7 +262,12 @@ def _producing_outcome(
         payload["failed_metrics"] = cast(JsonValue, failed_metrics)
     expected_outcome = output_contracts[outcome_kind].identify(payload)
     present_primary_names = [
-        name for name in ("evaluation-run", "experiment-verdict") if any(member.artifact_kind == output_contracts[name].definition["artifact_kind"] for member in members.values())
+        name
+        for name in ("evaluation-run", "experiment-verdict")
+        if any(
+            member.artifact_kind == output_contracts[name].definition["artifact_kind"]
+            for member in members.values()
+        )
     ]
     if require_primary and present_primary_names != [outcome_kind]:
         raise ValueError("Replay observation has an ineligible producing outcome")
@@ -357,7 +362,9 @@ def _comparison_value(
                     original_artifact_set_receipt_identity
                 ),
                 "original_evaluation_run_identity": original_identity,
-                "replay_outcome_kind": output_contracts[replay_kind].definition["artifact_kind"],
+                "replay_outcome_kind": output_contracts[replay_kind].definition[
+                    "artifact_kind"
+                ],
                 "replay_outcome_identity": replay_identity,
                 "policy": cast(JsonValue, policy),
                 "original_observation": cast(JsonValue, original),
@@ -488,7 +495,8 @@ def validate_published_exact_replay_comparison(
             and value.get("original_artifact_set_receipt_identity")
             == original_artifact_set_receipt_identity
             and value.get("original_evaluation_run_identity") == original_identity
-            and value.get("replay_outcome_kind") == output_contracts[replay_kind].definition["artifact_kind"]
+            and value.get("replay_outcome_kind")
+            == output_contracts[replay_kind].definition["artifact_kind"]
             and value.get("replay_outcome_identity") == replay_identity
             and canonical_bytes(cast(JsonValue, value.get("policy")))
             == canonical_bytes(cast(JsonValue, policy))

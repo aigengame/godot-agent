@@ -22,7 +22,7 @@ from gda_balancing.domain.artifact_set import (
 )
 from gda_balancing.domain.artifacts import (
     ArtifactContract,
-    select_protocol_artifact_contract as select_artifact_contract,
+    select_protocol_artifact_contract,
 )
 from gda_balancing.domain.canonical import (
     JsonValue,
@@ -125,7 +125,7 @@ class CheckedExperiment:
             "output_contracts",
             _deep_freeze(
                 {
-                    kind: select_artifact_contract(self.language_bundle, kind)
+                    kind: select_protocol_artifact_contract(self.language_bundle, kind)
                     for kind in sorted(output_kinds)
                 }
             ),

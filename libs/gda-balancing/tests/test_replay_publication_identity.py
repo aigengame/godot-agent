@@ -9,7 +9,10 @@ from typing import cast
 import pytest
 
 from gda_balancing.application.experiment_inputs import check_experiment_inputs
-from gda_balancing.domain.artifact_set import EXPERIMENT_SUCCESS_ARTIFACT_SET, resolve_artifact_set
+from gda_balancing.domain.artifact_set import (
+    EXPERIMENT_SUCCESS_ARTIFACT_SET,
+    resolve_artifact_set,
+)
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 from gda_balancing.domain.experiment import CheckedExperiment
 from gda_balancing.domain.experiment_artifacts import (
@@ -114,7 +117,9 @@ def test_public_replay_accepts_authenticated_provenance_only_changes(
             read_authenticated_artifact_set(
                 str(prior_receipt),
                 current_descriptor,
-                resolve_artifact_set(checked.language_bundle, EXPERIMENT_SUCCESS_ARTIFACT_SET),
+                resolve_artifact_set(
+                    checked.language_bundle, EXPERIMENT_SUCCESS_ARTIFACT_SET
+                ),
                 authority_context=_authority_context(checked),
             )
     out = tmp_path / "replay.json"
@@ -202,7 +207,9 @@ def test_public_replay_refuses_authenticated_undeclared_member_sets(
     # its missing Snapshot member violates Replay's declared input set.
     incomplete_set = tuple(
         member
-        for member in resolve_artifact_set(checked.language_bundle, EXPERIMENT_SUCCESS_ARTIFACT_SET)
+        for member in resolve_artifact_set(
+            checked.language_bundle, EXPERIMENT_SUCCESS_ARTIFACT_SET
+        )
         if member.logical_name != "snapshot-series"
     )
     members = {
