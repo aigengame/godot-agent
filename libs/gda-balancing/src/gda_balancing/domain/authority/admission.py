@@ -79,7 +79,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:956bdd5170763d1bef071cdd7ad03ee4b1e35e6fddb6ce70c53cd66f55b67748"
+    "sha256:9dc4e8991b70970d32d1012a7545dee57ef7ac2f4966721694255f39d6ff3c2c"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1066,7 +1066,7 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
                 isinstance(item.get(member), str) and item[member]
                 for member in ("profile_member", "recipe", "subject")
             )
-            or item.get("subject_kind") not in {"binding-source", "field-term"}
+            or item.get("subject_kind") not in {"field-binding-source", "field-term"}
             or item.get("projection") not in {"dot-path", "last-segment"}
             for item in routing_equivalences
         )
@@ -1491,11 +1491,18 @@ def _relation_recipe_paths_are_typed(
         recipe = recipe_by_id.get(equivalence["recipe"])
         if recipe is None:
             return False
-        if equivalence["subject_kind"] == "binding-source":
+        if equivalence["subject_kind"] == "field-binding-source":
+            fields = [
+                field
+                for field in recipe["fields"]
+                if field["name"] == equivalence["subject"]
+            ]
+            if len(fields) != 1 or fields[0]["term"]["root"] != "binding":
+                return False
             matches = [
                 binding["source"]
                 for binding in recipe["bindings"]
-                if binding["name"] == equivalence["subject"]
+                if binding["name"] == fields[0]["term"]["binding"]
             ]
         else:
             matches = [

@@ -10,7 +10,8 @@ from gda_balancing.application.experiment_execution import (
     execute_prepared_experiment,
     prepare_checked_experiment,
 )
-from gda_balancing.domain.artifact_set import ArtifactSetPlan, resolve_artifact_set
+from gda_balancing.domain.artifacts import artifacts_by_protocol_role
+from gda_balancing.domain.artifact_set import ArtifactSetPlan, resolve_artifact_set, label_artifacts
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.comparison import (
     compare_exact_replay,
@@ -115,7 +116,8 @@ def replay_experiment(
     assert isinstance(checked, CheckedExperiment)
     authority_context = checked.authority_context
     assert authority_context is not None
-    original_members = _publication_members(original.artifacts)
+    original_artifacts = artifacts_by_protocol_role(checked.language_bundle, original.artifacts)
+    original_members = _publication_members(original_artifacts)
     original_receipt_identity = cast(str, original.receipt["content_identity"])
     input_identity = exact_replay_input_identity(
         checked.content_identity,
@@ -126,11 +128,15 @@ def replay_experiment(
     replay_contract = select_exact_replay_contract(authority_context)
 
     def validate_member(logical_name: str, value: dict[str, Any]) -> bool:
-        if logical_name == "replay-comparison":
+        if value.get("artifact_kind") == replay_contract.artifact.definition["artifact_kind"]:
             return replay_contract.artifact.verify(value)
         return validate_experiment_member(checked, logical_name, value)
 
     def validate_set(artifacts: dict[str, dict[str, Any]]) -> bool:
+        try:
+            artifacts = artifacts_by_protocol_role(checked.language_bundle, artifacts)
+        except (KeyError, TypeError, ValueError):
+            return False
         if "runtime-terminal-audit" in artifacts:
             return validate_experiment_artifact_set(checked, artifacts)
         comparison = artifacts.get("replay-comparison")
@@ -163,10 +169,11 @@ def replay_experiment(
         authentication_key=authentication_key,
     )
     if recovered is not None:
+        recovered_artifacts = artifacts_by_protocol_role(checked.language_bundle, recovered.artifacts)
         if recovered.artifact_set == success_artifact_set:
             return ExperimentReplayPublication(receipt=recovered.receipt)
         if recovered.artifact_set == verdict_artifact_set:
-            comparison = recovered.artifacts["replay-comparison"]
+            comparison = recovered_artifacts["replay-comparison"]
             return ExperimentReplayVerdictPublication(
                 mismatches=tuple(
                     cast(str, row["key"])
@@ -175,7 +182,7 @@ def replay_experiment(
                 ),
                 receipt=recovered.receipt,
             )
-        audit = recovered.artifacts["runtime-terminal-audit"]
+        audit = recovered_artifacts["runtime-terminal-audit"]
         diagnostic = audit["diagnostic"]
         return Schema2RefusalReport(
             stage="runtime",
@@ -190,7 +197,7 @@ def replay_experiment(
         )
 
     original_refusal = exact_replay_original_refusal(
-        checked, original.artifacts, replay_contract
+        checked, original_artifacts, replay_contract
     )
     if original_refusal is not None:
         return original_refusal
@@ -200,7 +207,7 @@ def replay_experiment(
     assert isinstance(prepared, PreparedExperimentExecution)
     runtime_refusal = exact_replay_runtime_profile_refusal(
         checked,
-        original.artifacts["resolved-runtime-profile"],
+        original_artifacts["resolved-runtime-profile"],
         prepared.resolved_runtime.value,
         replay_contract,
     )
@@ -211,7 +218,7 @@ def replay_experiment(
         if not execution.members:
             return execution.report
         receipt = publish_artifact_set(
-            execution.members,
+            label_artifacts(execution.members, runtime_refusal_artifact_set, lambda member: member.artifact_kind),
             out,
             invocation_key,
             descriptor_identity,
@@ -246,7 +253,7 @@ def replay_experiment(
     }
     artifact_set = success_artifact_set if matched else verdict_artifact_set
     receipt = publish_artifact_set(
-        publication_members,
+        label_artifacts(publication_members, artifact_set, lambda member: member.artifact_kind),
         out,
         invocation_key,
         descriptor_identity,

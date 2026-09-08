@@ -92,7 +92,7 @@ _REPLAY_SUCCESS_ARTIFACT_SET = (
 _REPLAY_VERDICT_ARTIFACT_SET = tuple(
     member
     for member in _REPLAY_SUCCESS_ARTIFACT_SET
-    if member.logical_name != "evaluation-run"
+    if member.protocol_role != "evaluation-run"
 )
 
 

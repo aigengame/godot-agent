@@ -1,6 +1,6 @@
 """Schema 2.0 Formula notation conversion commands."""
 
-from typing import Any, cast
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -14,6 +14,7 @@ from gda_balancing.infrastructure.input_bytes import InputReadError
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.domain.diagnostics import refusal_catalog_for_reasons
+from gda_balancing.domain.wire_schema import wire_schema_definition_for_role
 
 
 class FormulaRenderInput(BaseModel):
@@ -72,14 +73,9 @@ def run_formula_parse(
 
 
 def _formula_conversion_result_schema() -> dict[str, object]:
-    language = cast(
-        dict[str, Any], packaged_authority_context().language_bundle["language"]
-    )
-    source_schema = next(
-        cast(dict[str, Any], item["schema"])
-        for item in cast(list[dict[str, Any]], language["wire_schemas"])
-        if item.get("artifact_kind") == "model-source-package"
-    )
+    source_schema = wire_schema_definition_for_role(
+        packaged_authority_context().language_bundle, "model-source-package"
+    )["schema"]
     body_schema = source_schema["properties"]["modules"]["items"]["properties"][
         "formulas"
     ]["items"]["properties"]["body"]

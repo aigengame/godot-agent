@@ -912,7 +912,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:956bdd5170763d1bef071cdd7ad03ee4b1e35e6fddb6ce70c53cd66f55b67748",
+  "content_identity": "sha256:9dc4e8991b70970d32d1012a7545dee57ef7ac2f4966721694255f39d6ff3c2c",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -5227,15 +5227,15 @@
           "profile_member": "requirements_member",
           "projection": "last-segment",
           "recipe": "requirements",
-          "subject": "requirement",
-          "subject_kind": "binding-source"
+          "subject": "package",
+          "subject_kind": "field-binding-source"
         },
         {
           "profile_member": "modules_member",
           "projection": "last-segment",
           "recipe": "modules",
           "subject": "module",
-          "subject_kind": "binding-source"
+          "subject_kind": "field-binding-source"
         },
         {
           "profile_member": "module_id_member",
@@ -5248,8 +5248,8 @@
           "profile_member": "imports_member",
           "projection": "last-segment",
           "recipe": "imports",
-          "subject": "import",
-          "subject_kind": "binding-source"
+          "subject": "alias",
+          "subject_kind": "field-binding-source"
         },
         {
           "profile_member": "import_alias_member",
@@ -5277,7 +5277,7 @@
           "projection": "last-segment",
           "recipe": "symbols",
           "subject": "symbol",
-          "subject_kind": "binding-source"
+          "subject_kind": "field-binding-source"
         },
         {
           "profile_member": "symbol_name_member",

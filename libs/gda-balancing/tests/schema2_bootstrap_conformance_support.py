@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:956bdd5170763d1bef071cdd7ad03ee4b1e35e6fddb6ce70c53cd66f55b67748"
+    "sha256:9dc4e8991b70970d32d1012a7545dee57ef7ac2f4966721694255f39d6ff3c2c"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -2801,7 +2801,7 @@ def _consumer_b_resolution_contract_is_closed(value: Any) -> bool:
                 isinstance(item.get(member), str) and item[member]
                 for member in ("profile_member", "recipe", "subject")
             )
-            or item.get("subject_kind") not in {"binding-source", "field-term"}
+            or item.get("subject_kind") not in {"field-binding-source", "field-term"}
             or item.get("projection") not in {"dot-path", "last-segment"}
             for item in routing_equivalences
         )
@@ -3183,19 +3183,24 @@ def _consumer_b_relation_paths_are_typed(
         recipe = recipes_by_id.get(equivalence["recipe"])
         if recipe is None:
             return False
-        candidates = (
-            [
+        fields = [
+            field["term"]
+            for field in recipe["fields"]
+            if field["name"] == equivalence["subject"]
+        ]
+        if len(fields) != 1:
+            return False
+        if equivalence["subject_kind"] == "field-binding-source":
+            selected_field = fields[0]
+            if selected_field["root"] != "binding":
+                return False
+            candidates = [
                 binding["source"]
                 for binding in recipe["bindings"]
-                if binding["name"] == equivalence["subject"]
+                if binding["name"] == selected_field["binding"]
             ]
-            if equivalence["subject_kind"] == "binding-source"
-            else [
-                field["term"]
-                for field in recipe["fields"]
-                if field["name"] == equivalence["subject"]
-            ]
-        )
+        else:
+            candidates = fields
         if len(candidates) != 1 or not candidates[0]["path"]:
             return False
         expected = (

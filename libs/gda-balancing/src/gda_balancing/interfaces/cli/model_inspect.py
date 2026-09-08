@@ -10,7 +10,7 @@ from gda_balancing.interfaces.cli.descriptors import (
     CommandDescriptor,
     ConformanceFixtures,
 )
-from gda_balancing.domain.artifacts import artifact_wire_schema
+from gda_balancing.domain.artifacts import select_protocol_artifact_contract
 from gda_balancing.interfaces.cli.model_build import (
     MODEL_BUILD,
     ModelBuildInput,
@@ -49,10 +49,10 @@ def run_model_inspect(
 
 
 def _model_explanation_schema() -> dict[str, object]:
-    return artifact_wire_schema(
+    return select_protocol_artifact_contract(
         packaged_authority_context().language_bundle,
         "model-explanation",
-    )
+    ).schema
 
 
 def _prepare_model_inspect(root: Path, token: int) -> str:

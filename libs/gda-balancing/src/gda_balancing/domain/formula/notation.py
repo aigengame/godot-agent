@@ -21,6 +21,7 @@ from gda_balancing.domain.authority.runtime_validation import (
     operation_literal_context_contract,
 )
 from gda_balancing.domain.formula.inference import infer_formula_operation_result
+from gda_balancing.domain.wire_schema import wire_schema_definition_for_role
 
 
 @dataclass(frozen=True)
@@ -323,20 +324,12 @@ def _formula_policy(authority_context: AdmittedAuthorityContext) -> dict[str, An
 def _formula_source_schema(
     authority_context: AdmittedAuthorityContext,
 ) -> dict[str, Any]:
-    packages = cast(
-        list[dict[str, Any]], authority_context.language_bundle["language"]["packages"]
-    )
-    schemas = [
-        definition.get("schema")
-        for package in packages
-        for closure in cast(list[dict[str, Any]], package["semantic_closure"])
-        if closure.get("authority_path") == "language.wire_schemas"
-        for definition in cast(list[dict[str, Any]], closure["definitions"])
-        if definition.get("artifact_kind") == "model-source-package"
-    ]
-    if len(schemas) != 1 or not isinstance(schemas[0], dict):
+    schema = wire_schema_definition_for_role(
+        authority_context.language_bundle, "model-source-package"
+    ).get("schema")
+    if not isinstance(schema, dict):
         raise ValueError("Formula conversion has no exact source schema")
-    return schemas[0]
+    return schema
 
 
 def formula_schema_version(

@@ -10,7 +10,7 @@ from gda_balancing.application.experiment_execution import (
     ExperimentExecutionSuccess,
     execute_checked_experiment,
 )
-from gda_balancing.domain.artifact_set import EXPERIMENT_SUCCESS_ARTIFACT_SET
+from gda_balancing.domain.artifact_set import EXPERIMENT_SUCCESS_ARTIFACT_SET, resolve_artifact_set
 from gda_balancing.domain.experiment import CheckedExperiment, experiment_input_identity
 from gda_balancing.application.experiment_inputs import check_experiment_inputs
 from gda_balancing.domain.experiment_artifacts import (
@@ -36,6 +36,7 @@ def test_committed_recovery_consumes_only_selected_framing_and_member_contracts(
     execution = execute_checked_experiment(checked)
     assert isinstance(execution, ExperimentExecutionSuccess)
     contracts = select_publication_contracts(checked.language_bundle)
+    artifact_set = resolve_artifact_set(checked.language_bundle, EXPERIMENT_SUCCESS_ARTIFACT_SET)
 
     def ambient_lookup_forbidden(*_args, **_kwargs):
         raise AssertionError(
@@ -67,7 +68,7 @@ def test_committed_recovery_consumes_only_selected_framing_and_member_contracts(
             descriptor_identity,
             input_identity,
             contracts,
-            EXPERIMENT_SUCCESS_ARTIFACT_SET,
+            artifact_set,
             member_validator,
             "after-commit",
             artifact_set_validator=set_validator,
@@ -79,7 +80,7 @@ def test_committed_recovery_consumes_only_selected_framing_and_member_contracts(
         descriptor_identity,
         input_identity,
         contracts,
-        (EXPERIMENT_SUCCESS_ARTIFACT_SET,),
+        (artifact_set,),
         member_validator,
         artifact_set_validator=set_validator,
     )
