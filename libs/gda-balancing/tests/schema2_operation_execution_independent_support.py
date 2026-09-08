@@ -3,9 +3,22 @@
 import hashlib
 from copy import deepcopy
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, cast
 
 OperationCoordinate = tuple[str, str]
+SymbolCoordinate = tuple[str, str, str]
+
+
+@dataclass(frozen=True)
+class ReferenceEventFrame:
+    """Explicit committed inputs to one independent Event execution."""
+
+    values: Mapping[SymbolCoordinate, Any]
+    rng_states: Mapping[str, int]
+    rng_indices: Mapping[str, int]
+    node_steps: int
+    ordering_key: Mapping[str, Any]
 
 
 def _operation_coordinate(reference: dict[str, Any]) -> OperationCoordinate:
@@ -114,8 +127,18 @@ def reference_execute_event(
     include_execution_evidence: bool = False,
     include_attempt_evidence: bool = False,
     resource_limit: int | None = None,
+    selected_semantics: Mapping[str, Any] | None = None,
+    frame: ReferenceEventFrame | None = None,
 ) -> dict[str, Any]:
-    runtime = kernel["meta_format"]["runtime_program"]
+    if frame is not None and resolved_entrypoint is None:
+        raise ValueError("a committed Event frame requires a resolved entrypoint")
+    if selected_semantics is not None and language_bundle is not None:
+        raise ValueError("select RIR semantics or authority-vector inputs, not both")
+    runtime = (
+        selected_semantics["execution_laws"]["runtime_program"]
+        if selected_semantics is not None
+        else kernel["meta_format"]["runtime_program"]
+    )
     numeric = runtime["numeric"]
     nodes = {row["id"]: row for row in runtime["nodes"]}
     variables: dict[str | tuple[str, str, str], Any]
@@ -149,6 +172,10 @@ def reference_execute_event(
                 for row in scenario["assignments"]
             }
         )
+        if frame is not None:
+            variables = cast(
+                dict[str | SymbolCoordinate, Any], deepcopy(dict(frame.values))
+            )
         pending_programs = list(resolved_initialization_programs or [])
         reachable_formula_targets = {
             (
@@ -283,14 +310,15 @@ def reference_execute_event(
             id(cells[coordinate]): declaration["domain"]
             for coordinate, declaration in declarations.items()
             if coordinate in state_cells
+            and declaration.get("value_kind") != "nominal-structured"
             and declaration["domain_kind"] == "closed-interval"
         }
         if resolved_entrypoint is not None
         else {}
     )
     before = {name: cell["value"] for name, cell in state_cells.items()}
-    rng_states: dict[str, int] = {}
-    rng_indices: dict[str, int] = {}
+    rng_states: dict[str, int] = dict(frame.rng_states) if frame is not None else {}
+    rng_indices: dict[str, int] = dict(frame.rng_indices) if frame is not None else {}
     draws: list[dict[str, Any]] = []
     calls: list[dict[str, Any]] = []
     executed_resource_charge = 0
@@ -305,31 +333,45 @@ def reference_execute_event(
     language = (
         language_bundle.get("language") if isinstance(language_bundle, dict) else None
     )
-    nominal_types = {
-        (package["id"], definition["id"]): definition
-        for package in (
-            language.get("packages", []) if isinstance(language, dict) else []
-        )
-        for entry in package["semantic_closure"]
-        if entry["authority_path"] == "language.nominal_types"
-        for definition in entry["definitions"]
-    }
-    constructors = {
-        row["id"]: row
-        for row in (
-            language.get("constructors", []) if isinstance(language, dict) else []
-        )
-        if isinstance(row, dict) and isinstance(row.get("id"), str)
-    }
-    structured_operations = [
-        row
-        for row in (
-            language.get("structured_operations", [])
-            if isinstance(language, dict)
-            else []
-        )
-        if isinstance(row, dict)
-    ]
+    if selected_semantics is not None:
+        nominal_types = {
+            (row["package"], row["definition"]["id"]): row["definition"]
+            for row in selected_semantics["nominal_types"]
+        }
+        constructors = {row["id"]: row for row in selected_semantics["constructors"]}
+        structured_operations = [
+            row["definition"] for row in selected_semantics["structured_operations"]
+        ]
+        reasons = [
+            row["definition"] for row in selected_semantics["diagnostic_reasons"]
+        ]
+    else:
+        nominal_types = {
+            (package["id"], definition["id"]): definition
+            for package in (
+                language.get("packages", []) if isinstance(language, dict) else []
+            )
+            for entry in package["semantic_closure"]
+            if entry["authority_path"] == "language.nominal_types"
+            for definition in entry["definitions"]
+        }
+        constructors = {
+            row["id"]: row
+            for row in (
+                language.get("constructors", []) if isinstance(language, dict) else []
+            )
+            if isinstance(row, dict) and isinstance(row.get("id"), str)
+        }
+        structured_operations = [
+            row
+            for row in (
+                language.get("structured_operations", [])
+                if isinstance(language, dict)
+                else []
+            )
+            if isinstance(row, dict)
+        ]
+        reasons = language["reasons"] if language is not None else []
 
     def structural(type_expression: Any) -> tuple[dict[str, Any], dict[str, Any]]:
         definition = type_expression
@@ -415,15 +457,9 @@ def reference_execute_event(
         return path_contract["separator"].join(path)
 
     def reason_for_signal(signal: str) -> str:
-        matches = (
-            [
-                reason["diagnostic"]
-                for reason in language["reasons"]
-                if reason.get("signal") == signal
-            ]
-            if language is not None
-            else []
-        )
+        matches = [
+            reason["diagnostic"] for reason in reasons if reason.get("signal") == signal
+        ]
         if len(matches) != 1:
             raise AssertionError(f"signal has no unique declared reason: {signal}")
         return matches[0]
@@ -528,7 +564,10 @@ def reference_execute_event(
             }
             attempts.append(attempt)
             if any(active["attempted"] > active["limit"] for active in budgets) or (
-                resource_limit is not None and executed_resource_charge > resource_limit
+                resource_limit is not None
+                and executed_resource_charge
+                + (frame.node_steps if frame is not None else 0)
+                > resource_limit
             ):
                 refusal = _ReferenceRuntimeRefusal(reason_for_signal("step-limit"))
                 refusal.operation = owner["id"]
@@ -1059,6 +1098,19 @@ def reference_execute_event(
             },
             "resource_charge": executed_resource_charge,
         }
+    if frame is not None:
+        event["continuation"] = ReferenceEventFrame(
+            values={
+                cast(SymbolCoordinate, name): deepcopy(cell["value"])
+                for name, cell in cells.items()
+            },
+            rng_states=rng_states,
+            rng_indices=rng_indices,
+            node_steps=frame.node_steps + executed_resource_charge,
+            ordering_key=dict(frame.ordering_key),
+        )
+        if include_execution_evidence:
+            event["execution_evidence"]["ordering_key"] = dict(frame.ordering_key)
     if include_attempt_evidence:
         event["attempts"] = attempts
         event["construction"] = {
