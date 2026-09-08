@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 
 from gda_balancing.domain.artifacts import select_protocol_artifact_contract
-from gda_balancing.domain.authority.receipt_projection import receipt_protocol_schema
+from gda_balancing.domain.authority.publication_projection import (
+    publication_protocol_schema,
+)
 from schema2_authority_support import (
     mutable_authorities,
     refresh_package_semantic_closures,
@@ -92,7 +94,9 @@ def test_receipt_has_no_authored_schema_or_identity_exclusion_policy():
     assert "identity_excluded_members" not in grammar["required_members"]
     assert "identity_excluded_members" not in grammar["field_types"]
     selected = select_protocol_artifact_contract(ldb, "artifact-set-receipt")
-    assert selected.schema == receipt_protocol_schema(kernel, contract["artifact_kind"])
+    assert selected.schema == publication_protocol_schema(
+        kernel, "artifact-set-receipt", contract["artifact_kind"]
+    )
     assert selected.wire_schema_identity == _WIRE_IDENTITY
     assert list(selected.definition["identity_excluded_members"]) == [
         "manifest_locator",
@@ -152,7 +156,9 @@ def test_public_build_uses_only_the_derived_receipt_structure(tmp_path, mode):
     override = mode == "authored-override"
     if override:
         schema["schema"] = deepcopy(
-            receipt_protocol_schema(kernel, contract["artifact_kind"])
+            publication_protocol_schema(
+                kernel, "artifact-set-receipt", contract["artifact_kind"]
+            )
         )
     public = _PublicCandidate(
         tmp_path / "public", authorities=(kernel, _graph(kernel, authored))

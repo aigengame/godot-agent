@@ -1316,7 +1316,6 @@ def _commit_generic_publication(
     ]
     manifest = contracts.manifest.identify(
         {
-            "frame": "typed-logical-member-map-v1",
             "members": cast(JsonValue, members),
         },
     )
@@ -1333,7 +1332,6 @@ def _commit_generic_publication(
     )
     index = contracts.index.identify(
         {
-            "adapter": "local-filesystem-directory-rename-v1",
             "descriptor_identity": descriptor_identity,
             "invocation_key": invocation_key,
             "command_input_identity": command_input_identity,

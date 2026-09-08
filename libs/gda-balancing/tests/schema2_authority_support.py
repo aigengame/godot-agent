@@ -90,15 +90,21 @@ def refresh_package_semantic_closures(
                 projected = deepcopy(definition)
                 if path == "language.artifact_wire_schemas" and projected.get(
                     "protocol_role"
-                ) in {"event-trace", "rir-semantic-payload", "artifact-set-receipt"}:
+                ) in {
+                    "event-trace",
+                    "rir-semantic-payload",
+                    "artifact-set-receipt",
+                    "artifact-set-manifest",
+                    "publication-index",
+                }:
                     from gda_balancing.domain.authority.trace_projection import (
                         trace_protocol_schema,
                     )
                     from gda_balancing.domain.authority.rir_projection import (
                         rir_protocol_schema,
                     )
-                    from gda_balancing.domain.authority.receipt_projection import (
-                        receipt_protocol_schema,
+                    from gda_balancing.domain.authority.publication_projection import (
+                        publication_protocol_schema,
                     )
 
                     contracts = [
@@ -111,9 +117,15 @@ def refresh_package_semantic_closures(
                             expected_schema = trace_protocol_schema(
                                 kernel, contracts[0]["artifact_kind"]
                             )
-                        elif projected["protocol_role"] == "artifact-set-receipt":
-                            expected_schema = receipt_protocol_schema(
-                                kernel, contracts[0]["artifact_kind"]
+                        elif projected["protocol_role"] in {
+                            "artifact-set-receipt",
+                            "artifact-set-manifest",
+                            "publication-index",
+                        }:
+                            expected_schema = publication_protocol_schema(
+                                kernel,
+                                projected["protocol_role"],
+                                contracts[0]["artifact_kind"],
                             )
                         else:
                             expected_schema = rir_protocol_schema(
@@ -134,7 +146,7 @@ def refresh_package_semantic_closures(
                             list(
                                 kernel["meta_format"]["language_definitions"][
                                     "wire_schema_protocol_roles"
-                                ]["receipt_structure"]["transport"]
+                                ]["publication_structure"]["receipt"]["transport"]
                             )
                             if binding_schemas[0].get("protocol_role")
                             == "artifact-set-receipt"

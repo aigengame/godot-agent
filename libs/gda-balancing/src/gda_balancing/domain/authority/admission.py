@@ -83,7 +83,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:ad78d61004e5ec1865e6c11122e3e9ea9889a8f590aec2152730dff759672a1c"
+    "sha256:c2d65129e9cf8e5dad275fd88e95197ed023a171b9b30db7c43b2de400fbcccc"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -2669,7 +2669,7 @@ def _language_definitions_are_closed(
         if not isinstance(values, list) or not isinstance(contract, dict):
             return False
         if name == "artifact_contracts":
-            from gda_balancing.domain.authority.receipt_projection import (
+            from gda_balancing.domain.authority.publication_projection import (
                 artifact_contract_declarations,
             )
 
