@@ -319,9 +319,10 @@ _Avoid_: compiler identity in RIR, semantic build id, Resolved Model provenance 
 A separately identified publication artifact that binds one producing Command invocation to the
 manifest and locators for its exact committed artifact set. It owns publication facts. It is not a
 domain member such as a Build receipt or Resolution receipt
-(bADR-0012/0013/0021). Its fixed framing and transport-independent identity projection come from
-the Kernel receipt protocol; the LDB owns its schema/kind names and Artifact Contract identity
-domain, without an authored receipt Schema or configurable identity exclusions.
+(bADR-0012/0013/0021). The Kernel's single Publication structure owns manifest, receipt and index
+framing, together with the receipt's transport-independent identity projection. The LDB owns their
+schema/kind names and Artifact Contract identity domains, without authored framing Schemas or
+configurable identity exclusions.
 _Avoid_: Build receipt, outcome receipt, member receipt
 
 **Package Lock**:
@@ -1342,8 +1343,9 @@ from any filesystem, object-store, or transport implementation; stdout/stderr de
 after commit and is not a participant. A runtime refusal after Event dispatch begins must publish a
 separately typed terminal-audit artifact set through this boundary, but never a partial
 Evaluation/Metric/Evidence success set. Publication selects immutable framing contracts at its
-admitted boundary; execution-result commit and recovery use them with the request's selected output
-contracts, without an ambient full-LDB lookup (bADR-0015/0021/0028).
+admitted boundary from the Kernel's single Publication structure and the actual LDB role bindings.
+Execution-result commit and recovery use them with the request's selected output contracts, without
+an ambient full-LDB lookup (bADR-0015/0021/0028).
 _Avoid_: atomic file write, output directory, event transaction
 
 **Artifact set manifest**:

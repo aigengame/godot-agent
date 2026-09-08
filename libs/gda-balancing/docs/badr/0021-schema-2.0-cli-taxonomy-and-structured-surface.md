@@ -187,9 +187,12 @@ structured-params adapter part of the first vertical tracer.
   Each standardized store adapter must declare and test the durability/trust boundary that makes its
   index immutable. Input artifacts are never mutated, and direct/symlink aliasing of any input/output
   member is a usage error.
-  The receipt's fixed framing and transport-independent identity projection are derived from the
-  Kernel protocol under bADR-0012. Authored Schema or identity-exclusion overrides cannot change
-  these publication bindings; current schema and artifact kind names remain LDB-owned.
+  One Kernel Publication structure under bADR-0012 derives manifest, receipt and index framing
+  with the receipt's transport-independent identity projection. Actual schema and artifact kind
+  names remain LDB-owned; logical labels remain bound member names. Authored framing Schema or
+  identity-exclusion overrides cannot change these bindings. The redundant `manifest.frame` and
+  `publication-index.adapter` output markers are removed without changing the authenticated
+  anchor, complete member-map verification or adapter durability obligation.
 
 - **Refusal publication is separate from success publication.** A pre-runtime refusal publishes no
   command success artifacts. After runtime dispatch, bADR-0014/0015 requires one separately typed

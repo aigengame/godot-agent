@@ -1,0 +1,516 @@
+{
+  "scope": "#878 bounded Publication framing ownership correction; the earlier Receipt record remains a historical checkpoint.",
+  "baseline": "b0605e9ae15fdeac47aa11ceddd192a63b641fc3",
+  "production_and_review_head": "4bdc60c8e51062e06be25baf6fe225cd0bcdcd04",
+  "implementation_checkpoints": {
+    "A": "18e59138815c431c679934f4206e1f91ca7ab104",
+    "B": "b051540df4a5a86884ebdbb29307f6cbd7e23baa",
+    "CI_registration": "d343db91b3be8045e31213a3be41252b878e12b4"
+  },
+  "kernel": "sha256:c2d65129e9cf8e5dad275fd88e95197ed023a171b9b30db7c43b2de400fbcccc",
+  "ldb": "sha256:a441230133b14af4ff7f5451c9a1fd2505440b08294a0b4a1774d7ec5a864cba",
+  "decision": {
+    "owner": "/meta_format/language_definitions/wire_schema_protocol_roles/publication_structure",
+    "closed_parts": [
+      "manifest",
+      "receipt",
+      "index"
+    ],
+    "common_envelope_owner": "/meta_format/language_definitions/wire_schema_protocol_roles/artifact_envelope",
+    "projection_module": "src/gda_balancing/domain/authority/publication_projection.py",
+    "selected_contract_projection": "src/gda_balancing/domain/authority/publication_projection.py::artifact_contract_declarations",
+    "apis": [
+      "publication_protocol_schema(kernel, protocol_role, artifact_kind)",
+      "project_publication_protocol(kernel, language)",
+      "artifact_contract_declarations(meta_format, language)"
+    ],
+    "deleted": [
+      "The two physical manifest/index authored Schemas",
+      "receipt_structure and receipt-only projection module/APIs",
+      "manifest.frame",
+      "publication-index.adapter"
+    ],
+    "retained": [
+      "Actual unique protocol-role to schema_kind to Artifact Contract binding; names remain LDB-owned",
+      "The typed logical member map and opaque caller labels",
+      "Descriptor, invocation, command-input and receipt/manifest identity bindings",
+      "Receipt transport-only derived exclusions; canonical content hash owner unchanged",
+      "Authenticated original-publication anchors, complete member admission and atomic visibility",
+      "Selected framing contracts during recovery; no ambient full-LDB lookup",
+      "Existing alias, symlink, and pre-commit failure refusals"
+    ],
+    "not_added": [
+      "Registry or compatibility reader",
+      "A second identity owner or authenticated Evidence protocol"
+    ]
+  },
+  "canonical_schema_comparison": [
+    {
+      "role": "artifact-set-manifest",
+      "old_bytes": 867,
+      "new_bytes": 811,
+      "old_sha256": "004e488de911d9c3ab466ad94274ef5a8ad69cecf82cf4b05b5195d97c2adbee",
+      "new_sha256": "78a9e455a25f28a17e89de7b5355a82c15f94d69af3d072b8c610dc13282e662",
+      "new_wire_identity": "sha256:0145fe591a1de1ebcb9ade102dff0c989bf1908c35a7dab76f9a44438c7f8b7a",
+      "only_deleted_member": "frame",
+      "relative_required_order_preserved": true,
+      "nested_arrays_unchanged": true,
+      "old_wire_identity": "sha256:fa85cb633d0b3e0ebe41493ba1724185fcaab1dd52d435d8a4ca47cd7d510e25",
+      "independent_B_schema_equals_A": true
+    },
+    {
+      "role": "artifact-set-receipt",
+      "old_bytes": 950,
+      "new_bytes": 950,
+      "old_sha256": "53908bd786b6daf916cd5f8ad2838626fb9413699869d00657a6d6bb45604c38",
+      "new_sha256": "53908bd786b6daf916cd5f8ad2838626fb9413699869d00657a6d6bb45604c38",
+      "new_wire_identity": "sha256:1458071325c647715a5e04f042febc82bbb3efff6b2fe9d783e3b1dd50ca9c5f",
+      "only_deleted_member": null,
+      "relative_required_order_preserved": true,
+      "nested_arrays_unchanged": true,
+      "old_wire_identity": "sha256:1458071325c647715a5e04f042febc82bbb3efff6b2fe9d783e3b1dd50ca9c5f",
+      "independent_B_schema_equals_A": true
+    },
+    {
+      "role": "publication-index",
+      "old_bytes": 745,
+      "new_bytes": 693,
+      "old_sha256": "0e1fc5413bba410752258eefcf15dd1e8c9cc78878cd51a8bb598233d0ca95df",
+      "new_sha256": "d99f55eb0c27d59be8a4b8ea2ac697e34400cad76a7fd35c9e3991aa5681190f",
+      "new_wire_identity": "sha256:1802b3195b124ab8c7afa9b83d5caac6603cc0ef59069e8d452291204c14ad14",
+      "only_deleted_member": "adapter",
+      "relative_required_order_preserved": true,
+      "nested_arrays_unchanged": true,
+      "old_wire_identity": "sha256:caed6c54515005d3a7f5a2e1a258f09203e3b6b96bf3da28ce0e1f66f6a4b13a",
+      "independent_B_schema_equals_A": true
+    }
+  ],
+  "preservation": {
+    "other_raw_authored_schemas_byte_equal": 29,
+    "other_schema_declarations_byte_equal_including_derived_Trace_RIR_and_Receipt": 32,
+    "all_package_vector_files_byte_equal": 13,
+    "vector_inputs_numeric_verdict_resource_expectations_unchanged": true,
+    "retained_nested_schema_arrays_and_required_order_unchanged": true,
+    "identity_limits": "Removing the two redundant markers deliberately changes manifest/index Schema and content identities and dependent receipt contents. Receipt Schema and wire identity are unchanged. No blanket full-Model artifact byte preservation claim.",
+    "receipt_historical_section_sha256": "1f6544e08aeb4e6f74403e3c6af27845791bc38f4230795687ef7652f70a54c5"
+  },
+  "counterexample": {
+    "mutation": "Only the selected authored manifest members field or index receipt_identity field is coherently renamed, then the original Kernel graph is resealed.",
+    "cases": [
+      {
+        "candidate": "control",
+        "A_admitted": true,
+        "B_admitted": true,
+        "public_exits": {
+          "check": 0,
+          "build": 0
+        },
+        "committed_receipts": 1,
+        "root_identity": "sha256:68ff4187e3fcfd70cceb0cf250c70aa583ca50c13239ae1d6808a03008ed29a5",
+        "source_sha256": "162b7b9a0cb8278548184f6bdc31f26b64080bc40a21c9bd601fe83a88b96827"
+      },
+      {
+        "candidate": "manifest-members",
+        "A_admitted": true,
+        "B_admitted": true,
+        "public_exits": {
+          "check": 0,
+          "build": 4
+        },
+        "committed_receipts": 0,
+        "root_identity": "sha256:d77b354e790eb077dcd4094c85f44f30dce80adcdd980766867966ae70a2ec9b",
+        "source_sha256": "162b7b9a0cb8278548184f6bdc31f26b64080bc40a21c9bd601fe83a88b96827"
+      },
+      {
+        "candidate": "index-receipt",
+        "A_admitted": true,
+        "B_admitted": true,
+        "public_exits": {
+          "check": 0,
+          "build": 4
+        },
+        "committed_receipts": 0,
+        "root_identity": "sha256:419c77b7982d68c81f48412c44b84825608216ef719a7a3d461bd390fbc31f11",
+        "source_sha256": "162b7b9a0cb8278548184f6bdc31f26b64080bc40a21c9bd601fe83a88b96827"
+      }
+    ],
+    "B_independent_baseline_scope": "Actual A/B raw admission of control and both coherent renamed-schema candidates at b060; all admitted. Public failure uses prior retained receipt, not a new public run.",
+    "corrected_boundary": "Both correctly resealed authored overrides refuse static/kernel.vector_mismatch at language.definitions; actual public build exits 2 before publication.",
+    "retired_marker_output_boundary": "Reinserting frame or adapter into an identified current output fails its generated Wire Schema, beyond stale-hash rejection."
+  },
+  "public_and_independent": {
+    "A": "Original and all-three-distinct Schema/kind graphs pass actual Model build (8 members), Model inspect and same-key retry. Original properly resealed authored rename overrides refuse exit 2/kernel.vector_mismatch before publication. Existing authentication/coherent rewrite/recovery/alias suite has 10 passes.",
+    "B": "Real all-three-distinct Schema/artifact kinds and opaque labels: Model check/build and both inspections exit 0; independently lowered four Model artifacts are byte-equal and mutually admitted.",
+    "B_four_artifact_identities": {
+      "package-lock": "sha256:9d0194be872c1d5567f48c58f2fad21625f6ece812941f69201735876071e820",
+      "rir-semantic-payload": "sha256:e92feacedf845919ccd0cbbcc482b6f99a15bd17240d780477849fb3a6b81146",
+      "resolved-model": "sha256:5300df0f913119a91aae29d1342cbae09289469ed733546f708f6f8bcb0fed50",
+      "debug-map": "sha256:f92bdc263715604a7eca8a9796f6dd820a6f17c80db536d3b92ff0a0b56f8871"
+    },
+    "B_scope_limit": "B independently derives framing Schemas, canonical identities and four Model semantic artifacts. Publication and authenticated retrieval use the actual production implementation; no independent publisher, HMAC implementation or whole Runtime is claimed.",
+    "DDMA_public_control": {
+      "members": 8,
+      "inspect_returncode": 0,
+      "retry_same_receipt": true,
+      "manifest_without_frame": true,
+      "index_without_adapter": true
+    },
+    "DDMA_authenticated_mutations": [
+      {
+        "mode": "reidentified-index-input",
+        "framing_individually_schema_and_hash_valid": true,
+        "committed_anchor_unchanged": true,
+        "returncode": 2,
+        "observation": {
+          "error": {
+            "category": "refusal",
+            "diagnostics": [
+              {
+                "code": "kernel.binding_mismatch",
+                "message": "Artifact-set publication index does not authenticate the receipt",
+                "primary": {
+                  "content_identity": "unidentified",
+                  "kind": "artifact",
+                  "pointer": "/publication-index"
+                },
+                "related": []
+              }
+            ],
+            "stage": "ingress",
+            "truncated": false
+          }
+        }
+      },
+      {
+        "mode": "coherently-reidentified-member-map",
+        "framing_individually_schema_and_hash_valid": true,
+        "committed_anchor_unchanged": true,
+        "returncode": 2,
+        "observation": {
+          "error": {
+            "category": "refusal",
+            "diagnostics": [
+              {
+                "code": "kernel.binding_mismatch",
+                "message": "Artifact-set publication index does not authenticate the receipt",
+                "primary": {
+                  "content_identity": "unidentified",
+                  "kind": "artifact",
+                  "pointer": "/publication-index"
+                },
+                "related": []
+              }
+            ],
+            "stage": "ingress",
+            "truncated": false
+          }
+        }
+      }
+    ],
+    "DDMA_restored_control": true,
+    "Spec_authenticated_mutations": {
+      "artifact_count": 8,
+      "index_artifact_kind": "review.index.artifact",
+      "mutations": [
+        {
+          "code": "kernel.binding_mismatch",
+          "message": "Artifact-set publication index does not authenticate the receipt",
+          "mutation": "reidentified-index-with-original-anchor"
+        },
+        {
+          "code": "kernel.binding_mismatch",
+          "message": "Artifact-set publication anchor failed authentication",
+          "mutation": "coherent-index-and-anchor-body-with-original-mac"
+        }
+      ],
+      "retired_adapter_absent": true,
+      "valid_before_after": true
+    }
+  },
+  "tests": {
+    "A_framing_and_retained_receipt": {
+      "path": "/private/tmp/gda-878-publication-structure-evidence/a-green.xml",
+      "bytes": 8366,
+      "sha256": "5cf306ba5901c2dd49e0eb216a82fed4233e587e6e6dfb85322c16b7160705eb",
+      "tests": 46,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 31.035
+    },
+    "A_retained_authentication_recovery_alias_boundaries": {
+      "path": "/private/tmp/gda-878-publication-structure-evidence/a-auth.xml",
+      "bytes": 1689,
+      "sha256": "7a81686ae6b6acfc96b6d76adcf95eaf5e5c71a4d50a74d521b7e1ebb18e548c",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 9.782
+    },
+    "B_new_and_two_retained_receipt_cases": {
+      "path": "/private/tmp/gda-publication-b-evidence/first.xml",
+      "bytes": 4876,
+      "sha256": "ed331ed706ac88f3c5d27521bde1880b2aa29099620fb6c5333151dc9228274d",
+      "tests": 23,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 18.771
+    },
+    "Spec_both_new_files": {
+      "path": "/private/tmp/gda-878-spec-publication-4bd/targeted.xml",
+      "bytes": 10819,
+      "sha256": "4ffb609dcae146ad57cce1263b0fd0be0b0ab779e822cd0a4b431aa8f30fdeab",
+      "tests": 55,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 37.034
+    },
+    "Standards_targeted": {
+      "path": "/private/tmp/gda-878-publication-standards-ygamjm2j/targeted.xml",
+      "bytes": 992,
+      "sha256": "7f79ca41251e8f03c9c5ad48f1184d710d94c311dee9c7349bf7dfb847e775fe",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 12.817
+    },
+    "DDMA_targeted": {
+      "passed": 7,
+      "log": "pytest.log",
+      "sha256": "d44af922f8e79deaf78111d920912909f5deb7519691b232286093ea6d9c4680",
+      "scope": [
+        "B owner isolation and aliasing",
+        "four raw re-entry candidates A/B",
+        "distinct schema and producer names, opaque logical labels, actual independent artifacts",
+        "selected framing after-commit recovery without ambient lookup"
+      ]
+    },
+    "primary_CI_policy": {
+      "path": "/private/tmp/gda-878-root/publication-ci-policy.xml",
+      "bytes": 1705,
+      "sha256": "bec6e8b12ae3f6465f24ef52dd397c6c931b48ab3cd4d4f3a95773ab2946e89f",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 6.902
+    },
+    "overlap": "These independently executed groups overlap; their counts are not summed as unique tests.",
+    "initial_run": {
+      "xml": {
+        "path": "/private/tmp/gda-878-publication-structure-evidence/a-core.xml",
+        "bytes": 18223,
+        "sha256": "52da0617096130722e677d564ee058ee515a93528f1d56a501abe725dcb9f8c3",
+        "tests": 46,
+        "failures": 4,
+        "errors": 0,
+        "skipped": 0,
+        "seconds": 30.757
+      },
+      "disposition": "a-core had 42 pass / 4 fail, all new manifest hash-test input aliasing: mutation reused nested input referenced by the before artifact. Independent deepcopy input fixed the test setup; hash and verify assertions retained. Initial Pyright 13 errors were the new heterogeneous mutation fixture inference; explicit dict[str, Any] return type fixed these. No product relaxation or fallback."
+    }
+  },
+  "reviews": {
+    "fixed_head": "4bdc60c8e51062e06be25baf6fe225cd0bcdcd04",
+    "Spec": {
+      "findings": [],
+      "scope": "Publication law, actual admission/publication/authentication, test preservation and exact two-gap deletion."
+    },
+    "Standards": {
+      "verdict": "0 findings",
+      "documented_standard_violations": [],
+      "actionable_judgment_smells": []
+    },
+    "DDMA": {
+      "verdict": "No findings in the bounded protocol ownership, identity and authentication review.",
+      "scope": [
+        "B owner isolation and aliasing",
+        "four raw re-entry candidates A/B",
+        "distinct schema and producer names, opaque logical labels, actual independent artifacts",
+        "selected framing after-commit recovery without ambient lookup"
+      ]
+    },
+    "limits": "Core reviews exclude this documentation change and the two subsequent CI-registration lines; no full CI, wheel, maintained-artifact rebuild or whole #878 acceptance is implied."
+  },
+  "inventory": {
+    "before": {
+      "tokens": 1607,
+      "occurrences": 6463,
+      "gaps": 36
+    },
+    "after": {
+      "tokens": 1607,
+      "occurrences": 6461,
+      "gaps": 34
+    },
+    "removed_gap_rows": [
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/12",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/20",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      }
+    ],
+    "added_gap_rows": [],
+    "all_remaining_rows_equal_to_baseline": true,
+    "remaining_artifact_schema_gaps": 29,
+    "remaining_other_gaps": 5,
+    "remaining_other_families": [
+      "model_lowerings",
+      "Source language.wire_schemas",
+      "resolution_profiles",
+      "template_admission_profiles",
+      "vector families"
+    ]
+  },
+  "integration": {
+    "source_correspondence": {
+      "A_source_and_resources_equal_to_primary": 156,
+      "B_files_equal_to_primary": 4
+    },
+    "CI_registration": "Two new files assigned to the existing extension shard in d343db91b; production source remains 4bdc60c8e.",
+    "collection": {
+      "tests": 2638,
+      "vectors": 339,
+      "missing_tests": [],
+      "missing_package_vectors": [],
+      "overlapping_tests": [],
+      "uncovered_tests": [],
+      "unexpected_shard_tests": [],
+      "full_execution_claimed": false
+    },
+    "primary_reported_exit_codes": {
+      "resource_rebuild_check": 0,
+      "Ruff": 0,
+      "full_Pyright": 0
+    },
+    "documentation_readback": {
+      "actual_current_schemas_rederived": 3,
+      "source_hashes_rechecked": 160,
+      "raw_refs_rechecked": 72,
+      "XMLs_parsed": 7,
+      "new_test_execution": false
+    }
+  },
+  "raw_receipts": {
+    "A": {
+      "path": "/private/tmp/gda-878-publication-structure-evidence/final-a-receipt.json",
+      "bytes": 11917,
+      "sha256": "fdac7651b031f8af5af3a2d201c06fc4d9e5cde490938b153836cb8a1274d824"
+    },
+    "B": {
+      "path": "/private/tmp/gda-publication-b-evidence/final-receipt.json",
+      "bytes": 35645,
+      "sha256": "76da98c60ff6ebb5dc29c453155f5194209e9df88f7827223419f6f4b28bc0aa"
+    },
+    "DDMA": {
+      "path": "/private/tmp/gda-878-ddma-publication-4bdc-proof/receipt.json",
+      "bytes": 132171,
+      "sha256": "62cace1920068d387a8d1b55002301c07355a44f46b99076114adb9ee4e4c390"
+    },
+    "Spec": {
+      "path": "/private/tmp/gda-878-spec-publication-4bd/receipt.json",
+      "bytes": 22749,
+      "sha256": "3c26468eeb5cfd3788e1a05f63bdcbbd2a0fde26061dc2b420ae50f1de745892"
+    },
+    "Standards": {
+      "path": "/private/tmp/gda-878-publication-standards-ygamjm2j/REVIEW-RECEIPT.json",
+      "bytes": 6131,
+      "sha256": "f63b46d34668d2bc3597995cc1dd02bc5fb7e8e89e3d391694079371e608d243"
+    },
+    "primary": {
+      "path": "/private/tmp/gda-878-root/publication-root-verification.json",
+      "bytes": 50957,
+      "sha256": "1dc12706b47df30d1b8264c78752c9e5d5a6a2dc4dfd9127110bcf3eb9be71cf"
+    }
+  },
+  "raw_measurement_and_verification": [
+    {
+      "path": "/private/tmp/gda-878-publication-structure-evidence/measurement.json",
+      "bytes": 14180,
+      "sha256": "ce1f7933e102cd5087159e4b54ade2f4f91a172ab910b7e7d2fdfeb55a8f35f6"
+    },
+    {
+      "path": "/private/tmp/gda-878-publication-structure-evidence/measure.py",
+      "bytes": 4801,
+      "sha256": "b826b2b27f46797b3811e15819263c7f1017ae50e8fe5c426cc28bdb502b7ef3"
+    },
+    {
+      "path": "/private/tmp/gda-878-publication-structure-evidence/publication-structure-draft-v1.json",
+      "bytes": 2625,
+      "sha256": "d5e381f8501d25ec0086954dff182a1e19a9bbef9450b4a04720ff715b475bd6"
+    },
+    {
+      "path": "/private/tmp/gda-878-publication-structure-evidence/red/receipt.json",
+      "bytes": 184762,
+      "sha256": "aadcbacb217a22e89fa53ccc6366d37ada8f9f6c203f1eadd00a76d4db5d2cd4"
+    },
+    {
+      "path": "/private/tmp/gda-878-publication-structure-evidence/red/probe.py",
+      "bytes": 3656,
+      "sha256": "7a6dda28a55ebc11a5ddcf726c90f942bc53215590da361d4c0ca1dc0734b419"
+    },
+    {
+      "path": "/private/tmp/gda-878-ddma-publication-4bdc-proof/pytest.log",
+      "bytes": 99,
+      "sha256": "d44af922f8e79deaf78111d920912909f5deb7519691b232286093ea6d9c4680"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/verify-publication-checkpoint.py",
+      "bytes": 4428,
+      "sha256": "655384e0f052409c37aeadbb77a634850327ee119b8c7821d81ba8843c046b1a"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/publication-ci-inventory.json",
+      "bytes": 2044,
+      "sha256": "b880930b7d967446c50352349ce1cdfbaec6d14a7f38fdd179272530d3121240"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/publication-rebuild.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/publication-ruff.log",
+      "bytes": 19,
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/publication-pyright.log",
+      "bytes": 37,
+      "sha256": "6d88a1b220adb7a3d62092b6e38431f0b3fe8babe9864fab90e5849766260332"
+    },
+    {
+      "path": "/private/tmp/gda-878-publication-docs-evidence/verification.json",
+      "bytes": 4081,
+      "sha256": "f3e19797d517df4b1c8959e4b2e3d3378b56a838819b13fd6aec8e01e93017df"
+    },
+    {
+      "path": "/private/tmp/gda-878-publication-docs-evidence/verify.py",
+      "bytes": 5564,
+      "sha256": "5adb87917f9d0b2993a81c58b51cefca11125b29d0b3e41c93430677c71e2128"
+    }
+  ],
+  "reproduction": {
+    "cwd": "libs/gda-balancing in the pinned checkout, with its configured Python environment",
+    "focused_new_tests": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_publication_protocol_structure.py tests/test_publication_protocol_structure_independent.py --basetemp=/private/tmp/gda-publication-reproduce --junitxml=/private/tmp/gda-publication-reproduce.xml",
+    "measurement_inputs": "measurement.json indexes baseline/current Schema hashes and all 13 vector files; measure.py records exact canonicalization and historical inputs. The documentation verify.py rechecks current projections, historical bytes, source hashes and parsed XMLs.",
+    "raw_refs": "The primary receipt indexes the 72 individually hashed raw references. The stable receipts above contain the additional review scripts, commands and actual artifact locations; large artifacts are not duplicated here."
+  },
+  "remaining": [
+    "34 explicit inventory gaps remain; no exhaustive token traversal or complete rename proof.",
+    "The final fixed-build non-RPG proof and complete #878 acceptance remain open.",
+    "No all-build-byte or old authenticated-publication compatibility claim.",
+    "No repeat of unrelated completed Receipt, Runtime, Evidence or full Model vector suites.",
+    "Future authenticated Evidence activation in #542-544 is unchanged."
+  ],
+  "rollback": "Restore the pre-slice code, Kernel, LDB and tests together in an isolated checkout; retain no old projection or compatibility path."
+}

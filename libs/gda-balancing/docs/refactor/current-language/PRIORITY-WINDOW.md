@@ -1167,6 +1167,65 @@ unchanged. This is a prerequisite deletion checkpoint, not complete inventory,
 full CI execution or the final fixed-build non-RPG proof. Whole-slice rollback
 restores the prior code, Kernel, LDB, tests and current inputs together.
 
+## Publication framing structure
+
+This checkpoint completes the three existing Publication framing roles under one
+Kernel owner. It supersedes the receipt-only structure and API described in the
+historical checkpoint above. Two correctly resealed authored-Schema mutations
+rename manifest `members` or index `receipt_identity`. Both authority consumers
+admit the old candidates, and public Model check succeeds, but Model build exits
+4 before committing a receipt. The unchanged Source builds eight artifacts under
+the control authority. These are actual producer/Schema mismatches.
+
+The existing protocol-role law now owns one closed `publication_structure` with
+manifest, receipt and index parts. One authority projection derives their Schemas
+and the receipt's transport-only identity exclusions using the common artifact
+envelope. The two remaining authored framing Schemas, the receipt-only projector
+and its Kernel entry, and the redundant `manifest.frame` and
+`publication-index.adapter` markers are deleted. All three actual schema/kind
+bindings remain unique and LDB-owned; logical labels remain opaque bound names.
+Correctly resealed authored overrides now refuse at authority admission.
+
+| Protocol role | Canonical Schema bytes, before → after | Change |
+| --- | --- | --- |
+| Artifact-set manifest | 867 → 811 | Remove `frame` |
+| Artifact-set receipt | 950 → 950 | Identical Schema bytes and wire identity |
+| Publication index | 745 → 693 | Remove `adapter` |
+
+The other 29 physical authored Schemas and all 13 vector files retain their bytes.
+Retained nested Schema arrays and required-member order are unchanged. The
+Kernel/LDB are resealed; manifest/index Schema and content identities, and the
+receipt contents that bind a changed manifest, change intentionally. This is not
+a claim that all build artifacts or old authenticated publications retain their
+bytes or compatibility.
+
+Actual public build, inspection and same-key retry succeed with original names
+and with distinct Schema and artifact kinds for all three roles. Independent B
+derives matching framing Schemas, lowers four matching Model artifacts, mutually
+admits those artifacts, and checks actual publication identities and bindings
+under opaque labels. Publication and authenticated retrieval use the existing
+production implementation; this does not claim an independent publisher or whole
+Runtime. The typed member map, descriptor/invocation/command-input bindings,
+committed anchor, atomic visibility and alias refusals remain enforced. Real
+reidentified index and coherent member-map mutations still fail authentication;
+restoring the original bytes restores successful retrieval.
+
+The [structured verification record](evidence/priority-window/publication-protocol-structure.json)
+pins production at `4bdc60c8e` and CI registration at `d343db91b`. A's 46 framing
+and retained Receipt cases plus 10 existing boundary cases pass; B's 23 scoped
+cases pass. The separate Spec review runs both new files: 55 cases pass. Standards
+and DDMA also report no findings in their fixed scope. These runs overlap and
+must not be summed as unique coverage. Resource rebuild, Ruff, full Pyright and
+12 CI-policy cases pass. Collection assigns all 2,638 tests and 339 vectors
+without missing, overlapping or uncovered assignments; it is not full CI execution.
+
+The current inventory has 1,607 tokens, 6,461 occurrences and 34 remaining gaps.
+Exactly the manifest and index Schema gaps close; every remaining gap row is
+unchanged. The 29 other artifact Schema gaps and the five other inventory gaps,
+complete rename proof and final fixed-build #878 acceptance remain open. Rollback
+restores the prior implementation, Kernel, LDB and tests together, without an old
+reader or alternate projection path.
+
 ## Remaining proof and integration
 
 - Complete the semantic-token inventory and resolve remaining demonstrated name

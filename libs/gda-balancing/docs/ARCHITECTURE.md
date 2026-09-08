@@ -1729,10 +1729,18 @@ admission reuses the admitted request's selected output contracts. Schema/kind/d
 independent cross-artifact admission, authenticated anchors and atomic visibility remain.
 Publication does not look up omitted framing meaning in the full LDB.
 
-The Artifact-set receipt's fixed framing is derived from its existing Kernel protocol owner
-(bADR-0012). LDB declarations retain their actual schema and artifact kind names, but cannot
-override that structure or configure which artifact members enter identity. Transport relocation
-preserves receipt identity; the producing invocation and committed manifest remain bound.
+One closed Kernel `publication_structure` owns manifest, receipt and index framing (bADR-0012).
+One authority projection derives their Wire Schemas and the receipt's transport-only identity
+exclusions, reusing the common artifact envelope. LDB declarations retain their actual schema and
+artifact kind names through unique role-to-contract bindings. Authored framing Schema overrides,
+the receipt-only projection API and the redundant `manifest.frame` / `publication-index.adapter`
+markers are deleted. The typed member map, invocation and command-input bindings, and authenticated
+committed anchor remain required. Transport relocation preserves receipt identity; changing the
+manifest still changes the bound receipt.
+
+The [Publication checkpoint](refactor/current-language/PRIORITY-WINDOW.md#publication-framing-structure)
+records the intentional manifest/index identity changes and the independent verification scope.
+It does not establish compatibility with previously authenticated publications or complete #878.
 
 Every successful `model build` artifact set includes its Debug Map and Model explanation. Its Build
 receipt and artifact-set framing bind both exact identities. If either projection cannot be
