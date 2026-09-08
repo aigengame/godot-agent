@@ -334,11 +334,38 @@ def _declared_metadata_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]
                 )
 
 
+def _source_format_role(kernel: Mapping[str, Any], graph: Mapping[str, Any]) -> str:
+    """Keep Source protocol format parameters distinct from nominal identities."""
+    role = "language.model_source_schema_versions"
+    left = "language_bundle." + role
+    right = (
+        "language_bundle.language.wire_schemas.schema.properties.schema_version.const"
+    )
+    law = next(
+        row
+        for row in kernel["admission"]["laws"]
+        if row["id"] == "kernel.vectors.closed"
+    )
+    if not any(
+        row.get("left") == left and row.get("right") == right
+        for row in law["arguments"]["equalities"]
+    ):
+        raise InventoryRefusal("Source format parameter has no declared wire equality")
+    actual = {value for _, value, _ in _authority_path_rows(kernel, graph, left)}
+    expected = {value for _, value, _ in _authority_path_rows(kernel, graph, right)}
+    if actual != expected:
+        raise InventoryRefusal(
+            "Source format parameter does not match its wire contract"
+        )
+    return role
+
+
 class _Reader:
     def __init__(self, kernel: Mapping[str, Any], graph: Mapping[str, Any]):
         self.kernel = kernel
         self.graph = graph
         self.meta = kernel["meta_format"]
+        self.source_format_role = _source_format_role(kernel, graph)
         self.projections = self.meta["package_release"]["semantic_closure"][
             "projections"
         ]
@@ -468,6 +495,8 @@ class _Reader:
                         raise InventoryRefusal("duplicate owned definition")
                     dp = f"{pp}/semantic_closure/{ci}/definitions/{di}"
                     self.definitions[coordinate] = (definition, dp)
+                    if role == self.source_format_role:
+                        continue
                     kp = (
                         dp
                         if projection["key_member"] is None
@@ -482,6 +511,8 @@ class _Reader:
                 ):
                     raise InventoryRefusal("export/definition set mismatch")
                 for oi, name in enumerate(owners):
+                    if role == self.source_format_role:
+                        continue
                     self.occurrence(
                         self.declared(role, package["id"], name),
                         pp
@@ -822,6 +853,8 @@ class _Reader:
             self.kernel, self.graph
         ):
             role, scoped = _declared_target_role(self.kernel, target)
+            if role == self.source_format_role:
+                continue
             token = AuthorityToken(
                 role, (owner,) if scoped and owner is not None else (), name
             )
@@ -847,6 +880,9 @@ class _Reader:
         self, role: str, value: dict[str, Any], pointer: str
     ) -> bool:
         """Close simple declared contracts; unknown nested DSLs remain explicit."""
+        if role == "language.rules":
+            self.rule(value, pointer)
+            return True
         if role == "diagnostics":
             contract = self.meta["admitted_language_index"]["diagnostic"]
             if (
@@ -1033,6 +1069,98 @@ class _Reader:
             return True
         return False
 
+    def rule(self, value: dict[str, Any], pointer: str) -> None:
+        """Interpret the existing premise-binding and conclusion-term grammar."""
+        contract = self.meta["rule"]
+        if (
+            set(value) != set(contract["required_members"])
+            or value["phase"] not in contract["phases"]
+        ):
+            raise InventoryRefusal("Language rule has an unknown shape or phase")
+        law = "/meta_format/binding_substitution"
+        self.occurrence(
+            AuthorityToken("rule-judgment", (), value["judgment"]),
+            pointer + "/judgment",
+            "declaration",
+            "/meta_format/rule_selection",
+        )
+        schemas = {
+            row["kind"]: self.meta["fact"]["field_contracts"][row["field_contract"]]
+            for row in self.meta["fact"]["schemas"]
+        }
+        bindings: set[str] = set()
+        for pi, premise in enumerate(value["premises"]):
+            pp = f"{pointer}/premises/{pi}"
+            if set(premise) != set(contract["premise_required_members"]):
+                raise InventoryRefusal("Language rule premise has unknown members")
+            fields = schemas.get(premise["fact_kind"])
+            if fields is None or any(
+                name not in fields for name in premise["bind"].values()
+            ):
+                raise InventoryRefusal(
+                    "Language rule premise does not address a Kernel fact"
+                )
+            for name in premise["bind"]:
+                bindings.add(name)
+                self.occurrence(
+                    AuthorityToken("rule-variable", (value["id"],), name),
+                    _child(pp + "/bind", name),
+                    "declaration",
+                    law,
+                    location="key",
+                )
+        conclusion = value["conclusion"]
+        if set(conclusion) != set(contract["conclusion_required_members"]):
+            raise InventoryRefusal("Language rule conclusion has unknown members")
+        fields = schemas.get(conclusion["fact_kind"])
+        if fields is None or set(conclusion["fields"]) != set(fields):
+            raise InventoryRefusal(
+                "Language rule conclusion does not close its Kernel fact"
+            )
+        constructors = {row["tag"]: row for row in self.meta["term"]["constructors"]}
+        for field, term in conclusion["fields"].items():
+            tp = _child(pointer + "/conclusion/fields", field)
+            shape = constructors.get(term.get("tag"))
+            if shape is None or set(term) != set(shape["required_members"]):
+                raise InventoryRefusal("Language rule conclusion has an unknown term")
+            if term["tag"] == "variable":
+                if term["name"] not in bindings:
+                    raise InventoryRefusal("Language rule term has an unbound variable")
+                self.occurrence(
+                    AuthorityToken("rule-variable", (value["id"],), term["name"]),
+                    tp + "/name",
+                    "reference",
+                    law,
+                )
+            elif term["tag"] == "literal":
+                field_contract = fields[field]
+                if field_contract.get("type") == "inventory-member":
+                    role, scoped = _declared_target_role(
+                        self.kernel, "language_bundle." + field_contract["path"]
+                    )
+                    if scoped:
+                        raise InventoryRefusal("unqualified scoped fact literal")
+                    self.reference(role, term["value"], tp + "/value", law)
+                else:
+                    self.gap(
+                        tp + "/value",
+                        law,
+                        "non-inventory fact literal requires its typed role traversal",
+                    )
+
+    def rule_chain_links(self) -> None:
+        for (_, role, _), (value, pointer) in self.definitions.items():
+            if role != "language.model_lowerings":
+                continue
+            for member in ("rule_chain", "structured_rule_chain"):
+                for i, step in enumerate(value[member]):
+                    self.occurrence(
+                        AuthorityToken("rule-judgment", (), step["judgment"]),
+                        f"{pointer}/{member}/{i}/judgment",
+                        "reference",
+                        "/meta_format/rule_selection",
+                    )
+
     def packages(self) -> None:
         for pi, package in enumerate(self.graph["packages"]):
             pp = f"/packages/{pi}"
@@ -1061,6 +1189,8 @@ class _Reader:
                     "/meta_format/package_release/type_export",
                 )
         for (owner, role, name), (definition, pointer) in self.definitions.items():
+            if role == self.source_format_role:
+                continue
             if role == "language.nominal_types":
                 self.occurrence(
                     AuthorityToken("type", (owner,), name),
@@ -1090,11 +1220,19 @@ class _Reader:
                     f"nested {role} roles are not yet traversed",
                 )
             else:
-                self.gap(
-                    pointer,
-                    "/meta_format/language_definitions",
-                    "Kernel-fixed versus renameable scalar declaration is not yet classified",
-                )
+                scalar_contracts = self.meta["language_definitions"]["quantity"][
+                    "collections"
+                ]
+                member = role.removeprefix("language.quantity.")
+                if (
+                    member not in scalar_contracts
+                    or scalar_contracts[member].get("item_type") != "non-empty-string"
+                ):
+                    self.gap(
+                        pointer,
+                        "/meta_format/language_definitions",
+                        "Kernel-fixed versus renameable scalar declaration is not yet classified",
+                    )
         for (owner, role, _), (definition, pointer) in self.definitions.items():
             if role == "language.operations":
                 self.operation(owner, definition, pointer)
@@ -1238,10 +1376,8 @@ class _Reader:
                 f"{pointer}/effects/{i}",
                 "/meta_format/runtime_profile_definition",
             )
-        for member in (
-            "owner_type",
-            "extensions",
-        ):
+        self.operation_formula_extensions(operation, pointer, scope, bindings)
+        for member in ("owner_type",):
             if (
                 member == "owner_type"
                 and pointer + "/owner_type" in self.type_edge_occurrences
@@ -1252,6 +1388,113 @@ class _Reader:
                     pointer + "/" + member,
                     "/meta_format/language_definitions/collections/operations",
                     f"Operation {member} links are not yet complete",
+                )
+
+    def operation_formula_extensions(
+        self,
+        operation: dict[str, Any],
+        pointer: str,
+        scope: tuple[str, str],
+        bindings: dict[str, AuthorityToken],
+    ) -> None:
+        for key, extension in operation.get("extensions", {}).items():
+            ep = _child(pointer + "/extensions", key)
+            if key == "standard.formula-notation":
+                if extension["kind"] == "function":
+                    if set(extension) != {"kind", "name", "ordered_ports"}:
+                        raise InventoryRefusal(
+                            "Formula function notation has unknown members"
+                        )
+                    self.occurrence(
+                        AuthorityToken("operation-notation", scope, extension["name"]),
+                        ep + "/name",
+                        "declaration",
+                        ep,
+                    )
+                elif extension["kind"] == "infix":
+                    if set(extension) != {
+                        "kind",
+                        "token",
+                        "ordered_ports",
+                        "precedence",
+                        "associativity",
+                    }:
+                        raise InventoryRefusal(
+                            "Formula infix notation has unknown members"
+                        )
+                    self.occurrence(
+                        AuthorityToken("operation-notation", scope, extension["token"]),
+                        ep + "/token",
+                        "declaration",
+                        ep,
+                    )
+                else:
+                    raise InventoryRefusal("Formula notation kind is unknown")
+                for i, port in enumerate(extension["ordered_ports"]):
+                    self.occurrence(
+                        AuthorityToken("operation-port", scope, port),
+                        f"{ep}/ordered_ports/{i}",
+                        "reference",
+                        ep,
+                    )
+            elif key == "standard.formula-slots":
+                if not isinstance(extension, list):
+                    raise InventoryRefusal("Formula slots are not a list")
+                for i, slot in enumerate(extension):
+                    sp = f"{ep}/{i}"
+                    if set(slot) != {
+                        "id",
+                        "context",
+                        "parameters",
+                        "permitted_refusals",
+                        "placeholder_index",
+                        "placeholder_length",
+                        "resource_bounds",
+                        "result",
+                        "target",
+                        "termination_measure",
+                    }:
+                        raise InventoryRefusal("Formula slot has unknown members")
+                    slot_scope = (*scope, slot["id"])
+                    self.occurrence(
+                        AuthorityToken("operation-slot", scope, slot["id"]),
+                        sp + "/id",
+                        "declaration",
+                        ep,
+                    )
+                    self.operand(slot["target"], sp + "/target", scope, bindings, ep)
+                    self.value_contract(slot["result"], sp + "/result")
+                    for pi, parameter in enumerate(slot["parameters"]):
+                        pp = f"{sp}/parameters/{pi}"
+                        self.occurrence(
+                            AuthorityToken(
+                                "operation-slot-parameter", slot_scope, parameter["id"]
+                            ),
+                            pp + "/id",
+                            "declaration",
+                            ep,
+                        )
+                        self.value_contract(parameter, pp)
+                        source = parameter["source"]
+                        if source["kind"] not in {"port", "local"}:
+                            raise InventoryRefusal(
+                                "unknown Formula slot parameter source"
+                            )
+                        self.operand(
+                            source["name"], pp + "/source/name", scope, bindings, ep
+                        )
+                    for ri, reason in enumerate(slot["permitted_refusals"]):
+                        self.reference(
+                            "language.reasons",
+                            reason,
+                            f"{sp}/permitted_refusals/{ri}",
+                            ep,
+                        )
+            else:
+                self.gap(
+                    ep,
+                    "/meta_format/language_definitions/collections/operations",
+                    "Operation extension roles are not yet complete",
                 )
 
     def callee(
@@ -1568,12 +1811,7 @@ class _Reader:
                     )
             if module.get("formulas"):
                 self.formulas(source, module, mp, aliases)
-        if source.get("formula_bindings"):
-            self.gap(
-                "/source/formula_bindings",
-                law,
-                "Formula binding-site and Operation slot links are not yet complete",
-            )
+        self.formula_bindings(source)
         entry = AuthorityToken(
             "source-module", (model,), source["manifest"]["entry_module"]
         )
@@ -1605,7 +1843,11 @@ class _Reader:
             name = value["type"]
             alias = aliases.get(name)
             if alias is None:
-                raise InventoryRefusal(f"unknown Formula Type alias at {pointer}")
+                policy, _, profile = self.formula_policy()
+                fixed = {row["alias"] for row in policy["fixed_value_type_aliases"]}
+                if name not in fixed:
+                    raise InventoryRefusal(f"unknown Formula Type alias at {pointer}")
+                alias = AuthorityToken("formula-fixed-alias", (profile,), name)
             self.occurrence(
                 alias,
                 pointer + "/type",
@@ -1623,17 +1865,7 @@ class _Reader:
         pointer: str,
         aliases: Mapping[str, AuthorityToken],
     ) -> None:
-        policies = [
-            (value, pp + "/extensions/" + key.replace("~", "~0").replace("/", "~1"))
-            for (_, role, _), (definition, pp) in self.definitions.items()
-            if role == "language.resolution_profiles"
-            and definition.get("default") is True
-            for key, value in definition.get("extensions", {}).items()
-            if isinstance(value, dict) and "formula_id_member" in value
-        ]
-        if len(policies) != 1:
-            raise InventoryRefusal("Formula policy does not have one admitted owner")
-        policy, law = policies[0]
+        policy, law, _ = self.formula_policy()
         model = source["manifest"]["id"]
         module_scope = (model, module["id"])
         for fi, formula in enumerate(module.get(policy["module_formulas_member"], [])):
@@ -1872,12 +2104,121 @@ class _Reader:
         elif operand["kind"] != "discard":
             self.gap(pointer, law, "Source operand form is not yet traversed")
 
+    def formula_policy(self) -> tuple[dict[str, Any], str, str]:
+        policies = [
+            (value, _child(pp + "/extensions", key), definition["id"])
+            for (_, role, _), (definition, pp) in self.definitions.items()
+            if role == "language.resolution_profiles"
+            and definition.get("default") is True
+            for key, value in definition.get("extensions", {}).items()
+            if isinstance(value, dict) and "formula_id_member" in value
+        ]
+        if len(policies) != 1:
+            raise InventoryRefusal("Formula policy does not have one admitted owner")
+        return policies[0]
+
+    def formula_aliases(self) -> None:
+        policy, pointer, profile = self.formula_policy()
+        for i, alias in enumerate(policy["fixed_value_type_aliases"]):
+            if (
+                set(alias) != {"alias", "contract"}
+                or alias["contract"]
+                not in self.meta["runtime_program"]["fixed_value_contracts"]
+            ):
+                raise InventoryRefusal(
+                    "Formula fixed alias does not address a Kernel contract"
+                )
+            self.occurrence(
+                AuthorityToken("formula-fixed-alias", (profile,), alias["alias"]),
+                f"{pointer}/fixed_value_type_aliases/{i}/alias",
+                "declaration",
+                pointer,
+            )
+
+    def formula_bindings(self, source: dict[str, Any]) -> None:
+        policy, law, _ = self.formula_policy()
+        model = source["manifest"]["id"]
+        for i, binding in enumerate(source.get(policy["bindings_member"], [])):
+            bp = f"/source/{policy['bindings_member']}/{i}"
+            site = binding[policy["binding_site_member"]]
+            sp = _child(bp, policy["binding_site_member"])
+            slot_scope = None
+            if site["kind"] == "operation-slot":
+                scope = self.callee(site["operation"], sp + "/operation", law)
+                slot_scope = (*scope, site["slot"])
+                self.occurrence(
+                    AuthorityToken("operation-slot", scope, site["slot"]),
+                    sp + "/slot",
+                    "reference",
+                    law,
+                )
+            elif site["kind"] == "derived-symbol":
+                self.source_operand(
+                    {
+                        "kind": "symbol",
+                        "module": site["module"],
+                        "symbol": site["symbol"],
+                    },
+                    sp,
+                    model,
+                    law,
+                )
+            else:
+                raise InventoryRefusal("unknown Formula binding site")
+            formula = binding[policy["binding_formula_member"]]
+            fp = _child(bp, policy["binding_formula_member"])
+            self.occurrence(
+                AuthorityToken("source-module", (model,), formula["module"]),
+                fp + "/module",
+                "reference",
+                law,
+            )
+            self.occurrence(
+                AuthorityToken(
+                    "source-formula", (model, formula["module"]), formula["id"]
+                ),
+                fp + "/id",
+                "reference",
+                law,
+            )
+            for ai, argument in enumerate(binding[policy["binding_arguments_member"]]):
+                ap = f"{bp}/{policy['binding_arguments_member']}/{ai}"
+                self.occurrence(
+                    AuthorityToken(
+                        "source-formula-parameter",
+                        (model, formula["module"], formula["id"]),
+                        argument[policy["binding_parameter_member"]],
+                    ),
+                    _child(ap, policy["binding_parameter_member"]),
+                    "reference",
+                    law,
+                )
+                operand = argument[policy["binding_operand_member"]]
+                op = _child(ap, policy["binding_operand_member"])
+                if operand["kind"] == "slot-parameter":
+                    if slot_scope is None:
+                        raise InventoryRefusal(
+                            "slot parameter used outside Operation slot"
+                        )
+                    self.occurrence(
+                        AuthorityToken(
+                            "operation-slot-parameter", slot_scope, operand["parameter"]
+                        ),
+                        op + "/parameter",
+                        "reference",
+                        law,
+                    )
+                else:
+                    self.source_operand(operand, op, model, law)
+
     def finish(self) -> ExtensionInventory:
         self.index()
         self.operation_operand_projection()
         self.metadata_links()
         self.type_identity_edges()
         self.packages()
+        self.rule_chain_links()
+        self.formula_aliases()
         self.source()
         declarations = {o.token for o in self.occurrences if o.use == "declaration"}
         unresolved = self.tokens - declarations - self.reserved
@@ -1962,16 +2303,156 @@ def validate_token_bijection(
 def _verify_formula_coverage(
     kernel: Mapping[str, Any], graph: Mapping[str, Any], inventory: ExtensionInventory
 ) -> None:
-    source = graph.get("source")
-    if not source:
-        return
-    projections = _formula_projections(kernel, graph)
     found = {
         (o.token, o.pointer, o.use, o.location, o.projection)
         for o in inventory.occurrences
     }
     expected: set[tuple[AuthorityToken, str, str, str, str]] = set()
+
+    def field(token: AuthorityToken, pointer: str, use: str = "reference") -> None:
+        expected.add((token, pointer, use, "value", ""))
+
+    for owner, operation, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.operations"
+    ):
+        if not isinstance(owner, str):
+            raise InventoryRefusal(
+                "Formula Operation declaration has no attached owner"
+            )
+        scope = (owner, operation["id"])
+        extensions = operation.get("extensions", {})
+        notation = extensions.get("standard.formula-notation")
+        if notation is not None:
+            np = pointer + "/extensions/standard.formula-notation"
+            member = "name" if notation["kind"] == "function" else "token"
+            field(
+                AuthorityToken("operation-notation", scope, notation[member]),
+                np + "/" + member,
+                "declaration",
+            )
+            for i, port in enumerate(notation["ordered_ports"]):
+                field(
+                    AuthorityToken("operation-port", scope, port),
+                    f"{np}/ordered_ports/{i}",
+                )
+        for i, slot in enumerate(extensions.get("standard.formula-slots", [])):
+            sp = f"{pointer}/extensions/standard.formula-slots/{i}"
+            field(
+                AuthorityToken("operation-slot", scope, slot["id"]),
+                sp + "/id",
+                "declaration",
+            )
+            field(
+                AuthorityToken("operation-local", scope, slot["target"]), sp + "/target"
+            )
+            for pi, parameter in enumerate(slot["parameters"]):
+                pp = f"{sp}/parameters/{pi}"
+                field(
+                    AuthorityToken(
+                        "operation-slot-parameter",
+                        (*scope, slot["id"]),
+                        parameter["id"],
+                    ),
+                    pp + "/id",
+                    "declaration",
+                )
+                source = parameter["source"]
+                field(
+                    AuthorityToken(
+                        "operation-" + source["kind"], scope, source["name"]
+                    ),
+                    pp + "/source/name",
+                )
+    for _, profile, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.resolution_profiles"
+    ):
+        for key, policy in profile.get("extensions", {}).items():
+            if isinstance(policy, dict) and "formula_id_member" in policy:
+                for i, alias in enumerate(policy["fixed_value_type_aliases"]):
+                    field(
+                        AuthorityToken(
+                            "formula-fixed-alias", (profile["id"],), alias["alias"]
+                        ),
+                        f"{_child(pointer + '/extensions', key)}/fixed_value_type_aliases/{i}/alias",
+                        "declaration",
+                    )
+    source = graph.get("source")
+    if not source:
+        if not expected <= found:
+            raise InventoryRefusal(
+                "Formula declaration or reference coverage is incomplete or misowned"
+            )
+        return
+    projections = _formula_projections(kernel, graph)
     model = source["manifest"]["id"]
+    for i, binding in enumerate(source.get("formula_bindings", [])):
+        bp = f"/source/formula_bindings/{i}"
+        formula = binding["formula"]
+        fs = (model, formula["module"], formula["id"])
+        field(
+            AuthorityToken("source-module", (model,), formula["module"]),
+            bp + "/formula/module",
+        )
+        field(
+            AuthorityToken("source-formula", fs[:2], formula["id"]), bp + "/formula/id"
+        )
+        site = binding["site"]
+        if site["kind"] == "operation-slot":
+            ref = site["operation"]
+            scope = (ref["package"], ref["id"])
+            field(
+                AuthorityToken("namespace", (), ref["package"]),
+                bp + "/site/operation/package",
+            )
+            field(
+                AuthorityToken("language.operations", scope[:1], ref["id"]),
+                bp + "/site/operation/id",
+            )
+            field(
+                AuthorityToken("operation-slot", scope, site["slot"]), bp + "/site/slot"
+            )
+        elif site["kind"] == "derived-symbol":
+            field(
+                AuthorityToken("source-module", (model,), site["module"]),
+                bp + "/site/module",
+            )
+            field(
+                AuthorityToken(
+                    "source-symbol", (model, site["module"]), site["symbol"]
+                ),
+                bp + "/site/symbol",
+            )
+        for ai, argument in enumerate(binding["arguments"]):
+            ap = f"{bp}/arguments/{ai}"
+            field(
+                AuthorityToken("source-formula-parameter", fs, argument["parameter"]),
+                ap + "/parameter",
+            )
+            operand = argument["operand"]
+            if operand["kind"] == "slot-parameter":
+                field(
+                    AuthorityToken(
+                        "operation-slot-parameter",
+                        (
+                            site["operation"]["package"],
+                            site["operation"]["id"],
+                            site["slot"],
+                        ),
+                        operand["parameter"],
+                    ),
+                    ap + "/operand/parameter",
+                )
+            elif operand["kind"] == "symbol":
+                field(
+                    AuthorityToken("source-module", (model,), operand["module"]),
+                    ap + "/operand/module",
+                )
+                field(
+                    AuthorityToken(
+                        "source-symbol", (model, operand["module"]), operand["symbol"]
+                    ),
+                    ap + "/operand/symbol",
+                )
     for mi, module in enumerate(source["modules"]):
         ms = (model, module["id"])
         for fi, formula in enumerate(module.get("formulas", [])):
@@ -2136,7 +2617,69 @@ def validate_extension_inventory(
     is implemented; require_complete still refuses that inventory.
     """
     validate_inventory_occurrences(kernel, graph, inventory)
+    source_format_role = _source_format_role(kernel, graph)
     _verify_formula_coverage(kernel, graph, inventory)
+    rule_required = set()
+    for _, rule, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.rules"
+    ):
+        rule_required.add(
+            (
+                AuthorityToken("rule-judgment", (), rule["judgment"]),
+                pointer + "/judgment",
+                "declaration",
+                "value",
+            )
+        )
+        for pi, premise in enumerate(rule["premises"]):
+            for variable in premise["bind"]:
+                rule_required.add(
+                    (
+                        AuthorityToken("rule-variable", (rule["id"],), variable),
+                        _child(f"{pointer}/premises/{pi}/bind", variable),
+                        "declaration",
+                        "key",
+                    )
+                )
+        for field, term in rule["conclusion"]["fields"].items():
+            if term["tag"] == "variable":
+                rule_required.add(
+                    (
+                        AuthorityToken("rule-variable", (rule["id"],), term["name"]),
+                        _child(pointer + "/conclusion/fields", field) + "/name",
+                        "reference",
+                        "value",
+                    )
+                )
+    for _, lowering, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.model_lowerings"
+    ):
+        for member in ("rule_chain", "structured_rule_chain"):
+            for i, step in enumerate(lowering[member]):
+                rule_required.add(
+                    (
+                        AuthorityToken("rule-judgment", (), step["judgment"]),
+                        f"{pointer}/{member}/{i}/judgment",
+                        "reference",
+                        "value",
+                    )
+                )
+    rule_actual = {
+        (o.token, o.pointer, o.use, o.location) for o in inventory.occurrences
+    }
+    if not rule_required <= rule_actual:
+        raise InventoryRefusal(
+            "Language rule binding or selection coverage is incomplete"
+        )
+    rule_positions = {
+        (pointer, use, location) for _, pointer, use, location in rule_required
+    }
+    if any(
+        row[1:] in rule_positions and row not in rule_required for row in rule_actual
+    ):
+        raise InventoryRefusal(
+            "Language rule occurrence has an incorrect role or owner"
+        )
     meta = kernel["meta_format"]
     projections = meta["package_release"]["semantic_closure"]["projections"]
     unique = next(
@@ -2156,6 +2699,8 @@ def validate_extension_inventory(
     required: set[tuple[AuthorityToken, str, str]] = set()
     for owner, name, pointer, target, _ in _declared_metadata_links(kernel, graph):
         role, scoped = _declared_target_role(kernel, target)
+        if role == source_format_role:
+            continue
         token = AuthorityToken(
             role, (owner,) if scoped and owner is not None else (), name
         )
@@ -2208,6 +2753,8 @@ def validate_extension_inventory(
             (AuthorityToken("namespace", (), owner), pp + "/id", "declaration")
         )
         for projection in projections:
+            if projection["authority_path"] == source_format_role:
+                continue
             ci, entry = next(
                 (i, e)
                 for i, e in enumerate(package["semantic_closure"])
@@ -2527,6 +3074,12 @@ def _renamed_owner(
 
     if not token.owner:
         return ()
+    if token.role == "rule-variable":
+        return (name(AuthorityToken("language.rules", (), token.owner[0])),)
+    if token.role == "formula-fixed-alias":
+        return (
+            name(AuthorityToken("language.resolution_profiles", (), token.owner[0])),
+        )
     if token.role == "diagnostic-signal":
         return token.owner  # Stage is the Kernel refusal-stage enum, not a namespace.
     if token.role.startswith("source-"):
@@ -2551,12 +3104,18 @@ def _renamed_owner(
             name(AuthorityToken("type", token.owner[:1], token.owner[1])),
         )
     if token.role.startswith("operation-"):
-        return (
+        owner = (
             namespace,
             name(
                 AuthorityToken("language.operations", token.owner[:1], token.owner[1])
             ),
         )
+        if token.role == "operation-slot-parameter":
+            return (
+                *owner,
+                name(AuthorityToken("operation-slot", token.owner[:2], token.owner[2])),
+            )
+        return owner
     raise InventoryRefusal("unknown token ownership role")
 
 

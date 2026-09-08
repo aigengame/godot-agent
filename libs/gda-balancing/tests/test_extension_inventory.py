@@ -810,8 +810,10 @@ def test_declared_runtime_effects_are_owned_names_and_diagnostics_keep_stage_syn
     assert not any("signal" in gap.reason for gap in inventory.uncovered)
 
 
+@pytest.mark.parametrize("reason_id", ["step-limit", "2.0.0"])
 def test_primitive_signal_reservation_does_not_capture_same_spelling_other_roles(
     witness,
+    reason_id,
 ):
     from schema2_bootstrap_conformance_support import _bind_package_vector_set
     from schema2_bootstrap_production_support import _reidentify_graph_root
@@ -825,11 +827,11 @@ def test_primitive_signal_reservation_does_not_capture_same_spelling_other_roles
     closure = {
         row["authority_path"]: row["definitions"] for row in owner["semantic_closure"]
     }
-    owner["exports"]["reasons"].append("step-limit")
+    owner["exports"]["reasons"].append(reason_id)
     owner["exports"]["diagnostics"].append("inventory.signal-role")
     closure["language.reasons"].append(
         {
-            "id": "step-limit",
+            "id": reason_id,
             "diagnostic": "inventory.signal-role",
             "stage": "approval",
             "signal": "step-limit",
@@ -850,7 +852,7 @@ def test_primitive_signal_reservation_does_not_capture_same_spelling_other_roles
         vectors["vector_definitions"].append(
             {
                 "id": name,
-                "reason": "step-limit",
+                "reason": reason_id,
                 "diagnostic": "inventory.signal-role",
                 "stage": "approval",
                 "input": {"actual": int(matched), "expected": 0},
@@ -876,9 +878,34 @@ def test_primitive_signal_reservation_does_not_capture_same_spelling_other_roles
         in inventory.tokens - inventory.reserved
     )
     assert (
-        AuthorityToken("language.reasons", (), "step-limit")
+        AuthorityToken("language.reasons", (), reason_id)
         in inventory.tokens - inventory.reserved
     )
+    assert not any(
+        token.role == "language.model_source_schema_versions"
+        for token in inventory.tokens | inventory.reserved
+    )
+
+
+def test_source_format_parameters_stay_bound_to_declared_wire_format(witness):
+    kernel, graph, inventory = witness
+    assert not any(
+        token.role == "language.model_source_schema_versions"
+        for token in inventory.tokens | inventory.reserved
+    )
+    graph = deepcopy(graph)
+    format_definitions = next(
+        closure["definitions"]
+        for package in graph["packages"]
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.model_source_schema_versions"
+        and closure["definitions"]
+    )
+    format_definitions[0] = "different-format"
+    with pytest.raises(InventoryRefusal, match="format parameter"):
+        read_extension_inventory(kernel, graph)
+    with pytest.raises(InventoryRefusal, match="format parameter"):
+        validate_extension_inventory(kernel, graph, inventory)
 
 
 def test_type_id_projection_edges_preserve_all_actual_nominal_owners(witness):
@@ -959,3 +986,120 @@ def test_type_id_projection_edges_preserve_all_actual_nominal_owners(witness):
     )
     with pytest.raises(InventoryRefusal, match="shared authored reference"):
         validate_token_bijection(inventory, pairs)
+
+
+def test_rule_variables_follow_bind_keys_and_keep_rule_scopes(witness):
+    from schema2_bootstrap_conformance_support import _reidentify_package_release
+    from schema2_bootstrap_production_support import _reidentify_graph_root
+
+    kernel, language = mutable_authorities()
+    rules = [
+        rule
+        for package in language["language"]["packages"]
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.rules"
+        for rule in closure["definitions"]
+        if rule["id"] in {"quantity.declare", "quantity.lower"}
+    ]
+    assert len(rules) == 2
+    for rule in rules:
+        bind = rule["premises"][0]["bind"]
+        bind["shared_variable"] = bind.pop("domain")
+        rule["conclusion"]["fields"]["domain"]["name"] = "shared_variable"
+    for package in language["language"]["packages"]:
+        _reidentify_package_release(package)
+    _reidentify_graph_root(language)
+    a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
+    assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
+    graph = {
+        "packages": language.package_releases,
+        "ldb_root": language.root,
+        "vector_sets": language.package_conformance_vector_sets,
+    }
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    tokens = {
+        AuthorityToken("rule-variable", (rule["id"],), "shared_variable")
+        for rule in rules
+    }
+    assert tokens <= inventory.tokens - inventory.reserved
+    for token in tokens:
+        occurrences = [o for o in inventory.occurrences if o.token == token]
+        assert {(o.use, o.location) for o in occurrences} == {
+            ("declaration", "key"),
+            ("reference", "value"),
+        }
+        declaration = next(o for o in occurrences if o.use == "declaration")
+        assert declaration.pointer.endswith("/bind/shared_variable")
+        broken = replace(
+            inventory,
+            occurrences=tuple(o for o in inventory.occurrences if o != declaration),
+        )
+        with pytest.raises(InventoryRefusal, match="rule binding"):
+            validate_extension_inventory(kernel, graph, broken)
+    assert not any("nested language.rules" in gap.reason for gap in inventory.uncovered)
+
+
+@pytest.mark.parametrize(
+    "role", ["operation-slot", "operation-slot-parameter", "source-formula-parameter"]
+)
+def test_formula_binding_inventory_closes_real_slots_and_independently_detects_omissions(
+    witness, role
+):
+    kernel, graph, _ = witness
+    graph = deepcopy(graph)
+    graph["source"] = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/progression-periodic-effect/model-source.json"
+        ).read_bytes()
+    )
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    assert not any(
+        gap.pointer == "/source/formula_bindings" for gap in inventory.uncovered
+    )
+    scope = (
+        "game.effect",
+        "game.effect.apply-snapshot-periodic-v1",
+        "magnitude-policy",
+    )
+    assert (
+        AuthorityToken("operation-slot-parameter", scope, "current_value")
+        in inventory.tokens
+    )
+    assert (
+        AuthorityToken("operation-port", scope[:2], "target_health") in inventory.tokens
+    )
+    # These equal-spelling parameters belong to separate Operation slot scopes.
+    assert (
+        AuthorityToken(
+            "operation-slot-parameter",
+            ("game.effect", "game.effect.tick-live-periodic-v1", "magnitude-policy"),
+            "current_value",
+        )
+        in inventory.tokens
+    )
+    occurrence = next(
+        o
+        for o in inventory.occurrences
+        if o.token.role == role
+        and o.pointer.startswith("/source/formula_bindings/")
+        and o.use == "reference"
+    )
+    incomplete = replace(
+        inventory,
+        occurrences=tuple(o for o in inventory.occurrences if o != occurrence),
+    )
+    with pytest.raises(
+        InventoryRefusal, match="Formula declaration or reference coverage"
+    ):
+        validate_extension_inventory(kernel, graph, incomplete)
+    assert any(
+        o.token.role == "operation-notation" and o.token.name == "max"
+        for o in inventory.occurrences
+    )
+    assert any(
+        o.token.role == "formula-fixed-alias" and o.token.name == "Boolean"
+        for o in inventory.occurrences
+    )
