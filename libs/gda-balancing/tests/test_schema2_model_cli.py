@@ -746,7 +746,6 @@ def test_formula_policy_uses_authority_values_without_host_spelling_or_limit_pin
     )
     policy = profile["formula_resolution"]
     policy["body_nodes_member"] = "authority-owned-expressions"
-    policy["allowed_body_nodes"] = ["operation-call"]
     policy["max_nodes_per_formula"] = 37
     policy["resource_charge_per_node"] = 41
     policy["identity_domains"]["declaration"] = "authority-formula-domain"
@@ -774,7 +773,6 @@ def test_formula_policy_uses_authority_values_without_host_spelling_or_limit_pin
     resolved = model_module._formula_policy(context.language_bundle)
 
     assert resolved["body_nodes_member"] == "authority-owned-expressions"
-    assert resolved["allowed_body_nodes"] == ["operation-call"]
     assert resolved["max_nodes_per_formula"] == 37
     assert resolved["resource_charge_per_node"] == 41
     assert resolved["identity_domains"]["declaration"] == "authority-formula-domain"

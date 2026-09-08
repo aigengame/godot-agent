@@ -29,6 +29,8 @@ _DELETED = (
     "argument_order",
     "same_name_capture",
     "declaration_scope",
+    "allowed_operand_kinds",
+    "allowed_binding_sites",
 )
 
 
@@ -64,6 +66,7 @@ def test_public_formula_consumes_compiler_generated_local_names(tmp_path):
         profile = _profile(language)
         assert "standard.formula" not in profile["extensions"]
         assert not set(_DELETED) & profile["formula_resolution"].keys()
+        assert "allowed_body_nodes" not in profile["formula_resolution"]
         context = admit_authority_context(kernel, language)
         assert isinstance(context, AdmittedAuthorityContext), context
         assert _consumer_b(kernel, language)["admitted"]
@@ -96,9 +99,10 @@ def test_public_formula_consumes_compiler_generated_local_names(tmp_path):
 @pytest.mark.parametrize("field", _DELETED)
 def test_authority_refuses_deleted_formula_pseudo_configuration(field):
     kernel, language = mutable_authorities()
-    _profile(language)["formula_resolution"][field] = (
-        False if field in _DELETED[:2] else "unused"
-    )
+    _profile(language)["formula_resolution"][field] = {
+        "allowed_operand_kinds": ["literal"],
+        "allowed_binding_sites": ["operation-slot"],
+    }.get(field, False if field in _DELETED[:2] else "unused")
     _reidentify_language_bundle(kernel, language)
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, language)
@@ -117,6 +121,7 @@ def test_authority_refuses_deleted_formula_pseudo_configuration(field):
         "source-selector",
         "static-callee",
         "dynamic-operand",
+        "dynamic-binding-site",
         "unknown-inference",
         "wrong-node",
         "reversed-operands",
@@ -153,8 +158,31 @@ def test_authority_refuses_incoherent_formula_resolution(mutation):
             if row["properties"]["node"]["const"] == "formula-call"
         )
         call["properties"]["formula"] = {"type": "string"}
-    elif mutation == "dynamic-operand":
-        formula["allowed_operand_kinds"].append("dynamic-callee")
+    elif mutation in {"dynamic-operand", "dynamic-binding-site"}:
+        schema = next(
+            row["schema"]
+            for row in language["language"]["wire_schemas"]
+            if row.get("protocol_role") == "model-source-package"
+        )
+        if mutation == "dynamic-operand":
+            bodies = schema["properties"]["modules"]["items"]["properties"]["formulas"][
+                "items"
+            ]["properties"]["body"]["oneOf"]
+            union = next(row for row in bodies if row.get("type") == "object")[
+                "properties"
+            ]["result"]["oneOf"]
+        else:
+            union = schema["properties"]["formula_bindings"]["items"]["properties"][
+                "site"
+            ]["oneOf"]
+        union.append(
+            {
+                "type": "object",
+                "properties": {"kind": {"const": "dynamic-callee"}},
+                "required": ["kind"],
+                "unevaluatedProperties": False,
+            }
+        )
     elif mutation == "unknown-alias-contract":
         formula["fixed_value_type_aliases"][0]["contract"] = "unknown-contract"
     elif mutation == "duplicate-alias":
@@ -272,26 +300,16 @@ def test_public_model_consumes_formula_source_member_selector(tmp_path):
     }
 
 
-def test_selected_formula_body_subset_remains_a_real_compiler_restriction(tmp_path):
-    from test_schema2_experiment_cli import _rpg_model_source
-
+def test_authority_refuses_removed_formula_syntax_subset():
     kernel, language = mutable_authorities()
-    _profile(language)["formula_resolution"]["allowed_body_nodes"].remove(
-        "operation-call"
-    )
+    _profile(language)["formula_resolution"]["allowed_body_nodes"] = [
+        "conditional",
+        "operation-call",
+    ]
     _reidentify_language_bundle(kernel, language)
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, language)
-        assert result["admitted"], result
-    candidate = _PublicCandidate(
-        tmp_path / "restricted", authorities=(kernel, language)
-    )
-    candidate.write_source(_rpg_model_source())
-    refusal = candidate.cli("model", "check", str(candidate.source), success=False)
-    assert candidate.receipts[-1]["returncode"] == 2
-    assert refusal["error"]["category"] == "refusal"
-    assert refusal["error"]["stage"] == "static"
-    assert (
-        refusal["error"]["diagnostics"][0]["primary"]["pointer"]
-        == "/modules/0/formulas/0"
-    )
+        assert not result["admitted"], result
+        assert ("static", "kernel.vector_mismatch", "language.definitions") in result[
+            "diagnostics"
+        ]

@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:95b192495e898c75a407066131572c9061a21e01d90bc6143bb700d58d0500a6"
+    "sha256:4ebf70685e9d42d0d8d52fc88efef2da03f25a9eab7d73527ebed138cd10a4ab"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -2515,17 +2515,6 @@ def _consumer_b_formula_resolution_is_closed(
         runtime = meta["runtime_program"]
         for profile in ldb["language"]["resolution_profiles"]:
             formula = profile["formula_resolution"]
-            for permitted, fixed in (
-                ("allowed_body_nodes", "body_nodes"),
-                ("allowed_operand_kinds", "operand_kinds"),
-                ("allowed_binding_sites", "binding_sites"),
-            ):
-                if (
-                    not formula[permitted]
-                    or len(set(formula[permitted])) != len(formula[permitted])
-                    or any(token not in contract[fixed] for token in formula[permitted])
-                ):
-                    return False
             module = field(source, profile["modules_member"], "array")["items"]
             declaration = field(
                 module, formula["module_formulas_member"], "array", optional=True

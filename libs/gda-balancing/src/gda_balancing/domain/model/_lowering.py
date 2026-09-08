@@ -741,10 +741,6 @@ def _resolved_formula_programs_and_bindings_impl(
                 if target not in prototypes:
                     raise ValueError("Formula call names no declaration")
                 calls.append(target)
-            elif node.get("node") not in cast(list[str], policy["allowed_body_nodes"]):
-                raise ValueError(
-                    "Formula expression node is outside the admitted policy"
-                )
         dependencies[key] = calls
 
     visiting: set[tuple[str, str]] = set()
