@@ -83,7 +83,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:370b84ea9a5e7b14b6090fabf53d9a5347f3b6467bf5ca1b3d4b394402fcf846"
+    "sha256:fdcd2bcd31edd1b0d9f8154644bdcf5380540ea5a6bfcef76cd5d07d65d1a059"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -2648,6 +2648,21 @@ def _language_definitions_are_closed(
         return False
     collections = authority.get("collections")
     if not isinstance(collections, dict):
+        return False
+    lowering_contract = collections.get("model_lowerings")
+    if not isinstance(lowering_contract, dict) or lowering_contract.get(
+        "source_fact_transport"
+    ) != {
+        "unadapted_members": "copy-name-and-value",
+        "adapters": [
+            "profile-symbol-name",
+            "resolved-symbol-identity",
+            "imported-type-identity",
+            "nominal-export-kind",
+        ],
+        "adapter_conflicts": "refuse",
+        "initial_fact_admission": "before-first-language-rule",
+    }:
         return False
     for name, contract in collections.items():
         values = language.get(name)
