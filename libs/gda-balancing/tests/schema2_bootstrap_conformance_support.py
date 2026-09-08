@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:362ae9a429d39751924e1c2d1f730f708ecddce23b9a8ce209944a6f142ae314"
+    "sha256:1f1f80c8cc96c48de42e3d711b51fd21f523b5dd23e8eff85ec74e701a9f1229"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
@@ -6444,88 +6444,29 @@ def _consumer_b_language_definitions_are_closed(
     return True
 
 
-def _consumer_b_evidence_claim_kinds_are_closed(
-    ldb: dict[str, Any], meta: dict[str, Any]
-) -> bool:
+def _consumer_b_evidence_claim_kinds_are_closed(ldb: dict[str, Any]) -> bool:
     language = ldb.get("language")
-    definitions = meta.get("language_definitions")
-    collections = (
-        definitions.get("collections") if isinstance(definitions, dict) else None
-    )
-    contract = (
-        collections.get("evidence_claim_kinds")
-        if isinstance(collections, dict)
-        else None
-    )
-    if not isinstance(contract, dict):
-        return False
-    try:
-        graph_states = set(
-            contract["field_types"]["vectors"]["items"]["field_types"]["input"][
-                "field_types"
-            ]["graph"]["enum"]
-        )
-    except (KeyError, TypeError):
-        return False
     claim_kinds = (
         language.get("evidence_claim_kinds") if isinstance(language, dict) else None
     )
-    if not isinstance(claim_kinds, list) or graph_states <= {"exact"}:
+    if not isinstance(claim_kinds, list):
         return False
     claim_ids: set[str] = set()
     for claim_kind in claim_kinds:
         if not isinstance(claim_kind, dict):
             return False
         claim_id = claim_kind.get("id")
-        roles = claim_kind.get("subject_roles")
-        edges = claim_kind.get("prerequisite_edges")
         eligibility = claim_kind.get("eligibility")
         vectors = claim_kind.get("vectors")
         if (
             not isinstance(claim_id, str)
             or claim_id in claim_ids
-            or not isinstance(roles, list)
-            or not roles
-            or not all(isinstance(role, str) and role for role in roles)
-            or len(roles) != len(set(roles))
-            or not isinstance(edges, list)
             or not isinstance(eligibility, dict)
             or not isinstance(vectors, list)
             or not vectors
         ):
             return False
         claim_ids.add(claim_id)
-        role_set = set(roles)
-        edge_pairs = [
-            (edge.get("subject"), edge.get("prerequisite"))
-            for edge in edges
-            if isinstance(edge, dict)
-        ]
-        if (
-            len(edge_pairs) != len(edges)
-            or len(edge_pairs) != len(set(edge_pairs))
-            or any(
-                subject not in role_set
-                or prerequisite not in role_set
-                or subject == prerequisite
-                for subject, prerequisite in edge_pairs
-            )
-        ):
-            return False
-        pending = set(role_set)
-        while pending:
-            ready = {
-                role
-                for role in pending
-                if all(
-                    prerequisite not in pending
-                    for subject, prerequisite in edge_pairs
-                    if subject == role
-                )
-            }
-            if not ready:
-                return False
-            pending -= ready
         producing_outcomes = eligibility.get("producing_outcomes")
         required_variant = eligibility.get("runtime_refusal_variant")
         if (
@@ -6542,7 +6483,6 @@ def _consumer_b_evidence_claim_kinds_are_closed(
             return False
         vector_ids: set[str] = set()
         positive_outcomes: set[str] = set()
-        negative_graphs: set[str] = set()
         has_pre_dispatch = False
         for vector in vectors:
             if not isinstance(vector, dict):
@@ -6556,13 +6496,11 @@ def _consumer_b_evidence_claim_kinds_are_closed(
             ):
                 return False
             vector_ids.add(vector_id)
-            graph = vector_input.get("graph")
             outcome = vector_input.get("producing_outcome")
             dispatch = vector_input.get("runtime_dispatch")
             refusal_variant = vector_input.get("runtime_refusal_variant")
             eligible = (
-                graph == "exact"
-                and dispatch == "reached"
+                dispatch == "reached"
                 and outcome in producing_outcomes
                 and (
                     (
@@ -6581,15 +6519,9 @@ def _consumer_b_evidence_claim_kinds_are_closed(
                 return False
             if eligible and isinstance(outcome, str):
                 positive_outcomes.add(outcome)
-            if not eligible and isinstance(graph, str) and graph != "exact":
-                negative_graphs.add(graph)
             if not eligible and dispatch == "not-reached":
                 has_pre_dispatch = True
-        if (
-            positive_outcomes != set(producing_outcomes)
-            or negative_graphs != graph_states - {"exact"}
-            or not has_pre_dispatch
-        ):
+        if positive_outcomes != set(producing_outcomes) or not has_pre_dispatch:
             return False
     return True
 
@@ -10865,8 +10797,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     )
     definitions_are_closed = _consumer_b_language_definitions_are_closed(ldb, meta)
     evidence_claim_kinds_are_closed = (
-        definitions_are_closed
-        and _consumer_b_evidence_claim_kinds_are_closed(ldb, meta)
+        definitions_are_closed and _consumer_b_evidence_claim_kinds_are_closed(ldb)
     )
     artifact_semantic_projections_are_closed = (
         definitions_are_closed
