@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=150ed6831b06c9466fc94b1a74fc01750974b5285c215a4cbb7cd852cc5c1c4a -->
+<!-- gda-readme-i18n: source=README.md sha256=48742d4bf77cfe72601972226e20a41714dfa254945c01828a9643dd3b31eb1f -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -459,6 +459,10 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `project dependencies` | Mapea cada escena/recurso a los recursos de los que depende. |
 | `project find-unused-resources` | Encuentra archivos de recurso que nada referencia. |
 | `project statistics` | Informa los recuentos de archivos/líneas del proyecto, los autoloads y más. |
+
+Cada escritura de `project` guarda a través del motor, que reserializa el archivo
+completo: gda restaura las líneas explícitas que el motor elimina e informa del resto
+en el resultado.
 
 **`resource`** — archivos de recurso (`.tres`) y los assets importados del proyecto
 

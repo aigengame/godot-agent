@@ -214,6 +214,14 @@ _RECIPE_OPERATIONS = {
     # request holds the per-event kinds, so the recipe completes the sentinel op's
     # result the way `perf monitors` correlates its reply.
     "input-sequence",
+    # The five `project` WRITERS (#843). Each persists through
+    # ProjectSettings.save(), which reserializes project.godot; bounding that write
+    # needs the file as it stood BEFORE the engine ran, which only the CLI holds.
+    "project-set",
+    "project-add-autoload",
+    "project-remove-autoload",
+    "project-add-input-action",
+    "project-remove-input-action",
 }
 
 

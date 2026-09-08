@@ -3672,11 +3672,17 @@ func _op_project_list(params: Dictionary) -> void:
 
 # The set of project setting names CUSTOMIZED in res://project.godot — the keys
 # actually written there, as opposed to the engine's built-in defaults. Read by
-# parsing project.godot with ConfigFile (the engine exposes no get_initial_value
-# binding to compare a current value against its default): each [section] key
-# becomes the full "section/key" setting name (a sectionless key like
-# config_version maps to its bare name, harmlessly — it is not a real setting).
-# project list reports is_default=false for these keys and true for the rest.
+# parsing project.godot with ConfigFile: each [section] key becomes the full
+# "section/key" setting name (a sectionless key like config_version maps to its
+# bare name, harmlessly — it is not a real setting). project list reports
+# is_default=false for these keys and true for the rest.
+#
+# The file is the right source even though the initial value IS reachable
+# (ProjectSettings.property_get_revert, which _op_project_set uses): "written in
+# project.godot" and "differs from the engine default" are different facts, and
+# this listing is about the first. A key the caller declared AT the default is
+# customized — it is in the file — while property_get_revert would call it a
+# default and hide it from a bare `project list`.
 func _customized_settings() -> Dictionary:
 	var customized := {}
 	var cfg := ConfigFile.new()
@@ -3702,6 +3708,11 @@ func _customized_settings() -> Dictionary:
 # ProjectSettings.save() writes them back to res://project.godot. A failed save is
 # save_failed. Like every --project op it runs the project's autoloads at
 # startup (#61, ADR-0009); the set itself never instantiates a scene.
+#
+# The save RESERIALIZES the whole file, which is the CLI's business to bound and
+# report (#843) — with one part only the engine can do: a value equal to the
+# setting's default would be dropped by the writer, so this op keeps the line by
+# moving that default aside, and names the setting in restored_settings.
 func _op_project_set(params: Dictionary) -> void:
 	_diag("running operation: project-set")
 	if not _has_project():
@@ -3726,6 +3737,18 @@ func _op_project_set(params: Dictionary) -> void:
 				+ _float_fidelity_note(raw_value, declared_type))
 		return
 
+	# The engine's writer DROPS every setting whose value equals its INITIAL value
+	# (ProjectSettings::save_custom: `if (v->variant == v->initial) continue;`), so
+	# setting one TO its default would persist nothing at all — the file would come
+	# back without the line the caller just asked for. property_get_revert reads the
+	# very value that comparison uses, so when they match, move the initial aside and
+	# let the ENGINE write the line in its own serialization; gda never hand-builds a
+	# Godot literal for it (the ADR-0033 rule). Reported as restored_settings, which
+	# the CLI merges with the declarations it restored from the pre-write file (#843).
+	var restored: Array = []
+	if ProjectSettings.property_get_revert(setting) == coerced:
+		ProjectSettings.set_initial_value(setting, null)
+		restored.append(setting)
 	ProjectSettings.set_setting(setting, coerced)
 	var save_err := ProjectSettings.save()
 	if save_err != OK:
@@ -3741,6 +3764,7 @@ func _op_project_set(params: Dictionary) -> void:
 		"setting": setting,
 		"type": _type_name(declared_type),
 		"value": stored_value,
+		"restored_settings": restored,
 	})
 
 
