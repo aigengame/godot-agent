@@ -13,6 +13,7 @@ from typing import Any
 import jsonschema
 
 from schema2_bootstrap_conformance_support import (
+    _consumer_b_canonical_equal,
     _consumer_b_definition_is_closed,
     _consumer_b_operation_composition_subjects,
 )
@@ -554,6 +555,68 @@ def _resolution_binding_links(kernel: Mapping[str, Any], graph: Mapping[str, Any
                     "/meta_format/resolution_judgment/relation_schemas",
                 )
                 yield from term(field["term"], fp + "/term")
+
+
+def _contract_vector_projections(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    """Locate exact authored-subtree projections declared by contract vectors."""
+    contract = kernel["meta_format"]["package_vector"]
+    kinds = {kind["id"]: kind for kind in contract["kinds"]}
+    packages = {
+        package["id"]: (i, package) for i, package in enumerate(graph["packages"])
+    }
+    for vi, vector_set in enumerate(graph.get("vector_sets", [])):
+        owner = vector_set["package_id"]
+        pi, package = packages[owner]
+        for di, vector in enumerate(vector_set["vector_definitions"]):
+            kind = vector.get("kind")
+            if kind not in {"package-contract", "operation-contract"}:
+                continue
+            vp = f"/vector_sets/{vi}/vector_definitions/{di}"
+            shape = kinds[kind]
+            if (
+                set(vector) != set(shape["required_members"])
+                or set(vector["probe"]) != set(shape["probe_members"])
+                or vector["category"] not in contract["categories"]
+            ):
+                raise InventoryRefusal(
+                    "contract vector does not close its Kernel shape"
+                )
+            if kind == "package-contract":
+                selected, source = package, f"/packages/{pi}"
+                roots = contract["package_probe_roots"]
+                operation = None
+            else:
+                selected_rows = [
+                    (
+                        definition,
+                        f"/packages/{pi}/semantic_closure/{ci}/definitions/{oi}",
+                    )
+                    for ci, closure in enumerate(package["semantic_closure"])
+                    if closure["authority_path"] == "language.operations"
+                    for oi, definition in enumerate(closure["definitions"])
+                    if definition["id"] == vector["operation"]
+                ]
+                if len(selected_rows) != 1:
+                    raise InventoryRefusal(
+                        "contract vector Operation owner is unresolved"
+                    )
+                selected, source = selected_rows[0]
+                roots = contract["operation_probe_roots"]
+                operation = AuthorityToken(
+                    "language.operations", (owner,), vector["operation"]
+                )
+            path = vector["probe"]["path"]
+            if not isinstance(path, str) or path.split(".")[0] not in roots:
+                raise InventoryRefusal("contract vector addresses an undeclared root")
+            for member in path.split("."):
+                if not isinstance(selected, dict) or member not in selected:
+                    raise InventoryRefusal("contract vector path does not resolve")
+                selected, source = selected[member], _child(source, member)
+            if not _consumer_b_canonical_equal(selected, vector["expect"]):
+                raise InventoryRefusal(
+                    "contract vector expected subtree is not its declared projection"
+                )
+            yield source, vp + "/expect", vp, operation
 
 
 class _Reader:
@@ -1654,13 +1717,61 @@ class _Reader:
         for (owner, role, _), (definition, pointer) in self.definitions.items():
             if role == "language.operations":
                 self.operation(owner, definition, pointer)
-        for surface in ("vector_sets", "experiment", "artifacts", "results"):
+        for surface in ("experiment", "artifacts", "results"):
             if self.graph.get(surface):
                 self.gap(
                     "/" + surface,
                     "/meta_format",
                     f"{surface} traversal is not yet complete",
                 )
+
+    def contract_vectors(self) -> None:
+        handled = set()
+        for source, target, vector, operation in _contract_vector_projections(
+            self.kernel, self.graph
+        ):
+            law = "/meta_format/package_vector"
+            if operation is not None:
+                self.occurrence(operation, vector + "/operation", "reference", law)
+            source_occurrences = tuple(
+                o
+                for o in self.occurrences
+                if o.pointer == source or o.pointer.startswith(source + "/")
+            )
+            for occurrence in source_occurrences:
+                self.occurrence(
+                    occurrence.token,
+                    target + occurrence.pointer.removeprefix(source),
+                    "reference",
+                    law,
+                    location=occurrence.location,
+                    projection=occurrence.projection,
+                )
+            if any(
+                gap.pointer == source
+                or gap.pointer.startswith(source + "/")
+                or source.startswith(gap.pointer + "/")
+                for gap in self.uncovered
+            ):
+                self.gap(
+                    vector,
+                    law,
+                    "projected authored subtree still has unclassified roles",
+                )
+            else:
+                handled.add(vector)
+        remaining = {
+            vector.get("kind", "source-or-rule-or-reason")
+            for vi, vector_set in enumerate(self.graph.get("vector_sets", []))
+            for di, vector in enumerate(vector_set["vector_definitions"])
+            if f"/vector_sets/{vi}/vector_definitions/{di}" not in handled
+        }
+        if remaining:
+            self.gap(
+                "/vector_sets",
+                "/meta_format/package_vector",
+                "remaining vector families: " + ", ".join(sorted(remaining)),
+            )
 
     def operand(
         self,
@@ -2630,6 +2741,7 @@ class _Reader:
             if token.role.startswith("kernel."):
                 self.reserved.add(token)
         self.packages()
+        self.contract_vectors()
         self.rule_chain_links()
         self.assignment_policies()
         self.formula_aliases()
@@ -3271,6 +3383,42 @@ def validate_extension_inventory(
         (token, pointer, use)
         for token, pointer, use, _ in _projection_collection_links(kernel, graph)
     )
+    all_occurrences = {
+        (o.token, o.pointer, o.use, o.location, o.projection)
+        for o in inventory.occurrences
+    }
+    for source, target, vector, operation in _contract_vector_projections(
+        kernel, graph
+    ):
+        if operation is not None:
+            required.add((operation, vector + "/operation", "reference"))
+        source_occurrences = [
+            o
+            for o in inventory.occurrences
+            if o.pointer == source or o.pointer.startswith(source + "/")
+        ]
+        expected_occurrences = set()
+        for occurrence in source_occurrences:
+            expected = (
+                occurrence.token,
+                target + occurrence.pointer.removeprefix(source),
+                "reference",
+                occurrence.location,
+                occurrence.projection,
+            )
+            expected_occurrences.add(expected)
+            if expected not in all_occurrences:
+                raise InventoryRefusal(
+                    "contract vector projection coverage is incomplete"
+                )
+        if any(
+            row not in expected_occurrences
+            for row in all_occurrences
+            if row[1] == target or row[1].startswith(target + "/")
+        ):
+            raise InventoryRefusal(
+                "contract vector projection contains a wrong semantic role"
+            )
     for token, pointer, use, _ in _resolution_binding_links(kernel, graph):
         required.add((token, pointer, use))
         if token.role.startswith("kernel.") and token not in inventory.reserved:

@@ -1422,3 +1422,54 @@ def test_resolution_binders_keep_lexical_owners_distinct_from_kernel_fields():
     graph_recipe["bindings"][0]["source"]["unknown_selector"] = "module"
     with pytest.raises(InventoryRefusal, match="resolution term"):
         read_extension_inventory(kernel, graph)
+
+
+def test_contract_vector_expected_values_inherit_only_declared_projection_roles(
+    witness,
+):
+    kernel, graph, inventory = witness
+    projected = [
+        occurrence
+        for occurrence in inventory.occurrences
+        if occurrence.pointer.startswith("/vector_sets/")
+        and "/expect" in occurrence.pointer
+    ]
+    for role in ("namespace", "operation-port", "runtime-effect", "operation-notation"):
+        occurrence = next(o for o in projected if o.token.role == role)
+        assert occurrence.use == "reference"
+        missing = replace(
+            inventory,
+            occurrences=tuple(o for o in inventory.occurrences if o != occurrence),
+        )
+        with pytest.raises(InventoryRefusal, match="projection coverage"):
+            validate_extension_inventory(kernel, graph, missing)
+    operand = next(
+        o
+        for o in projected
+        if o.token.role == "operation-port" and o.token.name == "left"
+    )
+    other_owner = next(
+        token
+        for token in inventory.tokens
+        if token.role == operand.token.role
+        and token.name == operand.token.name
+        and token.owner != operand.token.owner
+    )
+    extra = replace(
+        inventory,
+        occurrences=inventory.occurrences + (replace(operand, token=other_owner),),
+    )
+    with pytest.raises(InventoryRefusal, match="wrong semantic role"):
+        validate_extension_inventory(kernel, graph, extra)
+    changed = deepcopy(graph)
+    numeric = next(
+        vector
+        for vector_set in changed["vector_sets"]
+        for vector in vector_set["vector_definitions"]
+        if vector.get("kind") == "operation-contract"
+        and vector["probe"]["path"] == "resource_bounds.max_steps"
+    )
+    assert isinstance(numeric["expect"], int)
+    numeric["expect"] += 1
+    with pytest.raises(InventoryRefusal, match="expected subtree"):
+        read_extension_inventory(kernel, changed)
