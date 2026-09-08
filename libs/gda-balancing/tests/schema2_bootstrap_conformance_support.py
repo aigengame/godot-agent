@@ -10310,6 +10310,21 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     def refuse(code: str, stage: str, subject: str) -> None:
         diagnostics.add((stage, code, subject))
 
+    def refusal_result() -> dict[str, Any]:
+        ordered = sorted(diagnostics, key=lambda item: (item[0], item[2], item[1]))
+        return {
+            "admitted": False,
+            "kernel_identity": kernel.get("content_identity"),
+            "language_bundle_identity": ldb.get("content_identity"),
+            "law_ids": [],
+            "law_projections": [],
+            "rule_ids": [],
+            "rule_projections": [],
+            "diagnostic_projections": [],
+            "diagnostics": ordered[:cap],
+            "truncated": len(ordered) > cap,
+        }
+
     kernel_domain = _declared_identity_domain(kernel, artifact="kernel")
     ldb_domain = _declared_identity_domain(kernel, artifact="language-bundle")
     package_release_domain = _declared_identity_domain(
@@ -10675,6 +10690,8 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                         "ingress",
                         "language-bundle",
                     )
+            if raw_graph_candidate and diagnostics:
+                return refusal_result()
             language: dict[str, Any] = {
                 member: {} if member == "quantity" else []
                 for member in kernel["admission"]["required_language_members"]
@@ -10714,10 +10731,17 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 _consumer_b_project_trace_schema(kernel, language)
                 _consumer_b_project_rir_schema(kernel, language)
             except (KeyError, TypeError, ValueError, IndexError):
+                runtime = kernel.get("meta_format", {}).get("runtime_program")
+                subject = (
+                    "language.runtime"
+                    if not isinstance(runtime, dict)
+                    or not _consumer_b_component_contract_matches(runtime)
+                    else "language.definitions"
+                )
                 refuse(
                     "kernel.vector_mismatch",
                     "static",
-                    "language.definitions",
+                    subject,
                 )
             language["packages"] = deepcopy(graph_releases)
             expected_index = {
@@ -10732,21 +10756,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 "vectors": derived_vectors,
             }
             if raw_graph_candidate and diagnostics:
-                ordered = sorted(
-                    diagnostics, key=lambda item: (item[0], item[2], item[1])
-                )
-                return {
-                    "admitted": False,
-                    "kernel_identity": kernel.get("content_identity"),
-                    "language_bundle_identity": ldb.get("content_identity"),
-                    "law_ids": [],
-                    "law_projections": [],
-                    "rule_ids": [],
-                    "rule_projections": [],
-                    "diagnostic_projections": [],
-                    "diagnostics": ordered[:cap],
-                    "truncated": len(ordered) > cap,
-                }
+                return refusal_result()
             if raw_graph_candidate:
                 ldb = expected_index
             elif expected_index != dict(ldb):

@@ -7,6 +7,8 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 import pytest
 
+import gda_balancing.domain.authority.graph as graph_support
+import schema2_bootstrap_conformance_support as independent_bootstrap
 from gda_balancing.domain.artifacts import artifacts_by_protocol_role
 from gda_balancing.domain.authority.graph import LanguageBundleGraph
 from gda_balancing.domain.canonical import content_identity
@@ -66,6 +68,61 @@ def _runtime_projection(authored):
         for row in _definitions(authored, "language.model_lowerings")
         if row["id"] == profile["model_lowering"]
     )
+
+
+def test_independent_bootstrap_stops_protocol_projection_after_ingress_refusal(
+    monkeypatch,
+):
+    kernel, ldb = mutable_authorities()
+    authored = _authored(ldb)
+    collections = _runtime_projection(authored)["collections"]
+    collections.append(deepcopy(collections[0]))
+    sealed = _graph(kernel, authored)
+    root = deepcopy(sealed.root)
+    root["content_identity"] = "sha256:" + "0" * 64
+    graph = LanguageBundleGraph(
+        root=root,
+        package_releases=sealed.package_releases,
+        package_conformance_vector_sets=sealed.package_conformance_vector_sets,
+        root_byte_size=len(_encoded(root)),
+        package_byte_sizes=list(sealed.package_byte_sizes),
+        vector_set_byte_sizes=list(sealed.vector_set_byte_sizes),
+    )
+    assert dict(graph) == graph.root
+    calls = []
+
+    def track(module, name):
+        original = getattr(module, name)
+
+        def observed(*args, **kwargs):
+            calls.append(name)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(module, name, observed)
+
+    track(graph_support, "project_artifact_protocols")
+    track(independent_bootstrap, "_consumer_b_project_trace_schema")
+    track(independent_bootstrap, "_consumer_b_project_rir_schema")
+    observations = [consumer(kernel, graph) for consumer in (_consumer_a, _consumer_b)]
+    assert calls == []
+    assert all(
+        not result["admitted"]
+        and result["diagnostics"]
+        == [("ingress", "kernel.identity_mismatch", "language-bundle")]
+        for result in observations
+    ), observations
+
+
+def test_independent_bootstrap_retains_derived_index_identity_refusal():
+    kernel, ldb = mutable_authorities()
+    ldb["language"]["resolution_profiles"][0]["default"] = False
+    observations = [consumer(kernel, ldb) for consumer in (_consumer_a, _consumer_b)]
+    assert all(
+        not result["admitted"]
+        and result["diagnostics"]
+        == [("ingress", "kernel.identity_mismatch", "language-bundle.admitted-index")]
+        for result in observations
+    ), observations
 
 
 @pytest.mark.parametrize(
