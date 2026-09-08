@@ -1,0 +1,246 @@
+{
+  "issue": 878,
+  "base": "a6302524370e4c012625a61f3660cef738caa8d1",
+  "worker_commit": "bf39b3ff895914f13a1e2b084f6a3228ff715b17",
+  "integrated_commit": "dbe667409b50938966ddfd213c83a48c67ac72eb",
+  "scope": "Operation relation metadata, policy and projected vector inventory; no production or authority change.",
+  "owner": "The existing Kernel operation-relation kind defines declaration/policy extensions, same-package Operation links, relation IDs, selector roots and interpreted projection operators.",
+  "changes": [
+    "Read each Operation's addressed metadata members and relation IDs under their own owners.",
+    "Propagate actual roles to canonical policy and vector copies, including schedule values from interpreted instructions.",
+    "Transport nested owner names and simultaneous key swaps; do not copy the enclosing key when projecting an object value.",
+    "Validate reverse coverage against the actual relation surfaces and reject forged roles for unaddressed canonical metadata."
+  ],
+  "preserved": "Source, Kernel, unrelated package/vector bytes and every actual ordered transition state remain unchanged in the public witness. The metadata extension label and capability ID rename independently; their equal original spelling is not a binding.",
+  "worker_validation": {
+    "focused": {
+      "tests": "27",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "38.594"
+    },
+    "retained": {
+      "tests": "93",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "56.078"
+    },
+    "original_reader_counterexample": {
+      "failed": 2,
+      "seconds": 1.83,
+      "log": "counterfactual-red.log"
+    },
+    "negative_scope": "Six resealed candidates refuse in the reader and both authority consumers. Semantic mutations synchronize their canonical policy/vector copies first; fourteen erased/misowned occurrence cases and one forged metadata role also refuse.",
+    "public_scope": "Actual A/B authority admission, public Model check/build, RIR import, Experiment check/run and production artifact-set validation. This does not claim independent B Runtime execution or mutual result exchange.",
+    "static": "Both worker files pass Ruff, format and Pyright. Root CI registration passes Ruff/format."
+  },
+  "primary_integration": {
+    "path": "/private/tmp/gda-878-root/operation-extension-fixed-integration.xml",
+    "sha256": "2adee9dc5733432170a0ab1e7a74f4c0e1278b60492e4669cb968cae6f71eb9d",
+    "tests": "49",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "47.145"
+  },
+  "primary_command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_operation_extension_inventory.py tests/test_trace_protocol_inventory.py tests/test_ci_policy.py -q -p no:cacheprovider",
+  "ci_collection": {
+    "current_test_count": 2389,
+    "current_package_vector_count": 347,
+    "missing_package_vectors": [],
+    "missing_tests": [],
+    "overlapping_tests": [],
+    "uncovered_tests": [],
+    "unexpected_shard_tests": []
+  },
+  "inventory": {
+    "kernel": "sha256:b27ab67f832e27cba28b1214001e8280f3a496b520b4ae86650d53408f138abc",
+    "ldb": "sha256:e16bf222924d62e673d16d2cbeb460fc9040db2fd129c3847ed0c2605604176e",
+    "tokens": 1610,
+    "occurrences": 6538,
+    "physical_graph_and_kernel_unchanged": true,
+    "scope": "All current LDB packages and vectors plus bounded-fold Source; complete Experiment/result traversal remains open.",
+    "gaps": 47,
+    "previous_gaps": 54,
+    "covered_relation_vectors": 12,
+    "physical_vectors": 347
+  },
+  "independent_review": {
+    "axis": "Spec",
+    "head": "bf39b3ff895914f13a1e2b084f6a3228ff715b17",
+    "integrated_head": "dbe667409b50938966ddfd213c83a48c67ac72eb",
+    "findings": [],
+    "original_candidates_byte_identical": true,
+    "focused": {
+      "tests": 27,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "duration_seconds": 38.51
+    },
+    "extra_reverse_mutants": 16,
+    "extra_mutants_all_refuse": true,
+    "scope": "Original order and mirrored equality witnesses plus erased, misowned and opaque-payload roles; no full issue conformance or independent B Runtime claim."
+  },
+  "source_sha256": {
+    "tests/schema2_extension_inventory_support.py": "c938c76e1ba2d2a944c3a284ad5e748f645c84322dbd9ebefb9955ff9bca2840",
+    "tests/test_operation_extension_inventory.py": "2893430e8bd31edb61d3df5d54c097c1f8fbd707c3739958e298ec53ad245137"
+  },
+  "raw_evidence": [
+    {
+      "path": "/private/tmp/gda-878-operation-extension-evidence/receipt.json",
+      "sha256": "e96397dc5c6256193dc533960322d852d7bc8e3aa2433437e1342b4d6667380e"
+    },
+    {
+      "path": "/private/tmp/gda-878-operation-extension-evidence/focused.xml",
+      "sha256": "4ec920e81685e4534258cff33138966623cba5ed607781eb9bd82016b05ef43e"
+    },
+    {
+      "path": "/private/tmp/gda-878-operation-extension-evidence/related.log",
+      "sha256": "16b7541e76f89509d127ccb3f130dfeaff0160968ea0120ab6823e2ceaceaa59"
+    },
+    {
+      "path": "/private/tmp/gda-878-operation-extension-evidence/baseline-support.py",
+      "sha256": "566ebe984420a6a78f741c2f1ad1ddddf3a44001117dca9e957753e92aafd8d1"
+    },
+    {
+      "path": "/private/tmp/gda-878-operation-extension-evidence/counterfactual-red.log",
+      "sha256": "4133dfedb87c1f66d17f3c205a7aaff18a34d9f9f04cffc333854252992c6a5f"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/operation-extension-ci-inventory.json",
+      "sha256": "2bc6a1e2a703b22c42a65e9d86cc7b84aacd6de6eb75cd32dbdf0b1d06007508"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/operation-extension-semantic-inventory.json",
+      "sha256": "b66476530f10f36e274a418748fc8dd713dc13d86916ce11060152c066cf9b41"
+    },
+    {
+      "path": "/private/tmp/gda-878-operation-projection-closure-evidence/receipt.json",
+      "sha256": "450a5ae26f8dd4488c328967a26147cd8d7d47016021fd4aa6c17a78e43f66e5"
+    },
+    {
+      "path": "/private/tmp/gda-878-operation-projection-closure-evidence/red.xml",
+      "sha256": "218217ef8cf987249ae4a92747641e696800c285d2852827fde384af9c41e0a7"
+    },
+    {
+      "path": "/private/tmp/gda-878-operation-projection-closure-evidence/mirror-red.xml",
+      "sha256": "f080e14071a048efcb65b6971b74401c3657c228fc2e0a52392047c99cbc1b80"
+    },
+    {
+      "path": "/private/tmp/gda-878-operation-projection-closure-evidence/final-focused.xml",
+      "sha256": "5967ccacbe4fc0cb5c86f190debba7fee2190045e211d32e3c7025abb7441fc4"
+    },
+    {
+      "path": "/private/tmp/gda-878-operation-projection-closure-evidence/final-related.xml",
+      "sha256": "4224ebe9f1b130333c04d148f563e5df0f212089e68cdddf1a93946a4a17f01a"
+    },
+    {
+      "path": "/private/tmp/gda-878-operation-projection-closure-evidence/mirrored-equality.py",
+      "sha256": "79afe9af3626ad84df9eb5cf21c10db365f251520d79b94b891e70919ac6a677"
+    },
+    {
+      "path": "/private/tmp/gda-878-operation-projection-closure-evidence/mirrored-equality.json",
+      "sha256": "c4475d1a23f45c05a73ea13bbc4d85d0d5760fbd310b1b5d534d36356a31d1ed"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/operation-extension-fixed-ci-inventory.json",
+      "sha256": "009afa3bc876caa623c2abe9682a531c6cb2bfb5dbdce4293baed5c1bb5b2fb4"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/operation-extension-fixed-semantic-inventory.json",
+      "sha256": "b61eef9e9d4356af289483654065a7dde5ac037cba2439ff67ff0b6ed95e0bc9"
+    },
+    {
+      "path": "/private/tmp/gda-878-spec-operation-bf39/receipt.json",
+      "sha256": "57d7d44ea1c406fbb36f0b4a423bc561a3457222a968e58bb335c974830651d2"
+    },
+    {
+      "path": "/private/tmp/gda-878-spec-operation-bf39/focused.xml",
+      "sha256": "4830abe8ebf6e792eb1965ad4f05e634e240518307ab7c1f7751abdbd1918654"
+    },
+    {
+      "path": "/private/tmp/gda-878-spec-operation-bf39/probe_order.py",
+      "sha256": "d3e908fae269e7618ec26bda097e4f7d674f502e6fef6b8bf705305375d45f95"
+    },
+    {
+      "path": "/private/tmp/gda-878-spec-operation-bf39/mirrored-equality.py",
+      "sha256": "d65a88222f5f79c7e6beefbfd814f213c82094173a04647f736a7ec709729c66"
+    },
+    {
+      "path": "/private/tmp/gda-878-spec-operation-bf39/reverse_mutants.py",
+      "sha256": "dc523786efdfffa83db5f203cbdb57c7af5d762ddbfed0ae784c377946760595"
+    }
+  ],
+  "limits": [
+    "Unrelated inventory gaps and the final fixed-build/full-bijection/public result-exchange witness remain open.",
+    "Complete CI collection and shard assignment are verified; execution of all shards is not claimed.",
+    "Canonical metadata data such as instance.stream, magnitude labels and version text are not inferred to be bound names merely from spelling.",
+    "Exact artifact/provenance identities change with authored metadata; only the stated semantic observations compare equal."
+  ],
+  "initial_worker_commit": "6c77a85c414ab7a4ba1202d4be1545f2ffe92ca3",
+  "review_correction": {
+    "finding": "A single pass omitted indirect Operation references when canonical equality preceded the interpreted schedule relation; reverse validation repeated the same omission. A legal equality with the interpreted value on the right also required symmetric role transport.",
+    "decision": "Adopt finite closure over existing equal-value positions. Only canonical-equal gains a reverse edge; derived schedule/policy copies stay directed. Reverse closure starts from actual relation owners and external instruction roles, excluding caller-claimed relation-surface roles.",
+    "original_order_counterexample": [
+      {
+        "tests": "2",
+        "failures": "1",
+        "errors": "0",
+        "skipped": "0",
+        "time": "5.620"
+      }
+    ],
+    "directed_only_mirror_counterexample": [
+      {
+        "tests": "4",
+        "failures": "2",
+        "errors": "0",
+        "skipped": "0",
+        "time": "9.526"
+      }
+    ],
+    "permanent_regression": "tests/test_operation_extension_inventory.py::test_transitive_projection_roles_are_complete_in_both_authored_orders",
+    "fixed_cases": [
+      {
+        "interpreted_on_left": true,
+        "copy_first": true,
+        "tokens": 1600,
+        "occurrences": 6470,
+        "uncovered": 47,
+        "indirect_operation_refs": 8,
+        "vectors": 347
+      },
+      {
+        "interpreted_on_left": true,
+        "copy_first": false,
+        "tokens": 1600,
+        "occurrences": 6470,
+        "uncovered": 47,
+        "indirect_operation_refs": 8,
+        "vectors": 347
+      },
+      {
+        "interpreted_on_left": false,
+        "copy_first": true,
+        "tokens": 1601,
+        "occurrences": 6475,
+        "uncovered": 47,
+        "indirect_operation_refs": 6,
+        "vectors": 347
+      },
+      {
+        "interpreted_on_left": false,
+        "copy_first": false,
+        "tokens": 1601,
+        "occurrences": 6475,
+        "uncovered": 47,
+        "indirect_operation_refs": 6,
+        "vectors": 347
+      }
+    ],
+    "admission": "All four original and four occurrence-renamed candidates admit through A/B. Erasing indirect references refuses reverse validation. These are authority admissions, not independent B Runtime executions."
+  }
+}

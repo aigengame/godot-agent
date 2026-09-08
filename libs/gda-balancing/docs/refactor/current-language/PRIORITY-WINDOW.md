@@ -750,9 +750,9 @@ The final 168-test integration passes. Scoped Standards and DDMA findings are cl
 the implementation and authored-inventory Spec reviews have no actionable findings.
 Canonical equality preserves malformed Boolean/integer fixtures for real refusal, and
 projection results no longer alias the input Kernel. All 2,362 collected tests and 347
-vectors have CI assignments; this is not an all-shard execution result. The current
-whole-LDB/vector/bounded-fold-Source inventory has 1,582 tokens, 6,137 occurrences and
-54 remaining gaps, with its physical graph and Kernel unchanged. Other protocol
+vectors have CI assignments; this is not an all-shard execution result. At this Trace
+checkpoint, the whole-LDB/vector/bounded-fold-Source inventory has 1,582 tokens,
+6,137 occurrences and 54 remaining gaps, with its physical graph and Kernel unchanged. Other protocol
 structures and complete graph/Experiment/result traversal remain open.
 
 The [next owner record](evidence/priority-window/protocol-owner-followup.json) captures
@@ -773,6 +773,37 @@ transport law before inventory can derive that join and close the five selector 
 The observed incomplete Source rename is not a valid semantic rename; its public
 refusal does not justify a field-name exception. This follow-up remains pending after
 the serial RIR authority change.
+
+## Operation relation inventory
+
+The existing Kernel relation contract now supplies the owners of Operation metadata
+selectors, relation IDs, capability-policy copies and their projected vector values.
+The two periodic apply Operations keep distinct owners for equal member spellings.
+Their metadata extension labels and capability ID can rename independently; no machine
+law binds those original equal strings. Schedule projections reuse actual instruction
+roles. Projecting an object value excludes its enclosing key.
+
+The [integration record](evidence/priority-window/operation-extension-inventory.json)
+separates 27 focused tests, 93 retained tests and the primary's 49-test integration. Original
+and renamed public paths preserve every ordered transition state. Co-mutated semantic
+negatives update their policy/vector copies before refusal, while erased or misowned
+references and invented names in canonical metadata still refuse. The witness runs both
+authority consumers and production artifact-set validation; it does not claim independent
+Runtime result exchange.
+
+Independent Spec review found a legal declaration-order counterexample: an earlier
+canonical copy omitted indirect Operation references while reverse validation passed.
+The fix at `dbe667409` computes a finite closure over existing value positions and
+propagates canonical equality in both directions. Other projections stay directed.
+Four permanent order/direction cases now admit before and after renaming; removing their
+indirect references refuses. The independent recheck preserves the original candidate
+bytes, passes all 27 focused cases and refuses 16 additional erased, misowned or opaque-data
+mutants. No scoped finding remains.
+
+All 12 relation vectors are covered. The unchanged complete LDB/vector/bounded-fold
+Source graph now has 1,610 tokens, 6,538 occurrences and 47 gaps, down from 54. All 347
+physical vectors remain. The 2,389-test CI collection has complete, disjoint assignments;
+full CI execution and the remaining extension proof stay open.
 
 ## Remaining proof and integration
 
