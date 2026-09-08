@@ -2097,12 +2097,8 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         ("evaluation.observation_unavailable", "evaluation"),
     }
     evidence_verify_only = {
-        ("evaluation.evaluable_cyclic_prerequisite", "evaluation"),
-        ("evaluation.evaluable_extra_prerequisite", "evaluation"),
         ("evaluation.evaluable_ineligible_outcome", "evaluation"),
-        ("evaluation.evaluable_mismatched_prerequisite", "evaluation"),
-        ("evaluation.evaluable_missing_prerequisite", "evaluation"),
-        ("evaluation.evaluable_unresolved_prerequisite", "evaluation"),
+        ("evaluation.evaluable_outcome_mismatch", "evaluation"),
         ("evaluation.unknown_evidence_claim_kind", "evaluation"),
     }
     expected = {

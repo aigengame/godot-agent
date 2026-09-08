@@ -161,7 +161,7 @@ def test_public_cli_maps_missing_inputs_to_usage_exit_three(run_cli) -> None:
     ("changed_input", "stage", "code"),
     (
         ("receipt", "ingress", "kernel.identity_mismatch"),
-        ("experiment", "evaluation", "evaluation.evaluable_mismatched_prerequisite"),
+        ("experiment", "evaluation", "evaluation.evaluable_outcome_mismatch"),
     ),
 )
 def test_public_cli_refuses_corrupt_or_mismatched_run_inputs(

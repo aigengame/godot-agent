@@ -13,16 +13,20 @@ from gda_balancing.application.evidence_verify import (
     EvidenceVerifyInput,
     verify_evidence,
 )
+from gda_balancing.application.experiment_inputs import check_experiment_inputs
 from gda_balancing.application.experiment_run import (
     ExperimentRunPublication,
     ExperimentVerdictPublication,
     run_experiment,
 )
 from gda_balancing.domain.artifacts import (
+    artifacts_by_protocol_role,
     identified_artifact,
     verify_artifact,
     wire_schema_identity,
 )
+from gda_balancing.domain.experiment import CheckedExperiment
+from gda_balancing.domain.experiment_artifacts import validate_experiment_artifact_set
 from gda_balancing.domain.artifact_set import resolve_artifact_set
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
@@ -32,21 +36,15 @@ from gda_balancing.domain.diagnostics import (
     reason_by_id,
 )
 from gda_balancing.domain.evidence_verification import (
-    EvidenceGraphProjectionInput,
     EvidenceCandidate,
-    EvidenceGraph,
-    EvidencePrerequisite,
-    EvidenceSubject,
-    EvidenceVerificationIssue,
-    evidence_claim_kind,
-    evidence_verification_refusal,
+    evidence_outcome_mismatch_refusal,
     evaluate_evidence_candidate,
-    project_evidence_graph,
 )
 from gda_balancing.domain.publication import (
     select_publication_contracts,
     publish_artifact_set,
     read_authenticated_artifact_set,
+    read_authenticated_declared_artifact_set,
 )
 from gda_balancing.domain.publication_types import PublicationMember
 from gda_balancing.interfaces.cli.experiment_fixtures import (
@@ -58,37 +56,6 @@ from gda_balancing.interfaces.cli.descriptors import artifact_sets_for_input
 from gda_balancing.interfaces.cli.evidence_verify import EVIDENCE_VERIFY
 from gda_balancing.interfaces.cli.experiment_run import EXPERIMENT_RUN
 from gda_balancing.interfaces.cli.surface import descriptor_identity
-
-
-def _evaluable_claim_kind() -> dict[str, Any]:
-    language = packaged_authority_context().language_bundle["language"]
-    return cast(dict[str, Any], language["evidence_claim_kinds"][0])
-
-
-def _complete_graph() -> EvidenceGraph:
-    claim_kind = _evaluable_claim_kind()
-    identities = {
-        role: f"sha256:{index:064x}"
-        for index, role in enumerate(claim_kind["subject_roles"], start=1)
-    }
-    return EvidenceGraph(
-        subjects=tuple(
-            EvidenceSubject(role=role, identity=identity)
-            for role, identity in identities.items()
-        ),
-        prerequisites=tuple(
-            EvidencePrerequisite(
-                subject=edge["subject"],
-                subject_identity=identities[edge["subject"]],
-                prerequisite=edge["prerequisite"],
-                prerequisite_identity=identities[edge["prerequisite"]],
-            )
-            for edge in claim_kind["prerequisite_edges"]
-        ),
-        producing_outcome="success",
-        runtime_dispatch="reached",
-        runtime_refusal_variant="not-applicable",
-    )
 
 
 def _verify(inp: EvidenceVerifyInput) -> EvidenceCandidate | Schema2RefusalReport:
@@ -136,307 +103,90 @@ def _prepare_outcome_input(
     )
 
 
-def test_packaged_ldb_owns_the_complete_evaluable_claim_kind() -> None:
+def test_packaged_ldb_owns_the_evaluable_eligibility_policy() -> None:
     language = packaged_authority_context().language_bundle["language"]
-
     assert language["evidence_claim_kinds"] == [
         {
             "id": "evaluable",
-            "subject_roles": [
-                "rir-semantic-identity",
-                "experiment",
-                "evaluator-capability-manifest",
-                "resolved-runtime-profile",
-                "experiment-run-artifact-set-receipt",
-            ],
-            "prerequisite_edges": [
-                {"subject": "experiment", "prerequisite": "rir-semantic-identity"},
-                {"subject": "resolved-runtime-profile", "prerequisite": "experiment"},
-                {
-                    "subject": "resolved-runtime-profile",
-                    "prerequisite": "rir-semantic-identity",
-                },
-                {
-                    "subject": "experiment-run-artifact-set-receipt",
-                    "prerequisite": "experiment",
-                },
-                {
-                    "subject": "experiment-run-artifact-set-receipt",
-                    "prerequisite": "resolved-runtime-profile",
-                },
-                {
-                    "subject": "experiment-run-artifact-set-receipt",
-                    "prerequisite": "evaluator-capability-manifest",
-                },
-            ],
             "eligibility": {
                 "claim_state": "candidate",
                 "runtime_dispatch": "required",
                 "producing_outcomes": ["runtime-refusal", "success", "verdict"],
                 "runtime_refusal_variant": "post-dispatch",
             },
-            "permitted_issuer_classes": [],
-            "permitted_verifier_classes": [],
             "vectors": [
                 {
-                    "id": "evaluable.success",
-                    "kind": "positive",
+                    "id": "evaluable." + suffix,
+                    "kind": kind,
                     "input": {
-                        "graph": "exact",
-                        "producing_outcome": "success",
-                        "runtime_dispatch": "reached",
-                        "runtime_refusal_variant": "not-applicable",
+                        "producing_outcome": outcome,
+                        "runtime_dispatch": dispatch,
+                        "runtime_refusal_variant": variant,
                     },
-                    "expect": "candidate",
-                },
-                {
-                    "id": "evaluable.verdict",
-                    "kind": "positive",
-                    "input": {
-                        "graph": "exact",
-                        "producing_outcome": "verdict",
-                        "runtime_dispatch": "reached",
-                        "runtime_refusal_variant": "not-applicable",
-                    },
-                    "expect": "candidate",
-                },
-                {
-                    "id": "evaluable.runtime-refusal",
-                    "kind": "positive",
-                    "input": {
-                        "graph": "exact",
-                        "producing_outcome": "runtime-refusal",
-                        "runtime_dispatch": "reached",
-                        "runtime_refusal_variant": "post-dispatch",
-                    },
-                    "expect": "candidate",
-                },
-                {
-                    "id": "evaluable.pre-dispatch",
-                    "kind": "negative",
-                    "input": {
-                        "graph": "exact",
-                        "producing_outcome": "runtime-refusal",
-                        "runtime_dispatch": "not-reached",
-                        "runtime_refusal_variant": "pre-dispatch",
-                    },
-                    "expect": "refusal",
-                },
-                *[
-                    {
-                        "id": f"evaluable.graph-{graph}",
-                        "kind": "negative",
-                        "input": {
-                            "graph": graph,
-                            "producing_outcome": "success",
-                            "runtime_dispatch": "reached",
-                            "runtime_refusal_variant": "not-applicable",
-                        },
-                        "expect": "refusal",
-                    }
-                    for graph in (
-                        "missing",
-                        "extra",
-                        "mismatched",
-                        "cyclic",
-                        "unresolved",
-                    )
-                ],
+                    "expect": expect,
+                }
+                for suffix, kind, outcome, dispatch, variant, expect in (
+                    (
+                        "success",
+                        "positive",
+                        "success",
+                        "reached",
+                        "not-applicable",
+                        "candidate",
+                    ),
+                    (
+                        "verdict",
+                        "positive",
+                        "verdict",
+                        "reached",
+                        "not-applicable",
+                        "candidate",
+                    ),
+                    (
+                        "runtime-refusal",
+                        "positive",
+                        "runtime-refusal",
+                        "reached",
+                        "post-dispatch",
+                        "candidate",
+                    ),
+                    (
+                        "pre-dispatch",
+                        "negative",
+                        "runtime-refusal",
+                        "not-reached",
+                        "pre-dispatch",
+                        "refusal",
+                    ),
+                )
             ],
         }
     ]
 
 
-def test_complete_success_graph_is_an_open_evaluable_candidate() -> None:
-    result = evaluate_evidence_candidate(_evaluable_claim_kind(), _complete_graph())
-
-    assert isinstance(result, EvidenceCandidate)
-    assert result.claim_kind == "evaluable"
-    assert result.claim_state == "candidate"
-    assert result.producing_outcome == "success"
-    assert result.subjects == _complete_graph().subjects
-
-
-def test_domain_projects_evidence_issues_to_a_bounded_refusal() -> None:
+def test_domain_reports_complete_outcome_mismatch_at_the_receipt() -> None:
     context = packaged_authority_context()
     receipt_identity = "sha256:" + "a" * 64
-
-    result = evidence_verification_refusal(
-        (
-            EvidenceVerificationIssue(
-                reason="evaluation.reason.evaluable-mismatched-prerequisite",
-                subject="experiment-run-artifact-set-receipt",
-                message="Run publication does not bind the admitted Experiment",
-            ),
-        ),
-        context.language_bundle,
-        {"experiment-run-artifact-set-receipt": receipt_identity},
+    result = evidence_outcome_mismatch_refusal(
+        context.language_bundle, receipt_identity
     )
-
     assert result.stage == "evaluation"
     assert result.truncated is False
-    assert result.diagnostics[0].code == (
-        "evaluation.evaluable_mismatched_prerequisite"
-    )
+    assert len(result.diagnostics) == 1
+    assert result.diagnostics[0].code == "evaluation.evaluable_outcome_mismatch"
     assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
     assert result.diagnostics[0].primary.content_identity == receipt_identity
-    assert result.diagnostics[0].primary.pointer == (
-        "/prerequisites/experiment-run-artifact-set-receipt"
+    assert (
+        result.diagnostics[0].primary.pointer == "/experiment-run-artifact-set-receipt"
     )
-
-
-def test_domain_projects_exact_artifacts_into_the_evaluable_graph() -> None:
-    complete = _complete_graph()
-    identities = {subject.role: subject.identity for subject in complete.subjects}
-    claim_kind = evidence_claim_kind(
-        packaged_authority_context().language_bundle,
-        "evaluable",
-    )
-    assert claim_kind is not None
-
-    graph = project_evidence_graph(
-        claim_kind,
-        EvidenceGraphProjectionInput(
-            rir_semantic_identity=identities["rir-semantic-identity"],
-            experiment_identity=identities["experiment"],
-            experiment={
-                "model": {"rir_semantic_identity": identities["rir-semantic-identity"]},
-            },
-            experiment_run_artifact_set_receipt_identity=identities[
-                "experiment-run-artifact-set-receipt"
-            ],
-            outcome_artifacts={
-                "evaluation-run": {
-                    "experiment_identity": identities["experiment"],
-                    "resolved_runtime_profile_identity": identities[
-                        "resolved-runtime-profile"
-                    ],
-                },
-                "evaluator-capability-manifest": {
-                    "content_identity": identities["evaluator-capability-manifest"],
-                },
-                "resolved-runtime-profile": {
-                    "content_identity": identities["resolved-runtime-profile"],
-                    "rir_semantic_identity": identities["rir-semantic-identity"],
-                    "experiment_identity": identities["experiment"],
-                },
-            },
-        ),
-    )
-
-    assert graph == complete
-
-
-def test_graph_judgment_reports_all_structural_fault_classes_in_order() -> None:
-    complete = _complete_graph()
-    subjects = tuple(
-        subject
-        for subject in complete.subjects
-        if subject.role != "evaluator-capability-manifest"
-    ) + (EvidenceSubject("unexpected", "sha256:" + "f" * 64),)
-    prerequisites = list(complete.prerequisites)
-    prerequisites.remove(
-        next(
-            edge
-            for edge in prerequisites
-            if edge.subject == "experiment-run-artifact-set-receipt"
-            and edge.prerequisite == "evaluator-capability-manifest"
-        )
-    )
-    first = prerequisites[0]
-    prerequisites[0] = EvidencePrerequisite(
-        subject=first.subject,
-        subject_identity="sha256:" + "e" * 64,
-        prerequisite=first.prerequisite,
-        prerequisite_identity=first.prerequisite_identity,
-    )
-    identities = {subject.role: subject.identity for subject in subjects}
-    prerequisites.extend(
-        (
-            EvidencePrerequisite(
-                subject="rir-semantic-identity",
-                subject_identity=identities["rir-semantic-identity"],
-                prerequisite="experiment",
-                prerequisite_identity=identities["experiment"],
-            ),
-            EvidencePrerequisite(
-                subject="unknown",
-                subject_identity="sha256:" + "d" * 64,
-                prerequisite="rir-semantic-identity",
-                prerequisite_identity=identities["rir-semantic-identity"],
-            ),
-        )
-    )
-    graph = EvidenceGraph(
-        subjects=subjects,
-        prerequisites=tuple(prerequisites),
-        producing_outcome=complete.producing_outcome,
-        runtime_dispatch=complete.runtime_dispatch,
-        runtime_refusal_variant=complete.runtime_refusal_variant,
-    )
-
-    result = evaluate_evidence_candidate(_evaluable_claim_kind(), graph)
-
-    assert isinstance(result, tuple)
-    assert all(isinstance(issue, EvidenceVerificationIssue) for issue in result)
-    assert {issue.reason for issue in result} == {
-        "evaluation.reason.evaluable-cyclic-prerequisite",
-        "evaluation.reason.evaluable-extra-prerequisite",
-        "evaluation.reason.evaluable-mismatched-prerequisite",
-        "evaluation.reason.evaluable-missing-prerequisite",
-        "evaluation.reason.evaluable-unresolved-prerequisite",
-    }
-    assert result == tuple(
-        sorted(result, key=lambda issue: (issue.reason, issue.subject))
-    )
-
-
-@pytest.mark.parametrize(
-    ("producing_outcome", "runtime_dispatch", "runtime_refusal_variant", "eligible"),
-    (
-        ("success", "reached", "not-applicable", True),
-        ("verdict", "reached", "not-applicable", True),
-        ("runtime-refusal", "reached", "post-dispatch", True),
-        ("runtime-refusal", "not-reached", "pre-dispatch", False),
-    ),
-)
-def test_evaluable_eligibility_requires_runtime_dispatch(
-    producing_outcome: str,
-    runtime_dispatch: str,
-    runtime_refusal_variant: str,
-    eligible: bool,
-) -> None:
-    complete = _complete_graph()
-    graph = EvidenceGraph(
-        subjects=complete.subjects,
-        prerequisites=complete.prerequisites,
-        producing_outcome=producing_outcome,
-        runtime_dispatch=runtime_dispatch,
-        runtime_refusal_variant=runtime_refusal_variant,
-    )
-
-    result = evaluate_evidence_candidate(_evaluable_claim_kind(), graph)
-
-    if eligible:
-        assert isinstance(result, EvidenceCandidate)
-        assert result.producing_outcome == producing_outcome
-    else:
-        assert isinstance(result, tuple)
-        assert [issue.reason for issue in result] == [
-            "evaluation.reason.evaluable-ineligible-outcome"
-        ]
 
 
 def test_evaluable_faults_use_ldb_owned_evaluation_reasons() -> None:
     language_bundle = packaged_authority_context().language_bundle
 
     for suffix in (
-        "cyclic-prerequisite",
-        "extra-prerequisite",
         "ineligible-outcome",
-        "mismatched-prerequisite",
-        "missing-prerequisite",
-        "unresolved-prerequisite",
+        "outcome-mismatch",
     ):
         reason = reason_by_id(
             language_bundle,
@@ -571,12 +321,12 @@ def test_application_does_not_require_source_or_build_receipt(tmp_path: Path) ->
 
     assert isinstance(result, EvidenceCandidate)
     assert result.claim_state == "candidate"
-    assert {subject.role for subject in result.subjects} == {
-        "rir-semantic-identity",
-        "experiment",
-        "resolved-runtime-profile",
-        "evaluator-capability-manifest",
-        "experiment-run-artifact-set-receipt",
+    assert {name for name in vars(result) if name.endswith("_identity")} == {
+        "rir_semantic_identity",
+        "experiment_identity",
+        "resolved_runtime_profile_identity",
+        "evaluator_capability_manifest_identity",
+        "experiment_run_artifact_set_receipt_identity",
     }
 
 
@@ -646,16 +396,14 @@ def test_application_refuses_an_outcome_bound_to_another_experiment(
     assert isinstance(result, Schema2RefusalReport)
     assert result.stage == "evaluation"
     assert {diagnostic.code for diagnostic in result.diagnostics} == {
-        "evaluation.evaluable_mismatched_prerequisite"
+        "evaluation.evaluable_outcome_mismatch"
     }
     artifact_locations = {
         diagnostic.primary.pointer
         for diagnostic in result.diagnostics
         if isinstance(diagnostic.primary, ArtifactLocation)
     }
-    assert "/prerequisites/experiment-run-artifact-set-receipt/experiment" in (
-        artifact_locations
-    )
+    assert "/experiment-run-artifact-set-receipt" in (artifact_locations)
 
 
 def test_application_verifies_one_real_verdict_publication(tmp_path: Path) -> None:
@@ -807,8 +555,179 @@ def test_public_cli_refuses_an_authenticated_incomplete_terminal_audit(
     error = json.loads(stdout)["error"]
     assert error["stage"] == "evaluation"
     assert [row["code"] for row in error["diagnostics"]] == [
-        "evaluation.evaluable_mismatched_prerequisite"
+        "evaluation.evaluable_outcome_mismatch"
     ]
     assert error["diagnostics"][0]["primary"]["pointer"] == (
-        "/prerequisites/experiment-run-artifact-set-receipt"
+        "/experiment-run-artifact-set-receipt"
     )
+
+
+@pytest.fixture
+def admitted_fold_outcome(tmp_path, run_cli):
+    example = Path(__file__).parents[1] / "examples/schema2/bounded-fold"
+    code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(example / "model-source.json"),
+            "--out",
+            str(tmp_path / "build"),
+            "--invocation-key",
+            "d1" * 32,
+        ]
+    )
+    assert (code, stderr) == (0, ""), stdout
+    build = json.loads(stdout)
+    rir_path = next(
+        row["locator"]
+        for row in build["member_locators"]
+        if row["logical_name"] == "rir-semantic-payload"
+    )
+    specification = example / "experiment.json"
+    code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification),
+            "--rir",
+            rir_path,
+            "--out",
+            str(tmp_path / "run"),
+            "--invocation-key",
+            "d2" * 32,
+        ]
+    )
+    assert (code, stderr) == (0, ""), stdout
+    receipt_path = tmp_path / "run-receipt.json"
+    receipt_path.write_text(stdout)
+    inp = EvidenceVerifyInput(
+        "evaluable", rir_path, str(specification), str(receipt_path)
+    )
+    context = packaged_authority_context()
+    checked = check_experiment_inputs(
+        inp.specification, inp.rir, authority_context=context
+    )
+    assert isinstance(checked, CheckedExperiment)
+    publication = read_authenticated_declared_artifact_set(
+        inp.experiment_run_artifact_set_receipt,
+        artifact_sets_for_input(EVIDENCE_VERIFY.input_artifact_sets[0]),
+        authority_context=context,
+    )
+    assert validate_experiment_artifact_set(checked, publication.artifacts)
+    return inp, checked, publication
+
+
+def test_candidate_keeps_the_five_actual_admitted_identities(admitted_fold_outcome):
+    inp, checked, publication = admitted_fold_outcome
+    candidate = _verify(inp)
+    assert isinstance(candidate, EvidenceCandidate)
+    members = artifacts_by_protocol_role(checked.language_bundle, publication.artifacts)
+    assert vars(candidate) == {
+        "claim_kind": "evaluable",
+        "claim_state": "candidate",
+        "producing_outcome": "success",
+        "rir_semantic_identity": checked.rir["semantic_identity"],
+        "experiment_identity": checked.content_identity,
+        "resolved_runtime_profile_identity": members["resolved-runtime-profile"][
+            "content_identity"
+        ],
+        "evaluator_capability_manifest_identity": members[
+            "evaluator-capability-manifest"
+        ]["content_identity"],
+        "experiment_run_artifact_set_receipt_identity": publication.receipt[
+            "content_identity"
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing",
+        "duplicate",
+        "extra",
+        "profile-experiment",
+        "profile-rir",
+        "primary-experiment",
+        "primary-profile",
+        "evaluator-capability",
+    ],
+)
+def test_real_outcome_integrity_replaces_the_retired_graph_obligations(
+    admitted_fold_outcome, mutation
+):
+    _, checked, publication = admitted_fold_outcome
+    artifacts = deepcopy(publication.artifacts)
+    members = artifacts_by_protocol_role(checked.language_bundle, artifacts)
+    if mutation == "missing":
+        key = next(
+            k for k, value in artifacts.items() if value is members["event-trace"]
+        )
+        del artifacts[key]
+    elif mutation == "duplicate":
+        artifacts["duplicate-profile"] = deepcopy(members["resolved-runtime-profile"])
+    elif mutation == "extra":
+        artifacts["unrelated-receipt"] = deepcopy(publication.receipt)
+    else:
+        role, field = {
+            "profile-experiment": ("resolved-runtime-profile", "experiment_identity"),
+            "profile-rir": ("resolved-runtime-profile", "rir_semantic_identity"),
+            "primary-experiment": ("evaluation-run", "experiment_identity"),
+            "primary-profile": ("evaluation-run", "resolved_runtime_profile_identity"),
+            "evaluator-capability": (
+                "evaluator-capability-manifest",
+                "instruction_nodes",
+            ),
+        }[mutation]
+        changed = deepcopy(members[role])
+        if mutation == "evaluator-capability":
+            assert "list-append" in changed[field]
+            changed[field].remove("list-append")
+        else:
+            changed[field] = "sha256:" + "0" * 64
+        contract = checked.output_contracts[role]
+        changed = contract.identify(
+            {
+                k: value
+                for k, value in changed.items()
+                if k
+                not in {
+                    "artifact_kind",
+                    "artifact_version",
+                    "wire_schema_identity",
+                    "content_identity",
+                }
+            }
+        )
+        assert contract.verify(changed)
+        assert changed["content_identity"] != members[role]["content_identity"]
+        key = next(k for k, value in artifacts.items() if value is members[role])
+        artifacts[key] = changed
+    assert not validate_experiment_artifact_set(checked, artifacts)
+
+
+def test_application_checks_complete_outcome_before_eligibility(
+    admitted_fold_outcome, tmp_path, monkeypatch
+):
+    inp, _, _ = admitted_fold_outcome
+    evaluate = evaluate_evidence_candidate
+    called = []
+
+    def observe(claim, checked, publication):
+        assert validate_experiment_artifact_set(checked, publication.artifacts)
+        called.append(publication.receipt["content_identity"])
+        return evaluate(claim, checked, publication)
+
+    monkeypatch.setattr(evidence_verify_module, "evaluate_evidence_candidate", observe)
+    assert isinstance(_verify(inp), EvidenceCandidate)
+    assert len(called) == 1
+    different = json.loads(Path(inp.specification).read_bytes())
+    different["metrics"][0]["target"]["maximum"] += 1
+    path = tmp_path / "different-experiment.json"
+    path.write_text(json.dumps(different))
+    result = _verify(replace(inp, specification=str(path)))
+    assert isinstance(result, Schema2RefusalReport)
+    assert [d.code for d in result.diagnostics] == [
+        "evaluation.evaluable_outcome_mismatch"
+    ]
+    assert len(called) == 1
