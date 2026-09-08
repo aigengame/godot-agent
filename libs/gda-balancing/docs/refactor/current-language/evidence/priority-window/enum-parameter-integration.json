@@ -1,0 +1,117 @@
+{
+  "scope": "Reject malformed Enum parameter containers at existing typed value admission; no new Kernel law.",
+  "integrated_commit": "d0525e3a1ab9ae68b3f96d8663ff515eaa1cadca",
+  "worker_commit": "f1a0336c0d36dfba11967d9bffbbc7725e6bd9a7",
+  "kernel": "sha256:b13ab5a5e3a6741bfca0ccd70b8e033bdeea0d11bf076aef54d021ae59c0e582",
+  "authority_files_changed": [],
+  "adjudication": {
+    "original_probe": "Partial constructor-selector rename leaves three inline Type expressions inconsistent. Two exercised Enum values trigger A TypeError and B unknown-enum; empty List masks the malformed element type. It is not a semantic-equivalence witness.",
+    "complete_probe": [
+      "structured.list-empty.nonempty/input/left/type/element/members -> labels",
+      "structured.list-empty.empty/input/left/type/element/members -> labels",
+      "structured.list-empty.refuse-non-list/input/left/type/members -> labels"
+    ],
+    "actual_product_defect": {
+      "tests_failed": 4,
+      "controls_passed": 2,
+      "malformed_cases_in_order": [
+        "missing",
+        "null",
+        "integer",
+        "string"
+      ],
+      "public_exit_codes": [
+        4,
+        4,
+        4,
+        0
+      ],
+      "string_explanation": "The scalar contains every original enum member as a substring, so old membership evaluation falsely admitted the candidate."
+    }
+  },
+  "fix": "A _validate enum-member branch requires the selected members parameter to be a list before membership evaluation. B independently performs the same check and removes missing-parameter-to-empty-list fallback. Existing structured-value-type-mismatch refuses malformed containers; no exception catch-all, new reason, Kernel rule, registry or global validation framework.",
+  "green": {
+    "tests_passed": 11,
+    "new_cases": 6,
+    "existing_selected_reason_mapping_cases": 5,
+    "malformed_public_exit_codes": [
+      2,
+      2,
+      2,
+      2
+    ],
+    "malformed_reason": "kernel.vector_mismatch",
+    "complete_original_and_renamed_structured_vectors_each": 24,
+    "positive_public_metrics": {
+      "ordered_value": 1234,
+      "selected_count": 2
+    },
+    "static": "Ruff, Ruff format check, Pyright passed."
+  },
+  "checks": {
+    "red.xml": {
+      "tests": 6,
+      "failures": 4,
+      "errors": 0,
+      "skipped": 0
+    },
+    "green.xml": {
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "enum-container-integration.xml": {
+      "tests": 97,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "sources": [
+    {
+      "path": "libs/gda-balancing/src/gda_balancing/domain/structured_values.py",
+      "before_sha256": "42680a9171f8e016f7103ed890e03f2a0e600fcc5880002a589fde8c4882c0c9",
+      "after_sha256": "0057d9ad54d19fb493932d5f0f5d28fa1d1d506922feefb909afe6f1aff76e4c"
+    },
+    {
+      "path": "libs/gda-balancing/tests/schema2_bootstrap_conformance_support.py",
+      "before_sha256": "9a3ee9d87bdc4e6623f4aebbaa3e529e792cc5728f00950195f4b12a1337b157",
+      "after_sha256": "f5689108e782c291cbadf5083e1abd20d89669ad99f9c5a56e31ce40349dc514"
+    },
+    {
+      "path": "libs/gda-balancing/tests/test_structured_constructor_parameters.py",
+      "before_sha256": null,
+      "after_sha256": "910ef25ad4776eed37a665fbf0c705931c47737185087d71f5becf4267710163"
+    }
+  ],
+  "raw_evidence": [
+    {
+      "path": "/private/tmp/gda-878-enum-parameter-evidence/FINAL-RECEIPT.json",
+      "bytes": 27002,
+      "sha256": "c38e07c48038323b41f9b544ebe9fc59749cca81ea0696f2fd49ba0ffed06505"
+    },
+    {
+      "path": "/private/tmp/gda-878-enum-parameter-evidence/red.xml",
+      "bytes": 13277,
+      "sha256": "2b7ccdc044c6f7aafc00551e708ed46af3e9e0fc6648e9f484ef07f8e89922bd"
+    },
+    {
+      "path": "/private/tmp/gda-878-enum-parameter-evidence/green.xml",
+      "bytes": 2331,
+      "sha256": "557fb9460b7beebe2c17a846b1b24a0dc4f3a1662e6f77341efb1372ee27ba4d"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/enum-container-integration.xml",
+      "bytes": 14899,
+      "sha256": "dcec85034c30d69bcb6429f702cfbbad557d7848803d99c5b9186e43a116940e"
+    }
+  ],
+  "verified_raw_records": 27,
+  "limits": [
+    "Original partial-rename vector admission is not an execution-equivalence proof.",
+    "Public source and Experiment schemas already refuse the malformed anonymous authored Type shapes.",
+    "The new failure is malformed owned authority; missing/null/integer containers used to crash and string containers could pass substring membership.",
+    "Current focused integration has 97 passing tests; final issue-wide CI and independent review are separate."
+  ]
+}

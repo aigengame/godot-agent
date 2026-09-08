@@ -601,6 +601,27 @@ pins its 1575 tokens, 6110 occurrences and 84 explicit gaps to one graph contain
 the full current LDB, all referenced packages/vector sets and the bounded-fold Source.
 Experiment and artifact/result graphs have not yet been added to that proof scope.
 
+## Enum parameter refusal boundary
+
+The earlier constructor-selector probe left three anonymous Type expressions using
+the old field. Correcting those authored references preserves all 24 structured-value
+observations under both consumers. Its partial rename therefore does not establish a
+semantic-equivalence failure. Existing public Source and Experiment schemas also
+reject those malformed anonymous Type shapes.
+
+A separate malformed owned-authority probe exposes a product defect: an Enum's selected
+member parameter could be missing, null, an integer or a string. The first three cases
+crashed public `package list`; a string containing the old names was accepted through
+substring membership. `d0525e3a1` checks the required list container before membership
+in the existing typed-value validator. The independent consumer performs its own check
+and deletes its missing-parameter-to-empty-list fallback. All four cases now return
+the existing typed refusal. No Kernel, reason inventory or global validator changes.
+
+The [integration record](evidence/priority-window/enum-parameter-integration.json)
+retains the four failing baseline cases, unchanged original/renamed public execution,
+the 11-test worker scope and 97-test integrated scope. The new permanent tests are
+registered in required CI; this result does not close the remaining inventory proof.
+
 ## Remaining proof and integration
 
 - Complete the semantic-token inventory and resolve remaining demonstrated name

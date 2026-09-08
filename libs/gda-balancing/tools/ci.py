@@ -77,6 +77,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_schema2_formula_cli.py",
         "test_selected_runtime_reason_decoding.py",
         "test_selected_structured_reason_mapping.py",
+        "test_structured_constructor_parameters.py",
         "test_structured_values.py",
     ),
     "model": (
