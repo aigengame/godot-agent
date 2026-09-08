@@ -161,6 +161,7 @@ def derive_language_index(
     package_conformance_vector_sets: list[dict[str, Any]],
     required_language_members: list[str],
     *,
+    kernel: dict[str, Any],
     root_byte_size: int,
     package_byte_sizes: list[int],
     vector_set_byte_sizes: list[int],
@@ -228,6 +229,9 @@ def derive_language_index(
         if isinstance(vector_definitions, list):
             vectors.extend(deepcopy(vector_definitions))
 
+    from gda_balancing.domain.authority.trace_projection import project_trace_schema
+
+    project_trace_schema(kernel, language)
     language["packages"] = deepcopy(package_releases)
     projection = {
         "artifact_kind": root.get("artifact_kind"),

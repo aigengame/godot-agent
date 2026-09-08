@@ -86,7 +86,25 @@ def refresh_package_semantic_closures(
                                 "mutate the owning package closure directly"
                             )
                         continue
-                selected.append(deepcopy(definition))
+                projected = deepcopy(definition)
+                if (
+                    path == "language.artifact_wire_schemas"
+                    and projected.get("protocol_role") == "event-trace"
+                ):
+                    from gda_balancing.domain.authority.trace_projection import (
+                        trace_protocol_schema,
+                    )
+
+                    contracts = [
+                        row
+                        for row in language_bundle["language"]["artifact_contracts"]
+                        if row["schema_kind"] == projected["artifact_kind"]
+                    ]
+                    if len(contracts) == 1 and projected.get(
+                        "schema"
+                    ) == trace_protocol_schema(kernel, contracts[0]["artifact_kind"]):
+                        del projected["schema"]
+                selected.append(projected)
             updates.append((entry, selected))
     for entry, definitions in updates:
         entry["definitions"] = definitions

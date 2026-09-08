@@ -80,7 +80,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:4ebf70685e9d42d0d8d52fc88efef2da03f25a9eab7d73527ebed138cd10a4ab"
+    "sha256:a3eb39cb653bd6ebf65e26bd7d80d784690fa1d8064faa7f83d8f65ec6ca382f"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -5467,6 +5467,7 @@ def admit_authorities(
                         graph_releases,
                         graph_vector_sets,
                         cast(list[str], required_language_members),
+                        kernel=kernel,
                         root_byte_size=graph_root_size,
                         package_byte_sizes=list(graph_package_sizes),
                         vector_set_byte_sizes=list(graph_vector_set_sizes),
@@ -5711,7 +5712,7 @@ def admit_authorities(
         semantic_projection_mismatch = len(admitted_packages) == len(
             packages
         ) and not _package_semantic_projections_are_exact(
-            admitted_packages, package_contract, language_bundle
+            admitted_packages, package_contract, language_bundle, kernel=kernel
         )
 
     cap = resources.get("max_diagnostics", 128)

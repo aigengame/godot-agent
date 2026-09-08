@@ -855,16 +855,28 @@ def test_two_consumers_refuse_reidentified_runtime_component_drift(
         bootstrap_support, "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]
     )
 
-    first = _consumer_a(kernel, authority["language_bundle"])
-    second = _consumer_b(kernel, authority["language_bundle"])
+    ldb = authority["language_bundle"]
+    # Each consumer rederives the Trace from the changed Kernel; a stale
+    # caller-supplied generated Schema must not mask the runtime law mutation.
+    graph = LanguageBundleGraph(
+        root=ldb.root,
+        package_releases=ldb.package_releases,
+        package_conformance_vector_sets=ldb.package_conformance_vector_sets,
+        root_byte_size=ldb.root_byte_size,
+        package_byte_sizes=list(ldb.package_byte_sizes),
+        vector_set_byte_sizes=list(ldb.vector_set_byte_sizes),
+    )
+    first = _consumer_a(kernel, graph)
+    second = _consumer_b(kernel, graph)
 
     assert first == second
     assert first["admitted"] is False
-    assert (
-        "static",
-        "kernel.vector_mismatch",
-        "language.runtime",
-    ) in first["diagnostics"]
+    expected = (
+        ("ingress", "kernel.identity_mismatch", "language-bundle.admitted-index")
+        if mutation == "arbitrary-runtime-configuration"
+        else ("static", "kernel.vector_mismatch", "language.runtime")
+    )
+    assert expected in first["diagnostics"]
 
 
 def test_two_consumers_refuse_cancel_target_without_a_prior_schedule_producer():

@@ -1,6 +1,7 @@
 """Package closure, semantic projection, and evidence validation."""
 
 from typing import Any, cast
+from copy import deepcopy
 
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.domain.authority.package_semantics import (
@@ -1039,6 +1040,8 @@ def _package_semantic_projections_are_exact(
     packages: list[dict[str, Any]],
     contract: Any,
     language_bundle: dict[str, Any],
+    *,
+    kernel: dict[str, Any],
 ) -> bool:
     if not isinstance(contract, dict):
         return False
@@ -1071,6 +1074,21 @@ def _package_semantic_projections_are_exact(
             ):
                 return False
             embedded.extend(entry["definitions"])
+
+        if authority_path == "language.artifact_wire_schemas":
+            from gda_balancing.domain.authority.trace_projection import (
+                project_trace_schema,
+            )
+
+            projected = {
+                "artifact_wire_schemas": deepcopy(embedded),
+                "artifact_contracts": language_bundle["language"]["artifact_contracts"],
+            }
+            try:
+                project_trace_schema(kernel, projected)
+            except ValueError:
+                return False
+            embedded = projected["artifact_wire_schemas"]
 
         def definition_value(value: Any) -> bytes | None:
             if key_member is not None and (

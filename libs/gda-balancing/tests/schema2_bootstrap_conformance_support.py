@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:4ebf70685e9d42d0d8d52fc88efef2da03f25a9eab7d73527ebed138cd10a4ab"
+    "sha256:a3eb39cb653bd6ebf65e26bd7d80d784690fa1d8064faa7f83d8f65ec6ca382f"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -2070,7 +2070,11 @@ def _consumer_b_package_semantic_closure_is_closed(
 
 
 def _consumer_b_package_semantic_projections_are_exact(
-    packages: list[dict[str, Any]], contract: Any, ldb: dict[str, Any]
+    packages: list[dict[str, Any]],
+    contract: Any,
+    ldb: dict[str, Any],
+    *,
+    kernel: dict[str, Any],
 ) -> bool:
     if not isinstance(contract, dict):
         return False
@@ -2103,6 +2107,17 @@ def _consumer_b_package_semantic_projections_are_exact(
             ):
                 return False
             embedded.extend(entry["definitions"])
+
+        if authority_path == "language.artifact_wire_schemas":
+            projected = {
+                "artifact_wire_schemas": deepcopy(embedded),
+                "artifact_contracts": ldb["language"]["artifact_contracts"],
+            }
+            try:
+                _consumer_b_project_trace_schema(kernel, projected)
+            except (KeyError, TypeError, ValueError, IndexError):
+                return False
+            embedded = projected["artifact_wire_schemas"]
 
         def definition_value(value: Any) -> bytes | None:
             if key_member is not None and (
@@ -2745,6 +2760,184 @@ def _consumer_b_source_notation_is_closed(ldb: dict[str, Any], contract: Any) ->
         )
     except (KeyError, TypeError, re.error):
         return False
+
+
+def _consumer_b_trace_schema(
+    kernel: dict[str, Any], artifact_kind: str
+) -> dict[str, Any]:
+    """Independent Trace grammar projection from the actual Kernel, never A's view."""
+    meta = kernel["meta_format"]
+    law = deepcopy(
+        meta["language_definitions"]["wire_schema_protocol_roles"]["trace_structure"]
+    )
+    runtime = meta["runtime_program"]
+    scheduler = runtime["scheduler"]
+    if set(law) != {"envelope", "event", "terminal"}:
+        raise ValueError("unsupported Trace container contract")
+
+    def record(names, fields):
+        return {
+            "type": "closed-object",
+            "closed": True,
+            "required_members": names,
+            "field_types": fields,
+        }
+
+    def add(container, fields):
+        if fields.keys() & container["field_types"].keys():
+            raise ValueError("Trace restates another semantic owner")
+        container["field_types"].update(deepcopy(fields))
+
+    text = {"type": "non-empty-string"}
+    integer = {"type": "integer"}
+    envelope = meta["literal_typing"]["typed_envelope_profile"]
+    names = envelope["admission"]["nominal_type_reference"]["coordinate_members"]
+    coordinate = record(names, {name: text for name in names})
+    typed = record(
+        [envelope["type_member"], envelope["value_member"]],
+        {
+            envelope["type_member"]: coordinate,
+            envelope["value_member"]: {"type": "canonical-json"},
+        },
+    )
+    value = {"type": "one-of", "alternatives": [integer, typed]}
+    ordering = scheduler["ordering"]
+    order = record(
+        [row["member"] for row in ordering],
+        {
+            row["member"]: {"enum": row["rank"]} if "rank" in row else integer
+            for row in ordering
+        },
+    )
+    event = law["event"]
+    add(
+        event,
+        {
+            "ordering_key": order,
+            "outcome": record(
+                ["id", "kind"],
+                {
+                    "id": text,
+                    "kind": {"enum": runtime["outcome_contract"]["kinds"]},
+                },
+            ),
+        },
+    )
+    columns = event["field_types"]
+    add(columns["facts"]["items"], {"value": typed})
+    for name in ("state_before", "state_after"):
+        add(columns[name]["items"], {"value": value})
+    add(columns["calls"]["items"], {"operation": coordinate})
+    schedule = columns["schedules"]["items"]
+    add(schedule, {"operation": coordinate, "ordering_key": order})
+    add(schedule["field_types"]["arguments"]["items"], {"value": value})
+    add(
+        columns["formula_evaluations"]["items"]["field_types"]["context"],
+        {
+            "phase": {
+                "const": runtime["runtime_configuration"]["lifecycle_roles"]["active"]
+            },
+        },
+    )
+    terminal = law["terminal"]
+    if "required_members" in terminal:
+        raise ValueError("Trace restates terminal membership")
+    terminal["required_members"] = scheduler["terminal_status"]["members"]
+    add(terminal, {"reason": {"enum": scheduler["terminal_status"]["reasons"]}})
+    root_names = scheduler["root_admission_map"]["members"]
+    add(
+        law["envelope"],
+        {
+            "artifact_kind": {"const": artifact_kind},
+            "events": {"type": "list-of", "items": event},
+            "root_event_map": {
+                "type": "list-of",
+                "items": record(root_names, {name: text for name in root_names}),
+            },
+            "terminal_statuses": {"type": "list-of", "items": terminal},
+        },
+    )
+
+    def schema(contract):
+        if "const" in contract:
+            if set(contract) != {"const"}:
+                raise ValueError("unknown constant contract member")
+            return {"const": contract["const"]}
+        if "enum" in contract:
+            if set(contract) != {"enum"}:
+                raise ValueError("unknown enum contract member")
+            return {"enum": contract["enum"]}
+        kind = contract["type"]
+        if kind == "closed-object":
+            if set(contract) - {
+                "type",
+                "closed",
+                "required_members",
+                "optional_members",
+                "field_types",
+            }:
+                raise ValueError("unknown closed-object contract member")
+            required, optional = (
+                contract["required_members"],
+                contract.get("optional_members", []),
+            )
+            fields = contract["field_types"]
+            if (
+                contract["closed"] is not True
+                or set(required) & set(optional)
+                or set(fields) != set(required) | set(optional)
+            ):
+                raise ValueError("incomplete closed-object contract")
+            return {
+                "type": "object",
+                "properties": {key: schema(item) for key, item in fields.items()},
+                "required": required,
+                "unevaluatedProperties": False,
+            }
+        if kind == "list-of" and set(contract) == {"type", "items"}:
+            return {"type": "array", "items": schema(contract["items"])}
+        if kind == "one-of" and set(contract) == {"type", "alternatives"}:
+            return {"oneOf": [schema(item) for item in contract["alternatives"]]}
+        if kind == "canonical-json" and set(contract) == {"type"}:
+            return {}
+        if kind in {"non-empty-string", "string", "integer", "boolean", "null"} and set(
+            contract
+        ) <= {"type", "maxLength", "pattern"}:
+            return {
+                "type": "string" if kind == "non-empty-string" else kind,
+                **({"minLength": 1} if kind == "non-empty-string" else {}),
+                **{key: item for key, item in contract.items() if key != "type"},
+            }
+        raise ValueError("unknown Trace field contract")
+
+    return {
+        "$schema": meta["language_definitions"]["collections"]["artifact_wire_schemas"][
+            "field_types"
+        ]["schema"]["dialect"],
+        **schema(law["envelope"]),
+    }
+
+
+def _consumer_b_project_trace_schema(
+    kernel: dict[str, Any], language: dict[str, Any]
+) -> None:
+    for definition in language["artifact_wire_schemas"]:
+        if definition.get("protocol_role") != "event-trace":
+            if "schema" not in definition:
+                raise ValueError("authored schema is missing")
+            continue
+        if "schema" in definition:
+            raise ValueError("Trace structure has an obsolete authored owner")
+        bindings = [
+            row
+            for row in language["artifact_contracts"]
+            if row["schema_kind"] == definition["artifact_kind"]
+        ]
+        if len(bindings) != 1:
+            raise ValueError("Trace kind binding is not unique")
+        definition["schema"] = _consumer_b_trace_schema(
+            kernel, bindings[0]["artifact_kind"]
+        )
 
 
 def _consumer_b_wire_schema_identity_domains_are_closed(
@@ -9876,6 +10069,14 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 derived_vectors.extend(
                     deepcopy(vector_set.get("vector_definitions", []))
                 )
+            try:
+                _consumer_b_project_trace_schema(kernel, language)
+            except (KeyError, TypeError, ValueError, IndexError):
+                refuse(
+                    "kernel.identity_mismatch",
+                    "ingress",
+                    "language-bundle.admitted-index",
+                )
             language["packages"] = deepcopy(graph_releases)
             expected_index = {
                 "artifact_kind": graph_root.get("artifact_kind"),
@@ -10112,7 +10313,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         semantic_projection_mismatch = len(packages) == len(
             raw_packages
         ) and not _consumer_b_package_semantic_projections_are_exact(
-            packages, package_contract, ldb
+            packages, package_contract, ldb, kernel=kernel
         )
 
     if diagnostics:

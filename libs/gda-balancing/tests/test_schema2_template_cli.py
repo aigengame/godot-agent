@@ -152,6 +152,7 @@ def _reidentify_language_bundle(kernel, language_bundle):
         packages,
         vector_sets,
         kernel["admission"]["required_language_members"],
+        kernel=kernel,
         root_byte_size=len(canonical_bytes(root)),
         package_byte_sizes=package_sizes,
         vector_set_byte_sizes=vector_set_sizes,

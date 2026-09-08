@@ -464,6 +464,7 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
         packages,
         vector_sets,
         kernel["admission"]["required_language_members"],
+        kernel=kernel,
         root_byte_size=len(_reference_encoded(root)),
         package_byte_sizes=package_sizes,
         vector_set_byte_sizes=vector_set_sizes,

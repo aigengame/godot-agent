@@ -12,7 +12,10 @@ from typing import Any
 import pytest
 
 import gda_balancing
-from gda_balancing.domain.authority.graph import LanguageBundleIndex
+from gda_balancing.domain.authority.graph import (
+    LanguageBundleGraph,
+    LanguageBundleIndex,
+)
 from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_conformance_support import (
     _bind_package_vector_set,
@@ -334,7 +337,7 @@ class _PublicCandidate:
         directory: Path,
         *,
         duplicate_owner: bool = False,
-        authorities: tuple[dict[str, Any], LanguageBundleIndex] | None = None,
+        authorities: tuple[dict[str, Any], LanguageBundleGraph] | None = None,
     ):
         self.directory = directory
         self.runtime = directory / "runtime"

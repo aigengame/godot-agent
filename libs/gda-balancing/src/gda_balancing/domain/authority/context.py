@@ -696,6 +696,7 @@ def _load_packaged_authority_context_uncached() -> AdmittedAuthorityContext:
         releases,
         vector_sets,
         required_language_members,
+        kernel=kernel,
         root_byte_size=root_size,
         package_byte_sizes=package_byte_sizes,
         vector_set_byte_sizes=vector_set_byte_sizes,

@@ -156,6 +156,7 @@ def _changed_context(context, mutate):
         packages,
         vectors,
         kernel["admission"]["required_language_members"],
+        kernel=kernel,
         root_byte_size=len(canonical_bytes(root)),
         package_byte_sizes=[len(canonical_bytes(package)) for package in packages],
         vector_set_byte_sizes=[len(canonical_bytes(vector)) for vector in vectors],
