@@ -83,7 +83,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:c2d65129e9cf8e5dad275fd88e95197ed023a171b9b30db7c43b2de400fbcccc"
+    "sha256:5bb3deb5cf3649bf391b51806d6fe3bb64a18315e8f33ca63b5dfe1183c2e1bd"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1237,6 +1237,7 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
         or set(contract)
         != {
             "closed",
+            "parse_reason_stage",
             "input",
             "operations",
             "result",
@@ -1248,6 +1249,7 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
             "law_format",
         }
         or contract.get("closed") is not True
+        or contract.get("parse_reason_stage") != "parse"
     ):
         return False
     stages = contract.get("stage_order")
@@ -2829,7 +2831,9 @@ def _language_definitions_are_closed(
     for profile in profiles:
         chain = profile.get("judgment_chain")
         if (
-            not isinstance(chain, list)
+            reason_stages.get(profile.get("parse_reason"))
+            != resolution_contract["parse_reason_stage"]
+            or not isinstance(chain, list)
             or not _relation_recipes_are_closed(
                 profile,
                 resolution_contract,

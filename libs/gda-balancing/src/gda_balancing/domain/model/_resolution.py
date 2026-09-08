@@ -11,6 +11,7 @@ import jsonschema
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     _deep_freeze,
+    packaged_authority_context,
 )
 from gda_balancing.domain.authority.graph import (
     NamespaceClosureProjection,
@@ -31,6 +32,7 @@ from gda_balancing.domain.diagnostics import (
     bound_diagnostics,
     reason_by_id,
     refusal_catalog_for_reasons,
+    source_parse_reason,
 )
 from gda_balancing.domain.formula.notation import (
     FormulaPairRefusal,
@@ -88,7 +90,7 @@ _FORMULA_REASON = {
 
 MODEL_REFUSAL_REASONS = (
     "model.reason.source-too-large",
-    "model.reason.source-parse-failure",
+    cast(str, source_parse_reason(packaged_authority_context().language_bundle)["id"]),
     "model.reason.source-contract-mismatch",
     "quantity.reason.invalid-domain",
     "quantity.reason.unknown-kind",

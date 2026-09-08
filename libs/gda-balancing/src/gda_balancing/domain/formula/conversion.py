@@ -18,6 +18,7 @@ from gda_balancing.domain.diagnostics import (
     Schema2Diagnostic,
     Schema2RefusalReport,
     reason_by_id,
+    source_parse_reason,
 )
 
 
@@ -29,13 +30,15 @@ class FormulaConversion:
     expression: str
 
 
-def read_formula_request(data: bytes) -> dict[str, Any]:
+def read_formula_request(
+    data: bytes, context: AdmittedAuthorityContext
+) -> dict[str, Any]:
     """Admit one canonical Formula conversion request document."""
     try:
         return parse_canonical_object(data, artifact_name="Formula conversion request")
     except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as err:
         raise notation.FormulaNotationRefusal(
-            "model.reason.source-parse-failure",
+            cast(str, source_parse_reason(context.language_bundle)["id"]),
             f"Formula conversion request is outside canonical JSON: {err}",
         ) from err
 

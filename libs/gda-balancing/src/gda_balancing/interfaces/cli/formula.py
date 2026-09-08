@@ -1,6 +1,6 @@
 """Schema 2.0 Formula notation conversion commands."""
 
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -13,7 +13,10 @@ from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.infrastructure.input_bytes import InputReadError
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.domain.diagnostics import refusal_catalog_for_reasons
+from gda_balancing.domain.diagnostics import (
+    refusal_catalog_for_reasons,
+    source_parse_reason,
+)
 from gda_balancing.domain.wire_schema import wire_schema_definition_for_role
 
 
@@ -189,7 +192,10 @@ FORMULA_PARSE = CommandDescriptor(
             "model.reason.unresolved-name",
             "model.reason.name-ambiguity",
             "model.reason.formula-type-mismatch",
-            "model.reason.source-parse-failure",
+            cast(
+                str,
+                source_parse_reason(packaged_authority_context().language_bundle)["id"],
+            ),
             "model.reason.source-too-large",
             "model.reason.source-contract-mismatch",
         )
@@ -223,7 +229,10 @@ FORMULA_RENDER = CommandDescriptor(
             "model.reason.name-ambiguity",
             "model.reason.formula-notation-mismatch",
             "model.reason.formula-type-mismatch",
-            "model.reason.source-parse-failure",
+            cast(
+                str,
+                source_parse_reason(packaged_authority_context().language_bundle)["id"],
+            ),
             "model.reason.source-too-large",
             "model.reason.source-contract-mismatch",
         )

@@ -56,7 +56,7 @@ def _convert_formula(
             pointer="",
         )
     try:
-        request = read_formula_request(data)
+        request = read_formula_request(data, context)
     except notation.FormulaNotationRefusal as err:
         return formula_refusal_report(
             {},

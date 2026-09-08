@@ -117,6 +117,17 @@ def reason_by_id(language_bundle: dict[str, Any], reason_id: str) -> dict[str, A
     return matches[0]
 
 
+def source_parse_reason(language_bundle: dict[str, Any]) -> dict[str, Any]:
+    """Select the canonical JSON refusal from the admitted default Resolution."""
+    profiles = cast(
+        list[dict[str, Any]], language_bundle["language"]["resolution_profiles"]
+    )
+    defaults = [profile for profile in profiles if profile.get("default") is True]
+    if len(defaults) != 1:
+        raise ValueError("Source parsing requires one admitted default profile")
+    return reason_by_id(language_bundle, cast(str, defaults[0]["parse_reason"]))
+
+
 def refusal_catalog_for_stages(
     stages: frozenset[str],
     language_bundle: dict[str, Any] | None = None,

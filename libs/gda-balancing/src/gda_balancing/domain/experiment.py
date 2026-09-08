@@ -36,6 +36,7 @@ from gda_balancing.domain.diagnostics import (
     Schema2Diagnostic,
     Schema2RefusalReport,
     reason_by_id,
+    source_parse_reason,
 )
 from gda_balancing.infrastructure.input_bytes import (
     read_bounded_input_with_sha256,
@@ -63,7 +64,6 @@ _EXPERIMENT_IDENTITY_DOMAIN = "experiment-specification-v2"
 
 _EXPERIMENT_CHECK_REFUSAL_REASONS = (
     "model.reason.source-too-large",
-    "model.reason.source-parse-failure",
     "model.reason.source-contract-mismatch",
     "quantity.reason.invalid-domain",
     "model.reason.resolved-authority-mismatch",
@@ -78,7 +78,8 @@ def experiment_check_refusal_reasons() -> tuple[str, ...]:
         "reasons"
     ]["roots"]
     reasons = context.language_bundle["language"]["reasons"]
-    selected = list(_EXPERIMENT_CHECK_REFUSAL_REASONS)
+    selected: list[str] = list(_EXPERIMENT_CHECK_REFUSAL_REASONS)
+    selected.insert(1, cast(str, source_parse_reason(context.language_bundle)["id"]))
     for root in roots:
         if root["when"] != "typed-values":
             continue
@@ -443,9 +444,7 @@ def check_experiment(
         )
     except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
         return _refusal(
-            reason=reason_by_id(
-                context.language_bundle, "model.reason.source-parse-failure"
-            ),
+            reason=source_parse_reason(context.language_bundle),
             identity=observed_identity,
             pointer="",
             message="Experiment Specification is not canonical JSON data",
@@ -465,9 +464,7 @@ def check_experiment_value(
         data = canonical_bytes(cast(JsonValue, value))
     except (TypeError, ValueError, UnicodeEncodeError):
         return _refusal(
-            reason=reason_by_id(
-                context.language_bundle, "model.reason.source-parse-failure"
-            ),
+            reason=source_parse_reason(context.language_bundle),
             identity="unidentified",
             pointer="",
             message="Experiment Specification is not canonical JSON data",
