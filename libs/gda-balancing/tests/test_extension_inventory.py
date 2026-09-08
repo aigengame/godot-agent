@@ -136,12 +136,14 @@ def test_independent_coverage_refuses_removed_or_misowned_inventory(witness, mut
         validate_extension_inventory(kernel, graph, candidate)
 
 
-@pytest.mark.parametrize("mutation", ["extra", "duplicate"])
+@pytest.mark.parametrize("mutation", ["extra", "duplicate", "duplicate-law"])
 def test_occurrence_guard_refuses_unbound_or_repeated_positions(witness, mutation):
     kernel, graph, inventory = witness
     extra = inventory.occurrences[0]
     if mutation == "extra":
         extra = replace(extra, pointer="/source/manifest/id")
+    elif mutation == "duplicate-law":
+        extra = replace(extra, law="/another-law")
     candidate = replace(inventory, occurrences=(*inventory.occurrences, extra))
     with pytest.raises(InventoryRefusal):
         validate_inventory_occurrences(kernel, graph, candidate)
@@ -757,3 +759,53 @@ def test_formula_reference_coverage_refuses_erased_or_misowned_text_occurrences(
         )
         with pytest.raises(InventoryRefusal, match="Formula .*coverage"):
             validate_extension_inventory(kernel, graph, candidate)
+
+
+@pytest.mark.parametrize(
+    "role,pointer_suffix",
+    [
+        ("language.rules", "/rule"),
+        ("language.resolution_profiles", "/profiles/resolution/0"),
+        ("language.quantity.numeric_policies", "/numeric_policy/const"),
+    ],
+)
+def test_machine_reference_and_schema_equality_laws_require_every_occurrence(
+    witness, role, pointer_suffix
+):
+    kernel, graph, inventory = witness
+    selected = next(
+        o
+        for o in inventory.occurrences
+        if o.token.role == role
+        and o.pointer.endswith(pointer_suffix)
+    )
+    remaining = tuple(o for o in inventory.occurrences if o.pointer != selected.pointer)
+    incomplete = replace(
+        inventory, occurrences=remaining, tokens=frozenset(o.token for o in remaining)
+    )
+    with pytest.raises(InventoryRefusal):
+        validate_extension_inventory(kernel, graph, incomplete)
+
+
+def test_declared_runtime_effects_are_owned_names_and_diagnostics_keep_stage_syntax(
+    witness,
+):
+    _, _, inventory = witness
+    for name in ("event.commit", "event.schedule", "metric.observe", "snapshot.commit"):
+        token = AuthorityToken("runtime-effect", (), name)
+        assert token in inventory.tokens - inventory.reserved
+        assert any(
+            o.token == token and o.use == "declaration" for o in inventory.occurrences
+        )
+        assert any(
+            o.token == token and o.use == "reference" for o in inventory.occurrences
+        )
+    assert not any(
+        gap.reason == "nested diagnostics roles are not yet traversed"
+        for gap in inventory.uncovered
+    )
+    assert not any(
+        gap.reason == "nested language.reasons roles are not yet traversed"
+        for gap in inventory.uncovered
+    )
+    assert any("signal" in gap.reason for gap in inventory.uncovered)

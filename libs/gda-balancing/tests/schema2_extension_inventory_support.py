@@ -160,6 +160,180 @@ def _formula_projections(
     return projections
 
 
+def _walk_member_path(value: Any, pointer: str, members: Sequence[str]):
+    """Follow the Kernel path language, retaining each authored array position."""
+    if isinstance(value, list):
+        for i, item in enumerate(value):
+            yield from _walk_member_path(item, _child(pointer, i), members)
+    elif not members:
+        yield value, pointer
+    elif isinstance(value, dict) and members[0] in value:
+        yield from _walk_member_path(
+            value[members[0]], _child(pointer, members[0]), members[1:]
+        )
+
+
+def _authority_path_rows(
+    kernel: Mapping[str, Any], graph: Mapping[str, Any], path: str
+):
+    if path.startswith("kernel."):
+        yield from (
+            (None, value, pointer)
+            for value, pointer in _walk_member_path(kernel, "", path.split(".")[1:])
+        )
+        return
+    if not path.startswith("language_bundle."):
+        raise InventoryRefusal("unknown authority path root")
+    tail = path.removeprefix("language_bundle.")
+    if tail == "language.packages" or tail.startswith("language.packages."):
+        suffix = (
+            tail.removeprefix("language.packages").lstrip(".").split(".")
+            if tail != "language.packages"
+            else []
+        )
+        for pi, package in enumerate(graph["packages"]):
+            yield from (
+                (package["id"], value, pointer)
+                for value, pointer in _walk_member_path(
+                    package, f"/packages/{pi}", suffix
+                )
+            )
+        return
+    if tail == "vectors" or tail.startswith("vectors."):
+        suffix = (
+            tail.removeprefix("vectors").lstrip(".").split(".")
+            if tail != "vectors"
+            else []
+        )
+        for vi, vector_set in enumerate(graph.get("vector_sets", [])):
+            yield from (
+                (vector_set["package_id"], value, pointer)
+                for value, pointer in _walk_member_path(
+                    vector_set["vector_definitions"],
+                    f"/vector_sets/{vi}/vector_definitions",
+                    suffix,
+                )
+            )
+        return
+    projections = kernel["meta_format"]["package_release"]["semantic_closure"][
+        "projections"
+    ]
+    matching = [
+        row
+        for row in projections
+        if tail == row["authority_path"] or tail.startswith(row["authority_path"] + ".")
+    ]
+    if len(matching) != 1:
+        raise InventoryRefusal("authority path has no unique authored projection")
+    role = matching[0]["authority_path"]
+    suffix = tail.removeprefix(role).lstrip(".").split(".") if tail != role else []
+    for pi, package in enumerate(graph["packages"]):
+        for ci, closure in enumerate(package["semantic_closure"]):
+            if closure["authority_path"] == role:
+                yield from (
+                    (package["id"], value, pointer)
+                    for value, pointer in _walk_member_path(
+                        closure["definitions"],
+                        f"/packages/{pi}/semantic_closure/{ci}/definitions",
+                        suffix,
+                    )
+                )
+
+
+def _declared_target_role(kernel: Mapping[str, Any], path: str) -> tuple[str, bool]:
+    if path.startswith("kernel."):
+        return path, False
+    if path == "language_bundle.language.packages.id":
+        return "namespace", False
+    if path == "language_bundle.language.packages.exports.types.id":
+        return "type", True
+    if path == "language_bundle.vectors.id":
+        return "vectors", False
+    scoped = next(
+        row
+        for row in kernel["admission"]["laws"]
+        if row["id"] == "kernel.identifiers.unique"
+    )["arguments"]["collections"]
+    for projection in kernel["meta_format"]["package_release"]["semantic_closure"][
+        "projections"
+    ]:
+        role = projection["authority_path"]
+        target = (
+            "language_bundle."
+            + role
+            + ("." + projection["key_member"] if projection["key_member"] else "")
+        )
+        if path == target:
+            if role == "language.nominal_types":
+                return "type", True
+            return role, any(
+                row["path"] == "language_bundle." + role
+                and row.get("scope") == "package"
+                for row in scoped
+            )
+    raise InventoryRefusal("reference target is not an authored identity inventory")
+
+
+def _declared_metadata_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    """Interpret existing reference and equality laws, without scanning spellings."""
+    li, law = next(
+        (i, row)
+        for i, row in enumerate(kernel["admission"]["laws"])
+        if row["id"] == "kernel.vectors.closed"
+    )
+    arguments = law["arguments"]
+    for ri, reference in enumerate(arguments["references"]):
+        for owner, value, pointer in _authority_path_rows(
+            kernel, graph, reference["owners"]
+        ):
+            for member_path, target in reference["targets"].items():
+                for name, occurrence in _walk_member_path(
+                    value, pointer, member_path.split(".")
+                ):
+                    yield (
+                        owner,
+                        name,
+                        occurrence,
+                        target,
+                        f"/admission/laws/{li}/arguments/references/{ri}",
+                    )
+    for ei, equality in enumerate(arguments["equalities"]):
+        target = equality["left"]
+        paths = []
+        if "right" in equality:
+            paths.append(equality["right"])
+        else:
+            profile = equality["profile"]
+            candidates = list(_authority_path_rows(kernel, graph, profile["profiles"]))
+            for _, owner, _ in _authority_path_rows(kernel, graph, profile["owners"]):
+                selected = [
+                    value
+                    for _, value, _ in candidates
+                    if value[profile["profile_key_member"]]
+                    == owner[profile["owner_profile_member"]]
+                ]
+                if len(selected) != 1:
+                    raise InventoryRefusal(
+                        "schema equality profile does not resolve uniquely"
+                    )
+                segments = [
+                    selected[0][part["profile_member"]]
+                    if isinstance(part, dict)
+                    else part
+                    for part in equality["right_template"]
+                ]
+                paths.append(".".join(segments))
+        for path in sorted(set(paths)):
+            for owner, name, pointer in _authority_path_rows(kernel, graph, path):
+                yield (
+                    owner,
+                    name,
+                    pointer,
+                    target,
+                    f"/admission/laws/{li}/arguments/equalities/{ei}",
+                )
+
+
 class _Reader:
     def __init__(self, kernel: Mapping[str, Any], graph: Mapping[str, Any]):
         self.kernel = kernel
@@ -180,6 +354,7 @@ class _Reader:
         }
         self.tokens: set[AuthorityToken] = set()
         self.occurrences: set[TokenOccurrence] = set()
+        self.occurrence_positions: set[tuple[AuthorityToken, str, str, str, str]] = set()
         self.uncovered: set[UncoveredRole] = set()
         self.reserved: set[AuthorityToken] = set()
         self.definitions: dict[tuple[str, str, str], tuple[Any, str]] = {}
@@ -219,6 +394,10 @@ class _Reader:
                 f"token occurrence does not match bytes at {pointer}"
             )
         self.tokens.add(token)
+        position = (token, pointer, use, location, projection)
+        if position in self.occurrence_positions:
+            return
+        self.occurrence_positions.add(position)
         self.occurrences.add(occurrence)
 
     def declared(self, role: str, namespace: str, name: str) -> AuthorityToken:
@@ -581,6 +760,205 @@ class _Reader:
         # A canonical Ref key is authored instance data; its target Type was
         # traversed above. Equal spelling does not make the key an Enum label.
 
+    def metadata_links(self) -> None:
+        for owner, name, pointer, target, law in _declared_metadata_links(
+            self.kernel, self.graph
+        ):
+            role, scoped = _declared_target_role(self.kernel, target)
+            token = AuthorityToken(
+                role, (owner,) if scoped and owner is not None else (), name
+            )
+            if target.startswith("kernel."):
+                declared = {
+                    value
+                    for _, value, _ in _authority_path_rows(
+                        self.kernel, self.graph, target
+                    )
+                }
+                if name not in declared:
+                    raise InventoryRefusal(
+                        "reference does not name a declared Kernel primitive"
+                    )
+                self.reserved.add(token)
+            elif token not in self.tokens:
+                raise InventoryRefusal(
+                    f"unresolved declared metadata reference at {pointer}"
+                )
+            self.occurrence(token, pointer, "reference", law)
+
+    def metadata_definition(
+        self, role: str, value: dict[str, Any], pointer: str
+    ) -> bool:
+        """Close simple declared contracts; unknown nested DSLs remain explicit."""
+        if role == "diagnostics":
+            contract = self.meta["admitted_language_index"]["diagnostic"]
+            if (
+                set(value) != set(contract["required_members"])
+                or value["stage"] not in self.kernel["admission"]["refusal_stages"]
+            ):
+                raise InventoryRefusal(
+                    "diagnostic definition does not match Kernel contract"
+                )
+            return True
+        if role in {
+            "language.capabilities",
+            "language.model_checks",
+            "language.quantity.numeric_policies",
+        }:
+            parts = role.split(".")
+            root = self.meta["language_definitions"]
+            if len(parts) == 3:
+                root = root[parts[1]]
+            contract = root["collections"][parts[-1]]
+            required, optional = (
+                set(contract["required_members"]),
+                set(contract.get("optional_members", [])),
+            )
+            if not required <= set(value) <= required | optional:
+                raise InventoryRefusal("metadata definition has unknown members")
+            for name, field in contract["field_types"].items():
+                if name in value and (
+                    ("const" in field and value[name] != field["const"])
+                    or ("enum" in field and value[name] not in field["enum"])
+                ):
+                    raise InventoryRefusal(
+                        "metadata primitive marker does not match Kernel contract"
+                    )
+            if value.get("extensions"):
+                self.gap(
+                    pointer + "/extensions",
+                    "/meta_format/language_definitions",
+                    "metadata extension roles are not yet complete",
+                )
+            return True
+        if role == "language.reasons":
+            contract = self.meta["diagnostic_reason"]
+            required, optional = (
+                set(contract["required_members"]),
+                set(contract["optional_members"]),
+            )
+            if not required <= set(value) <= required | optional:
+                raise InventoryRefusal("reason has unknown members")
+            self.reference(
+                "diagnostics",
+                value["diagnostic"],
+                pointer + "/diagnostic",
+                "/meta_format/diagnostic_reason",
+            )
+            if value["stage"] not in contract["member_types"]["stage"]["enum"]:
+                raise InventoryRefusal("reason has unknown stage")
+            predicate = value["predicate"]
+            rules = [
+                row
+                for row in contract["predicate_schemas"]
+                if row["operation"] == predicate.get("operation")
+            ]
+            if len(rules) != 1:
+                raise InventoryRefusal("reason predicate has unknown operator")
+            rule = rules[0]
+            if (
+                not set(rule["required_members"])
+                <= set(predicate)
+                <= set(rule["required_members"]) | set(rule["optional_members"])
+            ):
+                raise InventoryRefusal("reason predicate has unknown members")
+            if "inventory_path" in predicate:
+                projection = next(
+                    (
+                        row
+                        for row in self.projections
+                        if row["authority_path"] == predicate["inventory_path"]
+                    ),
+                    None,
+                )
+                if (
+                    projection is None
+                    or predicate.get("member_field") != projection["key_member"]
+                ):
+                    raise InventoryRefusal(
+                        "reason predicate does not address a declared inventory key"
+                    )
+            if "limit_path" in predicate:
+                member = predicate["limit_path"].removeprefix("resources.")
+                if (
+                    not predicate["limit_path"].startswith("resources.")
+                    or member not in self.graph["ldb_root"]["resources"]
+                ):
+                    raise InventoryRefusal(
+                        "reason predicate limit is not a declared resource"
+                    )
+            if "signal" in value:
+                self.gap(
+                    pointer + "/signal",
+                    "/meta_format/diagnostic_reason",
+                    "primitive signal versus authored signal identity is not yet classified",
+                )
+            return True
+        if role == "language.literal_typing_profiles":
+            if value.get("source_kind") == "typed-envelope":
+                law = self.meta["literal_typing"]["typed_envelope_profile"]
+                if (
+                    set(value) != {"admission", "id", "source_kind", "value_kind"}
+                    or value["admission"] != law["admission"]
+                    or value["value_kind"] != law["value_kind"]
+                ):
+                    raise InventoryRefusal(
+                        "typed profile does not match its primitive contract"
+                    )
+            elif value.get("source_kind") == "integer":
+                allowed = {
+                    "id",
+                    "type",
+                    "minimum",
+                    "maximum",
+                    "representation",
+                    "kind",
+                    "unit",
+                    "domain",
+                    "numeric_policy",
+                    "source_kind",
+                }
+                if set(value) != allowed:
+                    raise InventoryRefusal("integer profile has unclassified members")
+                self.value_contract(value, pointer)
+            else:
+                raise InventoryRefusal("literal profile source kind is unclassified")
+            return True
+        if role == "language.runtime_profiles":
+            for i, name in enumerate(value["effects"]):
+                self.occurrence(
+                    AuthorityToken("runtime-effect", (), name),
+                    f"{pointer}/effects/{i}",
+                    "declaration",
+                    "/meta_format/runtime_profile_definition",
+                )
+            contract = self.meta["runtime_profile_definition"]["active_runtime"]
+            if value["evaluation"] == self.meta["runtime_program"]["version"]:
+                required, optional = (
+                    set(contract["required_members"]),
+                    set(contract["optional_members"]),
+                )
+                if not required <= set(value) <= required | optional:
+                    raise InventoryRefusal(
+                        "active Runtime profile has unclassified members"
+                    )
+            elif value["evaluation"] != "declaration-only" or set(value) != {
+                "id",
+                "numeric_policy",
+                "effects",
+                "evaluation",
+                "resource_bounds",
+            }:
+                raise InventoryRefusal("Runtime profile evaluation law is unclassified")
+            if value.get("extensions"):
+                self.gap(
+                    pointer + "/extensions",
+                    "/meta_format/runtime_profile_definition",
+                    "Runtime profile extension roles are not yet complete",
+                )
+            return True
+        return False
+
     def packages(self) -> None:
         for pi, package in enumerate(self.graph["packages"]):
             pp = f"/packages/{pi}"
@@ -626,6 +1004,10 @@ class _Reader:
                     definition["definition"], pointer + "/definition", (owner, name)
                 )
             elif role == "language.operations":
+                continue
+            elif isinstance(definition, dict) and self.metadata_definition(
+                role, definition, pointer
+            ):
                 continue
             elif isinstance(definition, dict):
                 self.gap(
@@ -775,9 +1157,15 @@ class _Reader:
                     "reference",
                     law,
                 )
+        for i, effect in enumerate(operation.get("effects", [])):
+            self.reference(
+                "runtime-effect",
+                effect,
+                f"{pointer}/effects/{i}",
+                "/meta_format/runtime_profile_definition",
+            )
         for member in (
             "owner_type",
-            "effects",
             "extensions",
         ):
             if member in operation and operation[member]:
@@ -1408,6 +1796,7 @@ class _Reader:
     def finish(self) -> ExtensionInventory:
         self.index()
         self.operation_operand_projection()
+        self.metadata_links()
         self.packages()
         self.source()
         declarations = {o.token for o in self.occurrences if o.use == "declaration"}
@@ -1441,7 +1830,11 @@ def validate_inventory_occurrences(
 ) -> None:
     """Independently check exact bytes and uniqueness of a supplied occurrence set."""
     projections = _formula_projections(kernel, graph)
-    if len(inventory.occurrences) != len(set(inventory.occurrences)):
+    positions = {
+        (row.token, row.pointer, row.use, row.location, row.projection)
+        for row in inventory.occurrences
+    }
+    if len(inventory.occurrences) != len(positions):
         raise InventoryRefusal("duplicate token occurrence")
     for occurrence in inventory.occurrences:
         try:
@@ -1672,6 +2065,14 @@ def validate_extension_inventory(
         if o.location == "value"
     }
     required: set[tuple[AuthorityToken, str, str]] = set()
+    for owner, name, pointer, target, _ in _declared_metadata_links(kernel, graph):
+        role, scoped = _declared_target_role(kernel, target)
+        token = AuthorityToken(
+            role, (owner,) if scoped and owner is not None else (), name
+        )
+        required.add((token, pointer, "reference"))
+        if target.startswith("kernel.") and token not in inventory.reserved:
+            raise InventoryRefusal("declared Kernel primitive was made renameable")
     for pi, package in enumerate(graph["packages"]):
         owner, pp = package["id"], f"/packages/{pi}"
         required.add(
