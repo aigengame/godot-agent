@@ -83,7 +83,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:9fc51b9a1c14e1bb40175f0d8979290c24110b494d8394594648b8eaa0f85ddb"
+    "sha256:ad78d61004e5ec1865e6c11122e3e9ea9889a8f590aec2152730dff759672a1c"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -2668,6 +2668,15 @@ def _language_definitions_are_closed(
         values = language.get(name)
         if not isinstance(values, list) or not isinstance(contract, dict):
             return False
+        if name == "artifact_contracts":
+            from gda_balancing.domain.authority.receipt_projection import (
+                artifact_contract_declarations,
+            )
+
+            try:
+                values = artifact_contract_declarations(meta_format, language)
+            except (KeyError, TypeError, ValueError):
+                return False
         max_items = contract.get("max_items")
         if max_items is not None:
             if not isinstance(max_items, int) or len(values) > max_items:

@@ -56,7 +56,13 @@ def _contract_schema(contract: dict[str, Any]) -> dict[str, object]:
         items = contract.get("items")
         if not isinstance(items, dict):
             raise ValueError("Kernel list-of contract has no item contract")
-        return {"type": "array", "items": _contract_schema(items)}
+        schema = {"type": "array", "items": _contract_schema(items)}
+        if "minItems" in contract:
+            minimum = contract["minItems"]
+            if not isinstance(minimum, int) or isinstance(minimum, bool) or minimum < 0:
+                raise ValueError("Kernel list minimum cardinality is malformed")
+            schema["minItems"] = minimum
+        return schema
     if value_type == "closed-object":
         return _closed_contract_schema(contract)
     raise ValueError(f"unsupported Kernel package contract type: {value_type!r}")

@@ -17,13 +17,17 @@ class ProtocolProjectionError(ValueError):
 def project_artifact_protocols(
     kernel: dict[str, Any], language: dict[str, Any]
 ) -> None:
-    """Expand the two compiled protocol owners in an otherwise authored index."""
+    """Expand compiled protocol owners in an otherwise authored index."""
     from gda_balancing.domain.authority.trace_projection import project_trace_schema
     from gda_balancing.domain.authority.rir_projection import project_rir_schema
+    from gda_balancing.domain.authority.receipt_projection import (
+        project_receipt_protocol,
+    )
 
     try:
         project_trace_schema(kernel, language)
         project_rir_schema(kernel, language)
+        project_receipt_protocol(kernel, language)
         if any("schema" not in row for row in language["artifact_wire_schemas"]):
             raise ValueError("an authored artifact schema is missing")
     except (KeyError, TypeError, ValueError, IndexError) as error:

@@ -90,12 +90,15 @@ def refresh_package_semantic_closures(
                 projected = deepcopy(definition)
                 if path == "language.artifact_wire_schemas" and projected.get(
                     "protocol_role"
-                ) in {"event-trace", "rir-semantic-payload"}:
+                ) in {"event-trace", "rir-semantic-payload", "artifact-set-receipt"}:
                     from gda_balancing.domain.authority.trace_projection import (
                         trace_protocol_schema,
                     )
                     from gda_balancing.domain.authority.rir_projection import (
                         rir_protocol_schema,
+                    )
+                    from gda_balancing.domain.authority.receipt_projection import (
+                        receipt_protocol_schema,
                     )
 
                     contracts = [
@@ -104,18 +107,43 @@ def refresh_package_semantic_closures(
                         if row["schema_kind"] == projected["artifact_kind"]
                     ]
                     if len(contracts) == 1:
-                        expected_schema = (
-                            trace_protocol_schema(kernel, contracts[0]["artifact_kind"])
-                            if projected["protocol_role"] == "event-trace"
-                            else rir_protocol_schema(
+                        if projected["protocol_role"] == "event-trace":
+                            expected_schema = trace_protocol_schema(
+                                kernel, contracts[0]["artifact_kind"]
+                            )
+                        elif projected["protocol_role"] == "artifact-set-receipt":
+                            expected_schema = receipt_protocol_schema(
+                                kernel, contracts[0]["artifact_kind"]
+                            )
+                        else:
+                            expected_schema = rir_protocol_schema(
                                 kernel, language_bundle, contracts[0]["artifact_kind"]
                             )
-                        )
                         if canonical_bytes(projected.get("schema")) == canonical_bytes(
                             expected_schema
                         ):
                             del projected["schema"]
                 if path == "language.artifact_contracts":
+                    binding_schemas = [
+                        row
+                        for row in language_bundle["language"]["artifact_wire_schemas"]
+                        if row["artifact_kind"] == projected["schema_kind"]
+                    ]
+                    if len(binding_schemas) == 1:
+                        expected_exclusions = (
+                            list(
+                                kernel["meta_format"]["language_definitions"][
+                                    "wire_schema_protocol_roles"
+                                ]["receipt_structure"]["transport"]
+                            )
+                            if binding_schemas[0].get("protocol_role")
+                            == "artifact-set-receipt"
+                            else []
+                        )
+                        if canonical_bytes(
+                            projected.get("identity_excluded_members")
+                        ) == canonical_bytes(expected_exclusions):
+                            del projected["identity_excluded_members"]
                     schemas = [
                         row
                         for row in language_bundle["language"]["artifact_wire_schemas"]

@@ -273,7 +273,6 @@ def _install_negative_vector_artifact_contract(ldb, *, retain_standalone):
         {
             "artifact_kind": "negative-vector",
             "identity_domain": "negative-vector-v2",
-            "identity_excluded_members": [],
             "schema_kind": schema_kind,
             "wire_schema_identity_domain": wire_identity_domain,
         }
