@@ -379,6 +379,44 @@ member-role bindings should be reused rather than adding their schema names to t
 Kernel role list. Publication labels also require their own consumer check: a host's
 fixed logical member name is not automatically a reserved Kernel identity.
 
+The production correction is integrated in `3444efff8`, `12b5bb34d` and `724fe0395`;
+bADR-0012 and the glossary record the role's single owner. The combined Kernel is
+`sha256:9dc4e8991b70970d32d1012a7545dee57ef7ac2f4966721694255f39d6ff3c2c`.
+It also replaces resolution routing's local-binder spelling constraint with the actual
+field-to-binding-to-source reference. No additional primitive or phase is introduced.
+Original and all-26-kind renamed authorities pass public build/check/run/inspect/Replay,
+independent artifact exchange and semantic forgery checks. Four local-binder cases and
+53 paired Template cases pass. All 34 Model vectors retain their existing expectations;
+independent checking requires no oracle or package-semantic-identity changes.
+
+The [integration record](evidence/priority-window/protocol-role-integration.json) separates
+these worker scopes from primary validation. The primary combined run passes 135 cases
+and exposes one outdated identity-map fixture. After supplying a real name-changing
+bijection, that test still refuses the incomplete graph; its 16-case follow-up also
+passes concurrent publication and forged-terminal checks. CI collection covers 2212
+tests and 347 vectors with no omissions or overlap. Ruff and full Pyright pass.
+The independent Formula notation helper's separately reproduced Source-kind selector
+is corrected at `46937f6aa`. Actual rendered Formula text independently parses under
+original and renamed Source kinds; missing or duplicate Source roles refuse. Complete
+inventory, final fixed-build exchange and all-shard CI are not yet established.
+
+The primary Formula/authoring follow-up passes 17 tests. Current collection after the
+two new refusal cases covers 2214 tests and the same 347 vectors without omissions or
+overlap. The worker also validates all seven maintained Models and nine existing
+Experiment bindings without edits. Two real wheels, original and all-26-kind renamed,
+load their modules from the wheel and pass public build/check/run plus numeric-overflow
+refusal publication. These remain scoped packaging checks; they do not establish final
+complete-graph extension invariance.
+
+A bounded DDMA review at `8267f8d38` reports no actionable finding after 22 targeted
+tests and an independent Template migration probe. Renaming all ten LDB-local Template
+member roles and their references, then rebinding the authored release, passes both
+authority consumers, real public get/instantiate and all eight Model outputs. The
+concrete `quantity_minimal` authoring provider must migrate its own references when
+that content changes; its unchanged local names do not establish a generic consumer
+defect. The correction therefore adds no nine-role Kernel catalog or schema-shape
+selector. This review does not close the complete issue or its token inventory.
+
 ## Operation selection counterexample
 
 The [public counterexample](evidence/priority-window/operation-type-coupling.json) adds

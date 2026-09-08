@@ -89,6 +89,16 @@ remote lookup, or hand-maintained peer language-content authority may add a memb
 (bADR-0012/0021/0022/0023).
 _Avoid_: schema registry, implementation registry, package directory as authority
 
+**Artifact protocol role**:
+A Kernel-defined core input or output responsibility, separate from its LDB-owned schema
+and artifact kind names. One Wire Schema Definition binds the role; an identified artifact
+reaches its Artifact Contract through the existing `schema_kind` reference. Standalone
+inputs use that schema directly. Every required role has one owner. Extension schemas
+and contracts can omit a core role. Publication labels remain content-bound names, but
+do not select a member's semantics. Template companion roles use the existing Template
+admission profile and do not become additional Kernel protocol roles (bADR-0012).
+_Avoid_: kind-name dispatch, logical label as semantic authority
+
 **LDB root manifest**:
 The canonical root member of one `Language Definition Bundle`. It binds the exact Kernel identity,
 graph resources, and canonical descriptors for every Package Release manifest. Each descriptor

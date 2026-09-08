@@ -829,6 +829,14 @@ meta-format. They cover grammar, name resolution, typing, effects, lowering, eva
 steps, diagnostic construction, and resource exhaustion. Rule prose explains a rule; it does not
 replace its structured semantics.
 
+Core input/output responsibilities use Kernel-defined Artifact protocol roles. The LDB
+binds each role on one Wire Schema Definition and links identified artifacts through
+the existing Artifact Contract. Schema names, artifact kind names and publication labels
+do not become host dispatch authority; extension schemas may omit a core role
+(bADR-0012). Resolution recipes likewise own their lexical binder names. Kernel routing
+equivalence selects a defined output field, follows its binding reference, and checks
+the actual source path; it does not fix the local binder's spelling.
+
 The pure-expression judgment is closed to literals, typed reads, pure calls, value selection, local
 bindings, statically bounded aggregation, and lookup. Named-stream sampling is a separate judgment
 with a statically declared random-stream effect; it is never reclassified as pure. Recursion and

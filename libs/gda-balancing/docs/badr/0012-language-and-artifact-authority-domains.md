@@ -123,6 +123,21 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   the fixed identity domains for the exact Kernel and LDB public Wire Schemas. This root exception
   does not enumerate Domain-package or extension schema kinds in the Kernel.
 
+- **Core protocol roles do not fix artifact names.** The #878 counterexamples reopen the
+  provisional Kernel's Source kind constant and host selectors for core artifact names.
+  The Kernel defines required input/output responsibilities. One optional `protocol_role`
+  on a Wire Schema Definition binds each responsibility to current LDB content. An
+  identified role selects exactly one Artifact Contract whose existing `schema_kind`
+  reference names that schema; a standalone input uses the schema directly. Required
+  roles must be complete and unique. Extension schemas and contracts may omit a role;
+  their kind names remain open. There is no duplicate role declaration on the Artifact
+  Contract, kind-name fallback or schema-shape inference. Generic artifact APIs accept
+  actual kind names; core consumers select the explicit role, then perform the existing
+  schema, identity and semantic checks. In particular, renamed Trace or Terminal Audit
+  kinds do not bypass exact replay validation. Publication labels do not choose these
+  semantic consumers. Template companions retain their existing LDB member-role and
+  Kernel judgment bindings rather than adding their authored roles to the Kernel list.
+
 - **One producing outcome publishes one artifact set.** A success or separately typed terminal-audit
   outcome may stage multiple artifacts, but none is authoritative or discoverable until one
   immutable publication receipt and publication-index anchor commit that complete set. Retrieval
