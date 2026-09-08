@@ -90,6 +90,11 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     ),
     "experiment": _EXPERIMENT_TESTS[::2],
     "experiment-continuation": _EXPERIMENT_TESTS[1::2],
+    "extension": (
+        "test_extension_inventory.py",
+        "test_priority_protocol_public.py",
+        "test_runtime_mutual_consumption.py",
+    ),
     "bounded-fold": (
         "test_bounded_fold_formula.py",
         "test_bounded_fold_independent.py",
@@ -106,6 +111,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_external_input_observation_refusal.py",
         "test_formula_interval_inference.py",
         "test_formula_runtime_seam.py",
+        "test_metric_artifact_consistency.py",
         "test_public_execution_identity.py",
         "test_public_formula_runtime_seam.py",
         "test_scheduled_argument_capture.py",
