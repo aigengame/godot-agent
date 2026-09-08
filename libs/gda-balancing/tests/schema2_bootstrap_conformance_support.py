@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:5bb3deb5cf3649bf391b51806d6fe3bb64a18315e8f33ca63b5dfe1183c2e1bd"
+    "sha256:6cc472ff54bdb5014e7e855c7af16d362f2143601aa74c21a2182e0191ac81aa"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
@@ -5618,6 +5618,15 @@ def _consumer_b_runtime_projection_is_closed(
     return True
 
 
+def _consumer_b_template_model_results_are_supported(value: Any) -> bool:
+    """Supported fixed origins of the existing Model admission primitive."""
+    return value == {
+        "root_requirements": {"origin": "selected-resolution-requirements"},
+        "resolved_packages": {"origin": "admitted-namespace-selection"},
+        "source_symbols": {"origin": "admitted-initial-source-fact-fields"},
+    }
+
+
 def _consumer_b_template_admission_is_closed(
     meta: dict[str, Any],
     ldb: dict[str, Any],
@@ -5893,10 +5902,12 @@ def _consumer_b_template_admission_is_closed(
         if (
             not isinstance(primitive_id, str)
             or primitive_id in primitives
-            or set(primitive) not in (base_members, base_members | {"result_members"})
             or not isinstance(evaluation, dict)
             or evaluation.get("kind") not in expected_evaluations
             or evaluation != expected_evaluations[evaluation["kind"]]
+            or set(primitive)
+            != base_members
+            | ({"results"} if evaluation["kind"] == "model-source-admission" else set())
             or evaluation["kind"] in found_kinds
             or not isinstance(primitive.get("argument_members"), list)
             or not primitive["argument_members"]
@@ -5914,8 +5925,9 @@ def _consumer_b_template_admission_is_closed(
             or primitive["charges"] != expected_charges[evaluation["kind"]]
             or (
                 evaluation["kind"] == "model-source-admission"
-                and primitive.get("result_members")
-                != ["root_requirements", "resolved_packages", "source_symbols"]
+                and not _consumer_b_template_model_results_are_supported(
+                    primitive.get("results")
+                )
             )
         ):
             return False
@@ -6070,7 +6082,7 @@ def _consumer_b_template_admission_is_closed(
         value: Any,
         contract: dict[str, Any],
         *,
-        result_members: set[str],
+        result_names: set[str],
     ) -> bool:
         kind = contract["kind"]
         if kind == "selector":
@@ -6091,9 +6103,7 @@ def _consumer_b_template_admission_is_closed(
                 and bool(value)
                 and item_contract is not None
                 and all(
-                    argument_is_typed(
-                        item, item_contract, result_members=result_members
-                    )
+                    argument_is_typed(item, item_contract, result_names=result_names)
                     for item in value
                 )
             )
@@ -6123,7 +6133,7 @@ def _consumer_b_template_admission_is_closed(
                     isinstance(binding, dict)
                     and set(binding) == {"result", "source"}
                     and isinstance(binding.get("source"), str)
-                    and binding["source"] in result_members
+                    and binding["source"] in result_names
                     and isinstance(binding.get("result"), str)
                     and bool(binding["result"])
                     and binding["result"] not in produced
@@ -6160,7 +6170,7 @@ def _consumer_b_template_admission_is_closed(
             not argument_is_typed(
                 arguments[name],
                 argument_types[type_id],
-                result_members=set(primitive.get("result_members", [])),
+                result_names=set(primitive.get("results", {})),
             )
             for name, type_id in primitive["argument_types"].items()
         ):
@@ -6230,15 +6240,15 @@ def _consumer_b_template_admission_is_closed(
         kind = primitive["evaluation"]["kind"]
         if kind == "model-source-admission":
             bindings = arguments.get("fact_bindings")
-            result_members = primitive.get("result_members")
+            result_names = primitive.get("results")
             if (
                 not isinstance(bindings, list)
                 or not bindings
-                or not isinstance(result_members, list)
+                or not isinstance(result_names, dict)
                 or any(
                     not isinstance(binding, dict)
                     or set(binding) != {"result", "source"}
-                    or binding.get("source") not in result_members
+                    or binding.get("source") not in result_names
                     or not isinstance(binding.get("result"), str)
                     or binding["result"] in produced
                     for binding in bindings
