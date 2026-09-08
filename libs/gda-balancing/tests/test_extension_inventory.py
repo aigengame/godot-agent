@@ -1548,3 +1548,128 @@ def test_contract_projection_includes_late_derived_assignment_modes():
     )
     with pytest.raises(InventoryRefusal, match="projection coverage"):
         validate_extension_inventory(kernel, graph, incomplete)
+
+
+def test_protocol_roles_do_not_merge_wire_schema_and_producer_kind_identities():
+    from gda_balancing.domain.authority.context import (
+        AdmittedAuthorityContext,
+        admit_authority_context,
+    )
+    from gda_balancing.domain.model import (
+        CheckedModel,
+        check_model_source_value,
+        compile_checked_model,
+    )
+    from schema2_bootstrap_conformance_support import _reidentify_package_release
+    from schema2_bootstrap_production_support import _reidentify_graph_root
+
+    kernel, language = mutable_authorities()
+    replacements = {
+        "language.artifact_contracts": {"debug-map": "opaque.producer"},
+        "language.artifact_wire_schemas": {"debug-map": "opaque.schema"},
+        "language.wire_schemas": {"model-source-package": "opaque.source"},
+    }
+    for package in language["language"]["packages"]:
+        for closure in package["semantic_closure"]:
+            role = closure["authority_path"]
+            for row in closure["definitions"]:
+                if role in replacements:
+                    original = row["artifact_kind"]
+                    row["artifact_kind"] = replacements[role].get(original, original)
+                    if (
+                        role == "language.artifact_contracts"
+                        and original == "debug-map"
+                    ):
+                        row["schema_kind"] = "opaque.schema"
+                    if (
+                        role == "language.artifact_wire_schemas"
+                        and original == "debug-map"
+                    ):
+                        row["schema"]["properties"]["artifact_kind"]["const"] = (
+                            "opaque.producer"
+                        )
+                        row["schema"]["properties"]["artifact_kind"]["type"] = "string"
+                elif role == "language.template_admission_profiles":
+                    for member in row["member_roles"]:
+                        if member["member_kind"] == "model-source-package":
+                            member["member_kind"] = "opaque.source"
+            if role in replacements:
+                export = role.removeprefix("language.")
+                package["exports"][export] = [
+                    replacements[role].get(name, name)
+                    for name in package["exports"][export]
+                ]
+        _reidentify_package_release(package)
+    _reidentify_graph_root(language)
+    a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
+    assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
+    context = admit_authority_context(kernel, language)
+    assert isinstance(context, AdmittedAuthorityContext), context
+    source = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/bounded-fold/model-source.json"
+        ).read_text()
+    )
+    checked = check_model_source_value(source, authority_context=context)
+    assert isinstance(checked, CheckedModel), checked
+    artifacts = compile_checked_model(checked)
+    assert len(artifacts) == 8
+    assert any(row["artifact_kind"] == "opaque.producer" for row in artifacts.values())
+    graph = {
+        "packages": language.package_releases,
+        "ldb_root": language.root,
+        "vector_sets": language.package_conformance_vector_sets,
+        "source": source,
+    }
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    producer = AuthorityToken("language.artifact_contracts", (), "opaque.producer")
+    schema = AuthorityToken("language.artifact_wire_schemas", (), "opaque.schema")
+    assert producer in inventory.tokens - inventory.reserved
+    assert schema in inventory.tokens - inventory.reserved
+    assert any(
+        o.token == producer
+        and o.pointer.endswith("/schema/properties/artifact_kind/const")
+        for o in inventory.occurrences
+    )
+    link = next(
+        o
+        for o in inventory.occurrences
+        if o.token == schema and o.pointer.endswith("/schema_kind")
+    )
+    protocol = next(
+        o
+        for o in inventory.occurrences
+        if o.pointer.endswith("/protocol_role") and o.token.name == "debug-map"
+    )
+    assert protocol.token in inventory.reserved
+    for removed in (link, protocol):
+        incomplete = replace(
+            inventory,
+            occurrences=tuple(o for o in inventory.occurrences if o != removed),
+        )
+        with pytest.raises(InventoryRefusal):
+            validate_extension_inventory(kernel, graph, incomplete)
+    wrong = replace(link, token=producer)
+    with pytest.raises(InventoryRefusal):
+        validate_extension_inventory(
+            kernel,
+            graph,
+            replace(
+                inventory,
+                occurrences=tuple(
+                    wrong if o == link else o for o in inventory.occurrences
+                ),
+            ),
+        )
+    # The authority boundary is covered; arbitrary nested schema semantics
+    # remain an explicit obligation rather than being waived by role binding.
+    assert inventory.uncovered
+    contract_gaps = [
+        gap for gap in inventory.uncovered if "artifact_contracts" in gap.law
+    ]
+    assert {gap.pointer.rsplit("/", 1)[-1] for gap in contract_gaps} == {
+        "identity_excluded_members",
+        "semantic_identity_projection",
+    }

@@ -354,12 +354,133 @@ def _source_format_role(kernel: Mapping[str, Any], graph: Mapping[str, Any]) -> 
     ):
         raise InventoryRefusal("Source format parameter has no declared wire equality")
     actual = {value for _, value, _ in _authority_path_rows(kernel, graph, left)}
-    expected = {value for _, value, _ in _authority_path_rows(kernel, graph, right)}
+    source = _protocol_schema(kernel, graph, "model-source-package")
+    expected = {source["schema"]["properties"]["schema_version"]["const"]}
     if actual != expected:
         raise InventoryRefusal(
             "Source format parameter does not match its wire contract"
         )
     return role
+
+
+def _protocol_schema(
+    kernel: Mapping[str, Any], graph: Mapping[str, Any], role: str
+) -> dict[str, Any]:
+    declared = kernel["meta_format"]["language_definitions"][
+        "wire_schema_protocol_roles"
+    ]
+    if role not in declared["identified_artifacts"] + declared["standalone_inputs"]:
+        raise InventoryRefusal("wire protocol role is not declared by the Kernel")
+    matches = [
+        row
+        for collection in ("wire_schemas", "artifact_wire_schemas")
+        for _, row, _ in _authority_path_rows(
+            kernel, graph, "language_bundle.language." + collection
+        )
+        if row.get("protocol_role") == role
+    ]
+    if len(matches) != 1:
+        raise InventoryRefusal("wire protocol role has no unique schema owner")
+    return matches[0]
+
+
+def _wire_protocol_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    """Resolve the declared schema/producer join without equating their names."""
+    meta = kernel["meta_format"]["language_definitions"]
+    language = _attached_language(kernel, graph)
+    schemas = {}
+    roles = set()
+    role_law = "/meta_format/language_definitions/wire_schema_protocol_roles"
+    for collection in ("wire_schemas", "artifact_wire_schemas"):
+        role = "language." + collection
+        contract = meta["collections"][collection]
+        for _, row, pointer in _authority_path_rows(
+            kernel, graph, "language_bundle." + role
+        ):
+            if not _consumer_b_definition_is_closed(row, contract, language):
+                raise InventoryRefusal("wire schema does not close its Kernel shape")
+            name = row["artifact_kind"]
+            if name in schemas:
+                raise InventoryRefusal("wire schema identity is not unique")
+            schemas[name] = (row, pointer, AuthorityToken(role, (), name))
+            if "protocol_role" in row:
+                protocol = row["protocol_role"]
+                group = (
+                    "standalone_inputs"
+                    if "wire_schema_identity_domain" in row
+                    else "identified_artifacts"
+                )
+                if (
+                    protocol not in meta["wire_schema_protocol_roles"][group]
+                    or protocol in roles
+                ):
+                    raise InventoryRefusal(
+                        "wire protocol role has an invalid or duplicate owner"
+                    )
+                roles.add(protocol)
+                yield (
+                    AuthorityToken(
+                        "kernel.meta_format.language_definitions.wire_schema_protocol_roles",
+                        (),
+                        protocol,
+                    ),
+                    pointer + "/protocol_role",
+                    "reference",
+                    role_law,
+                )
+    if roles != set(
+        meta["wire_schema_protocol_roles"]["identified_artifacts"]
+        + meta["wire_schema_protocol_roles"]["standalone_inputs"]
+    ):
+        raise InventoryRefusal("wire protocol role ownership is incomplete")
+    producers = {}
+    assigned = set()
+    law = "/meta_format/language_definitions/collections/artifact_contracts"
+    for _, row, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.artifact_contracts"
+    ):
+        if not _consumer_b_definition_is_closed(
+            row, meta["collections"]["artifact_contracts"], language
+        ):
+            raise InventoryRefusal("artifact contract does not close its Kernel shape")
+        name, schema_name = row["artifact_kind"], row["schema_kind"]
+        if name in producers or schema_name in assigned or schema_name not in schemas:
+            raise InventoryRefusal("artifact contract has no unique schema binding")
+        schema, sp, token = schemas[schema_name]
+        if "wire_schema_identity_domain" in schema:
+            raise InventoryRefusal("wire schema has two identity-domain owners")
+        assigned.add(schema_name)
+        producer = AuthorityToken("language.artifact_contracts", (), name)
+        producers[name] = producer
+        yield token, pointer + "/schema_kind", "reference", law
+        identity_kind = schema["schema"].get("properties", {}).get("artifact_kind", {})
+        if identity_kind.get("const") != name:
+            raise InventoryRefusal(
+                "identified wire schema does not bind its producer kind"
+            )
+        yield producer, sp + "/schema/properties/artifact_kind/const", "reference", law
+    standalone = {
+        name: token
+        for name, (row, _, token) in schemas.items()
+        if "wire_schema_identity_domain" in row
+    }
+    if assigned | set(standalone) != set(schemas) or set(standalone) & set(producers):
+        raise InventoryRefusal("wire schema identity ownership is not closed")
+    kinds = standalone | producers
+    for _, profile, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.template_admission_profiles"
+    ):
+        for i, row in enumerate(profile["member_roles"]):
+            if row["member_kind"] not in kinds:
+                raise InventoryRefusal(
+                    "Template member kind has no declared identity owner"
+                )
+            yield (
+                kinds[row["member_kind"]],
+                f"{pointer}/member_roles/{i}/member_kind",
+                "reference",
+                "/meta_format/template_admission",
+            )
 
 
 def _constructor_member_selectors(constructor: Mapping[str, Any]):
@@ -1153,6 +1274,24 @@ class _Reader:
         self, role: str, value: dict[str, Any], pointer: str
     ) -> bool:
         """Close simple declared contracts; unknown nested DSLs remain explicit."""
+        if role == "language.artifact_contracts":
+            # _wire_protocol_links has closed this definition's shape and its
+            # schema binding. Domain separators are direct hashing inputs, not
+            # identifiers resolved against another declaration inventory.
+            # Member projections still need their addressed wire-field roles.
+            if value["identity_excluded_members"]:
+                self.gap(
+                    pointer + "/identity_excluded_members",
+                    "/meta_format/language_definitions/collections/artifact_contracts",
+                    "identity projection member-address roles are not yet complete",
+                )
+            if "semantic_identity_projection" in value:
+                self.gap(
+                    pointer + "/semantic_identity_projection",
+                    "/meta_format/language_definitions/collections/artifact_contracts",
+                    "semantic projection member-address roles are not yet complete",
+                )
+            return True
         if role == "language.rules":
             self.rule(value, pointer)
             return True
@@ -2261,15 +2400,8 @@ class _Reader:
         source = self.graph.get("source")
         if not source:
             return
-        schemas = [
-            value["schema"]
-            for (_, role, _), (value, _) in self.definitions.items()
-            if role == "language.wire_schemas"
-            and value["artifact_kind"] == "model-source-package"
-        ]
-        if len(schemas) != 1 or not jsonschema.Draft202012Validator(
-            schemas[0]
-        ).is_valid(source):
+        schema = _protocol_schema(self.kernel, self.graph, "model-source-package")
+        if not jsonschema.Draft202012Validator(schema["schema"]).is_valid(source):
             raise InventoryRefusal(
                 "Source does not match its admitted closed wire schema"
             )
@@ -2730,6 +2862,10 @@ class _Reader:
         self.index()
         self.operation_operand_projection()
         self.metadata_links()
+        for token, pointer, use, law in _wire_protocol_links(self.kernel, self.graph):
+            self.occurrence(token, pointer, use, law)
+            if token.role.startswith("kernel."):
+                self.reserved.add(token)
         for token, pointer, use, law in _projection_collection_links(
             self.kernel, self.graph
         ):
@@ -3381,6 +3517,10 @@ def validate_extension_inventory(
         if o.location == "value"
     }
     required: set[tuple[AuthorityToken, str, str]] = set()
+    for token, pointer, use, _ in _wire_protocol_links(kernel, graph):
+        required.add((token, pointer, use))
+        if token.role.startswith("kernel.") and token not in inventory.reserved:
+            raise InventoryRefusal("Kernel wire protocol role was made renameable")
     required.update(
         (token, pointer, use)
         for token, pointer, use, _ in _projection_collection_links(kernel, graph)
