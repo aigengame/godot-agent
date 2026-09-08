@@ -1,0 +1,475 @@
+{
+  "source_head": "56872e5dfb33de4f46f02543dfd088291b1209cb",
+  "scope": "Actual public selected-Operation coupling counterexample, not a complete rename proof.",
+  "mutation": "Add an otherwise unused input of inventory.otheritems.IntList4 to the maintained periodic-effect Source; consistently rename only that nominal Type to OtherItems. Both namespaces remain selected.",
+  "machine_cause": {
+    "owner": "core.quantity model_lowerings runtime_projection.edges",
+    "operator": "equal",
+    "source": "types.id",
+    "target": "operations.owner_type",
+    "same_package": false
+  },
+  "observations": [
+    {
+      "renamed": false,
+      "admissions": {
+        "A": {
+          "admitted": true,
+          "diagnostics": []
+        },
+        "B": {
+          "admitted": true,
+          "diagnostics": []
+        }
+      },
+      "operation_owner_type_occurrences": [
+        [
+          "standard.conformance.structured",
+          "bounded.filter-step"
+        ],
+        [
+          "standard.conformance.structured",
+          "bounded.count-step"
+        ],
+        [
+          "standard.conformance.structured",
+          "bounded.order-step"
+        ],
+        [
+          "standard.conformance.structured",
+          "bounded-fold-v1"
+        ]
+      ],
+      "selected_operations": [
+        [
+          "core.quantity",
+          "quantity.add"
+        ],
+        [
+          "core.quantity",
+          "quantity.floor-divide"
+        ],
+        [
+          "core.quantity",
+          "quantity.floor-zero"
+        ],
+        [
+          "core.quantity",
+          "quantity.identity"
+        ],
+        [
+          "core.quantity",
+          "quantity.less-than"
+        ],
+        [
+          "core.quantity",
+          "quantity.maximum"
+        ],
+        [
+          "core.quantity",
+          "quantity.minimum"
+        ],
+        [
+          "core.quantity",
+          "quantity.multiply"
+        ],
+        [
+          "core.quantity",
+          "quantity.subtract"
+        ],
+        [
+          "game.check",
+          "game.check.hit-v1"
+        ],
+        [
+          "game.check",
+          "game.check.critical-v1"
+        ],
+        [
+          "game.combat",
+          "game.combat.cast-and-cancel-v1"
+        ],
+        [
+          "game.combat",
+          "game.combat.cast-v1"
+        ],
+        [
+          "game.combat",
+          "game.combat.damage-v1"
+        ],
+        [
+          "game.combat",
+          "game.combat.eligible-cast-v1"
+        ],
+        [
+          "game.combat",
+          "game.combat.plan-casts-v1"
+        ],
+        [
+          "game.effect",
+          "game.effect.contribute@1"
+        ],
+        [
+          "game.effect",
+          "game.effect.apply-live-periodic-v1"
+        ],
+        [
+          "game.effect",
+          "game.effect.tick-live-periodic-v1"
+        ],
+        [
+          "game.effect",
+          "game.effect.apply-snapshot-periodic-v1"
+        ],
+        [
+          "game.effect",
+          "game.effect.expire-periodic-v1"
+        ],
+        [
+          "game.effect",
+          "game.effect.tick-snapshot-periodic-v1"
+        ],
+        [
+          "game.resource",
+          "game.resource.spend-v1"
+        ],
+        [
+          "standard.conformance.structured",
+          "bounded.filter-step"
+        ],
+        [
+          "standard.conformance.structured",
+          "bounded.count-step"
+        ],
+        [
+          "standard.conformance.structured",
+          "bounded.order-step"
+        ],
+        [
+          "standard.conformance.structured",
+          "bounded-fold-v1"
+        ]
+      ],
+      "entrypoint_operations": [
+        {
+          "id": "game.combat.cast-v1",
+          "package": "game.combat"
+        },
+        {
+          "id": "game.effect.apply-live-periodic-v1",
+          "package": "game.effect"
+        },
+        {
+          "id": "game.effect.apply-snapshot-periodic-v1",
+          "package": "game.effect"
+        }
+      ],
+      "public_success": true,
+      "metric_observations": [
+        {
+          "logical_time": 3,
+          "metric": "effect_active_terminal",
+          "scenario": "snapshot-periodic",
+          "status": "value",
+          "unit": "1",
+          "value": 0,
+          "within_target": true
+        },
+        {
+          "logical_time": 3,
+          "metric": "effect_instance_id_terminal",
+          "scenario": "snapshot-periodic",
+          "status": "value",
+          "unit": "1",
+          "value": 1507657888,
+          "within_target": true
+        },
+        {
+          "logical_time": 3,
+          "metric": "target_health_remaining",
+          "scenario": "snapshot-periodic",
+          "status": "value",
+          "unit": "1",
+          "value": 70,
+          "within_target": true
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "model",
+            "build"
+          ],
+          "returncode": 0,
+          "stdout_sha256": "5a5952ad7054ec213af6da9531484d7ddfc368df0d957be785c16be1ac0471ad",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "command": [
+            "experiment",
+            "check"
+          ],
+          "returncode": 0,
+          "stdout_sha256": "fd6c29b919ac784410c3e96f214fcc2919f9cfc7b900fc4b5d3f32b3021699cf",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "command": [
+            "experiment",
+            "run"
+          ],
+          "returncode": 0,
+          "stdout_sha256": "848e1c304a4f22947ce3969c03a8b7885a37ffa1898ba238d7f4df5b27e2f814",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    },
+    {
+      "renamed": true,
+      "admissions": {
+        "A": {
+          "admitted": true,
+          "diagnostics": []
+        },
+        "B": {
+          "admitted": true,
+          "diagnostics": []
+        }
+      },
+      "operation_owner_type_occurrences": [
+        [
+          "standard.conformance.structured",
+          "bounded.filter-step"
+        ],
+        [
+          "standard.conformance.structured",
+          "bounded.count-step"
+        ],
+        [
+          "standard.conformance.structured",
+          "bounded.order-step"
+        ],
+        [
+          "standard.conformance.structured",
+          "bounded-fold-v1"
+        ]
+      ],
+      "selected_operations": [
+        [
+          "core.quantity",
+          "quantity.add"
+        ],
+        [
+          "core.quantity",
+          "quantity.floor-divide"
+        ],
+        [
+          "core.quantity",
+          "quantity.floor-zero"
+        ],
+        [
+          "core.quantity",
+          "quantity.identity"
+        ],
+        [
+          "core.quantity",
+          "quantity.less-than"
+        ],
+        [
+          "core.quantity",
+          "quantity.maximum"
+        ],
+        [
+          "core.quantity",
+          "quantity.minimum"
+        ],
+        [
+          "core.quantity",
+          "quantity.multiply"
+        ],
+        [
+          "core.quantity",
+          "quantity.subtract"
+        ],
+        [
+          "game.check",
+          "game.check.hit-v1"
+        ],
+        [
+          "game.check",
+          "game.check.critical-v1"
+        ],
+        [
+          "game.combat",
+          "game.combat.cast-and-cancel-v1"
+        ],
+        [
+          "game.combat",
+          "game.combat.cast-v1"
+        ],
+        [
+          "game.combat",
+          "game.combat.damage-v1"
+        ],
+        [
+          "game.combat",
+          "game.combat.eligible-cast-v1"
+        ],
+        [
+          "game.combat",
+          "game.combat.plan-casts-v1"
+        ],
+        [
+          "game.effect",
+          "game.effect.contribute@1"
+        ],
+        [
+          "game.effect",
+          "game.effect.apply-live-periodic-v1"
+        ],
+        [
+          "game.effect",
+          "game.effect.tick-live-periodic-v1"
+        ],
+        [
+          "game.effect",
+          "game.effect.apply-snapshot-periodic-v1"
+        ],
+        [
+          "game.effect",
+          "game.effect.expire-periodic-v1"
+        ],
+        [
+          "game.effect",
+          "game.effect.tick-snapshot-periodic-v1"
+        ],
+        [
+          "game.resource",
+          "game.resource.spend-v1"
+        ]
+      ],
+      "entrypoint_operations": [
+        {
+          "id": "game.combat.cast-v1",
+          "package": "game.combat"
+        },
+        {
+          "id": "game.effect.apply-live-periodic-v1",
+          "package": "game.effect"
+        },
+        {
+          "id": "game.effect.apply-snapshot-periodic-v1",
+          "package": "game.effect"
+        }
+      ],
+      "public_success": true,
+      "metric_observations": [
+        {
+          "logical_time": 3,
+          "metric": "effect_active_terminal",
+          "scenario": "snapshot-periodic",
+          "status": "value",
+          "unit": "1",
+          "value": 0,
+          "within_target": true
+        },
+        {
+          "logical_time": 3,
+          "metric": "effect_instance_id_terminal",
+          "scenario": "snapshot-periodic",
+          "status": "value",
+          "unit": "1",
+          "value": 1507657888,
+          "within_target": true
+        },
+        {
+          "logical_time": 3,
+          "metric": "target_health_remaining",
+          "scenario": "snapshot-periodic",
+          "status": "value",
+          "unit": "1",
+          "value": 70,
+          "within_target": true
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "model",
+            "build"
+          ],
+          "returncode": 0,
+          "stdout_sha256": "4d7ec77ebce3334d4b2765c79e60d1c429b3f3c25520c3a644a0140c9247f91a",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "command": [
+            "experiment",
+            "check"
+          ],
+          "returncode": 0,
+          "stdout_sha256": "64637dafd00f016d2c7e120cc7391f6c5c12f595ed2dbc42fa239d81cf0f432c",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "command": [
+            "experiment",
+            "run"
+          ],
+          "returncode": 0,
+          "stdout_sha256": "0f1d7160ece2c09f1d074e1d98c02de65a5e13f6eeb54128acf9654a4fa3671e",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    }
+  ],
+  "decision": "Delete the owner_type field and the Type-ID projection edge. Derive Operations from actual Source/Formula roots and their admitted closed dependencies, with independently reconstructed import admission. Preserve unknown/missing and resource refusals; no full-operation fallback or replacement owner binding.",
+  "implementation_status": "authorized, not implemented at this checkpoint",
+  "limits": [
+    "A/B authority admission is observed for both graphs. Actual compilation and Runtime observations here use the production public CLI; this file does not claim independent B execution of the two scenarios.",
+    "The Type itself changes identity as intended. The defect is that four unrelated Operations disappear solely because of its local spelling while their real formal Type owner and all entrypoint roots are unchanged.",
+    "Successful public output and equal Metric observations do not establish complete execution-dependency deletion; final #878/#879 acceptance remains open."
+  ],
+  "raw_evidence_files": [
+    {
+      "relative_path": "public-collision.py",
+      "bytes": 3772,
+      "sha256": "1d1d22b482f001f9f9c3a2d6dbac05b8c2aaddf7be6bdc7b0edda52927314dfc"
+    },
+    {
+      "relative_path": "public-collision-results.json",
+      "bytes": 27601,
+      "sha256": "f4fe21d9357ecf2ccd3aaf2785c8281f9d29ca31e20ee6c92c9f6812049fb01a"
+    },
+    {
+      "relative_path": "original/model-source.json",
+      "bytes": 11155,
+      "sha256": "938e505e68efcc28b90c1598631bbb6e81c42406b715d0789e6ccde56c790326"
+    },
+    {
+      "relative_path": "renamed/model-source.json",
+      "bytes": 11157,
+      "sha256": "a1f8106c6f1939d120776b25ee2eb80c54915a327806cb1f0a82cd964fd053eb"
+    },
+    {
+      "relative_path": "original/experiment.json",
+      "bytes": 2630,
+      "sha256": "6e9af6a0f148a13af0b47a421f15b308fca72b37097b24855521bbd843148466"
+    },
+    {
+      "relative_path": "renamed/experiment.json",
+      "bytes": 2630,
+      "sha256": "07d6b688d694784ddba4a3c2744ffe394871e0e026833c87d00b592a71a8b64b"
+    },
+    {
+      "relative_path": "original/cli-results.json",
+      "bytes": 7477,
+      "sha256": "de67ead00dac6b1cadd95d5324939f697c83d2e566e9165d48dfc28b6156c857"
+    },
+    {
+      "relative_path": "renamed/cli-results.json",
+      "bytes": 7454,
+      "sha256": "2e7f764b3825cec01816b1d6061231958a9f3ffdd8519958ff09aa44acc44736"
+    }
+  ]
+}

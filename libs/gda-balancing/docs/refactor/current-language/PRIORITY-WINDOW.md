@@ -270,22 +270,90 @@ Keep the unchanged golden assertion's failure visible; do not rewrite numerical
 expectations or report renamed all-vector conformance. This interpretation does not
 change RNG semantics or activate an authenticated Extension Invariance claim.
 
+## Corrected authority-role bindings
+
+[Four bounded counterexamples](evidence/priority-window/authority-name-counterexamples.json)
+show that the provisional Kernel names LDB-owned numeric policy, typed-profile,
+constructor and static structured-reason identities. The numeric probe changes 621
+occurrences and both consumers report the same 31 typing refusals; its original public
+build/check/run succeeds. The other three roles each fail admission and public build.
+Those old probes produce no renamed RIR and make no later-execution claim.
+
+The correction is integrated at `56872e5df`. Numeric capability selection derives actual
+IDs from admitted exact Quantity definitions and selected profiles. Typed-envelope
+selection uses its existing source/value role, and the profile owner must export one
+complete constructor for every existing structured value-rule role. The fixed profile
+ID and constructor ID list are deleted. Static structured faults use their Kernel
+stage/signal, with the actual selected reason and diagnostic resolved by each consumer;
+actual command refusal catalogs use the same current bindings. No compatibility alias,
+fallback, numeric-law change, primitive or phase is introduced.
+
+This replaces the provisional Kernel with `sha256:82c67a6d19daf616e680f25bf4b9dbda811d2bdfc9ac4d76a683b7e49af35f8a`.
+It does not rehabilitate the old Kernel's failed invariance claim. The
+[correction evidence](evidence/priority-window/authority-role-correction.json) preserves
+the original and final authority identities, exact machine changes, observed Model
+vector outcomes and raw report hashes. All 34 Model vectors retain their accepted or
+refused outcome (13/21); only existing derived RIR/Debug identity oracles change, and a
+fresh process confirms their fixed point. Seven maintained Models publish 56 members;
+nine Experiment bindings are updated from actual RIRs and checked against the final
+sealed graph. All seven authored Source files remain byte-identical.
+
+Six public configurations (original, each role separately, all together) build and run
+with value 7. The independent consumer compiles and executes each case; production
+admits its six result members. All 24 existing structured-value vectors are checked per
+role, together with public and admission refusals. The 106-test primary integration
+suite passes. Required CI now includes these tests; collection accounts for 2113 tests
+and 347 package vectors without missing or overlapping coverage. Full CI and final
+independent review remain open.
+
+A separate Spec review of this four-role patch at `56872e5df` finds no actionable
+issue. Its isolated 21-test run and an additional public diagnostic rename pass;
+wrong numeric law, borrowed profile ownership and wrong static stage refuse in both
+authority consumers. Three other malformed-graph probes refuse at integrity ingress
+only; they are not semantic-law evidence. This review does not cover the complete
+issue. Primary revalidation also admits all seven previously published RIRs and checks
+all nine committed Experiment files against the final sealed graph.
+
+The next inventory checkpoint (`91d4bacac`) derives primitive signal reservations from
+their exact Kernel stage/signal roles and records the real Type-ID projection edge.
+The same spelling in a reason ID or another stage remains renamable. Its 52 integrated
+inventory/CI tests pass; Ruff and all 211 Python format checks pass. The current
+collection contains 2115 tests and 347 package vectors with no omitted or overlapping
+test coverage. The semantic inventory remains incomplete; those test counts do not
+establish its completeness.
+
+## Operation selection counterexample
+
+The [public counterexample](evidence/priority-window/operation-type-coupling.json) adds
+an otherwise unused `inventory.otheritems.IntList4` input to the maintained periodic
+Source. Both its namespace and `standard.conformance.structured` remain selected.
+Consistently renaming only the new Type to `OtherItems` preserves A/B authority
+admission, all three actual public build/check/run outcomes and the Metric observations.
+It nevertheless changes selected Operations from 27 to 23: the four bounded-fold
+Operations disappear, although their actual formal Type owner and every entrypoint
+root are unchanged. The bare cross-package `types.id -> operations.owner_type` edge
+causes this coupling. A separate admitted two-owner inventory case confirms that one
+physical field cannot independently rename both nominal owners.
+
+Delete `owner_type` and this edge. Select Operations from actual Source/Formula roots
+and their admitted transitive dependencies, and independently derive the same closure
+when importing RIR. Reuse existing reference and reachability judgments; do not add
+another owner field, retain the old edge, or treat an unknown-root fallback to every
+Operation as authority. Actual call typing, missing-owner/unknown-operation refusals,
+selected numeric/runtime rules and resource accounting still apply. This correction
+is authorized but not implemented at this checkpoint. The witness also remains a
+regression input for #879's final dependency and deletion review.
+
 ## Remaining proof and integration
 
-- Remove demonstrated LDB-name coupling before the final build freeze. In addition to
-  effect whitelists, the provisional Kernel directly names the LDB numeric policy,
-  typed-envelope profile, four structured constructors and four static structured
-  reasons. [Four bounded counterexamples](evidence/priority-window/authority-name-counterexamples.json)
-  preserve actual A/B admission and public build refusals after coherent renaming.
-  The numeric probe changes 621 occurrences and both consumers report the same 31
-  typing refusals; its original public build/check/run succeeds. The other three roles
-  each fail admission and public build. No renamed RIR or later execution is claimed.
-  Ownership inspection identifies these as references to LDB declarations;
-  their occurrence in Kernel text does not make them reserved identities. Reuse the
-  admitted policy definitions, unique profile role, constructor value laws and distinct
-  fault bindings. Keep missing/duplicate/unsupported semantics refusing. The pending
-  correction replaces the provisional contract and requires affected conformance and
-  authored-input revalidation; it does not claim the old Kernel passed full renaming.
+- Complete the semantic-token inventory and resolve remaining demonstrated name
+  coupling before the final build freeze. Artifact declaration IDs and protocol roles
+  must be distinguished by actual authority; an open string cannot be exempted merely
+  because a host recognizes its spelling. The existing `types.id` to
+  `operations.owner_type` projection edge also joins across package namespaces. Its
+  actual machine consumer must be considered; a text search alone does not prove that
+  the field is inert. Preserve distinct nominal Type owners and validate the complete
+  rename relation instead of merging their identities.
 - Derive every reachable non-Kernel token and occurrence from the applicable Kernel/LDB,
   node, constructor and authored-input contracts. An ordinary JSON string walk cannot
   distinguish an identity from user data. A graph rooted at the complete LDB includes
