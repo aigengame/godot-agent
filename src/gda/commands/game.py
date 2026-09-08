@@ -164,6 +164,22 @@ class GameTreeResult(BaseModel):
         )
     )
 
+    @model_validator(mode="after")
+    def _check_omission_counters(self) -> "GameTreeResult":
+        # The two counters ARE the partial-read contract (#929): a caller that
+        # reads `truncated` false stops looking, so a reply carrying it beside a
+        # non-zero `omitted_nodes` presents an incomplete tree as a complete one
+        # — and the reverse claims an omission the read never made. A stale or
+        # drifted harness must fail output validation and classify as
+        # contract_violation, never pass as a success. Same rule, same reason as
+        # the `input` gesture evidence (``InputTapResult``, #652).
+        if self.truncated != (self.omitted_nodes > 0):
+            raise ValueError(
+                "a tree result reports truncated true exactly when "
+                "omitted_nodes is above 0."
+            )
+        return self
+
 
 # The selectors `gda game find` ANDs together, in the order the params model
 # declares them. One authority: the model reads it to refuse a selector-less
@@ -376,6 +392,24 @@ class GameFindResult(BaseModel):
             "is the size of what was never tested against the selectors."
         )
     )
+
+    @model_validator(mode="after")
+    def _check_result_counters(self) -> "GameFindResult":
+        # `count` is published so a caller can branch on the number WITHOUT
+        # walking the list, which makes a count that disagrees with the list
+        # worse than no count at all. The bounding pair carries
+        # :class:`GameTreeResult`'s rule for the same reason it does there: a
+        # search that under-reports its omission reads as proven absence. Both
+        # are harness drift, so both fail output validation and classify as
+        # contract_violation (#929).
+        if self.count != len(self.matches):
+            raise ValueError("a find result's count is the length of matches.")
+        if self.truncated != (self.omitted_nodes > 0):
+            raise ValueError(
+                "a find result reports truncated true exactly when "
+                "omitted_nodes is above 0."
+            )
+        return self
 
 
 class GameGetParams(RelayedLiveParams):

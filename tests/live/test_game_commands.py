@@ -15,7 +15,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.commands.game import GameFindParams, GameTreeParams
-from gda.exit_codes import EXIT_LIVE
+from gda.exit_codes import EXIT_LIVE, EXIT_PARSE
 from gda.runner import RunResult
 from tests.support import (
     GAME_CALL_RESULT,
@@ -152,6 +152,40 @@ def test_game_tree_renders_the_omission_for_a_human(monkeypatch, tmp_path):
     assert result.exit_code == 0, result.stdout + result.stderr
     assert "HUD (Control)" in result.stdout
     assert "truncated: 2 nodes omitted" in result.stdout
+
+
+# The two counters a `game tree` reply carries are an invariant, not a pair of
+# independent numbers (#929): `truncated` is true exactly when `omitted_nodes` is
+# above 0. A reply that breaks it in either direction is a stale or drifted
+# harness, and must fail output validation rather than publish an incomplete tree
+# as a complete one. Built from the shared fixture so the ONLY difference is the
+# contradiction under test.
+_CONTRADICTORY_TREE_REPLIES = [
+    # An omission the read reports nowhere: `truncated` says complete.
+    {**GAME_TREE_TRUNCATED_RESULT, "truncated": False},
+    # And the reverse: a truncation claimed with nothing left out.
+    {**GAME_TREE_RESULT, "truncated": True},
+]
+
+
+def test_a_tree_reply_whose_counters_disagree_is_a_contract_violation(
+    monkeypatch, tmp_path
+):
+    for payload in _CONTRADICTORY_TREE_REPLIES:
+        inject_live_runner(
+            monkeypatch,
+            RunResult(stdout=sentinel(payload), stderr="", exit_code=0),
+        )
+
+        result = CliRunner().invoke(
+            app,
+            ["game", "tree", "--project", str(minimal_project(tmp_path)), "--json"],
+        )
+
+        assert result.exit_code == EXIT_PARSE, (payload, result.stdout)
+        assert json.loads(result.stdout)["error"]["code"] == "contract_violation", (
+            payload
+        )
 
 
 def test_game_tree_refuses_a_negative_max_depth(monkeypatch, tmp_path):
@@ -359,6 +393,33 @@ def test_game_find_counts_what_a_bound_kept_it_from_searching(monkeypatch, tmp_p
     assert data["truncated"] is True
     assert data["omitted_nodes"] == 4
     assert data["count"] == 1
+
+
+# A `game find` reply carries `game tree`'s counter invariant AND one of its own
+# (#929): `count` is the length of `matches`. It is published so a caller can
+# branch on the number without walking the list, which is exactly why a count
+# that disagrees with the list must not reach that caller.
+_CONTRADICTORY_FIND_REPLIES = [
+    # A count that overstates the list a caller would walk.
+    {**GAME_FIND_RESULT, "count": 5},
+    # An unsearched remainder the reply calls a complete search: an empty list
+    # would then read as proven absence.
+    {**GAME_FIND_TRUNCATED_RESULT, "truncated": False},
+    # And the reverse: a truncation claimed with nothing left unsearched.
+    {**GAME_FIND_RESULT, "truncated": True},
+]
+
+
+def test_a_find_reply_whose_counters_disagree_is_a_contract_violation(
+    monkeypatch, tmp_path
+):
+    for payload in _CONTRADICTORY_FIND_REPLIES:
+        _, result = _find(monkeypatch, tmp_path, payload, "--type", "Control")
+
+        assert result.exit_code == EXIT_PARSE, (payload, result.stdout)
+        assert json.loads(result.stdout)["error"]["code"] == "contract_violation", (
+            payload
+        )
 
 
 def test_game_find_renders_the_matches_and_the_bound_for_a_human(monkeypatch, tmp_path):
