@@ -19,6 +19,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_evaluate_structured_value_vector,
     _consumer_b_value_program_instruction_is_closed,
     _consumer_b_operation_composition_subjects,
+    _consumer_b_operation_relation_is_satisfied,
     _consumer_b_project_trace_schema,
     _consumer_b_replay_comparison_vector_is_closed,
     _consumer_b_relation_paths_are_typed,
@@ -1165,6 +1166,266 @@ def _resolution_binding_links(kernel: Mapping[str, Any], graph: Mapping[str, Any
                 yield from term(field["term"], fp + "/term")
 
 
+def _operation_relation_surfaces(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    """Join declared relation policies, selectors, and exact Operation projections.
+
+    Canonical metadata is data, not an implicit namespace. Only addressed object
+    members and values projected from an interpreted Operation acquire roles.
+    """
+    contract = kernel["meta_format"]["package_vector"]
+    ki, kind = next(
+        (i, row)
+        for i, row in enumerate(contract["kinds"])
+        if row["id"] == "operation-relation"
+    )
+    law = f"/meta_format/package_vector/kinds/{ki}"
+    declaration_key, policy_key = (
+        kind["declaration_extension"],
+        kind["policy_extension"],
+    )
+    operations: dict[tuple[str, str], tuple[Any, str]] = {}
+    for owner, value, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.operations"
+    ):
+        if not isinstance(owner, str):
+            raise InventoryRefusal("Operation relation has no package owner")
+        operations[(owner, value["id"])] = value, pointer
+    links: set[TokenOccurrence] = set()
+    projections: list[tuple[str, str]] = []
+    covered: set[str] = set()
+    handled: set[str] = set()
+    policies: dict[tuple[str, str], tuple[Any, str]] = {}
+
+    def occurrence(token, pointer, use, location="value"):
+        links.add(TokenOccurrence(token, pointer, use, law, location))
+
+    def marker(name, pointer, field):
+        occurrence(
+            AuthorityToken("kernel.operation-relation." + field, (), name),
+            pointer,
+            "reference",
+            "key",
+        )
+
+    def project(source, target):
+        if not _consumer_b_canonical_equal(
+            _pointer_value(graph, source), _pointer_value(graph, target)
+        ):
+            raise InventoryRefusal(
+                "Operation relation projection does not match its owner"
+            )
+        projections.append((source, target))
+
+    def address(scope, path, pointer):
+        operation, op = operations[scope]
+        if (
+            not isinstance(path, list)
+            or not path
+            or not all(isinstance(member, str) and member for member in path)
+            or path[0] not in contract["operation_probe_roots"]
+        ):
+            raise InventoryRefusal("Operation relation selector has no declared root")
+        selected, selected_pointer = operation, op
+        for i, member in enumerate(path):
+            if not isinstance(selected, dict) or member not in selected:
+                raise InventoryRefusal("Operation relation selector does not resolve")
+            selected_pointer = _child(selected_pointer, member)
+            selected = selected[member]
+            if path[0] == "extensions" and i > 0:
+                token = AuthorityToken(
+                    "operation-extension-member", (*scope, *path[1:i]), member
+                )
+                occurrence(token, selected_pointer, "declaration", "key")
+                occurrence(token, f"{pointer}/{i}", "reference")
+            elif i > 0:
+                # Other Operation substructure has its own typed selectors. Do
+                # not certify it using arbitrary dictionary traversal.
+                raise InventoryRefusal(
+                    "Operation relation selector needs an interpreted member owner"
+                )
+        return selected, selected_pointer
+
+    for owner, definition, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle." + kind["policy_authority_path"]
+    ):
+        if not isinstance(owner, str):
+            raise InventoryRefusal("Operation relation policy has no package owner")
+        extension = definition.get("extensions", {}).get(policy_key)
+        if extension is None:
+            continue
+        ep = _child(pointer + "/extensions", policy_key)
+        if not isinstance(extension, list) or not extension:
+            raise InventoryRefusal("Operation relation policy is empty or malformed")
+        marker(policy_key, ep, "policy_extension")
+        for i, policy in enumerate(extension):
+            pp = f"{ep}/{i}"
+            if (
+                not isinstance(policy, dict)
+                or set(policy) != set(kind["policy_members"])
+                or not isinstance(policy["contract"], dict)
+                or set(policy["contract"]) != set(kind["policy_contract_members"])
+            ):
+                raise InventoryRefusal(
+                    "Operation relation policy has an undeclared shape"
+                )
+            scope = (owner, policy["operation"])
+            if scope not in operations or scope in policies:
+                raise InventoryRefusal(
+                    "Operation relation policy owner is missing or duplicated"
+                )
+            policies[scope] = policy, pp
+            occurrence(
+                AuthorityToken("language.operations", (owner,), policy["operation"]),
+                pp + "/operation",
+                "reference",
+            )
+        covered.add(ep)
+
+    declared: dict[tuple[str, str], dict[str, str]] = {}
+    # A policy selects the actual canonical metadata object. Its label need not
+    # equal the capability ID; that equality has no machine interpretation.
+    for scope, (operation, op) in operations.items():
+        declarations = operation.get("extensions", {}).get(declaration_key)
+        if declarations is None:
+            if scope in policies:
+                raise InventoryRefusal("Operation relation policy has no declarations")
+            continue
+        if (
+            scope not in policies
+            or not isinstance(declarations, list)
+            or not declarations
+        ):
+            raise InventoryRefusal(
+                "Operation relation declarations have no unique policy"
+            )
+        policy, pp = policies[scope]
+        metadata_path = policy["contract"]["path"]
+        if (
+            not isinstance(metadata_path, list)
+            or len(metadata_path) != 2
+            or metadata_path[0] != "extensions"
+            or metadata_path[1] == declaration_key
+        ):
+            raise InventoryRefusal(
+                "Operation relation metadata needs its own extension owner"
+            )
+        _, mp = address(scope, metadata_path, pp + "/contract/path")
+        dp = _child(op + "/extensions", declaration_key)
+        marker(declaration_key, dp, "declaration_extension")
+        roles: dict[str, str] = {}
+        for i, declaration in enumerate(declarations):
+            rp = f"{dp}/{i}"
+            if (
+                not isinstance(declaration, dict)
+                or set(declaration) != set(kind["declaration_members"])
+                or not isinstance(declaration["id"], str)
+                or not declaration["id"]
+                or declaration["id"] in roles
+            ):
+                raise InventoryRefusal(
+                    "Operation relation declaration is malformed or duplicated"
+                )
+            role = declaration["id"]
+            probe = declaration["probe"]
+            witness = {"role": role, "probe": probe}
+            if not _consumer_b_operation_relation_is_satisfied(
+                operation,
+                witness,
+                kind,
+                contract["operation_probe_roots"],
+                kernel["meta_format"]["runtime_program"]["nodes"],
+            ):
+                raise InventoryRefusal("Operation relation is not satisfied")
+            roles[role] = rp
+            occurrence(
+                AuthorityToken("operation-relation", scope, role),
+                rp + "/id",
+                "declaration",
+            )
+            _, left = address(scope, probe["left_path"], rp + "/probe/left_path")
+            right = rp + "/probe/right_value"
+            if probe["right_path"] is not None:
+                _, right = address(scope, probe["right_path"], rp + "/probe/right_path")
+            operator = probe["operator"]
+            if operator == "integer-range-equal":
+                for member in kind["integer_range_members"]:
+                    address(
+                        scope,
+                        _pointer_value(graph, right)[member],
+                        _child(right, member),
+                    )
+            elif operator == "schedule-projection-equal":
+                nodes = {
+                    row["id"]
+                    for row in kernel["meta_format"]["runtime_program"]["nodes"]
+                    if row["semantics"]["operator"] == "schedule-operation"
+                }
+                instructions = _pointer_value(graph, left)
+                selected = [
+                    (j, row)
+                    for j, row in enumerate(instructions)
+                    if row["node"] in nodes
+                    and all(
+                        member in row for member in kind["schedule_projection_members"]
+                    )
+                ]
+                for j, (index, _) in enumerate(selected):
+                    for member in kind["schedule_projection_members"]:
+                        project(f"{left}/{index}/{member}", f"{right}/{j}/{member}")
+            elif operator == "canonical-equal":
+                project(left, right)
+            elif operator not in {
+                "integer-equal",
+                "integer-greater-than",
+                "integer-less-than-or-equal",
+            }:
+                raise InventoryRefusal("Operation relation operator is unclassified")
+        declared[scope] = roles
+        # Ordered projections make metadata/body roles available to capability
+        # copies before contract vectors project these entire authored subtrees.
+        project(mp, pp + "/contract/expect")
+        project(dp, pp + "/relations")
+        covered.update((mp, dp))
+
+    observed: dict[tuple[str, str], list[str]] = {}
+    for vi, vector_set in enumerate(graph.get("vector_sets", [])):
+        for i, vector in enumerate(vector_set["vector_definitions"]):
+            if vector.get("kind") != kind["id"]:
+                continue
+            vp = f"/vector_sets/{vi}/vector_definitions/{i}"
+            if (
+                set(vector) != set(kind["required_members"])
+                or vector["category"] not in contract["categories"]
+            ):
+                raise InventoryRefusal(
+                    "Operation relation vector has an undeclared shape"
+                )
+            scope = (vector_set["package_id"], vector["operation"])
+            role = vector["role"]
+            if scope not in declared or role not in declared[scope]:
+                raise InventoryRefusal(
+                    "Operation relation vector has no declared owner"
+                )
+            occurrence(
+                AuthorityToken("language.operations", scope[:1], scope[1]),
+                vp + "/operation",
+                "reference",
+            )
+            occurrence(
+                AuthorityToken("operation-relation", scope, role),
+                vp + "/role",
+                "reference",
+            )
+            project(declared[scope][role] + "/probe", vp + "/probe")
+            observed.setdefault(scope, []).append(role)
+            handled.add(vp)
+    if graph.get("vector_sets") is not None and {
+        scope: sorted(roles) for scope, roles in declared.items()
+    } != {scope: sorted(roles) for scope, roles in observed.items()}:
+        raise InventoryRefusal("Operation relation vector coverage does not close")
+    return links, projections, covered, handled
+
+
 def _contract_vector_projections(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
     """Locate exact authored-subtree projections declared by contract vectors."""
     contract = kernel["meta_format"]["package_vector"]
@@ -1890,6 +2151,12 @@ class _Reader:
         }
         self.formula_projections: dict[str, Any] = {}
         self.seeds: list[tuple[dict[str, Any], str, dict[str, Any]]] = []
+        (
+            self.relation_links,
+            self.relation_projections,
+            self.relation_extensions,
+            self.relation_vectors,
+        ) = _operation_relation_surfaces(kernel, graph)
         self.operand_contracts: dict[
             tuple[tuple[str, str], tuple[int, ...], str], tuple[dict[str, Any], ...]
         ] = {}
@@ -2422,7 +2689,10 @@ class _Reader:
                     raise InventoryRefusal(
                         "metadata primitive marker does not match Kernel contract"
                     )
-            if value.get("extensions"):
+            if any(
+                _child(pointer + "/extensions", name) not in self.relation_extensions
+                for name in value.get("extensions", {})
+            ):
                 self.gap(
                     pointer + "/extensions",
                     "/meta_format/language_definitions",
@@ -2846,7 +3116,7 @@ class _Reader:
                 )
 
     def contract_vectors(self) -> None:
-        handled = {
+        handled = self.relation_vectors | {
             pointer for _, _, pointer in _reason_vector_rows(self.kernel, self.graph)
         }
         handled.update(
@@ -2869,7 +3139,8 @@ class _Reader:
             source_occurrences = tuple(
                 o
                 for o in self.occurrences
-                if o.pointer == source or o.pointer.startswith(source + "/")
+                if (o.pointer == source and o.location != "key")
+                or o.pointer.startswith(source + "/")
             )
             for occurrence in source_occurrences:
                 self.occurrence(
@@ -3146,7 +3417,7 @@ class _Reader:
                             f"{sp}/permitted_refusals/{ri}",
                             ep,
                         )
-            else:
+            elif ep not in self.relation_extensions:
                 self.gap(
                     ep,
                     "/meta_format/language_definitions/collections/operations",
@@ -3947,6 +4218,25 @@ class _Reader:
                     location=row.location,
                     projection=row.projection,
                 )
+        for row in self.relation_links:
+            self.occurrence(
+                row.token, row.pointer, row.use, row.law, location=row.location
+            )
+            if row.token.role.startswith("kernel."):
+                self.reserved.add(row.token)
+        for source, target in self.relation_projections:
+            for row in tuple(self.occurrences):
+                if (
+                    row.pointer == source and row.location != "key"
+                ) or row.pointer.startswith(source + "/"):
+                    self.occurrence(
+                        row.token,
+                        target + row.pointer.removeprefix(source),
+                        "reference",
+                        row.law,
+                        location=row.location,
+                        projection=row.projection,
+                    )
         self.contract_vectors()
         declarations = {o.token for o in self.occurrences if o.use == "declaration"}
         free = {o.token for o in self.occurrences if o.use == "unresolved-reference"}
@@ -4703,6 +4993,43 @@ def validate_extension_inventory(
         (o.token, o.pointer, o.use, o.location, o.projection)
         for o in inventory.occurrences
     }
+    relation_links, relation_projections, relation_surfaces, relation_vectors = (
+        _operation_relation_surfaces(kernel, graph)
+    )
+    expected_relations = {
+        (o.token, o.pointer, o.use, o.location, o.projection) for o in relation_links
+    }
+
+    def relation_position(pointer):
+        return any(
+            pointer == root or pointer.startswith(root + "/")
+            for root in relation_surfaces
+        ) or any(
+            pointer.startswith(root + "/") and pointer != root + "/id"
+            for root in relation_vectors
+        )
+
+    # External sources are already owned by the Operation instruction reader.
+    # Internal canonical copies may inherit only the interpreted relation roles,
+    # never an extra caller-supplied classification of opaque metadata.
+    available = expected_relations | {
+        row for row in all_occurrences if not relation_position(row[1])
+    }
+    for source, target in relation_projections:
+        copied = {
+            (row[0], target + row[1].removeprefix(source), "reference", row[3], row[4])
+            for row in available
+            if (row[1] == source and row[3] != "key") or row[1].startswith(source + "/")
+        }
+        expected_relations.update(copied)
+        available.update(copied)
+    observed_relations = {row for row in all_occurrences if relation_position(row[1])}
+    if (
+        expected_relations != observed_relations
+        or not {o.token for o in relation_links if o.token.role.startswith("kernel.")}
+        <= inventory.reserved
+    ):
+        raise InventoryRefusal("Operation relation coverage is incomplete or misowned")
     for source, target, vector, operation in _contract_vector_projections(
         kernel, graph
     ):
@@ -4711,7 +5038,8 @@ def validate_extension_inventory(
         source_occurrences = [
             o
             for o in inventory.occurrences
-            if o.pointer == source or o.pointer.startswith(source + "/")
+            if (o.pointer == source and o.location != "key")
+            or o.pointer.startswith(source + "/")
         ]
         expected_occurrences = set()
         for occurrence in source_occurrences:
@@ -5310,6 +5638,21 @@ def _renamed_owner(
             namespace,
             name(AuthorityToken("type", token.owner[:1], token.owner[1])),
         )
+    if token.role == "operation-extension-member":
+        original = token.owner[:2]
+        transported = (
+            namespace,
+            name(
+                AuthorityToken("language.operations", token.owner[:1], token.owner[1])
+            ),
+        )
+        for member in token.owner[2:]:
+            transported = (
+                *transported,
+                name(AuthorityToken(token.role, original, member)),
+            )
+            original = (*original, member)
+        return transported
     if token.role.startswith("operation-"):
         owner = (
             namespace,
