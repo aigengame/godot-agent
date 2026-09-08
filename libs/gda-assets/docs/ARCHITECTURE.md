@@ -1,8 +1,8 @@
 # Asset Pipeline architecture
 
 **Status:** accepted design; file handoff (#908), saved Blender production (#909),
-model expectation checks (#887), and optional content observations (#889) are implemented. Other workflows remain
-planned. Accepted by the project owner
+model expectation checks (#887), optional content observations (#889), and controlled
+runtime refresh (#890) are implemented. Other workflows remain planned. Accepted by the project owner
 on 2026-09-07 after review of the Blender-to-Godot workflow and milestone #14.
 Source baseline inspected: `cfcb8658e67df418a69694840a37a22a9cd3cbe0`.
 Acceptance and delivery status are owned by
@@ -152,6 +152,10 @@ inspection and export stay inside the Blender adapter and its bundled worker.
 The [Blender guide](blender.md) owns the supported execution and measurement policy.
 The [model checks guide](checks.md) owns the implemented expectation document,
 verdict, saved-report, and baseline-comparison user contract.
+The [runtime refresh guide](runtime-refresh.md) owns the implemented controlled
+restart, selected-instance comparison, and capture-association user contract.
+The root [static model content guide](../../../docs/model-content.md) owns the two
+gda fact commands and their shared native measurement scope.
 
 ## Tactical model and interfaces
 
@@ -168,8 +172,8 @@ Preparation precedes `AssetProducer.produce` and can finish with an explicit ext
 handoff. A missing candidate is not a successful produced-file result. Do not enlarge
 every producer into a prompt manager or general authoring interface.
 
-The intended contract shape is small; these are design signatures, not a shipped
-Python API or frozen serialization schema:
+The contract shape remains small; these signatures summarize the current package
+ports and results rather than freezing their serialized command schema:
 
 ```python
 run_pipeline(request, *, producer, godot, files) -> PipelineResult
@@ -177,6 +181,9 @@ AssetProducer.produce(request, workspace) -> ProducedFiles
 GodotAssetPort.import_assets(request) -> ImportOutcome
 GodotAssetPort.check_load(request) -> LoadObservation
 GodotAssetPort.inspect_model(request) -> ModelFacts
+GodotRefreshPort.inspect_content(request) -> ImportedContent
+GodotRefreshPort.observe_content(request) -> InstanceContent
+GodotRefreshPort.status/stop/start/wait_ready/capture(request) -> lifecycle facts
 ```
 
 Application owns these required contracts. A producer returns files with roles,
@@ -330,6 +337,14 @@ result is bounded per invocation; it adds no persisted run or source identity mo
 expectations, native or supplied-report evaluation, bounded partial verdicts, and
 compatible baseline comparison. Its user contract is documented in
 [the model checks guide](checks.md); it adds no registry or run history.
+[#890](https://github.com/aigengame/godot-agent/issues/890) adds imported and live
+static-content fact operations plus controlled stop/start/readiness composition and
+selected-instance comparison. Its user contract is documented in
+[the runtime refresh guide](runtime-refresh.md). Native conformance cases in
+`tests/asset_pipeline/test_e2e_runtime_refresh.py` cover stale content, same-path
+replacement, independent geometry/material changes, and capture correlation;
+`tests/resource/test_e2e_model_content_lods.py` guards the LOD refusal. Delivery
+and CI status remain owned by #890.
 
 ## Research basis and retained limits
 

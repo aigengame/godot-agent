@@ -5,6 +5,19 @@ from pathlib import Path
 from gda_assets.application.check import check_model as _check_model
 from gda_assets.application.ports import ModelInspectionPort
 from gda_assets.application.ports import GodotImportObservationPort
+from gda_assets.application.ports import GodotRefreshPort
+from gda_assets.domain.refresh import (
+    RefreshRequest,
+    RefreshResult,
+    ModelContent,
+    ImportedContent,
+    InstanceContent,
+    SessionState,
+    CaptureObservation,
+    StopObservation,
+    StartObservation,
+    ReadyObservation,
+)
 from gda_assets.domain.observations import (
     CollectionRequest,
     ContentObservations,
@@ -40,6 +53,17 @@ from gda_assets.domain.artifacts import (
 from gda_assets.domain.recipe import AssetFile, AssetRecipe, Resize
 
 __all__ = [
+    "RefreshRequest",
+    "RefreshResult",
+    "ModelContent",
+    "ImportedContent",
+    "InstanceContent",
+    "SessionState",
+    "CaptureObservation",
+    "StopObservation",
+    "StartObservation",
+    "ReadyObservation",
+    "GodotRefreshPort",
     "CollectionRequest",
     "ContentObservations",
     "ImportAssetFacts",
@@ -81,6 +105,8 @@ def run_pipeline(
     production: ProductionRequest | None = None,
     collection: CollectionRequest | None = None,
     import_observer: GodotImportObservationPort | None = None,
+    refresh: RefreshRequest | None = None,
+    runtime: GodotRefreshPort | None = None,
 ) -> PipelineResult:
     """Compose local file handling with the host's injected Godot capabilities."""
     from gda_assets.adapters.files import LocalFiles
@@ -103,6 +129,8 @@ def run_pipeline(
         collection=collection,
         import_observer=import_observer,
         observation_files=LocalObservationFiles(project_root) if collection else None,
+        refresh=refresh,
+        runtime=runtime,
     )
 
 

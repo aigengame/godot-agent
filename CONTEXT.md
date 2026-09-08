@@ -357,6 +357,11 @@ stack.
 off-tree: resource/node initializers and custom property metadata can run, but
 the inspected scene is not added to the active tree or played. Its bounded
 report is an engine observation, not a project acceptance verdict.
+`resource inspect-model-content` (#890) uses the same off-tree load boundary to
+produce a bounded static-content digest for a project-owned imported GLB;
+`game inspect-model-content` applies the same sampler to an existing live node
+without reloading it from disk. [Static model content sampling](docs/model-content.md)
+owns their admitted content, limits, incomplete-result, and identity semantics.
 `gda resource import-options` (#888) uses an isolated empty project to parse a
 sidecar with ConfigFile; it starts no target code or import pass. `resource reimport`
 composes that query, source-adjacent configuration edits, the existing project-wide

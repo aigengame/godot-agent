@@ -454,6 +454,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | `resource delete` | Delete a `.tres` resource file and report what was removed. |
 | `resource uid` | Resolve a resource UID ↔ its `res://` path in both directions. |
 | `resource import` | Ensure assets are imported into the project cache (clean-worktree loading). |
+| `resource inspect-model-content` | Digest bounded, supported static content from an imported GLB for comparison with a running instance. |
 
 **`export`** — export presets and artifacts
 
@@ -481,13 +482,15 @@ names the file, and only `preflight` catches a first-frame failure.
 
 | Command | What it does |
 | ------- | ------------ |
-| `asset-pipeline run` | Export a saved Blender subtree or stage PNG/GLB files, then install, import and check the actual Godot-loaded result. Optionally collect selected disk/import hashes with explicit coverage. |
+| `asset-pipeline run` | Export a saved Blender subtree or stage PNG/GLB files, then install, import and check the actual Godot-loaded result. Optionally collect selected disk/import hashes or reset a test scene and compare one running GLB instance. |
 | `asset-pipeline check` | Evaluate project model expectations and compare compatible Godot inspection reports. Read the content verdict; completed checks exit 0. |
 
 Use explicit source-to-target mappings and an overwrite policy. Completed
 image-generation files use the same path with optional caller-declared metadata.
-The [asset pipeline guide](libs/gda-assets/README.md) covers Blender production, file inputs, references and
-partial failures. The workflow ships with gda; it needs no separate asset tool.
+The [asset pipeline guide](libs/gda-assets/README.md) covers Blender production, file inputs, references,
+runtime refresh and partial failures. A refresh discards runtime state and requires an explicit scene and
+instance path. The [static model content guide](docs/model-content.md) defines the two underlying fact commands
+and their shared measurement. The workflow ships with gda; it needs no separate asset tool.
 
 ### Live commands — via `gda-daemon`; Godot 4.6+, macOS/Linux
 
@@ -508,6 +511,7 @@ partial failures. The workflow ships with gda; it needs no separate asset tool.
 | ------- | ------------ |
 | `game tree` | Read the running game's runtime scene tree (after `_ready`). |
 | `game get` | Read a runtime node's live properties by node path; explicit names can address attached-script variables. |
+| `game inspect-model-content` | Digest bounded, supported static content below a selected runtime model instance. |
 | `game rect` | Read a runtime Control's rendered viewport rect by node path. |
 | `game set` | Set a runtime node property, or an explicitly named attached-script variable, on the running game; `verified` reports whether the read-back matched. |
 | `game call` | Invoke one method the node's script declares in `GDA_CALLABLE` — the project's own read-only promise, which gda cannot verify — and project what it returns; nothing undeclared is ever called. |
@@ -591,7 +595,7 @@ project is trusted ([ADR-0009](docs/adr/0009-trust-boundary-trusted-project.md))
 - **Autoloads** start on every `--project` operation that boots the engine, read-only ones
   included (a cached `resource import` boots nothing).
 - **Scene scripts' `_init`** runs wherever a scene is instantiated: every mutating `node`
-  command, `node get`, `resource inspect-model`, `asset-pipeline check --path`,
+  command, `node get`, `resource inspect-model`, `resource inspect-model-content`, `asset-pipeline check --path`,
   and the GLB load check in `asset-pipeline run`;
   `scene get` / `scene list` / `node list` read without instantiating.
 - **`script run`** executes the named script in full; **`scene preflight`** boots the scene

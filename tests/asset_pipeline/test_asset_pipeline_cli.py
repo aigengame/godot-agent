@@ -161,8 +161,11 @@ def test_relative_sources_need_an_explicit_base_independent_of_cwd(
         production=None,
         collection=None,
         import_observer=None,
+        refresh=None,
+        runtime=None,
     ):
         assert collection is None and import_observer is None
+        assert refresh is None and runtime is None
         assert production is None
         calls.append((recipe.files[0].source, source_root, project_root))
         return PipelineResult(source_mode=recipe.source_mode)
@@ -274,8 +277,11 @@ def test_argv_and_params_json_build_the_same_recipe(monkeypatch, tmp_path):
         production=None,
         collection=None,
         import_observer=None,
+        refresh=None,
+        runtime=None,
     ):
         assert collection is None and import_observer is None
+        assert refresh is None and runtime is None
         assert production is None
         calls.append((recipe, source_root, project_root))
         return PipelineResult(
@@ -484,8 +490,11 @@ def test_production_binding_requires_json_and_structured_input_matches(
         production=None,
         collection=None,
         import_observer=None,
+        refresh=None,
+        runtime=None,
     ):
         assert collection is None and import_observer is None
+        assert refresh is None and runtime is None
         calls.append(production)
         return PipelineResult(source_mode="blender_saved")
 

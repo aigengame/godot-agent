@@ -5,6 +5,7 @@ from typing import Any
 
 from gda_assets.domain.recipe import Resize
 from gda_assets.domain.observations import ContentObservations
+from gda_assets.domain.refresh import RefreshResult
 
 
 @dataclass(frozen=True)
@@ -49,3 +50,4 @@ class PipelineResult:
     production: dict[str, Any] | None = None
     cleanup: dict[str, bool] | None = None
     content_observations: ContentObservations | None = None
+    refresh: RefreshResult | None = None

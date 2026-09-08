@@ -40,6 +40,13 @@ local JSON file, and `--declared-output-sha256` checks caller-declared output ha
 before import. See the [content observations guide](docs/observations.md) for the
 command examples, result semantics, failure behavior, and limits.
 
+Add `--refresh` to reset an explicit test scene after install, import, and load,
+then compare one selected running GLB instance with the imported result. Runtime
+state is discarded. Optional capture requires a windowed launch. See the
+[runtime refresh guide](docs/runtime-refresh.md) for the request, supported model
+content, stage results, and evidence limits. The two underlying fact commands share
+the measurement documented in the [static model content guide](../../docs/model-content.md).
+
 ## File sets and processing
 
 A handoff contains one to 32 explicit mappings. PNG resizing accepts positive
