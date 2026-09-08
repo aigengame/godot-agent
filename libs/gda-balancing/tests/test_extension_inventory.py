@@ -776,8 +776,7 @@ def test_machine_reference_and_schema_equality_laws_require_every_occurrence(
     selected = next(
         o
         for o in inventory.occurrences
-        if o.token.role == role
-        and o.pointer.endswith(pointer_suffix)
+        if o.token.role == role and o.pointer.endswith(pointer_suffix)
     )
     remaining = tuple(o for o in inventory.occurrences if o.pointer != selected.pointer)
     incomplete = replace(
@@ -808,4 +807,155 @@ def test_declared_runtime_effects_are_owned_names_and_diagnostics_keep_stage_syn
         gap.reason == "nested language.reasons roles are not yet traversed"
         for gap in inventory.uncovered
     )
-    assert any("signal" in gap.reason for gap in inventory.uncovered)
+    assert not any("signal" in gap.reason for gap in inventory.uncovered)
+
+
+def test_primitive_signal_reservation_does_not_capture_same_spelling_other_roles(
+    witness,
+):
+    from schema2_bootstrap_conformance_support import _bind_package_vector_set
+    from schema2_bootstrap_production_support import _reidentify_graph_root
+
+    kernel, language = mutable_authorities()
+    owner = next(
+        p
+        for p in language["language"]["packages"]
+        if p["id"] == "standard.conformance.structured"
+    )
+    closure = {
+        row["authority_path"]: row["definitions"] for row in owner["semantic_closure"]
+    }
+    owner["exports"]["reasons"].append("step-limit")
+    owner["exports"]["diagnostics"].append("inventory.signal-role")
+    closure["language.reasons"].append(
+        {
+            "id": "step-limit",
+            "diagnostic": "inventory.signal-role",
+            "stage": "approval",
+            "signal": "step-limit",
+            "predicate": {"operation": "not-equal"},
+        }
+    )
+    closure["diagnostics"].append(
+        {"code": "inventory.signal-role", "stage": "approval"}
+    )
+    vectors = next(
+        row
+        for row in language.package_conformance_vector_sets
+        if row["package_id"] == owner["id"]
+    )
+    for matched in (False, True):
+        name = "inventory.signal-role." + str(matched).lower()
+        vectors["vectors"].append(name)
+        vectors["vector_definitions"].append(
+            {
+                "id": name,
+                "reason": "step-limit",
+                "diagnostic": "inventory.signal-role",
+                "stage": "approval",
+                "input": {"actual": int(matched), "expected": 0},
+                "matched": matched,
+            }
+        )
+    _bind_package_vector_set(owner, vectors)
+    _reidentify_graph_root(language)
+    a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
+    assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
+    graph = {
+        "packages": language.package_releases,
+        "ldb_root": language.root,
+        "vector_sets": language.package_conformance_vector_sets,
+    }
+    inventory = read_extension_inventory(kernel, graph)
+    assert (
+        AuthorityToken("diagnostic-signal", ("runtime",), "step-limit")
+        in inventory.reserved
+    )
+    assert (
+        AuthorityToken("diagnostic-signal", ("approval",), "step-limit")
+        in inventory.tokens - inventory.reserved
+    )
+    assert (
+        AuthorityToken("language.reasons", (), "step-limit")
+        in inventory.tokens - inventory.reserved
+    )
+
+
+def test_type_id_projection_edges_preserve_all_actual_nominal_owners(witness):
+    from schema2_bootstrap_production_support import (
+        _append_empty_namespace,
+        _reidentify_graph_root,
+    )
+
+    kernel, language = mutable_authorities()
+    original = next(
+        p
+        for p in language["language"]["packages"]
+        if p["id"] == "standard.conformance.structured"
+    )
+    package = _append_empty_namespace(language, "inventory.otheritems")
+    package["runtime_semantic_paths"] = ["language.nominal_types"]
+    package["dependencies"]["required"] = ["core.quantity", "standard.schema"]
+    exported = deepcopy(
+        next(t for t in original["exports"]["types"] if t["id"] == "IntList4")
+    )
+    nominal = deepcopy(
+        next(
+            d
+            for c in original["semantic_closure"]
+            if c["authority_path"] == "language.nominal_types"
+            for d in c["definitions"]
+            if d["id"] == "IntList4"
+        )
+    )
+    nominal["definition"]["maximum_length"] = 2
+    package["exports"]["types"].append(exported)
+    package["exports"]["nominal_types"].append("IntList4")
+    next(
+        c
+        for c in package["semantic_closure"]
+        if c["authority_path"] == "language.nominal_types"
+    )["definitions"].append(nominal)
+    _reidentify_graph_root(language)
+    a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
+    assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
+    graph = {
+        "packages": language.package_releases,
+        "ldb_root": language.root,
+        "vector_sets": language.package_conformance_vector_sets,
+    }
+    inventory = read_extension_inventory(kernel, graph)
+    owners = {
+        AuthorityToken("type", (name,), "IntList4")
+        for name in ("standard.conformance.structured", "inventory.otheritems")
+    }
+    assert owners <= inventory.tokens
+    by_pointer = {}
+    for occurrence in inventory.occurrences:
+        if occurrence.pointer.endswith("/owner_type") and occurrence.token in owners:
+            by_pointer.setdefault(occurrence.pointer, set()).add(occurrence.token)
+    assert by_pointer and all(tokens == owners for tokens in by_pointer.values())
+    actual_pointer = next(iter(by_pointer))
+    withheld = next(
+        o
+        for o in inventory.occurrences
+        if o.pointer == actual_pointer and o.token in owners
+    )
+    incomplete = replace(
+        inventory, occurrences=tuple(o for o in inventory.occurrences if o != withheld)
+    )
+    with pytest.raises(InventoryRefusal):
+        validate_extension_inventory(kernel, graph, incomplete)
+    assert not any(
+        gap.reason == "Operation owner_type links are not yet complete"
+        for gap in inventory.uncovered
+    )
+    pairs = token_bijection_from_names(
+        inventory,
+        {
+            token: "name_" + str(i)
+            for i, token in enumerate(sorted(inventory.tokens - inventory.reserved))
+        },
+    )
+    with pytest.raises(InventoryRefusal, match="shared authored reference"):
+        validate_token_bijection(inventory, pairs)

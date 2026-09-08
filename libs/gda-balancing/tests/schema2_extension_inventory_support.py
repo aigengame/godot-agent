@@ -354,7 +354,9 @@ class _Reader:
         }
         self.tokens: set[AuthorityToken] = set()
         self.occurrences: set[TokenOccurrence] = set()
-        self.occurrence_positions: set[tuple[AuthorityToken, str, str, str, str]] = set()
+        self.occurrence_positions: set[tuple[AuthorityToken, str, str, str, str]] = (
+            set()
+        )
         self.uncovered: set[UncoveredRole] = set()
         self.reserved: set[AuthorityToken] = set()
         self.definitions: dict[tuple[str, str, str], tuple[Any, str]] = {}
@@ -760,6 +762,61 @@ class _Reader:
         # A canonical Ref key is authored instance data; its target Type was
         # traversed above. Equal spelling does not make the key an Enum label.
 
+    def type_identity_edges(self) -> None:
+        """Follow authored Type-id selectors without inventing a nominal owner."""
+        self.type_edge_occurrences: set[str] = set()
+        for (_, role, _), (lowering, pointer) in self.definitions.items():
+            if role != "language.model_lowerings":
+                continue
+            projection = lowering["runtime_projection"]
+            collections = {row["id"]: row for row in projection["collections"]}
+            for ei, edge in enumerate(projection["edges"]):
+                source = collections[edge["source_collection"]]["source"]
+                target = collections[edge["target_collection"]]["source"]
+                if (
+                    source["kind"] != "namespace-member"
+                    or source["member"] != "types"
+                    or edge["source_path"] != ["id"]
+                ):
+                    continue
+                if target["kind"] != "semantic-closure" or edge["operator"] != "equal":
+                    raise InventoryRefusal(
+                        "Type identity edge has an unsupported target law"
+                    )
+                for (owner, target_role, _), (
+                    definition,
+                    dp,
+                ) in self.definitions.items():
+                    if target_role != target["authority_path"]:
+                        continue
+                    for name, occurrence in _walk_member_path(
+                        definition, dp, edge["target_path"]
+                    ):
+                        matches = [
+                            coordinate
+                            for coordinate in self.types
+                            if coordinate[1] == name
+                            and (not edge["same_package"] or coordinate[0] == owner)
+                        ]
+                        if not matches:
+                            if edge.get("missing_target") != "not-applicable":
+                                raise InventoryRefusal(
+                                    "Type identity selector has no provider"
+                                )
+                            self.gap(
+                                occurrence,
+                                pointer + "/runtime_projection/edges/" + str(ei),
+                                "Type identity selector has no declared matching owner",
+                            )
+                        for coordinate in matches:
+                            self.occurrence(
+                                AuthorityToken("type", coordinate[:1], coordinate[1]),
+                                occurrence,
+                                "reference",
+                                pointer + "/runtime_projection/edges/" + str(ei),
+                            )
+                            self.type_edge_occurrences.add(occurrence)
+
     def metadata_links(self) -> None:
         for owner, name, pointer, target, law in _declared_metadata_links(
             self.kernel, self.graph
@@ -888,11 +945,28 @@ class _Reader:
                         "reason predicate limit is not a declared resource"
                     )
             if "signal" in value:
-                self.gap(
-                    pointer + "/signal",
-                    "/meta_format/diagnostic_reason",
-                    "primitive signal versus authored signal identity is not yet classified",
+                token = AuthorityToken(
+                    "diagnostic-signal", (value["stage"],), value["signal"]
                 )
+                self.occurrence(
+                    token,
+                    pointer + "/signal",
+                    "declaration",
+                    "/meta_format/diagnostic_reason",
+                )
+                primitive_signals = {
+                    ("runtime", signal)
+                    for node in self.meta["runtime_program"]["nodes"]
+                    for signal in node.get("refusals", [])
+                } | {
+                    (root["stage"], root["signal"])
+                    for root in self.meta["runtime_projection"]["execution_closure"][
+                        "reasons"
+                    ]["roots"]
+                    if "stage" in root and "signal" in root
+                }
+                if (value["stage"], value["signal"]) in primitive_signals:
+                    self.reserved.add(token)
             return True
         if role == "language.literal_typing_profiles":
             if value.get("source_kind") == "typed-envelope":
@@ -1168,6 +1242,11 @@ class _Reader:
             "owner_type",
             "extensions",
         ):
+            if (
+                member == "owner_type"
+                and pointer + "/owner_type" in self.type_edge_occurrences
+            ):
+                continue
             if member in operation and operation[member]:
                 self.gap(
                     pointer + "/" + member,
@@ -1797,6 +1876,7 @@ class _Reader:
         self.index()
         self.operation_operand_projection()
         self.metadata_links()
+        self.type_identity_edges()
         self.packages()
         self.source()
         declarations = {o.token for o in self.occurrences if o.use == "declaration"}
@@ -1867,6 +1947,15 @@ def validate_token_bijection(
         for source, target in pairs
     ):
         raise InventoryRefusal("token role or owner changed inconsistently")
+    shared_positions: dict[tuple[str, str, str], set[str]] = {}
+    for occurrence in inventory.occurrences:
+        target = correspondence.get(occurrence.token, occurrence.token)
+        position = (occurrence.pointer, occurrence.location, occurrence.projection)
+        shared_positions.setdefault(position, set()).add(target.name)
+    if any(len(names) != 1 for names in shared_positions.values()):
+        raise InventoryRefusal(
+            "bijection splits one shared authored reference occurrence"
+        )
     inventory.require_complete()
 
 
@@ -2073,6 +2162,46 @@ def validate_extension_inventory(
         required.add((token, pointer, "reference"))
         if target.startswith("kernel.") and token not in inventory.reserved:
             raise InventoryRefusal("declared Kernel primitive was made renameable")
+    exported_types = [
+        (package["id"], exported["id"])
+        for package in graph["packages"]
+        for exported in package["exports"]["types"]
+    ]
+    for _, lowering, lp in _authority_path_rows(
+        kernel, graph, "language_bundle.language.model_lowerings"
+    ):
+        projection = lowering["runtime_projection"]
+        collections = {row["id"]: row["source"] for row in projection["collections"]}
+        for edge in projection["edges"]:
+            origin, destination = (
+                collections[edge["source_collection"]],
+                collections[edge["target_collection"]],
+            )
+            if (
+                origin["kind"] != "namespace-member"
+                or origin["member"] != "types"
+                or edge["source_path"] != ["id"]
+            ):
+                continue
+            if destination["kind"] != "semantic-closure":
+                raise InventoryRefusal("unclassified Type identity edge destination")
+            for package, definition, dp in _authority_path_rows(
+                kernel, graph, "language_bundle." + destination["authority_path"]
+            ):
+                for name, pointer in _walk_member_path(
+                    definition, dp, edge["target_path"]
+                ):
+                    for namespace, type_id in exported_types:
+                        if name == type_id and (
+                            not edge["same_package"] or namespace == package
+                        ):
+                            required.add(
+                                (
+                                    AuthorityToken("type", (namespace,), type_id),
+                                    pointer,
+                                    "reference",
+                                )
+                            )
     for pi, package in enumerate(graph["packages"]):
         owner, pp = package["id"], f"/packages/{pi}"
         required.add(
@@ -2398,6 +2527,8 @@ def _renamed_owner(
 
     if not token.owner:
         return ()
+    if token.role == "diagnostic-signal":
+        return token.owner  # Stage is the Kernel refusal-stage enum, not a namespace.
     if token.role.startswith("source-"):
         model = name(AuthorityToken("source-model", (), token.owner[0]))
         if len(token.owner) == 1:
