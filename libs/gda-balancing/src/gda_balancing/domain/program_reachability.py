@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, cast
 
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
@@ -16,22 +17,14 @@ from gda_balancing.domain.operation_program import (
 )
 
 
-LIFECYCLE_PHASES = ("initialization", "event", "observation")
-
-
-@dataclass(frozen=True)
-class LifecycleFormulaPrograms:
-    """Reachable Formula programs grouped by their admitted lifecycle phase."""
-
-    initialization: tuple[dict[str, Any], ...]
-    event: tuple[dict[str, Any], ...]
-    observation: tuple[dict[str, Any], ...]
-
-    def for_phase(self, phase: str) -> tuple[dict[str, Any], ...]:
-        """Return the reachable Formula programs for one lifecycle phase."""
-        if phase not in LIFECYCLE_PHASES:
-            raise ValueError(f"unsupported Formula lifecycle phase: {phase}")
-        return cast(tuple[dict[str, Any], ...], getattr(self, phase))
+def formula_lifecycle_phases(runtime: Mapping[str, Any]) -> tuple[str, str, str]:
+    """Read initialization, active Event, and observation from their law owners."""
+    configuration = runtime["runtime_configuration"]
+    return (
+        configuration["formula_initialization_phase"],
+        configuration["lifecycle_roles"]["active"],
+        runtime["scheduler"]["observation"]["phase"],
+    )
 
 
 @dataclass(frozen=True)
@@ -40,7 +33,7 @@ class ReachableProgramStructure:
 
     operation_coordinates: frozenset[OperationCoordinate]
     runtime_node_ids: frozenset[str]
-    formula_programs: LifecycleFormulaPrograms
+    formula_programs: Mapping[str, tuple[dict[str, Any], ...]]
 
 
 def reachable_formula_programs(
@@ -48,9 +41,10 @@ def reachable_formula_programs(
     selected_entrypoints: Sequence[Mapping[str, Any]],
     *,
     phase: str,
+    runtime: Mapping[str, Any],
 ) -> tuple[dict[str, Any], ...]:
     """Return Formula sites structurally reachable in one lifecycle phase."""
-    if phase not in LIFECYCLE_PHASES:
+    if phase not in formula_lifecycle_phases(runtime):
         raise ValueError(f"unsupported Formula lifecycle phase: {phase}")
     programs = [
         program
@@ -87,6 +81,8 @@ def reachable_formula_programs(
 def project_reachable_program_structure(
     rir: Mapping[str, Any],
     selected_entrypoints: Sequence[Mapping[str, Any]],
+    *,
+    runtime: Mapping[str, Any],
 ) -> ReachableProgramStructure:
     """Project Operation and Formula structure without applying consumer policy."""
     selected = cast(Mapping[str, Any], rir["selected_semantics"])
@@ -109,19 +105,18 @@ def project_reachable_program_structure(
         )
     }
 
-    formula_programs = LifecycleFormulaPrograms(
-        initialization=reachable_formula_programs(
-            rir, selected_entrypoints, phase="initialization"
-        ),
-        event=reachable_formula_programs(rir, selected_entrypoints, phase="event"),
-        observation=reachable_formula_programs(
-            rir, selected_entrypoints, phase="observation"
-        ),
+    formula_programs = MappingProxyType(
+        {
+            phase: reachable_formula_programs(
+                rir, selected_entrypoints, phase=phase, runtime=runtime
+            )
+            for phase in formula_lifecycle_phases(runtime)
+        }
     )
     formula_node_ids = {
         cast(str, row["instruction"]["node"])
-        for phase in LIFECYCLE_PHASES
-        for program in formula_programs.for_phase(phase)
+        for programs in formula_programs.values()
+        for program in programs
         for row in cast(list[dict[str, Any]], program["body"])
     }
     return ReachableProgramStructure(

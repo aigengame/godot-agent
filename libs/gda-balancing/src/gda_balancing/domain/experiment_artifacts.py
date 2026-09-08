@@ -460,7 +460,9 @@ def _authoritative_event_actual_values(
             cache=None,
             selected_entrypoints=scenario_entrypoints,
             frame_token={"scenario": scenario_id, "recovery": "initialization"},
-            phase="initialization",
+            phase=_runtime_contract(checked)["runtime_configuration"][
+                "formula_initialization_phase"
+            ],
         )
         parent_index = event_index
         for prior_event in sorted(
@@ -498,7 +500,9 @@ def _authoritative_event_actual_values(
             cache=None,
             selected_entrypoints=scenario_entrypoints,
             frame_identity=snapshot_identity,
-            phase="event",
+            phase=_runtime_contract(checked)["runtime_configuration"][
+                "lifecycle_roles"
+            ]["active"],
         )
     except (
         KeyError,
@@ -1393,7 +1397,9 @@ def _terminal_prefix_evidence(
             cache=None,
             selected_entrypoints=selected,
             frame_token={"scenario": scenario_id, "recovery": "initialization"},
-            phase="initialization",
+            phase=_runtime_contract(checked)["runtime_configuration"][
+                "formula_initialization_phase"
+            ],
         )
         state = {
             name: actual_values[identity]
@@ -1470,7 +1476,9 @@ def _terminal_prefix_evidence(
                     cache=None,
                     selected_entrypoints=selected,
                     frame_identity=event["snapshot_before_identity"],
-                    phase="event",
+                    phase=_runtime_contract(checked)["runtime_configuration"][
+                        "lifecycle_roles"
+                    ]["active"],
                 )
                 arguments = _event_arguments(
                     checked,
@@ -1541,7 +1549,9 @@ def _terminal_prefix_evidence(
                     cache=None,
                     selected_entrypoints=selected,
                     frame_identity=event["snapshot_after_identity"],
-                    phase="observation",
+                    phase=_runtime_contract(checked)["scheduler"]["observation"][
+                        "phase"
+                    ],
                 )
             except _InitializationProgramFault as fault:
                 if (
@@ -2005,7 +2015,9 @@ def _terminal_audit_is_valid(
                 cache=None,
                 selected_entrypoints=prefix.selected_entrypoints,
                 frame_identity=refusing_event["snapshot_before_identity"],
-                phase="event",
+                phase=_runtime_contract(checked)["runtime_configuration"][
+                    "lifecycle_roles"
+                ]["active"],
             )
         except _InitializationProgramFault as fault:
             formula_fault = fault

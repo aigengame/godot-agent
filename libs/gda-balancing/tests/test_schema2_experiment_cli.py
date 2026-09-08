@@ -4827,6 +4827,9 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
         runtime_limit=exact_charge,
         cache=cache,
         selected_entrypoints=selected_entrypoints,
+        phase=runtime_projection_module.runtime_contract(checked)[
+            "runtime_configuration"
+        ]["formula_initialization_phase"],
     )
     assert consumed == exact_charge
     derived_identity = canonical_bytes(
@@ -4858,6 +4861,9 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
             runtime_limit=exact_charge,
             cache=cache,
             selected_entrypoints=selected_entrypoints,
+            phase=runtime_projection_module.runtime_contract(checked)[
+                "runtime_configuration"
+            ]["formula_initialization_phase"],
         )
         == exact_charge
     )
@@ -4870,6 +4876,9 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
             runtime_limit=exact_charge,
             cache=cache,
             selected_entrypoints=selected_entrypoints,
+            phase=runtime_projection_module.runtime_contract(checked)[
+                "runtime_configuration"
+            ]["formula_initialization_phase"],
         )
         == exact_charge
     )
@@ -4884,6 +4893,9 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
             runtime_limit=exact_charge,
             cache=None,
             selected_entrypoints=selected_entrypoints,
+            phase=runtime_projection_module.runtime_contract(checked)[
+                "runtime_configuration"
+            ]["formula_initialization_phase"],
         )
         == exact_charge
     )
@@ -4943,6 +4955,9 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
             runtime_limit=exact_charge,
             cache=None,
             selected_entrypoints=[cyclic_entrypoint],
+            phase=runtime_projection_module.runtime_contract(cyclic_checked)[
+                "runtime_configuration"
+            ]["formula_initialization_phase"],
         )
 
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
@@ -7772,7 +7787,9 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
         for event in runtime_projection_module.scenario_transition_events(scenario)
     ]
     projected = program_reachability_module.project_reachable_program_structure(
-        checked.rir, selected_entrypoints
+        checked.rir,
+        selected_entrypoints,
+        runtime=runtime_projection_module.runtime_contract(checked),
     )
     assert set(first.value["instruction_nodes"]) == projected.runtime_node_ids
     assert first.value["evaluator_build_identity"] == (
@@ -7804,12 +7821,16 @@ def test_experiment_keeps_required_and_supported_evaluator_policies_separate(
     event = runtime_projection_module.scenario_transition_events(scenario)[0]
     selected_entrypoints = [entrypoints[event["entrypoint"]]]
     baseline = program_reachability_module.project_reachable_program_structure(
-        checked.rir, selected_entrypoints
+        checked.rir,
+        selected_entrypoints,
+        runtime=runtime_projection_module.runtime_contract(checked),
     )
     phase, program = next(
         (phase, programs[0])
-        for phase in program_reachability_module.LIFECYCLE_PHASES
-        if (programs := baseline.formula_programs.for_phase(phase))
+        for phase in program_reachability_module.formula_lifecycle_phases(
+            runtime_projection_module.runtime_contract(checked)
+        )
+        if (programs := baseline.formula_programs[phase])
     )
     added_contract = next(
         row
@@ -7835,12 +7856,14 @@ def test_experiment_keeps_required_and_supported_evaluator_policies_separate(
     selected_nodes.append(deepcopy(added_contract))
     selected_nodes.sort(key=lambda row: row["id"])
     projected = program_reachability_module.project_reachable_program_structure(
-        mutated_rir, selected_entrypoints
+        mutated_rir,
+        selected_entrypoints,
+        runtime=runtime_projection_module.runtime_contract(checked),
     )
     assert added_node in projected.runtime_node_ids
     assert added_node in {
         row["instruction"]["node"]
-        for row in projected.formula_programs.for_phase(phase)[0]["body"]
+        for row in projected.formula_programs[phase][0]["body"]
     }
 
     requirements, _named_streams = (

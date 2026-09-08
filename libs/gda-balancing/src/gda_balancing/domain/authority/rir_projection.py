@@ -9,6 +9,7 @@ from gda_balancing.domain.authority.contract_projection import (
     ordered_protocol_schema,
 )
 from gda_balancing.domain.canonical import canonical_bytes
+from gda_balancing.domain.program_reachability import formula_lifecycle_phases
 
 
 def _object(
@@ -197,29 +198,16 @@ def rir_protocol_schema(
             "resource_bounds"
         ]
     )
-    context_rows = [
-        row["extensions"]["standard.formula"]["contexts"]
-        for row in language["runtime_profiles"]
-        if "standard.formula" in row.get("extensions", {})
-    ]
-    if len(context_rows) != 1:
-        raise ValueError("RIR has no unique Formula lifecycle contexts")
-    contexts = {row["phase"]: row["frame"] for row in context_rows[0]}
     context_schema = {
         "oneOf": [
-            _object({"phase": {"const": phase}, "frame": {"const": frame}})
-            for phase, frame in sorted(contexts.items())
+            _object({"phase": {"const": phase}})
+            for phase in formula_lifecycle_phases(runtime)
         ]
     }
     operation_context = _object(
         {
             "phase": {
                 "const": runtime["runtime_configuration"]["lifecycle_roles"]["active"]
-            },
-            "frame": {
-                "const": contexts[
-                    runtime["runtime_configuration"]["lifecycle_roles"]["active"]
-                ]
             },
         }
     )

@@ -48,7 +48,9 @@ def close_execution_dependencies(
         raise ValueError(
             "execution dependencies must be derived from unsupplemented RIR"
         )
-    program = project_reachable_program_structure(rir, rir["entrypoints"])
+    program = project_reachable_program_structure(
+        rir, rir["entrypoints"], runtime=meta["runtime_program"]
+    )
     typed = any(
         row["definition"]["source_kind"] == "typed-envelope"
         for row in selected["literal_typing_profiles"]

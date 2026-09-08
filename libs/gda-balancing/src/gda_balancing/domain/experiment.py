@@ -377,7 +377,11 @@ def derive_scenario_program_requirements(
         raise ValueError("Scenario Operation is absent from the selected RIR")
     if operation["runtime_profile"] != runtime_profile:
         raise ValueError("Scenario Operation requires another Runtime profile")
-    program_structure = project_reachable_program_structure(rir, [entrypoint])
+    program_structure = project_reachable_program_structure(
+        rir,
+        [entrypoint],
+        runtime=selected["execution_laws"]["runtime_program"],
+    )
     reachable_operations = [
         operations[coordinate] for coordinate in program_structure.operation_coordinates
     ]

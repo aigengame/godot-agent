@@ -651,6 +651,7 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
         reachable = project_reachable_program_structure(
             checked.rir,
             selected_entrypoints,
+            runtime=runtime,
         )
         reachable_nodes.update(reachable.runtime_node_ids)
         reachable_operations.update(reachable.operation_coordinates)

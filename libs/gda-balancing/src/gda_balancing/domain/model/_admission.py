@@ -711,7 +711,7 @@ def _formula_program_graph_is_admitted(
                 )
             },
         }
-        formula_contexts = _formula_contexts(language_bundle)
+        formula_contexts = _formula_contexts(kernel)
     except (KeyError, TypeError, ValueError):
         return False
     if (
@@ -1200,9 +1200,8 @@ def _formula_program_graph_is_admitted(
                 set(site) != {"kind", "context", "resolved_symbol", "identity"}
                 or context_items
                 not in {
-                    tuple(sorted(formula_contexts["initialization"].items())),
-                    tuple(sorted(formula_contexts["event"].items())),
-                    tuple(sorted(formula_contexts["observation"].items())),
+                    tuple(sorted(context.items()))
+                    for context in formula_contexts.values()
                 }
                 or not isinstance(site.get("resolved_symbol"), dict)
             ):
@@ -1260,7 +1259,12 @@ def _formula_program_graph_is_admitted(
         elif site.get("kind") == "operation-slot":
             if (
                 set(site) != {"kind", "operation", "slot", "context", "identity"}
-                or site.get("context") != formula_contexts["event"]
+                or site.get("context")
+                != formula_contexts[
+                    kernel["meta_format"]["runtime_program"]["runtime_configuration"][
+                        "lifecycle_roles"
+                    ]["active"]
+                ]
                 or not isinstance(site.get("operation"), dict)
             ):
                 return False
@@ -1409,7 +1413,7 @@ def _formula_graph_is_admitted(
                 "identity_domains"
             ]["actual_operand"],
         )
-        formula_contexts = _formula_contexts(language_bundle)
+        formula_contexts = _formula_contexts(kernel)
     except (KeyError, TypeError, ValueError):
         return False
     if not isinstance(formulas, list) or not isinstance(bindings, list):
@@ -1497,9 +1501,7 @@ def _formula_graph_is_admitted(
             or site.get("kind") != "derived-symbol"
             or context_items
             not in {
-                tuple(sorted(formula_contexts["initialization"].items())),
-                tuple(sorted(formula_contexts["event"].items())),
-                tuple(sorted(formula_contexts["observation"].items())),
+                tuple(sorted(context.items())) for context in formula_contexts.values()
             }
             or not isinstance(site.get("resolved_symbol"), dict)
             or not isinstance(formula_ref, dict)

@@ -58,7 +58,7 @@ from gda_balancing.domain.runtime.projections import (
     unsupported_evaluator_requirement as _unsupported_evaluator_requirement,
 )
 from gda_balancing.domain.program_reachability import (
-    LIFECYCLE_PHASES,
+    formula_lifecycle_phases,
     reachable_formula_programs,
 )
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
@@ -466,27 +466,6 @@ class _NamedRng:
         return minimum + mixed % (maximum - minimum + 1), index, mixed, True
 
 
-def _formula_snapshot_identity_domain(checked: CheckedExperiment) -> str:
-    profile_id = checked.value["runtime"]["profile"]
-    definition = next(
-        row
-        for row in checked.rir["selected_semantics"]["runtime_profiles"]
-        if row["id"] == profile_id
-    )
-    extensions = definition.get("extensions")
-    formula = (
-        extensions.get("standard.formula") if isinstance(extensions, dict) else None
-    )
-    domain = (
-        formula.get("snapshot_identity_domain") if isinstance(formula, dict) else None
-    )
-    if not isinstance(domain, str) or not domain:
-        raise ValueError("Runtime profile declares no Formula Snapshot identity domain")
-    if domain != _scheduler_contract(checked)["snapshot_identity"]["domain"]:
-        raise ValueError("Runtime profile and Kernel disagree on Snapshot identity")
-    return domain
-
-
 def _check_evaluator_requirements(
     checked: CheckedExperiment, evaluator: PublicationMember
 ) -> Schema2RefusalReport | None:
@@ -656,6 +635,7 @@ def _evaluate_formula_program(
     runtime_nodes: dict[str, dict[str, Any]],
     frame_identity: str,
     phase: str,
+    lifecycle_phases: tuple[str, ...],
     consumed_steps: int,
     runtime_limit: int,
     cache: dict[bytes, int] | None,
@@ -670,7 +650,7 @@ def _evaluate_formula_program(
     if (
         not isinstance(site, dict)
         or not isinstance(site.get("context"), dict)
-        or phase not in LIFECYCLE_PHASES
+        or phase not in lifecycle_phases
         or site["context"].get("phase") != phase
         or not isinstance(frame_identity, str)
         or not frame_identity
@@ -801,13 +781,14 @@ def _evaluate_initialization_programs(
     selected_entrypoints: Sequence[dict[str, Any]],
     frame_token: JsonValue | None = None,
     frame_identity: str | None = None,
-    phase: str = "initialization",
+    phase: str,
 ) -> int:
     """Evaluate closed generic programs in one authority-owned lifecycle frame."""
     programs = reachable_formula_programs(
         checked.rir,
         selected_entrypoints,
         phase=phase,
+        runtime=_runtime_contract(checked),
     )
     if not programs:
         return consumed_steps
@@ -841,7 +822,7 @@ def _evaluate_initialization_programs(
     numeric = cast(dict[str, Any], _runtime_contract(checked)["numeric"])
     runtime_nodes = _runtime_nodes(checked)
     if frame_identity is None:
-        if phase != "initialization":
+        if phase != formula_lifecycle_phases(_runtime_contract(checked))[0]:
             raise ValueError(
                 "observation requires an exact committed Snapshot identity"
             )
@@ -890,6 +871,7 @@ def _evaluate_initialization_programs(
                 runtime_nodes=runtime_nodes,
                 frame_identity=frame_identity,
                 phase=phase,
+                lifecycle_phases=formula_lifecycle_phases(_runtime_contract(checked)),
                 consumed_steps=consumed_steps,
                 runtime_limit=runtime_limit,
                 cache=cache,
@@ -1001,7 +983,6 @@ def evaluate_prepared_experiment(
     )
     runtime_bounds = cast(dict[str, int], runtime_profile["resource_bounds"])
     _runtime_execution_contract(checked)
-    _formula_snapshot_identity_domain(checked)
     operations = selected_operation_index(checked.rir["selected_semantics"])
     entrypoints = {row["id"]: row for row in checked.rir["entrypoints"]}
     declarations = {
@@ -1170,7 +1151,9 @@ def evaluate_prepared_experiment(
                     "scenario": scenario["id"],
                     "snapshot_index": len(snapshots),
                 },
-                phase="initialization",
+                phase=_runtime_contract(checked)["runtime_configuration"][
+                    "formula_initialization_phase"
+                ],
             )
         except _InitializationProgramFault as fault:
             reason = _reason_for_signal(checked, fault.signal, "runtime")
@@ -2023,7 +2006,9 @@ def evaluate_prepared_experiment(
                         cache=initialization_cache,
                         selected_entrypoints=scenario_entrypoints,
                         frame_identity=current_snapshot_identity,
-                        phase="event",
+                        phase=_runtime_contract(checked)["runtime_configuration"][
+                            "lifecycle_roles"
+                        ]["active"],
                     )
                 except _InitializationProgramFault as fault:
                     total_steps = fault.consumed_steps
@@ -2341,7 +2326,9 @@ def evaluate_prepared_experiment(
                     cache=initialization_cache,
                     selected_entrypoints=scenario_entrypoints,
                     frame_identity=snapshot_identity,
-                    phase="observation",
+                    phase=_runtime_contract(checked)["scheduler"]["observation"][
+                        "phase"
+                    ],
                 )
             except _InitializationProgramFault as fault:
                 total_steps = fault.consumed_steps

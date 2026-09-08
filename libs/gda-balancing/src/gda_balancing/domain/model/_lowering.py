@@ -675,7 +675,7 @@ def _resolved_formula_programs_and_bindings_impl(
         for declaration in declarations
     }
     domains = cast(dict[str, str], policy["identity_domains"])
-    formula_contexts = _formula_contexts(checked.language_bundle)
+    formula_contexts = _formula_contexts(checked.kernel)
     actual_operand_domain = cast(
         str,
         checked.kernel["meta_format"]["runtime_program"]["invocation_contract"][
@@ -1393,7 +1393,7 @@ def _resolved_formula_programs_and_bindings_impl(
                     ),
                     formula_contexts[phase],
                 )
-                for phase in ("initialization", "event", "observation")
+                for phase in formula_contexts
             ]
         elif source_site.get("kind") == "operation-slot":
             source_operation = cast(dict[str, Any], source_site.get("operation"))
@@ -1416,7 +1416,14 @@ def _resolved_formula_programs_and_bindings_impl(
                     "Formula Operation slot is bound more than once",
                 )
             operation, slot, operation_identity = selected_slot
-            if slot.get("context") != formula_contexts["event"]:
+            if (
+                slot.get("context")
+                != formula_contexts[
+                    checked.kernel["meta_format"]["runtime_program"][
+                        "runtime_configuration"
+                    ]["lifecycle_roles"]["active"]
+                ]
+            ):
                 raise _FormulaResolutionError(
                     _FORMULA_REASON["context-mismatch"],
                     f"{binding_pointer}/site",

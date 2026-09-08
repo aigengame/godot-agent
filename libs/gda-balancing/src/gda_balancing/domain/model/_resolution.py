@@ -37,6 +37,7 @@ from gda_balancing.domain.formula.notation import (
     admit_formula_pair,
 )
 from gda_balancing.domain.operation_program import closed_operation_coordinates
+from gda_balancing.domain.program_reachability import formula_lifecycle_phases
 from gda_balancing.domain.model._preparation import _TypedHIR
 
 _RESOLVER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-exact-resolver-v1"
@@ -264,35 +265,11 @@ def _operation_formula_slots(
     return cast(list[dict[str, Any]], slots)
 
 
-def _formula_contexts(language_bundle: dict[str, Any]) -> dict[str, dict[str, str]]:
-    profiles = cast(
-        list[dict[str, Any]], _language(language_bundle)["runtime_profiles"]
-    )
-    candidates: list[dict[str, dict[str, str]]] = []
-    for profile in profiles:
-        extensions = profile.get("extensions")
-        formula = (
-            extensions.get("standard.formula") if isinstance(extensions, dict) else None
-        )
-        contexts = formula.get("contexts") if isinstance(formula, dict) else None
-        if not isinstance(contexts, list):
-            continue
-        by_phase: dict[str, dict[str, str]] = {}
-        for context in contexts:
-            if not isinstance(context, dict):
-                continue
-            phase = context.get("phase")
-            frame = context.get("frame")
-            if isinstance(phase, str) and isinstance(frame, str):
-                by_phase[phase] = {"phase": phase, "frame": frame}
-        candidates.append(by_phase)
-    if len(candidates) != 1 or set(candidates[0]) != {
-        "initialization",
-        "event",
-        "observation",
-    }:
-        raise ValueError("the admitted Runtime profile has no unique Formula contexts")
-    return candidates[0]
+def _formula_contexts(kernel: dict[str, Any]) -> dict[str, dict[str, str]]:
+    return {
+        phase: {"phase": phase}
+        for phase in formula_lifecycle_phases(kernel["meta_format"]["runtime_program"])
+    }
 
 
 def _operation_reference_node_ids(kernel: dict[str, Any]) -> set[str]:

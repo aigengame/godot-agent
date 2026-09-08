@@ -16,7 +16,10 @@ from gda_balancing.domain.operation_program import (
     operation_body_instructions,
     selected_operation_index,
 )
-from gda_balancing.domain.program_reachability import reachable_formula_programs
+from gda_balancing.domain.program_reachability import (
+    formula_lifecycle_phases,
+    reachable_formula_programs,
+)
 from gda_balancing.domain.runtime.projections import (
     operation_formula_evaluation_record,
     resolved_display_names,
@@ -479,11 +482,14 @@ def evaluate_initialization_programs(
     selected_entrypoints: Sequence[dict[str, Any]],
     frame_token: JsonValue | None = None,
     frame_identity: str | None = None,
-    phase: str = "initialization",
+    phase: str,
 ) -> int:
     """Independently replay closed Formula initialization programs."""
     programs = reachable_formula_programs(
-        checked.rir, selected_entrypoints, phase=phase
+        checked.rir,
+        selected_entrypoints,
+        phase=phase,
+        runtime=runtime_contract(checked),
     )
     if not programs:
         return consumed_steps
@@ -514,7 +520,7 @@ def evaluate_initialization_programs(
     numeric = cast(dict[str, Any], runtime_contract(checked)["numeric"])
     node_contracts = runtime_nodes(checked)
     if frame_identity is None:
-        if phase != "initialization":
+        if phase != formula_lifecycle_phases(runtime_contract(checked))[0]:
             raise ValueError(
                 "observation requires an exact committed Snapshot identity"
             )
