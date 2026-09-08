@@ -3,7 +3,11 @@
 from copy import deepcopy
 from typing import Any
 
-from gda_balancing.domain.authority.contract_projection import _contract_schema
+from gda_balancing.domain.authority.contract_projection import (
+    _contract_schema,
+    _candidate_hex_pattern,
+)
+from gda_balancing.domain.canonical import canonical_bytes
 
 
 def _record(members: list[str], fields: dict[str, Any]) -> dict[str, Any]:
@@ -68,7 +72,30 @@ def trace_protocol_schema(kernel: dict[str, Any], artifact_kind: str) -> dict[st
         supply(fields[member]["items"], {"value": runtime_value})
     for member in ("calls", "schedules"):
         supply(fields[member]["items"], {"operation": coordinate})
+    rng = runtime["named_rng"]
+    draws = fields["rng_draws"]["items"]
+    if "required_members" in draws:
+        raise ValueError("Trace structure duplicates named RNG trace members")
+    draws["required_members"] = rng["trace_members"]
+    encoding = rng["candidate_encoding"]
+    supply(
+        draws,
+        {
+            "candidate_hex": {
+                "type": "string",
+                "maxLength": encoding["width_bits"] // 4,
+                "pattern": _candidate_hex_pattern(encoding),
+            }
+        },
+    )
+    symbol_owners = meta["fact"]["field_contracts"]
+    quantity_target = symbol_owners["quantity-symbol"]["resolved_symbol"]
+    structured_target = symbol_owners["structured-symbol"]["resolved_symbol"]
+    if canonical_bytes(quantity_target) != canonical_bytes(structured_target):
+        raise ValueError("Trace state targets have incompatible resolved-symbol owners")
+    target = {"closed": True, **quantity_target}
     schedules = fields["schedules"]["items"]
+    supply(schedules["field_types"]["state_references"]["items"], {"target": target})
     supply(schedules, {"ordering_key": ordering_key})
     supply(schedules["field_types"]["arguments"]["items"], {"value": runtime_value})
     formula_context = fields["formula_evaluations"]["items"]["field_types"]["context"]
@@ -100,12 +127,14 @@ def trace_protocol_schema(kernel: dict[str, Any], artifact_kind: str) -> dict[st
         },
     )
     schema = _contract_schema(envelope)
-    return {
-        "$schema": meta["language_definitions"]["collections"]["artifact_wire_schemas"][
-            "field_types"
-        ]["schema"]["dialect"],
-        **schema,
-    }
+    return deepcopy(
+        {
+            "$schema": meta["language_definitions"]["collections"][
+                "artifact_wire_schemas"
+            ]["field_types"]["schema"]["dialect"],
+            **schema,
+        }
+    )
 
 
 def project_trace_schema(kernel: dict[str, Any], language: dict[str, Any]) -> None:

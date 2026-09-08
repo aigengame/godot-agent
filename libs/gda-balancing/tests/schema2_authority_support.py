@@ -5,6 +5,7 @@ from typing import Any
 
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.authority.graph import LanguageBundleIndex
+from gda_balancing.domain.canonical import canonical_bytes
 
 
 def mutable_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
@@ -100,9 +101,11 @@ def refresh_package_semantic_closures(
                         for row in language_bundle["language"]["artifact_contracts"]
                         if row["schema_kind"] == projected["artifact_kind"]
                     ]
-                    if len(contracts) == 1 and projected.get(
-                        "schema"
-                    ) == trace_protocol_schema(kernel, contracts[0]["artifact_kind"]):
+                    if len(contracts) == 1 and canonical_bytes(
+                        projected.get("schema")
+                    ) == canonical_bytes(
+                        trace_protocol_schema(kernel, contracts[0]["artifact_kind"])
+                    ):
                         del projected["schema"]
                 selected.append(projected)
             updates.append((entry, selected))

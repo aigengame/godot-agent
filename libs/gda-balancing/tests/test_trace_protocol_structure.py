@@ -328,3 +328,120 @@ def test_generated_trace_structure_does_not_replace_semantic_validation(public_t
     assert not validate_experiment_artifact_set(
         checked, {**artifacts, "event-trace": forged}
     )
+
+
+def test_fixture_resealing_preserves_boolean_integer_schema_drift():
+    from schema2_authority_support import refresh_package_semantic_closures
+
+    kernel, ldb = mutable_authorities()
+    trace = next(
+        row
+        for row in ldb["language"]["artifact_wire_schemas"]
+        if row.get("protocol_role") == "event-trace"
+    )
+    accepted = trace["schema"]["properties"]["events"]["items"]["properties"][
+        "rng_draws"
+    ]["items"]["properties"]["accepted"]
+    assert accepted == {"const": True}
+    accepted["const"] = 1
+    refresh_package_semantic_closures(ldb, kernel)
+    authored = _authored(ldb)
+    authored["packages"] = deepcopy(ldb["language"]["packages"])
+    preserved = _trace_definition(authored)
+    assert "schema" in preserved
+    assert (
+        type(
+            preserved["schema"]["properties"]["events"]["items"]["properties"][
+                "rng_draws"
+            ]["items"]["properties"]["accepted"]["const"]
+        )
+        is int
+    )
+    graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        observation = consumer(kernel, graph)
+        assert not observation["admitted"]
+        assert (
+            "ingress",
+            "kernel.identity_mismatch",
+            "language-bundle.admitted-index",
+        ) in observation["diagnostics"]
+
+
+@pytest.mark.parametrize(
+    "project",
+    [trace_protocol_schema, _consumer_b_trace_schema],
+    ids=["production", "independent"],
+)
+def test_trace_projection_from_frozen_kernel_is_fully_owned_json(project):
+    from gda_balancing.domain.authority.context import packaged_authority_context
+
+    kernel = packaged_authority_context().kernel
+    before = _encoded(deepcopy(kernel))
+    schema = project(kernel, "event-trace")
+    event = schema["properties"]["events"]["items"]
+    schema["properties"]["terminal_statuses"]["items"]["required"][0] = (
+        "changed-terminal"
+    )
+    event["properties"]["calls"]["items"]["properties"]["operation"]["required"][0] = (
+        "changed-coordinate"
+    )
+    event["properties"]["ordering_key"]["properties"]["phase"]["enum"][0] = (
+        "changed-phase"
+    )
+    assert _encoded(deepcopy(kernel)) == before
+    assert project(kernel, "event-trace") != schema
+
+
+@pytest.mark.parametrize(
+    "project",
+    [trace_protocol_schema, _consumer_b_trace_schema],
+    ids=["production", "independent"],
+)
+def test_trace_projection_uses_existing_rng_and_resolved_symbol_owners(project):
+    kernel, _ = mutable_authorities()
+    law = kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
+        "trace_structure"
+    ]
+    draws = law["event"]["field_types"]["rng_draws"]["items"]
+    assert "required_members" not in draws
+    assert "candidate_hex" not in draws["field_types"]
+    assert (
+        "target"
+        not in law["event"]["field_types"]["schedules"]["items"]["field_types"][
+            "state_references"
+        ]["items"]["field_types"]
+    )
+    baseline = project(kernel, "event-trace")
+    rng = kernel["meta_format"]["runtime_program"]["named_rng"]
+    expected_members = deepcopy(rng["trace_members"])
+    # Pure projection probes expose its actual owners; these changed Kernels
+    # are not admitted or claimed supported by the fixed implementation.
+    rng["candidate_encoding"]["width_bits"] = 32
+    symbols = kernel["meta_format"]["fact"]["field_contracts"]
+    for role in ("quantity-symbol", "structured-symbol"):
+        target = symbols[role]["resolved_symbol"]
+        target["field_types"]["scope"] = target["field_types"].pop("module")
+        target["required_members"][target["required_members"].index("module")] = "scope"
+    event = project(kernel, "event-trace")["properties"]["events"]["items"]
+    assert event["properties"]["rng_draws"]["items"]["required"] == expected_members
+    assert event["properties"]["rng_draws"]["items"]["properties"]["candidate_hex"] == {
+        "type": "string",
+        "maxLength": 8,
+        "pattern": "^[0123456789abcdef]{8}$",
+    }
+    projected_target = event["properties"]["schedules"]["items"]["properties"][
+        "state_references"
+    ]["items"]["properties"]["target"]
+    assert projected_target["required"] == ["model", "scope", "name"]
+    assert set(projected_target["properties"]) == {"model", "scope", "name"}
+    assert project(kernel, "event-trace") != baseline
+    rng["trace_members"].append("missing-field-contract")
+    with pytest.raises(ValueError):
+        project(kernel, "event-trace")
+    rng["trace_members"].pop()
+    symbols["structured-symbol"]["resolved_symbol"]["field_types"]["scope"] = {
+        "type": "integer"
+    }
+    with pytest.raises(ValueError):
+        project(kernel, "event-trace")

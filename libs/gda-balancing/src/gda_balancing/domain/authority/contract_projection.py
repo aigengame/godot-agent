@@ -1,5 +1,6 @@
 """Pure projections of Kernel closed value contracts into JSON Schema."""
 
+import re
 from typing import Any, cast
 
 
@@ -108,3 +109,19 @@ def _closed_contract_schema(contract: dict[str, Any]) -> dict[str, object]:
         "required": required,
         "unevaluatedProperties": False,
     }
+
+
+def _candidate_hex_pattern(candidate_encoding: Any) -> str:
+    if (
+        not isinstance(candidate_encoding, dict)
+        or candidate_encoding.get("radix") != 16
+        or candidate_encoding.get("case") != "lowercase"
+        or candidate_encoding.get("zero_pad") is not True
+        or not isinstance(candidate_encoding.get("alphabet"), str)
+        or not candidate_encoding["alphabet"]
+        or not isinstance(candidate_encoding.get("width_bits"), int)
+        or candidate_encoding["width_bits"] % 4 != 0
+    ):
+        raise ValueError("Kernel RNG candidate encoding is incomplete")
+    candidate_width = candidate_encoding["width_bits"] // 4
+    return f"^[{re.escape(candidate_encoding['alphabet'])}]{{{candidate_width}}}$"

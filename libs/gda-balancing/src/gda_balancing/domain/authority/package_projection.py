@@ -1,12 +1,12 @@
 """Authority-derived Package Release contract projections."""
 
 from copy import deepcopy
-import re
 from typing import Any, cast
 
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.authority.contract_projection import (
     _contract_schema,
+    _candidate_hex_pattern,
     _closed_contract_schema,
 )
 
@@ -238,21 +238,7 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
         or not kinds
     ):
         raise ValueError("Kernel package-vector contract is incomplete")
-    if (
-        not isinstance(candidate_encoding, dict)
-        or candidate_encoding.get("radix") != 16
-        or candidate_encoding.get("case") != "lowercase"
-        or candidate_encoding.get("zero_pad") is not True
-        or not isinstance(candidate_encoding.get("alphabet"), str)
-        or not candidate_encoding["alphabet"]
-        or not isinstance(candidate_encoding.get("width_bits"), int)
-        or candidate_encoding["width_bits"] % 4 != 0
-    ):
-        raise ValueError("Kernel RNG candidate encoding is incomplete")
-    candidate_width = candidate_encoding["width_bits"] // 4
-    candidate_pattern = (
-        f"^[{re.escape(candidate_encoding['alphabet'])}]{{{candidate_width}}}$"
-    )
+    candidate_pattern = _candidate_hex_pattern(candidate_encoding)
 
     variants: list[dict[str, object]] = []
     for kind in kinds:

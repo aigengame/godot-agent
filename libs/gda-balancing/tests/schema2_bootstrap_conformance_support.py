@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:a3eb39cb653bd6ebf65e26bd7d80d784690fa1d8064faa7f83d8f65ec6ca382f"
+    "sha256:b27ab67f832e27cba28b1214001e8280f3a496b520b4ae86650d53408f138abc"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -2828,7 +2828,46 @@ def _consumer_b_trace_schema(
     for name in ("state_before", "state_after"):
         add(columns[name]["items"], {"value": value})
     add(columns["calls"]["items"], {"operation": coordinate})
+    rng = runtime["named_rng"]
+    draws = columns["rng_draws"]["items"]
+    if "required_members" in draws:
+        raise ValueError("Trace restates named RNG membership")
+    draws["required_members"] = rng["trace_members"]
+    encoding = rng["candidate_encoding"]
+    if (
+        encoding.get("radix") != 16
+        or encoding.get("case") != "lowercase"
+        or encoding.get("zero_pad") is not True
+        or not isinstance(encoding.get("alphabet"), str)
+        or not encoding["alphabet"]
+        or not isinstance(encoding.get("width_bits"), int)
+        or encoding["width_bits"] % 4
+    ):
+        raise ValueError("incomplete RNG wire encoding")
+    width = encoding["width_bits"] // 4
+    add(
+        draws,
+        {
+            "candidate_hex": {
+                "type": "string",
+                "maxLength": width,
+                "pattern": f"^[{re.escape(encoding['alphabet'])}]{{{width}}}$",
+            }
+        },
+    )
+    symbols = meta["fact"]["field_contracts"]
+    target = deepcopy(symbols["quantity-symbol"]["resolved_symbol"])
+    if _encoded(target) != _encoded(
+        deepcopy(symbols["structured-symbol"]["resolved_symbol"])
+    ):
+        raise ValueError("resolved symbol owners disagree")
     schedule = columns["schedules"]["items"]
+    add(
+        schedule["field_types"]["state_references"]["items"],
+        {
+            "target": {"closed": True, **target},
+        },
+    )
     add(schedule, {"operation": coordinate, "ordering_key": order})
     add(schedule["field_types"]["arguments"]["items"], {"value": value})
     add(
