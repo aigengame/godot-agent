@@ -25,7 +25,16 @@ def _observations(kernel, authored):
     return independent
 
 
-@pytest.mark.parametrize("member", ["subject_roles", "prerequisite_edges", "graph"])
+@pytest.mark.parametrize(
+    "member",
+    [
+        "subject_roles",
+        "prerequisite_edges",
+        "graph",
+        "permitted_issuer_classes",
+        "permitted_verifier_classes",
+    ],
+)
 def test_independent_evidence_refuses_resealed_retired_graph_fields(member):
     kernel, language = mutable_authorities()
     authored = _authored(language)
@@ -38,7 +47,7 @@ def test_independent_evidence_refuses_resealed_retired_graph_fields(member):
             "resolved-runtime-profile",
             "experiment-run-artifact-set-receipt",
         ]
-    elif member == "prerequisite_edges":
+    elif member != "graph":
         claim[member] = []
     else:
         claim["vectors"][0]["input"][member] = "exact"
