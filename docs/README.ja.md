@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e37039b783e1b1822c93cf395cf57a1bf7afdb777d15fce8c18206342b009e53 -->
+<!-- gda-readme-i18n: source=README.md sha256=45a25a690000e9c729f1038676fb3bbd3f05c81ff42b4272eb5dfc9a0d203541 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -493,6 +493,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | コマンド | 機能 |
 | ------- | ------------ |
 | `asset-pipeline run` | 保存済みの Blender ファイルから選択したサブツリーをエクスポートするか、PNG/GLB ファイルを準備し、配置・インポート後に Godot の実際の読み込み結果を確認します。 |
+| `asset-pipeline check` | プロジェクトの条件に沿ってモデルを検証し、観測範囲が一致する Godot のレポートを比較します。検証が完了すると終了コードは 0 となり、合否は verdict に示されます。 |
 
 ソースからターゲットへのマッピングと上書きポリシーを明示してください。生成が完了した画像ファイルも
 同じ手順で処理でき、呼び出し側が指定したメタデータを任意で付加できます。[アセットパイプラインガイド](../libs/gda-assets/README.md)では、
@@ -602,7 +603,8 @@ Blender からのエクスポート、ファイル入力、参照、部分的な
 - **オートロード**は、エンジンを起動するすべての `--project` 操作で実行されます。読み取り専用の操作も
   例外ではありません(キャッシュが完全な `resource import` は何も起動しません)。
 - **シーンスクリプトの `_init`** は、シーンをインスタンス化する操作では必ず実行されます。すべての変更系
-  `node` コマンド、`node get`、`asset-pipeline run` の GLB ロードチェックが該当し、
+  `node` コマンド、`node get`、`resource inspect-model`、`asset-pipeline check --path`、
+  `asset-pipeline run` の GLB ロードチェックが該当し、
   `scene get` / `scene list` / `node list` はインスタンス化せずに読み取ります。
 - **`script run`** は指定したスクリプトをすべて実行し、**`scene preflight`** はシーンを起動して `_ready` を実行します。
 - **`resource import`** はキャッシュ欠落時にエンジンのインポーター(およびプロジェクトのインポートプラグイン)を

@@ -482,6 +482,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | Command | What it does |
 | ------- | ------------ |
 | `asset-pipeline run` | Export a saved Blender subtree or stage PNG/GLB files, then install, import and check the actual Godot-loaded result. |
+| `asset-pipeline check` | Evaluate project model expectations and compare compatible Godot inspection reports. Read the content verdict; completed checks exit 0. |
 
 Use explicit source-to-target mappings and an overwrite policy. Completed
 image-generation files use the same path with optional caller-declared metadata.
@@ -590,7 +591,8 @@ project is trusted ([ADR-0009](docs/adr/0009-trust-boundary-trusted-project.md))
 - **Autoloads** start on every `--project` operation that boots the engine, read-only ones
   included (a cached `resource import` boots nothing).
 - **Scene scripts' `_init`** runs wherever a scene is instantiated: every mutating `node`
-  command, `node get`, and the GLB load check in `asset-pipeline run`;
+  command, `node get`, `resource inspect-model`, `asset-pipeline check --path`,
+  and the GLB load check in `asset-pipeline run`;
   `scene get` / `scene list` / `node list` read without instantiating.
 - **`script run`** executes the named script in full; **`scene preflight`** boots the scene
   and runs its `_ready`.

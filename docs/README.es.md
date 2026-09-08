@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e37039b783e1b1822c93cf395cf57a1bf7afdb777d15fce8c18206342b009e53 -->
+<!-- gda-readme-i18n: source=README.md sha256=45a25a690000e9c729f1038676fb3bbd3f05c81ff42b4272eb5dfc9a0d203541 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -497,6 +497,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | Comando | Qué hace |
 | ------- | ------------ |
 | `asset-pipeline run` | Exporta un subárbol de un archivo de Blender guardado o prepara archivos PNG/GLB; después los instala e importa y comprueba el resultado que Godot carga realmente. |
+| `asset-pipeline check` | Evalúa el modelo según los requisitos del proyecto y compara informes compatibles de Godot. Una evaluación completada devuelve el código 0; el campo verdict indica si cumple los requisitos. |
 
 Usa correspondencias explícitas entre origen y destino y define una política de sobrescritura.
 Los archivos que complete la generación de imágenes siguen el mismo flujo y pueden incluir metadatos
@@ -607,7 +608,8 @@ proyecto es de confianza ([ADR-0009](adr/0009-trust-boundary-trusted-project.md)
 - **Los autoloads** arrancan en cada operación `--project` que inicia el motor, incluidas las de solo
   lectura (un `resource import` con la caché íntegra no arranca nada).
 - **El `_init` de los scripts de la escena** se ejecuta allí donde se instancia una escena: todo comando
-  `node` que modifica la escena, `node get` y la comprobación de carga de GLB de `asset-pipeline run`;
+  `node` que modifica la escena, `node get`, `resource inspect-model`,
+  `asset-pipeline check --path` y la comprobación de carga de GLB de `asset-pipeline run`;
   `scene get` / `scene list` / `node list` leen sin instanciar.
 - **`script run`** ejecuta íntegramente el script indicado; **`scene preflight`** arranca la escena y
   ejecuta su `_ready`.

@@ -2,6 +2,21 @@
 
 from pathlib import Path
 
+from gda_assets.application.check import check_model as _check_model
+from gda_assets.application.ports import ModelInspectionPort
+from gda_assets.domain.model import (
+    ModelFacts,
+    ModelCheckResult,
+    ModelComparison,
+    NodeFacts,
+    MaterialFacts,
+    SurfaceFacts,
+    BoneFacts,
+    BindFacts,
+    TrackFacts,
+    AnimationFacts,
+)
+
 from gda_assets.application.integrate import run_pipeline as _run_pipeline
 from gda_assets.application.ports import (
     GodotAssetPort,
@@ -19,6 +34,18 @@ from gda_assets.domain.artifacts import (
 from gda_assets.domain.recipe import AssetFile, AssetRecipe, Resize
 
 __all__ = [
+    "check_model",
+    "ModelFacts",
+    "NodeFacts",
+    "MaterialFacts",
+    "SurfaceFacts",
+    "BoneFacts",
+    "BindFacts",
+    "TrackFacts",
+    "AnimationFacts",
+    "ModelCheckResult",
+    "ModelComparison",
+    "ModelInspectionPort",
     "AssetFile",
     "AssetRecipe",
     "GodotAssetPort",
@@ -60,4 +87,36 @@ def run_pipeline(
         files=LocalFiles(),
         production=production,
         producer=producer,
+    )
+
+
+def check_model(
+    expectations: Path,
+    *,
+    path: str | None = None,
+    godot: ModelInspectionPort | None = None,
+    report: ModelFacts | None = None,
+    subtree: str = ".",
+    max_nodes: int = 256,
+    max_items: int = 1024,
+    baseline: ModelFacts | None = None,
+) -> ModelCheckResult:
+    """Read project expectations and evaluate injected or previously observed facts."""
+    from gda_assets.adapters.expectations import read_expectations
+
+    try:
+        conditions = read_expectations(expectations)
+    except PortFailure as exc:
+        return ModelCheckResult(
+            failure=PipelineFailure("validate", exc.code, str(exc), exc.cause)
+        )
+    return _check_model(
+        conditions,
+        path=path,
+        godot=godot,
+        report=report,
+        subtree=subtree,
+        max_nodes=max_nodes,
+        max_items=max_items,
+        baseline=baseline,
     )

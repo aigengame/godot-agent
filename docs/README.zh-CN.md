@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e37039b783e1b1822c93cf395cf57a1bf7afdb777d15fce8c18206342b009e53 -->
+<!-- gda-readme-i18n: source=README.md sha256=45a25a690000e9c729f1038676fb3bbd3f05c81ff42b4272eb5dfc9a0d203541 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -473,6 +473,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | 命令 | 作用 |
 | ------- | ------------ |
 | `asset-pipeline run` | 导出已保存的 Blender 资产子树，或暂存 PNG/GLB 文件，再安装、导入并检查 Godot 实际加载的结果。 |
+| `asset-pipeline check` | 按项目要求验收模型，并比较范围兼容的 Godot 检查报告。完成检查后退出码为 0，是否符合要求以结果中的 verdict 为准。 |
 
 请使用明确的源文件到目标位置映射，并指定覆盖策略。图像生成完成后的文件沿用同一流程，
 也可以附带调用方声明的元数据。[资产管线指南](../libs/gda-assets/README.md)介绍了 Blender 导出、文件输入、引用与
@@ -581,6 +582,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 - **autoload** 在每个会启动引擎的 `--project` 操作中运行，只读操作也不例外（缓存完好的
   `resource import` 不启动任何东西）。
 - **场景脚本的 `_init`** 在场景被实例化的地方运行：每个改动状态的 `node` 命令、`node get`，
+  `resource inspect-model`、`asset-pipeline check --path`，
   以及 `asset-pipeline run` 中的 GLB 加载检查；`scene get` / `scene list` / `node list` 只读取、不实例化。
 - **`script run`** 会执行指定脚本的全部内容；**`scene preflight`** 启动场景并运行其 `_ready`。
 - **`resource import`** 在缓存缺失时运行引擎的导入器（以及项目的导入插件），不运行 autoload。

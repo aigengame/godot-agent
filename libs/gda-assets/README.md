@@ -7,6 +7,11 @@ source inspection and uniform scale preparation, see the
 [Blender production guide](docs/blender.md). Completed image-generation outputs
 use explicit file handoff; this command does not generate images.
 
+Use `gda asset-pipeline check` to evaluate project-owned model expectations against
+a current Godot inspection or a saved raw inspection report. See the
+[model checks guide](docs/checks.md) for the JSON format, seven supported check
+kinds, verdict semantics, partial coverage, and compatible baseline comparison.
+
 ```sh
 gda asset-pipeline run --project ./consumer --source-root ./production \
   --files '[{"source":"icon.png","target":"res://art/icon.png","resize":{"width":64,"height":64,"resampling":"nearest"}},{"source":"model.glb","target":"res://art/model.glb"}]' \
@@ -87,3 +92,17 @@ The script creates an isolated project, verifies PNG resize and a real GLB mesh
 load, exercises a structured no-op repeat and a pre-installation refusal, then
 cleans up its project. It also checks installed engine payload and guidance data.
 No game example is a runtime or test prerequisite.
+
+## Check model expectations
+
+Evaluate a model through Godot:
+
+```sh
+gda asset-pipeline check --expectations ./model.expectations.json \
+  --path res://art/model.glb --project ./consumer --json
+```
+
+Use `--report ./report.json` instead of `--path` to evaluate raw JSON previously
+saved from `gda resource inspect-model`. Add `--baseline ./older-report.json` for
+a separate compatible comparison. Completed `pass`, `fail`, and `insufficient`
+verdicts all exit 0; malformed input or workflow failure exits nonzero.

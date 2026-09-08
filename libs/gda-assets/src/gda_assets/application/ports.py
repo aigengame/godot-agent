@@ -7,6 +7,7 @@ from typing import Any
 
 from gda_assets.domain.artifacts import ImportOutcome, InstalledFile, LoadObservation
 from gda_assets.domain.recipe import AssetFile, AssetRecipe
+from gda_assets.domain.model import ModelFacts
 
 
 @dataclass(frozen=True)
@@ -73,3 +74,9 @@ class GodotAssetPort(Protocol):
     def import_assets(self, paths: list[str]) -> ImportOutcome: ...
 
     def check_load(self, path: str) -> LoadObservation: ...
+
+
+class ModelInspectionPort(Protocol):
+    def inspect_model(
+        self, path: str, *, subtree: str, max_nodes: int, max_items: int
+    ) -> "ModelFacts": ...

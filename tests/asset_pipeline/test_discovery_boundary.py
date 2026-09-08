@@ -19,7 +19,7 @@ import gda_assets.api
 from gda.cli import app
 from typer.testing import CliRunner
 runner = CliRunner()
-for argv in [['--help'], ['--version'], ['asset-pipeline', 'run', '--schema']]:
+for argv in [['--help'], ['--version'], ['asset-pipeline', 'run', '--schema'], ['asset-pipeline', 'check', '--schema']]:
     outcome = runner.invoke(app, argv)
     assert outcome.exit_code == 0, (argv, outcome.output, outcome.exception)
 assert 'gda_assets.adapters.blender' not in sys.modules
