@@ -395,6 +395,36 @@ def test_ordinary_handoff_does_not_collect_or_save(handoff, monkeypatch):
     assert port.calls == ["import"]
 
 
+def test_missing_pre_import_facts_cannot_masquerade_as_cold_import(handoff):
+    from gda_assets.api import CollectionRequest
+
+    run, port, project = handoff
+    original_observe = port.observe_import
+    original_import = port.import_assets
+    first = True
+
+    def incomplete_before(paths):
+        nonlocal first
+        if first:
+            first = False
+            return []
+        return original_observe(paths)
+
+    def change_configuration(paths):
+        (project / "source.png.import").write_bytes(b"changed during import")
+        return original_import(paths)
+
+    port.observe_import = incomplete_before
+    port.import_assets = change_configuration
+    result = run(CollectionRequest())
+    assert result.failure is not None
+    assert result.failure.code == "invalid_observation"
+    assert "import" not in port.calls
+    assert result.content_observations is not None
+    assert result.content_observations.status == "incomplete"
+    assert (project / "source.png.import").read_bytes() == b"config"
+
+
 def test_save_failure_retains_collected_facts(handoff, tmp_path):
     from gda_assets.api import CollectionRequest
 

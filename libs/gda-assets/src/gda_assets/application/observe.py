@@ -41,6 +41,12 @@ def _read_facts(
             + len(item.artifacts)
             - len(artifacts),
         )
+    missing = set(paths) - result.keys()
+    if missing:
+        raise PortFailure(
+            "invalid_observation",
+            f"Import observations omitted selected paths: {', '.join(sorted(missing))}",
+        )
     return result
 
 
