@@ -3,26 +3,26 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 from string import Template
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, get_args
 import math
 
 
 JsonScalar: TypeAlias = str | int | float | bool | None
-REQUESTED_OPTION_KEYS = frozenset(
-    {
-        "aspect_ratio",
-        "background",
-        "model",
-        "output_format",
-        "quality",
-        "seed",
-        "size",
-        "style",
-    }
-)
-DECLARATION_KEYS = frozenset(
-    {"generation_completed", "model", "provider", "request_id", "tool"}
-)
+PromptOptionKey: TypeAlias = Literal[
+    "aspect_ratio",
+    "background",
+    "model",
+    "output_format",
+    "quality",
+    "seed",
+    "size",
+    "style",
+]
+PromptDeclarationKey: TypeAlias = Literal[
+    "generation_completed", "model", "provider", "request_id", "tool"
+]
+REQUESTED_OPTION_KEYS = frozenset(get_args(PromptOptionKey))
+DECLARATION_KEYS = frozenset(get_args(PromptDeclarationKey))
 _TEXT_BYTES = 1024 * 1024
 
 

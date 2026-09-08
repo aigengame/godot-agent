@@ -46,8 +46,16 @@ def _safe_name(name: str) -> str:
     return name
 
 
+def _regular_input(path: Path, limit: int) -> os.stat_result:
+    observed = path.stat()
+    if not stat.S_ISREG(observed.st_mode) or observed.st_size > limit:
+        raise ValueError("input is not a bounded regular file")
+    return observed
+
+
 def _read_bounded(path: Path, limit: int) -> bytes:
     try:
+        before_path = _regular_input(path, limit)
         with path.open("rb") as stream:
             before = os.fstat(stream.fileno())
             if not stat.S_ISREG(before.st_mode) or before.st_size > limit:
@@ -57,6 +65,7 @@ def _read_bounded(path: Path, limit: int) -> bytes:
         current = path.stat()
         if (
             len(value) > limit
+            or _identity(before_path) != _identity(before)
             or _identity(before) != _identity(after)
             or _identity(after) != _identity(current)
         ):
@@ -326,8 +335,9 @@ class PromptFiles:
                 raise PortFailure(
                     "invalid_prompt", "Registered prompt outputs must be PNG files"
                 )
+            _regular_input(source, _PNG_LIMIT)
             validate_format(source)
-        except (OSError, PortFailure) as exc:
+        except (OSError, ValueError, PortFailure) as exc:
             raise PortFailure(
                 "invalid_prompt", f"Invalid prompt output {request.output}: {exc}"
             ) from exc

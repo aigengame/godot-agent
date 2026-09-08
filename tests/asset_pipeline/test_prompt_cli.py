@@ -2,11 +2,14 @@
 
 import json
 
+import jsonschema
 import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.mcp.server import build_server
+from gda_assets.api import PromptDeclarationKey, PromptOptionKey
+from typing import get_args
 from tests.mcp_support import FakeGdaRunner, gda_result, list_tools, schema_then
 
 
@@ -37,6 +40,49 @@ def test_prompt_prepare_is_a_projectless_typed_composite_command():
     tool = next(item for item in tools if item.name == "asset_pipeline_prompt_prepare")
     assert tool.input_schema == schema["input"]
     assert tool.output_schema == schema["output"]
+
+
+def test_prompt_map_keys_and_prompt_source_are_enforced_by_cli_and_mcp_schema():
+    runner = CliRunner()
+    prepare = json.loads(
+        runner.invoke(app, ["asset-pipeline", "prompt-prepare", "--schema"]).stdout
+    )
+    register = json.loads(
+        runner.invoke(
+            app, ["asset-pipeline", "prompt-register-output", "--schema"]
+        ).stdout
+    )
+    option_keys = set(get_args(PromptOptionKey))
+    declaration_keys = set(get_args(PromptDeclarationKey))
+    assert (
+        set(
+            prepare["input"]["properties"]["requested_options"]["propertyNames"]["enum"]
+        )
+        == option_keys
+    )
+    assert (
+        set(
+            register["input"]["properties"]["caller_declarations"]["propertyNames"][
+                "enum"
+            ]
+        )
+        == declaration_keys
+    )
+    validator = jsonschema.Draft202012Validator(prepare["input"])
+    valid = {"record": "/tmp/record", "text": "hello"}
+    assert not list(validator.iter_errors(valid))
+    for invalid in (
+        {"record": "/tmp/record"},
+        {"record": "/tmp/record", "text": None},
+        {**valid, "requested_options": {"unknown": "value"}},
+    ):
+        assert list(validator.iter_errors(invalid))
+
+    tools = list_tools(
+        build_server(FakeGdaRunner(schema_then(lambda *_: gda_result())))
+    ).tools
+    tool = next(item for item in tools if item.name == "asset_pipeline_prompt_prepare")
+    assert tool.input_schema == prepare["input"]
 
 
 def test_prompt_prepare_and_inspect_public_json_do_not_claim_generation(tmp_path):

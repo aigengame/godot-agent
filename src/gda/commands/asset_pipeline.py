@@ -3,7 +3,7 @@
 import json
 from dataclasses import asdict
 from pathlib import Path
-from typing import Annotated, Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional, get_args
 
 import typer
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -41,6 +41,8 @@ from gda_assets.api import (
     register_prompt_output,
     revise_prompt,
     PortFailure,
+    PromptDeclarationKey,
+    PromptOptionKey,
 )
 
 from gda.dispatch import dispatch_recipe, params_or_bad_parameter
@@ -1223,10 +1225,8 @@ def asset_pipeline_check_package(
     )
 
 
-REQUESTED_OPTION_HELP = "Supported keys: aspect_ratio, background, model, output_format, quality, seed, size, style."
-DECLARATION_HELP = (
-    "Supported keys: generation_completed, model, provider, request_id, tool."
-)
+REQUESTED_OPTION_HELP = f"Supported keys: {', '.join(get_args(PromptOptionKey))}."
+DECLARATION_HELP = f"Supported keys: {', '.join(get_args(PromptDeclarationKey))}."
 PromptVariableKey = Annotated[str, Field(max_length=128)]
 PromptVariableValue = Annotated[str, Field(max_length=4096)]
 
@@ -1237,8 +1237,20 @@ class PromptPrepareParams(BaseModel):
         allow_inf_nan=False,
         json_schema_extra={
             "oneOf": [
-                {"required": ["text"], "properties": {"template": {"type": "null"}}},
-                {"required": ["template"], "properties": {"text": {"type": "null"}}},
+                {
+                    "required": ["text"],
+                    "properties": {
+                        "text": {"type": "string"},
+                        "template": {"type": "null"},
+                    },
+                },
+                {
+                    "required": ["template"],
+                    "properties": {
+                        "template": {"type": "string"},
+                        "text": {"type": "null"},
+                    },
+                },
             ]
         },
     )
@@ -1270,7 +1282,7 @@ class PromptPrepareParams(BaseModel):
         max_length=256,
         description="Optional caller-selected external producer name.",
     )
-    requested_options: dict[str, JsonScalar] = Field(
+    requested_options: dict[PromptOptionKey, JsonScalar] = Field(
         default_factory=dict, description=REQUESTED_OPTION_HELP
     )
 
@@ -1322,7 +1334,7 @@ class PromptReviseParams(BaseModel):
         max_length=256,
         description="Optional replacement producer declaration.",
     )
-    requested_options: dict[str, JsonScalar] | None = Field(
+    requested_options: dict[PromptOptionKey, JsonScalar] | None = Field(
         default=None, description=REQUESTED_OPTION_HELP
     )
 
@@ -1339,8 +1351,16 @@ class PromptRegisterOutputParams(BaseModel):
     submitted_prompt: str | None = Field(
         default=None, description="Actual submitted prompt when explicitly known."
     )
-    caller_declarations: dict[str, JsonScalar] = Field(
-        default_factory=dict, description=DECLARATION_HELP
+    caller_declarations: dict[PromptDeclarationKey, JsonScalar] = Field(
+        default_factory=dict,
+        description=DECLARATION_HELP,
+        json_schema_extra={
+            "properties": {
+                "generation_completed": {
+                    "anyOf": [{"type": "boolean"}, {"type": "null"}]
+                }
+            }
+        },
     )
     reported_provider: str | None = Field(
         default=None,
@@ -1350,7 +1370,7 @@ class PromptRegisterOutputParams(BaseModel):
         default=None,
         description="Model identity reported after generation, if available.",
     )
-    reported_options: dict[str, JsonScalar] = Field(
+    reported_options: dict[PromptOptionKey, JsonScalar] = Field(
         default_factory=dict, description=REQUESTED_OPTION_HELP
     )
 
@@ -1389,7 +1409,7 @@ def run_prompt_prepare(
                 params.variables,
                 tuple(path.resolve() for path in params.references),
                 params.producer,
-                params.requested_options,
+                {str(key): value for key, value in params.requested_options.items()},
             )
         )
         return PromptPreparationResult(preparation=prepared)
@@ -1427,7 +1447,11 @@ def run_prompt_revise(
                 if params.references is not None
                 else None,
                 producer=params.producer,
-                requested_options=params.requested_options,
+                requested_options=(
+                    {str(key): value for key, value in params.requested_options.items()}
+                    if params.requested_options is not None
+                    else None
+                ),
             )
         )
         return PromptRevisionResult(revision=revised)
@@ -1446,10 +1470,10 @@ def run_prompt_register_output(
                 params.output.resolve(),
                 params.name,
                 params.submitted_prompt,
-                params.caller_declarations,
+                {str(key): value for key, value in params.caller_declarations.items()},
                 params.reported_provider,
                 params.reported_model,
-                params.reported_options,
+                {str(key): value for key, value in params.reported_options.items()},
             )
         )
         return PromptRecordResult(prompt_record=record)

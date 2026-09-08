@@ -78,6 +78,8 @@ from gda_assets.domain.artifacts import (
 from gda_assets.domain.recipe import AssetFile, AssetRecipe, Resize
 from gda_assets.domain.prompt import (
     JsonScalar,
+    PromptOptionKey,
+    PromptDeclarationKey,
     PromptFile,
     PromptHandoff,
     PromptOutput,
@@ -157,6 +159,8 @@ __all__ = [
     "Resize",
     "run_pipeline",
     "JsonScalar",
+    "PromptOptionKey",
+    "PromptDeclarationKey",
     "PromptFile",
     "PromptHandoff",
     "PromptOutput",
