@@ -423,3 +423,203 @@ def test_unrecognized_source_member_cannot_disappear_from_inventory(witness, loc
     target["undeclared_semantic_reference"] = "fold"
     with pytest.raises(InventoryRefusal, match="closed wire schema"):
         read_extension_inventory(kernel, candidate)
+
+
+def test_all_current_runtime_node_references_have_explicit_identity_or_value_roles(
+    witness,
+):
+    kernel, graph, _ = witness
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    assert not any(
+        gap.reason.startswith("node roles not yet covered")
+        for gap in inventory.uncovered
+    )
+    owner = ("game.combat", "game.combat.plan-casts-v1")
+    canceled = AuthorityToken("operation-local", owner, "canceled_cast")
+    assert any(
+        o.token == canceled
+        and o.pointer.endswith("/result/name")
+        and o.use == "declaration"
+        for o in inventory.occurrences
+    )
+    assert any(
+        o.token == canceled
+        and o.pointer.endswith("/event/local")
+        and o.use == "reference"
+        for o in inventory.occurrences
+    )
+    stream = AuthorityToken("named-stream", (), "selection")
+    assert stream in inventory.tokens - inventory.reserved
+    omitted = replace(
+        inventory,
+        tokens=inventory.tokens - {stream},
+        occurrences=tuple(o for o in inventory.occurrences if o.token != stream),
+    )
+    with pytest.raises(InventoryRefusal):
+        validate_extension_inventory(kernel, graph, omitted)
+
+
+def test_stream_identity_rename_preserves_execution_law_but_changes_entropy(witness):
+    from gda_balancing.application.experiment_execution import (
+        ExperimentExecutionRefusal,
+        ExperimentExecutionSuccess,
+        execute_checked_experiment,
+    )
+    from gda_balancing.domain.authority.context import (
+        AdmittedAuthorityContext,
+        admit_authority_context,
+    )
+    from gda_balancing.domain.canonical import canonical_bytes
+    from gda_balancing.domain.experiment import (
+        CheckedExperiment,
+        check_experiment_value,
+    )
+    from gda_balancing.domain.experiment_artifacts import (
+        validate_experiment_artifact_set,
+    )
+    from gda_balancing.domain.model import (
+        AdmittedRir,
+        CheckedModel,
+        admit_rir,
+        check_model_source_value,
+        compile_checked_model,
+    )
+    from schema2_bootstrap_production_support import (
+        _refresh_package_closure_and_reidentify,
+    )
+    from schema2_operation_execution_conformance_support import (
+        independent_operation_execution_projection,
+    )
+    from schema2_operation_execution_independent_support import reference_rng_draw
+    from schema2_operation_execution_production_support import (
+        evaluate_operation_execution_vector,
+    )
+
+    example = Path(__file__).parents[1] / "examples/schema2/structured-selection"
+    source = json.loads((example / "model-source.json").read_bytes())
+    original_specification = json.loads((example / "experiment.json").read_bytes())
+    source_bytes = canonical_bytes(source)
+    unchanged_expectation = None
+    observed = []
+    for stream, expected_draw in (("selection", 0), ("renamed.selection", 1)):
+        kernel, language = mutable_authorities()
+        operation = next(
+            op
+            for op in language["language"]["operations"]
+            if op["id"] == "standard.conformance.structured.select-v1"
+        )
+        draw = next(row for row in operation["body"] if row["node"] == "draw")
+        assert draw["stream"] == "selection"
+        draw["stream"] = stream
+        _refresh_package_closure_and_reidentify(language)
+        assert _consumer_a(kernel, language)["admitted"]
+        assert _consumer_b(kernel, language)["admitted"]
+        context = admit_authority_context(kernel, language)
+        assert isinstance(context, AdmittedAuthorityContext), context
+        checked_model = check_model_source_value(source, authority_context=context)
+        assert isinstance(checked_model, CheckedModel), checked_model
+        artifacts = compile_checked_model(checked_model)
+        assert len(artifacts) == 8
+        program = admit_rir(
+            artifacts["rir-semantic-payload"], authority_context=context
+        )
+        assert isinstance(program, AdmittedRir), program
+        specification = deepcopy(original_specification)
+        specification["model"] = {"rir_semantic_identity": program.semantic_identity}
+        specification["scenarios"][0]["named_streams"] = [stream]
+        checked = check_experiment_value(
+            specification, program, authority_context=context
+        )
+        assert isinstance(checked, CheckedExperiment), checked
+        execution = execute_checked_experiment(checked)
+        members = {
+            name: json.loads(canonical_bytes(member.value))
+            for name, member in execution.members.items()
+        }
+        assert validate_experiment_artifact_set(checked, members)
+        independently_drawn = reference_rng_draw(
+            kernel["meta_format"]["runtime_program"]["named_rng"],
+            specification["seed"]["value"],
+            stream,
+            0,
+            1,
+            {},
+            {},
+        )
+        assert independently_drawn["value"] == expected_draw
+        vector = next(
+            v for v in language["vectors"] if v["id"] == "structured.select.success"
+        )
+        if unchanged_expectation is None:
+            unchanged_expectation = deepcopy(vector["expect"])
+        assert vector["expect"] == unchanged_expectation
+        operations = {
+            (p["id"], op["id"]): op
+            for p in language.package_releases
+            for e in p["semantic_closure"]
+            if e["authority_path"] == "language.operations"
+            for op in e["definitions"]
+        }
+        production = evaluate_operation_execution_vector(
+            context, vector, package_id="standard.conformance.structured"
+        )
+        independent = independent_operation_execution_projection(
+            kernel, language, operations, "standard.conformance.structured", vector
+        )
+        assert production == independent
+        if stream == "selection":
+            assert isinstance(execution, ExperimentExecutionSuccess)
+            actual_draw = members["event-trace"]["events"][0]["rng_draws"][0]
+            assert actual_draw == independently_drawn
+            assert production == unchanged_expectation
+        else:
+            assert isinstance(execution, ExperimentExecutionRefusal)
+            assert (
+                execution.report.stage == "runtime"
+                and execution.report.variant == "post-dispatch"
+            )
+            assert [d.code for d in execution.report.diagnostics] == [
+                "standard.conformance.candidate_mismatch"
+            ]
+            assert production["completion"] == {
+                "kind": "refusal",
+                "reason": "standard.conformance.reason.candidate-mismatch",
+            }
+            assert production != unchanged_expectation
+            assert "runtime-terminal-audit" in members
+        inventory = read_extension_inventory(
+            kernel,
+            {
+                "packages": language.package_releases,
+                "ldb_root": language.root,
+                "vector_sets": language.package_conformance_vector_sets,
+                "source": source,
+            },
+        )
+        assert (
+            AuthorityToken("named-stream", (), stream)
+            in inventory.tokens - inventory.reserved
+        )
+        assert canonical_bytes(source) == source_bytes
+        observed.append(
+            (kernel["content_identity"], program.semantic_identity, production)
+        )
+    assert observed[0][0] == observed[1][0]
+    assert observed[0][1] != observed[1][1]
+    assert observed[0][2] != observed[1][2]
+
+
+def test_kernel_references_do_not_reserve_language_owned_identities(witness):
+    _, _, inventory = witness
+    for role, name in (
+        ("language.quantity.numeric_policies", "exact-int64"),
+        ("language.constructors", "standard.schema.enum"),
+        ("language.literal_typing_profiles", "standard.schema.nominal-structured"),
+        ("language.reasons", "structured.reason.type-mismatch"),
+        ("language.runtime_profiles", "standard.exact-int64-event-v1"),
+    ):
+        token = AuthorityToken(role, (), name)
+        assert token in inventory.tokens - inventory.reserved
+    assert AuthorityToken("namespace", (), "standard.schema") not in inventory.reserved
+    assert AuthorityToken("type", ("kernel",), "Boolean") in inventory.reserved

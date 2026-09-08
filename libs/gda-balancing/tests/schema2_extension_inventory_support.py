@@ -761,6 +761,41 @@ class _Reader:
             }
             members.update(node["result"].get("typing", {}).get("members", []))
             consumed = {"node", "target"}
+            if operator == "collection-is-empty":
+                members.add("value")
+            elif operator == "bounded-list-append":
+                members.add("item")
+            elif operator == "typed-require":
+                member = node["semantics"]["refusal_reference"]["instruction_member"]
+                self.reference(
+                    "language.reasons", instruction[member], _child(ip, member), law
+                )
+                consumed.update({member, "expected"})
+            elif operator == "gameplay-precondition":
+                self.occurrence(
+                    AuthorityToken("operation-outcome", scope, instruction["outcome"]),
+                    ip + "/outcome",
+                    "reference",
+                    law,
+                )
+                consumed.add("outcome")
+            elif operator == "named-integer-draw":
+                self.occurrence(
+                    AuthorityToken("named-stream", (), instruction["stream"]),
+                    ip + "/stream",
+                    "declaration",
+                    "/meta_format/runtime_program/named_rng/stream_derivation",
+                )
+                consumed.add("stream")
+            elif operator == "cancel-event":
+                self.occurrence(
+                    AuthorityToken("operation-site", scope, instruction["site"]),
+                    ip + "/site",
+                    "declaration",
+                    law,
+                )
+                self.operand(instruction["event"], ip + "/event", scope, bindings, law)
+                consumed.update({"event", "site"})
             if operator == "typed-literal":
                 self.typed_literal(instruction["literal"], ip + "/literal")
                 consumed.add("literal")
@@ -822,7 +857,11 @@ class _Reader:
                         )
                 if len(roles) > 1:
                     raise InventoryRefusal("lookup key has conflicting semantic roles")
-            if operator in {"bounded-pure-fold", "invoke-operation"}:
+            if operator in {
+                "bounded-pure-fold",
+                "invoke-operation",
+                "schedule-operation",
+            }:
                 consumed.update({"site", "operation", "arguments"})
                 site = AuthorityToken("operation-site", scope, instruction["site"])
                 self.occurrence(site, ip + "/site", "declaration", law)
@@ -855,7 +894,11 @@ class _Reader:
                             law,
                         )
                 else:
-                    consumed.update({"result", "outcomes"})
+                    consumed.add("result")
+                    if operator == "schedule-operation":
+                        members.update({"logical_time", "priority"})
+                    else:
+                        consumed.add("outcomes")
                     result = instruction["result"]
                     if result["kind"] == "local":
                         token = AuthorityToken("operation-local", scope, result["name"])
@@ -868,7 +911,7 @@ class _Reader:
                         ]
                     ):
                         raise InventoryRefusal("unknown invocation result binding")
-                    for oi, outcome in enumerate(instruction["outcomes"]):
+                    for oi, outcome in enumerate(instruction.get("outcomes", [])):
                         op = f"{ip}/outcomes/{oi}"
                         self.occurrence(
                             AuthorityToken(
@@ -1230,6 +1273,8 @@ def validate_extension_inventory(
                             if node["semantics"]["operator"] in {
                                 "bounded-pure-fold",
                                 "invoke-operation",
+                                "schedule-operation",
+                                "cancel-event",
                             }:
                                 required.add(
                                     (
@@ -1239,6 +1284,33 @@ def validate_extension_inventory(
                                             instruction["site"],
                                         ),
                                         ip + "/site",
+                                        "declaration",
+                                    )
+                                )
+                            if node["result"]["kind"] in {
+                                "composition",
+                                "scheduled-event",
+                            }:
+                                result = instruction["result"]
+                                if result["kind"] == "local":
+                                    required.add(
+                                        (
+                                            AuthorityToken(
+                                                "operation-local",
+                                                op_scope,
+                                                result["name"],
+                                            ),
+                                            ip + "/result/name",
+                                            "declaration",
+                                        )
+                                    )
+                            if node["semantics"]["operator"] == "named-integer-draw":
+                                required.add(
+                                    (
+                                        AuthorityToken(
+                                            "named-stream", (), instruction["stream"]
+                                        ),
+                                        ip + "/stream",
                                         "declaration",
                                     )
                                 )
