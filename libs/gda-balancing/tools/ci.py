@@ -93,6 +93,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "extension": (
         "test_extension_inventory.py",
         "test_priority_protocol_public.py",
+        "test_runtime_effect_renaming.py",
         "test_runtime_mutual_consumption.py",
     ),
     "bounded-fold": (
