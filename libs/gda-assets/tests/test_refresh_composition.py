@@ -19,7 +19,10 @@ from gda_assets.api import (
     ProductionOutput,
     ProductionRequest,
     RefreshRequest,
+    ReadyObservation,
     SessionState,
+    StartObservation,
+    StopObservation,
     run_pipeline,
 )
 
@@ -88,18 +91,18 @@ class Port:
 
     def stop(self):
         self.runtime_calls.append("stop")
-        return {"stopped": True, "pid": 7}
+        return StopObservation(True, 7)
 
     def start(self, scene, *, windowed):
         self.runtime_calls.append("start")
         self.session = "new"
-        return {"pid": 8, "windowed": windowed}
+        return StartObservation(False, False, "1", (), (), 8, windowed, False)
 
     def wait_ready(self, timeout):
         self.runtime_calls.append("ready")
         if self.ready_failure:
             raise PortFailure("engine_session_not_running", "readiness failed")
-        return {"pid": 8, "launched": True}
+        return ReadyObservation(8, True)
 
     def observe_content(self, node, **limits):
         raise AssertionError("not reached by these failure scenarios")

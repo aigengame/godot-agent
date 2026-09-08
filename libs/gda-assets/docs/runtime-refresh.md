@@ -39,7 +39,8 @@ any requested content-observation collection complete successfully. It then:
 The result is `pipeline.refresh`. Its `completed` list separates imported sampling,
 stop, start, readiness, instance sampling, comparison, and capture. `before`,
 `ready_session`, and `after` report session state; `stop`, `start`, and `ready`
-retain the lifecycle operation results. `imported`, `instance`, and `comparison`
+retain projected lifecycle facts, including harness installation or synchronization
+and created paths or sections. `imported`, `instance`, and `comparison`
 contain the facts used for the verdict. The top-level pipeline stages remain
 separate from these refresh stages.
 

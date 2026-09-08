@@ -14,6 +14,9 @@ from gda_assets.domain.refresh import (
     InstanceContent,
     SessionState,
     CaptureObservation,
+    StopObservation,
+    StartObservation,
+    ReadyObservation,
 )
 from gda_assets.domain.observations import (
     CollectionRequest,
@@ -57,6 +60,9 @@ __all__ = [
     "InstanceContent",
     "SessionState",
     "CaptureObservation",
+    "StopObservation",
+    "StartObservation",
+    "ReadyObservation",
     "GodotRefreshPort",
     "CollectionRequest",
     "ContentObservations",

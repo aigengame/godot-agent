@@ -15,7 +15,12 @@ from gda.errors import make_failure
 from gda.integrations.asset_pipeline import GdaGodotAssetPort
 from gda.model_content import ModelContent as NativeModelContent
 from gda.models import EngineVersion
-from gda_assets.api import PortFailure
+from gda_assets.api import (
+    PortFailure,
+    ReadyObservation,
+    StartObservation,
+    StopObservation,
+)
 
 
 ENGINE = EngineVersion(
@@ -83,11 +88,11 @@ def test_adapter_projects_native_content_lifecycle_and_capture(monkeypatch, tmp_
         lambda *args, **kwargs: DaemonStartResult(
             pid=11,
             socket_path="/tmp/gda.sock",
-            installed_harness=False,
-            harness_synced=False,
+            installed_harness=True,
+            harness_synced=True,
             harness_version="1",
-            created_paths=[],
-            created_sections=[],
+            created_paths=["res://.gda/live.gd"],
+            created_sections=["autoload"],
             windowed=True,
             already_running=False,
         ),
@@ -141,9 +146,18 @@ def test_adapter_projects_native_content_lifecycle_and_capture(monkeypatch, tmp_
     assert imported.content.digest == "a" * 64
     assert before.session_id == "old-session"
     assert after.session_id == "new-session"
-    assert stopped == {"stopped": True, "pid": 10}
-    assert started["pid"] == 11
-    assert ready == {"pid": 11, "launched": True}
+    assert stopped == StopObservation(stopped=True, pid=10)
+    assert started == StartObservation(
+        installed_harness=True,
+        harness_synced=True,
+        harness_version="1",
+        created_paths=("res://.gda/live.gd",),
+        created_sections=("autoload",),
+        pid=11,
+        windowed=True,
+        already_running=False,
+    )
+    assert ready == ReadyObservation(pid=11, launched=True)
     assert instance.node == "/root/Main/Model"
     assert instance.instance_id == 42
     assert instance.scene_file_path == "res://model.glb"

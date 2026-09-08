@@ -15,6 +15,9 @@ from gda_assets.domain.refresh import (
     InstanceContent,
     SessionState,
     CaptureObservation,
+    ReadyObservation,
+    StartObservation,
+    StopObservation,
 )
 from gda_assets.application.ports import PortFailure
 
@@ -43,16 +46,16 @@ class Runtime:
 
     def stop(self):
         self.calls.append("stop")
-        return {"stopped": True, "pid": 41}
+        return StopObservation(True, 41)
 
     def start(self, scene, *, windowed):
         self.calls.append(("start", scene, windowed))
         self.session = "B"
-        return {"pid": 42, "windowed": windowed}
+        return StartObservation(False, False, "1", (), (), 42, windowed, False)
 
     def wait_ready(self, timeout):
         self.calls.append(("ready", timeout))
-        return {"pid": 43, "launched": True}
+        return ReadyObservation(43, True)
 
     def observe_content(self, node, **limits):
         self.calls.append("instance")

@@ -1,7 +1,7 @@
 """Asset Pipeline host adapter backed by returning gda resource operations."""
 
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import NoReturn
 
 from gda_assets.api import (
     ImportOutcome,
@@ -14,6 +14,9 @@ from gda_assets.api import (
     InstanceContent,
     ModelContent,
     SessionState,
+    StopObservation,
+    StartObservation,
+    ReadyObservation,
 )
 
 from gda.commands.daemon import (
@@ -180,25 +183,34 @@ class GdaGodotAssetPort:
             outcome.running, outcome.pid, outcome.windowed, outcome.session_id
         )
 
-    def stop(self) -> dict[str, Any]:
+    def stop(self) -> StopObservation:
         outcome = run_daemon_stop_operation(self._project)
         if isinstance(outcome, Failure):
             self._raise(outcome)
-        return outcome.model_dump(mode="json")
+        return StopObservation(stopped=outcome.stopped, pid=outcome.pid)
 
-    def start(self, scene: str, *, windowed: bool) -> dict[str, Any]:
+    def start(self, scene: str, *, windowed: bool) -> StartObservation:
         outcome = run_daemon_start_operation(
             self._project, self._godot, scene=scene, windowed=windowed
         )
         if isinstance(outcome, Failure):
             self._raise(outcome)
-        return outcome.model_dump(mode="json")
+        return StartObservation(
+            installed_harness=outcome.installed_harness,
+            harness_synced=outcome.harness_synced,
+            harness_version=outcome.harness_version,
+            created_paths=tuple(outcome.created_paths),
+            created_sections=tuple(outcome.created_sections),
+            pid=outcome.pid,
+            windowed=outcome.windowed,
+            already_running=outcome.already_running,
+        )
 
-    def wait_ready(self, timeout: float) -> dict[str, Any]:
+    def wait_ready(self, timeout: float) -> ReadyObservation:
         outcome = run_daemon_wait_ready_operation(self._project, timeout=timeout)
         if isinstance(outcome, Failure):
             self._raise(outcome)
-        return outcome.model_dump(mode="json")
+        return ReadyObservation(pid=outcome.pid, launched=outcome.launched)
 
     def observe_content(
         self, node: str, *, max_nodes: int, max_vertices: int

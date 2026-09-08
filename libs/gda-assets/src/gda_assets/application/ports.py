@@ -13,6 +13,9 @@ from gda_assets.domain.refresh import (
     InstanceContent,
     SessionState,
     CaptureObservation,
+    ReadyObservation,
+    StartObservation,
+    StopObservation,
 )
 from gda_assets.domain.observations import (
     FileDigest,
@@ -112,11 +115,11 @@ class GodotRefreshPort(Protocol):
 
     def status(self) -> SessionState: ...
 
-    def stop(self) -> dict[str, Any]: ...
+    def stop(self) -> StopObservation: ...
 
-    def start(self, scene: str, *, windowed: bool) -> dict[str, Any]: ...
+    def start(self, scene: str, *, windowed: bool) -> StartObservation: ...
 
-    def wait_ready(self, timeout: float) -> dict[str, Any]: ...
+    def wait_ready(self, timeout: float) -> ReadyObservation: ...
 
     def observe_content(
         self, node: str, *, max_nodes: int, max_vertices: int

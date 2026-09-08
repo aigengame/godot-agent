@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 import math
 
 from gda_assets.domain.recipe import target_relative
@@ -98,6 +98,30 @@ class CaptureObservation:
 
 
 @dataclass(frozen=True)
+class StopObservation:
+    stopped: bool
+    pid: int | None
+
+
+@dataclass(frozen=True)
+class StartObservation:
+    installed_harness: bool
+    harness_synced: bool
+    harness_version: str
+    created_paths: tuple[str, ...]
+    created_sections: tuple[str, ...]
+    pid: int
+    windowed: bool | None
+    already_running: bool
+
+
+@dataclass(frozen=True)
+class ReadyObservation:
+    pid: int
+    launched: bool
+
+
+@dataclass(frozen=True)
 class ContentComparison:
     status: Literal["match", "mismatch", "incomplete"]
     reasons: tuple[str, ...] = ()
@@ -173,9 +197,9 @@ class RefreshResult:
     before: SessionState | None = None
     after: SessionState | None = None
     ready_session: SessionState | None = None
-    stop: dict[str, Any] | None = None
-    start: dict[str, Any] | None = None
-    ready: dict[str, Any] | None = None
+    stop: StopObservation | None = None
+    start: StartObservation | None = None
+    ready: ReadyObservation | None = None
     imported: ImportedContent | None = None
     instance: InstanceContent | None = None
     comparison: ContentComparison | None = None
