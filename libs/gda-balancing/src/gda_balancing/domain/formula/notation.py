@@ -83,31 +83,14 @@ def _contextual_refusal(error: ValueError) -> FormulaNotationRefusal:
 def _notation_authority(
     authority_context: AdmittedAuthorityContext,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    packages = cast(
-        list[dict[str, Any]], authority_context.language_bundle["language"]["packages"]
-    )
-    matches: list[dict[str, Any]] = []
-    for package in packages:
-        if package.get("id") != "standard.schema":
-            continue
-        for closure in cast(list[dict[str, Any]], package["semantic_closure"]):
-            if closure.get("authority_path") != "language.wire_schemas":
-                continue
-            matches.extend(
-                cast(dict[str, Any], definition["schema"])
-                for definition in cast(list[dict[str, Any]], closure["definitions"])
-                if definition.get("artifact_kind") == "model-source-package"
-            )
-    if len(matches) != 1:
-        raise ValueError("standard.schema has no unique Formula notation authority")
-    definitions = matches[0].get("$defs")
+    definitions = _formula_source_schema(authority_context).get("$defs")
     if not isinstance(definitions, dict):
-        raise ValueError("standard.schema has no Formula notation definitions")
+        raise ValueError("Model Source schema has no Formula notation definitions")
     grammar_schema = definitions.get("formulaNotationGrammar")
     notation_schema = definitions.get("formulaOperationNotation")
     grammar = grammar_schema.get("const") if isinstance(grammar_schema, dict) else None
     if not isinstance(grammar, dict) or not isinstance(notation_schema, dict):
-        raise ValueError("standard.schema Formula notation authority is incomplete")
+        raise ValueError("Model Source Formula notation authority is incomplete")
     token_pattern = grammar.get("identifier_token_pattern")
     bare_pattern = grammar.get("bare_identifier_pattern")
     integer_pattern = grammar.get("integer_literal_pattern")
@@ -122,7 +105,7 @@ def _notation_authority(
         or not isinstance(grammar.get("max_group_depth"), int)
         or cast(int, grammar["max_group_depth"]) < 1
     ):
-        raise ValueError("standard.schema Formula notation grammar is malformed")
+        raise ValueError("Model Source Formula notation grammar is malformed")
     try:
         if (
             re.fullmatch(token_pattern, "") is not None
@@ -346,7 +329,6 @@ def _formula_source_schema(
     schemas = [
         definition.get("schema")
         for package in packages
-        if package.get("id") == "standard.schema"
         for closure in cast(list[dict[str, Any]], package["semantic_closure"])
         if closure.get("authority_path") == "language.wire_schemas"
         for definition in cast(list[dict[str, Any]], closure["definitions"])
