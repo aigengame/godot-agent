@@ -115,10 +115,21 @@ def test_independent_inactive_nominal_adapter_owns_its_absent_discriminator(
 
 
 @pytest.mark.parametrize(
-    "renamed", [False, True], ids=["original", "profile-addresses"]
+    ("renamed", "input_member"),
+    [(False, None), (True, None), (False, "symbol"), (False, "type")],
+    ids=[
+        "original",
+        "profile-addresses",
+        "symbol-input-value-kind",
+        "type-input-value-kind",
+    ],
 )
-def test_independent_initial_facts_keep_mixed_nominal_and_quantity_compilation(renamed):
-    kernel, graph, source, context = _fixture(renamed=renamed)
+def test_independent_initial_facts_keep_mixed_nominal_and_quantity_compilation(
+    renamed, input_member
+):
+    kernel, graph, source, context = _fixture(
+        renamed=renamed, input_member=input_member
+    )
     admission = _consumer_b(kernel, graph)
     assert admission["admitted"], admission["diagnostics"]
     checked = check_model_source_value(source, authority_context=context)
