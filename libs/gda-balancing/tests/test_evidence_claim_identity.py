@@ -21,7 +21,7 @@ _CLAIMS = {"control": "evaluable", "renamed": "review.evaluable"}
 def publications(tmp_path_factory):
     root = tmp_path_factory.mktemp("evidence-claim-identity")
     results: dict[str, tuple[_PublicCandidate, tuple[str, ...], dict[str, Any]]] = {}
-    for case, claim_id in _CLAIMS.items():
+    for case, claim_id in {**_CLAIMS, "without-success": "evaluable"}.items():
         kernel, ldb = mutable_authorities()
         authored = _authored(ldb)
         package = next(
@@ -44,6 +44,15 @@ def publications(tmp_path_factory):
             claim_id if value == original_id else value
             for value in package["exports"]["evidence_claim_kinds"]
         ]
+        if case == "without-success":
+            claim["eligibility"]["producing_outcomes"].remove("success")
+            success = next(
+                row
+                for row in claim["vectors"]
+                if row["input"]["producing_outcome"] == "success"
+            )
+            success["kind"] = "negative"
+            success["expect"] = "refusal"
         # Vector identifiers are local labels, not claim-id prefix references.
         graph = _graph(kernel, authored)
         for consumer in (_consumer_a, _consumer_b):
@@ -101,7 +110,9 @@ def publications(tmp_path_factory):
             str(receipt_path),
         )
         results[case] = public, arguments, rir
-    assert results["control"][2] == results["renamed"][2]
+    assert (
+        results["control"][2] == results["renamed"][2] == results["without-success"][2]
+    )
     return results
 
 
@@ -146,4 +157,21 @@ def test_public_evidence_refuses_retired_claim_identity(publications):
     assert error["stage"] == "evaluation"
     assert [row["code"] for row in error["diagnostics"]] == [
         "evaluation.unknown_evidence_claim_kind"
+    ]
+
+
+def test_public_evidence_enforces_the_actual_selected_eligibility(publications):
+    public, arguments, _ = publications["without-success"]
+    result = public.cli(
+        "evidence", "verify", "--claim-kind", "evaluable", *arguments, success=False
+    )
+    assert public.receipts[-1]["returncode"] == 2
+    error = result["error"]
+    assert error["category"] == "refusal"
+    assert error["stage"] == "evaluation"
+    assert [row["code"] for row in error["diagnostics"]] == [
+        "evaluation.evaluable_ineligible_outcome"
+    ]
+    assert [row["primary"]["pointer"] for row in error["diagnostics"]] == [
+        "/producing_outcome"
     ]
