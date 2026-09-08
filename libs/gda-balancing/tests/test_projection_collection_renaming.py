@@ -7,11 +7,8 @@ import pytest
 
 from gda_balancing.domain.model._resolution import ModelSourceContext
 from schema2_authority_support import mutable_authorities
-from schema2_bootstrap_conformance_support import (
-    _consumer_b,
-    _reidentify_package_release,
-)
-from schema2_bootstrap_production_support import _consumer_a, _reidentify_graph_root
+from schema2_bootstrap_conformance_support import _consumer_b
+from schema2_bootstrap_production_support import _consumer_a
 from test_bounded_fold_public import (
     _admit_artifacts,
     _build,
@@ -25,6 +22,7 @@ from test_schema2_model_lowerer_conformance import (
     _reference_check_source,
     _reference_semantic_artifacts,
 )
+from test_trace_protocol_structure import _authored, _graph, _index
 
 
 def _projection(language):
@@ -38,9 +36,11 @@ def _projection(language):
 
 
 def _seal(language, kernel):
-    for package in language["language"]["packages"]:
-        _reidentify_package_release(package, kernel=kernel)
-    _reidentify_graph_root(language)
+    authored = _authored(language)
+    authored["packages"] = deepcopy(language["language"]["packages"])
+    # Invalid authored collections must reach admission without first deriving
+    # the RIR Schema whose source closure this test deliberately violates.
+    return _graph(kernel, authored)
 
 
 def _rename_collections(projection):
@@ -83,7 +83,7 @@ def test_all_projection_collection_labels_can_change_through_public_execution(
             assert [row["source"] for row in projection["collections"]] == [
                 row["source"] for row in original["collections"]
             ]
-            _seal(language, kernel)
+            language = _index(kernel, _seal(language, kernel))
         for consumer in (_consumer_a, _consumer_b):
             result = consumer(kernel, language)
             assert result["admitted"], result["diagnostics"]
@@ -139,9 +139,9 @@ def test_all_projection_collection_labels_can_change_through_public_execution(
 def test_type_reference_closure_rejects_wrong_references_and_paths(member, value):
     kernel, language = mutable_authorities()
     _projection(language)["type_reference_closure"][member] = value
-    _seal(language, kernel)
+    graph = _seal(language, kernel)
     for consumer in (_consumer_a, _consumer_b):
-        result = consumer(kernel, language)
+        result = consumer(kernel, graph)
         assert not result["admitted"], (member, value)
         assert result["diagnostics"]
 
@@ -163,8 +163,8 @@ def test_type_reference_closure_checks_actual_collection_definitions(defect):
         row["source"]["package_path"] = ["id"]
     else:
         del projection["type_reference_closure"]["target_type_collection"]
-    _seal(language, kernel)
+    graph = _seal(language, kernel)
     for consumer in (_consumer_a, _consumer_b):
-        result = consumer(kernel, language)
+        result = consumer(kernel, graph)
         assert not result["admitted"], defect
         assert result["diagnostics"]

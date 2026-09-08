@@ -4,6 +4,7 @@
 import schema2_bootstrap_conformance_support as bootstrap_support
 from schema2_bootstrap_conformance_support import *
 from schema2_bootstrap_production_support import *
+from test_trace_protocol_structure import _authored, _graph
 
 
 def _rename_structural_type_member(value, *, kind, old, new):
@@ -1261,11 +1262,14 @@ def test_authority_admission_requires_one_default_resolution_profile():
     for entry in package["semantic_closure"]:
         if entry["authority_path"] == "language.resolution_profiles":
             entry["definitions"] = deepcopy(ldb["language"]["resolution_profiles"])
-    _reidentify_package_release(package, kernel=authority["kernel"])
-    _reidentify_graph_root(ldb)
+    authored = _authored(ldb)
+    authored["packages"] = deepcopy(ldb["language"]["packages"])
+    # A malformed default-profile set must reach the authority boundary before
+    # any derived RIR Schema requires a unique default profile.
+    graph = _graph(authority["kernel"], authored)
 
-    first = _consumer_a(authority["kernel"], ldb)
-    second = _consumer_b(authority["kernel"], ldb)
+    first = _consumer_a(authority["kernel"], graph)
+    second = _consumer_b(authority["kernel"], graph)
 
     assert first == second
     assert first["admitted"] is False
