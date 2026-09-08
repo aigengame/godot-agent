@@ -874,61 +874,6 @@ class _Reader:
         # A canonical Ref key is authored instance data; its target Type was
         # traversed above. Equal spelling does not make the key an Enum label.
 
-    def type_identity_edges(self) -> None:
-        """Follow authored Type-id selectors without inventing a nominal owner."""
-        self.type_edge_occurrences: set[str] = set()
-        for (_, role, _), (lowering, pointer) in self.definitions.items():
-            if role != "language.model_lowerings":
-                continue
-            projection = lowering["runtime_projection"]
-            collections = {row["id"]: row for row in projection["collections"]}
-            for ei, edge in enumerate(projection["edges"]):
-                source = collections[edge["source_collection"]]["source"]
-                target = collections[edge["target_collection"]]["source"]
-                if (
-                    source["kind"] != "namespace-member"
-                    or source["member"] != "types"
-                    or edge["source_path"] != ["id"]
-                ):
-                    continue
-                if target["kind"] != "semantic-closure" or edge["operator"] != "equal":
-                    raise InventoryRefusal(
-                        "Type identity edge has an unsupported target law"
-                    )
-                for (owner, target_role, _), (
-                    definition,
-                    dp,
-                ) in self.definitions.items():
-                    if target_role != target["authority_path"]:
-                        continue
-                    for name, occurrence in _walk_member_path(
-                        definition, dp, edge["target_path"]
-                    ):
-                        matches = [
-                            coordinate
-                            for coordinate in self.types
-                            if coordinate[1] == name
-                            and (not edge["same_package"] or coordinate[0] == owner)
-                        ]
-                        if not matches:
-                            if edge.get("missing_target") != "not-applicable":
-                                raise InventoryRefusal(
-                                    "Type identity selector has no provider"
-                                )
-                            self.gap(
-                                occurrence,
-                                pointer + "/runtime_projection/edges/" + str(ei),
-                                "Type identity selector has no declared matching owner",
-                            )
-                        for coordinate in matches:
-                            self.occurrence(
-                                AuthorityToken("type", coordinate[:1], coordinate[1]),
-                                occurrence,
-                                "reference",
-                                pointer + "/runtime_projection/edges/" + str(ei),
-                            )
-                            self.type_edge_occurrences.add(occurrence)
-
     def metadata_links(self) -> None:
         for owner, name, pointer, target, law in _declared_metadata_links(
             self.kernel, self.graph
@@ -1565,6 +1510,12 @@ class _Reader:
             raise InventoryRefusal(f"unknown lexical operand shape at {pointer}")
 
     def operation(self, owner: str, operation: dict[str, Any], pointer: str) -> None:
+        if not _consumer_b_definition_is_closed(
+            operation,
+            self.meta["language_definitions"]["collections"]["operations"],
+            _attached_language(self.kernel, self.graph),
+        ):
+            raise InventoryRefusal("Operation does not close its Kernel contract")
         scope = (owner, operation["id"])
         law = "/meta_format/runtime_program/invocation_contract"
         bindings: dict[str, AuthorityToken] = {}
@@ -1666,18 +1617,6 @@ class _Reader:
                 "/meta_format/runtime_profile_definition",
             )
         self.operation_formula_extensions(operation, pointer, scope, bindings)
-        for member in ("owner_type",):
-            if (
-                member == "owner_type"
-                and pointer + "/owner_type" in self.type_edge_occurrences
-            ):
-                continue
-            if member in operation and operation[member]:
-                self.gap(
-                    pointer + "/" + member,
-                    "/meta_format/language_definitions/collections/operations",
-                    f"Operation {member} links are not yet complete",
-                )
 
     def operation_formula_extensions(
         self,
@@ -2496,7 +2435,6 @@ class _Reader:
         self.index()
         self.operation_operand_projection()
         self.metadata_links()
-        self.type_identity_edges()
         self.packages()
         self.rule_chain_links()
         self.assignment_policies()
@@ -3248,46 +3186,6 @@ def validate_extension_inventory(
         required.add((token, pointer, "reference"))
         if target.startswith("kernel.") and token not in inventory.reserved:
             raise InventoryRefusal("declared Kernel primitive was made renameable")
-    exported_types = [
-        (package["id"], exported["id"])
-        for package in graph["packages"]
-        for exported in package["exports"]["types"]
-    ]
-    for _, lowering, lp in _authority_path_rows(
-        kernel, graph, "language_bundle.language.model_lowerings"
-    ):
-        projection = lowering["runtime_projection"]
-        collections = {row["id"]: row["source"] for row in projection["collections"]}
-        for edge in projection["edges"]:
-            origin, destination = (
-                collections[edge["source_collection"]],
-                collections[edge["target_collection"]],
-            )
-            if (
-                origin["kind"] != "namespace-member"
-                or origin["member"] != "types"
-                or edge["source_path"] != ["id"]
-            ):
-                continue
-            if destination["kind"] != "semantic-closure":
-                raise InventoryRefusal("unclassified Type identity edge destination")
-            for package, definition, dp in _authority_path_rows(
-                kernel, graph, "language_bundle." + destination["authority_path"]
-            ):
-                for name, pointer in _walk_member_path(
-                    definition, dp, edge["target_path"]
-                ):
-                    for namespace, type_id in exported_types:
-                        if name == type_id and (
-                            not edge["same_package"] or namespace == package
-                        ):
-                            required.add(
-                                (
-                                    AuthorityToken("type", (namespace,), type_id),
-                                    pointer,
-                                    "reference",
-                                )
-                            )
     for pi, package in enumerate(graph["packages"]):
         owner, pp = package["id"], f"/packages/{pi}"
         required.add(

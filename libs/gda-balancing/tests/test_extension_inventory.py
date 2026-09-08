@@ -916,84 +916,23 @@ def test_source_format_parameters_stay_bound_to_declared_wire_format(witness):
         validate_extension_inventory(kernel, graph, inventory)
 
 
-def test_type_id_projection_edges_preserve_all_actual_nominal_owners(witness):
-    from schema2_bootstrap_production_support import (
-        _append_empty_namespace,
-        _reidentify_graph_root,
+def test_operation_inventory_uses_current_closed_definition_contract(witness):
+    kernel, graph, _ = witness
+    changed = deepcopy(graph)
+    operation = next(
+        definition
+        for package in changed["packages"]
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.operations"
+        for definition in closure["definitions"]
     )
-
-    kernel, language = mutable_authorities()
-    original = next(
-        p
-        for p in language["language"]["packages"]
-        if p["id"] == "standard.conformance.structured"
+    shape = kernel["meta_format"]["language_definitions"]["collections"]["operations"]
+    assert "unknown_reference" not in (
+        shape["required_members"] + shape.get("optional_members", [])
     )
-    package = _append_empty_namespace(language, "inventory.otheritems")
-    package["runtime_semantic_paths"] = ["language.nominal_types"]
-    package["dependencies"]["required"] = ["core.quantity", "standard.schema"]
-    exported = deepcopy(
-        next(t for t in original["exports"]["types"] if t["id"] == "IntList4")
-    )
-    nominal = deepcopy(
-        next(
-            d
-            for c in original["semantic_closure"]
-            if c["authority_path"] == "language.nominal_types"
-            for d in c["definitions"]
-            if d["id"] == "IntList4"
-        )
-    )
-    nominal["definition"]["maximum_length"] = 2
-    package["exports"]["types"].append(exported)
-    package["exports"]["nominal_types"].append("IntList4")
-    next(
-        c
-        for c in package["semantic_closure"]
-        if c["authority_path"] == "language.nominal_types"
-    )["definitions"].append(nominal)
-    _reidentify_graph_root(language)
-    a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
-    assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
-    graph = {
-        "packages": language.package_releases,
-        "ldb_root": language.root,
-        "vector_sets": language.package_conformance_vector_sets,
-    }
-    inventory = read_extension_inventory(kernel, graph)
-    owners = {
-        AuthorityToken("type", (name,), "IntList4")
-        for name in ("standard.conformance.structured", "inventory.otheritems")
-    }
-    assert owners <= inventory.tokens
-    by_pointer = {}
-    for occurrence in inventory.occurrences:
-        if occurrence.pointer.endswith("/owner_type") and occurrence.token in owners:
-            by_pointer.setdefault(occurrence.pointer, set()).add(occurrence.token)
-    assert by_pointer and all(tokens == owners for tokens in by_pointer.values())
-    actual_pointer = next(iter(by_pointer))
-    withheld = next(
-        o
-        for o in inventory.occurrences
-        if o.pointer == actual_pointer and o.token in owners
-    )
-    incomplete = replace(
-        inventory, occurrences=tuple(o for o in inventory.occurrences if o != withheld)
-    )
-    with pytest.raises(InventoryRefusal):
-        validate_extension_inventory(kernel, graph, incomplete)
-    assert not any(
-        gap.reason == "Operation owner_type links are not yet complete"
-        for gap in inventory.uncovered
-    )
-    pairs = token_bijection_from_names(
-        inventory,
-        {
-            token: "name_" + str(i)
-            for i, token in enumerate(sorted(inventory.tokens - inventory.reserved))
-        },
-    )
-    with pytest.raises(InventoryRefusal, match="shared authored reference"):
-        validate_token_bijection(inventory, pairs)
+    operation["unknown_reference"] = "Quantity"
+    with pytest.raises(InventoryRefusal, match="Operation.*Kernel contract"):
+        read_extension_inventory(kernel, changed)
 
 
 def test_rule_variables_follow_bind_keys_and_keep_rule_scopes(witness):
