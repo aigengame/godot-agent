@@ -21,6 +21,7 @@ from schema2_bootstrap_conformance_support import (
 )
 from schema2_bootstrap_production_support import _consumer_a
 from test_current_namespace_public import _PublicCandidate, _members
+from test_rir_protocol_structure import _definitions
 from test_trace_protocol_structure import _authored, _graph, _index
 
 
@@ -50,6 +51,19 @@ def _bindings(language):
         if row["schema_kind"] == schema["artifact_kind"]
     )
     return schema, contract
+
+
+def _runtime_projection(authored):
+    profile = next(
+        row
+        for row in _definitions(authored, "language.resolution_profiles")
+        if row["default"]
+    )
+    return next(
+        row["runtime_projection"]
+        for row in _definitions(authored, "language.model_lowerings")
+        if row["id"] == profile["model_lowering"]
+    )
 
 
 def test_independent_rir_admission_derives_raw_graph_without_production_schema(
@@ -264,3 +278,104 @@ def test_public_required_external_cardinality_follows_the_actual_assignment_owne
     # Forbidden excludes the carrier; it is not a legal emitted cardinality.
     targets[0]["cardinality"] = "forbidden"
     assert not validator.is_valid(rir)
+
+
+@pytest.mark.parametrize(
+    ("field", "excluded"),
+    [
+        ("excluded_members", "id"),
+        ("excluded_members", "body"),
+        ("excluded_members", "inputs"),
+        ("excluded_members", "resource_bounds"),
+        ("excluded_members", "vectors"),
+        ("excluded_extension_members", "standard.formula-notation"),
+    ],
+)
+def test_independent_rir_refuses_retired_authored_exclusion_controls(field, excluded):
+    kernel, ldb = mutable_authorities()
+    authored = _authored(ldb)
+    operations = next(
+        row
+        for row in _runtime_projection(authored)["collections"]
+        if row["source"]
+        == {"kind": "semantic-closure", "authority_path": "language.operations"}
+    )
+    operations[field] = [excluded]
+    graph = _graph(kernel, authored)
+    observations = {}
+    for label, consumer in (("A", _consumer_a), ("B", _consumer_b)):
+        observation = consumer(kernel, graph)
+        observations[label] = (observation["admitted"], observation["diagnostics"])
+    assert all(not admitted for admitted, _ in observations.values()), observations
+    assert all(
+        diagnostics == [("static", "kernel.vector_mismatch", "language.definitions")]
+        for _, diagnostics in observations.values()
+    ), observations
+
+
+def test_public_nominal_collection_rename_keeps_fixed_execution_field_ownership(
+    tmp_path,
+):
+    kernel, ldb = mutable_authorities()
+    authored = _authored(ldb)
+    projection = _runtime_projection(authored)
+    nominal = next(
+        row
+        for row in projection["collections"]
+        if row["source"]
+        == {"kind": "semantic-closure", "authority_path": "language.nominal_types"}
+    )
+    old, new = nominal["id"], "opaque.nominal.collection"
+    nominal["id"] = new
+    for member, value in projection["type_reference_closure"].items():
+        if value == old:
+            projection["type_reference_closure"][member] = new
+    for seed in projection["seeds"]:
+        if seed["collection"] == old:
+            seed["collection"] = new
+    for edge in projection["edges"]:
+        for member in ("source_collection", "target_collection"):
+            if edge[member] == old:
+                edge[member] = new
+    graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        observation = consumer(kernel, graph)
+        assert observation["admitted"], observation["diagnostics"]
+    language = _index(kernel, graph)
+    candidate = _PublicCandidate(tmp_path, authorities=(kernel, graph))
+    source = (
+        Path(__file__).parents[1] / "examples/schema2/bounded-fold/model-source.json"
+    )
+    candidate.write_source(json.loads(source.read_text()))
+    assert candidate.cli("model", "check", str(candidate.source))["checked"]
+    receipt = candidate.cli(
+        "model",
+        "build",
+        str(candidate.source),
+        "--out",
+        str(tmp_path / "build"),
+        "--invocation-key",
+        "c9" * 32,
+    )
+    artifacts = artifacts_by_protocol_role(language, _members(receipt))
+    assert len(artifacts) == 8
+    rir = artifacts["rir-semantic-payload"]
+    selected = rir["selected_semantics"]
+    assert selected["nominal_types"]
+    operations = [row["definition"] for row in selected["operations"]]
+    closures = [
+        definition
+        for package in selected["package_semantic_closures"]
+        for closure in package["definitions"]
+        if closure["authority_path"] == "language.operations"
+        for definition in closure["definitions"]
+    ]
+    assert operations and closures
+    for definition in [*operations, *closures]:
+        assert "vectors" not in definition
+        assert {"id", "body", "inputs", "resource_bounds"} <= definition.keys()
+    Draft202012Validator(
+        _consumer_b_rir_schema(
+            kernel, {"language": _raw_language(graph)}, rir["artifact_kind"]
+        )
+    ).validate(rir)

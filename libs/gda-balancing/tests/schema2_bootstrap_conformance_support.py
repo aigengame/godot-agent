@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:e01262748043b1c7ccdaebe67c3d65c4c68a8ee5e515355042dfc69037fa8c2b"
+    "sha256:ffae101d7d5f1f660a80fa46f2f092ec30bc8a8a070cdb7ff4a107a35635369a"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -3659,7 +3659,17 @@ def _consumer_b_rir_schema(
             if contract is None:
                 raise ValueError("unknown semantic closure owner")
             contract = deepcopy(contract)
-            for name in collection.get("excluded_members", []):
+            exclusion_owners = [
+                declared["excluded_members"]
+                for declared in law["selected_collections"].values()
+                if "excluded_members" in declared
+                and all(
+                    source.get(key) == value
+                    for key, value in declared["source"].items()
+                )
+            ]
+            excluded = one(exclusion_owners) if exclusion_owners else []
+            for name in excluded:
                 if name not in contract["field_types"]:
                     raise ValueError("unknown excluded definition field")
                 del contract["field_types"][name]
@@ -5052,7 +5062,6 @@ def _consumer_b_runtime_projection_is_closed(
         or contract.get("collection")
         != {
             "required_members": ["id", "source"],
-            "optional_members": ["excluded_extension_members", "excluded_members"],
             "namespace_source_members": ["kind", "member", "package_path"],
             "closure_source_members": ["kind", "authority_path"],
         }
@@ -5238,32 +5247,11 @@ def _consumer_b_runtime_projection_is_closed(
     for collection in collections:
         if not isinstance(collection, dict):
             return False
-        expected_collection_members = {
-            "id",
-            "source",
-        }
-        exclusion_fields = ("excluded_extension_members", "excluded_members")
-        expected_collection_members.update(
-            field for field in exclusion_fields if field in collection
-        )
         if (
-            set(collection) != expected_collection_members
+            set(collection) != {"id", "source"}
             or not isinstance(collection.get("id"), str)
             or not collection["id"]
             or not isinstance(collection.get("source"), dict)
-            or any(
-                field in collection
-                and (
-                    not isinstance(collection[field], list)
-                    or not collection[field]
-                    or not all(
-                        isinstance(member, str) and member
-                        for member in collection[field]
-                    )
-                    or len(collection[field]) != len(set(collection[field]))
-                )
-                for field in exclusion_fields
-            )
         ):
             return False
         output = output_for(collection)
@@ -5505,14 +5493,6 @@ def _consumer_b_runtime_projection_is_closed(
         )
         if source_kind is None or source_kind != target_kind:
             return False
-    for collection in collections:
-        representation, payload = shapes[collection["id"]]
-        excluded = collection.get("excluded_members", [])
-        if excluded:
-            fields_key = "properties" if representation == "schema" else "field_types"
-            fields = payload.get(fields_key)
-            if not isinstance(fields, dict) or not set(excluded) <= set(fields):
-                return False
     for member, kind in outputs.items():
         target = selected_properties.get(member)
         if not isinstance(target, dict) or target.get("type") != "array":
