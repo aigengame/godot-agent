@@ -2,7 +2,8 @@
 
 **Status:** accepted design; file handoff (#908), saved Blender production (#909),
 model expectation checks (#887), optional content observations (#889), and controlled
-runtime refresh (#890) are implemented. Other workflows remain planned. Accepted by the project owner
+runtime refresh (#890) are implemented. Preview (#891) is under implementation and
+native validation; other workflows remain planned. Accepted by the project owner
 on 2026-09-07 after review of the Blender-to-Godot workflow and milestone #14.
 Source baseline inspected: `cfcb8658e67df418a69694840a37a22a9cd3cbe0`.
 Acceptance and delivery status are owned by
@@ -127,7 +128,7 @@ libs/gda-assets/
       integrate.py
       produce.py
       prepare.py                     # save inputs, register outputs, select references
-      preview.py                      # when preview slice lands
+      preview.py                      # isolated model preview orchestration
       package_check.py                # when package slice lands
     adapters/
       blender/
@@ -264,7 +265,7 @@ own role and are not installed as runtime assets without explicit mapping.
 | Producer ports, local ACLs, workflow API, Godot host ports | New narrow seams in this design |
 | Prompt preparation and concept-reference handoff | Extend the local workflow API and file/producer adapters through #912/#913; no new Godot port or core prompt model |
 | Optional content receipt / runtime content sampling | Add only scoped facts required by [#889](https://github.com/aigengame/godot-agent/issues/889)/[#890](https://github.com/aigengame/godot-agent/issues/890), with independent core operation use |
-| Preview and package acceptance | Compose existing capabilities plus the missing bounded probes; no generic renderer/export verifier |
+| Preview and package acceptance | Preview composes existing operations in an isolated owned fixture; package acceptance still needs bounded package probes. No generic renderer/export verifier |
 
 ## Milestone delivery
 
@@ -283,7 +284,7 @@ The following is a delivery map, not a second editable acceptance checklist.
 | [#888](https://github.com/aigengame/godot-agent/issues/888) | gda: supported importer options and effective reimport | None; coordinate [#741](https://github.com/aigengame/godot-agent/issues/741)/[#853](https://github.com/aigengame/godot-agent/issues/853) |
 | [#889](https://github.com/aigengame/godot-agent/issues/889) | Asset Pipeline: optional selected content receipt, using gda import facts | [#908](https://github.com/aigengame/godot-agent/issues/908) |
 | [#890](https://github.com/aigengame/godot-agent/issues/890) | gda runtime facts plus Asset Pipeline controlled restart and content comparison | [#886](https://github.com/aigengame/godot-agent/issues/886), [#908](https://github.com/aigengame/godot-agent/issues/908); [#889](https://github.com/aigengame/godot-agent/issues/889) is optional enrichment |
-| [#891](https://github.com/aigengame/godot-agent/issues/891) | Asset Pipeline preview fixture/flow, existing gda observations | [#886](https://github.com/aigengame/godot-agent/issues/886), [#908](https://github.com/aigengame/godot-agent/issues/908) |
+| [#891](https://github.com/aigengame/godot-agent/issues/891) | Asset Pipeline: isolated three-view static preview with inspection, capture, diagnostics, scene-level performance, comparison, and cleanup | [#886](https://github.com/aigengame/godot-agent/issues/886), [#908](https://github.com/aigengame/godot-agent/issues/908) |
 | [#892](https://github.com/aigengame/godot-agent/issues/892) | Asset Pipeline package-only checks using the same evaluator | [#887](https://github.com/aigengame/godot-agent/issues/887) |
 
 All implementation slices are AFK under the accepted direction. The umbrella is

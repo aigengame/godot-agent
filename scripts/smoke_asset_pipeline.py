@@ -80,6 +80,17 @@ def smoke(gda: Path, godot: str | None) -> None:
         assert files("gda").joinpath(resource).is_file(), resource
     for resource in ("adapters/blender.py", "adapters/_blender_worker.py"):
         assert files("gda_assets").joinpath(resource).is_file(), resource
+    for resource in (
+        "adapters/preview_files.py",
+        "adapters/preview_fixture/project.godot",
+        "adapters/preview_fixture/preview.gd",
+        "adapters/preview_fixture/preview.tscn",
+        "application/preview.py",
+        "application/preview_ports.py",
+        "domain/preview.py",
+        "domain/preview_result.py",
+    ):
+        assert files("gda_assets").joinpath(resource).is_file(), resource
     with (
         tempfile.TemporaryDirectory(prefix="gda-assets-smoke-") as directory,
         tempfile.TemporaryDirectory(
@@ -125,6 +136,18 @@ def smoke(gda: Path, godot: str | None) -> None:
         schema = call("asset-pipeline", "run", "--schema")
         assert "files" in schema["input"]["properties"]
         assert schema["kind"] == "composite"
+        preview_schema = call("asset-pipeline", "preview", "--schema")
+        assert preview_schema["kind"] == "composite"
+        assert {
+            "path",
+            "output_dir",
+            "settings",
+            "frames",
+            "timeout",
+            "max_nodes",
+            "budget",
+            "baseline",
+        } <= preview_schema["input"]["properties"].keys()
         common = ["--project", str(project), "--json"]
         if godot:
             common += ["--godot", godot]
@@ -277,6 +300,24 @@ def smoke(gda: Path, godot: str | None) -> None:
         }
         assert repeat["observations"] == first["observations"]
 
+        refused_output = root / "invalid-preview-output"
+        refused_preview = call(
+            "asset-pipeline",
+            "preview",
+            "--path",
+            str(source / "icon.png"),
+            "--output-dir",
+            str(refused_output),
+            "--json",
+            success=False,
+        )
+        partial = refused_preview["error"]["partial_result"]["preview"]
+        assert partial["failure"]["stage"] == "prepare"
+        assert partial["failure"]["code"] == "invalid_preview"
+        assert partial["completed"] == []
+        assert partial["project"] is None
+        assert not refused_output.exists()
+
         (project / "preview.tscn").write_text(
             "[gd_scene load_steps=2 format=3]\n\n"
             '[ext_resource type="PackedScene" path="res://art/model.glb" id="1"]\n\n'
@@ -343,7 +384,7 @@ def smoke(gda: Path, godot: str | None) -> None:
         assert not (project / "not-installed.png").exists()
         assert not (project / "missing.png").exists()
     print(
-        "Installed asset pipeline smoke passed: PNG resize, GLB load, selected disk/import observations, saved observation JSON, model expectations, saved comparison, repeat, headless runtime refresh, declarations, refusal, cleanup."
+        "Installed asset pipeline smoke passed: packaged preview fixture, preview schema and no-window refusal, PNG resize, GLB load, selected disk/import observations, saved observation JSON, model expectations, saved comparison, repeat, headless runtime refresh, declarations, refusal, cleanup."
     )
 
 

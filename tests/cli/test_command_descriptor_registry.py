@@ -163,6 +163,7 @@ def test_no_renderer_is_orphaned():
 _RECIPE_OPERATIONS = {
     "asset-pipeline-run",
     "asset-pipeline-check",
+    "asset-pipeline-preview",
     "export-run",
     # `script run` is the third execution shape (ADR-0031): a user-script passthrough
     # run, fulfilled by a CLI-side recipe (it emits no ADR-0002 sentinel) like export

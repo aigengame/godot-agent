@@ -3,10 +3,10 @@
 import json
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 import typer
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from gda_assets.api import (
     AssetFile,
@@ -21,10 +21,20 @@ from gda_assets.api import (
     ContentObservations,
     RefreshRequest,
     RefreshResult,
+    PreviewCamera,
+    PreviewRequest,
+    PreviewResult,
+    PreviewSettings,
+    preview_asset,
 )
 
 from gda.dispatch import dispatch_recipe, params_or_bad_parameter
-from gda.errors import Failure, invalid_project_failure, make_failure
+from gda.errors import (
+    Failure,
+    invalid_project_failure,
+    make_failure,
+    validation_error_message,
+)
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -34,6 +44,10 @@ from gda.headless import (
     project_option,
 )
 from gda.integrations.asset_pipeline import GdaGodotAssetPort, validate_asset_targets
+from gda.integrations.preview import GdaPreviewHost
+
+
+StrictCoordinate = Annotated[float, Field(strict=True)]
 
 
 class AssetResizeInput(BaseModel):
@@ -558,6 +572,271 @@ def asset_pipeline_run(
     dispatch_recipe(
         ASSET_PIPELINE_RUN_COMMAND,
         params,
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+class PreviewCameraInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Literal["front", "side", "three_quarter"]
+    position: tuple[StrictCoordinate, StrictCoordinate, StrictCoordinate]
+    target: tuple[StrictCoordinate, StrictCoordinate, StrictCoordinate]
+    size: StrictCoordinate
+    near: StrictCoordinate
+    far: StrictCoordinate
+    up: tuple[StrictCoordinate, StrictCoordinate, StrictCoordinate] = (0.0, 1.0, 0.0)
+
+
+class PreviewSettingsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    width: int = Field(default=640, strict=True, ge=64, le=2048)
+    height: int = Field(default=360, strict=True, ge=64, le=2048)
+    padding: float = Field(default=1.15, strict=True, gt=1, le=3, allow_inf_nan=False)
+    cameras: tuple[PreviewCameraInput, ...] = ()
+
+
+class AssetPipelinePreviewParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str = Field(
+        min_length=1, description="Local GLB path or project-owned res:// GLB resource."
+    )
+    output_dir: Path = Field(
+        description="Exclusive filesystem directory for retained preview captures."
+    )
+    settings: Path | None = Field(
+        default=None, description="Optional preview settings JSON file (at most 1 MiB)."
+    )
+    frames: int = Field(
+        default=60,
+        strict=True,
+        ge=1,
+        le=120,
+        description="Performance sample frames at the final view, without stabilization.",
+    )
+    timeout: float = Field(
+        default=25.0,
+        strict=True,
+        gt=0,
+        le=50,
+        allow_inf_nan=False,
+        description="Maximum seconds to wait for the owned runtime session to become ready.",
+    )
+    max_nodes: int = Field(
+        default=256,
+        strict=True,
+        ge=1,
+        le=4096,
+        description="Maximum imported nodes to inspect; incomplete bounds need camera overrides.",
+    )
+    budget: Path | None = Field(
+        default=None,
+        description="Optional local JSON budget for the sampled scene-level performance monitors.",
+    )
+    baseline: Path | None = Field(
+        default=None,
+        description="Optional local preview JSON result (at most 4 MiB) for setup-compatible comparison.",
+    )
+
+
+class AssetPipelinePreviewResult(BaseModel):
+    preview: PreviewResult = Field(description="Bounded isolated preview result.")
+
+
+def _preview_result(result: PreviewResult) -> AssetPipelinePreviewResult:
+    return AssetPipelinePreviewResult.model_validate({"preview": asdict(result)})
+
+
+def run_asset_preview(
+    params: AssetPipelinePreviewParams,
+    *,
+    project: Path | None,
+    godot: str | None,
+) -> AssetPipelinePreviewResult | Failure:
+    settings = PreviewSettingsInput()
+    if params.settings is not None:
+        try:
+            if not params.settings.is_file():
+                return make_failure(
+                    "invalid_params", "settings must be a regular JSON file", ""
+                )
+            with params.settings.open("rb") as stream:
+                raw_settings = stream.read(1024 * 1024 + 1)
+            if len(raw_settings) > 1024 * 1024:
+                return make_failure(
+                    "invalid_params", "settings JSON must not exceed 1 MiB", ""
+                )
+            settings = PreviewSettingsInput.model_validate_json(
+                raw_settings.decode("utf-8")
+            )
+        except ValidationError as exc:
+            return make_failure(
+                "invalid_params",
+                f"invalid preview settings: {validation_error_message(exc)}",
+                "",
+            )
+        except (OSError, UnicodeError, ValueError) as exc:
+            return make_failure("invalid_params", f"invalid settings JSON: {exc}", "")
+    source = Path(params.path)
+    if params.path.startswith("res://"):
+        if project is None:
+            return invalid_project_failure(
+                "asset-pipeline preview with a res:// path requires a Godot project; pass --project"
+            )
+        refusal = validate_asset_targets(project, [params.path])
+        if refusal is not None:
+            return refusal
+        source = (project / params.path.removeprefix("res://")).resolve()
+    else:
+        source = source.resolve()
+    host = GdaPreviewHost(godot)
+    request = PreviewRequest(
+        source=source,
+        output_dir=params.output_dir.resolve(),
+        settings=PreviewSettings(
+            width=settings.width,
+            height=settings.height,
+            padding=settings.padding,
+            cameras=tuple(
+                PreviewCamera(
+                    camera.name,
+                    camera.position,
+                    camera.target,
+                    camera.size,
+                    camera.near,
+                    camera.far,
+                    camera.up,
+                )
+                for camera in settings.cameras
+            ),
+        ),
+        frames=params.frames,
+        timeout=params.timeout,
+        max_nodes=params.max_nodes,
+        budget=params.budget.resolve() if params.budget is not None else None,
+        baseline=params.baseline.resolve() if params.baseline is not None else None,
+    )
+    result = preview_asset(request, host=host)
+    typed = _preview_result(result)
+    if result.failure is None:
+        return typed
+    native = host.last_failure
+    cause = result.failure.cause or {}
+    native_matches = native is not None and (
+        cause.get("code") == native.error.code
+        or (
+            result.failure.code == native.error.code
+            and result.failure.message == native.error.message
+        )
+    )
+    failure = (
+        native
+        if native_matches
+        else make_failure(
+            "invalid_params"
+            if result.failure.stage == "validate"
+            else "operation_failed",
+            result.failure.message,
+            "",
+        )
+    )
+    assert failure is not None
+    failure.error = failure.error.model_copy(
+        update={
+            "message": f"asset preview failed during {result.failure.stage}: {result.failure.message}",
+            "partial_result": typed.model_dump(mode="json"),
+        }
+    )
+    return failure
+
+
+def render_asset_preview(result: AssetPipelinePreviewResult) -> str:
+    preview = result.preview
+    lines = [f"asset preview: {len(preview.views)} view(s)"]
+    if preview.inspection is not None:
+        lines.append(
+            f"  inspected {preview.inspection.resource}: {len(preview.inspection.nodes)} node(s)"
+        )
+    for view in preview.views:
+        name = (
+            view.state.camera.name
+            if view.state is not None
+            else f"view_{view.capture.applied_view}"
+        )
+        lines.append(
+            f"  {name}: {view.capture.receipt.path} "
+            f"({view.capture.width}x{view.capture.height})"
+        )
+    if preview.performance is not None:
+        lines.append(f"  performance: passed={preview.performance.passed}")
+    if preview.comparison is not None:
+        lines.append(f"  comparison: {preview.comparison.status}")
+        lines.extend(f"    {reason}" for reason in preview.comparison.reasons)
+        lines.extend(
+            f"    {name}: mean delta={change.mean_delta:g}, p95 delta={change.p95_delta:g}"
+            for name, change in preview.comparison.changes.items()
+        )
+    if preview.diagnostics is not None:
+        lines.append(
+            f"  diagnostics: {len(preview.diagnostics.errors)} entry(s), "
+            f"truncated={preview.diagnostics.truncated}"
+        )
+    return "\n".join(lines)
+
+
+ASSET_PIPELINE_PREVIEW_COMMAND = HeadlessCommand(
+    operation="asset-pipeline-preview",
+    input_model=AssetPipelinePreviewParams,
+    output_model=AssetPipelinePreviewResult,
+    render=render_asset_preview,
+    kind=ExecutionKind.COMPOSITE,
+    recipe=run_asset_preview,
+)
+
+
+@_app.command(name="preview", cls=ASSET_PIPELINE_PREVIEW_COMMAND.command_class())
+def asset_pipeline_preview(
+    path: str = typer.Option(
+        ..., "--path", help="Local GLB path or project-owned res:// resource."
+    ),
+    output_dir: Path = typer.Option(
+        ..., "--output-dir", help="Exclusive directory for retained captures."
+    ),
+    settings: Optional[Path] = typer.Option(
+        None, "--settings", help="Optional preview settings JSON file (at most 1 MiB)."
+    ),
+    frames: int = typer.Option(60, "--frames", min=1, max=120),
+    timeout: float = typer.Option(
+        25.0, "--timeout", help="Positive readiness timeout in seconds, at most 50."
+    ),
+    max_nodes: int = typer.Option(256, "--max-nodes", min=1, max=4096),
+    budget: Optional[Path] = typer.Option(
+        None, "--budget", help="Optional performance budget JSON."
+    ),
+    baseline: Optional[Path] = typer.Option(
+        None, "--baseline", help="Optional saved preview result JSON."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = ASSET_PIPELINE_PREVIEW_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Render and measure an isolated three-view GLB preview."""
+    dispatch_recipe(
+        ASSET_PIPELINE_PREVIEW_COMMAND,
+        params_or_bad_parameter(
+            AssetPipelinePreviewParams,
+            path=path,
+            output_dir=output_dir,
+            settings=settings,
+            frames=frames,
+            timeout=timeout,
+            max_nodes=max_nodes,
+            budget=budget,
+            baseline=baseline,
+        ),
         json_output=json_output,
         godot=godot,
         project=project,

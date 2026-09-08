@@ -484,11 +484,12 @@ names the file, and only `preflight` catches a first-frame failure.
 | ------- | ------------ |
 | `asset-pipeline run` | Export a saved Blender subtree or stage PNG/GLB files, then install, import and check the actual Godot-loaded result. Optionally collect selected disk/import hashes or reset a test scene and compare one running GLB instance. |
 | `asset-pipeline check` | Evaluate project model expectations and compare compatible Godot inspection reports. Read the content verdict; completed checks exit 0. |
+| `asset-pipeline preview` | Render three fixed views of a GLB in an isolated windowed project and collect bounded inspection, capture, diagnostic and scene-level performance results. |
 
 Use explicit source-to-target mappings and an overwrite policy. Completed
 image-generation files use the same path with optional caller-declared metadata.
 The [asset pipeline guide](libs/gda-assets/README.md) covers Blender production, file inputs, references,
-runtime refresh and partial failures. A refresh discards runtime state and requires an explicit scene and
+runtime refresh, isolated preview and partial failures. A refresh discards runtime state and requires an explicit scene and
 instance path. The [static model content guide](docs/model-content.md) defines the two underlying fact commands
 and their shared measurement. The workflow ships with gda; it needs no separate asset tool.
 

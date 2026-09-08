@@ -23,15 +23,19 @@ crash stays diagnosable (ADR-0022). The introspection-only counterpart to
 ``perf``.
 """
 
+from pathlib import Path
 from typing import Optional
 
 import typer
 from pydantic import BaseModel, Field
 
+from gda import dispatch
 from gda.dispatch import dispatch_domain, params_or_bad_parameter
+from gda.errors import Failure
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
+    RunnerFactory,
     godot_option,
     json_option,
     params_json_option,
@@ -187,6 +191,21 @@ DIAG_ERRORS_COMMAND: HeadlessCommand[DiagErrorsResult] = HeadlessCommand(
     render=render_diag_errors,
     kind=ExecutionKind.LIVE,
 )
+
+
+def run_diag_errors_operation(
+    project: Optional[Path],
+    params: DiagErrorsParams,
+    *,
+    make_runner: RunnerFactory | None = None,
+) -> DiagErrorsResult | Failure:
+    """Return structured runtime errors without emitting or exiting."""
+    return DIAG_ERRORS_COMMAND.execute(
+        params,
+        godot=None,
+        project=project,
+        make_runner=make_runner or dispatch.make_live_runner,
+    )
 
 
 # The diag command group (Phase 2, ADR-0019, #224): the RUNNING game's runtime

@@ -12,6 +12,10 @@ a current Godot inspection or a saved raw inspection report. See the
 [model checks guide](docs/checks.md) for the JSON format, seven supported check
 kinds, verdict semantics, partial coverage, and compatible baseline comparison.
 
+Use `gda asset-pipeline preview` to render three fixed views of a self-contained GLB
+in an isolated windowed Godot project and collect bounded inspection, capture,
+diagnostic, and scene-level performance facts.
+
 ```sh
 gda asset-pipeline run --project ./consumer --source-root ./production \
   --files '[{"source":"icon.png","target":"res://art/icon.png","resize":{"width":64,"height":64,"resampling":"nearest"}},{"source":"model.glb","target":"res://art/model.glb"}]' \
@@ -120,3 +124,83 @@ Use `--report ./report.json` instead of `--path` to evaluate raw JSON previously
 saved from `gda resource inspect-model`. Add `--baseline ./older-report.json` for
 a separate compatible comparison. Completed `pass`, `fail`, and `insufficient`
 verdicts all exit 0; malformed input or workflow failure exits nonzero.
+
+## Preview a model
+
+Write captures to a new output directory:
+
+```sh
+gda asset-pipeline preview --path ./model.glb \
+  --output-dir ./model-preview --json > ./preview.json
+```
+
+`--path` accepts a local GLB or a project-owned `res://` GLB; the latter requires
+`--project`. The output directory must not exist. It retains only the three PNG
+captures (`front`, `side`, and `three_quarter`). The workflow copies the source into
+a private temporary Godot project, imports and inspects it, frames the views, starts
+a windowed session, captures each applied view, samples performance at the final
+view, reads bounded diagnostics, stops the session, and removes the temporary
+project. It never modifies the source GLB or a user's project.
+
+Use an optional settings file to change the viewport or framing:
+
+```json
+{"width":640,"height":360,"padding":1.15}
+```
+
+Pass it as `--settings ./preview-settings.json`. Structured params and generated MCP
+use the same file-path string; the settings object remains inside that file. Width
+and height are each limited to 64–2,048 pixels, and padding to `(1, 3]`. Without
+camera overrides, the workflow fits orthographic views to complete finite
+static-mesh bounds. Empty, incomplete, non-finite, or unsupported bounds fail
+framing.
+
+To freeze the setup when model bounds change, copy each
+`preview.views[*].state.camera` object from a prior result into the settings file's
+`cameras` array. Supply exactly `front`, `side`, and `three_quarter` in that order.
+Each camera has `name`, three-number `position`, `target`, and `up` vectors, plus
+positive `size` and `near`, and `far` greater than `near`. Vectors and distances use
+Godot world-space units in the isolated fixture. The orthographic camera uses
+`KEEP_HEIGHT`, so `size` is the visible vertical span; viewport aspect ratio
+determines the horizontal span.
+
+The compact `preview` result links the copied source SHA-256, imported-resource
+inspection, applied camera/light/viewport/renderer/static-pose state, capture paths
+and receipts, scene-level performance samples and optional budget verdicts,
+diagnostics, completed stages, failure, and cleanup. Images stay on disk rather than
+being embedded in JSON. The current fixture establishes only the static imported
+pose and provides no overlays. Resource-relative Godot node names do not establish
+a complete mapping back to Blender source objects.
+
+Performance sampling begins immediately after the final view is applied, without a
+stabilization period. Treat it as a bounded observation of that run, not evidence
+that rendering reached equilibrium or a general benchmark.
+
+An optional performance budget uses the existing `perf` budget format and the
+preview monitor names `fps`, `draw_calls`, and `primitives_in_frame`:
+
+```json
+{"draw_calls":{"stat":"p95","max":100}}
+```
+
+For example, run a configured comparison against the first saved result:
+
+```sh
+gda asset-pipeline preview --path ./model.glb \
+  --output-dir ./model-preview-next \
+  --settings ./preview-settings.json --frames 60 \
+  --budget ./preview-budget.json --baseline ./preview.json --json
+```
+
+`--baseline` reads an explicitly saved `{ "preview": ... }` result. Comparison is
+`non_comparable` with reasons unless the actual camera, view, light, viewport,
+Engine, platform, renderer, static pose, monitor set, and performance sample window
+match. Comparable results report scene-level mean and p95 deltas per monitor. This
+does not compare model content, promise identical pixels or performance across
+runs, or infer per-mesh GPU cost. Runtime preview does not require the content
+digest from `asset-pipeline run --refresh`.
+
+Windowed execution requires a usable desktop session. On any failure, inspect the
+typed error and `error.partial_result.preview` for completed stages, retained views,
+diagnostics, and cleanup state. If the owned session cannot be stopped, the temporary
+project is retained and diagnosed rather than removed underneath it.

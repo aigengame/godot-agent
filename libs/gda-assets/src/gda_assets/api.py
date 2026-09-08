@@ -2,6 +2,22 @@
 
 from pathlib import Path
 
+from gda_assets.application.preview_ports import GodotPreviewPort, PreviewHost
+from gda_assets.domain.preview import PreviewBounds, PreviewCamera, PreviewSettings
+from gda_assets.domain.preview_result import (
+    PreviewRequest,
+    PreviewResult,
+    PreviewNode,
+    PreviewInspection,
+    PreviewState,
+    PreviewCapture,
+    PreviewStats,
+    PreviewSample,
+    PreviewBudget,
+    PreviewPerformance,
+    PreviewDiagnostic,
+    PreviewDiagnostics,
+)
 from gda_assets.application.check import check_model as _check_model
 from gda_assets.application.ports import ModelInspectionPort
 from gda_assets.application.ports import GodotImportObservationPort
@@ -53,6 +69,24 @@ from gda_assets.domain.artifacts import (
 from gda_assets.domain.recipe import AssetFile, AssetRecipe, Resize
 
 __all__ = [
+    "preview_asset",
+    "GodotPreviewPort",
+    "PreviewHost",
+    "PreviewBounds",
+    "PreviewCamera",
+    "PreviewSettings",
+    "PreviewRequest",
+    "PreviewResult",
+    "PreviewNode",
+    "PreviewInspection",
+    "PreviewState",
+    "PreviewCapture",
+    "PreviewStats",
+    "PreviewSample",
+    "PreviewBudget",
+    "PreviewPerformance",
+    "PreviewDiagnostic",
+    "PreviewDiagnostics",
     "RefreshRequest",
     "RefreshResult",
     "ModelContent",
@@ -94,6 +128,14 @@ __all__ = [
     "Resize",
     "run_pipeline",
 ]
+
+
+def preview_asset(request: PreviewRequest, *, host: PreviewHost) -> PreviewResult:
+    """Run the isolated preview using the host's bound Godot capabilities."""
+    from gda_assets.adapters.preview_files import PreviewFiles
+    from gda_assets.application.preview import preview_asset as _preview_asset
+
+    return _preview_asset(request, host=host, files=PreviewFiles())
 
 
 def run_pipeline(
