@@ -1221,7 +1221,7 @@ def test_source_value_policy_uses_its_scalar_wire_contract(witness):
         read_extension_inventory(kernel, candidate)
 
 
-def test_projection_collection_names_follow_native_roots_and_not_output_members():
+def test_projection_collection_names_preserve_kernel_owned_output_roles():
     from gda_balancing.domain.authority.context import (
         AdmittedAuthorityContext,
         admit_authority_context,
@@ -1246,7 +1246,14 @@ def test_projection_collection_names_follow_native_roots_and_not_output_members(
     original = projection["operation_roots"]["collection"]
     renamed = "opaque.operation.collection"
     selected = next(c for c in projection["collections"] if c["id"] == original)
-    output_member = selected["output_member"]
+    source_role = deepcopy(selected["source"])
+    output_member = next(
+        name
+        for name, role in kernel["meta_format"]["language_definitions"][
+            "wire_schema_protocol_roles"
+        ]["rir_structure"]["selected_collections"].items()
+        if role["source"] == source_role
+    )
     selected["id"] = renamed
     projection["operation_roots"]["collection"] = renamed
     for seed in projection["seeds"]:
@@ -1286,7 +1293,8 @@ def test_projection_collection_names_follow_native_roots_and_not_output_members(
     assert len(names) == len(projection["collections"]) == 16
     token = AuthorityToken("projection-collection", (lowering["id"],), renamed)
     assert token in names - inventory.reserved
-    assert selected["output_member"] == output_member != renamed
+    assert "output_member" not in selected and "output_shape" not in selected
+    assert selected["source"] == source_role and output_member != renamed
     root_reference = next(
         occurrence
         for occurrence in inventory.occurrences
@@ -1666,7 +1674,6 @@ def test_protocol_roles_do_not_merge_wire_schema_and_producer_kind_identities():
     ]
     assert {gap.pointer.rsplit("/", 1)[-1] for gap in contract_gaps} == {
         "identity_excluded_members",
-        "semantic_identity_projection",
     }
 
 

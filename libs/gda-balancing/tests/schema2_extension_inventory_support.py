@@ -20,6 +20,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_value_program_instruction_is_closed,
     _consumer_b_operation_composition_subjects,
     _consumer_b_operation_relation_is_satisfied,
+    _consumer_b_project_rir_schema,
     _consumer_b_project_trace_schema,
     _consumer_b_replay_comparison_vector_is_closed,
     _consumer_b_relation_paths_are_typed,
@@ -159,13 +160,13 @@ def _attached_language(
             if closure["authority_path"] == projection["authority_path"]
             for definition in closure["definitions"]
         ]
-    # Protocol projection writes only to the derived view. The inventory must
-    # retain the physical authored graph, including the absence of a Trace schema.
-    language["artifact_wire_schemas"] = [
-        dict(row) for row in language["artifact_wire_schemas"]
-    ]
+    # Protocol projection writes only to the derived view. Both the generated
+    # schemas and RIR identity projection must stay absent from the authored graph.
+    for collection in ("artifact_wire_schemas", "artifact_contracts"):
+        language[collection] = [dict(row) for row in language[collection]]
     try:
         _consumer_b_project_trace_schema(dict(kernel), language)
+        _consumer_b_project_rir_schema(dict(kernel), language)
     except (KeyError, TypeError, ValueError, IndexError) as error:
         raise InventoryRefusal("wire protocol structure does not close") from error
     return {"language": language}
@@ -2425,11 +2426,11 @@ class _Reader:
                     )
 
     def operation_operand_projection(self) -> None:
-        language = _attached_language(self.kernel, self.graph)
+        self.language = _attached_language(self.kernel, self.graph)
         closed: dict[tuple[str, str], tuple[set[str], set[str], int]] = {}
         subjects = _consumer_b_operation_composition_subjects(
             dict(self.kernel),
-            language,
+            self.language,
             closed_operations=closed,
             operand_contracts=self.operand_contracts,
         )
@@ -2541,10 +2542,10 @@ class _Reader:
             # The independent observation-member pass closes the complete
             # policy shape and every actual check reference before this pass.
             return True
-        if (
-            role == "language.artifact_wire_schemas"
-            and value.get("protocol_role") == "event-trace"
-        ):
+        if role == "language.artifact_wire_schemas" and value.get("protocol_role") in {
+            "event-trace",
+            "rir-semantic-payload",
+        }:
             # The protocol pass checks the physical declaration and producer
             # binding. The Kernel supplies structure; no authored field names
             # or independently configurable schema remain in this definition.
@@ -2581,9 +2582,7 @@ class _Reader:
             if role.startswith("language.quantity."):
                 contracts = contracts["quantity"]
             contract = contracts["collections"][role.rsplit(".", 1)[1]]
-            if not _consumer_b_definition_is_closed(
-                value, contract, _attached_language(self.kernel, self.graph)
-            ):
+            if not _consumer_b_definition_is_closed(value, contract, self.language):
                 raise InventoryRefusal(
                     "typed metadata does not close its declared Kernel shape"
                 )
@@ -3245,7 +3244,7 @@ class _Reader:
         if not _consumer_b_definition_is_closed(
             operation,
             self.meta["language_definitions"]["collections"]["operations"],
-            _attached_language(self.kernel, self.graph),
+            self.language,
         ):
             raise InventoryRefusal("Operation does not close its Kernel contract")
         scope = (owner, operation["id"])

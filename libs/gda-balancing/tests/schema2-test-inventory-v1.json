@@ -41,7 +41,7 @@
     "tests/test_cli_conformance.py::TestPerDescriptorRows::test_verdict_row[template list]",
     "tests/test_cli_conformance.py::TestPerDescriptorRows::test_verdict_row[version]"
   ],
-  "description": "Required logical behavior inventory after Schema 1 retirement, current-package union, #871 native namespace migration and #873 request preparation, #874 selected execution-contract closure, and #876 replacement of the removed maximum charge witness with its executing less-than dependency. #878 replaces Type-label Operation selection with actual roots; its resource tests cover both sides of the current exact boundary and its two-owner specialization test uses real Formula bindings. Explicit obligation dispositions preserve negative admission and retained behavior; the complete current collection must also belong to exactly one CI shard.",
+  "description": "Required logical behavior inventory after Schema 1 retirement, current-package union, #871 native namespace migration and #873 request preparation, #874 selected execution-contract closure, and #876 replacement of the removed maximum charge witness with its executing less-than dependency. #878 replaces Type-label Operation selection with actual roots; its resource tests cover both sides of the current exact boundary and its two-owner specialization test uses real Formula bindings. #878 retires independently authored RIR output names and structural identity recipes; public tests now require their absence and reject reintroduction. Explicit obligation dispositions preserve negative admission and retained behavior; the complete current collection must also belong to exactly one CI shard.",
   "package_vector_ids": [
     "core.quantity:model.compile.boundary-max-symbols",
     "core.quantity:model.compile.boundary-max-symbols-plus-one",
@@ -928,7 +928,6 @@
     "tests/test_schema2_model_lowerer_conformance.py::test_resolved_admission_follows_a_renamed_ldb_diagnostic_without_host_changes",
     "tests/test_schema2_model_lowerer_conformance.py::test_resolved_admission_refuses_reidentified_rir_semantic_closure_drift",
     "tests/test_schema2_model_lowerer_conformance.py::test_resolver_implementation_identity_is_receipt_only",
-    "tests/test_schema2_model_lowerer_conformance.py::test_rir_output_member_follows_the_ldb_lowering_and_wire_schema",
     "tests/test_schema2_model_lowerer_conformance.py::test_runtime_projection_budget_drives_both_independent_consumers",
     "tests/test_schema2_model_lowerer_conformance.py::test_schema_error_mapping_uses_the_complete_ldb_selector_path",
     "tests/test_schema2_publication_contracts.py::test_committed_recovery_consumes_only_selected_framing_and_member_contracts",
