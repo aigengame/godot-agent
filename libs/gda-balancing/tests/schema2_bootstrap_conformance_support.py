@@ -5520,7 +5520,13 @@ def _consumer_b_evidence_claim_kinds_are_closed(
 
 def _consumer_b_artifact_semantic_projections_are_closed(
     ldb: dict[str, Any],
+    *,
+    schema_addresses: dict[tuple[str | int, ...], tuple[str | int, ...]] | None = None,
 ) -> bool:
+    """Expose interpreted schema addresses only after every projection closes."""
+    if schema_addresses is not None:
+        schema_addresses.clear()
+    derived_addresses: dict[tuple[str | int, ...], tuple[str | int, ...]] = {}
     language = ldb.get("language")
     if not isinstance(language, dict):
         return False
@@ -5529,19 +5535,20 @@ def _consumer_b_artifact_semantic_projections_are_closed(
     if not isinstance(contracts, list) or not isinstance(schemas, list):
         return False
     schemas_by_kind = {
-        row.get("artifact_kind"): row.get("schema")
-        for row in schemas
+        row.get("artifact_kind"): (schema_index, row.get("schema"))
+        for schema_index, row in enumerate(schemas)
         if isinstance(row, dict)
         and isinstance(row.get("artifact_kind"), str)
         and isinstance(row.get("schema"), dict)
     }
-    for contract in contracts:
+    for contract_index, contract in enumerate(contracts):
         if not isinstance(contract, dict):
             return False
         projection = contract.get("semantic_identity_projection")
         if projection is None:
             continue
-        schema = schemas_by_kind.get(contract.get("schema_kind"))
+        selected_schema = schemas_by_kind.get(contract.get("schema_kind"))
+        schema = selected_schema[1] if selected_schema is not None else None
         root_exclusions = (
             projection.get("excluded_root_members")
             if isinstance(projection, dict)
@@ -5570,7 +5577,25 @@ def _consumer_b_artifact_semantic_projections_are_closed(
             != len(collection_exclusions)
         ):
             return False
-        for row in collection_exclusions:
+        assert selected_schema is not None
+        projection_path = (
+            "language",
+            "artifact_contracts",
+            contract_index,
+            "semantic_identity_projection",
+        )
+        properties_path = (
+            "language",
+            "artifact_wire_schemas",
+            selected_schema[0],
+            "schema",
+            "properties",
+        )
+        for member_index, member in enumerate(root_exclusions):
+            derived_addresses[
+                (*projection_path, "excluded_root_members", member_index)
+            ] = (*properties_path, member)
+        for row_index, row in enumerate(collection_exclusions):
             collection_member = (
                 row.get("collection_member") if isinstance(row, dict) else None
             )
@@ -5593,6 +5618,18 @@ def _consumer_b_artifact_semantic_projections_are_closed(
                 or not set(excluded_members) <= set(item_properties)
             ):
                 return False
+            row_path = (*projection_path, "collection_member_exclusions", row_index)
+            collection_path = (*properties_path, collection_member)
+            derived_addresses[(*row_path, "collection_member")] = collection_path
+            for member_index, member in enumerate(excluded_members):
+                derived_addresses[(*row_path, "excluded_members", member_index)] = (
+                    *collection_path,
+                    "items",
+                    "properties",
+                    member,
+                )
+    if schema_addresses is not None:
+        schema_addresses.update(derived_addresses)
     return True
 
 
