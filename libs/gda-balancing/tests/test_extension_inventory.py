@@ -2007,3 +2007,336 @@ def test_negative_lookup_renaming_refuses_capture_and_reserved_targets(witness):
     vector["input"]["value"] = declared.name
     with pytest.raises(InventoryRefusal, match="lookup absence"):
         read_extension_inventory(kernel, changed)
+
+
+def test_value_vector_occurrences_preserve_lexical_and_typed_ownership(witness):
+    kernel, graph, inventory = witness
+    values = [
+        (f"/vector_sets/{vi}/vector_definitions/{di}", vector)
+        for vi, vector_set in enumerate(graph["vector_sets"])
+        for di, vector in enumerate(vector_set["vector_definitions"])
+        if vector.get("kind") in {"value-program", "structured-value"}
+    ]
+    assert sum(v["kind"] == "value-program" for _, v in values) == 24
+    assert sum(v["kind"] == "structured-value" for _, v in values) == 24
+    program_path, program = next(
+        (p, v) for p, v in values if v["id"] == "formula.runtime.maximum.extrema"
+    )
+    scope = (program["id"],)
+    local = AuthorityToken("vector-local", scope, "left_is_less")
+    assert local in inventory.tokens
+    assert {(o.pointer, o.use) for o in inventory.occurrences if o.token == local} == {
+        (program_path + "/input/instructions/0/instruction/target", "declaration"),
+        (program_path + "/input/instructions/1/instruction/condition", "reference"),
+    }
+    candidate_path, _ = next(
+        (p, v) for p, v in values if v["id"] == "structured.accept.candidate"
+    )
+    enum = AuthorityToken(
+        "enum-member", ("standard.conformance.structured", "CandidateKind"), "primary"
+    )
+    assert any(
+        o.token == enum and o.pointer == candidate_path + "/input/left/value/kind"
+        for o in inventory.occurrences
+    )
+    assert not any(
+        o.pointer == candidate_path + "/input/left/value/key/key"
+        and o.location == "value"
+        for o in inventory.occurrences
+    )  # A Ref instance key is canonical data, even when it resembles a name.
+    validate_extension_inventory(kernel, graph, inventory)
+    removed_class = {
+        token for token in inventory.tokens if token.role == "vector-local"
+    }
+    with pytest.raises(InventoryRefusal, match="value vector occurrence coverage"):
+        validate_extension_inventory(
+            kernel,
+            graph,
+            replace(
+                inventory,
+                tokens=inventory.tokens - removed_class,
+                occurrences=tuple(
+                    o for o in inventory.occurrences if o.token not in removed_class
+                ),
+            ),
+        )
+    transported = dict(
+        token_bijection_from_names(
+            inventory,
+            {
+                AuthorityToken("vectors", (), program["id"]): "opaque-program",
+                local: "opaque-local",
+            },
+        )
+    )
+    assert transported[local].owner == ("opaque-program",)
+    selected = next(
+        o
+        for o in inventory.occurrences
+        if o.pointer == program_path + "/input/instructions/1/instruction/condition"
+    )
+    typed = next(
+        o
+        for o in inventory.occurrences
+        if o.pointer == candidate_path + "/input/left/value/kind"
+    )
+    for occurrence in (selected, typed):
+        omitted = replace(
+            inventory,
+            occurrences=tuple(o for o in inventory.occurrences if o != occurrence),
+        )
+        with pytest.raises(InventoryRefusal):
+            validate_extension_inventory(kernel, graph, omitted)
+        wrong = replace(occurrence.token, owner=("wrong-owner",))
+        misowned = replace(
+            inventory,
+            tokens=inventory.tokens | {wrong},
+            occurrences=tuple(
+                replace(o, token=wrong) if o == occurrence else o
+                for o in inventory.occurrences
+            ),
+        )
+        with pytest.raises(InventoryRefusal):
+            validate_extension_inventory(kernel, graph, misowned)
+
+
+@pytest.mark.parametrize("family", ["value-program", "structured-value"])
+def test_value_vector_renaming_retains_two_actual_consumers(witness, family):
+    from gda_balancing.domain.authority.graph import LanguageBundleGraph
+    from gda_balancing.domain.structured_values import evaluate_structured_value_vector
+    from schema2_bootstrap_conformance_support import (
+        _consumer_b_evaluate_structured_value_vector,
+        _encoded,
+    )
+    from schema2_extension_renaming_support import (
+        _reseal_authored_graph,
+        _rewrite_positions,
+    )
+    from schema2_value_program_production_support import evaluate_value_program_vector
+    from schema2_value_program_reference_support import (
+        reference_evaluate_value_program_vector,
+    )
+
+    kernel, graph, inventory = witness
+    if family == "structured-value":
+        # A fresh attached owner isolates this slice from still-unclassified
+        # Operation-execution vectors that consume the maintained Enum types.
+        graph = deepcopy(graph)
+        namespace = "test.vector.nominal"
+        package = deepcopy(graph["packages"][0])
+        package["id"] = namespace
+        package["capabilities"] = {"provided": [], "required": []}
+        package["dependencies"] = {"required": ["standard.schema"], "optional": []}
+        package["exports"] = {key: [] for key in package["exports"]}
+        package["profiles"] = {key: [] for key in package["profiles"]}
+        package["runtime_semantic_excluded_extensions"] = []
+        for closure in package["semantic_closure"]:
+            closure["definitions"] = []
+        prototype = next(
+            nominal
+            for p in graph["packages"]
+            for closure in p["semantic_closure"]
+            if closure["authority_path"] == "language.nominal_types"
+            for nominal in closure["definitions"]
+            if nominal["id"] == "CandidateKind"
+        )
+        nominal = {**deepcopy(prototype), "id": "Token"}
+        package["exports"]["types"] = [
+            {"id": "Token", "constructor": nominal["constructor"]}
+        ]
+        package["exports"]["nominal_types"] = ["Token"]
+        next(
+            c
+            for c in package["semantic_closure"]
+            if c["authority_path"] == "language.nominal_types"
+        )["definitions"] = [nominal]
+        vector = {
+            "id": "test.vector.accept-token",
+            "kind": "structured-value",
+            "category": "positive",
+            "input": {
+                "action": "admit",
+                "key": None,
+                "left": {
+                    "type": {"package": namespace, "id": "Token"},
+                    "value": "primary",
+                },
+                "right": None,
+                "limit": None,
+            },
+            "expect": {
+                "code": None,
+                "outcome": "admitted",
+                "pointer": "",
+                "type": {"package": namespace, "id": "Token"},
+                "value": "primary",
+            },
+        }
+        graph["packages"].append(package)
+        graph["vector_sets"].append(
+            {
+                "artifact_kind": graph["vector_sets"][0]["artifact_kind"],
+                "package_id": namespace,
+                "content_identity": "",
+                "vectors": [vector["id"]],
+                "vector_definitions": [vector],
+            }
+        )
+        graph["ldb_root"]["package_descriptors"].append(
+            {**graph["ldb_root"]["package_descriptors"][0], "id": namespace}
+        )
+        _reseal_authored_graph(kernel, graph)
+        inventory = read_extension_inventory(kernel, graph)
+        validate_extension_inventory(kernel, graph, inventory)
+    before = deepcopy(graph)
+    if family == "value-program":
+        selected = {
+            token: f"opaque_{i:04d}"
+            for i, token in enumerate(sorted(inventory.tokens))
+            if token.role in {"vector-local", "vector-site"}
+        }
+    else:
+        selected = {
+            AuthorityToken(
+                "enum-member",
+                ("test.vector.nominal", "Token"),
+                "primary",
+            ): "chosen"
+        }
+    assert selected and set(selected) <= inventory.tokens - inventory.reserved
+    occurrences = [o for o in inventory.occurrences if o.token in selected]
+    assert occurrences and all(o.location in {"value", "key"} for o in occurrences)
+    candidate = _rewrite_positions(
+        graph,
+        {o.pointer: selected[o.token] for o in occurrences if o.location == "value"},
+        {o.pointer: selected[o.token] for o in occurrences if o.location == "key"},
+    )
+    _reseal_authored_graph(kernel, candidate)
+    assert graph == before
+    assert (
+        candidate["ldb_root"]["content_identity"]
+        != graph["ldb_root"]["content_identity"]
+    )
+    authored = LanguageBundleGraph(
+        root=candidate["ldb_root"],
+        package_releases=candidate["packages"],
+        package_conformance_vector_sets=candidate["vector_sets"],
+        root_byte_size=len(_encoded(candidate["ldb_root"])),
+        package_byte_sizes=[len(_encoded(p)) for p in candidate["packages"]],
+        vector_set_byte_sizes=[len(_encoded(v)) for v in candidate["vector_sets"]],
+    )
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, authored)
+        assert result["admitted"], result["diagnostics"]
+    rewritten = read_extension_inventory(kernel, candidate)
+    validate_extension_inventory(kernel, candidate, rewritten)
+    # This finite rename does not waive the remaining complete-graph obligations.
+    assert rewritten.uncovered
+    with pytest.raises(InventoryRefusal, match="uncovered semantic role"):
+        rewritten.require_complete()
+    for current in (graph, candidate):
+        vectors = [
+            v
+            for vs in current["vector_sets"]
+            for v in vs["vector_definitions"]
+            if v.get("kind") == family
+        ]
+        assert len(vectors) == (24 if family == "value-program" else 25)
+        for vector in vectors:
+            if family == "value-program":
+                a = evaluate_value_program_vector(
+                    kernel, vector, phase="initialization"
+                )
+                b = reference_evaluate_value_program_vector(vector)
+            else:
+                args = dict(
+                    nominal_types=current["packages"],
+                    kernel=kernel,
+                    resource_limit=current["ldb_root"]["resources"][
+                        "max_rule_match_steps"
+                    ],
+                )
+                a = evaluate_structured_value_vector(vector, **args)
+                b = _consumer_b_evaluate_structured_value_vector(vector, **args)
+            assert a == vector["expect"]
+            assert b == vector["expect"]
+    if family == "value-program":
+        # Renaming carries identity sites, never recalculates numerical oracles.
+        original = {
+            v["id"]: v
+            for vs in graph["vector_sets"]
+            for v in vs["vector_definitions"]
+            if v.get("kind") == family
+        }
+        for vs in candidate["vector_sets"]:
+            for v in vs["vector_definitions"]:
+                if v.get("kind") == family:
+                    assert {k: x for k, x in v["expect"].items() if k != "site"} == {
+                        k: x
+                        for k, x in original[v["id"]]["expect"].items()
+                        if k != "site"
+                    }
+
+
+def test_value_vector_literal_data_and_unclosed_negatives_cannot_claim_identity(
+    witness,
+):
+    from schema2_extension_inventory_support import TokenOccurrence
+
+    kernel, graph, inventory = witness
+    vector_path, vector = next(
+        (f"/vector_sets/{vi}/vector_definitions/{di}", v)
+        for vi, vs in enumerate(graph["vector_sets"])
+        for di, v in enumerate(vs["vector_definitions"])
+        if v["id"] == "structured.accept.candidate"
+    )
+    key_path = vector_path + "/input/left/value/key/key"
+    fake = AuthorityToken(
+        "enum-member",
+        ("standard.conformance.structured", "CandidateKind"),
+        "candidate_a",
+    )
+    forged = replace(
+        inventory,
+        tokens=inventory.tokens | {fake},
+        occurrences=(
+            *inventory.occurrences,
+            TokenOccurrence(fake, key_path, "reference", "/meta_format/package_vector"),
+        ),
+    )
+    with pytest.raises(InventoryRefusal, match="no interpreted identity role"):
+        validate_extension_inventory(kernel, graph, forged)
+    negative = next(
+        f"/vector_sets/{vi}/vector_definitions/{di}"
+        for vi, vs in enumerate(graph["vector_sets"])
+        for di, v in enumerate(vs["vector_definitions"])
+        if v["id"] == "structured.refuse.unknown-enum-member"
+    )
+    assert any(g.pointer == negative + "/input/left/value" for g in inventory.uncovered)
+    assert not any(
+        o.pointer == negative + "/input/left/value" for o in inventory.occurrences
+    )
+    # No general 'missing name' escape is inferred from an expected refusal.
+    fake_free = replace(
+        inventory,
+        tokens=inventory.tokens | {replace(fake, name="unknown")},
+        occurrences=(
+            *inventory.occurrences,
+            TokenOccurrence(
+                replace(fake, name="unknown"),
+                negative + "/input/left/value",
+                "unresolved-reference",
+                "/meta_format/package_vector",
+            ),
+        ),
+    )
+    with pytest.raises(InventoryRefusal, match="unresolved-reference"):
+        validate_extension_inventory(kernel, graph, fake_free)
+    changed = deepcopy(graph)
+    vi, di = (int(vector_path.split("/")[index]) for index in (2, 4))
+    changed["vector_sets"][vi]["vector_definitions"][di]["input"]["hidden_owner"] = (
+        "standard.schema"
+    )
+    with pytest.raises(InventoryRefusal, match="unknown declared member"):
+        read_extension_inventory(kernel, changed)
+    assert vector["input"]["left"]["value"]["key"]["key"] == "candidate_a"
