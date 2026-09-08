@@ -14,6 +14,7 @@ from gda_balancing.domain.authority.vector_validation import _fact_is_closed
 from gda_balancing.domain.canonical import canonical_bytes
 from gda_balancing.domain.diagnostics import ArtifactLocation, Schema2RefusalReport
 from gda_balancing.domain.model import CheckedModel, check_model_source_value
+from gda_balancing.domain.model._compilation import lower_checked_model
 from gda_balancing.domain.model._lowering import _resolved_source_symbols
 from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_conformance_support import _consumer_b_fact_is_closed
@@ -44,7 +45,7 @@ def _rename_member(schema, old, new):
         _rename_member(branch, old, new)
 
 
-def _fixture(mutation=None, *, renamed=False):
+def _fixture(mutation=None, *, renamed=False, input_member=None):
     kernel, language = mutable_authorities()
     authored = _authored(language)
     source = json.loads((_EXAMPLES / "bounded-fold/model-source.json").read_text())
@@ -61,13 +62,18 @@ def _fixture(mutation=None, *, renamed=False):
     module_schema = schema["properties"]["modules"]["items"]
     symbol_schema = module_schema["properties"]["symbols"]["items"]
     checks = _definitions(authored, "language.model_checks")
-    if renamed:
-        names = {
-            "modules": "opaque/modules~",
-            "symbols": "declarations/~",
-            "symbol": "local/name~",
-            "type": "import/type~",
-        }
+    if renamed or input_member is not None:
+        names = {key: key for key in ("modules", "symbols", "symbol", "type")}
+        if renamed:
+            names.update(
+                modules="opaque/modules~",
+                symbols="declarations/~",
+                symbol="local/name~",
+                type="import/type~",
+            )
+        if input_member is not None:
+            assert input_member in {"symbol", "type"}
+            names[input_member] = "value_kind"
         _rename_member(schema, "modules", names["modules"])
         _rename_member(module_schema, "symbols", names["symbols"])
         _rename_member(symbol_schema, "symbol", names["symbol"])
@@ -227,10 +233,21 @@ def test_schema_valid_source_refuses_at_its_initial_fact_before_any_rule(
 
 
 @pytest.mark.parametrize(
-    "renamed", [False, True], ids=["original", "profile-addresses"]
+    ("renamed", "input_member"),
+    [(False, None), (True, None), (False, "symbol"), (False, "type")],
+    ids=[
+        "original",
+        "profile-addresses",
+        "symbol-input-as-value-kind",
+        "type-input-as-value-kind",
+    ],
 )
-def test_mixed_public_model_keeps_closed_facts_and_runtime_values(tmp_path, renamed):
-    kernel, graph, source, context = _fixture(renamed=renamed)
+def test_mixed_public_model_keeps_closed_facts_and_runtime_values(
+    tmp_path, renamed, input_member
+):
+    kernel, graph, source, context = _fixture(
+        renamed=renamed, input_member=input_member
+    )
     checked = check_model_source_value(source, authority_context=context)
     assert isinstance(checked, CheckedModel)
     rows = _resolved_source_symbols(source, context.language_bundle, kernel)
@@ -253,6 +270,15 @@ def test_mixed_public_model_keeps_closed_facts_and_runtime_values(tmp_path, rena
         )
     )
     rir = build["rir-semantic-payload"]
+    if input_member is not None:
+        _, _, control_source, control_context = _fixture()
+        control = check_model_source_value(
+            control_source, authority_context=control_context
+        )
+        assert isinstance(control, CheckedModel)
+        assert canonical_bytes(rir) == canonical_bytes(
+            lower_checked_model(control)["rir-semantic-payload"]
+        )
     rir_path = tmp_path / "rir.json"
     rir_path.write_text(json.dumps(rir))
     specification = json.loads((_EXAMPLES / "bounded-fold/experiment.json").read_text())
