@@ -1912,3 +1912,98 @@ def test_inventory_consumes_the_complete_declared_source_module_mapping():
         request["package_requirements"] == formula_source["package_requirements"]
         for request in requests.values()
     )
+
+
+def test_negative_inventory_lookup_names_remain_proven_unresolved_references(witness):
+    kernel, graph, inventory = witness
+    free = [o for o in inventory.occurrences if o.use == "unresolved-reference"]
+    assert {o.token.name for o in free} == {"missing-kind", "missing-unit"}
+    assert {o.token.role for o in free} == {
+        "language.quantity.kinds",
+        "language.quantity.units",
+    }
+    validate_extension_inventory(kernel, graph, inventory)
+    assert not any(
+        o.use == "declaration" and o.token in {row.token for row in free}
+        for o in inventory.occurrences
+    )
+    assert not any(
+        o.pointer == row.pointer for row in inventory.uncovered for o in free
+    )
+    for vector_set in graph["vector_sets"]:
+        for vector in vector_set["vector_definitions"]:
+            if vector.get("input") == {"values": ["health", "mana"]}:
+                assert not any(
+                    o.token.name in {"health", "mana"} and "/input/values/" in o.pointer
+                    for o in inventory.occurrences
+                )
+    omitted = {row.token for row in free}
+    with pytest.raises(InventoryRefusal, match="unresolved-reference"):
+        validate_extension_inventory(
+            kernel,
+            graph,
+            replace(
+                inventory,
+                tokens=inventory.tokens - omitted,
+                occurrences=tuple(
+                    o for o in inventory.occurrences if o.token not in omitted
+                ),
+            ),
+        )
+    ordinary = next(
+        o
+        for o in inventory.occurrences
+        if o.use == "reference" and o.pointer == "/source/entrypoints/0/operation/id"
+    )
+    forged = replace(ordinary, use="unresolved-reference")
+    with pytest.raises(InventoryRefusal, match="unresolved-reference"):
+        validate_extension_inventory(
+            kernel,
+            graph,
+            replace(
+                inventory,
+                occurrences=tuple(
+                    forged if o == ordinary else o for o in inventory.occurrences
+                ),
+            ),
+        )
+
+
+def test_negative_lookup_renaming_refuses_capture_and_reserved_targets(witness):
+    kernel, graph, inventory = witness
+    selected = next(
+        o
+        for o in inventory.occurrences
+        if o.use == "unresolved-reference" and o.token.role == "language.quantity.kinds"
+    )
+    sources = sorted(inventory.tokens - inventory.reserved)
+    names = {token: f"renamed_{i}" for i, token in enumerate(sources)}
+    declared = next(
+        o.token
+        for o in inventory.occurrences
+        if o.use == "declaration" and o.token.role == selected.token.role
+    )
+    names[selected.token] = names[declared]
+    with pytest.raises(InventoryRefusal, match="duplicate source or target"):
+        validate_token_bijection(
+            inventory, token_bijection_from_names(inventory, names)
+        )
+    names[selected.token] = "fresh.missing"
+    pairs = token_bijection_from_names(inventory, names)
+    reserved = next(iter(inventory.reserved))
+    with pytest.raises(InventoryRefusal, match="Kernel-reserved"):
+        validate_token_bijection(
+            inventory,
+            [
+                (source, reserved if source == selected.token else target)
+                for source, target in pairs
+            ],
+        )
+    changed = deepcopy(graph)
+    pieces = selected.pointer.split("/")
+    vector = changed["vector_sets"][int(pieces[2])]["vector_definitions"][
+        int(pieces[4])
+    ]
+    vector["input"]["value"] = declared.name
+    with pytest.raises(InventoryRefusal, match="lookup absence"):
+        read_extension_inventory(kernel, changed)

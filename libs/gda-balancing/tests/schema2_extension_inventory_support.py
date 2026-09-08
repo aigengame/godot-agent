@@ -744,6 +744,107 @@ def _source_address_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
             yield from selector(check["selector"], cp + "/selector", prefix)
 
 
+def _reason_vector_rows(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    contract = kernel["meta_format"]["diagnostic_reason"]
+    reasons = {
+        row["id"]: row
+        for _, row, _ in _authority_path_rows(
+            kernel, graph, "language_bundle.language.reasons"
+        )
+    }
+    language = _attached_language(kernel, graph)
+    for vi, vector_set in enumerate(graph.get("vector_sets", [])):
+        for di, vector in enumerate(vector_set["vector_definitions"]):
+            if "reason" not in vector and "matched" not in vector:
+                continue
+            if (
+                set(vector) != set(contract["vector_required_members"])
+                or vector["reason"] not in reasons
+            ):
+                raise InventoryRefusal(
+                    "reason vector does not close its declared shape"
+                )
+            reason = reasons[vector["reason"]]
+            schemas = [
+                row
+                for row in contract["predicate_schemas"]
+                if row["operation"] == reason["predicate"]["operation"]
+            ]
+            if len(schemas) != 1:
+                raise InventoryRefusal("reason vector has no declared predicate")
+            schema = schemas[0]
+            fields = {
+                **contract["vector_member_types"],
+                "input": {
+                    "type": "closed-object",
+                    "required_members": schema["input_members"],
+                    "field_types": schema["input_member_types"],
+                },
+            }
+            if not _consumer_b_definition_is_closed(
+                vector,
+                {
+                    "required_members": contract["vector_required_members"],
+                    "field_types": fields,
+                },
+                language,
+            ):
+                raise InventoryRefusal(
+                    "reason vector input does not close its predicate shape"
+                )
+            if (
+                vector["diagnostic"] != reason["diagnostic"]
+                or vector["stage"] != reason["stage"]
+            ):
+                raise InventoryRefusal("reason vector diagnostic ownership disagrees")
+            yield vector, reason, f"/vector_sets/{vi}/vector_definitions/{di}"
+
+
+def _reason_vector_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    law = "/meta_format/diagnostic_reason"
+    for vector, reason, pointer in _reason_vector_rows(kernel, graph):
+        yield (
+            AuthorityToken("language.reasons", (), reason["id"]),
+            pointer + "/reason",
+            "reference",
+            law,
+        )
+        yield (
+            AuthorityToken("diagnostics", (), reason["diagnostic"]),
+            pointer + "/diagnostic",
+            "reference",
+            law,
+        )
+        predicate = reason["predicate"]
+        if predicate["operation"] != "not-member":
+            # These other predicates compare canonical data or numeric bounds;
+            # their payload spelling does not resolve an authority identifier.
+            continue
+        target = "language_bundle." + predicate["inventory_path"]
+        if "member_field" in predicate:
+            target += "." + predicate["member_field"]
+        role, scoped = _declared_target_role(kernel, target)
+        if scoped:
+            raise InventoryRefusal("lookup target has no unambiguous semantic owner")
+        members = [value for _, value, _ in _authority_path_rows(kernel, graph, target)]
+        value = vector["input"]["value"]
+        absent = not any(
+            _consumer_b_canonical_equal(value, member) for member in members
+        )
+        if vector["matched"] != absent:
+            raise InventoryRefusal(
+                "reason vector lookup absence disagrees with its expected outcome"
+            )
+        if not isinstance(value, str) or not value:
+            continue
+        yield (
+            AuthorityToken(role, (), value),
+            pointer + "/input/value",
+            "unresolved-reference" if absent else "reference",
+            law,
+        )
+
+
 def _constructor_member_selectors(constructor: Mapping[str, Any]):
     for selector, name in constructor["value_rule"].items():
         if selector.endswith("_member"):
@@ -2132,7 +2233,9 @@ class _Reader:
                 )
 
     def contract_vectors(self) -> None:
-        handled = set()
+        handled = {
+            pointer for _, _, pointer in _reason_vector_rows(self.kernel, self.graph)
+        }
         for source, target, vector, operation in _contract_vector_projections(
             self.kernel, self.graph
         ):
@@ -3196,9 +3299,17 @@ class _Reader:
         self.assignment_policies()
         self.formula_aliases()
         self.source()
+        for token, pointer, use, law in _reason_vector_links(self.kernel, self.graph):
+            self.occurrence(token, pointer, use, law)
         self.contract_vectors()
         declarations = {o.token for o in self.occurrences if o.use == "declaration"}
-        unresolved = self.tokens - declarations - self.reserved
+        free = {o.token for o in self.occurrences if o.use == "unresolved-reference"}
+        unresolved = self.tokens - declarations - self.reserved - free
+        unresolved |= {
+            o.token
+            for o in self.occurrences
+            if o.use == "reference" and o.token not in declarations | self.reserved
+        }
         if unresolved:
             # A not-yet-traversed provider is visible evidence, never a successful
             # lookup created simply by seeing a reference spelling.
@@ -3235,6 +3346,8 @@ def validate_inventory_occurrences(
     if len(inventory.occurrences) != len(positions):
         raise InventoryRefusal("duplicate token occurrence")
     for occurrence in inventory.occurrences:
+        if occurrence.use not in {"declaration", "reference", "unresolved-reference"}:
+            raise InventoryRefusal("unknown token occurrence use")
         try:
             value = _occurrence_value(graph, occurrence, projections)
         except (KeyError, IndexError, ValueError, TypeError) as error:
@@ -3243,6 +3356,16 @@ def validate_inventory_occurrences(
             raise InventoryRefusal("token occurrence does not match graph")
     if {o.token for o in inventory.occurrences} != set(inventory.tokens):
         raise InventoryRefusal("inventory member has no occurrence")
+    expected_free = {
+        (token, pointer, use, "value", "")
+        for token, pointer, use, _ in _reason_vector_links(kernel, graph)
+        if use == "unresolved-reference"
+    }
+    actual_free = {row for row in positions if row[2] == "unresolved-reference"}
+    if expected_free != actual_free:
+        raise InventoryRefusal(
+            "unresolved-reference occurrence is omitted, forged, or misowned"
+        )
 
 
 def validate_token_bijection(
@@ -3865,6 +3988,10 @@ def validate_extension_inventory(
         if o.location == "value"
     }
     required: set[tuple[AuthorityToken, str, str]] = set()
+    required.update(
+        (token, pointer, use)
+        for token, pointer, use, _ in _reason_vector_links(kernel, graph)
+    )
     for token, pointer, use, _ in _wire_protocol_links(kernel, graph):
         required.add((token, pointer, use))
         if token.role.startswith("kernel.") and token not in inventory.reserved:
