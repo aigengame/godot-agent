@@ -113,6 +113,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_rir_runtime_member_projection.py",
         "test_runtime_effect_renaming.py",
         "test_runtime_mutual_consumption.py",
+        "test_source_fact_selector_inventory.py",
         "test_source_fact_transport.py",
         "test_source_fact_transport_independent.py",
         "test_source_module_routing.py",
