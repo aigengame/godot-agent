@@ -1226,6 +1226,66 @@ complete rename proof and final fixed-build #878 acceptance remain open. Rollbac
 restores the prior implementation, Kernel, LDB and tests together, without an old
 reader or alternate projection path.
 
+## Resolution-owned Source parse reason
+
+A correctly resealed rename of the old `standard.source-boundary` extension admits
+in both authority consumers. The unchanged valid Source passes public check/build
+under both graphs, but malformed JSON changes from a typed parse refusal to exit
+4 because the host still reads the old wrapper name. Missing and wrong-stage
+parse references also admit at that baseline. The original public counterexample
+is retained separately from the later corrected runs.
+
+The default Resolution profile now owns required `parse_reason` directly. Its
+reference uses the existing LDB reason binding law; the Kernel requires stage
+`parse` without changing the static/resolution judgment order. The generic
+`extensions` wrapper and the unread `dependency_closure` / `capability_selection`
+constants are deleted. Existing dependency and provider judgments continue to
+enforce their laws. The Package Lock's embedded Resolution wire contract follows
+the same shape. No mapper, registry or old-field fallback is introduced.
+
+One diagnostic query selects the admitted profile's actual reason. Model,
+Experiment, imported RIR and Formula request callers and their public refusal
+catalogs use it. Formula request reading receives the authority context explicitly.
+This concerns canonical JSON failures; it does not close Formula DSL semantics or
+other diagnostic identities. Old wrapper/flag reentry, missing or unresolved
+references and non-parse reasons refuse at authority admission.
+
+The three original/reason-renamed/diagnostic-renamed configurations execute 24
+public commands. Valid Model check/build succeeds with eight artifacts; malformed
+Model check/build, Formula parse/render, Experiment input and RIR input produce
+one typed `parse` diagnostic at the root pointer. A reason-only rename preserves
+the complete Model parse envelope. Renaming its diagnostic changes the selected
+code; each other caller retains its own identity and message. The actual
+bounded-fold RIR remains byte-identical at 50,452 bytes across the recorded
+baseline and candidate. B independently admits the reason/stage and lowers four
+matching Model artifacts with mutual admission. B invokes the existing public
+byte parser; it is not a second parser implementation.
+
+Only the Kernel, compiler profile, Package Lock Schema and enclosing authority
+identities are refreshed. All package vector files remain byte-identical, with
+no numeric, verdict or resource expectation changes. Package Lock and Resolved
+Model identities truthfully follow changed authority; this single witness does
+not establish byte equality for the unrun Model corpus.
+
+The [structured verification record](evidence/priority-window/resolution-parse-reason.json)
+pins core `57081b6ff` and CI registration `f495a7bcd`, separates intermediate
+wire/catalog failures from the final green runs, and records the independent
+review scope. A's 16 focused cases and retained caller/provider checks pass; B's
+14 scoped cases pass. Spec independently runs all 29 new cases; Spec, Standards
+and DDMA report no findings in their fixed scope. Their runs overlap with the
+worker checks and are not summed. DDMA also checks 18 explicit-context paths
+with ambient packaged lookups forbidden. Resource rebuild, Ruff, configured full
+Pyright and 12 CI-policy cases pass. Collection assigns all 2,667 tests and 339
+vectors without missing, overlapping or uncovered assignments; it is not full
+CI execution.
+
+Existing reference traversal adds exactly one occurrence: 1,607 tokens and 6,462
+occurrences. All 34 gap rows remain unchanged. The whole Resolution profile,
+Source grammar, Formula DSL and complete #878 proof remain open. bADR-0013's
+compiler-stage decision remains accepted; this binding clarification requires no
+new supersession status. Receipt and Publication records above retain their
+historical scope and measurements.
+
 ## Remaining proof and integration
 
 - Complete the semantic-token inventory and resolve remaining demonstrated name

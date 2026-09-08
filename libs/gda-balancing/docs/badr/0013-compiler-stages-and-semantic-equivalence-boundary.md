@@ -87,6 +87,14 @@ an explicit boundary for lowering equivalence.
 - **Authoring AST owns source fidelity.** It preserves module boundaries, source spans, unresolved
   names, and permitted authoring sugar. Parse diagnostics terminate before Typed HIR construction.
   The AST is not executable, content authority, or a stable interchange contract.
+  The admitted default Resolution profile owns the required `parse_reason` reference for
+  canonical JSON failures. Existing reference admission resolves its LDB reason; the Kernel
+  requires that reason's `parse` stage separately from the static/resolution judgment order.
+  Model Source, Experiment, imported RIR and Formula conversion requests consume this reference
+  from their actual authority context, and public refusal catalogs select the same owner.
+  Formula request reading requires that context explicitly. A fixed reason ID or generic Source
+  extension wrapper cannot replace the binding. This closes the canonical JSON failure boundary;
+  Formula notation and other language diagnostics retain their own contracts.
 
 - **Typed HIR owns static semantics.** Construction completes name resolution, type inference or
   checking, unit checking, operation selection, and all other static legality rules. Every
