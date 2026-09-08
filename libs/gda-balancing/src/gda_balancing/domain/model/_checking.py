@@ -48,6 +48,7 @@ from gda_balancing.domain.model._preparation import _TypedHIR
 from gda_balancing.domain.model._lowering import (
     _EntrypointBindingError,
     _FormulaResolutionError,
+    _SourceFactError,
     _RuntimeProjectionResourceExhausted,
     _compile_initialization_programs,
     _specialize_operation_formula_slots,
@@ -239,7 +240,7 @@ def _check_model_source_bytes(
         if refusal is not None:
             return refusal
     try:
-        source_rows = _resolved_source_symbols(source, ldb)
+        source_rows = _resolved_source_symbols(source, ldb, kernel)
     except (KeyError, TypeError, ValueError) as err:
         source_contract_reason = reason_by_id(
             ldb,
@@ -248,7 +249,7 @@ def _check_model_source_bytes(
         return _refusal(
             cast(str, source_contract_reason["diagnostic"]),
             source_identity,
-            "",
+            err.pointer if isinstance(err, _SourceFactError) else "",
             f"Model Source name resolution failed: {err}",
             ldb,
         )
@@ -284,6 +285,19 @@ def _check_model_source_bytes(
             context,
             cast(list[dict[str, Any]], declarations),
             lock,
+        )
+    except _SourceFactError as err:
+        return _refusal(
+            cast(
+                str,
+                reason_by_id(ldb, cast(str, profile["structural_reason"]))[
+                    "diagnostic"
+                ],
+            ),
+            source_identity,
+            err.pointer,
+            f"Model Source lowering failed: {err}",
+            ldb,
         )
     except _EntrypointBindingError as err:
         return _refusal(

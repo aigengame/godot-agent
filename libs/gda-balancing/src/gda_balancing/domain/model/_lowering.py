@@ -12,6 +12,7 @@ from gda_balancing.domain.artifacts import (
 )
 from gda_balancing.domain.artifact_semantics import artifact_semantic_projection
 from gda_balancing.domain.authority.graph import NamespaceSelection
+from gda_balancing.domain.authority.vector_validation import _fact_is_closed
 from gda_balancing.domain.authority.admission import project_operation_composition
 from gda_balancing.domain.canonical import (
     JsonValue,
@@ -86,11 +87,11 @@ def lowering_inputs(
     list[tuple[dict[str, Any], tuple[object, ...]]],
 ]:
     """Resolve the authority-owned inputs shared by checking and compilation."""
-    lock = _package_lock(checked)
+    _source_fact_transport(checked.kernel)
     language = _language(checked.language_bundle)
     lowering = _model_lowering(checked.language_bundle)
-    declarations: list[dict[str, JsonValue]] = []
-    for fields, _source_pointer in source_rows:
+    initial_facts = []
+    for fields, source_pointer in source_rows:
         structured = fields.get("value_kind") == "nominal-structured"
         fact = {
             "kind": lowering[
@@ -98,6 +99,17 @@ def lowering_inputs(
             ],
             "fields": fields,
         }
+        if not _fact_is_closed(
+            fact, checked.kernel["meta_format"], checked.language_bundle
+        ):
+            raise _SourceFactError(
+                _pointer(source_pointer),
+                f"initial Fact {fact['kind']!r} does not close its declared contract",
+            )
+        initial_facts.append((fact, structured))
+    lock = _package_lock(checked)
+    declarations: list[dict[str, JsonValue]] = []
+    for fact, structured in initial_facts:
         rule_chain_member = "structured_rule_chain" if structured else "rule_chain"
         for invocation in cast(list[dict[str, str]], lowering[rule_chain_member]):
             fact = _apply_language_rule(
@@ -109,6 +121,32 @@ def lowering_inputs(
             )
         declarations.append(cast(dict[str, JsonValue], fact["fields"]))
     return lock, declarations, lowering, source_rows
+
+
+class _SourceFactError(ValueError):
+    """A Source Symbol cannot be transported into its declared initial Fact."""
+
+    def __init__(self, pointer: str, message: str) -> None:
+        super().__init__(message)
+        self.pointer = pointer
+
+
+def _source_fact_transport(kernel: dict[str, Any]) -> None:
+    law = kernel["meta_format"]["language_definitions"]["collections"][
+        "model_lowerings"
+    ]["source_fact_transport"]
+    if law != {
+        "unadapted_members": "copy-name-and-value",
+        "adapters": [
+            "profile-symbol-name",
+            "resolved-symbol-identity",
+            "imported-type-identity",
+            "nominal-export-kind",
+        ],
+        "adapter_conflicts": "refuse",
+        "initial_fact_admission": "before-first-language-rule",
+    }:
+        raise ValueError("the Source-to-Fact transport law is unsupported")
 
 
 class _RuntimeProjectionResourceExhausted(Exception):
@@ -209,8 +247,9 @@ def _identified_rir_artifact(
 
 
 def _resolved_source_symbols(
-    source: dict[str, Any], language_bundle: dict[str, Any]
+    source: dict[str, Any], language_bundle: dict[str, Any], kernel: dict[str, Any]
 ) -> list[tuple[dict[str, Any], tuple[object, ...]]]:
+    _source_fact_transport(kernel)
     lowering = _model_lowering(language_bundle)
     profile = _resolution_profile(
         language_bundle, cast(str, lowering["resolution_profile"])
@@ -300,17 +339,29 @@ def _resolved_source_symbols(
                 for key, value in source_symbol.items()
                 if key not in {source_symbol_member, source_type_member}
             }
-            fields[fact_symbol_member] = name
-            fields["resolved_symbol"] = resolved_symbol
-            fields["type_identity"] = {
-                "package": imported[package_member],
-                "id": imported[import_symbol_member],
-            }
+            adapters: list[tuple[str, Any]] = [
+                (fact_symbol_member, name),
+                ("resolved_symbol", resolved_symbol),
+                (
+                    "type_identity",
+                    {
+                        "package": imported[package_member],
+                        "id": imported[import_symbol_member],
+                    },
+                ),
+            ]
             nominal_exports = packages[imported[package_member]]["exports"][
                 "nominal_types"
             ]
             if imported[import_symbol_member] in nominal_exports:
-                fields["value_kind"] = "nominal-structured"
+                adapters.append(("value_kind", "nominal-structured"))
+            for destination, value in adapters:
+                if destination in fields:
+                    raise _SourceFactError(
+                        _pointer(source_pointer),
+                        f"initial Fact adapter destination {destination!r} already has an owner",
+                    )
+                fields[destination] = value
             rows.append(
                 (
                     fields,
