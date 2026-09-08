@@ -273,7 +273,25 @@ Every headless reply carries its floats at full binary64 precision, so a value r
 
 | Group | Commands |
 | --- | --- |
-| `asset-pipeline` | `run`, `check` (production and handoff; project expectations and compatible report comparison) |
+| `asset-pipeline` | `run`, `check`, `preview` (production and handoff; project expectations and compatible report comparison; isolated windowed model preview) |
+
+Use `gda asset-pipeline preview --path /production/model.glb --output-dir
+/reports/model-preview --settings /project/preview-settings.json --frames 60
+--timeout 25 --max-nodes 256 --json` to render the fixed `front`, `side`, and
+`three_quarter` views in an owned temporary Godot project. The output directory
+must be new and retains the PNGs; the temporary project is removed after the owned
+windowed session stops. Read `preview.completed`, `views` and their capture receipts,
+`inspection`, actual view state, scene-level `performance`, bounded `diagnostics`,
+`failure`, and `cleanup`. Optional `--budget budget.json` applies existing monitor
+budgets. Optional `--baseline previous.json` expects an explicitly saved
+`{"preview":...}` result; `comparison` is `non_comparable` unless actual camera,
+view, light, viewport, Engine, platform, renderer, static pose, monitor set, and
+sample window match, otherwise it reports scene-level mean/p95 deltas. Performance
+sampling begins after the final view without a stabilization period, so it is not a
+benchmark-equilibrium claim. The static imported pose has no overlays. Preview does
+not compare model-content digests, infer per-mesh GPU cost, map every Godot node back
+to a Blender source object, or promise repeatable pixels or performance. On failure,
+read `error.partial_result.preview`; source files and user projects are not modified.
 
 ## Live operations (via the daemon; Godot 4.6+, macOS/Linux)
 

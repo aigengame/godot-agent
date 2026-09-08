@@ -633,6 +633,36 @@ GAME_INSPECT_MODEL_CONTENT_COMMAND: HeadlessCommand[GameInspectModelContentResul
 )
 
 
+def run_game_get_operation(
+    project: Optional[Path],
+    params: GameGetParams,
+    *,
+    make_runner: RunnerFactory | None = None,
+) -> GameGetResult | Failure:
+    """Return runtime property facts without emitting or exiting."""
+    return GAME_GET_COMMAND.execute(
+        params,
+        godot=None,
+        project=project,
+        make_runner=make_runner or dispatch.make_live_runner,
+    )
+
+
+def run_game_set_operation(
+    project: Optional[Path],
+    params: GameSetParams,
+    *,
+    make_runner: RunnerFactory | None = None,
+) -> GameSetResult | Failure:
+    """Set and return one runtime property without emitting or exiting."""
+    return GAME_SET_COMMAND.execute(
+        params,
+        godot=None,
+        project=project,
+        make_runner=make_runner or dispatch.make_live_runner,
+    )
+
+
 def run_game_inspect_model_content_operation(
     project: Optional[Path],
     params: GameInspectModelContentParams,

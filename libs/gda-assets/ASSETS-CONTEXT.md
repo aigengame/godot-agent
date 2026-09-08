@@ -87,9 +87,13 @@ The workflow compares complete, compatible gda content samples; it does not defi
 the engine sampler or infer instance content from a file hash. Its session and frame
 values are observations for this invocation, not persistent asset identities.
 
-**Preview recipe**: Project-local scene/settings plus a workflow that fixes the
-camera, lighting, renderer, pose, and observation conditions. It uses existing gda
-capture/diagnostic/performance operations. It is not a new renderer or profiler.
+**Preview recipe**: An isolated, owned fixture plus settings that fix three camera
+views, lighting, viewport, renderer, static pose, monitors, and sample window. The
+workflow uses existing gda inspection, capture, diagnostic, and performance
+operations and returns one compact invocation result. Baselines compare only
+matching observed setups and report scene-level mean/p95 deltas; they do not prove
+content equality, repeatable pixels or timing, or per-mesh cost. The current fixture
+has no overlays, and Godot node names provide only limited source-object mapping.
 
 **Package acceptance**: Evaluate the same expectations against facts obtained from
 the actual exported package in isolation. Package inspection and native executable
