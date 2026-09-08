@@ -18,6 +18,7 @@ from gda_assets.domain.prompt import (
     PromptFile,
     PromptOutput,
     PromptOutputRequest,
+    PromptOptionKey,
     PromptRecord,
 )
 
@@ -33,6 +34,14 @@ _FILE = TypeAdapter(PromptFile)
 
 def _identity(item: os.stat_result) -> tuple[int, int, int, int, int]:
     return item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns
+
+
+def _validation_message(error: ValidationError) -> str:
+    details = []
+    for item in error.errors(include_input=False, include_url=False):
+        location = ".".join(str(part) for part in item["loc"])
+        details.append(f"{location}: {item['msg']}" if location else str(item["msg"]))
+    return "; ".join(details)
 
 
 def _safe_name(name: str) -> str:
@@ -144,7 +153,7 @@ class PromptFiles:
         resolved_prompt: str,
         references: tuple[Path, ...],
         producer: str | None,
-        requested_options: dict[str, JsonScalar],
+        requested_options: dict[PromptOptionKey, JsonScalar],
         revised_from: str | None = None,
     ) -> PromptRecord:
         root = record.absolute()
@@ -257,7 +266,12 @@ class PromptFiles:
             result = PromptRecord(**{**result.__dict__, "outputs": tuple(outputs)})
             self._verify(result)
             return result
-        except (OSError, ValidationError, TypeError, ValueError, PortFailure) as exc:
+        except ValidationError as exc:
+            raise PortFailure(
+                "invalid_prompt",
+                f"Invalid prompt record fields: {_validation_message(exc)}",
+            ) from exc
+        except (OSError, TypeError, ValueError, PortFailure) as exc:
             if isinstance(exc, PortFailure) and exc.code == "invalid_prompt":
                 raise
             raise PortFailure(

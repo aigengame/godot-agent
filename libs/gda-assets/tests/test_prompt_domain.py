@@ -34,7 +34,7 @@ def test_template_requires_exact_variables_and_supports_braced_names():
 
 def test_options_reject_unlisted_or_nonfinite_values():
     with pytest.raises(ValueError, match="unsupported"):
-        validate_options({"api_key": "secret"})
+        validate_options({"api_key": "secret"})  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="finite"):
         validate_options({"seed": float("nan")})
     with pytest.raises(ValueError, match="must be boolean"):
@@ -43,6 +43,6 @@ def test_options_reject_unlisted_or_nonfinite_values():
                 Path("record"),
                 Path("result.png"),
                 "result.png",
-                caller_declarations={"generation_completed": "yes"},
+                caller_declarations={"generation_completed": "yes"},  # type: ignore[dict-item]
             )
         )

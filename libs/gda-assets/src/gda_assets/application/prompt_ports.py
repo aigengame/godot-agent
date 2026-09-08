@@ -6,6 +6,7 @@ from typing import Literal, Protocol
 from gda_assets.domain.prompt import (
     JsonScalar,
     PromptOutputRequest,
+    PromptOptionKey,
     PromptRecord,
 )
 
@@ -27,7 +28,7 @@ class PromptFilesPort(Protocol):
         resolved_prompt: str,
         references: tuple[Path, ...],
         producer: str | None,
-        requested_options: dict[str, JsonScalar],
+        requested_options: dict[PromptOptionKey, JsonScalar],
         revised_from: str | None = None,
     ) -> PromptRecord: ...
 

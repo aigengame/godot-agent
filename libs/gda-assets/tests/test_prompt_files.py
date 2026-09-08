@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import os
 
 from PIL import Image
@@ -202,3 +203,38 @@ def test_invalid_output_directory_fails_without_modifying_existing_file(tmp_path
         register_prompt_output(PromptOutputRequest(record, image, "image.png"))
 
     assert (record / "outputs").read_bytes() == b"existing project file"
+
+
+def test_inspect_rejects_unknown_persisted_requested_option_concisely(tmp_path):
+    record = tmp_path / "attempt"
+    prepare_prompt(PromptPrepareRequest(record, text="prompt"))
+    path = record / "record.json"
+    value = json.loads(path.read_text())
+    value["requested_options"] = {"bogus": 1}
+    path.write_text(json.dumps(value))
+
+    with pytest.raises(PortFailure) as failure:
+        inspect_prompt(record)
+
+    assert failure.value.code == "invalid_prompt"
+    assert "requested_options.bogus" in str(failure.value)
+    assert "input_value" not in str(failure.value)
+    assert len(str(failure.value)) < 300
+
+
+def test_inspect_rejects_unknown_persisted_output_declaration(tmp_path):
+    record = tmp_path / "attempt"
+    image = tmp_path / "image.png"
+    prepare_prompt(PromptPrepareRequest(record, text="prompt"))
+    _png(image, "red")
+    register_prompt_output(PromptOutputRequest(record, image, "candidate.png"))
+    registration = record / "outputs" / "candidate.png.json"
+    value = json.loads(registration.read_text())
+    value["caller_declarations"] = {"bogus": True}
+    registration.write_text(json.dumps(value))
+
+    with pytest.raises(PortFailure) as failure:
+        inspect_prompt(record)
+
+    assert "caller_declarations.bogus" in str(failure.value)
+    assert "input_value" not in str(failure.value)

@@ -1409,7 +1409,7 @@ def run_prompt_prepare(
                 params.variables,
                 tuple(path.resolve() for path in params.references),
                 params.producer,
-                {str(key): value for key, value in params.requested_options.items()},
+                params.requested_options,
             )
         )
         return PromptPreparationResult(preparation=prepared)
@@ -1448,7 +1448,7 @@ def run_prompt_revise(
                 else None,
                 producer=params.producer,
                 requested_options=(
-                    {str(key): value for key, value in params.requested_options.items()}
+                    params.requested_options
                     if params.requested_options is not None
                     else None
                 ),
@@ -1470,10 +1470,10 @@ def run_prompt_register_output(
                 params.output.resolve(),
                 params.name,
                 params.submitted_prompt,
-                {str(key): value for key, value in params.caller_declarations.items()},
+                params.caller_declarations,
                 params.reported_provider,
                 params.reported_model,
-                {str(key): value for key, value in params.reported_options.items()},
+                params.reported_options,
             )
         )
         return PromptRecordResult(prompt_record=record)

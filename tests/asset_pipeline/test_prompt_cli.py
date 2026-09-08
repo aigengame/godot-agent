@@ -68,6 +68,24 @@ def test_prompt_map_keys_and_prompt_source_are_enforced_by_cli_and_mcp_schema():
         )
         == declaration_keys
     )
+    prepare_defs = prepare["output"]["$defs"]
+    for definition in ("PromptRecord", "PromptHandoff"):
+        assert (
+            set(
+                prepare_defs[definition]["properties"]["requested_options"][
+                    "propertyNames"
+                ]["enum"]
+            )
+            == option_keys
+        )
+    prompt_output = prepare_defs["PromptOutput"]["properties"]
+    assert (
+        set(prompt_output["caller_declarations"]["propertyNames"]["enum"])
+        == declaration_keys
+    )
+    assert (
+        set(prompt_output["reported_options"]["propertyNames"]["enum"]) == option_keys
+    )
     validator = jsonschema.Draft202012Validator(prepare["input"])
     valid = {"record": "/tmp/record", "text": "hello"}
     assert not list(validator.iter_errors(valid))
@@ -83,6 +101,7 @@ def test_prompt_map_keys_and_prompt_source_are_enforced_by_cli_and_mcp_schema():
     ).tools
     tool = next(item for item in tools if item.name == "asset_pipeline_prompt_prepare")
     assert tool.input_schema == prepare["input"]
+    assert tool.output_schema == prepare["output"]
 
 
 def test_prompt_prepare_and_inspect_public_json_do_not_claim_generation(tmp_path):

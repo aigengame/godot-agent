@@ -3,7 +3,8 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 from string import Template
-from typing import Literal, TypeAlias, get_args
+from collections.abc import Mapping
+from typing import Literal, TypeAlias, TypeVar, get_args
 import math
 
 
@@ -24,6 +25,7 @@ PromptDeclarationKey: TypeAlias = Literal[
 REQUESTED_OPTION_KEYS = frozenset(get_args(PromptOptionKey))
 DECLARATION_KEYS = frozenset(get_args(PromptDeclarationKey))
 _TEXT_BYTES = 1024 * 1024
+_PromptKey = TypeVar("_PromptKey", PromptOptionKey, PromptDeclarationKey)
 
 
 @dataclass(frozen=True)
@@ -35,7 +37,7 @@ class PromptPrepareRequest:
     variables: dict[str, str] = field(default_factory=dict)
     references: tuple[Path, ...] = ()
     producer: str | None = None
-    requested_options: dict[str, JsonScalar] = field(default_factory=dict)
+    requested_options: dict[PromptOptionKey, JsonScalar] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -49,7 +51,7 @@ class PromptRevisionRequest:
     variables: dict[str, str] | None = None
     references: tuple[Path, ...] | None = None
     producer: str | None = None
-    requested_options: dict[str, JsonScalar] | None = None
+    requested_options: dict[PromptOptionKey, JsonScalar] | None = None
 
 
 @dataclass(frozen=True)
@@ -58,10 +60,12 @@ class PromptOutputRequest:
     output: Path
     name: str
     submitted_prompt: str | None = None
-    caller_declarations: dict[str, JsonScalar] = field(default_factory=dict)
+    caller_declarations: dict[PromptDeclarationKey, JsonScalar] = field(
+        default_factory=dict
+    )
     reported_provider: str | None = None
     reported_model: str | None = None
-    reported_options: dict[str, JsonScalar] = field(default_factory=dict)
+    reported_options: dict[PromptOptionKey, JsonScalar] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -79,10 +83,10 @@ class PromptOutput:
     name: str
     file: PromptFile
     submitted_prompt: str | None
-    caller_declarations: dict[str, JsonScalar]
+    caller_declarations: dict[PromptDeclarationKey, JsonScalar]
     reported_provider: str | None
     reported_model: str | None
-    reported_options: dict[str, JsonScalar]
+    reported_options: dict[PromptOptionKey, JsonScalar]
 
 
 @dataclass(frozen=True)
@@ -99,7 +103,7 @@ class PromptRecord:
     resolved_sha256: str
     references: tuple[PromptFile, ...]
     producer: str | None
-    requested_options: dict[str, JsonScalar]
+    requested_options: dict[PromptOptionKey, JsonScalar]
     generation_status: Literal["unknown"] = "unknown"
     outputs: tuple[PromptOutput, ...] = ()
     revised_from: str | None = None
@@ -114,7 +118,7 @@ class PromptHandoff:
     prompt_path: Path
     references: tuple[Path, ...]
     producer: str | None
-    requested_options: dict[str, JsonScalar]
+    requested_options: dict[PromptOptionKey, JsonScalar]
     registration_operation: Literal["prompt-register-output"] = "prompt-register-output"
 
 
@@ -131,7 +135,9 @@ class PromptRevision:
 
 
 def validate_options(
-    values: dict[str, JsonScalar], *, declarations: bool = False
+    values: Mapping[_PromptKey, JsonScalar],
+    *,
+    declarations: bool = False,
 ) -> None:
     allowed = DECLARATION_KEYS if declarations else REQUESTED_OPTION_KEYS
     if len(values) > len(allowed) or any(key not in allowed for key in values):
