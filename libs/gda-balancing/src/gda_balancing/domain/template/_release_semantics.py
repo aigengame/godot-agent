@@ -39,6 +39,7 @@ from gda_balancing.domain.template_contract import (
     TEMPLATE_PRIMITIVE_EVALUATIONS,
     TEMPLATE_RESOURCE_ACCOUNTING,
     TEMPLATE_SELECTOR_CONTRACT,
+    template_model_results_are_supported,
 )
 from gda_balancing.domain.wire_schema import (
     wire_schema_for_kind,
@@ -474,6 +475,17 @@ def _template_primitive_execution_is_supported(
     )
     return (
         isinstance(kind, str)
+        and set(primitive)
+        == {
+            "id",
+            "argument_members",
+            "argument_types",
+            "charges",
+            "evaluation",
+            "failure",
+            "result_effect",
+            *({"results"} if kind == "model-source-admission" else set()),
+        }
         and evaluation == TEMPLATE_PRIMITIVE_EVALUATIONS.get(kind)
         and primitive.get("result_effect") == expected_effect
         and primitive.get("failure")
@@ -481,8 +493,7 @@ def _template_primitive_execution_is_supported(
         and primitive.get("charges") == TEMPLATE_PRIMITIVE_CHARGES.get(kind)
         and (
             kind != "model-source-admission"
-            or primitive.get("result_members")
-            == ["root_requirements", "resolved_packages", "source_symbols"]
+            or template_model_results_are_supported(primitive.get("results"))
         )
     )
 
@@ -495,7 +506,7 @@ def _template_argument_is_typed(
     roles: dict[str, list[dict[str, JsonValue]]],
     state: _TemplateGraphState,
     admitted_roots: set[str],
-    result_members: set[str],
+    result_names: set[str],
 ) -> bool:
     kind = contract["kind"]
     if kind == "selector":
@@ -524,7 +535,7 @@ def _template_argument_is_typed(
                     roles=roles,
                     state=state,
                     admitted_roots=admitted_roots,
-                    result_members=result_members,
+                    result_names=result_names,
                 )
                 for item in value
             )
@@ -553,7 +564,7 @@ def _template_argument_is_typed(
                 isinstance(binding, dict)
                 and set(binding) == {"result", "source"}
                 and isinstance(binding.get("source"), str)
-                and binding["source"] in result_members
+                and binding["source"] in result_names
                 and isinstance(binding.get("result"), str)
                 and bool(binding["result"])
                 and binding["result"] not in state.derived
@@ -583,10 +594,10 @@ def _template_arguments_are_typed(
     admitted_roots: set[str],
 ) -> bool:
     declared = primitive.get("argument_types")
-    result_members = primitive.get("result_members", [])
+    result_names = primitive.get("results", {})
     return (
         isinstance(declared, dict)
-        and isinstance(result_members, list)
+        and isinstance(result_names, dict)
         and set(arguments) == set(cast(list[str], primitive["argument_members"]))
         and all(
             isinstance(type_id, str)
@@ -598,7 +609,7 @@ def _template_arguments_are_typed(
                 roles=roles,
                 state=state,
                 admitted_roots=admitted_roots,
-                result_members=set(cast(list[str], result_members)),
+                result_names=set(result_names),
             )
             for name, type_id in declared.items()
         )
@@ -657,10 +668,8 @@ def _execute_template_derivation(
         return checked
     state.checked_source = checked
     facts = checked_model_template_facts(checked)
-    result_members = primitive.get("result_members")
-    if not isinstance(result_members, list) or set(facts) != set(
-        cast(list[str], result_members)
-    ):
+    result_names = primitive.get("results")
+    if not isinstance(result_names, dict) or set(facts) != set(result_names):
         raise ValueError("Model Source result does not match the Kernel Template law")
     bindings = cast(
         list[dict[str, JsonValue]],

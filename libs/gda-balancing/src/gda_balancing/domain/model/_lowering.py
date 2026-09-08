@@ -11,6 +11,7 @@ from gda_balancing.domain.artifacts import (
     _identified_artifact,
 )
 from gda_balancing.domain.artifact_semantics import artifact_semantic_projection
+from gda_balancing.domain.template_contract import template_model_results_are_supported
 from gda_balancing.domain.authority.graph import NamespaceSelection
 from gda_balancing.domain.authority.vector_validation import _fact_is_closed
 from gda_balancing.domain.authority.admission import project_operation_composition
@@ -182,30 +183,38 @@ class _RuntimeProjectionBudget:
 
 
 def checked_model_template_facts(checked: CheckedModel) -> dict[str, JsonValue]:
-    """Project generic graph facts consumed by Template admission profiles."""
+    """Project Template results from their already admitted Model-owned origins."""
+    primitives = checked.kernel["meta_format"]["template_admission"]["primitive_spec"][
+        "primitives"
+    ]
+    matches = [row for row in primitives if row["id"] == "model-source-admission"]
+    if len(matches) != 1 or not template_model_results_are_supported(
+        matches[0].get("results")
+    ):
+        raise ValueError("Model Source results have no supported Template origin law")
+    results = matches[0]["results"]
     lowering = _model_lowering(checked.language_bundle)
     profile = _resolution_profile(
         checked.language_bundle, cast(str, lowering["resolution_profile"])
     )
-    requirements_member = cast(str, profile["requirements_member"])
-    root_requirements = list(cast(list[str], checked.source[requirements_member]))
-    resolved_packages = [
-        package.namespace for package in checked.namespace_selection.packages
-    ]
-    source_symbols = []
-    for fields, _source_pointer in checked.hir.source_rows:
-        resolved = cast(dict[str, str], fields["resolved_symbol"])
-        source_symbols.append(
-            {
-                **fields,
-                "id": f"{resolved['module']}.{resolved['name']}",
-            }
-        )
-    return {
-        "root_requirements": cast(JsonValue, root_requirements),
-        "resolved_packages": cast(JsonValue, resolved_packages),
-        "source_symbols": cast(JsonValue, source_symbols),
-    }
+    facts: dict[str, JsonValue] = {}
+    for name, result in results.items():
+        origin = result["origin"]
+        if origin == "selected-resolution-requirements":
+            requirements_member = cast(str, profile["requirements_member"])
+            facts[name] = list(cast(list[str], checked.source[requirements_member]))
+        elif origin == "admitted-namespace-selection":
+            facts[name] = [
+                package.namespace for package in checked.namespace_selection.packages
+            ]
+        elif origin == "admitted-initial-source-fact-fields":
+            # These rows already passed the selected initial Fact field contracts.
+            facts[name] = cast(
+                JsonValue, [dict(fields) for fields, _ in checked.hir.source_rows]
+            )
+        else:
+            raise ValueError("Template Model result origin is unsupported")
+    return facts
 
 
 def _rir_semantic_projection(

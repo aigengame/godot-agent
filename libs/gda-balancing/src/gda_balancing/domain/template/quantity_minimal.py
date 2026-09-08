@@ -225,7 +225,16 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
             schema_identities[member_kinds["defaults"]],
             {
                 "schema_version": "2.0.0",
-                "symbol_values": [{"symbol": "main.value", "value": 50}],
+                "symbol_values": [
+                    {
+                        "symbol": {
+                            "model": "standard.quantity-minimal.starter",
+                            "module": "main",
+                            "name": "value",
+                        },
+                        "value": 50,
+                    }
+                ],
             },
         ),
         build_member(
@@ -279,7 +288,11 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
                 "id": golden_id,
                 "experiment": experiment_id,
                 "model_source_identity": starter_identity,
-                "symbol": "main.value",
+                "symbol": {
+                    "model": "standard.quantity-minimal.starter",
+                    "module": "main",
+                    "name": "value",
+                },
                 "value": 50,
             },
         ),
