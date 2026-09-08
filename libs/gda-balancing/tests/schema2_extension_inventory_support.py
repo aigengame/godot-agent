@@ -5081,14 +5081,13 @@ def validate_extension_inventory(
             for root in evidence_roots
         )
     }
+    evidence_tokens = {row.token for row in evidence_expected}
+    evidence_reserved = {
+        token for token in evidence_tokens if token.role.startswith("kernel.")
+    }
     if (
         evidence_actual != evidence_expected
-        or not {
-            row.token
-            for row in evidence_expected
-            if row.token.role.startswith("kernel.")
-        }
-        <= inventory.reserved
+        or inventory.reserved.intersection(evidence_tokens) != evidence_reserved
     ):
         raise InventoryRefusal(
             "Evidence claim occurrence coverage is incomplete or misowned"

@@ -107,7 +107,17 @@ def test_evidence_inventory_closes_actual_claim_local_vectors(witness):
 
 
 @pytest.mark.parametrize(
-    "mutation", ["class", "member", "owner", "role", "occurrence", "law", "reserved"]
+    "mutation",
+    [
+        "class",
+        "member",
+        "owner",
+        "role",
+        "occurrence",
+        "law",
+        "reserved",
+        "extra-reserved",
+    ],
 )
 def test_evidence_inventory_refuses_missing_or_forged_nested_roles(witness, mutation):
     kernel, graph, inventory = witness
@@ -144,6 +154,8 @@ def test_evidence_inventory_refuses_missing_or_forged_nested_roles(witness, muta
             row for row in inventory.reserved if row.role == "kernel.evidence-value"
         )
         changed = replace(inventory, reserved=inventory.reserved - {marker})
+    elif mutation == "extra-reserved":
+        changed = replace(inventory, reserved=inventory.reserved | {token})
     else:
         occurrence = next(o for o in inventory.occurrences if o.token == token)
         changed = replace(
