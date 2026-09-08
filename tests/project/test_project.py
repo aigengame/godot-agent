@@ -865,13 +865,46 @@ def test_a_feature_data_directory_defers_only_the_uid_verdict(
     assert verdict is not None and verdict.code == MAIN_SCENE_UNDEFINED
 
 
-def test_an_escaped_application_key_is_not_an_absent_main_scene(tmp_path):
+def test_an_escaped_application_key_is_read_as_the_setting_it_spells(tmp_path):
+    # `property_name_encode` may write any setting name escaped, and the shared
+    # reader decodes it the way the engine's parser does. The lookup reads that ONE
+    # decoding (the entry's name), so an escaped spelling is not itself a reason to
+    # defer: it declares the main scene here, and declares it EMPTY below.
+    from gda.project import MAIN_SCENE_UNDEFINED, main_scene_unrunnable
+
+    declared = _project_with(
+        tmp_path, "[application]\n" + r'"run/\u006dain_scene"="res://main.tscn"' + "\n"
+    )
+    assert main_scene_unrunnable(declared, None) is None
+
+    empty = _project_with(
+        tmp_path, "[application]\n" + r'"run/\u006dain_scene"=""' + "\n"
+    )
+    verdict = main_scene_unrunnable(empty, None)
+    assert verdict is not None and verdict.code == MAIN_SCENE_UNDEFINED
+
+
+def test_an_application_key_gda_cannot_decode_defers_to_the_engine(tmp_path):
+    # A spelling the engine's own tokenizer refuses the FILE for (a truncated hex
+    # escape): gda gives up on the whole file rather than mistake a declaration it
+    # cannot decode for an absent setting, so the verdict defers instead of
+    # refusing a launch the engine may well make.
     from gda.project import main_scene_unrunnable
 
     project = _project_with(
-        tmp_path, "[application]\n" + r'"run/\u006dain_scene"="res://main.tscn"' + "\n"
+        tmp_path, "[application]\n" + r'"run/\u00"="res://main.tscn"' + "\n"
     )
     assert main_scene_unrunnable(project, None) is None
+
+
+def test_the_main_scene_value_reader_takes_only_a_quoted_literal_apart():
+    # `gda.project_file` reads the FORMAT and leaves a Godot value as the text the
+    # file spells, so the quote stripping this verdict needs lives with the verdict
+    # — the one place in gda that reads a value literal (#930).
+    from gda.project import _unquoted_literal
+
+    assert _unquoted_literal('"res://main.tscn"') == "res://main.tscn"
+    assert _unquoted_literal("false") == "false"
 
 
 def test_an_unreadable_project_file_is_no_verdict(tmp_path):

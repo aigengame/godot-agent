@@ -16,17 +16,22 @@ human or a tool wrote rather than on the engine's merged view of them:
   v->initial) continue;``), adds or rewrites ``application/config/features``, and
   writes the sections in its own (alphabetical) order.
 
-Those three grew three partial readers. This module is the one they share (#843):
-the line primitives (:func:`split_config`, :func:`config_line`,
-:func:`section_name`, …) plus the entry scan (:func:`read_config_text`) that
-turns a text into its ``section``/``key``/``value`` assignments — each carrying
-the RAW lines it spans, so a caller can put an entry back exactly as it was
-written.
+Those three grew three partial readers. This module is the one they share (#843).
+Its interface is the two readers (:func:`read_config_text`, :func:`read_config`),
+the bounded write (:func:`bound_project_write`), and what they answer with: a
+:class:`ConfigText` — the :class:`ConfigHeader` and :class:`ConfigEntry` records
+its scan made, plus the :class:`ConfigSection` bounds it computes on request — a
+:class:`ProjectWriteMutation`, and the two errors. The line primitives below it
+are PRIVATE (#930): a caller that reduces lines itself keeps no state between
+them, which is how a second recognizer of the boundaries came back (see below).
 
 It is a READER of the format, not a parser of Godot values: an entry's ``value``
 is the literal text, never a decoded Variant. Decoding is the engine's job and
 gda has no business re-implementing ``VariantParser``; every consumer here either
-compares value TEXT or hands the line back verbatim.
+compares value TEXT or hands the line back verbatim. The one exception is a KEY,
+which the format itself spells (``String::property_name_encode``) and which this
+module therefore decodes — once, into :attr:`ConfigEntry.name`, so no caller has a
+second rule for it.
 
 **One lexical scan owns every boundary.** ``ConfigFile`` values may span lines: an
 ``input/<action>`` entry is a ``Dictionary`` the engine writes across several, and
@@ -36,13 +41,15 @@ bracket state from one line to the next, so a value continues while a string is
 open or a bracket is unclosed, and a ``[looks_like_a_header]`` line INSIDE a
 quoted value is not a section. :func:`read_config_text` records what that one scan
 found — every section header's line index (:class:`ConfigHeader`) and every
-entry's lines — and the restore below consumes those recordings rather than
-rescanning the raw text. A SECOND recognizer without the same state is the defect
-this replaces: a ``[debug]`` inside a description made the restore write a dropped
-line into the wrong section, and a successful ``project set`` then read back its
-OLD value (PR #898 review, round 3).
+entry's lines — and both writers built on it, the restore below and the harness
+installer's ``[autoload]`` edit, consume those recordings rather than rescanning
+the raw text. A SECOND recognizer without the same state is the defect this
+replaces, twice over: a ``[debug]`` inside a description made the restore write a
+dropped line into the wrong section, and a successful ``project set`` then read
+back its OLD value (PR #898 review, round 3); the installer kept such a recognizer
+of its own and wrote the harness autoload entry INTO a description string (#930).
 
-**Key spellings.** :func:`config_key` mirrors the engine on both forms a key can
+**Key spellings.** :func:`_config_key` mirrors the engine on both forms a key can
 take. Quoted (``String::property_name_encode``), it is decoded exactly as
 ``VariantParser``'s string tokenizer decodes it — ``\\uXXXX`` four hex digits,
 ``\\UXXXXXX`` SIX, every other escape standing for the character it precedes.
@@ -99,7 +106,7 @@ SECTIONLESS = ""
 _BOM = "\ufeff"
 
 
-def line_ending(text: str) -> str:
+def _line_ending(text: str) -> str:
     """The terminator the text's FIRST line uses (``\\r\\n`` or ``\\n``).
 
     Rejoining with it keeps a CRLF ``project.godot`` CRLF (#654). A file with
@@ -112,9 +119,9 @@ def line_ending(text: str) -> str:
     return "\n"
 
 
-def split_config(text: str) -> tuple[list[str], str, str]:
+def _split_config(text: str) -> tuple[list[str], str, str]:
     """A config text as (terminator-free lines, line ending, trailing terminator)."""
-    eol = line_ending(text)
+    eol = _line_ending(text)
     return text.splitlines(), eol, eol if text.endswith(("\n", "\r")) else ""
 
 
@@ -185,53 +192,40 @@ def _scan_line(line: str, state: _Scan) -> _Lexed:
     return _Lexed(line, _Scan(quoted, False, depth), assign)
 
 
-def strip_comment(line: str) -> str:
+def _strip_comment(line: str) -> str:
     """``line`` up to a ``;`` comment outside double quotes (Godot's comment char)."""
     return _scan_line(line, _Scan()).content
 
 
-def config_line(raw: str) -> str:
+def _config_line(raw: str) -> str:
     """A RAW config line reduced to what Godot's parser reads on it.
 
-    The comment gone and the surrounding whitespace trimmed. This is the one
-    reduction every recognizer applies — here and in the harness installer, which
-    consumes it per line — so a header written ``[autoload] ; note`` is the
-    autoload section to all of them. Two reducers, one of which skipped the
-    comment, is how an install appended a SECOND ``[autoload]`` section next to a
-    commented one (PR #898 review, round 3).
+    The comment gone and the surrounding whitespace trimmed. The one reduction
+    every recognizer in this module applies, so a header written
+    ``[autoload] ; note`` is the autoload section to all of them. Two reducers, one
+    of which skipped the comment, is how an install appended a SECOND
+    ``[autoload]`` section next to a commented one (PR #898 review, round 3) — and
+    the reduction is private now, because a caller that applies it per line has no
+    state to carry between them (#930).
     """
-    return strip_comment(raw).strip()
+    return _strip_comment(raw).strip()
 
 
-def is_section_header(line: str) -> bool:
+def _is_section_header(line: str) -> bool:
     """Whether a config line is an INI section header (``[name]``)."""
-    reduced = config_line(line)
+    reduced = _config_line(line)
     return reduced.startswith("[") and reduced.endswith("]")
 
 
-def section_name(line: str) -> str | None:
+def _section_name(line: str) -> str | None:
     """The section a ``[name]`` line opens, or ``None`` for any other line."""
-    reduced = config_line(line)
-    if is_section_header(reduced):
+    reduced = _config_line(line)
+    if _is_section_header(reduced):
         return reduced[1:-1].strip()
     return None
 
 
-def section_of(line: str, current: str) -> str:
-    """The active section after a config line, or ``current`` if unchanged."""
-    opened = section_name(line)
-    return current if opened is None else opened
-
-
-def unquote(token: str) -> str:
-    """Strip surrounding quotes; this is not a ``ConfigFile`` escape decoder."""
-    token = token.strip()
-    if len(token) >= 2 and token[0] == '"' and token[-1] == '"':
-        return token[1:-1].replace('\\"', '"')
-    return token
-
-
-def config_key(token: str) -> str | None:
+def _config_key(token: str) -> str | None:
     """The key ``token`` names, or ``None`` when gda cannot decode it.
 
     ``String::property_name_encode`` quotes and escapes a key holding ``=``,
@@ -338,10 +332,10 @@ class ConfigEntry:
     written before the first header) and ``name`` the full setting name gda
     reports it by — ``section/key``, or the bare key when section-less — or
     ``None`` when :func:`_config_key` could not decode the spelling. It is the ONE
-    decoding of a key in gda: a caller reads ``name`` rather than the token, and
-    ``None`` is the refusal to name a spelling this module cannot decode with
-    certainty. ``key_token`` is that spelling, RAW, for a diagnostic that must
-    quote what the file says.
+    decoding of a key in gda — a caller reads ``name``, never the spelling on the
+    line — and ``None`` is the refusal to name a key this module cannot decode with
+    certainty, which a caller reads as "ask the engine" (#930). The raw spelling is
+    in ``lines`` for anything that must quote what the file says.
 
     ``index`` is the line the entry starts on and ``lines`` the raw lines it spans,
     terminator-free and in file order — the span the scan recorded, so
@@ -356,7 +350,6 @@ class ConfigEntry:
 
     section: str
     name: str | None
-    key_token: str
     index: int
     lines: tuple[str, ...]
     value: str
@@ -486,7 +479,7 @@ def read_config_text(text: str) -> ConfigText:
     its entry — which is what the engine does too (it refuses to load the file at
     all), so gda has nothing truthful to say about such a text either.
     """
-    lines, eol, trailing = split_config(text.removeprefix(_BOM))
+    lines, eol, trailing = _split_config(text.removeprefix(_BOM))
     bom = _BOM if text.startswith(_BOM) else ""
     headers: list[ConfigHeader] = []
     entries: list[ConfigEntry] = []
@@ -494,7 +487,7 @@ def read_config_text(text: str) -> ConfigText:
     index = 0
     while index < len(lines):
         lexed = _scan_line(lines[index], _Scan())
-        opened = section_name(lexed.content)
+        opened = _section_name(lexed.content)
         if opened is not None:
             section = opened
             headers.append(ConfigHeader(index=index, name=opened))
@@ -514,14 +507,13 @@ def read_config_text(text: str) -> ConfigText:
             continued = _scan_line(lines[index], state)
             state = continued.state
             parts.append(_continuation(continued.content, inside, state.quoted))
-        key = config_key(key_token)
+        key = _config_key(key_token)
         entries.append(
             ConfigEntry(
                 section=section,
                 name=None
                 if key is None
                 else (key if section == SECTIONLESS else f"{section}/{key}"),
-                key_token=key_token.strip(),
                 index=start,
                 lines=tuple(lines[start : index + 1]),
                 value="".join(parts),

@@ -45,7 +45,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from gda.project_file import read_config, unquote
+from gda.project_file import read_config
 
 GDA_PROJECT_ENV = "GDA_PROJECT"
 
@@ -659,6 +659,7 @@ def resolve_project_dir(
 MAIN_SCENE_UNDEFINED = "live_main_scene_undefined"
 MAIN_SCENE_UNRESOLVED = "live_main_scene_unresolved"
 
+_APPLICATION_SECTION = "application"
 _MAIN_SCENE_KEY = "run/main_scene"
 _HIDDEN_DATA_DIR_KEY = "config/use_hidden_project_data_directory"
 _SETTINGS_OVERRIDE_KEY = "config/project_settings_override"
@@ -703,17 +704,37 @@ class _MainSceneSetting:
     hidden_data_dir: bool | None
 
 
+def _unquoted_literal(token: str) -> str:
+    """A Godot VALUE literal with its surrounding quotes off, or as it stands.
+
+    The one thing this lookup needs that :mod:`gda.project_file` does not provide:
+    that module reads the FORMAT and leaves every value as the text the file
+    spells, because decoding a Variant is the engine's job. A main-scene path and
+    an overlay path are the two literals this verdict compares, and both are
+    plain quoted strings — so the quotes come off here, at the one caller, and
+    nothing else in gda grows a second value decoder. It is NOT a key decoder:
+    a key's spelling is the reader's (``ConfigEntry.name``).
+    """
+    token = token.strip()
+    if len(token) >= 2 and token[0] == '"' and token[-1] == '"':
+        return token[1:-1].replace('\\"', '"')
+    return token
+
+
 def _read_main_scene(project: Path) -> _MainSceneSetting | None:
     """Read the main-scene setting, or ``None`` when it cannot be determined.
 
     Reads the ``[application]`` section through the shared ``ConfigFile`` reader
     (:mod:`gda.project_file`, #843) and takes from it only the settings this
-    verdict needs and their override declarations. An ESCAPED application key is
-    left to the engine's parser — this reader gives up on the whole file rather
-    than mistake a declaration it cannot decode for an absent setting, so the
-    verdict defers instead of refusing. A file gda cannot read or decode is
-    ``None`` too: that is not a verdict about the scene, and the next step that
-    touches the file (the harness install) reports the failure as its own.
+    verdict needs and their override declarations. Each entry is addressed by the
+    NAME that reader decoded for it, which is the one decoding of a key spelling in
+    gda: ``"run/\\u006dain_scene"`` names the main scene, as it does to the
+    engine's parser. An entry that reader could not name is left to the engine:
+    this reader gives up on the whole file rather than mistake a declaration it
+    cannot decode for an absent setting, so the verdict defers instead of refusing.
+    A file gda cannot read or decode is ``None`` too — that is not a verdict about
+    the scene, and the next step that touches the file (the harness install)
+    reports the failure as its own.
     """
     config = read_config(project / PROJECT_MARKER)
     if config is None:
@@ -722,16 +743,14 @@ def _read_main_scene(project: Path) -> _MainSceneSetting | None:
     overridden = (project / _OVERRIDE_CFG).exists()
     hidden: bool | None = True
     for entry in config.entries:
-        if entry.section != "application":
+        if entry.section != _APPLICATION_SECTION:
             continue
-        if "\\" in entry.key_token:
-            # A quoted key can encode any setting name (e.g. run/\u006dain_scene).
-            # Do not mistake a declaration we cannot decode for an absent setting.
+        if entry.name is None:
             return None
-        key = unquote(entry.key_token)
+        key = entry.name.removeprefix(f"{_APPLICATION_SECTION}/")
         token = entry.value
         if key == _MAIN_SCENE_KEY:
-            value = unquote(token)
+            value = _unquoted_literal(token)
         elif key.startswith(_MAIN_SCENE_KEY + "."):
             overridden = True
         elif key == _HIDDEN_DATA_DIR_KEY:
@@ -739,7 +758,7 @@ def _read_main_scene(project: Path) -> _MainSceneSetting | None:
                 hidden = {"true": True, "false": False}.get(token.strip())
         elif key.startswith(_HIDDEN_DATA_DIR_KEY + "."):
             hidden = None
-        elif key == _SETTINGS_OVERRIDE_KEY and unquote(token):
+        elif key == _SETTINGS_OVERRIDE_KEY and _unquoted_literal(token):
             overridden = True
         elif key.startswith(_SETTINGS_OVERRIDE_KEY + "."):
             overridden = True
@@ -776,7 +795,7 @@ def main_scene_unrunnable(
     can change the effective value in ways only the engine decides (its features
     and the overlay's contents), so their presence defers to the engine. The launch
     behaves as before this check, bounded by the readiness deadline (a native alert
-    can still appear). Escaped application keys also defer to the engine. A
+    can still appear). An application key gda cannot decode defers as well. A
     feature-tagged data-directory setting defers only the UID-cache verdict.
     """
     if scene:

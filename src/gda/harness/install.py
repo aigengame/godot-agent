@@ -67,8 +67,8 @@ Three shapes of input still come back changed, so the byte-identity guarantee of
 - a file with MIXED terminators is normalized to its first one;
 - a file with NO final terminator gains one (install terminates the line it
   appends after; uninstall has no way to know the file never ended in a break);
-- a CR-only (classic-Mac) file comes back CRLF — ``line_ending`` only tells
-  ``\\r\\n`` from ``\\n``, while ``str.splitlines`` also splits a bare ``\\r``;
+- a CR-only (classic-Mac) file comes back CRLF — the reader's terminator rule only
+  tells ``\\r\\n`` from ``\\n``, while ``str.splitlines`` also splits a bare ``\\r``;
 - a file whose ``[autoload]`` section was ALREADY EMPTY loses that header, for the
   reason :func:`uninstall_harness` states — it is that function's guarantee, so the
   reasoning lives there and this list only names the shape (PR #898 review,
@@ -113,7 +113,7 @@ HARNESS_VERSION = "22"
 _VERSION_HEADER_PREFIX = "# gda-harness-version:"
 _AUTOLOAD_HEADER = "[autoload]"
 # The same section by NAME. Every RECOGNITION on the edit path goes through this
-# (via the shared reader's `config_line` + `section_name`/`section_of`), because
+# (via the shared reader's `sections_named`, which reads its scan), because
 # Godot's own parser strips a header's inner whitespace and reads past a trailing
 # comment — `[ autoload ]` and `[autoload] ; note` are both the autoload section
 # (`VariantParser::_parse_tag`, `parse_tag_assign_eof`). Comparing a line to the
