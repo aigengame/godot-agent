@@ -10,13 +10,18 @@ import json
 
 import jsonschema
 import pytest
+from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from gda.cli import app
+from gda.commands.game import GameFindParams, GameTreeParams
 from gda.exit_codes import EXIT_LIVE
 from gda.runner import RunResult
 from tests.support import (
     GAME_CALL_RESULT,
+    GAME_FIND_EMPTY_RESULT,
+    GAME_FIND_RESULT,
+    GAME_FIND_TRUNCATED_RESULT,
     GAME_GET_RESULT,
     GAME_RECT_RESULT,
     GAME_SET_RESULT,
@@ -244,6 +249,312 @@ def test_game_tree_on_non_unix_reports_live_unsupported_platform(monkeypatch, tm
 
     assert result.exit_code != 0, result.stdout
     assert json.loads(result.stdout)["error"]["code"] == "live_unsupported_platform"
+
+
+# --- game find (locate runtime nodes by selector, #855) ----------------------
+
+
+def _find(monkeypatch, tmp_path, payload, *args):
+    """Invoke ``game find`` over a fake live runner returning ``payload``."""
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(payload), stderr="", exit_code=0),
+    )
+    result = CliRunner().invoke(
+        app,
+        ["game", "find", *args, "--project", str(minimal_project(tmp_path)), "--json"],
+    )
+    return fake, result
+
+
+def test_game_find_relays_every_selector_and_the_bounds(monkeypatch, tmp_path):
+    # AC1/AC2 (#855): the five selectors and the two bounds are threaded to the
+    # operation params; the harness owns the walk and the matching, so the CLI's
+    # job is to relay them unchanged.
+    fake, result = _find(
+        monkeypatch,
+        tmp_path,
+        GAME_FIND_RESULT,
+        "--type",
+        "Button",
+        "--script",
+        "res://ui/card_view.gd",
+        "--group",
+        "hud",
+        "--name",
+        "Ok",
+        "--unique-name",
+        "Value",
+        "--root",
+        "/root/Main/HUD",
+        "--max-depth",
+        "2",
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert fake.calls == [
+        (
+            "game-find",
+            {
+                "type": "Button",
+                "script": "res://ui/card_view.gd",
+                "group": "hud",
+                "name": "Ok",
+                "unique_name": "Value",
+                "root": "/root/Main/HUD",
+                "max_depth": 2,
+            },
+        )
+    ]
+
+
+def test_game_find_reports_each_match_with_its_path_and_script(monkeypatch, tmp_path):
+    # AC1 (#855): the result is a FLAT list — path, name, type, and the attached
+    # script's path when the node carries one — plus the count, so a caller
+    # resolves identity once and addresses the exact paths afterwards.
+    _, result = _find(monkeypatch, tmp_path, GAME_FIND_RESULT, "--group", "hud")
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["count"] == 2
+    assert [match["path"] for match in data["matches"]] == [
+        "/root/Main/HUD/Ok",
+        "/root/Main/HUD/Toggle",
+    ]
+    # Subclass-inclusive by the harness's `is_class`: a CheckBox answers --type
+    # Button, and its own attached script rides the match.
+    assert data["matches"][1]["type"] == "CheckBox"
+    assert data["matches"][1]["script_path"] == "res://ui/card_view.gd"
+    assert data["matches"][0]["script_path"] is None
+
+
+def test_game_find_reports_no_match_as_a_success(monkeypatch, tmp_path):
+    # Ambiguity is data and so is absence: zero matches is exit 0 with an empty
+    # list, not an error — the caller branches on `count`, not on an exit code.
+    _, result = _find(monkeypatch, tmp_path, GAME_FIND_EMPTY_RESULT, "--type", "Button")
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["matches"] == []
+    assert data["count"] == 0
+    assert data["truncated"] is False
+
+
+def test_game_find_counts_what_a_bound_kept_it_from_searching(monkeypatch, tmp_path):
+    # AC4 (#855): the bounding options behave as `game tree`'s, so a bounded
+    # search reports what it left out. Here the counter reads as UNSEARCHED
+    # nodes: with it above zero, an empty match list has not proved absence.
+    _, result = _find(
+        monkeypatch,
+        tmp_path,
+        GAME_FIND_TRUNCATED_RESULT,
+        "--type",
+        "Control",
+        "--max-depth",
+        "1",
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["truncated"] is True
+    assert data["omitted_nodes"] == 4
+    assert data["count"] == 1
+
+
+def test_game_find_renders_the_matches_and_the_bound_for_a_human(monkeypatch, tmp_path):
+    # The human channel carries the same two facts as the JSON: one line per
+    # match, the total, and — when a bound cut the search short — what it never
+    # reached, so the list cannot be read as an exhaustive one.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_FIND_TRUNCATED_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "find",
+            "--type",
+            "Control",
+            "--max-depth",
+            "1",
+            "--project",
+            str(minimal_project(tmp_path)),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert "/root/Main/HUD (Control)" in result.stdout
+    assert "1 match" in result.stdout
+    assert "truncated: 4 nodes not searched" in result.stdout
+
+
+def test_game_find_requires_at_least_one_selector(monkeypatch, tmp_path):
+    # A find with no selector matches every node in the subtree, which is
+    # `game tree` flattened rather than a search. Refused as a usage error
+    # before any daemon is involved, and the message names the selectors.
+    result = CliRunner().invoke(
+        app,
+        ["game", "find", "--project", str(minimal_project(tmp_path)), "--json"],
+    )
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+    text = usage_error_text(result)
+    assert "--type" in text and "--unique-name" in text
+
+
+def test_game_find_refuses_a_negative_max_depth(monkeypatch, tmp_path):
+    # The bound is `game tree`'s, and so is its refusal: a depth below zero is a
+    # usage error decided by Click's own `min=0`, before any daemon.
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "find",
+            "--type",
+            "Button",
+            "--max-depth",
+            "-1",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+    assert "--max-depth" in usage_error_text(result)
+
+
+def test_game_find_help_states_what_each_selector_can_see():
+    # AC2/AC5 (#855): help must state the two facts a caller gets wrong
+    # otherwise — --type reads ENGINE classes (subclass-inclusive) and never a
+    # project `class_name`, which --script is what reaches — plus the
+    # resolve-then-address pattern the paths are for.
+    result = CliRunner().invoke(app, ["game", "find", "--help"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    text = panel_text(result.stdout)
+    for option in ("--type", "--script", "--group", "--name", "--unique-name"):
+        assert option in text
+    assert "subclass" in text
+    assert "class_name" in text
+
+
+def test_game_find_schema_publishes_the_selectors_and_the_match_shape():
+    result = CliRunner().invoke(app, ["game", "find", "--schema"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    doc = json.loads(result.stdout)
+    assert {
+        "type",
+        "script",
+        "group",
+        "name",
+        "unique_name",
+        "root",
+        "max_depth",
+    } <= set(doc["input"]["properties"])
+    assert {"matches", "count", "truncated", "omitted_nodes"} <= set(
+        doc["output"]["properties"]
+    )
+    match = doc["output"]["$defs"]["GameMatch"]
+    assert {"path", "name", "type", "script_path"} <= set(match["properties"])
+
+
+def test_game_find_schema_and_model_agree_on_the_selector_rule():
+    # A standard Draft 2020-12 validator and the pydantic model must give the
+    # SAME verdict on the published input contract (ADR-0015): the "at least one
+    # selector" rule spans five fields, so it is published as an anyOf beside the
+    # model validator that enforces it. Without it a schema-only client — gda-mcp
+    # builds its tool from exactly this schema — would offer {}, valid by the
+    # contract and refused at dispatch.
+    schema = GameFindParams.model_json_schema()
+    validator = jsonschema.Draft202012Validator(schema)
+    corpus = [
+        ({"type": "Button"}, True),
+        ({"script": "res://ui/card_view.gd"}, True),
+        ({"group": "hud"}, True),
+        ({"name": "Ok"}, True),
+        ({"unique_name": "Value"}, True),
+        ({"type": "Button", "group": "hud", "max_depth": 2}, True),
+        ({"type": "Button", "root": "/root/Main", "max_depth": 0}, True),
+        # No selector, spelled three ways: absent, explicitly null, and empty —
+        # a null selector selects nothing, which is why each anyOf branch names
+        # the property's type as well as requiring the key.
+        ({}, False),
+        ({"root": "/root/Main", "max_depth": 1}, False),
+        ({"type": None}, False),
+        ({"type": None, "script": None, "group": None}, False),
+        ({"type": ""}, False),
+        # The bound rides the same contract — and it is a STRICT integer: the
+        # schema says `integer`, so a boolean or a numeric string is refused by
+        # the model too rather than coerced to 1 (PR #900 review round 3).
+        ({"type": "Button", "max_depth": -1}, False),
+        ({"type": "Button", "max_depth": True}, False),
+        ({"type": "Button", "max_depth": "1"}, False),
+    ]
+
+    for payload, expected in corpus:
+        schema_ok = validator.is_valid(payload)
+        try:
+            GameFindParams(**payload)
+            model_ok = True
+        except ValidationError:
+            model_ok = False
+        assert schema_ok == expected, f"schema verdict for {payload}"
+        assert model_ok == expected, f"model verdict for {payload}"
+
+
+def test_game_tree_schema_and_model_agree_on_the_bound():
+    # `game tree`'s bound is the one `game find` mirrors, so it carries the same
+    # strict-integer rule at the same boundary (ADR-0015): what the schema refuses
+    # the model refuses, and a `--params-json` bound of `true` or `"1"` cannot
+    # reach the harness through the read when the search refuses it.
+    schema = GameTreeParams.model_json_schema()
+    validator = jsonschema.Draft202012Validator(schema)
+    corpus = [
+        ({}, True),
+        ({"max_depth": 0}, True),
+        ({"root": "/root/Main", "max_depth": 2}, True),
+        ({"max_depth": -1}, False),
+        ({"max_depth": True}, False),
+        ({"max_depth": "1"}, False),
+    ]
+
+    for payload, expected in corpus:
+        schema_ok = validator.is_valid(payload)
+        try:
+            GameTreeParams(**payload)
+            model_ok = True
+        except ValidationError:
+            model_ok = False
+        assert schema_ok == expected, f"schema verdict for {payload}"
+        assert model_ok == expected, f"model verdict for {payload}"
+
+
+def test_game_find_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_path):
+    # No fake: the real DaemonRunner + discovery run against an empty runtime
+    # dir, so the live channel's attach-or-fail answers (ADR-0017).
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "find",
+            "--type",
+            "Button",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "daemon_not_running"
+    assert error["category"] == "live"
 
 
 # --- game get (live runtime property read) -----------------------------------

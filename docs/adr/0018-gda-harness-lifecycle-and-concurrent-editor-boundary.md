@@ -217,6 +217,24 @@ so two instances can touch the project at once.
 > It now runs the same transaction as the other two, so a repeat start on a refusing
 > tree returns the same envelope and hands the project back byte-identical.
 
+> **Outcome (2026-09-08, #854) — live commands target the harness bundled with the
+> running gda; a mixed-version session is not a compatibility target.** The harness is
+> controlled and shipped with the CLI, not an independently versioned service, so every
+> run can use the current version. Installation and an engine session are different
+> lifetimes: the #225 note's self-sync on a repeat `daemon start` updates the installed
+> FILE while reusing an already-running daemon and game — it does not reload the
+> harness in that session. After updating gda, stop and start the session before using
+> the updated live commands; no input command restarts a user's running game on its
+> own.
+>
+> Keep the install version, the content synchronization, and ordinary reply
+> validation. Do not add per-feature version negotiation, fallback routes, hidden
+> source flags, or applied-mode counters to accommodate old sessions: #854's review
+> rounds built exactly that set and then removed it, because old-version support is
+> not a priority and the complexity it bought was out of proportion. A malformed
+> current reply is still a `contract_violation`; it is not evidence of a particular
+> old version.
+
 ## Decision
 
 **1. The harness is an installed autoload, not a runtime injection.** `gda` bundles

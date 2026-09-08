@@ -55,9 +55,12 @@ commands (no group).
   failed save as a game bug; a FAILURE envelope (`--strict`, a timeout) does not
   carry them. Two limits: Godot reads the **export templates** from that same
   directory, so a `release`/`debug` `export run` under it reports none installed
-  unless you put templates there — `--mode pack` needs no templates and works
-  normally; and Engine sessions are unaffected either way — the daemon owns their
-  log.
+  unless you put templates there — the `export_templates_missing` failure then names
+  both directories and carries them as `evidence.templates_root_checked` /
+  `evidence.templates_root_host`, and that second key is how you tell "hidden by the
+  redirect" (drop it, or use `--mode pack`, which needs no templates) from "not
+  installed anywhere" (install them); and Engine sessions are unaffected either way —
+  the daemon owns their log.
 
 ## Structured output & errors
 
@@ -178,9 +181,9 @@ JSON — use `gda help <command> --json` for a structured payload), and the flag
 | `scene` | `create`, `get`, `list`, `get-exports`, `delete`, `validate`, `preflight` (`.tscn` files; `validate` is the STATIC verdict `get` does not give — a scene loads fine with its script and texture missing, so check dependencies resolve and attached scripts compile before trusting it; invalid exits 0 with `valid: false` plus one problem per problem file — COMPOSED over the sub-scenes it references — normally the ones it instances, but a reference is followed when its path ends in `.tscn`/`.scn` OR its `[ext_resource]` line declares `type="PackedScene"`, a union because Godot loads every `[ext_resource]` whatever it is called while `ResourceSaver` will put a PackedScene in a plain `.res` (one saved under a non-scene extension AND declared as something else stays outside) — so a parent whose child is broken is invalid too and every problem carries `scene`, the file it was found in, in the same canonical spelling as the result's `path` (read its `path`/`nodes` against THAT file); three kinds of edge are reported instead of followed — `cyclic_instance` for a cycle, `unreadable_sub_scene` for a scene that loads but carries no `[gd_scene]` text to walk (a binary `.scn`, or a PackedScene in a `.res`), and `instance_depth_exceeded` for a scene no route reaches within 16 levels of sub-scenes; the last two say that subtree is UNCHECKED, not sound (validate it directly, or re-save it as `.tscn`, for its own verdict), and the depth bound is on the shortest route so the verdict does not depend on declaration order, and it covers gda's walk only, not the engine's own load of the chain; staged: unresolved dependencies suppress the script compile/binding pass, so repair them and rerun for the rest. `preflight` is the DYNAMIC one: it boots the scene headless, waits for `_ready`, and reports `status` (`ready`/`not_ready`/`timeout`) plus the script errors seen during startup — read `started`; a `timeout` verdict also carries `elapsed_seconds` and `timeout_seconds` (the `--timeout` it reached), the same evidence pair the `launch_timeout` envelope gives elsewhere — it names the consumed ceiling, not the cause: a stuck scene and a healthy one whose `--frames` window outruns the same ceiling read alike, so pick a larger `--timeout` or fewer `--frames` from what the scene should do, and rerun — both keys are on that verdict only and omitted from every other. Passing `validate` is not "it works": check both) |
 | `node` | `add`, `get`, `list`, `set`, `remove`, `duplicate`, `move`, `connect-signal`, `disconnect-signal` (nodes within a scene) |
 | `script` | `create`, `get`, `list`, `set`, `delete`, `attach`, `validate`, `run` (`.gd` files; `validate` takes SEVERAL paths at once — one engine launch for the whole batch, one aggregate `valid` plus a per-file entry under `scripts` — or `--all` for every script in the project; `run` executes a project script one-shot (address it project-relative or as `res://` — the two portable forms, which `script validate` takes too; `run` alone refuses absolute paths) and passes its `exit_status`/`stdout`/`stderr` through — `stdout` above 64 KiB is truncated to its leading bytes with the COMPLETE stream spilled to the file named in `stdout_file` (`stdout_bytes`/`stdout_truncated` disclose it; a spill gda cannot write is the typed `stdout_spill_failed`, never an unbounded result), and a non-zero `quit()` is still success, so read `exit_status`, or pass `--strict` to get a `script_failed` failure (exit 4) whose `diagnostics` carries the script's own stdout and stderr; a script that never ran — missing, or a failed parse/compile — always fails; `--timeout <s>` sets the ceiling (default 120) and a run that reaches it fails with `launch_timeout` carrying the captured partial output, the elapsed seconds and a termination phase; add `--completion-marker <line>` naming a line your script prints when its work is done — a caller-declared liveness contract, not a death detector: gda ends the run once it observes a recognized error attributable to the entry script, no marker line yet, and then silence on both streams — `script_aborted` (exit 4) with the captured error, in seconds rather than at the ceiling; declaring the marker asserts the script keeps printing until that line, so have it print progress during quiet stretches longer than ~3s, or omit the marker; a script that writes `user://` belongs under `gda --user-data-root DIR script run …` (see Setup) — the result then names `user_data_root` and `log_file` beside the always-present `engine_data_path`) |
-| `project` | `info`, `get`, `set`, `list`, `add-autoload`, `remove-autoload`, `add-input-action`, `remove-input-action`, `find-references`, `dependencies`, `find-unused-resources`, `statistics` |
+| `project` | `info`, `get`, `set`, `list`, `add-autoload`, `remove-autoload`, `add-input-action`, `remove-input-action`, `find-references`, `dependencies`, `find-unused-resources`, `statistics` (a WRITE saves through the engine, which reserializes the whole `project.godot`: it deletes explicit lines whose value equals the engine default, adds or rewrites `application/config/features`, and reorders the sections. gda restores the deleted lines and reports `added_settings`, `rewritten_settings`, `restored_settings` and `sections_reordered` on every write result — read them when the file is tracked, and expect the section order to be the engine's) |
 | `resource` | `create`, `get`, `set`, `delete`, `uid`, `import` (`.tres` files and project assets; `import` ensures importable assets — PNGs and other files the engine imports — are in the project cache: clean-worktree loading; a script needs no import and reports `not_importable`) |
-| `export` | `list`, `get`, `run` (export a preset by name; `--mode` release/debug/pack) |
+| `export` | `list`, `get`, `run` (export a preset by name; `--mode` release/debug/pack; `get` also reports `templates_root`, the export-templates directory it checked, and `templates_root_host`, set when a `--user-data-root` redirect hid templates installed on the host) |
 | `shader` | `create`, `get`, `set` (`.gdshader` files) |
 | `theme` | `create` (a loadable `.tres` Theme) |
 
@@ -239,7 +242,7 @@ already-running daemon's lazy Engine-session launch; only the outer
 | Group | Commands |
 | ----- | -------- |
 | `daemon` | `start`, `wait-ready`, `stop`, `status`, `install`, `uninstall` (lifecycle; `start` installs the in-game harness itself, so `install` is only for doing that step deliberately — e.g. to review or commit the `project.godot` change — and `uninstall` reverses it; `wait-ready` establishes the lazily-launched engine session, with `--timeout` shared by its waits and new-work decisions, so a first `diag errors` serves instead of reporting `engine_session_not_running`; `status` reports the last successfully established engine session's `session_id` — the identity a `screen capture` receipt correlates with, minted anew per established session and retained across a failed replacement launch) |
-| `game` | `tree`, `get`, `rect`, `set`, `call` (the running game's runtime scene graph; `tree --root <runtime path> --max-depth N` bounds the read — see "Find a node before you address it" below; `get --texture-digest` opts a read into content digests for path-less `Texture2D` values. `call --method NAME [--args JSON]` invokes a method named by the `GDA_CALLABLE` declaration resolved from the node's attached script along its base chain — use it for a debug/state contract exposed as a method rather than a property. gda calls nothing undeclared, so an undeclared-but-present method is `live_method_not_allowlisted` and its message names the declared set; a missing one is `live_unknown_method`, and arguments the declared parameters cannot take (wrong count, a type the engine would not convert, a typed `Array[int]` parameter) are `live_invalid_call_args`, refused before the call. The live parser materializes every JSON number as float. `NaN`/`Infinity` are refused; RFC JSON excludes them, although some in-memory schema validators accept them as numbers. Finite floats do not inherit the integer bound, but a float whose wire literal Godot's parser reads as `0.0` is refused too — `DBL_MIN`, any subnormal, and many-digit values such as `1.2345678901234567e-300`, none of which any decimal spelling can deliver; a float it does read arrives changed in its low-order bits — 1 ULP at ordinary magnitudes, and tens of doubles for a full-precision literal between `1e-4` and `1e-2`, where the parser truncates past 18 mantissa digits (#752). JSON integer values beyond ±(2^53−1) are refused CLI-side because the wire can change them. Standard JSON Schema cannot distinguish an exponent-form float from the equal integer, so the params model enforces the integer-token limit at execution. LIMIT: gda CANNOT verify a declared method has no side effects — the constant records the project's own read-only assertion, and what gda guarantees is only that no undeclared method is called. GDScript forbids redeclaring a base class's constant, so an opted-in inheritance chain has at most one declaration owner; a base owner covers its subclasses and need not define every method it names) |
+| `game` | `tree`, `find`, `get`, `rect`, `set`, `call` (the running game's runtime scene graph; `tree --root <runtime path> --max-depth N` bounds the read, and `find` locates nodes by SELECTOR rather than by path — see "Find a node before you address it" below; `get --texture-digest` opts a read into content digests for path-less `Texture2D` values. `call --method NAME [--args JSON]` invokes a method named by the `GDA_CALLABLE` declaration resolved from the node's attached script along its base chain — use it for a debug/state contract exposed as a method rather than a property. gda calls nothing undeclared, so an undeclared-but-present method is `live_method_not_allowlisted` and its message names the declared set; a missing one is `live_unknown_method`, and arguments the declared parameters cannot take (wrong count, a type the engine would not convert, a typed `Array[int]` parameter) are `live_invalid_call_args`, refused before the call. The live parser materializes every JSON number as float. `NaN`/`Infinity` are refused; RFC JSON excludes them, although some in-memory schema validators accept them as numbers. Finite floats do not inherit the integer bound, but a float whose wire literal Godot's parser reads as `0.0` is refused too — `DBL_MIN`, any subnormal, and many-digit values such as `1.2345678901234567e-300`, none of which any decimal spelling can deliver; a float it does read arrives changed in its low-order bits — 1 ULP at ordinary magnitudes, and tens of doubles for a full-precision literal between `1e-4` and `1e-2`, where the parser truncates past 18 mantissa digits (#752). JSON integer values beyond ±(2^53−1) are refused CLI-side because the wire can change them. Standard JSON Schema cannot distinguish an exponent-form float from the equal integer, so the params model enforces the integer-token limit at execution. LIMIT: gda CANNOT verify a declared method has no side effects — the constant records the project's own read-only assertion, and what gda guarantees is only that no undeclared method is called. GDScript forbids redeclaring a base class's constant, so an opted-in inheritance chain has at most one declaration owner; a base owner covers its subclasses and need not define every method it names) |
 | `diag` | `errors` (structured runtime errors with callstacks; survive a crash) |
 | `logger` | `tail` (the running game's structured log stream; `--raw` for verbatim lines, `--level <min>` to filter by severity, `--limit N`) |
 | `perf` | `monitors`, `monitor` (counters: a one-frame snapshot, or with `--frames` a bounded window with statistics and optional `--budget` verdicts / a per-node timeline) |
@@ -251,8 +254,8 @@ Every live reply carries its floats at full binary64 precision, so a value read 
 In the other direction the wire is narrower, and EVERY live command RELAYED to the game applies the same rule — not just `game call`; the three the daemon answers itself (`diag errors`, `logger tail`, `daemon wait-ready`) send no number to the engine and are outside it. A number gda cannot send unchanged is refused before the request leaves: a float whose wire literal Godot's parser reads as `0.0` (`DBL_MIN`, any subnormal, many-digit values such as `1.2345678901234567e-300`) and a JSON integer beyond ±(2^53−1). It is a usage error on the argv path and `invalid_params` on `--params-json`, decided without a running daemon, and it reaches nested values — a sequence event's `x`, a `game call` argument inside a dictionary. A float the parser DOES read still arrives changed in its low-order bits: 1 ULP at ordinary magnitudes, tens of doubles for a full-precision literal between `1e-4` and `1e-2`. That residual is disclosed, not refused (#752). `game set --value` is OUTSIDE that rule — the value travels as a STRING, so the wire never sees a number — and has a refusal of its own, decided in the session by the harness: the string is coerced with the engine's own parser and a literal it reads as `0.0` when you did not write zero, or as `NaN` at all, fails with `live_uncoercible_value` (exit 6, the running game untouched), the same rule headless `--value` follows (#772) — containers included, so a destroyed number inside a Dictionary or Array value is refused here too (#805).
 
 `gda input` injects through two routes, and every result names the one it used
-(`injection_route`). `input action`, `input tap --action` and a sequence `action`
-event drive `Input.action_press`/`action_release`: the `action_state` route, a
+(`injection_route`). By default `input action`, `input tap --action` and a sequence
+`action` event drive `Input.action_press`/`action_release`: the `action_state` route, a
 change to the POLLED action state that reaches no `_input`, `_gui_input` or
 `_unhandled_input` handler. `input key`, the mouse commands and the `key` /
 `mouse_*` sequence kinds push an InputEvent through the root viewport: the
@@ -260,6 +263,29 @@ change to the POLLED action state that reaches no `_input`, `_gui_input` or
 modal, a scrollable) with a key or mouse event, and use an action where the game
 polls `Input.is_action_*`. A successful action injection is not evidence that the
 event path works.
+
+`--as-event` is the explicit opt-in to the OTHER door for an action: gda pushes an
+`InputEventAction` through the root viewport, so handlers matching the action
+receive it and the polled state stays untouched. It rides `input action`,
+`input tap --action`, and a sequence `action` event (`"as_event": true`), and the
+opted-in result reports `viewport_event`. The default is unchanged. The matrix, for
+one action and the key it is mapped to:
+
+| injection | `Input.is_action_pressed` | `_input` / `_unhandled_input` | `_gui_input` |
+| --- | --- | --- | --- |
+| `input action` (state route) | yes | no | no |
+| `input action --as-event` | no | yes | yes (focused Control) |
+| `input key` of the mapped key | no | yes | yes (focused Control) |
+
+Reach for it when a Control, a modal or another event-driven handler must react to
+an ACTION rather than to the key it is bound to — otherwise a key or mouse event is
+the plainer tool.
+
+The matrix describes eligible delivery under Godot's normal propagation and
+consumption rules, not proof that every handler ran or a UI action succeeded.
+Use the current harness bundled with gda. After updating gda, stop/start an existing
+daemon session before using live commands; syncing the installed file does not
+reload code in the running game. Mixed-version sessions are not supported.
 
 For a UI activation, use the gesture commands, not a lone event. Godot activates a
 `Button` on the RELEASE, so a bare press never emits `pressed`; and a focused UI
@@ -321,8 +347,10 @@ freeze-frame in an agent session, use `paused`, which live operations survive; a
 
 ### Find a node before you address it
 
-Every live op that ADDRESSES a node takes an exact runtime path, and `game tree` is how
-you learn one. Read it in TWO steps rather than dumping the whole tree:
+Every live op that ADDRESSES a node takes an exact runtime path, and `game tree` /
+`game find` are how you learn one. Resolve the path first — with a bounded `game tree`
+read (1) or a `game find` selector search (2) — then address it (3). Never dump the
+whole tree:
 
 1. **Bound the read.** `gda game tree --max-depth 2 --json` shows the top levels of the
    running CURRENT SCENE; then `gda game tree --root /root/Main/HUD --max-depth 2 --json`
@@ -331,8 +359,24 @@ you learn one. Read it in TWO steps rather than dumping the whole tree:
    unbounded `game tree` on a production UI is a very large result — it can exceed your
    own context budget and be truncated by your client, and a truncated dump cannot prove
    a node is absent.
-2. **Address exactly.** With the path in hand, use `game get` / `game rect` / `game set`
-   / `game call` on that path. Do not re-read the tree per node.
+2. **Or search by selector.** `gda game find --type Button --group hud --json` returns a
+   flat list of matches instead of a tree — each one an object carrying `path`, `name`,
+   `type` and `script_path`. Selectors are ANDed and at least one is required: `--type`
+   is the ENGINE class and subclass-inclusive (`Button` also matches a `CheckBox`), and
+   it never sees a project `class_name` — `--script res://ui/card_view.gd` is what
+   reaches that, matching the node's attached script or any script in its base chain.
+   `--group` and `--name` are the plain identity checks, and `--unique-name` matches a
+   `%`-addressable node whose OWNER is the search root or lies inside the searched
+   subtree, so the same `%Name` owned from ABOVE that root does not match. `--root` and
+   `--max-depth` bound the search exactly as they bound the read above, from the same
+   default root — so reaching an autoload takes `--root /root` here too, and a broad
+   selector needs the bounds as much as the tree read does: `--type Node` matches every
+   node in the subtree, which on a production UI is the same very large result. Zero
+   matches is a success with an empty list, not an error. Several matches are data too:
+   every candidate comes back and you choose, because the ops that need one node still
+   take an exact path.
+3. **Address exactly.** With the path in hand, use `game get` / `game rect` /
+   `game set` / `game call` on that path. Do not re-read the tree per node.
 
 A bounded read says what it left out, so you never mistake it for a complete one:
 `omitted_nodes` counts every unserialized node at any depth below the selected root,
@@ -342,6 +386,11 @@ omitted). The counters cover the selected subtree alone — a complete current-s
 says nothing about its siblings. To see what a node hid, re-read with `--root <that
 node's path>`. There is no continuation token — a live
 tree changes between calls, so the follow-up is a narrower `--root`, not a resumed page.
+
+`game find` carries the same two counters (a flat match list has no `children_omitted`),
+where they count the nodes the search never REACHED: while `omitted_nodes` is above
+zero, an empty match list does not prove the node is absent — widen `--max-depth` or
+move `--root` before concluding it is gone.
 
 ### Structured logging from game code
 

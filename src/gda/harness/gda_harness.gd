@@ -31,6 +31,7 @@ const LOG_MARKER := "<<<GDA:LOG>>>"
 
 # The live operations this harness serves, keyed by their wire op name (#220, #223).
 const OP_GAME_TREE := "game-tree"
+const OP_GAME_FIND := "game-find"
 const OP_GAME_GET := "game-get"
 const OP_GAME_RECT := "game-rect"
 const OP_GAME_SET := "game-set"
@@ -384,6 +385,8 @@ func _run(request) -> Variant:
 	match op:
 		OP_GAME_TREE:
 			return _handle_game_tree(params)
+		OP_GAME_FIND:
+			return _handle_game_find(params)
 		OP_GAME_GET:
 			return _handle_game_get(params)
 		OP_GAME_RECT:
@@ -427,21 +430,11 @@ func _run(request) -> Variant:
 # unbounded, which stays the caller's choice on a large tree. Both counters ride
 # back so a partial read is never mistaken for a complete one.
 func _handle_game_tree(params: Dictionary) -> String:
-	var scene: Node
-	var root_param: Variant = params.get("root")
-	if root_param is String:
-		scene = _resolve_runtime_node(root_param)
-		if scene == null:
-			return _error(LIVE_ERROR_NODE_NOT_FOUND,
-					"no node at runtime path: " + String(root_param))
-	else:
-		scene = get_tree().current_scene
-		if scene == null:
-			scene = get_tree().root
-
-	# A missing bound is -1, the "unbounded" sentinel _serialize reads; the CLI
-	# refuses a negative --max-depth, so a caller cannot spell it.
-	var max_depth := _int_param(params, "max_depth", -1)
+	var bounds := _tree_bounds(params)
+	if bounds.has("error"):
+		return bounds["error"]
+	var scene: Node = bounds["root"]
+	var max_depth: int = bounds["max_depth"]
 	var counts := {"omitted_nodes": 0}
 	var tree := _serialize(scene, max_depth, counts)
 	var omitted := int(counts["omitted_nodes"])
@@ -450,6 +443,148 @@ func _handle_game_tree(params: Dictionary) -> String:
 		"truncated": omitted > 0,
 		"omitted_nodes": omitted,
 	})
+
+
+# The root and the depth bound a `game tree` read and a `game find` search SHARE
+# (#849, #855), decided in one place so the two cannot drift: the running current
+# scene unless `root` names a node, the tree root when no scene is current, and
+# the shared `live_node_not_found` refusal for a path that resolves to nothing. A
+# missing bound is -1, the "unbounded" sentinel both walks read; the CLI refuses a
+# negative --max-depth, so a caller cannot spell it. Returns
+# {"root": Node, "max_depth": int}, or {"error": <finished reply>} for the handler
+# to return as-is.
+func _tree_bounds(params: Dictionary) -> Dictionary:
+	var root: Node
+	var root_param: Variant = params.get("root")
+	if root_param is String:
+		root = _resolve_runtime_node(root_param)
+		if root == null:
+			return {"error": _error(LIVE_ERROR_NODE_NOT_FOUND,
+					"no node at runtime path: " + String(root_param))}
+	else:
+		root = get_tree().current_scene
+		if root == null:
+			root = get_tree().root
+	return {"root": root, "max_depth": _int_param(params, "max_depth", -1)}
+
+
+# game find: walk from the SAME root game tree reads (the running current scene
+# unless `root` names one) and return the FLAT list of nodes matching every named
+# selector (#855). Not a serialization: it renders no subtree, so it does not call
+# _serialize — what it shares with it is the per-node shape (name/type/path) and
+# the depth-bound + omitted-count contract, plus _subtree_size for the cost of an
+# unsearched branch. Here that count is what the search never REACHED, so a caller
+# can tell an empty result inside a fully searched subtree (absence) from one a
+# bound cut short (unknown).
+#
+# The walk keeps its OWN stack rather than recursing, the same reason the count
+# does (#849): a chain deeper than GDScript's 1024 call frames overflows, and an
+# overflowed walk would publish a partial match list as a successful search.
+# Children are pushed in reverse so the LIFO pops them in document order, which
+# is the order the result promises.
+func _handle_game_find(params: Dictionary) -> String:
+	var bounds := _tree_bounds(params)
+	if bounds.has("error"):
+		return bounds["error"]
+	var root: Node = bounds["root"]
+	var max_depth: int = bounds["max_depth"]
+	var matches: Array = []
+	var omitted := 0
+	var pending: Array = [{"node": root, "depth": 0}]
+	while not pending.is_empty():
+		var entry: Dictionary = pending.pop_back()
+		var node: Node = entry["node"]
+		var depth: int = int(entry["depth"])
+		if _node_matches_selectors(node, params, root):
+			matches.append(_match_payload(node))
+		var children: Array = node.get_children()
+		if max_depth >= 0 and depth == max_depth:
+			for child in children:
+				omitted += _subtree_size(child)
+			continue
+		for index in range(children.size() - 1, -1, -1):
+			pending.append({"node": children[index], "depth": depth + 1})
+	return _ok({
+		"matches": matches,
+		"count": matches.size(),
+		"truncated": omitted > 0,
+		"omitted_nodes": omitted,
+	})
+
+
+# Every selector the request NAMED must hold (they are ANDed); an absent one is
+# null on the wire and constrains nothing. The CLI refuses a request that names
+# none, so reaching here with all five null cannot happen through gda.
+func _node_matches_selectors(node: Node, params: Dictionary, root: Node) -> bool:
+	var wanted_type: Variant = params.get("type")
+	# The ENGINE class, subclass-inclusive: Button also answers for a CheckBox.
+	# A project class_name is invisible here — that is the script selector's job.
+	if wanted_type is String and not node.is_class(String(wanted_type)):
+		return false
+	var wanted_group: Variant = params.get("group")
+	if wanted_group is String and not node.is_in_group(StringName(String(wanted_group))):
+		return false
+	var wanted_name: Variant = params.get("name")
+	if wanted_name is String and String(node.name) != String(wanted_name):
+		return false
+	var wanted_unique: Variant = params.get("unique_name")
+	if wanted_unique is String and not _matches_unique_name(node, String(wanted_unique), root):
+		return false
+	var wanted_script: Variant = params.get("script")
+	if wanted_script is String and not _script_chain_carries(node, String(wanted_script)):
+		return false
+	return true
+
+
+# The unique-name rule (#855): a `%Name` is per OWNER, and a running tree holds
+# many owners — every autoload and every instanced sub-scene. So the match is
+# decided against the node's own owner: the flag is set, the name is the one
+# asked for, and the owner is the search root or lies inside the searched
+# subtree. The engine keeps an owner an ancestor of what it owns
+# (Node::set_owner), so "outside" can only mean ABOVE the search root — the case
+# this excludes, where a node inside the searched subtree carries a `%` name its
+# enclosing scene declared. A node with the flag but no owner addresses nothing.
+func _matches_unique_name(node: Node, wanted: String, root: Node) -> bool:
+	if not node.unique_name_in_owner:
+		return false
+	if String(node.name) != wanted:
+		return false
+	var owner_node: Node = node.owner
+	if owner_node == null:
+		return false
+	return owner_node == root or root.is_ancestor_of(owner_node)
+
+
+# The script selector (#855): the node's attached script, or ANY script in its
+# base chain, is the named resource. Walking the chain is what lets one selector
+# name a base `class_name` and match every node extending it.
+func _script_chain_carries(node: Node, wanted: String) -> bool:
+	var script: Variant = node.get_script()
+	while script is Script:
+		if String(script.resource_path) == wanted:
+			return true
+		script = script.get_base_script()
+	return false
+
+
+# One match: game tree's per-node identity (name/type/path) plus the res:// path
+# of the script this node itself carries — null when it has none, and null too
+# when the script has NO resource_path, which is one created and assigned at run
+# time (GDScript.new()). A script stored inside a scene file is not that case: it
+# has a sub-resource path (res://main.tscn::GDScript_abc12) and reports it. Never
+# the base script the chain matched: the caller asked which nodes match, and this
+# answers what each one is.
+func _match_payload(node: Node) -> Dictionary:
+	var script: Variant = node.get_script()
+	var script_path: Variant = null
+	if script is Script and not String(script.resource_path).is_empty():
+		script_path = String(script.resource_path)
+	return {
+		"name": String(node.name),
+		"type": node.get_class(),
+		"path": String(node.get_path()),
+		"script_path": script_path,
+	}
 
 
 # game get: resolve a node by its ABSOLUTE runtime path (as game tree reports it,
@@ -1025,7 +1160,11 @@ func _signal_arg_count(node: Node, signal_name: String) -> int:
 # Inject input into the RUNNING game on the main thread at a frame boundary
 # (ADR-0020). Key/mouse events ride the game's real input flow via the root
 # viewport's push_input (scene-aware); actions go through Input.action_press/
-# release against the running InputMap. The model bounds every request up front
+# release against the running InputMap — unless the caller opts in with
+# `as_event` (#854), which sends the action through push_input as an
+# InputEventAction instead. The two doors stay disjoint either way: a state
+# change reaches no handler, and a pushed event leaves the polled state
+# untouched. The model bounds every request up front
 # (ADR-0015), so the harness only decides what needs the live engine: a key name
 # the engine cannot resolve (live_invalid_key) and an action the running InputMap
 # does not declare (live_unknown_action). `input sequence` reuses the time-windowed
@@ -1145,6 +1284,23 @@ func _push_mouse_button_phase(pos: Vector2, button: String, pressed: bool, doubl
 	_last_injected_mouse_position = pos
 
 
+# Push an action as an EVENT: build an InputEventAction and send it through the
+# same root-viewport door key and mouse events take, so `_input`, `_gui_input` and
+# `_unhandled_input` handlers matching the action receive it (#854). The opt-in is
+# the CALLER's (`as_event`); without it an action stays a state change.
+# Deliberately NOT Input.parse_input_event, which would update the polled state as
+# well: the two routes are disjoint by construction, and a pushed event leaves
+# Input.is_action_pressed untouched exactly as a pushed key event does
+# (GDA-DF-050). Shared by the single-frame action op, an action tap, and a
+# sequence action event.
+func _push_action_event(action: String, pressed: bool, strength: float) -> void:
+	var event := InputEventAction.new()
+	event.action = action
+	event.pressed = pressed
+	event.strength = strength
+	_input_viewport().push_input(event)
+
+
 # Push a mouse-motion event to a viewport position. Shared by the single-frame move
 # op and a sequence mouse-move event.
 func _push_mouse_move(pos: Vector2) -> void:
@@ -1256,7 +1412,10 @@ func _handle_input_mouse_move(params: Dictionary) -> String:
 
 # input action: press or release a named input action against the running
 # InputMap. The action MUST exist in the running InputMap — an unknown action is
-# the typed live_unknown_action error (validated via InputMap.has_action).
+# the typed live_unknown_action error (validated via InputMap.has_action). With
+# `as_event` the same press/release is delivered as an InputEventAction through
+# the root viewport instead (#854); the reply echoes which door was used, and the
+# CLI derives the reported injection_route from that echo.
 func _handle_input_action(params: Dictionary) -> String:
 	var action := _string_param(params, "action")
 	if not InputMap.has_action(action):
@@ -1264,7 +1423,10 @@ func _handle_input_action(params: Dictionary) -> String:
 				"the running InputMap has no action: " + action)
 	var release := bool(params.get("release", false))
 	var strength := _float_param(params, "strength", 1.0)
-	if release:
+	var as_event := bool(params.get("as_event", false))
+	if as_event:
+		_push_action_event(action, not release, 0.0 if release else strength)
+	elif release:
 		Input.action_release(action)
 	else:
 		Input.action_press(action, strength)
@@ -1273,6 +1435,7 @@ func _handle_input_action(params: Dictionary) -> String:
 		"action": action,
 		"pressed": not release,
 		"strength": 0.0 if release else strength,
+		"as_event": as_event,
 	})
 
 
@@ -1300,9 +1463,16 @@ func _handle_input_tap(params: Dictionary) -> Variant:
 			return _error(LIVE_ERROR_UNKNOWN_ACTION,
 					"the running InputMap has no action: " + action)
 		var strength := _float_param(params, "strength", 1.0)
-		press = func() -> void: Input.action_press(action, strength)
-		release = func() -> void: Input.action_release(action)
-		echo = {"action": action, "strength": strength}
+		# `as_event` picks the door for BOTH phases of an action tap (#854); a key
+		# tap already pushes events, and the model refuses the flag there.
+		var as_event := bool(params.get("as_event", false))
+		if as_event:
+			press = func() -> void: _push_action_event(action, true, strength)
+			release = func() -> void: _push_action_event(action, false, 0.0)
+		else:
+			press = func() -> void: Input.action_press(action, strength)
+			release = func() -> void: Input.action_release(action)
+		echo = {"action": action, "strength": strength, "as_event": as_event}
 	else:
 		var keycode := _resolve_keycode(key)
 		if keycode == KEY_NONE:
@@ -1456,10 +1626,17 @@ func _apply_sequence_event(event: Dictionary) -> Variant:
 			if not InputMap.has_action(action):
 				return {"code": LIVE_ERROR_UNKNOWN_ACTION,
 						"message": "the running InputMap has no action: " + action}
-			if bool(event.get("release", false)):
+			var releasing := bool(event.get("release", false))
+			var strength := _float_param(event, "strength", 1.0)
+			# Per EVENT, so one sequence can mix a state action, an event-mode
+			# action and a key event; the CLI reports the route of each phase.
+			if bool(event.get("as_event", false)):
+				_push_action_event(action, not releasing,
+						0.0 if releasing else strength)
+			elif releasing:
 				Input.action_release(action)
 			else:
-				Input.action_press(action, _float_param(event, "strength", 1.0))
+				Input.action_press(action, strength)
 			return null
 		_:
 			return {"code": LIVE_ERROR_INVALID_EVENT_SPEC,
@@ -1735,7 +1912,8 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Va
 					state["outcome"] = {"error": err}
 		if state["outcome"] != null and current >= last_event:
 			_injected_mouse_button_mask = 0
-			return state["outcome"]
+			var decided: Dictionary = state["outcome"]
+			return decided
 		return current
 	var finalize := func(_samples: Array) -> String:
 		# Defensive only: the sampler decides every path within the budget.

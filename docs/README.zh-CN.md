@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=f5c8db9324ad6e438a7942a949c484d9d2db9a474c93f656664330b15baa420c -->
+<!-- gda-readme-i18n: source=README.md sha256=8c2f2dce0229e2a816eb45186888fd06c25af9cabfaf1b84f18cd1a254163f00 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -413,12 +413,15 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `project set` | 设置一个项目设置，并把值强制转换为它声明的类型。 |
 | `project add-autoload` | 注册一个 autoload 单例（名称 → 脚本/场景）。 |
 | `project remove-autoload` | 按名称注销一个 autoload 单例。 |
-| `project add-input-action` | 注册一个绑定按键的 InputMap 动作（`--key` 键名或键码、`--deadzone`、`--physical`）。 |
+| `project add-input-action` | 注册一个绑定按键和/或手柄的 InputMap 动作（`--key`、`--joy-button`、`--joy-axis` 形如 `<轴>[:<符号>]`、`--device`、`--deadzone`、`--physical`）；至少需要一个绑定。 |
 | `project remove-input-action` | 按名称注销一个 InputMap 动作。 |
 | `project find-references` | 找出引用了给定资源的每一个项目文件。 |
 | `project dependencies` | 把每个场景/资源映射到它所依赖的资源。 |
 | `project find-unused-resources` | 找出没有任何东西引用的资源文件。 |
 | `project statistics` | 报告项目的文件/行数统计、autoload 等信息。 |
+
+每次 `project` 写入都经由引擎保存，而引擎会重新序列化整个文件：gda 会把它删掉的显式
+配置行按原样恢复，并在结果中报告其余改动。
 
 **`resource`** — 资源文件（`.tres`）与项目的已导入资产
 
@@ -471,6 +474,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | 命令 | 作用 |
 | ------- | ------------ |
 | `game tree` | 读取正在运行的游戏的运行时场景树（在 `_ready` 之后）。 |
+| `game find` | 按引擎类、脚本、组、名称或唯一名称查找运行时节点，而不是按路径。`--type` 匹配的是引擎类（含子类），永远不匹配项目的 `class_name` —— 要匹配后者请用 `--script res://path.gd`。 |
 | `game get` | 按节点路径读取一个运行时节点的实时属性；显式命名时可读取附加脚本变量。 |
 | `game rect` | 按节点路径读取一个运行时 Control 渲染后的视口矩形。 |
 | `game set` | 在正在运行的游戏上设置运行时节点属性，或显式命名的附加脚本变量；`verified` 报告读回值是否匹配。 |
@@ -505,8 +509,8 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `input key` | 注入一个按键事件（带修饰键）。 |
 | `input mouse-click` | 在 `(x, y)` 处注入完整的点击手势(移动、按下、释放)。 |
 | `input mouse-move` | 将鼠标移动到 `(x, y)`。 |
-| `input action` | 按下/释放一个已映射的输入动作 —— 仅改变轮询状态，绝不会送达 `_input`/`_gui_input`。 |
-| `input tap` | 轻按一个按键或动作：跨帧完成按下、保持、释放（`--key` 送达事件，`--action` 仅改变轮询状态）。 |
+| `input action` | 按下/释放一个已映射的输入动作 —— 仅改变轮询状态，除非用 `--as-event` 将其送达 `_input`/`_gui_input`。 |
+| `input tap` | 轻按一个按键或动作：跨帧完成按下、保持、释放（`--key` 送达事件，`--action` 改变轮询状态，除非加上 `--as-event`）。 |
 | `input sequence` | 注入一条跨多帧的事件时间线。 |
 
 注入的鼠标坐标请从 `event.position` 读取——daemon 会话中 `get_mouse_position()` /

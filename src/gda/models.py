@@ -201,6 +201,27 @@ class FailureEvidence(BaseModel):
             "--project. Set only when gda found one above the target."
         ),
     )
+    # The two export-templates directories a `--user-data-root` redirect puts at
+    # odds (#840). Godot reads the templates from the data directory the redirect
+    # relocates, so `export_templates_missing` has two shapes that need different
+    # remedies, and the message alone cannot be branched on: `templates_root_host`
+    # is present exactly when the templates ARE installed somewhere this run could
+    # not see, and absent when they are genuinely missing.
+    templates_root_checked: str | None = Field(
+        default=None,
+        description=(
+            "The export-templates directory this run checked — the one the "
+            "engine's data directory resolved to, which --user-data-root moves."
+        ),
+    )
+    templates_root_host: str | None = Field(
+        default=None,
+        description=(
+            "The host's export-templates directory, when it holds the templates a "
+            "--user-data-root redirect hid from this run. Set only then: its "
+            "absence means the templates are missing on the host too."
+        ),
+    )
 
     @field_serializer("script_errors")
     def _keep_the_published_script_error_shape(

@@ -429,6 +429,9 @@ names the file, and only `preflight` catches a first-frame failure.
 | `project find-unused-resources` | Find resource files that nothing references. |
 | `project statistics` | Report the project's file/line counts, autoloads, and more. |
 
+Every `project` write saves through the engine, which reserializes the whole file:
+gda restores the explicit lines it drops and reports the rest on the result.
+
 **`resource`** — resource files (`.tres`) and the project's imported assets
 
 | Command | What it does |
@@ -480,6 +483,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | Command | What it does |
 | ------- | ------------ |
 | `game tree` | Read the running game's runtime scene tree (after `_ready`). |
+| `game find` | Find runtime nodes by engine class, script, group, name, or unique name, instead of by path. `--type` is the ENGINE class (subclass-inclusive) and never a project `class_name` — `--script res://path.gd` is what reaches that. |
 | `game get` | Read a runtime node's live properties by node path; explicit names can address attached-script variables. |
 | `game rect` | Read a runtime Control's rendered viewport rect by node path. |
 | `game set` | Set a runtime node property, or an explicitly named attached-script variable, on the running game; `verified` reports whether the read-back matched. |
@@ -514,8 +518,8 @@ names the file, and only `preflight` catches a first-frame failure.
 | `input key` | Inject a key event (with modifiers). |
 | `input mouse-click` | Inject a complete click gesture (move, press, release) at `(x, y)`. |
 | `input mouse-move` | Inject mouse motion to `(x, y)`. |
-| `input action` | Press/release a mapped input action — polled state only, never delivered to `_input`/`_gui_input`. |
-| `input tap` | Tap one key or action: press, hold, release across frames (`--key` delivers an event, `--action` only sets polled state). |
+| `input action` | Press/release a mapped input action — polled state only, unless `--as-event` delivers it to `_input`/`_gui_input`. |
+| `input tap` | Tap one key or action: press, hold, release across frames (`--key` delivers an event, `--action` sets polled state unless `--as-event`). |
 | `input sequence` | Inject a multi-frame event timeline. |
 
 Read injected mouse coordinates from `event.position` — in a daemon session
