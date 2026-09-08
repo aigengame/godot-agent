@@ -55,9 +55,9 @@ class ConceptFiles:
             content = read_bounded_file(path.resolve(strict=True), _BRIEF_LIMIT)
             raw = json.loads(content)
             expected = {item.name for item in fields(ConceptBrief)}
-            if not isinstance(raw, dict) or set(raw) != expected:
+            if not isinstance(raw, dict) or set(raw) - expected:
                 raise ValueError(
-                    "Concept brief must contain exactly its documented fields"
+                    "Concept brief must be an object with only documented fields"
                 )
             brief = _BRIEF.validate_json(content, strict=True)
             validate_brief(brief)

@@ -13,6 +13,55 @@ from gda_assets.api import ConceptConsumer, PromptOptionKey
 from tests.mcp_support import FakeGdaRunner, gda_result, list_tools, schema_then
 
 
+@pytest.mark.parametrize("direction", ["views", "poses"])
+def test_concept_brief_defaults_work_and_unknown_fields_fail(tmp_path, direction):
+    brief = tmp_path / "brief.json"
+    value = {
+        "use": "model",
+        "subject": "Robot",
+        "style": "Low poly",
+        direction: ["front"],
+    }
+    brief.write_text(json.dumps(value))
+    record = tmp_path / "attempt"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "asset-pipeline",
+            "concept-prepare",
+            "--brief",
+            str(brief),
+            "--record",
+            str(record),
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    saved = json.loads(result.stdout)["preparation"]["brief"]
+    assert saved[direction] == ["front"]
+    assert saved["poses" if direction == "views" else "views"] == []
+    assert saved["instructions"] == ""
+
+    brief.write_text(json.dumps({**value, "instruction": "Keep red eyes"}))
+    refused = tmp_path / "refused"
+    result = runner.invoke(
+        app,
+        [
+            "asset-pipeline",
+            "concept-prepare",
+            "--brief",
+            str(brief),
+            "--record",
+            str(refused),
+            "--json",
+        ],
+    )
+    assert result.exit_code != 0
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+    assert not refused.exists()
+
+
 @pytest.mark.parametrize(
     ("command", "tool_name", "definition"),
     [

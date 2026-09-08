@@ -1519,7 +1519,7 @@ def render_prompt_record(result: PromptRecordResult) -> str:
     )
 
 
-def _prompt_command(
+def _projectless_asset_command(
     operation, input_model, output_model, render, recipe
 ) -> HeadlessCommand:
     return HeadlessCommand(
@@ -1533,28 +1533,28 @@ def _prompt_command(
     )
 
 
-PROMPT_PREPARE_COMMAND = _prompt_command(
+PROMPT_PREPARE_COMMAND = _projectless_asset_command(
     "asset-pipeline-prompt-prepare",
     PromptPrepareParams,
     PromptPreparationResult,
     render_prompt_preparation,
     run_prompt_prepare,
 )
-PROMPT_INSPECT_COMMAND = _prompt_command(
+PROMPT_INSPECT_COMMAND = _projectless_asset_command(
     "asset-pipeline-prompt-inspect",
     PromptInspectParams,
     PromptPreparationResult,
     render_prompt_preparation,
     run_prompt_inspect,
 )
-PROMPT_REVISE_COMMAND = _prompt_command(
+PROMPT_REVISE_COMMAND = _projectless_asset_command(
     "asset-pipeline-prompt-revise",
     PromptReviseParams,
     PromptRevisionResult,
     render_prompt_revision,
     run_prompt_revise,
 )
-PROMPT_REGISTER_OUTPUT_COMMAND = _prompt_command(
+PROMPT_REGISTER_OUTPUT_COMMAND = _projectless_asset_command(
     "asset-pipeline-prompt-register-output",
     PromptRegisterOutputParams,
     PromptRecordResult,
@@ -1923,21 +1923,21 @@ def render_concept_authoring(result: ConceptAuthorResult) -> str:
     )
 
 
-CONCEPT_PREPARE_COMMAND = _prompt_command(
+CONCEPT_PREPARE_COMMAND = _projectless_asset_command(
     "asset-pipeline-concept-prepare",
     ConceptPrepareParams,
     ConceptPreparationResult,
     render_concept_preparation,
     run_concept_prepare,
 )
-CONCEPT_SELECT_COMMAND = _prompt_command(
+CONCEPT_SELECT_COMMAND = _projectless_asset_command(
     "asset-pipeline-concept-select",
     ConceptSelectParams,
     ConceptSelectionResult,
     render_concept_selection,
     run_concept_select,
 )
-CONCEPT_AUTHOR_COMMAND = _prompt_command(
+CONCEPT_AUTHOR_COMMAND = _projectless_asset_command(
     "asset-pipeline-concept-author",
     ConceptAuthorParams,
     ConceptAuthorResult,

@@ -19,6 +19,9 @@ Create a brief such as `concept.json`:
 }
 ```
 
+`use`, `subject`, and `style` are required. Supply at least one view or pose;
+the unused list and `instructions` can be omitted. Unknown fields are rejected.
+
 Then prepare one exclusive prompt-record directory:
 
 ```sh
