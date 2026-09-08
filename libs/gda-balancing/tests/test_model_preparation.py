@@ -237,7 +237,6 @@ def _effect_copy_candidate():
     original = next(row for row in language["packages"] if row["id"] == "game.effect")
     copied = deepcopy(original)
     copied["id"] = "test.effectcopy"
-    copied["runtime_semantic_excluded_extensions"] = []
     copied["capabilities"]["provided"] = ["test.effectcopy.periodic"]
     copied["dependencies"]["required"].append("game.effect")
     capability = deepcopy(

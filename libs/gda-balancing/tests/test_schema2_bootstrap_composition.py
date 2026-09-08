@@ -1261,7 +1261,7 @@ def test_authority_admission_requires_one_default_resolution_profile():
     for entry in package["semantic_closure"]:
         if entry["authority_path"] == "language.resolution_profiles":
             entry["definitions"] = deepcopy(ldb["language"]["resolution_profiles"])
-    _reidentify_package_release(package)
+    _reidentify_package_release(package, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -1309,7 +1309,7 @@ def test_reidentified_package_cannot_export_an_open_host_operation_definition():
         if entry["authority_path"] == "language.operations"
     )
     operation_entry["definitions"].append(deepcopy(language["operations"][-1]))
-    _reidentify_package_release(package)
+    _reidentify_package_release(package, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -1590,7 +1590,7 @@ def test_operation_rule_must_match_every_declared_operation_vector():
         if definition["id"] == operation_id
     )
     operation["rule"] = "quantity.declare"
-    _reidentify_package_release(package)
+    _reidentify_package_release(package, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)

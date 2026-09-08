@@ -179,7 +179,6 @@ def _candidate(
             {"id": "Receipt", "constructor": "standard.schema.record"},
         ]
         package["profiles"] = {member: [] for member in package["profiles"]}
-        package["runtime_semantic_excluded_extensions"] = []
         package["runtime_semantic_paths"] = [
             "language.capabilities",
             "language.nominal_types",
@@ -250,7 +249,7 @@ def _candidate(
             "vectors": [row["id"] for row in vectors],
             "vector_definitions": vectors,
         }
-        _bind_package_vector_set(package, vector_set)
+        _bind_package_vector_set(package, vector_set, kernel=kernel)
         ldb["language"]["packages"].append(package)
         ldb.package_conformance_vector_sets.append(vector_set)
     # Ownership is authored above in the attached closures. Flat recapture would
@@ -693,7 +692,7 @@ def test_public_same_owner_duplicate_refuses_after_reidentification(
     assert len(operations) == 2
     assert operations[0] == operations[1]
     resealed = deepcopy(package)
-    _reidentify_package_release(resealed)
+    _reidentify_package_release(resealed, kernel=candidate.kernel)
     assert resealed["semantic_identity"] == package["semantic_identity"]
     assert resealed["content_identity"] == package["content_identity"]
     # Duplicate keys violate the package closure before the later identifier law.
@@ -745,7 +744,7 @@ def test_public_nominal_definition_rejects_retired_owner_field(
     token["package"] = claimed_owner
     # The retired claim is refused even if it agrees with the containing owner.
     # Reidentify the actual attached definition; an outdated hash is not the oracle.
-    _reidentify_package_release(package)
+    _reidentify_package_release(package, kernel=kernel)
     _reidentify_graph_root(ldb)
     attached = next(row for row in ldb.package_releases if row["id"] == "genre.economy")
     assert (
@@ -757,7 +756,7 @@ def test_public_nominal_definition_rejects_retired_owner_field(
         == claimed_owner
     )
     resealed = deepcopy(attached)
-    _reidentify_package_release(resealed)
+    _reidentify_package_release(resealed, kernel=kernel)
     assert resealed["content_identity"] == attached["content_identity"]
     assert resealed["semantic_identity"] == attached["semantic_identity"]
     candidate = _PublicCandidate(tmp_path, authorities=(kernel, ldb))
@@ -805,7 +804,7 @@ def test_public_unselected_nominal_shadow_cannot_change_selected_type(
             "definition": {"kind": "enum", "members": ["shadow-only"]},
         }
     ]
-    _reidentify_package_release(shadow)
+    _reidentify_package_release(shadow, kernel=kernel)
     _reidentify_graph_root(ldb)
     candidate = _PublicCandidate(tmp_path, authorities=(kernel, ldb))
     assert candidate.cli("model", "check", str(candidate.source))["checked"] is True

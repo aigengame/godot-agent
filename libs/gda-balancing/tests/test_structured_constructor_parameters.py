@@ -89,7 +89,7 @@ def _enum_authorities(*, renamed=False, malformed=None):
         for vector_set in language.package_conformance_vector_sets
     }
     for package in packages:
-        _bind_package_vector_set(package, vector_sets[package["id"]])
+        _bind_package_vector_set(package, vector_sets[package["id"]], kernel=kernel)
     _reidentify_graph_root(language)
     return kernel, language
 

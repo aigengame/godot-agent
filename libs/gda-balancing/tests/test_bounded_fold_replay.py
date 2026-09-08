@@ -265,7 +265,7 @@ def test_fold_post_state_replay_accepts_a_business_rollback_after_writes():
             vector["expect"] = deepcopy(operation["body"])
         elif vector["id"] == "bounded-fold.bounded-fold-v1.resource-bound":
             vector["expect"] = operation["resource_bounds"]["max_steps"]
-    _bind_package_vector_set(package, vectors)
+    _bind_package_vector_set(package, vectors, kernel=kernel)
     _reidentify_graph_root(language)
     context = admit_authority_context(kernel, language)
     assert isinstance(context, AdmittedAuthorityContext), context
@@ -371,7 +371,7 @@ def _fold_case(*, variant: str = "ordinary", limit: int | None = None, items=Non
                 vector["expect"] = deepcopy(operation["body"])
             elif vector["id"] == f"bounded-fold.{operation['id']}.resource-bound":
                 vector["expect"] = operation["resource_bounds"]["max_steps"]
-    _bind_package_vector_set(package, vectors)
+    _bind_package_vector_set(package, vectors, kernel=kernel)
     if limit is not None:
         runtime_package = next(
             row
@@ -391,7 +391,7 @@ def _fold_case(*, variant: str = "ordinary", limit: int | None = None, items=Non
             for row in language.package_conformance_vector_sets
             if row["package_id"] == "standard.runtime"
         )
-        _bind_package_vector_set(runtime_package, runtime_vectors)
+        _bind_package_vector_set(runtime_package, runtime_vectors, kernel=kernel)
     _reidentify_graph_root(language)
     context = admit_authority_context(kernel, language)
     assert isinstance(context, AdmittedAuthorityContext), context

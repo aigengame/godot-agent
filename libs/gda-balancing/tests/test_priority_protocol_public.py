@@ -362,7 +362,7 @@ def test_public_priority_refuses_non_language_escape_hatches(tmp_path: Path, mut
         for member in vector["probe"]["path"].split("."):
             selected = selected[member]
         vector["expect"] = selected
-    _bind_package_vector_set(package, vectors)
+    _bind_package_vector_set(package, vectors, kernel=kernel)
     _reidentify_graph_root(language)
     candidate = _PublicCandidate(tmp_path, authorities=(kernel, language))
     candidate.write_source(source(turn))

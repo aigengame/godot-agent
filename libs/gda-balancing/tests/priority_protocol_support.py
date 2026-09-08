@@ -571,7 +571,6 @@ def authorities():
             {"id": t["id"], "constructor": t["constructor"]} for t in types
         ]
         package["profiles"] = {k: [] for k in package["profiles"]}
-        package["runtime_semantic_excluded_extensions"] = []
         package["runtime_semantic_paths"] = [
             "language.capabilities",
             "language.nominal_types",
@@ -615,7 +614,7 @@ def authorities():
             "vectors": [v["id"] for v in vectors],
             "vector_definitions": vectors,
         }
-        _bind_package_vector_set(package, vector_set)
+        _bind_package_vector_set(package, vector_set, kernel=kernel)
         language["language"]["packages"].append(package)
         language.package_conformance_vector_sets.append(vector_set)
     _reidentify_graph_root(language)

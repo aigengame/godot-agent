@@ -64,7 +64,9 @@ def _refresh_package_closure_and_reidentify(ldb: LanguageBundleIndex) -> None:
     kernel = packaged_authority_context().kernel
     refresh_package_semantic_closures(ldb, kernel)
     for package in ldb["language"]["packages"]:
-        _bind_package_vector_set(package, _package_vector_set(ldb, package))
+        _bind_package_vector_set(
+            package, _package_vector_set(ldb, package), kernel=kernel
+        )
     _reidentify_graph_root(ldb)
 
 
@@ -75,7 +77,6 @@ def _append_empty_namespace(ldb, namespace):
     package["dependencies"] = {"optional": [], "required": []}
     package["exports"] = {member: [] for member in package["exports"]}
     package["profiles"] = {member: [] for member in package["profiles"]}
-    package["runtime_semantic_excluded_extensions"] = []
     for entry in package["semantic_closure"]:
         entry["definitions"] = []
     ldb["language"]["packages"].append(package)
@@ -83,6 +84,7 @@ def _append_empty_namespace(ldb, namespace):
 
 
 def _reidentify_graph_root(ldb: LanguageBundleIndex) -> None:
+    kernel = packaged_authority_context().kernel
     graph_root = getattr(ldb, "root", None)
     if isinstance(graph_root, dict):
         packages = deepcopy(ldb["language"]["packages"])
@@ -102,7 +104,7 @@ def _reidentify_graph_root(ldb: LanguageBundleIndex) -> None:
                     "vector_definitions": [],
                     "vectors": [],
                 }
-                _bind_package_vector_set(package, vector_set)
+                _bind_package_vector_set(package, vector_set, kernel=kernel)
             vector_sets.append(vector_set)
         members = sorted(
             zip(packages, vector_sets, strict=True),
@@ -131,7 +133,6 @@ def _reidentify_graph_root(ldb: LanguageBundleIndex) -> None:
         ldb.root_byte_size = len(_encoded(graph_root))
         ldb.package_byte_sizes = tuple(package_sizes)
         ldb.vector_set_byte_sizes = tuple(vector_set_sizes)
-        kernel = packaged_authority_context().kernel
         rebuilt = derive_language_index(
             graph_root,
             packages,

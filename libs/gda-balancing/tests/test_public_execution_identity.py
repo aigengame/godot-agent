@@ -105,7 +105,7 @@ def _changed_authorities(context, mutation):
         assert vector["input"] == {"minimum": 1, "maximum": 1}
         vector["input"] = {"minimum": 2, "maximum": 2}
         assert vector["matched"] is False
-    _bind_package_vector_set(package, vectors)
+    _bind_package_vector_set(package, vectors, kernel=kernel)
     assert (canonical_bytes(vectors) != previous_vectors) == (
         mutation != "selected-vector-reference-order"
     )

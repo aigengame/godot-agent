@@ -47,7 +47,7 @@ def test_public_model_uses_the_renamed_admitted_schema_owner(tmp_path, source_fa
         row["package_id"]: row for row in renamed.package_conformance_vector_sets
     }
     for package in renamed["language"]["packages"]:
-        _bind_package_vector_set(package, vector_sets[package["id"]])
+        _bind_package_vector_set(package, vector_sets[package["id"]], kernel=kernel)
     _reidentify_graph_root(renamed)
 
     source = source_factory()
@@ -143,10 +143,10 @@ def test_formula_schema_owner_must_be_unique_at_authority_admission(mutation):
         for row in language.package_conformance_vector_sets
         if row["package_id"] == package["id"]
     )
-    _bind_package_vector_set(package, vector_set)
+    _bind_package_vector_set(package, vector_set, kernel=kernel)
     _reidentify_graph_root(language)
     resealed = deepcopy(package)
-    _reidentify_package_release(resealed)
+    _reidentify_package_release(resealed, kernel=kernel)
     assert resealed == package
 
     # The real Authority boundary refuses the graph before Formula lookup. The

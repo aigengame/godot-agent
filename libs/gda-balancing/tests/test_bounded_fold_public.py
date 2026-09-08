@@ -283,7 +283,7 @@ def _nonempty_accumulator_authorities():
         for row in vectors["vector_definitions"]
         if row["id"] == "bounded-fold.bounded-fold-v1.body"
     )["expect"] = deepcopy(operation["body"])
-    _bind_package_vector_set(package, vectors)
+    _bind_package_vector_set(package, vectors, kernel=kernel)
     _reidentify_graph_root(ldb)
     return kernel, ldb
 
@@ -363,7 +363,7 @@ def _capacity_authorities(capacity: int):
         for row in vectors["vector_definitions"]
         if row["id"] == "bounded-fold.bounded-fold-v1.resource-bound"
     )["expect"] = 8 + 11 * capacity
-    _bind_package_vector_set(package, vectors)
+    _bind_package_vector_set(package, vectors, kernel=kernel)
     _reidentify_graph_root(ldb)
     assert ldb["resources"] == resources
     assert ldb["language"]["runtime_profiles"] == profiles
@@ -439,7 +439,7 @@ def test_public_fold_composes_mapping_and_filtering_without_a_new_primitive(
     for vector in vectors["vector_definitions"]:
         if vector["id"] in replacements:
             vector["expect"] = replacements[vector["id"]]
-    _bind_package_vector_set(package, vectors)
+    _bind_package_vector_set(package, vectors, kernel=kernel)
     _reidentify_graph_root(ldb)
     candidate = _PublicCandidate(tmp_path, authorities=(kernel, ldb))
     rir_path, rir = _build(candidate)

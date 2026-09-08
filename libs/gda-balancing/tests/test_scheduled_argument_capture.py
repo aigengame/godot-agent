@@ -56,7 +56,7 @@ def capture_candidate(tmp_path_factory):
         for row in language.package_conformance_vector_sets
         if row["package_id"] == package["id"]
     )
-    _bind_package_vector_set(package, vectors)
+    _bind_package_vector_set(package, vectors, kernel=kernel)
     _reidentify_graph_root(language)
     context = admit_authority_context(kernel, language)
     assert isinstance(context, AdmittedAuthorityContext), context

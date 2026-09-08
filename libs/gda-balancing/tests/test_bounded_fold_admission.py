@@ -477,7 +477,7 @@ def test_empty_pure_fold_step_survives_admitted_model_check_and_build():
                 vector["expect"] = []
             elif vector["probe"]["path"] == "resource_bounds.max_steps":
                 vector["expect"] = 1
-    _bind_package_vector_set(package, vectors)
+    _bind_package_vector_set(package, vectors, kernel=kernel)
     _reidentify_graph_root(language)
     admission = admit_authorities(kernel, language)
     assert admission.admitted, admission.diagnostics

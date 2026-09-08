@@ -1423,7 +1423,9 @@ def test_package_release_identity_binds_normative_vector_definitions():
         for _, code, subject in first["diagnostics"]
     ), first["diagnostics"]
 
-    _bind_package_vector_set(package, _package_vector_set(ldb, package))
+    _bind_package_vector_set(
+        package, _package_vector_set(ldb, package), kernel=authority["kernel"]
+    )
     _reidentify_graph_root(ldb)
 
     package = ldb["language"]["packages"][0]
@@ -1464,7 +1466,7 @@ def test_two_consumers_project_kernel_package_coordinate_patterns():
     vector_set = _package_vector_set(ldb, package)
     package["id"] = "game/combat"
     vector_set["package_id"] = package["id"]
-    _bind_package_vector_set(package, vector_set)
+    _bind_package_vector_set(package, vector_set, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -1556,7 +1558,9 @@ def test_reidentified_package_evidence_vector_mutations_refuse_in_both_consumers
             vector["input"]["values"][0]["value"] = True
         else:
             vector["kind"] = "host-operation-execution"
-    _bind_package_vector_set(package, _package_vector_set(ldb, package))
+    _bind_package_vector_set(
+        package, _package_vector_set(ldb, package), kernel=authority["kernel"]
+    )
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -1734,7 +1738,7 @@ def test_reidentified_ldb_and_package_shapes_remain_closed(mutation):
             for row in diagnostic_entry["definitions"]
             if row["code"] == diagnostic_code
         )["host_semantics"] = True
-        _reidentify_package_release(package)
+        _reidentify_package_release(package, kernel=authority["kernel"])
     elif mutation == "package-id-type":
         package["id"] = 7
     elif mutation == "retired-package-version-member":
@@ -1759,7 +1763,7 @@ def test_reidentified_package_cannot_reference_an_unowned_vector():
     package = ldb["language"]["packages"][0]
     vector_set = _package_vector_set(ldb, package)
     vector_set["vectors"][0] = "host.missing"
-    _bind_package_vector_set(package, vector_set)
+    _bind_package_vector_set(package, vector_set, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], authority["language_bundle"])
@@ -1802,7 +1806,7 @@ def test_reidentified_duplicate_vector_id_is_refused_by_both_consumers():
     )
     vector_set["vectors"].append(duplicate["id"])
     vector_set["vector_definitions"].append(duplicate)
-    _bind_package_vector_set(package, vector_set)
+    _bind_package_vector_set(package, vector_set, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -1979,7 +1983,9 @@ def test_reidentified_conflicting_duplicate_binding_refuses_in_both_consumers():
     conflicting_fact["fields"]["role"] = "input"
     vector["input"]["facts"].append(conflicting_fact)
     vector["expect"]["fields"]["role"] = "input"
-    _bind_package_vector_set(package, _package_vector_set(ldb, package))
+    _bind_package_vector_set(
+        package, _package_vector_set(ldb, package), kernel=authority["kernel"]
+    )
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -2034,7 +2040,7 @@ def test_old_identity_tamper_and_reidentified_behavior_or_token_mutations_refuse
             if definition["id"] == rule_id
         )
         rule["conclusion"]["fact_kind"] += ".changed"
-        _reidentify_package_release(package)
+        _reidentify_package_release(package, kernel=authority["kernel"])
         _reidentify_graph_root(ldb)
         first = _consumer_a(authority["kernel"], ldb)
         second = _consumer_b(authority["kernel"], ldb)
@@ -2077,7 +2083,7 @@ def test_old_identity_tamper_and_reidentified_behavior_or_token_mutations_refuse
                 package["exports"]["language_rules"].index(rule_id)
             ] = renamed
             rule["id"] = renamed
-            _reidentify_package_release(package)
+            _reidentify_package_release(package, kernel=authority["kernel"])
             _reidentify_graph_root(ldb)
         first = _consumer_a(authority["kernel"], authority["language_bundle"])
         second = _consumer_b(authority["kernel"], authority["language_bundle"])

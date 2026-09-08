@@ -37,9 +37,9 @@ def _projection(language):
     )
 
 
-def _seal(language):
+def _seal(language, kernel):
     for package in language["language"]["packages"]:
-        _reidentify_package_release(package)
+        _reidentify_package_release(package, kernel=kernel)
     _reidentify_graph_root(language)
 
 
@@ -83,7 +83,7 @@ def test_all_projection_collection_labels_can_change_through_public_execution(
             assert [row["source"] for row in projection["collections"]] == [
                 row["source"] for row in original["collections"]
             ]
-            _seal(language)
+            _seal(language, kernel)
         for consumer in (_consumer_a, _consumer_b):
             result = consumer(kernel, language)
             assert result["admitted"], result["diagnostics"]
@@ -139,7 +139,7 @@ def test_all_projection_collection_labels_can_change_through_public_execution(
 def test_type_reference_closure_rejects_wrong_references_and_paths(member, value):
     kernel, language = mutable_authorities()
     _projection(language)["type_reference_closure"][member] = value
-    _seal(language)
+    _seal(language, kernel)
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, language)
         assert not result["admitted"], (member, value)
@@ -163,7 +163,7 @@ def test_type_reference_closure_checks_actual_collection_definitions(defect):
         row["source"]["package_path"] = ["id"]
     else:
         del projection["type_reference_closure"]["target_type_collection"]
-    _seal(language)
+    _seal(language, kernel)
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, language)
         assert not result["admitted"], defect

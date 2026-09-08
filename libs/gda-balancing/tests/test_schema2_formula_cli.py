@@ -2227,7 +2227,7 @@ def test_independent_consumer_mutually_admits_production_formula_pairs() -> None
                 request, context.language_bundle, kernel=context.kernel
             )
             independent_expression = independently_render_body(
-                formula["body"], request, context.language_bundle
+                formula["body"], request, context.language_bundle, kernel=context.kernel
             )
             independent_pair = deepcopy(request)
             independent_pair["formula"]["expression"] = independent_expression

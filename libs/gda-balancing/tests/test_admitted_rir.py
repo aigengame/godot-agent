@@ -133,9 +133,7 @@ def _changed_context(context, mutate):
                 JsonValue,
                 package_runtime_semantic_closure(
                     package,
-                    kernel["meta_format"]["package_release"][
-                        "semantic_identity_projection"
-                    ],
+                    kernel,
                 ),
             ),
         )

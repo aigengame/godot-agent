@@ -92,14 +92,11 @@ def _reidentify_language_bundle(kernel, language_bundle):
         for vector_set in language_bundle.package_conformance_vector_sets
     }
     for package in language_bundle["language"]["packages"]:
-        semantic_projection = kernel["meta_format"]["package_release"][
-            "semantic_identity_projection"
-        ]
         package["semantic_identity"] = content_identity(
             "domain-package-semantic-closure-v2",
             cast(
                 JsonValue,
-                package_runtime_semantic_closure(package, semantic_projection),
+                package_runtime_semantic_closure(package, kernel),
             ),
         )
         vector_set = vector_sets_by_namespace[package["id"]]

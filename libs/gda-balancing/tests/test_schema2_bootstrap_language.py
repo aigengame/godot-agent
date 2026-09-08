@@ -39,7 +39,7 @@ def test_bootstrap_consumers_gate_dependent_semantic_phases_in_order(
             if entry["authority_path"] == "language.operations"
         )
         operation_entry["definitions"].append(deepcopy(language["operations"][-1]))
-        _reidentify_package_release(package)
+        _reidentify_package_release(package, kernel=authority["kernel"])
         _reidentify_graph_root(ldb)
     elif phase == "invalid-literal-profiles":
         overlapping = deepcopy(language["literal_typing_profiles"][0])
@@ -265,7 +265,8 @@ def test_two_consumers_refuse_inconsistent_evidence_claim_kind_vectors():
 
 
 def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms():
-    ldb = _authority_candidate()["language_bundle"]
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
     package = ldb["language"]["packages"][0]
 
     assert set(package) == {
@@ -277,7 +278,6 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
         "exports",
         "id",
         "profiles",
-        "runtime_semantic_excluded_extensions",
         "runtime_semantic_paths",
         "semantic_closure",
         "semantic_identity",
@@ -287,7 +287,7 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
         "domain-package-release-v2", package
     )
     expected_package = deepcopy(package)
-    _reidentify_package_release(expected_package)
+    _reidentify_package_release(expected_package, kernel=authority["kernel"])
     assert package["semantic_identity"] == expected_package["semantic_identity"]
     assert package["dependencies"] == {
         "optional": [],
@@ -613,7 +613,7 @@ def test_coherent_package_semantic_change_changes_the_release_identity():
         if item["id"] == "quantity.identity"
     )
     embedded["resource_bounds"]["max_steps"] = 2
-    _reidentify_package_release(package)
+    _reidentify_package_release(package, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -651,7 +651,7 @@ def test_semantic_closure_cannot_move_a_definition_to_a_non_owner_package():
     quantity_components["definitions"] = []
 
     for package in (quantity_package, other_package):
-        _reidentify_package_release(package)
+        _reidentify_package_release(package, kernel=authority["kernel"])
     ldb["language"]["packages"].append(other_package)
     _reidentify_graph_root(ldb)
 
@@ -744,7 +744,7 @@ def test_reidentified_duplicate_diagnostic_is_not_hidden_by_set_projection():
         if entry["authority_path"] == "diagnostics"
     )
     diagnostic_entry["definitions"].append(diagnostic)
-    _reidentify_package_release(package)
+    _reidentify_package_release(package, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -779,7 +779,7 @@ def test_reidentified_open_fact_shape_is_refused_by_both_consumers():
         for candidate in ldb["language"]["packages"]
         if candidate["id"] == vector_set["package_id"]
     )
-    _bind_package_vector_set(package, vector_set)
+    _bind_package_vector_set(package, vector_set, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -892,7 +892,7 @@ def test_reidentified_fact_enum_drift_is_refused_by_both_consumers():
         for candidate in ldb["language"]["packages"]
         if candidate["id"] == vector_set["package_id"]
     )
-    _bind_package_vector_set(package, vector_set)
+    _bind_package_vector_set(package, vector_set, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -964,7 +964,7 @@ def test_reidentified_reason_vector_with_non_boolean_outcome_is_a_total_refusal(
         for candidate in ldb["language"]["packages"]
         if candidate["id"] == vector_set["package_id"]
     )
-    _bind_package_vector_set(package, vector_set)
+    _bind_package_vector_set(package, vector_set, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -1096,7 +1096,7 @@ def test_reidentified_wire_schema_token_drift_is_refused_by_both_consumers():
         if entry["authority_path"] == "language.quantity.symbol_roles"
     )
     symbol_roles["definitions"][-1] = "host-random"
-    _reidentify_package_release(package)
+    _reidentify_package_release(package, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -1139,7 +1139,7 @@ def test_reidentified_reason_path_shape_drift_is_a_total_refusal(
         if definition["id"] == reason_id
     )
     reason["predicate"][member] = replacement
-    _reidentify_package_release(package)
+    _reidentify_package_release(package, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -1334,7 +1334,7 @@ def test_diagnostic_catalog_missing_extra_and_stage_drift_are_refused():
         for definition in missing_definitions
         if definition["code"] != missing_code
     ]
-    _reidentify_package_release(missing_package)
+    _reidentify_package_release(missing_package, kernel=missing["kernel"])
     _reidentify_graph_root(missing_ldb)
     mutations.append(missing)
 
@@ -1348,7 +1348,7 @@ def test_diagnostic_catalog_missing_extra_and_stage_drift_are_refused():
         if entry["authority_path"] == "diagnostics"
     )
     extra_definitions.append({"code": "language.unreachable", "stage": "static"})
-    _reidentify_package_release(extra_package)
+    _reidentify_package_release(extra_package, kernel=extra["kernel"])
     _reidentify_graph_root(extra_ldb)
     mutations.append(extra)
 
@@ -1370,7 +1370,7 @@ def test_diagnostic_catalog_missing_extra_and_stage_drift_are_refused():
         for definition in drift_definitions
         if definition["code"] == drift_code
     )["stage"] = "resolution"
-    _reidentify_package_release(drift_package)
+    _reidentify_package_release(drift_package, kernel=drift["kernel"])
     _reidentify_graph_root(drift_ldb)
     mutations.append(drift)
 
@@ -1414,7 +1414,7 @@ def test_reidentified_deletion_and_behavior_mutation_of_every_reason_refuse():
                             if definition["id"] == reason_id
                         )
                     )
-                    _reidentify_package_release(package)
+                    _reidentify_package_release(package, kernel=authority["kernel"])
             else:
                 package = owners[0]
                 target = next(
@@ -1426,7 +1426,7 @@ def test_reidentified_deletion_and_behavior_mutation_of_every_reason_refuse():
                     definition for definition in target if definition["id"] == reason_id
                 )
                 reason["predicate"]["operation"] += ".changed"
-                _reidentify_package_release(package)
+                _reidentify_package_release(package, kernel=authority["kernel"])
             _reidentify_graph_root(ldb)
             first = _consumer_a(authority["kernel"], ldb)
             second = _consumer_b(authority["kernel"], ldb)
@@ -1514,7 +1514,7 @@ def test_operation_local_identifier_uniqueness_uses_attached_namespace_ownership
         package for package in ldb.package_releases if package["id"] == "test.other"
     )
     resealed = deepcopy(attached)
-    _reidentify_package_release(resealed)
+    _reidentify_package_release(resealed, kernel=authority["kernel"])
     assert resealed["semantic_identity"] == attached["semantic_identity"]
     assert resealed["content_identity"] == attached["content_identity"]
     attached_operations = next(
@@ -1797,7 +1797,7 @@ def test_both_consumers_refuse_authored_nominal_owner_even_when_matching(
         if entry["authority_path"] == "language.nominal_types"
     )
     entry["definitions"][0]["package"] = claimed_owner
-    _reidentify_package_release(package)
+    _reidentify_package_release(package, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
     first = _consumer_a(authority["kernel"], ldb)
     assert first == _consumer_b(authority["kernel"], ldb)

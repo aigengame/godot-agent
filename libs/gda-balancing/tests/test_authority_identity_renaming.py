@@ -55,12 +55,12 @@ def _rename(value: Any, names: dict[str, str]) -> Any:
     return value
 
 
-def _seal(language):
+def _seal(language, kernel):
     vectors = {
         row["package_id"]: row for row in language.package_conformance_vector_sets
     }
     for package in language["language"]["packages"]:
-        _bind_package_vector_set(package, vectors[package["id"]])
+        _bind_package_vector_set(package, vectors[package["id"]], kernel=kernel)
     _reidentify_graph_root(language)
 
 
@@ -79,7 +79,7 @@ def _candidate(role):
         renamed = _rename(vectors, names)
         vectors.clear()
         vectors.update(renamed)
-    _seal(language)
+    _seal(language, kernel)
     return kernel, language, _rename(source(entries), names), names
 
 
@@ -273,7 +273,7 @@ def test_opaque_identity_support_keeps_semantic_closure_refusals(fault):
                 if row.get("signal") == "structured-value-unknown-enum"
             )
             other["signal"] = reason["signal"]
-    _seal(language)
+    _seal(language, kernel)
     for consumer in (_consumer_a, _consumer_b):
         report = consumer(kernel, language)
         assert not report["admitted"]

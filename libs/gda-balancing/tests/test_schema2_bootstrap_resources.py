@@ -42,7 +42,7 @@ def test_two_consumers_agree_on_report_all_cap_and_truncation():
                 "rule": "quantity.declare",
             }
         )
-    _bind_package_vector_set(package, vector_set)
+    _bind_package_vector_set(package, vector_set, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -67,7 +67,7 @@ def test_two_consumers_refuse_the_same_nesting_resource_exhaustion():
         if vector.get("rule") == "quantity.declare"
     )
     rule_vector["unused_host_payload"] = nested
-    _bind_package_vector_set(package, vector_set)
+    _bind_package_vector_set(package, vector_set, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -104,7 +104,7 @@ def test_two_consumers_refuse_a_closed_dependency_cycle():
         if package["id"] == "game.check"
     )
     check["dependencies"]["required"].append("game.combat")
-    _reidentify_package_release(check)
+    _reidentify_package_release(check, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -156,7 +156,7 @@ def test_two_consumers_refuse_adversarial_graph_membership_and_binding(
         duplicate = deepcopy(ldb.package_releases[-1])
         if mutation == "same-coordinate-different-content":
             duplicate["dependencies"]["optional"].append("game.check")
-            _reidentify_package_release(duplicate)
+            _reidentify_package_release(duplicate, kernel=authority["kernel"])
         ldb["language"]["packages"].append(duplicate)
         _reidentify_graph_root(ldb)
     elif mutation == "substituted":
@@ -178,7 +178,7 @@ def test_two_consumers_refuse_adversarial_graph_membership_and_binding(
             }
         else:
             package["dependencies"]["required"].append("host.missing")
-        _reidentify_package_release(package)
+        _reidentify_package_release(package, kernel=authority["kernel"])
         _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
