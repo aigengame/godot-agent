@@ -236,7 +236,6 @@ def test_both_consumers_admit_the_other_runtime_result(mutual_results):
     )
     assert set(first_manifest["effects"]) == {
         "event.commit",
-        "event.schedule",
         "snapshot.commit",
         "metric.observe",
     }
@@ -527,3 +526,82 @@ def test_independent_priority_consumer_checks_actual_scheduled_captures(
     }
     changed["event-trace"] = _reference_artifact(context, "event-trace", fields)
     assert not reference_admits_runtime_artifacts(context, rir, specification, changed)
+
+
+@pytest.fixture(scope="module")
+def renamed_effect_context():
+    from priority_protocol_support import authorities, source
+    from test_schema2_model_lowerer_conformance import _reidentify_language_bundle
+
+    kernel, language, turn = authorities()
+    names = {
+        "event.commit": "renamed.effect.commit",
+        "event.schedule": "renamed.effect.schedule",
+        "metric.observe": "renamed.effect.observe",
+        "snapshot.commit": "renamed.effect.snapshot",
+    }
+
+    def replace(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                value[key] = replace(item)
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                value[index] = replace(item)
+        elif isinstance(value, str):
+            return names.get(value, value)
+        return value
+
+    replace(language)
+    _reidentify_language_bundle(language)
+    assert _consumer_b(kernel, language)["admitted"]
+    context = _reference_check_source(source(turn), kernel, language)
+    assert not isinstance(context, tuple), context
+    rir = _reference_semantic_artifacts(context)["rir-semantic-payload"]
+    return context, rir, names
+
+
+@pytest.mark.parametrize("variant", [False, True])
+def test_independent_runtime_effect_capabilities_follow_supported_programs(
+    renamed_effect_context, variant
+):
+    from gda_balancing.domain.authority.context import (
+        AdmittedAuthorityContext,
+        admit_authority_context,
+    )
+    from gda_balancing.domain.experiment import (
+        CheckedExperiment,
+        check_experiment_value,
+    )
+    from gda_balancing.domain.experiment_artifacts import (
+        validate_experiment_artifact_set,
+    )
+    from gda_balancing.domain.model import AdmittedRir, admit_rir
+    from priority_protocol_support import specification
+    from schema2_runtime_independent_support import reference_runtime_artifacts
+
+    context, rir, names = renamed_effect_context
+    spec = specification(rir, variant)
+    artifacts = reference_runtime_artifacts(context, rir, spec)
+    assert artifacts["evaluator-capability-manifest"]["effects"] == sorted(
+        names.values()
+    )
+    assert artifacts["metric-dataset"]["samples"][0]["value"] == (0 if variant else 7)
+    assert (
+        len(
+            [
+                row
+                for event in artifacts["event-trace"]["events"]
+                for row in event["schedules"]
+            ]
+        )
+        == 1
+    )
+    # A consumes B's real renamed result; no A-produced trace is used to emit it.
+    authority = admit_authority_context(context.kernel, context.language_bundle)
+    assert isinstance(authority, AdmittedAuthorityContext), authority
+    program = admit_rir(rir, authority_context=authority)
+    assert isinstance(program, AdmittedRir), program
+    checked = check_experiment_value(spec, program, authority_context=authority)
+    assert isinstance(checked, CheckedExperiment), checked
+    assert validate_experiment_artifact_set(checked, artifacts)

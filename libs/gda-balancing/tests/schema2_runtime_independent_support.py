@@ -1,7 +1,7 @@
 """Finite independent Scenario execution and Runtime artifact consumption.
 
 Execution reads selected RIR semantics. The independently checked source context
-is used only to admit that RIR and to select input/output wire contracts.
+supplies RIR admission, input/output wire contracts and fixed Kernel identity recipes.
 """
 
 from copy import deepcopy
@@ -136,6 +136,42 @@ def _supported_shape(specification, rir):
     }
     # Capability names belong to this declared machine, not authored Operation IDs.
     operators = {row["id"]: row["semantics"]["operator"] for row in runtime["nodes"]}
+    operations = {
+        (row["package"], row["definition"]["id"]): row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+    }
+    entrypoints = {row["id"]: row for row in rir["entrypoints"]}
+    reachable = set()
+    supported_effects = set()
+
+    def instructions(body):
+        for instruction in body:
+            operator = operators[instruction["node"]]
+            if operator not in allowed:
+                raise IndependentRuntimeUnsupported(
+                    f"unimplemented reachable instruction semantics: {operator}"
+                )
+            if operator in {
+                "invoke-operation",
+                "bounded-pure-fold",
+                "schedule-operation",
+            }:
+                visit(instruction["operation"])
+            if operator == "guarded-outcome-block":
+                instructions(instruction["body"])
+
+    def visit(reference):
+        coordinate = (reference["package"], reference["id"])
+        if coordinate in reachable:
+            return
+        reachable.add(coordinate)
+        operation = operations[coordinate]
+        instructions(operation["body"])
+        supported_effects.update(operation["effects"])
+
+    for event in scenario["event_plan"]:
+        if event["kind"] == "transition-invocation":
+            visit(entrypoints[event["entrypoint"]]["operation"])
     required = specification["runtime"]["required_evaluator"]
     missing = [
         node
@@ -151,12 +187,7 @@ def _supported_shape(specification, rir):
         "instruction_nodes": sorted(
             node for node, operator in operators.items() if operator in allowed
         ),
-        "effects": [
-            "event.commit",
-            "event.schedule",
-            "metric.observe",
-            "snapshot.commit",
-        ],
+        "effects": sorted(supported_effects),
         "numeric_policies": ["exact-int64"],
         "rng_algorithms": [runtime["named_rng"]["algorithm"]],
         "runtime_profiles": [specification["runtime"]["profile"]],
