@@ -322,6 +322,62 @@ collection contains 2115 tests and 347 package vectors with no omitted or overla
 test coverage. The semantic inventory remains incomplete; those test counts do not
 establish its completeness.
 
+## Rename authoring checkpoint
+
+The rule/Formula checkpoint at `aaafb35a6` adds rule-variable key and term references,
+judgment selection, Formula notation, slots, slot parameters and fixed-value aliases.
+Source format markers stay bound to the declared wire-format equality. They are
+protocol format parameters, not nominal identifiers or a reserved spelling list.
+
+The conformance-only [rename authoring helper](../../../tests/schema2_extension_renaming_support.py)
+derives and validates its own inventory before accepting a bijection. It applies
+simultaneous edits at original value, key and independently parsed Formula AST
+positions. Key collisions refuse; body and expression must still agree. It uses the
+explicit supplied Kernel to reseal existing package/vector/root envelopes and refuses
+missing membership. It returns authored inputs only. Fixed consumers must produce new
+artifacts/results; numerical vector expectations are not recalculated.
+
+The [bounded tests](../../../tests/test_extension_renaming.py) cover key swaps,
+escaped positions, unchanged user text, a missed Formula reference, exact current
+envelopes, missing members and unsupported identity contracts. A real renamed rule
+binding reseals and admits in both authority consumers without changing any vector
+set. The integrated inventory/authoring/CI suite passes 72 tests for `6b6f2ab76`;
+Ruff and targeted Pyright pass. An independent review of the helper at
+`aaafb35a6` reports no finding, with 58 plus 13 passing checks and additional real
+rule-variable swaps and quoted Formula parameter names. The
+[checkpoint record](evidence/priority-window/rename-authoring-checkpoint.json)
+preserves source hashes and the distinct primary/review validation scopes. This is
+bounded authoring evidence: the complete graph still has uncovered roles and the public apply helper
+refuses it. No complete rename, final build freeze or full issue acceptance is claimed.
+
+One subsequent coverage check catches a real inventory error: constructor member
+selectors are open addresses, not fixed merely because present definitions use the
+same names. A coherent Enum `members` to `labels` selector/parameter/definition-key
+rename admits in both consumers under the unchanged Kernel. Actual public Python
+Model/Experiment APIs also build and run the maintained structured-selection case;
+the produced artifact set validates. Constructor-scoped address and key occurrences
+must therefore enter the inventory. This probe is not a CLI subprocess claim.
+
+## Artifact protocol-role direction
+
+Coherent RIR kind/schema renaming fails provisional authority admission; Trace and
+Terminal Audit renaming admits but fails public Experiment contract preparation.
+An isolated prototype puts one optional `protocol_role` on the existing Wire Schema
+Definition. Identified artifacts resolve through its existing `schema_kind` link to
+the Artifact Contract; standalone Source/Experiment inputs select the schema directly.
+Generic APIs still use actual kind names. Required roles have unique owners; extra
+schemas/contracts may omit a core role and retain open kind names.
+
+The bounded schema-role prototype passes actual public build/check/success/refusal
+paths with Source, Experiment, RIR, Trace and Terminal Audit kinds renamed together.
+Independent Model output and Runtime member exchange pass, and resealed fabricated
+Formula records and a false terminal reason still fail semantic validation. This is
+an isolated prototype, not an integrated authority revision or full-family proof.
+Independent architecture review supports the single schema owner. Existing Template
+member-role bindings should be reused rather than adding their schema names to the
+Kernel role list. Publication labels also require their own consumer check: a host's
+fixed logical member name is not automatically a reserved Kernel identity.
+
 ## Operation selection counterexample
 
 The [public counterexample](evidence/priority-window/operation-type-coupling.json) adds

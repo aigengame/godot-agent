@@ -1,0 +1,89 @@
+{
+  "status": "bounded authoring checkpoint; complete graph still refuses",
+  "implementation_commit": "6b6f2ab76",
+  "primary_validation": {
+    "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_extension_renaming.py tests/test_extension_inventory.py tests/test_ci_policy.py -q -p no:cacheprovider",
+    "tests": 72,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 49.473,
+    "raw_junit": "/private/tmp/gda-878-root/renaming-integrated.xml",
+    "sha256": "b2eb03760fb4032fabbf020e1d2ebae2816441e7a183b8bb2a86486f89a7a0bc",
+    "ruff": "check and format passed for the five changed Python files",
+    "pyright": "0 errors, 0 warnings for both inventory and rename modules and tests"
+  },
+  "independent_review": {
+    "base": "aaafb35a6557f5d73979b944cb4c1401caef2ee8",
+    "latest_primary_seen": "e52a8c10bd14a9b6183f5b286c7b67eb57c57f17",
+    "findings": 0,
+    "reviewed_sources": {
+      "tests/schema2_extension_renaming_support.py": "26ea4612c123268a6d1487004d735a61601d150bd9614bbabe2f931c83213fd2",
+      "tests/test_extension_renaming.py": "85437aa7cf84acacb1b2f2a40ca4e79862d694c80b5fb8ae5a316af3a43a6f28",
+      "tools/ci.py": "2f02c1e02738e2a2615811caf86dc8a88c5a5b4de7e7dffc4c547f081813c0c8"
+    },
+    "tests": {
+      "renaming.xml": {
+        "tests": 58,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0
+      },
+      "additional.xml": {
+        "tests": 13,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0
+      }
+    },
+    "probe": {
+      "consumer_results": [
+        {
+          "consumer": "A",
+          "admitted": true
+        },
+        {
+          "consumer": "B",
+          "admitted": true
+        }
+      ],
+      "quoted_formula_checked": true,
+      "simultaneous_real_rule_swap": true,
+      "all_vector_sets_byte_equal": true,
+      "original_unchanged": true,
+      "uncovered": 88,
+      "apply_refusal": "uncovered semantic role at /ldb_root: generated content/byte-size framing must be rederived on rename",
+      "old_root": "sha256:0539e7eebb289809a1cc3104c982f1a6c8dba9acf1cd8e627838245824f79a0d",
+      "new_root": "sha256:3f68aca99e7f72a59b3a6f6e54ad7ef28f5141ec41e776f94f97415a121477e5"
+    },
+    "limits": [
+      "Bounded authoring mechanics only; complete graph remains uncovered and apply refuses",
+      "No successful complete-graph rename or full #878 acceptance claimed",
+      "Generated artifacts/results exclusion verified by inspection; positive complete-graph output path remains unavailable",
+      "Primary and remote read-only; all execution in temporary snapshot"
+    ],
+    "files": {
+      "probe.py": {
+        "path": "/private/tmp/gda-878-spec-renamer-aaafb/probe.py",
+        "sha256": "91c0d28ff21874d159aa87b5a5d92aaa169f70c937662b83b5aff60f16fa3d68"
+      },
+      "probe.json": {
+        "path": "/private/tmp/gda-878-spec-renamer-aaafb/probe.json",
+        "sha256": "620fb4ae46e4e03b2e1a1193935793b4f201f41abe49b3f0262592e59c897d38"
+      },
+      "renaming.xml": {
+        "path": "/private/tmp/gda-878-spec-renamer-aaafb/renaming.xml",
+        "sha256": "afd0c7defe6bf8321228bc667630c858a399bf58217cb66ab755e34472901b56"
+      },
+      "additional.xml": {
+        "path": "/private/tmp/gda-878-spec-renamer-aaafb/additional.xml",
+        "sha256": "b82bd8bd2b14d5322678281dd13bb1c54ee4edc96a3a77677cdd39a29a0283e7"
+      }
+    }
+  },
+  "limits": [
+    "No complete token-graph rename has succeeded",
+    "No final build freeze or complete #878 acceptance",
+    "Protocol-role prototype and Operation-root product repair are separate work"
+  ]
+}
