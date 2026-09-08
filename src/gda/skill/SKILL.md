@@ -55,9 +55,12 @@ commands (no group).
   failed save as a game bug; a FAILURE envelope (`--strict`, a timeout) does not
   carry them. Two limits: Godot reads the **export templates** from that same
   directory, so a `release`/`debug` `export run` under it reports none installed
-  unless you put templates there — `--mode pack` needs no templates and works
-  normally; and Engine sessions are unaffected either way — the daemon owns their
-  log.
+  unless you put templates there — the `export_templates_missing` failure then names
+  both directories and carries them as `evidence.templates_root_checked` /
+  `evidence.templates_root_host`, and that second key is how you tell "hidden by the
+  redirect" (drop it, or use `--mode pack`, which needs no templates) from "not
+  installed anywhere" (install them); and Engine sessions are unaffected either way —
+  the daemon owns their log.
 
 ## Structured output & errors
 
@@ -180,7 +183,7 @@ JSON — use `gda help <command> --json` for a structured payload), and the flag
 | `script` | `create`, `get`, `list`, `set`, `delete`, `attach`, `validate`, `run` (`.gd` files; `validate` takes SEVERAL paths at once — one engine launch for the whole batch, one aggregate `valid` plus a per-file entry under `scripts` — or `--all` for every script in the project; `run` executes a project script one-shot (address it project-relative or as `res://` — the two portable forms, which `script validate` takes too; `run` alone refuses absolute paths) and passes its `exit_status`/`stdout`/`stderr` through — `stdout` above 64 KiB is truncated to its leading bytes with the COMPLETE stream spilled to the file named in `stdout_file` (`stdout_bytes`/`stdout_truncated` disclose it; a spill gda cannot write is the typed `stdout_spill_failed`, never an unbounded result), and a non-zero `quit()` is still success, so read `exit_status`, or pass `--strict` to get a `script_failed` failure (exit 4) whose `diagnostics` carries the script's own stdout and stderr; a script that never ran — missing, or a failed parse/compile — always fails; `--timeout <s>` sets the ceiling (default 120) and a run that reaches it fails with `launch_timeout` carrying the captured partial output, the elapsed seconds and a termination phase; add `--completion-marker <line>` naming a line your script prints when its work is done — a caller-declared liveness contract, not a death detector: gda ends the run once it observes a recognized error attributable to the entry script, no marker line yet, and then silence on both streams — `script_aborted` (exit 4) with the captured error, in seconds rather than at the ceiling; declaring the marker asserts the script keeps printing until that line, so have it print progress during quiet stretches longer than ~3s, or omit the marker; a script that writes `user://` belongs under `gda --user-data-root DIR script run …` (see Setup) — the result then names `user_data_root` and `log_file` beside the always-present `engine_data_path`) |
 | `project` | `info`, `get`, `set`, `list`, `add-autoload`, `remove-autoload`, `add-input-action`, `remove-input-action`, `find-references`, `dependencies`, `find-unused-resources`, `statistics` |
 | `resource` | `create`, `get`, `set`, `delete`, `uid`, `import` (`.tres` files and project assets; `import` ensures importable assets — PNGs and other files the engine imports — are in the project cache: clean-worktree loading; a script needs no import and reports `not_importable`) |
-| `export` | `list`, `get`, `run` (export a preset by name; `--mode` release/debug/pack) |
+| `export` | `list`, `get`, `run` (export a preset by name; `--mode` release/debug/pack; `get` also reports `templates_root`, the export-templates directory it checked, and `templates_root_host`, set when a `--user-data-root` redirect hid templates installed on the host) |
 | `shader` | `create`, `get`, `set` (`.gdshader` files) |
 | `theme` | `create` (a loadable `.tres` Theme) |
 

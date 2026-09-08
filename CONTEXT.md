@@ -151,7 +151,10 @@ attributable to the environment instead of read as a game regression (#850). Onl
 there: a run that ends in an `Error envelope` — `--strict`'s `script_failed`, a
 `launch_timeout` — keeps its pre-#850 shape, since disclosing a fact on a failure
 means entering `Failure evidence`'s producer set, which is a separate ADR-0004
-decision. Headless only: a live `Engine session`'s log is daemon-owned (ADR-0022).
+decision. The engine's export-template lookup follows the same placement, so a
+redirected export can miss templates the host holds — `export run` says so and
+`export get` reports both roots (#840). Headless only: a live `Engine session`'s log
+is daemon-owned (ADR-0022).
 _Avoid_: log redirect, user dir, sandbox
 
 **Raw run**:
