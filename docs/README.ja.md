@@ -449,7 +449,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `project set` | プロジェクト設定を設定します。値は宣言された型に変換されます。 |
 | `project add-autoload` | オートロードのシングルトンを登録します(名前 → スクリプト/シーン)。 |
 | `project remove-autoload` | オートロードのシングルトンを名前で指定して登録解除します。 |
-| `project add-input-action` | キーに割り当てた InputMap アクションを登録します(`--key` はキー名またはキーコード、`--deadzone`、`--physical`)。 |
+| `project add-input-action` | キーやコントローラーに割り当てた InputMap アクションを登録します(`--key`、`--joy-button`、`--joy-axis` は `<軸>[:<符号>]` 形式、`--device`、`--deadzone`、`--physical`)。バインドは 1 つ以上必要です。 |
 | `project remove-input-action` | InputMap アクションを名前で指定して登録解除します。 |
 | `project find-references` | 指定したリソースを参照するすべてのプロジェクトファイルを見つけます。 |
 | `project dependencies` | 各シーン/リソースを、それが依存するリソースに対応付けます。 |
