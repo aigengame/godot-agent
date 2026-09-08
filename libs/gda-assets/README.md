@@ -7,6 +7,11 @@ source inspection and uniform scale preparation, see the
 [Blender production guide](docs/blender.md). Completed image-generation outputs
 use explicit file handoff; this command does not generate images.
 
+Use `gda asset-pipeline prompt-prepare` before external image generation to save
+the exact prompt and reference inputs. Inspect or revise those saved inputs, then
+register completed local output files. See the [prompt guide](docs/prompts.md)
+for the four local operations and their external-tool handoff.
+
 Use `gda asset-pipeline check` to evaluate project-owned model expectations against
 a current Godot inspection or a saved raw inspection report. See the
 [model checks guide](docs/checks.md) for the JSON format, seven supported check

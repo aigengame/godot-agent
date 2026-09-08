@@ -2,8 +2,9 @@
 
 **Status:** accepted design; file handoff (#908), saved Blender production (#909),
 model expectation checks (#887), optional content observations (#889), controlled
-runtime refresh (#890), preview (#891), and package acceptance (#892) are implemented.
-Prompt and concept workflows remain planned. Accepted by the project owner
+runtime refresh (#890), preview (#891), package acceptance (#892), and local prompt
+records (#912) are implemented. Concept selection and authoring consumers remain
+planned. Accepted by the project owner
 on 2026-09-07 after review of the Blender-to-Godot workflow and milestone #14.
 Source baseline inspected: `cfcb8658e67df418a69694840a37a22a9cd3cbe0`.
 Acceptance and delivery status are owned by
@@ -122,18 +123,20 @@ libs/gda-assets/
       recipe.py
       artifacts.py
       expectations.py
-      preparation.py                 # prompt/reference values when needed
+      prompt.py                       # prompt inputs, values, and composition rules
     application/
       ports.py
       integrate.py
       produce.py
-      prepare.py                     # save inputs, register outputs, select references
+      prompt.py                       # prepare, inspect, revise, register outputs
+      prompt_ports.py                 # required local file persistence
       preview.py                      # isolated model preview orchestration
       package.py                      # isolated package acceptance orchestration
     adapters/
       blender/
       imagegen/
       files.py
+      prompt_files.py                 # ordinary prompt snapshots and PNG copies
       raster.py
     bootstrap.py                      # producer composition, lazy setup
   tests/
@@ -153,6 +156,8 @@ inspection and export stay inside the Blender adapter and its bundled worker.
 The [Blender guide](blender.md) owns the supported execution and measurement policy.
 The [model checks guide](checks.md) owns the implemented expectation document,
 verdict, saved-report, and baseline-comparison user contract.
+The [prompt guide](prompts.md) owns local preparation, explicit reuse/revision,
+and completed-file registration. These use no Godot port or provider connection.
 The [runtime refresh guide](runtime-refresh.md) owns the implemented controlled
 restart, selected-instance comparison, and capture-association user contract.
 The root [static model content guide](../../../docs/model-content.md) owns the two
@@ -320,7 +325,7 @@ AP-06 remains open. Review, CI, and delivery status remain in the linked issues.
 | AP-03 | Reliable option-only reimport; gda [#888](https://github.com/aigengame/godot-agent/issues/888). Current import fast path and engine docs inspected | Unchanged GLB plus changed root scale returns cached success with old dimensions. Real engine option-only, no-op, invalid, and failed cases |
 | AP-04 | Honest runtime freshness; [#890](https://github.com/aigengame/godot-agent/issues/890). Current session/capture semantics inspected | A/B share path, names, counts, bounds, material refs but differ in supported content and compare equal. Test selected-instance content, stale/wrong instance, runtime replacement, session and capture scope |
 | AP-05 | Minimum machinery with usable recovery; aADR-0002. Existing scripts offer reusable stages, no generic resume proof | Import failure or unknown producer outcome triggers regeneration or false completion. Inject stage failures, retain outputs, and explicitly retry remaining steps without production replay |
-| AP-06 | Prompt preservation and usable concept references; aADR-0003, #912/#913. Panda prompt composition and post-acquisition manifest recording inspected; implementation evidence remains open | Editing style/reference inputs changes an earlier attempt, reuse regenerates silently, or an authoring consumer loads an unselected candidate. Test separate attempts, explicit reuse/revision, failure ordering, real image generation, and selected-reference consumption in Blender and sprite examples |
+| AP-06 | Prompt preservation and usable concept references; aADR-0003, #912/#913. Local prompt commands preserve and reuse separate attempts and register external outputs. Real concept generation and authoring-reference consumption remain open under #913 | Editing style/reference inputs changes an earlier attempt, reuse regenerates silently, or an authoring consumer loads an unselected candidate. Test separate attempts, explicit reuse/revision, failure ordering, real image generation, and selected-reference consumption in Blender and sprite examples |
 | AP-07 | Package-only acceptance; [#892](https://github.com/aigengame/godot-agent/issues/892) and aADR-0002. Real cold-export tests apply the same mesh, material, and animation rules to source and PCK facts, detect omitted models and included exclusions, and verify isolation, package hash, and cleanup | A warm source project masks an omitted packaged model, an exclusion scans outside selected exact paths, or an editor probe is reported as native release behavior. Unsupported-editor gating has separate runner tests; native executable behavior is outside this check |
 
 The design's boundary review covers known owners and source cycles, but does not

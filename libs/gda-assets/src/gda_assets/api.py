@@ -76,6 +76,18 @@ from gda_assets.domain.artifacts import (
     PipelineFailure,
 )
 from gda_assets.domain.recipe import AssetFile, AssetRecipe, Resize
+from gda_assets.domain.prompt import (
+    JsonScalar,
+    PromptFile,
+    PromptHandoff,
+    PromptOutput,
+    PromptOutputRequest,
+    PromptPreparation,
+    PromptPrepareRequest,
+    PromptRecord,
+    PromptRevision,
+    PromptRevisionRequest,
+)
 
 __all__ = [
     "check_package",
@@ -144,7 +156,55 @@ __all__ = [
     "ProductionOutput",
     "Resize",
     "run_pipeline",
+    "JsonScalar",
+    "PromptFile",
+    "PromptHandoff",
+    "PromptOutput",
+    "PromptOutputRequest",
+    "PromptPreparation",
+    "PromptPrepareRequest",
+    "PromptRecord",
+    "PromptRevision",
+    "PromptRevisionRequest",
+    "prepare_prompt",
+    "inspect_prompt",
+    "revise_prompt",
+    "register_prompt_output",
 ]
+
+
+def prepare_prompt(request: PromptPrepareRequest) -> PromptPreparation:
+    """Save one prompt record before an external generation attempt."""
+    from gda_assets.adapters.prompt_files import PromptFiles
+    from gda_assets.application.prompt import prepare_prompt as _prepare_prompt
+
+    return _prepare_prompt(request, files=PromptFiles())
+
+
+def inspect_prompt(record: Path) -> PromptPreparation:
+    """Inspect and reuse an existing prompt record from any working directory."""
+    from gda_assets.adapters.prompt_files import PromptFiles
+    from gda_assets.application.prompt import inspect_prompt as _inspect_prompt
+
+    return _inspect_prompt(record, files=PromptFiles())
+
+
+def revise_prompt(request: PromptRevisionRequest) -> PromptRevision:
+    """Create a separate prompt record from saved inputs plus explicit changes."""
+    from gda_assets.adapters.prompt_files import PromptFiles
+    from gda_assets.application.prompt import revise_prompt as _revise_prompt
+
+    return _revise_prompt(request, files=PromptFiles())
+
+
+def register_prompt_output(request: PromptOutputRequest) -> PromptRecord:
+    """Associate a validated local PNG without invoking a producer."""
+    from gda_assets.adapters.prompt_files import PromptFiles
+    from gda_assets.application.prompt import (
+        register_prompt_output as _register_prompt_output,
+    )
+
+    return _register_prompt_output(request, files=PromptFiles())
 
 
 def check_package(

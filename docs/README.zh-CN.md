@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=7589d50a4b80dcb257c9c6dff0f42968979eb4a0916286357e14308927c57176 -->
+<!-- gda-readme-i18n: source=README.md sha256=40e478a5d338ee83ba3ba811623d831ed075bd1af73499a68310544b2bb8e50e -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -477,6 +477,10 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `asset-pipeline check` | 按项目要求验收模型，并比较范围兼容的 Godot 检查报告。完成检查后退出码为 0，是否符合要求以结果中的 verdict 为准。 |
 | `asset-pipeline preview` | 在隔离的窗口化项目中渲染 GLB 的三个固定视角，并收集范围受限的检查、截图、诊断和场景级性能结果。 |
 | `asset-pipeline check-package` | 在隔离环境中从导出的 PCK 加载资源，按同一套模型要求验收，并检查明确声明的排除路径。 |
+| `asset-pipeline prompt-prepare` / `prompt-inspect` | 在调用外部生成工具前保存提示词和 PNG 参考图，并读取已保存的输入以供复用。 |
+| `asset-pipeline prompt-revise` / `prompt-register-output` | 将修订后的提示词保存为独立尝试，或登记已生成的本地 PNG 及调用者声明、工具报告的信息。 |
+
+[提示词命令](../libs/gda-assets/docs/prompts.md)在本地运行，无需 Godot 或连接生成服务。准备完成后返回交给外部工具的输入，不会生成图片。
 
 请使用明确的源文件到目标位置映射，并指定覆盖策略。图像生成完成后的文件沿用同一流程，
 也可以附带调用方声明的元数据。[资产管线指南](../libs/gda-assets/README.md)介绍了 Blender 导出、文件输入、引用、

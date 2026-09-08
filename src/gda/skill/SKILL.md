@@ -92,6 +92,18 @@ the [asset pipeline guide](https://github.com/aigengame/godot-agent/blob/main/li
 for the source check, cold pack export, exact exclusions, identity and cleanup
 contract, bounds, and supported engine path.
 
+Before external image generation, use `gda asset-pipeline prompt-prepare --record
+/project/art/attempt-a --text 'Project prompt' --json`. Use the returned saved
+prompt and reference paths for the external tool call. Preparation is an external
+handoff, not generated success. `prompt-inspect --record` reuses saved inputs;
+`prompt-revise --source-record OLD --record NEW` preserves a separate attempt.
+After generation, `prompt-register-output --record OLD --output /generated/image.png
+--name image.png` preserves a local PNG without invoking or retrying a producer.
+Requested options, caller declarations, reported facts, and actually submitted
+text stay separate; unavailable execution facts remain unknown. These local
+commands need no Godot project or engine. See each command's `--schema` and the
+[prompt guide](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/docs/prompts.md).
+
 ## Setup
 
 - **Engine** — set `GDA_GODOT` to your Godot binary (or pass `--godot PATH`).
@@ -283,7 +295,7 @@ Every headless reply carries its floats at full binary64 precision, so a value r
 
 | Group | Commands |
 | --- | --- |
-| `asset-pipeline` | `run`, `check`, `preview`, `check-package` (production and handoff; project expectations and compatible report comparison; isolated windowed model preview; exported-package acceptance) |
+| `asset-pipeline` | `run`, `check`, `preview`, `check-package`, `prompt-prepare`, `prompt-inspect`, `prompt-revise`, `prompt-register-output` (production and handoff; project expectations; model preview; package acceptance; local prompt preservation and external output registration) |
 
 Use `gda asset-pipeline preview --path /production/model.glb --output-dir
 /reports/model-preview --settings /project/preview-settings.json --frames 60
