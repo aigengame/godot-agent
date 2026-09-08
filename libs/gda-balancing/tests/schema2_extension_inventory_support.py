@@ -27,6 +27,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_replay_comparison_vector_is_closed,
     _consumer_b_relation_paths_are_typed,
     _consumer_b_source_fact_transport_is_supported,
+    _consumer_b_template_admission_is_closed,
 )
 
 from schema2_value_program_reference_support import (
@@ -823,16 +824,6 @@ def _source_address_links(
             for i, item in enumerate(value):
                 yield from source_keys(item, address[1:], _child(path, i))
 
-    def same_instance_schemas(value: Any, path: tuple[str | int, ...]):
-        # Applicators retain the instance owner. A properties/items child does
-        # not: it is reached only by an explicit step in the selected address.
-        if not isinstance(value, dict):
-            return
-        yield value, path
-        for applicator in ("oneOf", "anyOf", "allOf"):
-            for index, branch in enumerate(value.get(applicator, [])):
-                yield from same_instance_schemas(branch, (*path, applicator, index))
-
     def address_schemas(address: tuple[str | int, ...]):
         selected = [(source["schema"], ())]
         index = 0
@@ -843,7 +834,7 @@ def _source_address_links(
                 selected = [
                     (schema["properties"][member], (*path, "properties", member))
                     for value, parent in selected
-                    for schema, path in same_instance_schemas(value, parent)
+                    for schema, path in _same_instance_schemas(value, parent)
                     if member in schema.get("properties", {})
                 ]
                 index += 2
@@ -851,7 +842,7 @@ def _source_address_links(
                 selected = [
                     (schema["items"], (*path, "items"))
                     for value, parent in selected
-                    for schema, path in same_instance_schemas(value, parent)
+                    for schema, path in _same_instance_schemas(value, parent)
                     if isinstance(schema.get("items"), dict)
                 ]
                 index += 1
@@ -862,7 +853,7 @@ def _source_address_links(
         return [
             (schema, path)
             for value, parent in selected
-            for schema, path in same_instance_schemas(value, parent)
+            for schema, path in _same_instance_schemas(value, parent)
         ]
 
     def schema_links(address: tuple[str | int, ...], selected_law: str):
@@ -2372,6 +2363,808 @@ def _structured_vector_links(
     yield from rows
 
 
+@dataclass(frozen=True)
+class _TemplateSelection:
+    """A selected instance type and its existing Schema/Kernel field owner."""
+
+    representation: str
+    value: Any
+    owner: tuple[str, ...] = ()
+    pointer: str = ""
+    nominal: str = ""
+
+
+def _same_instance_schemas(value: Any, pointer):
+    """Applicators retain one instance owner; properties/items change its path."""
+    if not isinstance(value, dict):
+        return
+    yield value, pointer
+    for applicator in ("oneOf", "anyOf", "allOf"):
+        for i, branch in enumerate(value.get(applicator, [])):
+            child = (
+                f"{pointer}/{applicator}/{i}"
+                if isinstance(pointer, str)
+                else (*pointer, applicator, i)
+            )
+            yield from _same_instance_schemas(branch, child)
+
+
+def _template_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    """Close the existing Template program and its variable member Schema owners.
+
+    Selectors traverse instance types, never strings found elsewhere in the graph.
+    Fixed result origins reuse Source/Namespace/initial Fact contracts. No Template
+    member role, derived name, judgment name or standalone Schema kind is built in.
+    """
+    meta = kernel["meta_format"]
+    law = "/meta_format/template_admission"
+    language = _attached_language(kernel, graph)
+    language.update({key: value for key, value in graph["ldb_root"].items()})
+    language["diagnostics"] = [
+        row
+        for _, row, _ in _authority_path_rows(
+            kernel, graph, "language_bundle.diagnostics"
+        )
+    ]
+    if not _consumer_b_template_admission_is_closed(dict(meta), language):
+        raise InventoryRefusal(
+            "Template program does not close its admitted primitive contracts"
+        )
+    contract = meta["template_admission"]
+    primitives = {p["id"]: p for p in contract["primitive_spec"]["primitives"]}
+    if not isinstance(primitives["model-source-admission"].get("results"), dict):
+        raise InventoryRefusal("Template Model result origin contract is missing")
+    operations = {o["id"]: o for o in contract["operations"]}
+    argument_types = {t["id"]: t for t in contract["primitive_spec"]["argument_types"]}
+    schemas = {
+        row["artifact_kind"]: (role, row, pointer)
+        for role in ("language.wire_schemas", "language.artifact_wire_schemas")
+        for _, row, pointer in _authority_path_rows(
+            kernel, graph, "language_bundle." + role
+        )
+    }
+    rows: set[TokenOccurrence] = set()
+    reserved: set[AuthorityToken] = set()
+    roots: set[str] = set()
+    variable_schemas: dict[str, _TemplateSelection] = {}
+
+    def emit(token, pointer, use="reference", *, location="value", owner_law=law):
+        rows.add(TokenOccurrence(token, pointer, use, owner_law, location))
+        if token.role.startswith("kernel."):
+            reserved.add(token)
+
+    def fixed(value, pointer, owner):
+        emit(AuthorityToken("kernel.template-value", (owner,), value), pointer)
+
+    def field_token(shape, member):
+        role = (
+            "template-field"
+            if shape.representation == "schema"
+            else "kernel.template-field"
+        )
+        if shape.representation == "source-schema":
+            role = "source-field"
+        return AuthorityToken(role, shape.owner, member)
+
+    def schema_children(shape):
+        return list(_same_instance_schemas(shape.value, shape.pointer))
+
+    def schema_fields(shape):
+        same = schema_children(shape)
+        names = {name for value, _ in same for name in value.get("properties", {})}
+        for value, pointer in same:
+            for member, child in value.get("properties", {}).items():
+                selected = field_token(shape, member)
+                cp = _child(pointer + "/properties", member)
+                emit(
+                    selected, cp, "declaration", location="key", owner_law=shape.pointer
+                )
+                schema_fields(
+                    _TemplateSelection(
+                        "schema", child, (*shape.owner, "member", member), cp
+                    )
+                )
+            for i, member in enumerate(value.get("required", [])):
+                if member not in names:
+                    raise InventoryRefusal(
+                        "Template Schema required member has no local property owner"
+                    )
+                emit(
+                    field_token(shape, member),
+                    f"{pointer}/required/{i}",
+                    owner_law=shape.pointer,
+                )
+            if isinstance(value.get("items"), dict):
+                schema_fields(
+                    _TemplateSelection(
+                        "schema",
+                        value["items"],
+                        (*shape.owner, "items"),
+                        pointer + "/items",
+                    )
+                )
+
+    def step(selected, member, pointer):
+        output = []
+        for shape in selected:
+            if shape.representation in {"schema", "source-schema"}:
+                for value, sp in schema_children(shape):
+                    if member == contract["selector"]["wildcard_segment"]:
+                        if isinstance(value.get("items"), dict):
+                            output.append(
+                                _TemplateSelection(
+                                    shape.representation,
+                                    value["items"],
+                                    (*shape.owner, "items"),
+                                    sp + "/items",
+                                    shape.nominal,
+                                )
+                            )
+                    elif member in value.get("properties", {}):
+                        emit(field_token(shape, member), pointer)
+                        output.append(
+                            _TemplateSelection(
+                                shape.representation,
+                                value["properties"][member],
+                                (*shape.owner, "member", member),
+                                _child(sp + "/properties", member),
+                            )
+                        )
+            elif shape.representation == "list":
+                if member == contract["selector"]["wildcard_segment"]:
+                    output.extend(shape.value)
+            elif shape.representation == "object":
+                if member in shape.value:
+                    emit(field_token(shape, member), pointer)
+                    output.extend(shape.value[member])
+            elif shape.representation == "field":
+                value = shape.value
+                if member == contract["selector"]["wildcard_segment"]:
+                    if value.get("type") == "string-list":
+                        output.append(
+                            _TemplateSelection(
+                                "field",
+                                {"type": "non-empty-string"},
+                                (*shape.owner, "items"),
+                                shape.pointer,
+                                shape.nominal,
+                            )
+                        )
+                    elif isinstance(value.get("items"), dict):
+                        output.append(
+                            _TemplateSelection(
+                                "field",
+                                value["items"],
+                                (*shape.owner, "items"),
+                                shape.pointer + "/items",
+                                shape.nominal,
+                            )
+                        )
+                elif member in value.get("field_types", {}):
+                    emit(field_token(shape, member), pointer)
+                    output.append(
+                        _TemplateSelection(
+                            "field",
+                            value["field_types"][member],
+                            (*shape.owner, "member", member),
+                            _child(shape.pointer + "/field_types", member),
+                        )
+                    )
+                elif value.get("type") == "closed-int64-interval" and member in {
+                    "minimum",
+                    "maximum",
+                }:
+                    emit(field_token(shape, member), pointer)
+                    output.append(
+                        _TemplateSelection(
+                            "field",
+                            {"type": "int64"},
+                            (*shape.owner, "member", member),
+                            shape.pointer,
+                        )
+                    )
+            elif shape.representation == "kernel":
+                value = shape.value
+                if member == contract["selector"]["wildcard_segment"] and isinstance(
+                    value, list
+                ):
+                    output.extend(
+                        _TemplateSelection(
+                            "kernel", item, (*shape.owner, "items"), shape.pointer
+                        )
+                        for item in value
+                    )
+                elif isinstance(value, dict) and member in value:
+                    emit(field_token(shape, member), pointer)
+                    output.append(
+                        _TemplateSelection(
+                            "kernel",
+                            value[member],
+                            (*shape.owner, "member", member),
+                            _child(shape.pointer, member),
+                        )
+                    )
+        if not output:
+            raise InventoryRefusal(
+                f"Template selector has no typed member owner at {pointer}"
+            )
+        return output
+
+    def path(selected, parts, pointer):
+        for i, member in enumerate(parts):
+            selected = step(selected, member, f"{pointer}/{i}")
+        return selected
+
+    def fields_shape(fields, owner, pointer):
+        return _TemplateSelection(
+            "field", {"type": "closed-object", "field_types": fields}, owner, pointer
+        )
+
+    # The virtual language index has the existing package semantic projections as
+    # its collection owners. Only declared keys/field contracts are traversable.
+    language_tree: dict[str, Any] = {}
+    projections = {
+        row["authority_path"]: row
+        for row in meta["package_release"]["semantic_closure"]["projections"]
+    }
+    for projection in projections.values():
+        authority_path = projection["authority_path"]
+        pieces = authority_path.split(".")
+        tree = language_tree
+        for part in pieces[:-1]:
+            tree = tree.setdefault(part, {})
+        if authority_path == "diagnostics":
+            fields = {projection["key_member"]: {"type": "non-empty-string"}}
+        else:
+            collection = pieces[-1]
+            owner = meta["language_definitions"]
+            if pieces[1:2] == ["quantity"]:
+                owner = owner["quantity"]
+            definition = owner["collections"].get(collection)
+            if isinstance(definition, dict):
+                fields = definition.get("field_types")
+            elif authority_path == "language.reasons":
+                fields = meta["diagnostic_reason"]["member_types"]
+            else:
+                # A projection itself declares its identity member. Other fields
+                # of a specialized DSL are not made traversable by this fact.
+                fields = (
+                    {projection["key_member"]: {"type": "non-empty-string"}}
+                    if projection["key_member"] is not None
+                    else None
+                )
+        item = (
+            fields_shape(fields, (authority_path,), law)
+            if fields is not None
+            else _TemplateSelection(
+                "field",
+                {"type": "non-empty-string"},
+                (authority_path,),
+                law,
+                authority_path,
+            )
+        )
+        if fields is not None and projection["key_member"] is not None:
+            selected = dict(fields)
+            key = projection["key_member"]
+            children = {
+                name: [
+                    _TemplateSelection(
+                        "field",
+                        value,
+                        (authority_path, "member", name),
+                        law,
+                        authority_path if name == key else "",
+                    )
+                ]
+                for name, value in selected.items()
+            }
+            item = _TemplateSelection("object", children, (authority_path,), law)
+        tree[pieces[-1]] = _TemplateSelection("list", [item], (authority_path,))
+    package_fields = dict(meta["package_release"]["field_types"])
+    package_item = _TemplateSelection(
+        "object",
+        {
+            name: [
+                _TemplateSelection(
+                    "field",
+                    value,
+                    ("package", name),
+                    law,
+                    "namespace" if name == "id" else "",
+                )
+            ]
+            for name, value in package_fields.items()
+        },
+        ("package",),
+    )
+    language_tree.setdefault("language", {})["packages"] = _TemplateSelection(
+        "list", [package_item], ("package",)
+    )
+    for member in meta["language_bundle"]["required_members"]:
+        if member != "language":
+            language_tree[member] = _TemplateSelection(
+                "kernel",
+                graph["ldb_root"].get(member),
+                ("language-bundle", member),
+                law,
+            )
+    language_tree["resources"] = _TemplateSelection(
+        "kernel", graph["ldb_root"]["resources"], ("language-bundle", "resources"), law
+    )
+
+    def tree_shape(value, owner=()):
+        if isinstance(value, _TemplateSelection):
+            return value
+        return _TemplateSelection(
+            "object",
+            {
+                name: [tree_shape(child, (*owner, name))]
+                for name, child in value.items()
+            },
+            owner,
+        )
+
+    language_root = tree_shape(language_tree, ("language-bundle",))
+    source_schema = _protocol_schema(kernel, graph, "model-source-package")
+    source_role, _, source_pointer = schemas[source_schema["artifact_kind"]]
+    source_type = _TemplateSelection(
+        "source-schema",
+        source_schema["schema"],
+        (source_role, source_schema["artifact_kind"]),
+        source_pointer + "/schema",
+    )
+    source_profile = _source_profile(kernel, graph)
+    lowerings = [
+        v
+        for _, v, _ in _authority_path_rows(
+            kernel, graph, "language_bundle.language.model_lowerings"
+        )
+        if v["resolution_profile"] == source_profile["id"]
+        and v["id"] == source_profile["model_lowering"]
+    ]
+    if len(lowerings) != 1:
+        raise InventoryRefusal("Template Model result has no unique selected lowering")
+    lowering = lowerings[0]
+    initial_kinds = {
+        lowering[key] for key in ("initial_fact_kind", "structured_initial_fact_kind")
+    }
+    initial_fields = [
+        fields_shape(
+            meta["fact"]["field_contracts"][row["field_contract"]],
+            ("fact", row["field_contract"]),
+            "/meta_format/fact/field_contracts/" + row["field_contract"],
+        )
+        for row in meta["fact"]["schemas"]
+        if row["kind"] in initial_kinds
+    ]
+    if len(initial_fields) != len(initial_kinds):
+        raise InventoryRefusal("Template Source Fact result kinds do not close")
+
+    def origin(result):
+        kind = result["origin"]
+        if kind == "selected-resolution-requirements":
+            # No new emitted selector: the existing Source profile owns this path.
+            member = source_profile["requirements_member"]
+            schema = source_schema["schema"]["properties"].get(member)
+            if not isinstance(schema, dict) or schema.get("type") != "array":
+                raise InventoryRefusal(
+                    "Template requirements result has no Source list contract"
+                )
+            return [
+                _TemplateSelection(
+                    "source-schema",
+                    schema,
+                    (*source_type.owner, "member", member),
+                    _child(source_type.pointer + "/properties", member),
+                    "namespace",
+                )
+            ]
+        if kind == "admitted-namespace-selection":
+            return [
+                _TemplateSelection(
+                    "list",
+                    [
+                        _TemplateSelection(
+                            "field",
+                            meta["package_release"]["field_types"]["id"],
+                            ("namespace",),
+                            law,
+                            "namespace",
+                        )
+                    ],
+                )
+            ]
+        if kind == "admitted-initial-source-fact-fields":
+            return [_TemplateSelection("list", initial_fields)]
+        raise InventoryRefusal("Template result origin is unsupported")
+
+    comparisons = []
+
+    def constraints(selected, target):
+        """Classify a Schema literal only when a real inventory relation binds it."""
+        comparisons.append((selected, target))
+        roles = {shape.nominal for shape in target if shape.nominal}
+        if not roles:
+            return
+        if len(roles) != 1:
+            raise InventoryRefusal(
+                "Template Schema constant has conflicting inventory owners"
+            )
+        role = next(iter(roles))
+        for shape in selected:
+            if shape.representation != "schema":
+                continue
+            for value, pointer in schema_children(shape):
+                literals = (
+                    [(value["const"], pointer + "/const")] if "const" in value else []
+                )
+                literals += [
+                    (item, f"{pointer}/enum/{i}")
+                    for i, item in enumerate(value.get("enum", []))
+                ]
+                for item, ip in literals:
+                    if not isinstance(item, str):
+                        raise InventoryRefusal(
+                            "Template inventory literal is not a name"
+                        )
+                    if role == "namespace":
+                        candidates = [
+                            AuthorityToken("namespace", (), p["id"])
+                            for p in graph["packages"]
+                            if p["id"] == item
+                        ]
+                    else:
+                        key = projections[role]["key_member"]
+                        token_role, scoped = _declared_target_role(
+                            kernel,
+                            "language_bundle." + role + ("." + key if key else ""),
+                        )
+                        candidates = []
+                        for owner, definition, _ in _authority_path_rows(
+                            kernel, graph, "language_bundle." + role
+                        ):
+                            if (definition if key is None else definition[key]) != item:
+                                continue
+                            token_owner: tuple[str, ...] = ()
+                            if scoped:
+                                if not isinstance(owner, str):
+                                    raise InventoryRefusal(
+                                        "Template inventory declaration has no namespace"
+                                    )
+                                token_owner = (owner,)
+                            candidates.append(
+                                AuthorityToken(token_role, token_owner, item)
+                            )
+                    if not candidates:
+                        raise InventoryRefusal(
+                            "Template Schema literal has no selected inventory declaration"
+                        )
+                    for token in candidates:
+                        emit(token, ip)
+
+    for _, profile, pp in _authority_path_rows(
+        kernel, graph, "language_bundle.language.template_admission_profiles"
+    ):
+        roots.add(pp)
+        scope = (profile["id"],)
+        roles = {}
+        derived = {}
+        for member in ("resource_diagnostic", "structural_diagnostic"):
+            emit(AuthorityToken("diagnostics", (), profile[member]), pp + "/" + member)
+        fixed(
+            profile["max_steps_path"],
+            pp + "/max_steps_path",
+            law + "/resource_accounting/limit_path",
+        )
+        for i, row in enumerate(profile["member_roles"]):
+            rp = f"{pp}/member_roles/{i}"
+            emit(
+                AuthorityToken("template-role", scope, row["role"]),
+                rp + "/role",
+                "declaration",
+            )
+            fixed(
+                row["cardinality"],
+                rp + "/cardinality",
+                law + "/role_contract/cardinalities",
+            )
+            for oi, operation in enumerate(row["required_operations"]):
+                fixed(operation, f"{rp}/required_operations/{oi}", law + "/operations")
+            schema_role, schema, sp = schemas[row["member_kind"]]
+            schema_contract = meta["language_definitions"]["collections"][
+                schema_role.rsplit(".", 1)[1]
+            ]
+            if not _consumer_b_definition_is_closed(schema, schema_contract, language):
+                raise InventoryRefusal(
+                    "Template member Schema does not close its actual wire contract"
+                )
+            emit(
+                AuthorityToken(schema_role, (), schema["artifact_kind"]),
+                rp + "/member_kind",
+            )
+            if schema.get("protocol_role") == "model-source-package":
+                roles[row["role"]] = [source_type]
+            elif (
+                "wire_schema_identity_domain" in schema
+                and "protocol_role" not in schema
+            ):
+                shape = _TemplateSelection(
+                    "schema",
+                    schema["schema"],
+                    (schema_role, schema["artifact_kind"]),
+                    sp + "/schema",
+                )
+                roles[row["role"]] = [shape]
+                if sp not in variable_schemas:
+                    variable_schemas[sp] = shape
+                    roots.add(sp)
+                    schema_fields(shape)
+            else:
+                raise InventoryRefusal(
+                    "Template member is not a supported standalone Schema owner"
+                )
+
+        def selector(value, pointer):
+            root, name = value["root"], value["name"]
+            fixed(root, pointer + "/root", law + "/selector/roots")
+            if root == "role":
+                emit(AuthorityToken("template-role", scope, name), pointer + "/name")
+                selected = roles[name]
+            elif root == "derived":
+                emit(AuthorityToken("template-derived", scope, name), pointer + "/name")
+                selected = derived[name]
+            elif root == "kernel":
+                selected = [_TemplateSelection("kernel", kernel, ("kernel",), "")]
+            elif root == "language-bundle":
+                selected = [language_root]
+            elif root == "release":
+                raise InventoryRefusal(
+                    "Template release selectors await their fixed wrapper inventory"
+                )
+            else:
+                raise InventoryRefusal("Template selector root is unsupported")
+            return path(selected, value["path"], pointer + "/path")
+
+        for ji, judgment in enumerate(profile["judgments"]):
+            jp = f"{pp}/judgments/{ji}"
+            emit(
+                AuthorityToken("template-judgment", scope, judgment["id"]),
+                jp + "/id",
+                "declaration",
+            )
+            emit(
+                AuthorityToken("diagnostics", (), judgment["diagnostic"]),
+                jp + "/diagnostic",
+            )
+            emit(
+                AuthorityToken(
+                    "kernel.meta_format.template_admission.operations.id",
+                    (),
+                    judgment["operation"],
+                ),
+                jp + "/operation",
+            )
+            primitive = primitives[
+                operations[judgment["operation"]]["law"]["primitive"]
+            ]
+            evaluation = primitive["evaluation"]
+            args = judgment["arguments"]
+            ap = jp + "/arguments"
+            selections = {}
+            for member, type_id in primitive["argument_types"].items():
+                kind = argument_types[type_id]["kind"]
+                value = args[member]
+                if kind == "selector":
+                    selections[member] = selector(value, ap + "/" + member)
+                elif kind == "non-empty-list":
+                    selections[member] = [
+                        s
+                        for i, item in enumerate(value)
+                        for s in selector(item, f"{ap}/{member}/{i}")
+                    ]
+                elif kind == "role-name":
+                    emit(
+                        AuthorityToken("template-role", scope, value), ap + "/" + member
+                    )
+                elif kind == "derived-name":
+                    emit(
+                        AuthorityToken("template-derived", scope, value),
+                        ap + "/" + member,
+                        "declaration",
+                    )
+                elif kind == "model-fact-bindings":
+                    for bi, binding in enumerate(value):
+                        bp = f"{ap}/{member}/{bi}"
+                        fixed(
+                            binding["source"],
+                            bp + "/source",
+                            law
+                            + "/primitive_spec/primitives/model-source-admission/results",
+                        )
+                        emit(
+                            AuthorityToken(
+                                "template-derived", scope, binding["result"]
+                            ),
+                            bp + "/result",
+                            "declaration",
+                        )
+                        derived[binding["result"]] = origin(
+                            primitive["results"][binding["source"]]
+                        )
+                elif kind == "enum":
+                    fixed(
+                        value,
+                        ap + "/" + member,
+                        law + "/primitive_spec/argument_types/" + type_id,
+                    )
+                elif kind not in {"string", "string-list", "canonical-json"}:
+                    raise InventoryRefusal(
+                        "Template argument type has no inventory interpretation"
+                    )
+            kind = evaluation["kind"]
+            if kind == "content-identity":
+                derived[args[evaluation["result"]]] = [
+                    _TemplateSelection("field", {"type": "non-empty-string"})
+                ]
+            elif kind == "concatenate-selections":
+                derived[args[evaluation["result"]]] = [
+                    _TemplateSelection("list", selections[evaluation["selectors"]])
+                ]
+            elif kind == "canonical-inventory":
+                constraints(
+                    selections[evaluation["selector"]],
+                    selections[evaluation["inventory"]],
+                )
+            elif kind == "canonical-set-relation":
+                constraints(
+                    selections[evaluation["left"]], selections[evaluation["right"]]
+                )
+                constraints(
+                    selections[evaluation["right"]], selections[evaluation["left"]]
+                )
+            elif kind in {"canonical-scoped-relation", "canonical-scoped-unique"}:
+                for side in (
+                    ["source", "target"]
+                    if kind == "canonical-scoped-relation"
+                    else ["selector"]
+                ):
+                    for suffix in ("scope_path", "values_path"):
+                        key = (
+                            side + "_" + suffix
+                            if kind == "canonical-scoped-relation"
+                            else suffix
+                        )
+                        member = evaluation[key]
+                        selections[key] = path(
+                            selections[evaluation[side]],
+                            args[member],
+                            ap + "/" + member,
+                        )
+                if kind == "canonical-scoped-relation":
+                    for suffix in ("scope_path", "values_path"):
+                        constraints(
+                            selections["source_" + suffix],
+                            selections["target_" + suffix],
+                        )
+                        constraints(
+                            selections["target_" + suffix],
+                            selections["source_" + suffix],
+                        )
+            elif kind in {"closed-int64-interval", "closed-int64-interval-join"}:
+                if kind == "closed-int64-interval":
+                    interval = selections[evaluation["selector"]]
+                else:
+                    for relative, base in (
+                        ("source_key_path", "source"),
+                        ("source_value_path", "source"),
+                        ("target_key_path", "target"),
+                    ):
+                        member = evaluation[relative]
+                        path(
+                            selections[evaluation[base]],
+                            args[member],
+                            ap + "/" + member,
+                        )
+                    member = evaluation["target_interval_path"]
+                    interval = path(
+                        selections[evaluation["target"]],
+                        args[member],
+                        ap + "/" + member,
+                    )
+                for bound in ("minimum_member", "maximum_member"):
+                    member = evaluation[bound]
+                    step(interval, args[member], ap + "/" + member)
+            elif kind == "model-source-vector":
+                base = roles[args[evaluation["role"]]]
+                for relative in (
+                    "pointer_path",
+                    "value_path",
+                    "diagnostic_path",
+                    "expected_path",
+                ):
+                    member = evaluation[relative]
+                    if args[member]:
+                        path(base, args[member], ap + "/" + member)
+            elif kind not in {"model-source-admission", "canonical-unique"}:
+                raise InventoryRefusal(
+                    "Template primitive has no inventory interpretation"
+                )
+
+    # Exact object equality constrains actual required member names across the
+    # compared scopes. A Kernel Fact member remains fixed in any required Schema
+    # copy; unrelated equal spellings do not acquire that constraint.
+    def object_fields(shape):
+        if shape.representation in {"schema", "source-schema"}:
+            return {
+                member: (
+                    _TemplateSelection(
+                        shape.representation,
+                        child,
+                        (*shape.owner, "member", member),
+                        _child(sp + "/properties", member),
+                    ),
+                    field_token(shape, member),
+                )
+                for value, sp in schema_children(shape)
+                for member, child in value.get("properties", {}).items()
+                if member in value.get("required", [])
+            }
+        if shape.representation == "field":
+            return {
+                member: (
+                    _TemplateSelection(
+                        "field",
+                        child,
+                        (*shape.owner, "member", member),
+                        _child(shape.pointer + "/field_types", member),
+                    ),
+                    field_token(shape, member),
+                )
+                for member, child in shape.value.get("field_types", {}).items()
+            }
+        return {}
+
+    bonds = []
+
+    def compare(left, right):
+        lf, rf = object_fields(left), object_fields(right)
+        for member in lf.keys() & rf.keys():
+            lc, lt = lf[member]
+            rc, rt = rf[member]
+            bonds.append((lt, rt))
+            compare(lc, rc)
+
+    for left, right in comparisons:
+        for left_shape in left:
+            for right_shape in right:
+                compare(left_shape, right_shape)
+    emitted_tokens = {row.token for row in rows}
+    changed = True
+    while changed:
+        before = len(reserved)
+        for left, right in bonds:
+            if (
+                left in reserved
+                or right in reserved
+                or left.role.startswith("kernel.")
+                or right.role.startswith("kernel.")
+            ):
+                reserved.update(t for t in (left, right) if t in emitted_tokens)
+        changed = len(reserved) != before
+    if any(
+        left != right
+        and left not in reserved
+        and right not in reserved
+        and left.role == right.role == "template-field"
+        for left, right in bonds
+    ):
+        raise InventoryRefusal(
+            "Template object equality has unclosed cross-Schema field bindings"
+        )
+    return rows, reserved, roots, set(variable_schemas)
+
+
 class _Reader:
     def __init__(self, kernel: Mapping[str, Any], graph: Mapping[str, Any]):
         self.kernel = kernel
@@ -2761,6 +3554,10 @@ class _Reader:
         self, role: str, value: dict[str, Any], pointer: str
     ) -> bool:
         """Close simple declared contracts; unknown nested DSLs remain explicit."""
+        if pointer in self.template_roots:
+            # The Template pass closes the complete existing program and each
+            # actual standalone member Schema, including addressed field names.
+            return True
         if role == "language.replay_comparison_policies":
             # The independent observation-member pass closes the complete
             # policy shape and every actual check reference before this pass.
@@ -4424,6 +5221,18 @@ class _Reader:
 
     def finish(self) -> ExtensionInventory:
         self.index()
+        template_rows, template_reserved, self.template_roots, self.template_schemas = (
+            _template_inventory(self.kernel, self.graph)
+        )
+        self.reserved.update(template_reserved)
+        for occurrence in template_rows:
+            self.occurrence(
+                occurrence.token,
+                occurrence.pointer,
+                occurrence.use,
+                occurrence.law,
+                location=occurrence.location,
+            )
         for occurrence in _evidence_claim_links(self.kernel, self.graph):
             self.occurrence(
                 occurrence.token,
@@ -5065,6 +5874,24 @@ def validate_extension_inventory(
     is implemented; require_complete still refuses that inventory.
     """
     validate_inventory_occurrences(kernel, graph, inventory)
+    template_expected, template_reserved, template_roots, _ = _template_inventory(
+        kernel, graph
+    )
+    template_actual = {
+        row
+        for row in inventory.occurrences
+        if any(
+            row.pointer.startswith(root + "/")
+            and row.pointer not in {root + "/id", root + "/artifact_kind"}
+            for root in template_roots
+        )
+    }
+    template_tokens = {row.token for row in template_expected}
+    if (
+        template_actual != template_expected
+        or inventory.reserved & template_tokens != template_reserved
+    ):
+        raise InventoryRefusal("Template occurrence coverage is incomplete or misowned")
     evidence_expected = set(_evidence_claim_links(kernel, graph))
     evidence_roots = [
         pointer
@@ -5834,7 +6661,7 @@ def _renamed_owner(
         target = correspondence.get(owner_token)
         return owner_token.name if target is None else target.name
 
-    if token.role == "source-field":
+    if token.role in {"source-field", "template-field"}:
         schema_role, schema_id, *path = token.owner
         renamed = (schema_role, name(AuthorityToken(schema_role, (), schema_id)))
         original = (schema_role, schema_id)
@@ -5845,7 +6672,7 @@ def _renamed_owner(
                 renamed = (
                     *renamed,
                     "member",
-                    name(AuthorityToken("source-field", original, member)),
+                    name(AuthorityToken(token.role, original, member)),
                 )
                 original = (*original, "member", member)
                 index += 2
@@ -5897,6 +6724,14 @@ def _renamed_owner(
         return (
             name(AuthorityToken("language.constructors", (), token.owner[0])),
             token.owner[1],
+        )
+    if token.role in {"template-role", "template-derived", "template-judgment"}:
+        return (
+            name(
+                AuthorityToken(
+                    "language.template_admission_profiles", (), token.owner[0]
+                )
+            ),
         )
     if token.role == "formula-fixed-alias":
         return (
