@@ -109,6 +109,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_resolution_field_binding_roles.py",
         "test_rir_protocol_structure.py",
         "test_rir_protocol_structure_independent.py",
+        "test_rir_runtime_member_projection.py",
         "test_runtime_effect_renaming.py",
         "test_runtime_mutual_consumption.py",
         "test_source_module_routing.py",

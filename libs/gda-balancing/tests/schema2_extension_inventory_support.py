@@ -999,11 +999,7 @@ def _projection_collection_links(kernel: Mapping[str, Any], graph: Mapping[str, 
             raise InventoryRefusal("projection collection declarations are not unique")
         for i, row in enumerate(projection["collections"]):
             required = set(contract["collection"]["required_members"])
-            if (
-                not required
-                <= set(row)
-                <= required | set(contract["collection"]["optional_members"])
-            ):
+            if set(row) != required:
                 raise InventoryRefusal("projection collection has unknown members")
             yield (
                 AuthorityToken("projection-collection", scope, row["id"]),
