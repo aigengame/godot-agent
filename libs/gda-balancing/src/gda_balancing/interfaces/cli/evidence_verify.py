@@ -47,7 +47,7 @@ class EvidenceVerifyInput(BaseModel):
 class EvidenceVerifyResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    claim_kind: Literal["evaluable"]
+    claim_kind: str
     claim_state: Literal["candidate"]
     producing_outcome: Literal["success", "verdict", "runtime-refusal"]
     rir_semantic_identity: str
@@ -112,7 +112,7 @@ def run_evidence_verify(
     assert isinstance(result, EvidenceCandidate)
     identities = {subject.role: subject.identity for subject in result.subjects}
     return EvidenceVerifyResult(
-        claim_kind=cast(Literal["evaluable"], result.claim_kind),
+        claim_kind=result.claim_kind,
         claim_state=cast(Literal["candidate"], result.claim_state),
         producing_outcome=cast(
             Literal["success", "verdict", "runtime-refusal"],

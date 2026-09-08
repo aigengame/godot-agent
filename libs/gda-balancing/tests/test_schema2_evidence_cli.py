@@ -129,7 +129,7 @@ def test_public_schema_and_help_expose_only_explicit_option_inputs(run_cli) -> N
         "experiment_run_artifact_set_receipt",
     ]
     success_properties = schema["success"]["properties"]
-    assert success_properties["claim_kind"]["const"] == "evaluable"
+    assert success_properties["claim_kind"] == {"title": "Claim Kind", "type": "string"}
     assert success_properties["claim_state"]["const"] == "candidate"
     assert success_properties["producing_outcome"]["enum"] == [
         "success",
