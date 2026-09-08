@@ -209,6 +209,16 @@ def test_formula_conversion_follows_the_source_schema_role(protocol_public):
     rendered = candidate.cli("formula", "render", str(path))
     assert rendered["expression"] == "let same = identity(value);\nsame"
     assert rendered["body"] == request["formula"]["body"]
+    from schema2_formula_conformance_support import admit_pair, parse_canonical
+
+    request["formula"]["expression"] = rendered["expression"]
+    assert (
+        parse_canonical(
+            rendered["expression"], request, candidate.ldb, kernel=candidate.kernel
+        )
+        == request["formula"]["body"]
+    )
+    assert admit_pair(request, candidate.ldb, kernel=candidate.kernel)
 
 
 @pytest.mark.parametrize(
@@ -518,3 +528,34 @@ def test_publication_labels_are_not_protocol_identities(
                 context.language_bundle, _members(result["artifact_set"])
             )
             assert replay["replay-comparison"]["result"] == "matched"
+
+
+@pytest.mark.parametrize("mutation", ["missing", "duplicate"])
+def test_independent_formula_requires_one_source_schema_role(mutation):
+    from schema2_formula_conformance_support import parse_canonical
+
+    kernel, language = _authorities(True)
+    definition = next(
+        row
+        for row in language["language"]["wire_schemas"]
+        if row.get("protocol_role") == "model-source-package"
+    )
+    if mutation == "missing":
+        del definition["protocol_role"]
+    else:
+        duplicate = deepcopy(definition)
+        duplicate["artifact_kind"] += ".second"
+        language["language"]["wire_schemas"].append(duplicate)
+        owner = next(
+            package
+            for package in language["language"]["packages"]
+            if definition["artifact_kind"] in package["exports"]["wire_schemas"]
+        )
+        owner["exports"]["wire_schemas"].append(duplicate["artifact_kind"])
+    _reidentify_language_bundle(language)
+    assert not isinstance(
+        admit_authority_context(kernel, language), AdmittedAuthorityContext
+    )
+    assert not _consumer_b(kernel, language)["admitted"]
+    with pytest.raises(ValueError, match="no unique Model Source schema"):
+        parse_canonical("unread", {}, language, kernel=kernel)

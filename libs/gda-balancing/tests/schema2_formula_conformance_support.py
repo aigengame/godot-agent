@@ -23,7 +23,7 @@ def _source_schema(language_bundle: dict[str, Any]) -> dict[str, Any]:
         for closure in package["semantic_closure"]
         if closure.get("authority_path") == "language.wire_schemas"
         for definition in closure["definitions"]
-        if definition.get("artifact_kind") == "model-source-package"
+        if definition.get("protocol_role") == "model-source-package"
     ]
     if len(schemas) != 1:
         raise ValueError("independent consumer found no unique Model Source schema")
