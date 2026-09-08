@@ -70,6 +70,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     ),
     "language": (
         "test_bounded_fold_admission.py",
+        "test_formula_notation_owner.py",
         "test_schema2_bootstrap_language.py",
         "test_schema2_evidence_verify.py",
         "test_schema2_formula_cli.py",

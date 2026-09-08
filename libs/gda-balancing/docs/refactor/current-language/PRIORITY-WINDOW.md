@@ -51,6 +51,14 @@ bijection. The same fixed builds must then process original, extended, renamed a
 input-variant cases. Do not describe the original build as invariant, or count this
 single namespace substitution as complete inventory validation.
 
+The prerequisite is implemented by reusing the existing unique Source schema selector
+and deleting both package-name filters and the duplicate scan. Four permanent tests
+cover the real Formula and generic Source check/build paths plus missing/duplicate
+schema-owner refusal at Authority admission. On the preserved old implementation,
+the Formula rename case fails and the other three pass; after the correction these
+and related Formula/namespace cases pass (17 tests). Kernel/LDB resources are unchanged.
+Final fixed-build and complete inventory acceptance still require the work below.
+
 ## Remaining proof and integration
 
 - Derive every reachable non-Kernel token and occurrence from the applicable Kernel/LDB,
