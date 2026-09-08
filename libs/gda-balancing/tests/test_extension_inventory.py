@@ -1111,55 +1111,49 @@ def test_constructor_member_addresses_are_closed_and_dimension_identity_is_cover
 
 
 def test_lawful_constructor_selector_rename_keeps_every_address_owned(witness):
-    from schema2_bootstrap_conformance_support import _reidentify_package_release
-    from schema2_bootstrap_production_support import _reidentify_graph_root
+    from schema2_extension_renaming_support import (
+        _reseal_authored_graph,
+        _rewrite_positions,
+    )
 
-    kernel, language = mutable_authorities()
+    kernel, original, original_inventory = witness
     constructor = next(
         definition
-        for package in language["language"]["packages"]
+        for package in original["packages"]
         for closure in package["semantic_closure"]
         if closure["authority_path"] == "language.constructors"
         for definition in closure["definitions"]
         if definition.get("value_rule", {}).get("operator") == "enum-member"
     )
-    constructor["parameters"] = ["labels"]
-    constructor["value_rule"]["members_member"] = "labels"
-    count = 0
-    for package in language["language"]["packages"]:
-        for closure in package["semantic_closure"]:
-            if closure["authority_path"] != "language.nominal_types":
-                continue
-            for nominal in closure["definitions"]:
-                definition = nominal["definition"]
-                if definition["kind"] == "enum":
-                    definition["labels"] = definition.pop("members")
-                    count += 1
-        _reidentify_package_release(package)
-    _reidentify_graph_root(language)
-    assert count > 0
-    a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
-    assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
-    graph = {
-        "packages": language.package_releases,
-        "ldb_root": language.root,
-        "vector_sets": language.package_conformance_vector_sets,
-    }
+    original_token = AuthorityToken(
+        "constructor-member", (constructor["id"], "definition"), "members"
+    )
+    addresses = [o for o in original_inventory.occurrences if o.token == original_token]
+    keys = [o for o in addresses if o.location == "key"]
+    # The selector addresses nominal definitions and all three anonymous Enum
+    # declarations in actual vector inputs. Neither surface may retain old keys.
+    assert len([o for o in keys if o.pointer.startswith("/vector_sets/")]) == 3
+    graph = _rewrite_positions(
+        original,
+        {o.pointer: "labels" for o in addresses if o.location == "value"},
+        {o.pointer: "labels" for o in keys},
+    )
+    _reseal_authored_graph(kernel, graph)
+    _assert_structured_graph_observations(kernel, graph, original=original)
     inventory = read_extension_inventory(kernel, graph)
     validate_extension_inventory(kernel, graph, inventory)
-    token = AuthorityToken(
-        "constructor-member", (constructor["id"], "definition"), "labels"
-    )
+    token = replace(original_token, name="labels")
     assert token in inventory.tokens - inventory.reserved
     declarations = [
         o for o in inventory.occurrences if o.token == token and o.use == "declaration"
     ]
-    keys = [
+    renamed_keys = [
         o for o in inventory.occurrences if o.token == token and o.location == "key"
     ]
-    assert len(declarations) == 1 and len(keys) == count
+    assert len(declarations) == 1 and len(renamed_keys) == len(keys)
     incomplete = replace(
-        inventory, occurrences=tuple(o for o in inventory.occurrences if o != keys[0])
+        inventory,
+        occurrences=tuple(o for o in inventory.occurrences if o != renamed_keys[0]),
     )
     with pytest.raises(InventoryRefusal, match="constructor address"):
         validate_extension_inventory(kernel, graph, incomplete)
@@ -1916,7 +1910,12 @@ def test_inventory_consumes_the_complete_declared_source_module_mapping():
 
 def test_negative_inventory_lookup_names_remain_proven_unresolved_references(witness):
     kernel, graph, inventory = witness
-    free = [o for o in inventory.occurrences if o.use == "unresolved-reference"]
+    free = [
+        o
+        for o in inventory.occurrences
+        if o.use == "unresolved-reference"
+        and o.token.role in {"language.quantity.kinds", "language.quantity.units"}
+    ]
     assert {o.token.name for o in free} == {"missing-kind", "missing-unit"}
     assert {o.token.role for o in free} == {
         "language.quantity.kinds",
@@ -2361,23 +2360,20 @@ def test_value_vector_literal_data_and_unclosed_negatives_cannot_claim_identity(
         for di, v in enumerate(vs["vector_definitions"])
         if v["id"] == "structured.refuse.unknown-enum-member"
     )
-    assert any(g.pointer == negative + "/input/left/value" for g in inventory.uncovered)
-    assert not any(
-        o.pointer == negative + "/input/left/value" for o in inventory.occurrences
+    actual = next(
+        o for o in inventory.occurrences if o.pointer == negative + "/input/left/value"
     )
-    # No general 'missing name' escape is inferred from an expected refusal.
+    assert actual.use == "unresolved-reference"
+    assert actual.token == replace(fake, name="unknown")
+    assert not any(g.pointer.startswith(negative + "/") for g in inventory.uncovered)
+    # The real lookup proves absence only in its selected nominal owner.
+    wrong = replace(
+        actual, token=replace(actual.token, owner=("test.other", "CandidateKind"))
+    )
     fake_free = replace(
         inventory,
-        tokens=inventory.tokens | {replace(fake, name="unknown")},
-        occurrences=(
-            *inventory.occurrences,
-            TokenOccurrence(
-                replace(fake, name="unknown"),
-                negative + "/input/left/value",
-                "unresolved-reference",
-                "/meta_format/package_vector",
-            ),
-        ),
+        tokens=(inventory.tokens - {actual.token}) | {wrong.token},
+        occurrences=tuple(wrong if o == actual else o for o in inventory.occurrences),
     )
     with pytest.raises(InventoryRefusal, match="unresolved-reference"):
         validate_extension_inventory(kernel, graph, fake_free)
@@ -2389,3 +2385,300 @@ def test_value_vector_literal_data_and_unclosed_negatives_cannot_claim_identity(
     with pytest.raises(InventoryRefusal, match="unknown declared member"):
         read_extension_inventory(kernel, changed)
     assert vector["input"]["left"]["value"]["key"]["key"] == "candidate_a"
+
+
+def test_structured_vector_inventory_closes_anonymous_and_negative_roles(witness):
+    kernel, graph, inventory = witness
+    roots = {
+        v["id"]: f"/vector_sets/{vi}/vector_definitions/{di}"
+        for vi, vs in enumerate(graph["vector_sets"])
+        for di, v in enumerate(vs["vector_definitions"])
+        if v.get("kind") == "structured-value"
+    }
+    assert len(roots) == 24
+    assert not [
+        gap
+        for gap in inventory.uncovered
+        if any(
+            gap.pointer == root or gap.pointer.startswith(root + "/")
+            for root in roots.values()
+        )
+    ]
+    anonymous = {t for t in inventory.tokens if t.role == "vector-enum-member"}
+    assert len(anonymous) == 3
+    assert {t.name for t in anonymous} == {"value"}
+    assert {t.owner[0] for t in anonymous} == {
+        "structured.list-empty.nonempty",
+        "structured.list-empty.empty",
+        "structured.list-empty.refuse-non-list",
+    }
+    assert not (anonymous & inventory.reserved)
+    extra = AuthorityToken(
+        "record-field", ("standard.conformance.structured", "Candidate"), "extra"
+    )
+    rows = [o for o in inventory.occurrences if o.token == extra]
+    assert {(o.use, o.location, o.projection) for o in rows} == {
+        ("unresolved-reference", "key", ""),
+        ("unresolved-reference", "json-pointer", "1"),
+    }
+    assert {o.pointer for o in rows} == {
+        roots["structured.refuse.record-extra-field"] + "/input/left/value/extra",
+        roots["structured.refuse.record-extra-field"] + "/expect/pointer",
+    }
+    validate_extension_inventory(kernel, graph, inventory)
+    for selected in (
+        rows[0],
+        next(o for o in inventory.occurrences if o.token in anonymous),
+    ):
+        omitted = replace(
+            inventory,
+            occurrences=tuple(o for o in inventory.occurrences if o != selected),
+        )
+        with pytest.raises(InventoryRefusal):
+            validate_extension_inventory(kernel, graph, omitted)
+    # Anonymous classes cannot disappear or acquire another vector's owner.
+    without_class = replace(
+        inventory,
+        tokens=inventory.tokens - anonymous,
+        occurrences=tuple(o for o in inventory.occurrences if o.token not in anonymous),
+    )
+    with pytest.raises(InventoryRefusal, match="value vector occurrence coverage"):
+        validate_extension_inventory(kernel, graph, without_class)
+    selected_token = next(iter(anonymous))
+    wrong = replace(selected_token, owner=("other-vector", *selected_token.owner[1:]))
+    wrong_owner = replace(
+        inventory,
+        tokens=(inventory.tokens - {selected_token}) | {wrong},
+        occurrences=tuple(
+            replace(o, token=wrong) if o.token == selected_token else o
+            for o in inventory.occurrences
+        ),
+    )
+    with pytest.raises(InventoryRefusal, match="value vector occurrence coverage"):
+        validate_extension_inventory(kernel, graph, wrong_owner)
+
+
+def _assert_structured_graph_observations(kernel, graph, *, original=None):
+    """Check legal graph admission and each consumer against authored observations."""
+    from gda_balancing.domain.authority.graph import LanguageBundleGraph
+    from gda_balancing.domain.structured_values import evaluate_structured_value_vector
+    from schema2_bootstrap_conformance_support import (
+        _consumer_b_evaluate_structured_value_vector,
+        _encoded,
+    )
+
+    authored = LanguageBundleGraph(
+        root=graph["ldb_root"],
+        package_releases=graph["packages"],
+        package_conformance_vector_sets=graph["vector_sets"],
+        root_byte_size=len(_encoded(graph["ldb_root"])),
+        package_byte_sizes=[len(_encoded(p)) for p in graph["packages"]],
+        vector_set_byte_sizes=[len(_encoded(v)) for v in graph["vector_sets"]],
+    )
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, authored)
+        assert result["admitted"], result["diagnostics"]
+    vectors = [
+        v
+        for vs in graph["vector_sets"]
+        for v in vs["vector_definitions"]
+        if v.get("kind") == "structured-value"
+    ]
+    assert len(vectors) == 24
+    expected = (
+        None
+        if original is None
+        else {
+            v["id"]: v["expect"]
+            for vs in original["vector_sets"]
+            for v in vs["vector_definitions"]
+            if v.get("kind") == "structured-value"
+        }
+    )
+    args = dict(
+        nominal_types=graph["packages"],
+        kernel=kernel,
+        resource_limit=graph["ldb_root"]["resources"]["max_rule_match_steps"],
+    )
+    for vector in vectors:
+        if expected is not None:
+            assert vector["expect"] == expected[vector["id"]]
+        for evaluate in (
+            evaluate_structured_value_vector,
+            _consumer_b_evaluate_structured_value_vector,
+        ):
+            assert evaluate(vector, **args) == vector["expect"], vector["id"]
+
+
+@pytest.mark.parametrize("case", ["equal", "unequal", "missing", "extra"])
+def test_anonymous_vector_scope_and_fault_paths_follow_actual_type_law(witness, case):
+    from schema2_extension_inventory_support import (
+        _child,
+        _json_pointer_segments,
+        _pointer_value,
+    )
+    from schema2_extension_renaming_support import (
+        _reseal_authored_graph,
+        _rewrite_positions,
+    )
+
+    kernel, original, _ = witness
+    graph = deepcopy(original)
+    pointer, vector = next(
+        (f"/vector_sets/{vi}/vector_definitions/{di}", v)
+        for vi, vs in enumerate(graph["vector_sets"])
+        for di, v in enumerate(vs["vector_definitions"])
+        if v["id"] == "structured.list-empty.nonempty"
+    )
+    field, extra = "part/~value", "extra/~field"
+    annotation = {
+        "kind": "record",
+        "fields": [{"name": field, "type": {"kind": "enum", "members": ["value"]}}],
+    }
+    if case in {"equal", "unequal"}:
+        left = {"type": {"kind": "enum", "members": ["value"]}, "value": "value"}
+        right = deepcopy(left)
+        if case == "unequal":
+            right = {"type": {"kind": "enum", "members": ["other"]}, "value": "other"}
+    else:
+        left = {"type": annotation, "value": {field: "value"}}
+        right = None
+        if case == "missing":
+            left["value"] = {}
+        else:
+            left["value"][extra] = {"value": "this payload has no declared type"}
+    vector["input"] = {
+        "action": "equal" if right is not None else "admit",
+        "left": left,
+        "right": right,
+        "key": None,
+        "limit": None,
+    }
+    vector["category"] = "positive" if case == "equal" else "negative"
+    vector["expect"] = (
+        {
+            "outcome": "admitted",
+            "code": None,
+            "pointer": "",
+            "type": {"package": "kernel", "id": "Boolean"},
+            "value": True,
+        }
+        if case == "equal"
+        else {
+            "outcome": "refused",
+            "code": "language.structured_value_type_mismatch"
+            if case == "unequal"
+            else "language.structured_value_record_member_mismatch",
+            "pointer": "/right/type"
+            if case == "unequal"
+            else _child("/value", field if case == "missing" else extra),
+            "type": None,
+            "value": None,
+        }
+    )
+    _reseal_authored_graph(kernel, graph)
+    _assert_structured_graph_observations(kernel, graph)
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    assert not any(g.pointer.startswith(pointer) for g in inventory.uncovered)
+    scope = (vector["id"], "comparison" if right is not None else "left")
+    field_token = AuthorityToken("vector-record-field", scope, field)
+    enum_token = AuthorityToken(
+        "vector-enum-member",
+        (*scope, "field", field) if right is None else scope,
+        "value",
+    )
+    assert enum_token in inventory.tokens - inventory.reserved
+    if right is not None:
+        declarations = [
+            o
+            for o in inventory.occurrences
+            if o.token == enum_token and o.use == "declaration"
+        ]
+        assert {o.pointer for o in declarations} == {
+            pointer + f"/input/{side}/type/members/0"
+            for side in (("left", "right") if case == "equal" else ("left",))
+        }
+        selected_token = enum_token
+        renamed = {enum_token: "renamed-member"}
+        other = replace(enum_token, name="other") if case == "unequal" else None
+    else:
+        assert field_token in inventory.tokens - inventory.reserved
+        fault = next(
+            o for o in inventory.occurrences if o.pointer == pointer + "/expect/pointer"
+        )
+        assert (fault.location, fault.projection) == ("json-pointer", "1")
+        assert (
+            _json_pointer_segments(vector["expect"]["pointer"])[1] == fault.token.name
+        )
+        assert fault.token == (
+            field_token if case == "missing" else replace(field_token, name=extra)
+        )
+        assert fault.use == (
+            "reference" if case == "missing" else "unresolved-reference"
+        )
+        for changed in (
+            replace(
+                inventory,
+                occurrences=tuple(o for o in inventory.occurrences if o != fault),
+            ),
+            replace(
+                inventory,
+                occurrences=tuple(
+                    replace(o, projection="0") if o == fault else o
+                    for o in inventory.occurrences
+                ),
+            ),
+        ):
+            with pytest.raises(InventoryRefusal):
+                validate_extension_inventory(kernel, graph, changed)
+        selected_token = field_token
+        renamed = {field_token: "renamed/~field", enum_token: "renamed-member"}
+        other = replace(field_token, name=extra) if case == "extra" else None
+    # Shared comparison scope keeps equal annotations compatible and prevents
+    # unequal annotations (or an absent Record field) from being captured.
+    if other is not None:
+        renamed[other] = "renamed/~other"
+        names = {
+            t: f"renamed_{i}"
+            for i, t in enumerate(sorted(inventory.tokens - inventory.reserved))
+        }
+        names[other] = names[selected_token]
+        with pytest.raises(InventoryRefusal, match="duplicate source or target"):
+            validate_token_bijection(
+                inventory, token_bijection_from_names(inventory, names)
+            )
+    pairs = dict(
+        token_bijection_from_names(
+            inventory,
+            {**renamed, AuthorityToken("vectors", (), vector["id"]): "new-vector"},
+        )
+    )
+    assert pairs[enum_token].owner == (
+        ("new-vector", scope[1], "field", renamed[field_token])
+        if right is None
+        else ("new-vector", scope[1])
+    )
+    rows = [o for o in inventory.occurrences if o.token in renamed]
+    values = {o.pointer: renamed[o.token] for o in rows if o.location == "value"}
+    keys = {o.pointer: renamed[o.token] for o in rows if o.location == "key"}
+    for o in rows:
+        if o.location == "json-pointer":
+            segments = _json_pointer_segments(_pointer_value(graph, o.pointer))
+            segments[int(o.projection)] = renamed[o.token]
+            path = ""
+            for segment in segments:
+                path = _child(path, segment)
+            values[o.pointer] = path
+    candidate = _rewrite_positions(graph, values, keys)
+    _reseal_authored_graph(kernel, candidate)
+    _assert_structured_graph_observations(kernel, candidate)
+    after = read_extension_inventory(kernel, candidate)
+    validate_extension_inventory(kernel, candidate, after)
+    assert after.uncovered  # This slice does not waive unrelated whole-graph gaps.
+    if case == "extra":
+        # Undeclared payload strings do not acquire the field's missing-name role.
+        assert not any(
+            o.pointer.startswith(pointer + "/input/left/value/extra~1~0field/")
+            for o in inventory.occurrences
+        )

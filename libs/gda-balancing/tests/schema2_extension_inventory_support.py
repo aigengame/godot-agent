@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
+import re
 
 import jsonschema
 
@@ -88,6 +89,16 @@ def _pointer_value(graph: Any, pointer: str) -> Any:
     return value
 
 
+def _json_pointer_segments(value: str) -> list[str]:
+    """Decode exactly the Kernel's RFC6901 pointer grammar."""
+    if (
+        not isinstance(value, str)
+        or re.fullmatch(r"(?:/(?:[^~/]|~[01])*)*", value) is None
+    ):
+        raise InventoryRefusal("invalid RFC6901 pointer")
+    return [part.replace("~1", "/").replace("~0", "~") for part in value.split("/")[1:]]
+
+
 def _occurrence_value(
     graph: Any, occurrence: TokenOccurrence, formula_projections: Mapping[str, Any]
 ) -> Any:
@@ -103,6 +114,15 @@ def _occurrence_value(
         if str(index) != occurrence.projection:
             raise InventoryRefusal("noncanonical dot-path projection")
         return value.split(".")[index]
+    if occurrence.location == "json-pointer":
+        if (
+            not occurrence.projection.isdecimal()
+            or str(int(occurrence.projection)) != occurrence.projection
+        ):
+            raise InventoryRefusal("noncanonical JSON pointer projection")
+        return _json_pointer_segments(_pointer_value(graph, occurrence.pointer))[
+            int(occurrence.projection)
+        ]
     if occurrence.projection:
         raise InventoryRefusal("only Formula occurrences may have an AST projection")
     if occurrence.location == "value":
@@ -1208,7 +1228,23 @@ def _typed_context(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
     return types, constructors
 
 
-def _type_links(value, pointer, constructors, owner=None):
+def _lexical_child(owner, step, member=None):
+    if owner is None:
+        return None
+    return (*owner, step) if member is None else (*owner, step, member)
+
+
+def _typed_member_token(role, owner, lexical_owner, name):
+    if owner is not None:
+        return AuthorityToken(role, owner, name)
+    if lexical_owner is not None:
+        return AuthorityToken("vector-" + role, lexical_owner, name)
+    return None
+
+
+def _type_links(
+    value, pointer, constructors, owner=None, *, lexical_owner=None, declaration=True
+):
     law = "/meta_format/literal_typing/typed_envelope_profile/admission/nominal_type_reference"
     if not isinstance(value, dict):
         raise InventoryRefusal(f"Type reference is not an object at {pointer}")
@@ -1251,16 +1287,17 @@ def _type_links(value, pointer, constructors, owner=None):
     operator = rule["operator"]
     if operator == "enum-member":
         member = rule["members_member"]
-        if owner is None:
-            yield UncoveredRole(
-                pointer, law, "anonymous Enum scope is not yet represented"
-            )
-            return
         for i, name in enumerate(definition[member]):
+            token = _typed_member_token("enum-member", owner, lexical_owner, name)
+            if token is None:
+                yield UncoveredRole(
+                    pointer, law, "anonymous Enum scope is not yet represented"
+                )
+                return
             yield TokenOccurrence(
-                AuthorityToken("enum-member", owner, name),
+                token,
                 f"{pointer}/{member}/{i}",
-                "declaration",
+                "declaration" if declaration else "reference",
                 law,
             )
     elif operator == "bounded-list":
@@ -1268,6 +1305,8 @@ def _type_links(value, pointer, constructors, owner=None):
             definition[rule["element_member"]],
             _child(pointer, rule["element_member"]),
             constructors,
+            lexical_owner=_lexical_child(lexical_owner, "element"),
+            declaration=declaration,
         )
     elif operator == "closed-record":
         for i, field in enumerate(definition[rule["fields_member"]]):
@@ -1287,41 +1326,56 @@ def _type_links(value, pointer, constructors, owner=None):
                     law,
                     "key",
                 )
-            if owner is None:
+            name = field[rule["field_name_member"]]
+            token = _typed_member_token("record-field", owner, lexical_owner, name)
+            if token is None:
                 yield UncoveredRole(
                     fp, law, "anonymous Record scope is not yet represented"
                 )
             else:
                 yield TokenOccurrence(
-                    AuthorityToken(
-                        "record-field", owner, field[rule["field_name_member"]]
-                    ),
+                    token,
                     _child(fp, rule["field_name_member"]),
-                    "declaration",
+                    "declaration" if declaration else "reference",
                     law,
                 )
             yield from _type_links(
                 field[rule["field_type_member"]],
                 _child(fp, rule["field_type_member"]),
                 constructors,
+                lexical_owner=_lexical_child(lexical_owner, "field", name),
+                declaration=declaration,
             )
     elif operator == "canonical-ref-key":
         yield from _type_links(
             definition[rule["target_member"]],
             _child(pointer, rule["target_member"]),
             constructors,
+            lexical_owner=_lexical_child(lexical_owner, "target"),
+            declaration=declaration,
         )
     else:
         raise InventoryRefusal(f"unimplemented constructor law {operator} at {pointer}")
 
 
-def _typed_value_links(reference, value, pointer, types, constructors):
+def _typed_value_links(
+    reference,
+    value,
+    pointer,
+    types,
+    constructors,
+    *,
+    lexical_owner=None,
+    allow_unresolved=False,
+    path_roles=None,
+):
     if "package" in reference:
         selected = types.get((reference["package"], reference["id"]))
         if selected is None or "definition" not in selected:
             return  # Scalar or Kernel value has no authored nested labels.
         owner = (reference["package"], reference["id"])
         definition = selected["definition"]
+        lexical_owner = None
     else:
         definition, owner = reference, None
     selected = constructors.get(definition.get("kind"))
@@ -1330,63 +1384,100 @@ def _typed_value_links(reference, value, pointer, types, constructors):
     constructor, cp = selected
     rule, law = constructor["value_rule"], cp + "/value_rule"
     if rule["operator"] == "enum-member":
-        if owner is None:
+        if not isinstance(value, str) or not value:
+            if allow_unresolved:
+                return  # A malformed scalar is data, not a missing identifier.
+            raise InventoryRefusal(f"unknown Enum member at {pointer}")
+        token = _typed_member_token("enum-member", owner, lexical_owner, value)
+        if token is None:
             yield UncoveredRole(
                 pointer, law, "anonymous Enum value scope is unresolved"
             )
-        elif value not in definition[rule["members_member"]]:
+            return
+        absent = value not in definition[rule["members_member"]]
+        if absent and not allow_unresolved:
             raise InventoryRefusal(f"unknown Enum member at {pointer}")
-        else:
-            yield TokenOccurrence(
-                AuthorityToken("enum-member", owner, value), pointer, "reference", law
-            )
+        yield TokenOccurrence(
+            token, pointer, "unresolved-reference" if absent else "reference", law
+        )
     elif rule["operator"] == "bounded-list":
+        if not isinstance(value, list):
+            if allow_unresolved:
+                return
+            raise InventoryRefusal("typed List value is not an array")
         for i, item in enumerate(value):
+            child = _child(pointer, i)
+            if path_roles is not None:
+                path_roles[child] = None  # List position is numeric data.
             yield from _typed_value_links(
                 definition[rule["element_member"]],
                 item,
-                _child(pointer, i),
+                child,
                 types,
                 constructors,
+                lexical_owner=_lexical_child(lexical_owner, "element"),
+                allow_unresolved=allow_unresolved,
+                path_roles=path_roles,
             )
     elif rule["operator"] == "closed-record":
-        for field in definition[rule["fields_member"]]:
+        if not isinstance(value, dict):
+            if allow_unresolved:
+                return
+            raise InventoryRefusal("typed Record value is not an object")
+        fields = definition[rule["fields_member"]]
+        names = {field[rule["field_name_member"]] for field in fields}
+        for field in fields:
             name = field[rule["field_name_member"]]
-            if owner is None:
+            child = _child(pointer, name)
+            token = _typed_member_token("record-field", owner, lexical_owner, name)
+            if token is None:
                 yield UncoveredRole(
                     pointer, law, "anonymous Record value scope is unresolved"
                 )
-            else:
-                yield TokenOccurrence(
-                    AuthorityToken("record-field", owner, name),
-                    _child(pointer, name),
-                    "reference",
-                    law,
-                    "key",
-                )
+            elif path_roles is not None:
+                path_roles[child] = (token, "reference", law)
+            if name not in value and allow_unresolved:
+                continue  # The diagnostic references the existing field declaration.
+            if token is not None:
+                yield TokenOccurrence(token, child, "reference", law, "key")
             yield from _typed_value_links(
                 field[rule["field_type_member"]],
                 value[name],
-                _child(pointer, name),
+                child,
                 types,
                 constructors,
+                lexical_owner=_lexical_child(lexical_owner, "field", name),
+                allow_unresolved=allow_unresolved,
+                path_roles=path_roles,
             )
+        for extra in value.keys() - names:
+            if not allow_unresolved:
+                raise InventoryRefusal("typed Record has an undeclared field")
+            token = _typed_member_token("record-field", owner, lexical_owner, extra)
+            child = _child(pointer, extra)
+            if token is None:
+                yield UncoveredRole(
+                    child, law, "anonymous extra field scope is unresolved"
+                )
+                continue
+            if path_roles is not None:
+                path_roles[child] = (token, "unresolved-reference", law)
+            yield TokenOccurrence(token, child, "unresolved-reference", law, "key")
+            # The undeclared field's payload has no selected field type.
     elif rule["operator"] == "canonical-ref-key":
-        if set(value) != set(rule["value_members"]):
+        if not isinstance(value, dict) or set(value) != set(rule["value_members"]):
             raise InventoryRefusal(
                 "Ref value does not close its declared member addresses"
             )
         for member in rule["value_members"]:
-            yield TokenOccurrence(
-                AuthorityToken(
-                    "constructor-member", (constructor["id"], "ref-value"), member
-                ),
-                _child(pointer, member),
-                "reference",
-                law,
-                "key",
+            token = AuthorityToken(
+                "constructor-member", (constructor["id"], "ref-value"), member
             )
-        # The key's contents are canonical instance data, not a Type/Enum lookup.
+            child = _child(pointer, member)
+            if path_roles is not None:
+                path_roles[child] = (token, "reference", law)
+            yield TokenOccurrence(token, child, "reference", law, "key")
+        # Key contents remain canonical instance data, including invalid patterns.
     else:
         raise InventoryRefusal(f"unknown typed value law at {pointer}")
 
@@ -1422,8 +1513,6 @@ def _value_vector_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
     nodes = {
         row["id"]: row for row in kernel["meta_format"]["runtime_program"]["nodes"]
     }
-    envelope = kernel["meta_format"]["literal_typing"]["typed_envelope_profile"]
-    tm, vm = envelope["type_member"], envelope["value_member"]
     diagnostic_key = next(
         row["key_member"]
         for row in kernel["meta_format"]["package_release"]["semantic_closure"][
@@ -1539,137 +1628,207 @@ def _value_vector_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
                 law,
             )
             continue
-        if inp["action"] not in shape["actions"]:
-            raise InventoryRefusal("structured vector action has no Kernel law")
-        try:
-            observed = _consumer_b_evaluate_structured_value_vector(
-                vector,
-                nominal_types=list(graph["packages"]),
-                kernel=dict(kernel),
-                resource_limit=graph["ldb_root"]["resources"]["max_rule_match_steps"],
-            )
-        except (AssertionError, KeyError, TypeError, ValueError) as error:
-            raise InventoryRefusal(
-                "structured vector has no independent observation"
-            ) from error
-        if not _consumer_b_canonical_equal(observed, expect):
-            yield UncoveredRole(
-                pointer,
-                law,
-                "independent structured observation differs from the authored expectation; roles are not certified",
+        yield from _structured_vector_links(
+            kernel, graph, vector, shape, pointer, types, constructors, diagnostics
+        )
+
+
+def _structured_vector_links(
+    kernel, graph, vector, shape, pointer, types, constructors, diagnostics
+):
+    inp, expect = vector["input"], vector["expect"]
+    law = "/meta_format/package_vector/kinds/" + str(
+        kernel["meta_format"]["package_vector"]["kinds"].index(shape)
+    )
+    if inp["action"] not in shape["actions"]:
+        raise InventoryRefusal("structured vector action has no Kernel law")
+    envelope = kernel["meta_format"]["literal_typing"]["typed_envelope_profile"]
+    tm, vm = envelope["type_member"], envelope["value_member"]
+    try:
+        observed = _consumer_b_evaluate_structured_value_vector(
+            vector,
+            nominal_types=list(graph["packages"]),
+            kernel=dict(kernel),
+            resource_limit=graph["ldb_root"]["resources"]["max_rule_match_steps"],
+        )
+    except (AssertionError, KeyError, TypeError, ValueError) as error:
+        raise InventoryRefusal(
+            "structured vector has no independent observation"
+        ) from error
+    if not _consumer_b_canonical_equal(observed, expect):
+        yield UncoveredRole(
+            pointer,
+            law,
+            "independent structured observation differs from the authored expectation; roles are not certified",
+        )
+        return
+    # Structural equality compares the two annotations in one local comparison
+    # scope. A member permutation cannot split equal types or capture unequal
+    # member names into equality. Nominal references keep their attached owner.
+    lexical = (vector["id"], "comparison" if inp["action"] == "equal" else "left")
+    rows = []
+    paths: dict[str, set[tuple[AuthorityToken, str, str] | None]] = {
+        _child("", vm): {None},
+        _child("", tm): {None},
+        "/key": {None},
+        "/left": {None},
+        "/right": {None},
+        _child("/left", tm): {None},
+        _child("/right", tm): {None},
+    }
+    for member in ("left", "right"):
+        value = inp[member]
+        if member == "right" and inp["action"] != "equal":
+            if value is not None:
+                rows.append(
+                    UncoveredRole(
+                        pointer + "/input/right",
+                        law,
+                        "unused right input has no interpreted identity role",
+                    )
+                )
+            continue
+        ep = pointer + "/input/" + member
+        if not isinstance(value, dict) or set(value) != {tm, vm}:
+            rows.append(
+                UncoveredRole(ep, law, "negative envelope shape is not yet traversed")
             )
             continue
+        value_paths: dict[str, tuple[AuthorityToken, str, str] | None] = {}
         try:
-            for member in ("left", "right"):
-                value = inp[member]
-                if isinstance(value, dict) and set(value) == {tm, vm}:
-                    tuple(
-                        _type_links(
-                            value[tm],
-                            pointer + "/input/" + member + "/" + tm,
-                            constructors,
-                        )
-                    )
-            if expect["type"] is not None:
-                tuple(
-                    _type_links(expect["type"], pointer + "/expect/type", constructors)
+            rows.extend(
+                _type_links(
+                    value[tm], _child(ep, tm), constructors, lexical_owner=lexical
                 )
+            )
+            rows.extend(
+                _typed_value_links(
+                    value[tm],
+                    value[vm],
+                    _child(ep, vm),
+                    types,
+                    constructors,
+                    lexical_owner=lexical,
+                    allow_unresolved=True,
+                    path_roles=value_paths,
+                )
+            )
         except InventoryRefusal as error:
             yield UncoveredRole(pointer, law, str(error))
-            continue
-        for member in ("left", "right"):
-            value = inp[member]
-            if member == "right" and inp["action"] != "equal" and value is not None:
-                yield UncoveredRole(
-                    pointer + "/input/right",
-                    law,
-                    "unused right input has no interpreted identity role",
-                )
-                continue
-            if value is None:
-                continue
-            ep = pointer + "/input/" + member
-            if not isinstance(value, dict) or set(value) != {tm, vm}:
-                yield UncoveredRole(
-                    ep, law, "negative envelope shape is not yet traversed"
-                )
-                continue
-            yield from _type_links(value[tm], _child(ep, tm), constructors)
-            if expect["outcome"] == "admitted":
-                yield from _typed_value_links(
-                    value[tm], value[vm], _child(ep, vm), types, constructors
-                )
-            else:
-                yield UncoveredRole(
-                    _child(ep, vm),
-                    law,
-                    "negative structured payload and first-fault path are not yet traversed",
-                )
-        if inp["action"] != "lookup" and inp["key"] is not None:
-            yield UncoveredRole(
+            return
+        for address, role in value_paths.items():
+            paths.setdefault(address.removeprefix(ep), set()).add(role)
+    output_scope = lexical
+    if inp["action"] != "lookup" and inp["key"] is not None:
+        rows.append(
+            UncoveredRole(
                 pointer + "/input/key",
                 law,
                 "unused lookup input has no interpreted identity role",
             )
-        if expect["code"] is not None:
-            if expect["code"] not in diagnostics:
-                raise InventoryRefusal("structured vector diagnostic is not declared")
-            yield TokenOccurrence(
+        )
+    if inp["action"] == "lookup":
+        ref = inp["left"][tm]
+        nominal_owner = (ref["package"], ref["id"]) if "package" in ref else None
+        definition = types[nominal_owner]["definition"] if nominal_owner else ref
+        constructor, cp = constructors[definition["kind"]]
+        rule = constructor["value_rule"]
+        lookups = [
+            row
+            for _, row, _ in _authority_path_rows(
+                kernel, graph, "language_bundle.language.structured_operations"
+            )
+            if row["owner_constructor"] == constructor["id"]
+            and row["law"].get("operator") == "bounded-lookup"
+        ]
+        if len(lookups) != 1:
+            raise InventoryRefusal("structured lookup has no selected operation law")
+        selector = lookups[0]["law"]["selector"]
+        if selector == "static-field" and isinstance(inp["key"], str):
+            names = {
+                field[rule["field_name_member"]]
+                for field in definition[rule["fields_member"]]
+            }
+            token = _typed_member_token(
+                "record-field", nominal_owner, lexical, inp["key"]
+            )
+            if token is None:
+                raise InventoryRefusal("lookup field scope is unresolved")
+            rows.append(
+                TokenOccurrence(
+                    token,
+                    pointer + "/input/key",
+                    "reference" if inp["key"] in names else "unresolved-reference",
+                    cp + "/value_rule",
+                )
+            )
+            output_scope = (
+                None if nominal_owner else _lexical_child(lexical, "field", inp["key"])
+            )
+        elif selector == "local-index":
+            output_scope = None if nominal_owner else _lexical_child(lexical, "element")
+        elif expect["outcome"] == "admitted":
+            raise InventoryRefusal("admitted lookup key does not close its selector")
+    if expect["type"] is not None:
+        rows.extend(
+            _type_links(
+                expect["type"],
+                pointer + "/expect/type",
+                constructors,
+                lexical_owner=output_scope,
+                declaration=False,
+            )
+        )
+        rows.extend(
+            _typed_value_links(
+                expect["type"],
+                expect["value"],
+                pointer + "/expect/value",
+                types,
+                constructors,
+                lexical_owner=output_scope,
+            )
+        )
+    if expect["code"] is not None:
+        if expect["code"] not in diagnostics:
+            raise InventoryRefusal("structured vector diagnostic is not declared")
+        rows.append(
+            TokenOccurrence(
                 AuthorityToken("diagnostics", (), expect["code"]),
                 pointer + "/expect/code",
                 "reference",
                 law,
             )
-            yield UncoveredRole(
-                pointer + "/expect/pointer",
-                law,
-                "negative structured diagnostic path is not yet traversed",
-            )
-            continue
-        yield from _type_links(expect["type"], pointer + "/expect/type", constructors)
-        yield from _typed_value_links(
-            expect["type"],
-            expect["value"],
-            pointer + "/expect/value",
-            types,
-            constructors,
         )
-        if inp["action"] == "lookup" and isinstance(inp["key"], str):
-            ref = inp["left"][tm]
-            if set(ref) != {"package", "id"}:
-                yield UncoveredRole(
-                    pointer + "/input/key",
-                    law,
-                    "anonymous Record lookup ownership is not yet represented",
+        if kernel["meta_format"]["json_pointer"]["encoding"] != "RFC6901":
+            raise InventoryRefusal("unsupported diagnostic pointer encoding")
+        path = ""
+        for index, member in enumerate(_json_pointer_segments(expect["pointer"])):
+            path = _child(path, member)
+            matches = paths.get(path, set())
+            if len(matches) != 1:
+                rows.append(
+                    UncoveredRole(
+                        pointer + "/expect/pointer",
+                        law,
+                        "diagnostic path has no unique interpreted value-field role",
+                    )
                 )
-                continue
-            definition = types[(ref["package"], ref["id"])]["definition"]
-            constructor, cp = constructors[definition["kind"]]
-            rule = constructor["value_rule"]
-            lookups = [
-                row
-                for _, row, _ in _authority_path_rows(
-                    kernel, graph, "language_bundle.language.structured_operations"
+                break
+            role = next(iter(matches))
+            if role is not None:
+                token, use, selected_law = role
+                rows.append(
+                    TokenOccurrence(
+                        token,
+                        pointer + "/expect/pointer",
+                        use,
+                        selected_law,
+                        "json-pointer",
+                        str(index),
+                    )
                 )
-                if row["owner_constructor"] == constructor["id"]
-                and row["law"].get("operator") == "bounded-lookup"
-            ]
-            if len(lookups) != 1 or lookups[0]["law"].get("selector") != "static-field":
-                raise InventoryRefusal("structured lookup key has no static field law")
-            names = {
-                field[rule["field_name_member"]]
-                for field in definition[rule["fields_member"]]
-            }
-            if inp["key"] not in names:
-                raise InventoryRefusal(
-                    "admitted lookup does not reference a declared field"
-                )
-            yield TokenOccurrence(
-                AuthorityToken("record-field", (ref["package"], ref["id"]), inp["key"]),
-                pointer + "/input/key",
-                "reference",
-                cp + "/value_rule",
-            )
+    yield from rows
 
 
 class _Reader:
@@ -3750,7 +3909,12 @@ class _Reader:
                 self.uncovered.add(row)
             else:
                 self.occurrence(
-                    row.token, row.pointer, row.use, row.law, location=row.location
+                    row.token,
+                    row.pointer,
+                    row.use,
+                    row.law,
+                    location=row.location,
+                    projection=row.projection,
                 )
         self.contract_vectors()
         declarations = {o.token for o in self.occurrences if o.use == "declaration"}
@@ -3812,6 +3976,11 @@ def validate_inventory_occurrences(
         for token, pointer, use, _ in _reason_vector_links(kernel, graph)
         if use == "unresolved-reference"
     }
+    expected_free.update(
+        (row.token, row.pointer, row.use, row.location, row.projection)
+        for row in _value_vector_links(kernel, graph)
+        if isinstance(row, TokenOccurrence) and row.use == "unresolved-reference"
+    )
     actual_free = {row for row in positions if row[2] == "unresolved-reference"}
     if expected_free != actual_free:
         raise InventoryRefusal(
@@ -4343,6 +4512,12 @@ def validate_extension_inventory(
     if not vector_observed_positions <= vector_expected:
         raise InventoryRefusal(
             "value vector occurrence has no interpreted identity role"
+        )
+    if any(
+        row[3] == "json-pointer" and row not in vector_expected for row in vector_actual
+    ):
+        raise InventoryRefusal(
+            "json-pointer occurrence has no declared path projection"
         )
     vector_positions = {row[1:] for row in vector_expected}
     if any(
@@ -5028,6 +5203,33 @@ def _renamed_owner(
 
     if not token.owner:
         return ()
+    if token.role in {"vector-enum-member", "vector-record-field"}:
+        if len(token.owner) < 2 or token.owner[1] not in {"comparison", "left"}:
+            raise InventoryRefusal("unknown anonymous Type scope")
+        original = token.owner[:2]
+        transported = (
+            name(AuthorityToken("vectors", (), token.owner[0])),
+            token.owner[1],
+        )
+        i = 2
+        while i < len(token.owner):
+            step = token.owner[i]
+            if step in {"element", "target"}:
+                original, transported = (*original, step), (*transported, step)
+                i += 1
+            elif step == "field" and i + 1 < len(token.owner):
+                field = token.owner[i + 1]
+                renamed = name(AuthorityToken("vector-record-field", original, field))
+                original, transported = (
+                    (*original, "field", field),
+                    (*transported, "field", renamed),
+                )
+                i += 2
+            else:
+                raise InventoryRefusal(
+                    "anonymous Type owner has an unknown structural step"
+                )
+        return transported
     if token.role in {"vector-local", "vector-site"}:
         return (name(AuthorityToken("vectors", (), token.owner[0])),)
     if token.role == "rule-variable":
