@@ -2,7 +2,7 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-combat-cast.multi-time-companion",
   "model": {
-    "rir_semantic_identity": "sha256:58f77ca141165c5085246e4d72b5919161f3911e7b30b34b2b6e7484b2410656"
+    "rir_semantic_identity": "sha256:de47109c873a562818ea0f3bb2a53daa3e47f3406796332fb38a2079e942dd58"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",

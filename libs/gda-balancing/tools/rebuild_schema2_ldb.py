@@ -22,9 +22,9 @@ def _identity(domain: str, artifact: dict[str, Any]) -> str:
 
 
 def _semantic_identity(
-    package: dict[str, Any], domain: str, projection: dict[str, Any]
+    package: dict[str, Any], domain: str, kernel: dict[str, Any]
 ) -> str:
-    selected = package_runtime_semantic_closure(package, projection)
+    selected = package_runtime_semantic_closure(package, kernel)
     return content_identity(domain, cast(JsonValue, selected))
 
 
@@ -143,9 +143,6 @@ def _build(
         raise ValueError("the LDB root has no package descriptors")
 
     package_dir = authority_dir / "packages"
-    semantic_projection = kernel["meta_format"]["package_release"][
-        "semantic_identity_projection"
-    ]
     namespace_contract = _namespace_contract(kernel)
     declared_namespaces = [
         _validate_namespace(
@@ -241,7 +238,7 @@ def _build(
             "content_identity": vector_set["content_identity"],
         }
         package["semantic_identity"] = _semantic_identity(
-            package, semantic_domain, semantic_projection
+            package, semantic_domain, kernel
         )
         package["content_identity"] = _identity(package_domain, package)
         packages.append(package)

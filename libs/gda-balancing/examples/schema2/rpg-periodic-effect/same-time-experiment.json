@@ -2,7 +2,7 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-periodic-effect.same-time",
   "model": {
-    "rir_semantic_identity": "sha256:07b658003cb92f3b297c8c73ef9ab2462978811c07084aa49308dee70be67928"
+    "rir_semantic_identity": "sha256:d5e53250f6400c951053ec7ea1bbcb9f1c125788b6cf830f9e8a590d4ec81c91"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",
