@@ -10258,58 +10258,101 @@ def _graph_metrics(ldb: LanguageBundleIndex) -> dict[str, int]:
 def _consumer_b_evaluate_structured_value_vector(
     vector: dict[str, Any],
     *,
-    nominal_types: list[dict[str, Any]],
-    kernel: dict[str, Any],
+    nominal_types: list[dict[str, Any]] | None = None,
+    kernel: dict[str, Any] | None = None,
     resource_limit: int,
+    selected_semantics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Execute a structured-value vector without production value helpers."""
-    reasons = {}
-    for package in nominal_types:
-        for entry in package.get("semantic_closure", []):
-            if entry.get("authority_path") != "language.reasons":
-                continue
-            for reason in entry["definitions"]:
-                assert reason["id"] not in reasons
-                reasons[reason["id"]] = reason
-    constructors = {
-        constructor["id"]: constructor
-        for package in nominal_types
-        for entry in package.get("semantic_closure", [])
-        if entry.get("authority_path") == "language.constructors"
-        for constructor in entry.get("definitions", [])
-    }
-    definitions = {
-        (package["id"], exported["id"]): exported
-        for package in nominal_types
-        for exported in package.get("exports", {}).get("types", [])
-    }
-    for package in nominal_types:
-        for entry in package.get("semantic_closure", []):
-            if entry.get("authority_path") != "language.nominal_types":
-                continue
-            for definition in entry.get("definitions", []):
-                key = (package["id"], definition["id"])
-                if key not in definitions:
-                    raise AssertionError("nominal definition has no exported type")
-                definitions[key] = definition
-    structured_operations = {
-        operation["id"]: operation
-        for package in nominal_types
-        for entry in package.get("semantic_closure", [])
-        if entry.get("authority_path") == "language.structured_operations"
-        for operation in entry.get("definitions", [])
-    }
-    typed_profiles = [
-        profile
-        for package in nominal_types
-        for entry in package.get("semantic_closure", [])
-        if entry.get("authority_path") == "language.literal_typing_profiles"
-        for profile in entry.get("definitions", [])
-        if profile.get("source_kind") == "typed-envelope"
-        and profile.get("value_kind") == "nominal-structured"
-    ]
-    runtime = kernel["meta_format"]["runtime_program"]
-    typed_contract = kernel["meta_format"]["literal_typing"]["typed_envelope_profile"]
+    """Execute one independent value judgment from exactly one admitted input view."""
+    if selected_semantics is not None:
+        if nominal_types is not None or kernel is not None:
+            raise ValueError(
+                "select RIR semantics or package authority inputs, not both"
+            )
+        reasons = {
+            row["definition"]["id"]: row["definition"]
+            for row in selected_semantics["diagnostic_reasons"]
+        }
+        constructors = {row["id"]: row for row in selected_semantics["constructors"]}
+        definitions = {
+            (row["package"], row["id"]): row for row in selected_semantics["types"]
+        }
+        for row in selected_semantics["nominal_types"]:
+            definition = row["definition"]
+            key = (row["package"], definition["id"])
+            if key not in definitions:
+                raise AssertionError("nominal definition has no exported type")
+            if definitions[key]["constructor"] != definition["constructor"]:
+                raise AssertionError(
+                    "nominal definition constructor differs from its type"
+                )
+            definitions[key] = definition
+        structured_operations = {
+            (row["package"], row["definition"]["id"]): row["definition"]
+            for row in selected_semantics["structured_operations"]
+        }
+        typed_profiles = [
+            row["definition"]
+            for row in selected_semantics["literal_typing_profiles"]
+            if row["definition"].get("source_kind") == "typed-envelope"
+            and row["definition"].get("value_kind") == "nominal-structured"
+        ]
+        runtime = selected_semantics["execution_laws"]["runtime_program"]
+        typed_contract = selected_semantics["execution_laws"]["typed_envelope_profile"]
+    else:
+        if nominal_types is None or kernel is None:
+            raise ValueError(
+                "package authority input requires both nominal types and Kernel"
+            )
+        reasons = {}
+        for package in nominal_types:
+            for entry in package.get("semantic_closure", []):
+                if entry.get("authority_path") != "language.reasons":
+                    continue
+                for reason in entry["definitions"]:
+                    assert reason["id"] not in reasons
+                    reasons[reason["id"]] = reason
+        constructors = {
+            constructor["id"]: constructor
+            for package in nominal_types
+            for entry in package.get("semantic_closure", [])
+            if entry.get("authority_path") == "language.constructors"
+            for constructor in entry.get("definitions", [])
+        }
+        definitions = {
+            (package["id"], exported["id"]): exported
+            for package in nominal_types
+            for exported in package.get("exports", {}).get("types", [])
+        }
+        for package in nominal_types:
+            for entry in package.get("semantic_closure", []):
+                if entry.get("authority_path") != "language.nominal_types":
+                    continue
+                for definition in entry.get("definitions", []):
+                    key = (package["id"], definition["id"])
+                    if key not in definitions:
+                        raise AssertionError("nominal definition has no exported type")
+                    definitions[key] = definition
+        structured_operations = {
+            operation["id"]: operation
+            for package in nominal_types
+            for entry in package.get("semantic_closure", [])
+            if entry.get("authority_path") == "language.structured_operations"
+            for operation in entry.get("definitions", [])
+        }
+        typed_profiles = [
+            profile
+            for package in nominal_types
+            for entry in package.get("semantic_closure", [])
+            if entry.get("authority_path") == "language.literal_typing_profiles"
+            for profile in entry.get("definitions", [])
+            if profile.get("source_kind") == "typed-envelope"
+            and profile.get("value_kind") == "nominal-structured"
+        ]
+        runtime = kernel["meta_format"]["runtime_program"]
+        typed_contract = kernel["meta_format"]["literal_typing"][
+            "typed_envelope_profile"
+        ]
     if len(typed_profiles) != 1 or typed_profiles[0] != {
         "admission": typed_contract["admission"],
         "id": typed_contract["id"],

@@ -335,3 +335,79 @@ def test_reference_runtime_declines_unimplemented_input_phase(independent_fold):
     )
     with pytest.raises(IndependentRuntimeUnsupported, match="only transition roots"):
         reference_runtime_artifacts(context, rir, specification)
+
+
+@pytest.mark.parametrize(
+    "payload, admitted",
+    [([], True), ([1, 2, 3, 4], True), ([1, 2, 3, 4, 5], False), ([True], False)],
+)
+def test_independent_structured_input_uses_selected_rir_closure(
+    independent_fold, payload, admitted
+):
+    from schema2_bootstrap_conformance_support import (
+        _consumer_b_evaluate_structured_value_vector,
+    )
+
+    _, _, rir = independent_fold
+    result = _consumer_b_evaluate_structured_value_vector(
+        {
+            "input": {
+                "action": "admit",
+                "key": None,
+                "left": {
+                    "type": {
+                        "package": "standard.conformance.structured",
+                        "id": "IntList4",
+                    },
+                    "value": payload,
+                },
+                "right": None,
+                "limit": None,
+            }
+        },
+        selected_semantics=rir["selected_semantics"],
+        resource_limit=1024,
+    )
+    assert (result["outcome"] == "admitted") is admitted
+
+
+@pytest.mark.parametrize("missing", ["owner", "typed-profile"])
+def test_independent_selected_type_admission_rejects_incomplete_closure(
+    independent_fold, missing
+):
+    from schema2_bootstrap_conformance_support import (
+        _consumer_b_evaluate_structured_value_vector,
+    )
+
+    _, _, rir = independent_fold
+    selected = deepcopy(rir["selected_semantics"])
+    if missing == "owner":
+        selected["nominal_types"][0]["package"] = "undeclared.owner"
+    else:
+        selected["literal_typing_profiles"] = [
+            row
+            for row in selected["literal_typing_profiles"]
+            if row["definition"]["source_kind"] != "typed-envelope"
+        ]
+    with pytest.raises(
+        AssertionError, match="nominal definition|typed-envelope authority"
+    ):
+        _consumer_b_evaluate_structured_value_vector(
+            {
+                "input": {
+                    "action": "admit",
+                    "key": None,
+                    "left": {
+                        "type": {
+                            "package": "standard.conformance.structured",
+                            "id": "IntList4",
+                        },
+                        "value": [],
+                    },
+                    "right": None,
+                    "limit": None,
+                }
+            },
+            selected_semantics=selected,
+            resource_limit=1024,
+        )

@@ -64,6 +64,7 @@ def _build_identity():
     for name in (
         "schema2_runtime_independent_support.py",
         "schema2_operation_execution_independent_support.py",
+        "schema2_bootstrap_conformance_support.py",
         "test_schema2_model_lowerer_conformance.py",
     ):
         content = Path(__file__).with_name(name).read_bytes()
