@@ -380,3 +380,135 @@ def test_source_address_ownership_requires_the_complete_fixed_transport(
     ]["source_fact_transport"][member]
     with pytest.raises(InventoryRefusal, match="transport law is unsupported"):
         _links(changed, graph)
+
+
+def test_branch_only_source_member_cannot_escape_initial_fact_ownership():
+    # Spec's exact candidate: keep the real Source key and its oneOf
+    # declarations, removing only the duplicate top-level property declaration.
+    from test_source_fact_transport import _definitions
+    import jsonschema
+
+    kernel, graph, source, _ = _fixture("extra")
+    candidate = {**_authored(graph), "source": source}
+    schema = next(
+        row["schema"]
+        for row in _definitions(candidate, "language.wire_schemas")
+        if row.get("protocol_role") == "model-source-package"
+    )
+    symbol = schema["properties"]["modules"]["items"]["properties"]["symbols"]["items"]
+    del symbol["properties"]["unowned_fact_field"]
+    sealed = _graph(kernel, candidate)
+    before = canonical_bytes(candidate)
+    assert not list(jsonschema.Draft202012Validator(schema).iter_errors(source))
+    a, b = _consumer_a(kernel, sealed), _consumer_b(kernel, sealed)
+    assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
+    with pytest.raises(
+        InventoryRefusal, match="Source copy has no initial Fact field owner"
+    ):
+        read_extension_inventory(kernel, candidate)
+    assert canonical_bytes(candidate) == before
+
+
+def test_branch_only_declared_fact_field_retains_real_selector_ownership(witness):
+    from test_source_fact_transport import _definitions
+    import jsonschema
+
+    kernel, original, _ = witness
+    candidate = deepcopy(original)
+    schema = next(
+        row["schema"]
+        for row in _definitions(candidate, "language.wire_schemas")
+        if row.get("protocol_role") == "model-source-package"
+    )
+    symbol = schema["properties"]["modules"]["items"]["properties"]["symbols"]["items"]
+    domain = symbol["properties"].pop("domain")
+    symbol["oneOf"][0]["properties"]["domain"] = domain
+    sealed = _graph(kernel, candidate)
+    before = canonical_bytes(candidate)
+    assert not list(
+        jsonschema.Draft202012Validator(schema).iter_errors(candidate["source"])
+    )
+    a, b = _consumer_a(kernel, sealed), _consumer_b(kernel, sealed)
+    assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
+    context = admit_authority_context(kernel, _index(kernel, sealed))
+    assert isinstance(context, AdmittedAuthorityContext)
+    assert isinstance(
+        check_model_source_value(candidate["source"], authority_context=context),
+        CheckedModel,
+    )
+    inventory = read_extension_inventory(kernel, candidate)
+    validate_extension_inventory(kernel, candidate, inventory)
+    owned = next(
+        t for t in inventory.reserved if t.role == "source-field" and t.name == "domain"
+    )
+    links = [o for o in inventory.occurrences if o.token == owned]
+    assert any("/oneOf/0/properties/domain" in o.pointer for o in links)
+    assert any(o.pointer.endswith("/selector/4") for o in links)
+    assert any(o.pointer.startswith("/source/") for o in links)
+    assert canonical_bytes(candidate) == before
+    assert inventory.uncovered == witness[2].uncovered
+
+
+@pytest.mark.parametrize(
+    "names",
+    [{"symbol": "type", "type": "symbol"}, {"symbol": "type", "type": "opaque_type"}],
+    ids=["swap-symbol-type", "symbol-name-as-type"],
+)
+def test_profile_input_roles_survive_symbol_and_type_name_exchange(
+    witness, tmp_path, names
+):
+    from gda_balancing.domain.model._compilation import lower_checked_model
+    from gda_balancing.domain.model._resolution import ModelSourceContext
+    from test_schema2_model_lowerer_conformance import _reference_check_source
+
+    kernel, original, inventory = witness
+    targets = {
+        t: names[t.name]
+        for t in inventory.tokens
+        if t.role == "source-field" and t.name in names and "symbols" in t.owner
+    }
+    expected = []
+    candidate = _scoped_rename(original, inventory, targets)
+    for graph in (deepcopy(original), candidate):
+        sealed = _graph(kernel, graph)
+        a, b = _consumer_a(kernel, sealed), _consumer_b(kernel, sealed)
+        assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
+        index = _index(kernel, sealed)
+        context = admit_authority_context(kernel, index)
+        assert isinstance(context, AdmittedAuthorityContext)
+        checked = check_model_source_value(graph["source"], authority_context=context)
+        assert isinstance(checked, CheckedModel), checked
+        assert isinstance(
+            _reference_check_source(graph["source"], kernel, index), ModelSourceContext
+        )
+        expected.append(
+            lower_checked_model(checked)["rir-semantic-payload"]["semantic_identity"]
+        )
+    assert expected[0] == expected[1]
+    public = _PublicCandidate(tmp_path, authorities=(kernel, sealed))
+    public.write_source(candidate["source"])
+    public.cli("model", "check", str(public.source))
+    observed = read_extension_inventory(kernel, candidate)
+    validate_extension_inventory(kernel, candidate, observed)
+    assert observed.uncovered == inventory.uncovered
+    # Reverse validation already assigns these inputs their profile roles;
+    # co-mutate each same-spelling input to the other valid role and require refusal.
+    inputs = [
+        o
+        for o in observed.occurrences
+        if o.pointer.startswith("/source/modules/0/symbols/0/")
+        and o.location == "value"
+        and o.token.role in {"source-symbol", "source-type-alias"}
+    ]
+    assert {o.token.role for o in inputs} == {"source-symbol", "source-type-alias"}
+    assert len(inputs) == 2 and inputs[0].token.name == inputs[1].token.name
+    for i, occurrence in enumerate(inputs):
+        wrong = replace(occurrence, token=inputs[1 - i].token)
+        forged = replace(
+            observed,
+            occurrences=tuple(
+                wrong if o == occurrence else o for o in observed.occurrences
+            ),
+        )
+        with pytest.raises(InventoryRefusal, match="missing or incorrectly owned"):
+            validate_extension_inventory(kernel, candidate, forged)

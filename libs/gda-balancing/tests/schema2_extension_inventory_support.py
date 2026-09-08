@@ -745,15 +745,51 @@ def _source_address_links(
             for i, item in enumerate(value):
                 yield from source_keys(item, address[1:], _child(path, i))
 
+    def same_instance_schemas(value: Any, path: tuple[str | int, ...]):
+        # Applicators retain the instance owner. A properties/items child does
+        # not: it is reached only by an explicit step in the selected address.
+        if not isinstance(value, dict):
+            return
+        yield value, path
+        for applicator in ("oneOf", "anyOf", "allOf"):
+            for index, branch in enumerate(value.get(applicator, [])):
+                yield from same_instance_schemas(branch, (*path, applicator, index))
+
+    def address_schemas(address: tuple[str | int, ...]):
+        selected = [(source["schema"], ())]
+        index = 0
+        while index < len(address):
+            step = address[index]
+            if step == "properties":
+                member = address[index + 1]
+                selected = [
+                    (schema["properties"][member], (*path, "properties", member))
+                    for value, parent in selected
+                    for schema, path in same_instance_schemas(value, parent)
+                    if member in schema.get("properties", {})
+                ]
+                index += 2
+            elif step == "items":
+                selected = [
+                    (schema["items"], (*path, "items"))
+                    for value, parent in selected
+                    for schema, path in same_instance_schemas(value, parent)
+                    if isinstance(schema.get("items"), dict)
+                ]
+                index += 1
+            else:
+                raise InventoryRefusal(
+                    "Source schema address has an unknown structural step"
+                )
+        return [
+            (schema, path)
+            for value, parent in selected
+            for schema, path in same_instance_schemas(value, parent)
+        ]
+
     def schema_links(address: tuple[str | int, ...], selected_law: str):
         selected = token(address)
-        parent = address[:-2]
-
-        def same_object(value: Any, path: tuple[str | int, ...]):
-            # These applicators keep the instance location. In particular, do
-            # not walk properties' values: their payload has a different owner.
-            if not isinstance(value, dict):
-                return
+        for value, path in address_schemas(address[:-2]):
             if selected.name in value.get("properties", {}):
                 yield (
                     selected,
@@ -775,13 +811,6 @@ def _source_address_links(
                         "",
                         selected_law,
                     )
-            for applicator in ("oneOf", "anyOf", "allOf"):
-                for index, branch in enumerate(value.get(applicator, [])):
-                    yield from same_object(branch, (*path, applicator, index))
-
-        yield from same_object(
-            _pointer_value(source["schema"], pointer("", parent)), parent
-        )
         if graph.get("source"):
             for path in source_keys(graph["source"], address, "/source"):
                 yield selected, path, "reference", "key", "", selected_law
@@ -875,7 +904,11 @@ def _source_address_links(
             raise InventoryRefusal(
                 "Source adapter fields do not have distinct Symbol owners"
             )
-        symbol_schema = _pointer_value(source["schema"], pointer("", symbol_object))
+        symbol_members = {
+            member
+            for schema, _ in address_schemas(symbol_object)
+            for member in schema.get("properties", {})
+        }
         lowerings = [
             (lowering, lp)
             for _, lowering, lp in _authority_path_rows(
@@ -910,7 +943,7 @@ def _source_address_links(
                 "type_identity",
                 "value_kind",
             }
-            for member in symbol_schema["properties"]:
+            for member in sorted(symbol_members):
                 address = (*symbol_object, "properties", member)
                 if address in (symbol_address, type_address):
                     continue
@@ -931,18 +964,26 @@ def _source_address_links(
             # '*' selects array items; it is syntax, not a free Source field.
             address = prefix
             for index, segment in enumerate(parts):
-                current = _pointer_value(source["schema"], pointer("", address))
+                current = [schema for schema, _ in address_schemas(address)]
                 if segment == "*":
-                    if current.get("type") != "array" or not isinstance(
-                        current.get("items"), dict
+                    if not any(
+                        schema.get("type") == "array"
+                        and isinstance(schema.get("items"), dict)
+                        for schema in current
+                    ) or any(
+                        schema.get("type") not in (None, "array") for schema in current
                     ):
                         raise InventoryRefusal(
                             "Source selector wildcard has no array item owner"
                         )
                     address = (*address, "items")
                 else:
-                    if current.get("type") != "object" or segment not in current.get(
-                        "properties", {}
+                    if not any(
+                        schema.get("type") == "object"
+                        and segment in schema.get("properties", {})
+                        for schema in current
+                    ) or any(
+                        schema.get("type") not in (None, "object") for schema in current
                     ):
                         raise InventoryRefusal(
                             "Source selector has an unknown Schema member"
@@ -3889,7 +3930,11 @@ class _Reader:
                     {
                         k: v
                         for k, v in symbol.items()
-                        if k != source_profile["symbol_type_member"]
+                        if k
+                        not in {
+                            source_profile["symbol_name_member"],
+                            source_profile["symbol_type_member"],
+                        }
                     },
                     sp,
                 )
