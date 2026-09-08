@@ -1,0 +1,1489 @@
+{
+  "issue": 878,
+  "base": "73b1275aa442d81b654df37b7e8511dbb558e242",
+  "implementation_head": "1768c8bbd73c33deccbf244cf385c955021adc59",
+  "scope": "RIR fixed protocol ownership, independent schema derivation and physical authored-graph inventory. This is not complete #878 acceptance.",
+  "deletions": [
+    "Authored RIR wire Schema body",
+    "Authored RIR structural semantic-identity projection",
+    "Runtime-projection collection output_member and output_shape",
+    "Two fixed package output recipes",
+    "Model lowering output_member",
+    "Redundant source-to-independent-output assignability checker and its output-typing law"
+  ],
+  "retained_owners": [
+    "Actual Source selectors, default Resolution profile and reciprocal Model lowering binding",
+    "Selected terminal Fact contracts and actual semantic collection source roles",
+    "Assignment/composition policies, rules, nominal types and numeric/resource/refusal semantics",
+    "Common artifact envelope, Formula reference, RNG/resolved-symbol and package closure member laws"
+  ],
+  "kernel": "sha256:e01262748043b1c7ccdaebe67c3d65c4c68a8ee5e515355042dfc69037fa8c2b",
+  "ldb": "sha256:9d2b3fa481d357db1533178ec6245222d418ce8d910aae22a04631d3ce56e90a",
+  "kernel_transport_bytes": 153546,
+  "kernel_transport_limit": 262144,
+  "kernel_change": "Canonical transport formatting replaces the prior pretty representation under the unchanged limit. Parsed semantic changes are recorded separately; raw line reduction is not semantic deletion evidence.",
+  "kernel_parsed_changes": [
+    {
+      "path": "/content_identity",
+      "action": "changed",
+      "before": "sha256:b27ab67f832e27cba28b1214001e8280f3a496b520b4ae86650d53408f138abc",
+      "after": "sha256:e01262748043b1c7ccdaebe67c3d65c4c68a8ee5e515355042dfc69037fa8c2b"
+    },
+    {
+      "path": "/meta_format/language_definitions/collections/artifact_wire_schemas/field_types/schema/allowed_keywords",
+      "action": "changed",
+      "before": [
+        "$schema",
+        "const",
+        "enum",
+        "items",
+        "maxLength",
+        "minItems",
+        "minLength",
+        "pattern",
+        "properties",
+        "required",
+        "type",
+        "unevaluatedProperties",
+        "oneOf",
+        "anyOf"
+      ],
+      "after": [
+        "$schema",
+        "const",
+        "enum",
+        "items",
+        "maxLength",
+        "minItems",
+        "minLength",
+        "pattern",
+        "properties",
+        "required",
+        "type",
+        "unevaluatedProperties",
+        "oneOf",
+        "anyOf",
+        "minimum",
+        "maximum",
+        "uniqueItems"
+      ]
+    },
+    {
+      "path": "/meta_format/language_definitions/collections/artifact_wire_schemas/field_types/schema/keyword_type_requirements/maximum",
+      "action": "added",
+      "canonical_bytes": 21,
+      "sha256": "8293335c5d9c20d4f327ea2cefa0c8945bfd28e786cfc167ab0f11db44b1546f"
+    },
+    {
+      "path": "/meta_format/language_definitions/collections/artifact_wire_schemas/field_types/schema/keyword_type_requirements/minimum",
+      "action": "added",
+      "canonical_bytes": 21,
+      "sha256": "8293335c5d9c20d4f327ea2cefa0c8945bfd28e786cfc167ab0f11db44b1546f"
+    },
+    {
+      "path": "/meta_format/language_definitions/collections/artifact_wire_schemas/field_types/schema/keyword_type_requirements/uniqueItems",
+      "action": "added",
+      "canonical_bytes": 10,
+      "sha256": "7d40348306b084ab27a3a020e6766379735e8a146612d4482f031d5473f89d42"
+    },
+    {
+      "path": "/meta_format/language_definitions/collections/model_lowerings/field_types/output_member",
+      "action": "removed",
+      "canonical_bytes": 28,
+      "sha256": "2d6bcf883cfe0c41e65c6e19dd2323dfff249b7059891ef593a107cb5476d35c"
+    },
+    {
+      "path": "/meta_format/language_definitions/collections/model_lowerings/required_members",
+      "action": "changed",
+      "before": [
+        "id",
+        "admission_reason",
+        "source_selector",
+        "initial_fact_kind",
+        "rule_chain",
+        "runtime_projection",
+        "output_member",
+        "output_equalities",
+        "resolution_profile",
+        "assignment_policy",
+        "composition_policy",
+        "structured_initial_fact_kind",
+        "structured_rule_chain"
+      ],
+      "after": [
+        "id",
+        "admission_reason",
+        "source_selector",
+        "initial_fact_kind",
+        "rule_chain",
+        "runtime_projection",
+        "output_equalities",
+        "resolution_profile",
+        "assignment_policy",
+        "composition_policy",
+        "structured_initial_fact_kind",
+        "structured_rule_chain"
+      ]
+    },
+    {
+      "path": "/meta_format/language_definitions/wire_schema_protocol_roles/artifact_envelope",
+      "action": "added",
+      "canonical_bytes": 288,
+      "sha256": "dab926dd41e82e23af3faa3aad563aef6501d543ac115768332ba1bc883efadd"
+    },
+    {
+      "path": "/meta_format/language_definitions/wire_schema_protocol_roles/derived_schema_order",
+      "action": "added",
+      "canonical_bytes": 150,
+      "sha256": "570b8cc186d75899870c8b24a978d393d097dd77cfa9f50c172bfc3504e2d29f"
+    },
+    {
+      "path": "/meta_format/language_definitions/wire_schema_protocol_roles/formula_reference",
+      "action": "added",
+      "canonical_bytes": 232,
+      "sha256": "51836b4305b531033532a4dfde4c629122ca688c66a3a23de984e8fef735e3b3"
+    },
+    {
+      "path": "/meta_format/language_definitions/wire_schema_protocol_roles/rir_structure",
+      "action": "added",
+      "canonical_bytes": 12391,
+      "sha256": "ed03ed552b23fed12243e71dca98cef80982173c07a602bc55afa5162baae781"
+    },
+    {
+      "path": "/meta_format/language_definitions/wire_schema_protocol_roles/trace_structure/envelope/field_types/artifact_version",
+      "action": "removed",
+      "canonical_bytes": 18,
+      "sha256": "9c08bb8f78bc9aa1a720a3451f0b415d2f2c532b2b7261691edc39b941275a24"
+    },
+    {
+      "path": "/meta_format/language_definitions/wire_schema_protocol_roles/trace_structure/envelope/field_types/content_identity",
+      "action": "removed",
+      "canonical_bytes": 28,
+      "sha256": "2d6bcf883cfe0c41e65c6e19dd2323dfff249b7059891ef593a107cb5476d35c"
+    },
+    {
+      "path": "/meta_format/language_definitions/wire_schema_protocol_roles/trace_structure/envelope/field_types/wire_schema_identity",
+      "action": "removed",
+      "canonical_bytes": 28,
+      "sha256": "2d6bcf883cfe0c41e65c6e19dd2323dfff249b7059891ef593a107cb5476d35c"
+    },
+    {
+      "path": "/meta_format/language_definitions/wire_schema_protocol_roles/trace_structure/envelope/required_members",
+      "action": "changed",
+      "before": [
+        "artifact_kind",
+        "artifact_version",
+        "wire_schema_identity",
+        "experiment_identity",
+        "resolved_runtime_profile_identity",
+        "scenario",
+        "events",
+        "content_identity",
+        "root_event_map",
+        "terminal_statuses"
+      ],
+      "after": [
+        "experiment_identity",
+        "resolved_runtime_profile_identity",
+        "scenario",
+        "events",
+        "root_event_map",
+        "terminal_statuses"
+      ]
+    },
+    {
+      "path": "/meta_format/language_definitions/wire_schema_protocol_roles/trace_structure/event/field_types/formula_evaluations/items/field_types/formula",
+      "action": "removed",
+      "canonical_bytes": 232,
+      "sha256": "51836b4305b531033532a4dfde4c629122ca688c66a3a23de984e8fef735e3b3"
+    },
+    {
+      "path": "/meta_format/runtime_projection/collection/required_members",
+      "action": "changed",
+      "before": [
+        "id",
+        "source",
+        "output_member",
+        "output_shape"
+      ],
+      "after": [
+        "id",
+        "source"
+      ]
+    },
+    {
+      "path": "/meta_format/runtime_projection/output_kinds",
+      "action": "removed",
+      "canonical_bytes": 51,
+      "sha256": "005d8e8943dd8a6cf02b104aff6cdbb787550929704f1a89889fc979836fdc10"
+    },
+    {
+      "path": "/meta_format/runtime_projection/output_shapes",
+      "action": "removed",
+      "canonical_bytes": 59,
+      "sha256": "3c4c794dc6484e791539139e619739d2c4ce80da9b6f91ed06e2179b58ca0a71"
+    },
+    {
+      "path": "/meta_format/runtime_projection/output_typing",
+      "action": "removed",
+      "canonical_bytes": 233,
+      "sha256": "3adeb1bb6d420ba6d03e4f96dcee92af21c8f5d30eda240e3046c1317e211ff1"
+    }
+  ],
+  "maintained_public_commands": {
+    "count": 32,
+    "models": 7,
+    "experiments": 9,
+    "all_exit_zero": true,
+    "scope": "Actual Model check/build and Experiment check/run at production cut 8b5b14724, before vector-only reseal. All seven RIR semantic payloads are byte-identical except content_identity and wire_schema_identity; authored Experiment semantic bindings still admit."
+  },
+  "maintained_rir_comparison": [
+    {
+      "model": "bounded-fold",
+      "changed_root_members": [
+        "content_identity",
+        "wire_schema_identity"
+      ],
+      "semantic_identity": "sha256:ea32b36eb93a9b4286e15a5f8927fc63f6e80e7b3bcb1f40d2fa954498bc8013",
+      "before_wire": "sha256:fcc6dede1ac25c5fca4d44207f76b090a9c0c67521aaca5c6aaa563ba0467a09",
+      "after_wire": "sha256:fa8a6e252a92459535753172fdf419ac02044da34edf24ff4c40a78e036330d1",
+      "baseline_sha256": "ee7502f3e3ed574e11045ccfbe9f44fc85bd2f40d5fad965a7f42dd96b227633",
+      "candidate_sha256": "6d75f45a0ec3eb07e362a4189a5d6f80a29c52a6371c1c2cd79fcd4e490bafb6",
+      "unchanged_payload_sha256": "0e2a9c00916d01b53dfc8c189f018778c07d5850bb12b8c27a7ef6a82f082ddd"
+    },
+    {
+      "model": "progression-periodic-effect",
+      "changed_root_members": [
+        "content_identity",
+        "wire_schema_identity"
+      ],
+      "semantic_identity": "sha256:5b67e07cc8d559ab285015d59b2d6a88602f5e5731453a5acd4dd7ffe4331ae0",
+      "before_wire": "sha256:fcc6dede1ac25c5fca4d44207f76b090a9c0c67521aaca5c6aaa563ba0467a09",
+      "after_wire": "sha256:fa8a6e252a92459535753172fdf419ac02044da34edf24ff4c40a78e036330d1",
+      "baseline_sha256": "7a9de4e3b88971ffa57b4bb051952c83d343d70ec7d8a10c42fa5224234d5b72",
+      "candidate_sha256": "0d76a0bba6e77ab73048e29fb8be825cdad590afa167de07eb163ba27a8f207a",
+      "unchanged_payload_sha256": "e6f93a319d6dab1719a0735708eca21510badc6efcf641b1f1bff4ca02294db1"
+    },
+    {
+      "model": "roguelike-reward-build",
+      "changed_root_members": [
+        "content_identity",
+        "wire_schema_identity"
+      ],
+      "semantic_identity": "sha256:ef0b9c7c084f3c4932d7a211f1f66d04776267767c081cae744697150248f359",
+      "before_wire": "sha256:fcc6dede1ac25c5fca4d44207f76b090a9c0c67521aaca5c6aaa563ba0467a09",
+      "after_wire": "sha256:fa8a6e252a92459535753172fdf419ac02044da34edf24ff4c40a78e036330d1",
+      "baseline_sha256": "08e26fb44238e93a2c0d4be40fe5335899560934afa21f61dd994c013a3a29d7",
+      "candidate_sha256": "3f015d65a316901fd0933e449d4a4f863c053f83a9535831401024fa372fe89b",
+      "unchanged_payload_sha256": "d920109e41432e067f6f561617f3a84c6f465e1253b024466d432a2a5e674de4"
+    },
+    {
+      "model": "rpg-combat-cast",
+      "changed_root_members": [
+        "content_identity",
+        "wire_schema_identity"
+      ],
+      "semantic_identity": "sha256:58f77ca141165c5085246e4d72b5919161f3911e7b30b34b2b6e7484b2410656",
+      "before_wire": "sha256:fcc6dede1ac25c5fca4d44207f76b090a9c0c67521aaca5c6aaa563ba0467a09",
+      "after_wire": "sha256:fa8a6e252a92459535753172fdf419ac02044da34edf24ff4c40a78e036330d1",
+      "baseline_sha256": "2ea3bbae4c22ce82cbaa5ab39592c3b94312e25aa4461c162d42160f2d2578e1",
+      "candidate_sha256": "1c40a3dc7887e5987b9196eaa8cee082b3b783cbd88a371f03a3859376eff8ab",
+      "unchanged_payload_sha256": "ab9cbc27d365e90b000ec3ddb02af5c60c5cfb95221a4ab2f2242cbf66ad2509"
+    },
+    {
+      "model": "rpg-periodic-effect",
+      "changed_root_members": [
+        "content_identity",
+        "wire_schema_identity"
+      ],
+      "semantic_identity": "sha256:07b658003cb92f3b297c8c73ef9ab2462978811c07084aa49308dee70be67928",
+      "before_wire": "sha256:fcc6dede1ac25c5fca4d44207f76b090a9c0c67521aaca5c6aaa563ba0467a09",
+      "after_wire": "sha256:fa8a6e252a92459535753172fdf419ac02044da34edf24ff4c40a78e036330d1",
+      "baseline_sha256": "43a197fdead283d29f543476e8ef0bcda1df9b5aa0fa451324fe13f5887d5597",
+      "candidate_sha256": "3b72b50192d90239e746f4b1f40d2d0fe08268eec65e92194ab7a1ad74291f8f",
+      "unchanged_payload_sha256": "0072775093a25b8bd87cb70228ca8a14759d287469b43c1832d8a9419d9800bc"
+    },
+    {
+      "model": "rpg-stat-composition",
+      "changed_root_members": [
+        "content_identity",
+        "wire_schema_identity"
+      ],
+      "semantic_identity": "sha256:7980b01b829e42bfd0254946f5cef9f9a7490987b7c646d5dc39d22752de6e07",
+      "before_wire": "sha256:fcc6dede1ac25c5fca4d44207f76b090a9c0c67521aaca5c6aaa563ba0467a09",
+      "after_wire": "sha256:fa8a6e252a92459535753172fdf419ac02044da34edf24ff4c40a78e036330d1",
+      "baseline_sha256": "7c49c67f19f438b5efb9d4ce4a5482d8b9ab1ef4274e64a3df66268dbcf1501c",
+      "candidate_sha256": "aa8c71dda2e6a794bd357ca5ac5c9c54c2a5d3f37396c86adca72215eac23642",
+      "unchanged_payload_sha256": "8ac23123cc4444cd064cae1b9797da7c27d5e2c429d391f88026a567145794fb"
+    },
+    {
+      "model": "structured-selection",
+      "changed_root_members": [
+        "content_identity",
+        "wire_schema_identity"
+      ],
+      "semantic_identity": "sha256:3858fa0b51e55075b105b808fa88153d494973ab33e37fc3b6c461c91d679205",
+      "before_wire": "sha256:fcc6dede1ac25c5fca4d44207f76b090a9c0c67521aaca5c6aaa563ba0467a09",
+      "after_wire": "sha256:fa8a6e252a92459535753172fdf419ac02044da34edf24ff4c40a78e036330d1",
+      "baseline_sha256": "96bce636ac302fbf71652c647302ca11abc7c78b0de0379cc4ef1dc76f02bdad",
+      "candidate_sha256": "118885f90ba2dfb0fa01366c86b8faff341ca50759403f6f528a298448717a0c",
+      "unchanged_payload_sha256": "b2298a40316c823312a6a3cbbb6a93c517dc03c874fd279769696a0874672417"
+    }
+  ],
+  "vector_oracles": {
+    "model_verdicts": 34,
+    "positive_four_member_parity_cases": 13,
+    "changed_rir_and_debug_identity_leaves": 26,
+    "other_oracles_preserved": true,
+    "package_semantic_identities_unchanged_during_vector_only_reseal": true
+  },
+  "schema_parity": {
+    "rir": {
+      "bytes": 89127,
+      "sha256": "6e66568b47aeabdc30cff0c86562e788c964b01242c9dd4978ec68532be8b7f3",
+      "before_after_canonical_equal": true
+    },
+    "trace": {
+      "bytes": 10492,
+      "sha256": "a4157dbd08231fc9e844abd499a493f1eaf89e0d12c9cb0f1827ca8887070670",
+      "before_after_canonical_equal": true
+    }
+  },
+  "primary_validation": {
+    "initial_integration": {
+      "tests": "155",
+      "failures": "1",
+      "errors": "0",
+      "skipped": "0",
+      "time": "163.114"
+    },
+    "initial_failure": "The inventory test still required the physically deleted semantic_identity_projection to appear as a gap. Only that obsolete expected set member was removed. All 22 new RIR, 9 independent RIR and 16 Trace cases passed in this run.",
+    "correction_and_operation_regressions": {
+      "tests": "40",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "46.051"
+    },
+    "cli_projection_followup": {
+      "cases": 16,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "time_seconds": 8.771,
+      "case_ids": [
+        "tests.test_schema2_model_cli::test_rir_semantic_projection_excludes_formula_notation_and_keeps_closure",
+        "tests.test_schema2_model_cli::test_artifact_semantic_projection_treats_empty_root_exclusion_as_noop",
+        "tests.test_schema2_model_cli::test_selected_notation_mutation_reidentifies_content_not_rir_semantics",
+        "tests.test_schema2_model_cli::test_selected_unreachable_notation_preserves_both_rir_identities",
+        "tests.test_schema2_model_cli::test_resolved_model_admission_rejects_coherently_reidentified_invalid_declarations",
+        "tests.test_schema2_bootstrap_authority::test_two_independent_consumers_admit_the_exact_authority_and_inventories",
+        "tests.test_schema2_bootstrap_authority::test_formula_semantics_are_owned_by_package_extensions_and_vectors",
+        "tests.test_rir_protocol_structure::test_removed_ldb_structural_settings_are_refused_without_aliases[raw-schema]",
+        "tests.test_rir_protocol_structure::test_removed_ldb_structural_settings_are_refused_without_aliases[identity-projection]",
+        "tests.test_rir_protocol_structure::test_removed_ldb_structural_settings_are_refused_without_aliases[declaration-output]",
+        "tests.test_rir_protocol_structure::test_removed_ldb_structural_settings_are_refused_without_aliases[collection-output]",
+        "tests.test_rir_protocol_structure::test_removed_ldb_structural_settings_are_refused_without_aliases[output-recipes]",
+        "tests.test_rir_protocol_structure_independent::test_independent_rir_projection_refuses_missing_or_reauthored_binding[missing]",
+        "tests.test_rir_protocol_structure_independent::test_independent_rir_projection_refuses_missing_or_reauthored_binding[duplicate]",
+        "tests.test_rir_protocol_structure_independent::test_independent_rir_projection_refuses_missing_or_reauthored_binding[schema]",
+        "tests.test_rir_protocol_structure_independent::test_independent_rir_projection_refuses_missing_or_reauthored_binding[projection]"
+      ]
+    },
+    "ruff": "All source, tests and tools pass. All 234 Python files are formatted.",
+    "pyright": "0 errors, 0 warnings with the project Python interpreter."
+  },
+  "ci_collection": {
+    "baseline_test_count": 850,
+    "current_test_count": 2427,
+    "current_package_vector_count": 347,
+    "missing_tests": [],
+    "missing_package_vectors": [],
+    "overlapping_tests": [],
+    "uncovered_tests": [],
+    "unexpected_shard_tests": []
+  },
+  "inventory": {
+    "packages": 13,
+    "vectors": 347,
+    "tokens": 1610,
+    "occurrences": 6537,
+    "gaps": 45,
+    "previous_gaps": 47,
+    "physical_graph_and_kernel_unchanged": true,
+    "scope": "Complete current LDB packages and vectors plus bounded-fold Source; complete Experiment/result traversal remains open."
+  },
+  "view_reuse": {
+    "records": [
+      {
+        "variant": "before",
+        "reader_sha256": "15f7d72fa95127cd27031834f78b6b2ccbda4e5c6bbd9944ab953d8dc6df9ade",
+        "attached_language_calls": 60,
+        "elapsed_seconds": 2.645460291998461,
+        "inventory_sha256": "8c974bcec8d9c44639024a02352d5469c428a1797cdd54b82f69a30fea05adf6",
+        "inventory_bytes": 2004793,
+        "tokens": 1610,
+        "occurrences": 6537,
+        "gaps": 45,
+        "physical_graph_and_kernel_unchanged": true
+      },
+      {
+        "variant": "after",
+        "reader_sha256": "b307a00c10e342069c0cfb659cdaf9efb0ae1c11da7ae853fcfec6e75d8ab3e1",
+        "attached_language_calls": 14,
+        "elapsed_seconds": 1.2275930830510333,
+        "inventory_sha256": "8c974bcec8d9c44639024a02352d5469c428a1797cdd54b82f69a30fea05adf6",
+        "inventory_bytes": 2004793,
+        "tokens": 1610,
+        "occurrences": 6537,
+        "gaps": 45,
+        "physical_graph_and_kernel_unchanged": true
+      }
+    ],
+    "all_inventory_fields_canonical_bytes_equal": true,
+    "kernel": "sha256:e01262748043b1c7ccdaebe67c3d65c4c68a8ee5e515355042dfc69037fa8c2b",
+    "ldb": "sha256:9d2b3fa481d357db1533178ec6245222d418ce8d910aae22a04631d3ce56e90a",
+    "scope": "One same full LDB/vector/bounded-fold Source graph; elapsed times are bounded local observations, not a benchmark promise."
+  },
+  "retired_test_ids": [
+    "tests/test_schema2_model_lowerer_conformance.py::test_rir_output_member_follows_the_ldb_lowering_and_wire_schema",
+    "tests/test_schema2_model_lowerer_conformance.py::test_independent_lowerers_treat_empty_collection_exclusion_as_noop",
+    "tests/test_schema2_bootstrap_authority.py::test_rir_semantic_projection_members_close_against_the_wire_schema"
+  ],
+  "test_disposition": "These tests required independently authored RIR output or projection settings. Current public and independent cases reject their reintroduction. The existing generic empty-root projection behavior remains tested; the Formula field discriminator excludes notation while retaining closure and every other field. Only the first retired test was in the required logical baseline.",
+  "review": {
+    "Standards": {
+      "head": "1768c8bbd73c33deccbf244cf385c955021adc59",
+      "actionable_findings": 0,
+      "scope": "This RIR cut; eight targeted tests and source/test disposition inspection."
+    },
+    "Spec": {
+      "head": "1768c8bbd73c33deccbf244cf385c955021adc59",
+      "actionable_findings": 0,
+      "tests_passed": 55,
+      "inventory_forgeries_refused": 12,
+      "receipt": "/private/tmp/gda-878-spec-rir-704e/receipt.json"
+    },
+    "DDMA": {
+      "head": "704e25862a9cb8db0263853e0986f6f779f56a42",
+      "actionable_findings": [
+        {
+          "priority": "P2",
+          "finding": "Arbitrary collection member exclusions can delete Operation id/body/inputs/resource_bounds. Both baseline consumers refuse, candidate consumers admit, and unchanged public Source then refuses entrypoint resolution.",
+          "decision": "Delete the arbitrary member/extension exclusion configuration. Reuse existing Package runtime semantic projection for notation; give fixed RIR omission of Operation vectors one Kernel owner shared by actual output and schema derivation.",
+          "status": "Closed by production e59b10669, independent B d05cb286650db78440f3da6e913e4ed3dba10ce0 and public tests 7a077a75796fd920686398e72d4b72920eda54e5; scoped independent DDMA recheck records no remaining original finding."
+        }
+      ],
+      "tests_passed": 31,
+      "receipt": "/private/tmp/gda-878-ddma-rir-704e-proof/review-receipt.json"
+    }
+  },
+  "raw_manifest_verification": {
+    "path": "/private/tmp/gda-878-rir-structure-evidence/RAW-MANIFEST.json",
+    "files": 373,
+    "hash_and_size_mismatches": []
+  },
+  "limits": [
+    "No full package CI execution, wheel parity or final #878 fixed-build extension claim is asserted.",
+    "The original mixed JUnit failures remain recorded; later corrections have separate passing evidence.",
+    "The schema ordering and read-local view reuse add no global cache; the two measured times are local observations, not a benchmark guarantee.",
+    "Remaining protocol, Source transport, vector, Experiment and result traversal gaps stay open."
+  ],
+  "raw_evidence": [
+    {
+      "path": "/private/tmp/gda-878-rir-structure-evidence/FINAL-RECEIPT.json",
+      "bytes": 11381,
+      "sha256": "130b73f0c7a3d3901111bb605aa42b64dada1e7628dee59f1cfe85fb428987a2"
+    },
+    {
+      "path": "/private/tmp/gda-878-rir-structure-evidence/RAW-MANIFEST.json",
+      "bytes": 109652,
+      "sha256": "4507c352bcabac036c0b11e66ca416fbe97f416e625ba02c5462b2a2176a75b2"
+    },
+    {
+      "path": "/private/tmp/gda-878-rir-structure-evidence/maintained-v4/receipt.json",
+      "bytes": 26482,
+      "sha256": "d993c714e0f486d9bb9fa547841fa66e497824077c13c173058444dfe45f51c0"
+    },
+    {
+      "path": "/private/tmp/gda-878-rir-structure-evidence/maintained-rir-comparison.json",
+      "bytes": 4947,
+      "sha256": "d26243a449b79a1630c2762ba4d504d9e9d5368cb60c91642ca18d9bae1323f4"
+    },
+    {
+      "path": "/private/tmp/gda-878-rir-structure-evidence/kernel-parsed-delta.json",
+      "bytes": 6428,
+      "sha256": "f6b0b730d1628a3f63b476e4bb037e07246772957f55092b3813e5fb70bd24a1"
+    },
+    {
+      "path": "/private/tmp/gda-878-rir-structure-evidence/model-oracle-proof.json",
+      "bytes": 17531,
+      "sha256": "cbc0c68b898e4fc0337711e035d681a19562f839a719083e4ccf73660992760a"
+    },
+    {
+      "path": "/private/tmp/gda-878-rir-structure-evidence/final-oracle-seal.json",
+      "bytes": 11152,
+      "sha256": "c4aca553a258cc1bdb13e5fa0fffe5af78b7fa7bbee2333cbad60700d6b9a992"
+    },
+    {
+      "path": "/private/tmp/gda-878-rir-structure-evidence/model-vectors.xml",
+      "bytes": 417,
+      "sha256": "7ca25568122a364b2686231d144e279cb2241d0d71a18cbe57098372c27200a4"
+    },
+    {
+      "path": "/private/tmp/gda-878-rir-structure-evidence/lowerer.xml",
+      "bytes": 7022,
+      "sha256": "8f9134dfc9c3d92a4327604012aa93e6cc336b7f3da8680b85cc87d10ac94f6a"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/rir-final-integration.xml",
+      "bytes": 30839,
+      "sha256": "445166e0a265c279e47077b8ddf85cac79a4840a435ae5c389f57fef8c199f6a"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/rir-inventory-retained.xml",
+      "bytes": 6455,
+      "sha256": "b0a84202e0bce864c3f4168e395168663affd008a68778713663629edd1a84ed"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/rir-ci-inventory-final.json",
+      "bytes": 2044,
+      "sha256": "0ce3ef64d6268e62cd3c1563c541eb1cd86d255984de231521afb9522fbc8e03"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/rir-semantic-inventory.json",
+      "bytes": 10161,
+      "sha256": "7adea8641d8f3aacb70d453ba9667118c794dafc3a498b4f4341f542376ac62b"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/rir-inventory-view-reuse.json",
+      "bytes": 1298,
+      "sha256": "6998bed5d332cb7e9f4e69708e0491ef80da0591db946c00ba23ded73a0d999f"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/rir-pyright-final.log",
+      "bytes": 37,
+      "sha256": "6d88a1b220adb7a3d62092b6e38431f0b3fe8babe9864fab90e5849766260332"
+    },
+    {
+      "path": "/private/tmp/gda-rir-b-ordering-receipt.json",
+      "bytes": 1328,
+      "sha256": "644c7d55953a6f360247f8cdd7880f0449517823e304c5506d1431480ea236a8"
+    },
+    {
+      "path": "/private/tmp/gda-rir-exclusion-inspection.json",
+      "bytes": 670,
+      "sha256": "d954d4801a6b241064428fa469d12300d011da4e54845af6239dda8aa51c08fb"
+    },
+    {
+      "path": "/private/tmp/gda-878-rir-projection-fixtures-evidence/receipt.json",
+      "bytes": 3590,
+      "sha256": "765f56cae89049406ac8aebcc854f5bdf6d04a67a2a234f9c1aac5acc36fcb20"
+    },
+    {
+      "path": "/private/tmp/gda-878-rir-standards-n0913ck0/review-scope.json",
+      "bytes": 701,
+      "sha256": "2a7d8d796fbd131d564bc3c1dc51ef56693904abad64919ffb546835f19d7ef5"
+    },
+    {
+      "path": "/private/tmp/gda-878-spec-rir-704e/receipt.json",
+      "bytes": 10780,
+      "sha256": "2e7b60744c5c978358fe7707a400987268e873781f17c0ddb7af75b666101a71"
+    },
+    {
+      "path": "/private/tmp/gda-878-ddma-rir-704e-proof/review-receipt.json",
+      "bytes": 2009,
+      "sha256": "cb92149c5520e76f2e726274c867c23963ebd9ac38935ca49a3340e6acaba2ce"
+    },
+    {
+      "path": "/private/tmp/gda-878-ddma-rir-704e-proof/exclusions-base.json",
+      "bytes": 16204,
+      "sha256": "a53787df76349f51b8970276cd4481694adc3e54f790a81698a78126a011a558"
+    },
+    {
+      "path": "/private/tmp/gda-878-ddma-rir-704e-proof/exclusions-head.json",
+      "bytes": 233047,
+      "sha256": "8a8eee089cb66be3029e37b3baeacb468e0452c1bf30bc15a3496a7b10ad5370"
+    },
+    {
+      "path": "/private/tmp/gda-878-rir-exclusion-evidence/FINAL-RECEIPT.json",
+      "bytes": 4010,
+      "sha256": "908498b161354bfccb61be2951b1fba4667660cb9010987389cad1d9d8aa82ea"
+    },
+    {
+      "path": "/private/tmp/gda-878-rir-exclusion-evidence/RAW-MANIFEST.json",
+      "bytes": 25266,
+      "sha256": "119bcf3342159be8962cbe6bcdd0fa94aebec050fd7464c8e48beda3f46e4ee8"
+    },
+    {
+      "path": "/private/tmp/gda-878-rir-exclusion-evidence/artifact-comparison.json",
+      "bytes": 36665,
+      "sha256": "c7bec86d733c6f60a475867af07596e41d6b5881cdd3568cec36aab782cb29e0"
+    },
+    {
+      "path": "/private/tmp/gda-878-rir-exclusion-evidence/public-final.xml",
+      "bytes": 1901,
+      "sha256": "39cd02880be6e94a65ab34e5def8b15f98bf4204b9199e4a8e0b986d6f4b13cc"
+    },
+    {
+      "path": "/private/tmp/gda-878-rir-exclusion-evidence/model-oracle-proof.json",
+      "bytes": 17531,
+      "sha256": "03196cd7101c72af88588f9bfc2a0b6b03c85bf398d87e776140fa7ed3b56497"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/rir-exclusion-integrated-final.xml",
+      "bytes": 14685,
+      "sha256": "0c9162029249229acb18c8e7b54d935eb86cc3a808345a0fc0185b472d944128"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/rir-exclusion-ci-inventory.json",
+      "bytes": 2044,
+      "sha256": "bb87afa3a048626419f41750d5be1c7b5051e230f3b89cd1527388f5d9aca82a"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/rir-exclusion-semantic-inventory.json",
+      "bytes": 10161,
+      "sha256": "4647090d9696401dfe57fb91a1c9c9e90b64cfd1a31ff06aa1e8c36a4ef230e4"
+    },
+    {
+      "path": "/private/tmp/gda-878-ddma-rir-d05c-proof/closure-receipt.json",
+      "bytes": 444,
+      "sha256": "9407e6842945c58fcc2acaab4e1e16cb60fe5d05dd5a4ebf69542507fc324086"
+    },
+    {
+      "path": "/private/tmp/gda-878-spec-rir-exclusions-7a077/receipt.json",
+      "bytes": 3363,
+      "sha256": "f4c9ef7b16bc461910fe931a5ee3610d6408735397c7a370133231798435a844"
+    }
+  ],
+  "reproduction": {
+    "working_directory": "libs/gda-balancing",
+    "commands": [
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_rir_protocol_structure.py tests/test_rir_protocol_structure_independent.py tests/test_trace_protocol_structure.py tests/test_trace_protocol_inventory.py tests/test_extension_inventory.py tests/test_ci_policy.py -q -p no:cacheprovider",
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_extension_inventory.py::test_protocol_roles_do_not_merge_wire_schema_and_producer_kind_identities tests/test_operation_extension_inventory.py tests/test_ci_policy.py -q -p no:cacheprovider",
+      "PYTHONDONTWRITEBYTECODE=1 .venv/bin/pyright --pythonpath .venv/bin/python"
+    ],
+    "scope": "Commands reproduce the named permanent tests using the package environment. Historical raw file paths are observations, not required installed-product inputs."
+  },
+  "collection_exclusion_correction": {
+    "implementation_head": "7a077a75796fd920686398e72d4b72920eda54e5",
+    "base": "1768c8bbd73c33deccbf244cf385c955021adc59",
+    "deletions": [
+      "LDB collection excluded_members and excluded_extension_members, their admission/readers and duplicate Model extension filter"
+    ],
+    "owners": "Fixed Kernel RIR Operation output role omits vectors. Package runtime semantic projection removes its declared extensions at this historical cut; the later Package slot correction below deletes that arbitrary configuration.",
+    "kernel": "sha256:ffae101d7d5f1f660a80fa46f2f092ec30bc8a8a070cdb7ff4a107a35635369a",
+    "ldb": "sha256:c2017f2511718b3a002ef0c25c6ae061d4995bf945840f4a07943591de543aad",
+    "kernel_transport_bytes": 153508,
+    "maintained_rir_debug_and_generated_schema_whole_bytes_unchanged": true,
+    "lock_notation_occurrences_removed": 140,
+    "identity_scope": "Package content identity and Lock-dependent build/provenance identities change; Source identity, Package semantic identity, maintained whole RIR and Debug are unchanged. No vector oracle is refreshed in this correction.",
+    "model_vectors": {
+      "total": 34,
+      "positive_independent_four_member_parity": 13,
+      "oracle_changes": 0
+    },
+    "public_tests": {
+      "cases": 10,
+      "actual_commands": 16,
+      "scope": "Eight retired collection setting refusals and two complete original/renamed Model+Experiment flows; does not cover arbitrary Package extension exclusion."
+    },
+    "root_integration": {
+      "tests": 87,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 107.0,
+      "scope": "Includes inventory required-member correction and CI registration in the primary working tree; the earlier 77-case run failed on the now-removed optional_members access."
+    },
+    "ci_collection": {
+      "baseline_package_vector_count": 84,
+      "baseline_test_count": 850,
+      "baseline_test_digest": "49e24a6ad77e1041ffecbd0d9bf3564dadbf116c7f91878df6424fef608af7aa",
+      "current_package_vector_count": 347,
+      "current_test_count": 2444,
+      "current_test_digest": "18fa63f3bf86e0c72bb7b7f1cd8fc12b7e9e6b80bcfac8f08928aee8a2325163",
+      "missing_package_vectors": [],
+      "missing_tests": [],
+      "overlapping_tests": [],
+      "uncovered_tests": [],
+      "unexpected_shard_tests": []
+    },
+    "inventory": {
+      "packages": 13,
+      "vectors": 347,
+      "tokens": 1610,
+      "occurrences": 6537,
+      "gaps": 45,
+      "physical_graph_and_kernel_unchanged": true
+    },
+    "raw_manifest_verification": {
+      "files": 150,
+      "hash_and_size_mismatches": [],
+      "relative_paths_resolved_against_manifest_directory": true
+    },
+    "DDMA_recheck": {
+      "head": "d05cb286650db78440f3da6e913e4ed3dba10ce0",
+      "remaining_original_findings": 0,
+      "scope": "Fresh Kernel control admits; four old execution-field exclusions and retired extension setting refuse under the new Kernel. Actual original and 16-collection rename public flows pass."
+    },
+    "new_Spec_finding": {
+      "head": "7a077a75796fd920686398e72d4b72920eda54e5",
+      "production_with_independent_correction": "d05cb286650db78440f3da6e913e4ed3dba10ce0",
+      "base": "1768c8bbd73c33deccbf244cf385c955021adc59",
+      "finding": "P2: Package exclusion removes a consumed Formula slot before specialization",
+      "scope": "Narrow RIR exclusion correction recheck",
+      "source_hashes": {
+        "src/gda_balancing/domain/model/_lowering.py": "b16ecb2d9eeda53d5d4d50c233a16f142c26aebb069eac683166106f326cb0f0",
+        "src/gda_balancing/domain/authority/package_semantics.py": "8ae90dce1b6c5638624ee451ada9f2a189302e6180aea7f6743d6306cf524ef5",
+        "src/gda_balancing/domain/authority/package_validation.py": "1c4549ed5d56e5cb822ce367eb300bfb5d5ac1427c3921ee4ae7c3fbd511470a",
+        "tests/test_rir_runtime_member_projection.py": "22b2f4cecf308e83cc7fbf05e917ec627776e312ff4eeae6bdac8c96412c14a0"
+      },
+      "cases": [
+        {
+          "revision": "current",
+          "excluded": false,
+          "A_B_admitted": {
+            "A": true,
+            "B": true
+          },
+          "public_exits": [
+            0,
+            0
+          ],
+          "public_stderr": [
+            "",
+            ""
+          ],
+          "vector_count": 347,
+          "source_sha256": "d4c3bb85db0e50757055788640aee20e8b993fc3a6416e01db8c89ee75968cf7"
+        },
+        {
+          "revision": "current",
+          "excluded": true,
+          "A_B_admitted": {
+            "A": true,
+            "B": true
+          },
+          "public_exits": [
+            4,
+            4
+          ],
+          "public_stderr": [
+            "{\"error\": {\"category\": \"internal\", \"code\": \"internal_error\", \"message\": \"the toolkit failed unexpectedly (StopIteration)\"}}\n",
+            "{\"error\": {\"category\": \"internal\", \"code\": \"internal_error\", \"message\": \"the toolkit failed unexpectedly (StopIteration)\"}}\n"
+          ],
+          "vector_count": 347,
+          "source_sha256": "d4c3bb85db0e50757055788640aee20e8b993fc3a6416e01db8c89ee75968cf7"
+        },
+        {
+          "revision": "baseline1768",
+          "excluded": false,
+          "A_B_admitted": {
+            "A": true,
+            "B": true
+          },
+          "public_exits": [
+            0,
+            0
+          ],
+          "public_stderr": [
+            "",
+            ""
+          ],
+          "vector_count": 347,
+          "source_sha256": "d4c3bb85db0e50757055788640aee20e8b993fc3a6416e01db8c89ee75968cf7"
+        },
+        {
+          "revision": "baseline1768",
+          "excluded": true,
+          "A_B_admitted": {
+            "A": true,
+            "B": true
+          },
+          "public_exits": [
+            0,
+            0
+          ],
+          "public_stderr": [
+            "",
+            ""
+          ],
+          "vector_count": 347,
+          "source_sha256": "d4c3bb85db0e50757055788640aee20e8b993fc3a6416e01db8c89ee75968cf7"
+        }
+      ],
+      "permanent_public_tests": {
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "duration_seconds": 35.77
+      },
+      "governing_requirement": "bADR-0013: HIR-to-RIR lowering must preserve specified observable behavior.",
+      "mechanism": {
+        "new_consumption": "src/gda_balancing/domain/model/_lowering.py:4013",
+        "actual_removal": "src/gda_balancing/domain/authority/package_semantics.py:69",
+        "failed_consumer": "src/gda_balancing/domain/model/_lowering.py:2217"
+      },
+      "probe_script": "/private/tmp/gda-878-spec-rir-exclusions-7a077/probe_package_exclusion.py",
+      "limits": [
+        "Does not restart closed RIR/Trace/inventory reviews.",
+        "No full #878 or independent B Runtime exchange claim."
+      ]
+    },
+    "status": "At 7a077a757 the Package-slot exclusion counterexample was confirmed and still open. The later package_notation_correction closes it through deletion. Neither cut closes full #878 acceptance.",
+    "subsequent_package_slot_status": "Closed at d334e998987323f257f893c200867abc6e0f0d35 by deletion of the Package configuration; see package_notation_correction."
+  },
+  "package_notation_correction": {
+    "base": "7a077a75796fd920686398e72d4b72920eda54e5",
+    "production_commit": "2897fbffd",
+    "independent_projection_commit": "cf785a5adecae9702d7e2dc695723c1b1d84c554",
+    "public_test_commit": "c5d976ad8",
+    "inventory_commit": "22923cf8d",
+    "deletions": [
+      "runtime_semantic_excluded_extensions from all 13 authored Packages",
+      "Kernel Package required-member and field-type declarations for that field",
+      "Kernel Package semantic projection extension_inventory_member"
+    ],
+    "single_owner": "Existing Kernel wire_schema_protocol_roles.source_notation.operation_source supplies the exact Operation extension address to Formula parse/render and Package semantic projection. Only declared Operation-root notation is omitted; Formula slots, other families and nested opaque data are retained.",
+    "authority": {
+      "kernel": "sha256:370b84ea9a5e7b14b6090fabf53d9a5347f3b6467bf5ca1b3d4b394402fcf846",
+      "ldb": "sha256:8df8a3bce3d72ff36048f7bd58454be13cc5eb2f70bab31d9e40f6d2b788a8b7",
+      "kernel_raw_bytes": 153446,
+      "kernel_previous_bytes": 153508,
+      "kernel_budget_unchanged": true,
+      "parsed_kernel_delta": [
+        "delete package_release.required_members/field_types runtime_semantic_excluded_extensions",
+        "delete package_release.semantic_identity_projection.extension_inventory_member",
+        "add source_notation.operation_source {authority_path:language.operations,extension_member:standard.formula-notation}"
+      ],
+      "packages": [
+        {
+          "namespace": "core.quantity",
+          "semantic_identity_unchanged": true,
+          "before_content_identity": "sha256:04b567b4b6b736f2d6a27a490d0ad127590ede9d773cc9a51d32b0c752d3029c",
+          "after_content_identity": "sha256:7399a82a01cb66dabc1794eec87439724c9ac3ea0ebdc0dc385c291cd960e5d7"
+        },
+        {
+          "namespace": "game.build",
+          "semantic_identity_unchanged": true,
+          "before_content_identity": "sha256:5eb1b34285572174d102f87fd0f98d10229d4df487c50bfb4b3e1888f6cebdbb",
+          "after_content_identity": "sha256:cb048de1ee159db749b86866906e6eec8f637dfd3e9d267689a31b63a158b699"
+        },
+        {
+          "namespace": "game.check",
+          "semantic_identity_unchanged": true,
+          "before_content_identity": "sha256:b51a6b05de05ba06d0ba480b4d394d8e3091e906f8ca23affbba9e43e752b00e",
+          "after_content_identity": "sha256:91bd8862c0b01574b862767c83bc1876535e9bb96f6b5bfe214a460d68f51ec1"
+        },
+        {
+          "namespace": "game.combat",
+          "semantic_identity_unchanged": true,
+          "before_content_identity": "sha256:fcb422915573ef5fedc32bd0ead84d3af9c89f7855294966179ee304512346ae",
+          "after_content_identity": "sha256:dd1980733701a13cfd6c326775828a67a9ee4ec700109b9e77f4123262a8754d"
+        },
+        {
+          "namespace": "game.effect",
+          "semantic_identity_unchanged": true,
+          "before_content_identity": "sha256:3b917601754a25ea70caec95e0987b64dd085aff795178f8321d7b8329a5db32",
+          "after_content_identity": "sha256:786d85af4e38a9adc49d91a5ac8813f9c97d98a0a6474501c2a7487f064a8b2a"
+        },
+        {
+          "namespace": "game.generation",
+          "semantic_identity_unchanged": true,
+          "before_content_identity": "sha256:c2d950b88cd279f600d4c6a472b5e7eaad9f546778f5bf85a7b678a2c8b740c1",
+          "after_content_identity": "sha256:f95c644056f63203977841ae89e3ef9185e1f8430f84c580281e6972840fe3a7"
+        },
+        {
+          "namespace": "game.progression",
+          "semantic_identity_unchanged": true,
+          "before_content_identity": "sha256:6e5b3f6e93ced56fffbacce9095456c984e0db60dd5e593d9976e671cf49b5bc",
+          "after_content_identity": "sha256:6fe6410bd2a1d71d99f630a585600d4306bf173342844b1ea42c39699e9e539b"
+        },
+        {
+          "namespace": "game.resource",
+          "semantic_identity_unchanged": true,
+          "before_content_identity": "sha256:e7a9e0aa1d62d7c590762b988ba170d7e84aeb5f757ababe28730fbb6222ed2c",
+          "after_content_identity": "sha256:13e1d8c7f5e6d73477162ec9ef223fb251986f5a5edcbbed243c30b87824c902"
+        },
+        {
+          "namespace": "standard.compiler",
+          "semantic_identity_unchanged": true,
+          "before_content_identity": "sha256:9d17c325b505562e5bd36e57f97f78e4f8ca1e62b958c5881bf887d1f5515f1b",
+          "after_content_identity": "sha256:8fc96a5866917d0086cc155ec65d08b8a2394f1d9b3551988a07e25dba7a1517"
+        },
+        {
+          "namespace": "standard.conformance.structured",
+          "semantic_identity_unchanged": true,
+          "before_content_identity": "sha256:a7e42b4652ef6a31ae129e24d2761a44e3c1467adb38d6d975a575563f17894c",
+          "after_content_identity": "sha256:461cdb8a1f1819f7f3cfcbccba8042379deb203b72be52af0e491ac89dd950ed"
+        },
+        {
+          "namespace": "standard.experiment",
+          "semantic_identity_unchanged": true,
+          "before_content_identity": "sha256:04037f15f678e10fd218c9cce7b1d87ff593eca18b7e101a9291affdc25f41b0",
+          "after_content_identity": "sha256:135cd7b84d08affe9828e718b8b2f0a095bc18c955f57fab32571d6c620e0012"
+        },
+        {
+          "namespace": "standard.runtime",
+          "semantic_identity_unchanged": true,
+          "before_content_identity": "sha256:f944039c224a97feee8829381a1c427350d4c77669130f09669064fb9fce8cee",
+          "after_content_identity": "sha256:ecc3c06e51b819664b078ffc16aa325095679278c70f22ce661f166be6c65589"
+        },
+        {
+          "namespace": "standard.schema",
+          "semantic_identity_unchanged": true,
+          "before_content_identity": "sha256:275e354dbe775272470c6237e500007e696d4242556d79143a0251014435976f",
+          "after_content_identity": "sha256:69cdd98468f4c030b16e1aea8a45946cf9f72a5e7b0e770e1103d5279528744c"
+        }
+      ],
+      "current_vector_files_changed": []
+    },
+    "maintained_models": {
+      "count": 7,
+      "results": [
+        {
+          "source": "examples/schema2/bounded-fold/model-source.json",
+          "rir": "sha256:d599fc1bf1d5d52402b90860e8e8b74c433e450b1d62435730c82fe9c4455177"
+        },
+        {
+          "source": "examples/schema2/progression-periodic-effect/model-source.json",
+          "rir": "sha256:9e225c8c5369cd2a2a3583411163e68149a752cd519fc3dd18336fd40c97cc12"
+        },
+        {
+          "source": "examples/schema2/roguelike-reward-build/model-source.json",
+          "rir": "sha256:e5beb97fd1b835ee59fabca56cad1022463b728d21bbc0db6c3dfe5bbf9d7e05"
+        },
+        {
+          "source": "examples/schema2/rpg-combat-cast/model-source.json",
+          "rir": "sha256:3caf40472f1bde3ce808d38ef71d93fb302c126ec1f15afb99bd1e56f6c9cae5"
+        },
+        {
+          "source": "examples/schema2/rpg-periodic-effect/model-source.json",
+          "rir": "sha256:aa0eba78b4c3c3b78eb8b12bc2d65d4a5ffb0e179df49b4212d26d798e9f5640"
+        },
+        {
+          "source": "examples/schema2/rpg-stat-composition/model-source.json",
+          "rir": "sha256:77f1df22fd07678ae71989e10ac1ad65dcfb2f69da0b435da3cab8141bfd2e99"
+        },
+        {
+          "source": "examples/schema2/structured-selection/model-source.json",
+          "rir": "sha256:dae79aade62d9c54d5f0235c4ca796e0c7f7be29555a925ac2e971b02e4abf25"
+        }
+      ],
+      "artifact_comparison_path": "/private/tmp/gda-878-package-notation-evidence/artifact-comparison.json",
+      "byte_equality_counts": [
+        {
+          "kind": "build-receipt.json",
+          "byte_equal": false,
+          "count": 7
+        },
+        {
+          "kind": "capability-manifest.json",
+          "byte_equal": false,
+          "count": 7
+        },
+        {
+          "kind": "debug-map.json",
+          "byte_equal": true,
+          "count": 7
+        },
+        {
+          "kind": "model-explanation.json",
+          "byte_equal": true,
+          "count": 7
+        },
+        {
+          "kind": "package-lock.json",
+          "byte_equal": false,
+          "count": 7
+        },
+        {
+          "kind": "resolution-receipt.json",
+          "byte_equal": false,
+          "count": 7
+        },
+        {
+          "kind": "resolved-model.json",
+          "byte_equal": false,
+          "count": 7
+        },
+        {
+          "kind": "rir-semantic-payload.json",
+          "byte_equal": true,
+          "count": 7
+        }
+      ],
+      "generated_rir_schema_byte_equal": true,
+      "source_inputs_unchanged": true,
+      "non_equal_build_artifacts": "Exact changed identity leaf paths recorded in artifact-comparison.json; authored manifest deletion changes content identity and bound provenance. No execution/language values normalized."
+    },
+    "model_vectors": {
+      "total": 34,
+      "admitted": 13,
+      "refused": 21,
+      "four_positive_members_equal_between_A_and_B": true,
+      "mutual_positive_semantic_admission": true,
+      "current_positive_RIR_Debug_and_Lock_oracles_unchanged": true,
+      "oracle_updates_applied": 0,
+      "raw": "/private/tmp/gda-878-package-notation-evidence/model-oracle-proof.json"
+    },
+    "runtime": {
+      "base": "7a077a75796fd920686398e72d4b72920eda54e5",
+      "candidate_core": "76d81c72c",
+      "candidate_paired_head": "1f37dbced",
+      "public_command_exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "formula_evaluations": {
+        "count": 2,
+        "complete_canonical_rows_equal": true,
+        "sha256": "fe012b6212af9928c40fe92b159501feef3078fb8190cc064c0130f8045c2496",
+        "arguments_results": [
+          {
+            "arguments": [
+              {
+                "parameter": "damage_before_defense",
+                "value": 45
+              },
+              {
+                "parameter": "mitigation",
+                "value": 8
+              }
+            ],
+            "result": 37
+          },
+          {
+            "arguments": [
+              {
+                "parameter": "damage_before_defense",
+                "value": 20
+              },
+              {
+                "parameter": "mitigation",
+                "value": 6
+              }
+            ],
+            "result": 14
+          }
+        ]
+      },
+      "members": {
+        "evaluation-run": {
+          "base_path": "/private/tmp/gda-878-package-notation-evidence/baseline-runtime-store/invocations/6ec04e2db6306336e864f99bc18510c3f44854773cf9aaabff6aa73da673cf69/bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc/evaluation-run.json",
+          "candidate_path": "/private/tmp/gda-878-package-notation-public-tests/rir-protocol-public0/store/invocations/6ec04e2db6306336e864f99bc18510c3f44854773cf9aaabff6aa73da673cf69/b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5/evaluation-run.json",
+          "base_sha256": "5364ef7652ce744b422ff40effacd9f8197d1f6643ef0b6808e5fb4e51e3d7e6",
+          "candidate_sha256": "5364ef7652ce744b422ff40effacd9f8197d1f6643ef0b6808e5fb4e51e3d7e6",
+          "raw_byte_equal": true
+        },
+        "evaluator-capability-manifest": {
+          "base_path": "/private/tmp/gda-878-package-notation-evidence/baseline-runtime-store/invocations/6ec04e2db6306336e864f99bc18510c3f44854773cf9aaabff6aa73da673cf69/bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc/evaluator-capability-manifest.json",
+          "candidate_path": "/private/tmp/gda-878-package-notation-public-tests/rir-protocol-public0/store/invocations/6ec04e2db6306336e864f99bc18510c3f44854773cf9aaabff6aa73da673cf69/b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5/evaluator-capability-manifest.json",
+          "base_sha256": "c44cd7b8f57759c1d8f00cb6c2770805898f6804ba0b9233098a1d10aaf6740a",
+          "candidate_sha256": "8622130a7c1180d4fd13c78358da3e5a8a9719d857d0bde6ab8c52a8bf9839ef",
+          "raw_byte_equal": false,
+          "changed_paths": [
+            "/content_identity",
+            "/evaluator_build_identity"
+          ],
+          "changed_values": {
+            "/content_identity": {
+              "base": "sha256:9f0e02978115bb277a94a15a4fa7cdf2cbfe737e256f38606342c0231a133d4c",
+              "candidate": "sha256:90d65ff003d8525f2d9db14127a08e87892b6f97b60455cd2d2587b3255772aa"
+            },
+            "/evaluator_build_identity": {
+              "base": "sha256:9543eeb53cf09ac3e0a05d90bc908c1c6def8f2d71eaa6f44948ea1a3ca774af",
+              "candidate": "sha256:79949429de733a596d6bb6883899bbacff2ec52db18301e0aea328f5741ff4f8"
+            }
+          }
+        },
+        "event-trace": {
+          "base_path": "/private/tmp/gda-878-package-notation-evidence/baseline-runtime-store/invocations/6ec04e2db6306336e864f99bc18510c3f44854773cf9aaabff6aa73da673cf69/bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc/event-trace.json",
+          "candidate_path": "/private/tmp/gda-878-package-notation-public-tests/rir-protocol-public0/store/invocations/6ec04e2db6306336e864f99bc18510c3f44854773cf9aaabff6aa73da673cf69/b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5/event-trace.json",
+          "base_sha256": "e5a3d947ddfb1e0adad78ecfd83a1f746e6f481bd35f300c7573bf06cd002199",
+          "candidate_sha256": "e5a3d947ddfb1e0adad78ecfd83a1f746e6f481bd35f300c7573bf06cd002199",
+          "raw_byte_equal": true
+        },
+        "metric-dataset": {
+          "base_path": "/private/tmp/gda-878-package-notation-evidence/baseline-runtime-store/invocations/6ec04e2db6306336e864f99bc18510c3f44854773cf9aaabff6aa73da673cf69/bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc/metric-dataset.json",
+          "candidate_path": "/private/tmp/gda-878-package-notation-public-tests/rir-protocol-public0/store/invocations/6ec04e2db6306336e864f99bc18510c3f44854773cf9aaabff6aa73da673cf69/b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5/metric-dataset.json",
+          "base_sha256": "8bf7666920c2fd1df00ad6d51412597df6bf2e923c5aa80d46236d113e431664",
+          "candidate_sha256": "8bf7666920c2fd1df00ad6d51412597df6bf2e923c5aa80d46236d113e431664",
+          "raw_byte_equal": true
+        },
+        "resolved-runtime-profile": {
+          "base_path": "/private/tmp/gda-878-package-notation-evidence/baseline-runtime-store/invocations/6ec04e2db6306336e864f99bc18510c3f44854773cf9aaabff6aa73da673cf69/bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc/resolved-runtime-profile.json",
+          "candidate_path": "/private/tmp/gda-878-package-notation-public-tests/rir-protocol-public0/store/invocations/6ec04e2db6306336e864f99bc18510c3f44854773cf9aaabff6aa73da673cf69/b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5/resolved-runtime-profile.json",
+          "base_sha256": "900d1359a566233117c597e7e9117f08c8a4513c655f4bcf60874dab6d639377",
+          "candidate_sha256": "900d1359a566233117c597e7e9117f08c8a4513c655f4bcf60874dab6d639377",
+          "raw_byte_equal": true
+        },
+        "snapshot-series": {
+          "base_path": "/private/tmp/gda-878-package-notation-evidence/baseline-runtime-store/invocations/6ec04e2db6306336e864f99bc18510c3f44854773cf9aaabff6aa73da673cf69/bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc/snapshot-series.json",
+          "candidate_path": "/private/tmp/gda-878-package-notation-public-tests/rir-protocol-public0/store/invocations/6ec04e2db6306336e864f99bc18510c3f44854773cf9aaabff6aa73da673cf69/b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5/snapshot-series.json",
+          "base_sha256": "1321929c4016a211690379e5887ef8a8ea9bd4236db9666a85ad5505dcf59337",
+          "candidate_sha256": "1321929c4016a211690379e5887ef8a8ea9bd4236db9666a85ad5505dcf59337",
+          "raw_byte_equal": true
+        }
+      }
+    },
+    "independent_spec": {
+      "head": "d334e998987323f257f893c200867abc6e0f0d35",
+      "original_counterexample": {
+        "script": "/private/tmp/gda-878-spec-package-d334/probe_package_exclusion.py",
+        "only_port": "replace assertion that the obsolete field equals [] with assertion that it is absent; candidate re-adds identical standard.formula-slots exclusion",
+        "results": "/private/tmp/gda-878-spec-package-d334/original-probe/results.json",
+        "control": {
+          "A": true,
+          "B": true,
+          "model_check_build_exit": [
+            0,
+            0
+          ]
+        },
+        "excluded_slots": {
+          "A": false,
+          "B": false,
+          "diagnostics": [
+            [
+              "ingress",
+              "kernel.member_set_mismatch",
+              "language-bundle.language.packages.3"
+            ]
+          ],
+          "model_check_build_exit": [
+            2,
+            2
+          ]
+        },
+        "verdict": "closed"
+      },
+      "public_tests": {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "6",
+        "time": "32.005",
+        "timestamp": "2026-09-08T20:26:20.952074+08:00",
+        "hostname": "LeledeMacBook-Air.local",
+        "log": "/private/tmp/gda-878-spec-package-d334/package-public.log",
+        "raw_store": "/private/tmp/gda-878-spec-package-d334/public-tests"
+      },
+      "runtime_comparison": "/private/tmp/gda-878-spec-package-d334/runtime-verification.json",
+      "original_package_P2": "closed",
+      "classification_followup": "Closed by protocol_classification_correction below; original compound independently rerun at b8362675784522d04c25eeb711839682c8115ed4."
+    },
+    "inventory_validation": {
+      "initial_tests": 136,
+      "initial_passed": 135,
+      "initial_failures": 1,
+      "initial_time_seconds": 112.515,
+      "failure": "Supplied-Kernel address test omitted existing contract-vector copies of changed Operation extensions. Corrected only declared copied authored subtrees; numerical and execution-result oracles unchanged.",
+      "corrected_case_passed": 1,
+      "corrected_case_time_seconds": 2.182,
+      "supplied_kernel_scope": "Interpretation test only; not a fixed-host changed-Kernel support claim."
+    },
+    "ci_collection": {
+      "current_test_count": 2457,
+      "current_package_vector_count": 347,
+      "missing_tests": [],
+      "missing_package_vectors": [],
+      "overlapping_tests": [],
+      "uncovered_tests": [],
+      "unexpected_shard_tests": []
+    },
+    "physical_inventory": {
+      "packages": 13,
+      "vectors": 347,
+      "tokens": 1610,
+      "occurrences": 6537,
+      "gaps": 45,
+      "physical_graph_and_kernel_unchanged": true
+    },
+    "manifest_verification": {
+      "files": 226,
+      "hash_and_size_mismatches": [],
+      "manifest": {
+        "path": "/private/tmp/gda-878-package-notation-evidence/RAW-MANIFEST.json",
+        "bytes": 59910,
+        "sha256": "095f022d67cfacacdb3cca44e33d8f1eaa4216c5f90997f02fe0e8d6d50af33d"
+      }
+    },
+    "raw_evidence": [
+      {
+        "path": "/private/tmp/gda-878-package-notation-evidence/FINAL-RECEIPT.json",
+        "bytes": 20410,
+        "sha256": "aa099a4cac4f50ee0014fb9bc444e898fda553ce535083e8ca835bab24eccad5"
+      },
+      {
+        "path": "/private/tmp/gda-878-spec-package-d334/receipt.json",
+        "bytes": 5825,
+        "sha256": "f739c1c0ead391ec37b1825b3aa7f51ae6fa151fa2d654b761437cfcc7db4eb1"
+      },
+      {
+        "path": "/private/tmp/gda-878-root/package-notation-inventory.xml",
+        "bytes": 28246,
+        "sha256": "f20bafa243d801fb76809d3183a0d9fae92ad395bae45e2d6484f8a66683d390"
+      },
+      {
+        "path": "/private/tmp/gda-878-root/package-notation-inventory-owner.xml",
+        "bytes": 395,
+        "sha256": "015979253559e2523527d21a7893bfc87c46e9967b603b694c3481695f78af71"
+      },
+      {
+        "path": "/private/tmp/gda-878-root/package-notation-final.xml",
+        "bytes": 22668,
+        "sha256": "a88491fb4c7758e790a9f5c0839d6049bae0660ed7bfcf3b8edffeb1a1825af2"
+      },
+      {
+        "path": "/private/tmp/gda-878-root/package-notation-ci-inventory.json",
+        "bytes": 2044,
+        "sha256": "14f2befaab0c0f6368484a66b040f60ba208c047199ab1952ea92d39ca883e0a"
+      },
+      {
+        "path": "/private/tmp/gda-878-root/package-notation-semantic-inventory.json",
+        "bytes": 10343,
+        "sha256": "027de59c1361d81c5447f740ce14ca344e66960e340411b3147ce4ac208520f0"
+      }
+    ],
+    "limits": [
+      "No full suite, wheel or final issue acceptance claim. Parent owns serial integration and final verification.",
+      "Independent B added opaque projection test is paired from c867a239b; its passing receipt was produced by B.",
+      "Source-to-initial-Fact transport remains a separate pending task.",
+      "Public slot proof covers maintained RPG combat original and kind/collection-ID rename fixtures; cross-build byte comparison uses original scenario only.",
+      "Receipt/publication paths and invocation keys differ between fresh stores; publication container bytes are not asserted equal. Evaluator manifest differs only at content_identity and evaluator_build_identity."
+    ]
+  },
+  "protocol_classification_correction": {
+    "head": "b8362675784522d04c25eeb711839682c8115ed4",
+    "production_commit": "b8362675784522d04c25eeb711839682c8115ed4",
+    "independent_commit": "9d6c7abd9",
+    "requirement": "bADR-0015 earliest refusing stage; later stages do not run and report-all is stage-bounded.",
+    "original_failure": "Resealed invalid definitions that cannot derive a protocol were incorrectly reported as ingress/index identity mismatch. The initial 97-case integrated run also exposed one wrong language.definitions subject for a malformed Runtime component.",
+    "implementation": "Production catches a distinct ProtocolProjectionError; real index mismatch stays ingress. Both implementations reuse their own existing Runtime component validator only after protocol failure to select language.runtime or language.definitions. Independent raw-graph ingress failures now return before index/protocol derivation.",
+    "permanent_compound_witness": "One root/mapping-consistent raw graph combines wrong root content identity with duplicate actual collections; both consumers must return only ingress and invoke no protocol projector.",
+    "independent_baseline_and_green": {
+      "baseline_red": {
+        "path": "/private/tmp/gda-package-projection-compound-valid-baseline-red.xml",
+        "sha256": "9573721b6073a627c15602924bf8a0606c73f27b434d6c62ab4b1a2f4daeb1f3",
+        "tests": "2",
+        "failures": "1",
+        "errors": "0",
+        "time": "1.659"
+      },
+      "paired_green": {
+        "path": "/private/tmp/gda-package-projection-owner-order-green.xml",
+        "sha256": "75fa831a25362e1d98fd07e0ab855619da3424397853c64a9d13b6b12033cd9a",
+        "tests": "18",
+        "failures": "0",
+        "errors": "0",
+        "time": "12.028"
+      }
+    },
+    "independent_compound_fixed": {
+      "A": {
+        "admitted": false,
+        "kernel_identity": "sha256:370b84ea9a5e7b14b6090fabf53d9a5347f3b6467bf5ca1b3d4b394402fcf846",
+        "language_bundle_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "law_ids": [],
+        "law_projections": [],
+        "rule_ids": [],
+        "rule_projections": [],
+        "diagnostic_projections": [],
+        "diagnostics": [
+          [
+            "ingress",
+            "kernel.identity_mismatch",
+            "language-bundle"
+          ]
+        ],
+        "truncated": false
+      },
+      "B": {
+        "admitted": false,
+        "kernel_identity": "sha256:370b84ea9a5e7b14b6090fabf53d9a5347f3b6467bf5ca1b3d4b394402fcf846",
+        "language_bundle_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "law_ids": [],
+        "law_projections": [],
+        "rule_ids": [],
+        "rule_projections": [],
+        "diagnostic_projections": [],
+        "diagnostics": [
+          [
+            "ingress",
+            "kernel.identity_mismatch",
+            "language-bundle"
+          ]
+        ],
+        "truncated": false
+      },
+      "B_projection_calls": []
+    },
+    "independent_classification_matrix": {
+      "default-profile": {
+        "admitted": false,
+        "kernel_identity": "sha256:370b84ea9a5e7b14b6090fabf53d9a5347f3b6467bf5ca1b3d4b394402fcf846",
+        "language_bundle_identity": "sha256:f9459349e1feff184b39847262c161f6082d0dd508faab31f15c5880b610a8ea",
+        "law_ids": [],
+        "law_projections": [],
+        "rule_ids": [],
+        "rule_projections": [],
+        "diagnostic_projections": [],
+        "diagnostics": [
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.definitions"
+          ]
+        ],
+        "truncated": false
+      },
+      "duplicate": {
+        "admitted": false,
+        "kernel_identity": "sha256:370b84ea9a5e7b14b6090fabf53d9a5347f3b6467bf5ca1b3d4b394402fcf846",
+        "language_bundle_identity": "sha256:b4547a9ddda27bde55f2a1b8fcb5adb9c6d1cf2a64fbeaa5bfe81bf6c9daf90d",
+        "law_ids": [],
+        "law_projections": [],
+        "rule_ids": [],
+        "rule_projections": [],
+        "diagnostic_projections": [],
+        "diagnostics": [
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.definitions"
+          ]
+        ],
+        "truncated": false
+      },
+      "wrong-source": {
+        "admitted": false,
+        "kernel_identity": "sha256:370b84ea9a5e7b14b6090fabf53d9a5347f3b6467bf5ca1b3d4b394402fcf846",
+        "language_bundle_identity": "sha256:b1b5f51caa86d157c803101fae403ac7987a7baaf156f79e1ce2e498f034e02b",
+        "law_ids": [],
+        "law_projections": [],
+        "rule_ids": [],
+        "rule_projections": [],
+        "diagnostic_projections": [],
+        "diagnostics": [
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.definitions"
+          ]
+        ],
+        "truncated": false
+      },
+      "derived-index-tamper": {
+        "admitted": false,
+        "kernel_identity": "sha256:370b84ea9a5e7b14b6090fabf53d9a5347f3b6467bf5ca1b3d4b394402fcf846",
+        "language_bundle_identity": "sha256:8df8a3bce3d72ff36048f7bd58454be13cc5eb2f70bab31d9e40f6d2b788a8b7",
+        "law_ids": [],
+        "law_projections": [],
+        "rule_ids": [],
+        "rule_projections": [],
+        "diagnostic_projections": [],
+        "diagnostics": [
+          [
+            "ingress",
+            "kernel.identity_mismatch",
+            "language-bundle.admitted-index"
+          ]
+        ],
+        "truncated": false
+      }
+    },
+    "primary_affected_selection": [
+      {
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "22",
+        "time": "15.110"
+      }
+    ],
+    "test_disposition": "The 22-case run includes one transient primary derived-index-tamper test. That duplicate was removed after the run; the equivalent independently authored permanent case remains. No production change follows the run in this checkpoint.",
+    "ci_collection": {
+      "current_test_count": 2458,
+      "current_package_vector_count": 347,
+      "missing_tests": [],
+      "missing_package_vectors": [],
+      "overlapping_tests": [],
+      "uncovered_tests": [],
+      "unexpected_shard_tests": []
+    },
+    "static_checks": {
+      "pyright_errors": 0,
+      "pyright_warnings": 0,
+      "ruff_check": "passed",
+      "ruff_format_files": 236
+    },
+    "raw_evidence": [
+      {
+        "path": "/private/tmp/gda-package-projection-owner-order-receipt.json",
+        "bytes": 5855,
+        "sha256": "e5c854fdc3b16a7e53d23a86b4b08553125b6aa67dad4c41c75ebc09197a14fc"
+      },
+      {
+        "path": "/private/tmp/gda-878-root/protocol-classification-final.xml",
+        "bytes": 3937,
+        "sha256": "3abec0c0a6254df15eb27d15dc9f94dddf3969e66b9112f89f9eb978a27a2f6c"
+      },
+      {
+        "path": "/private/tmp/gda-878-root/protocol-classification-ci-inventory.json",
+        "bytes": 2044,
+        "sha256": "a64dacd7539ab842a8eabdce502d8773ece5a922452fe90819fb6423bed28291"
+      },
+      {
+        "path": "/private/tmp/gda-878-root/protocol-classification-pyright.log",
+        "bytes": 37,
+        "sha256": "6d88a1b220adb7a3d62092b6e38431f0b3fe8babe9864fab90e5849766260332"
+      },
+      {
+        "path": "/private/tmp/gda-878-spec-classification-b836/compound.json",
+        "bytes": 1067,
+        "sha256": "4189a91d5d8cf7d9619b302b2b4dcdbb879466dcc16a903c1dec96bc3cb66146"
+      }
+    ],
+    "review": "Original compound independently rerun unchanged at this exact head: both consumers return ingress only, no B projector call. Final bounded review receipts are recorded separately.",
+    "limits": [
+      "No full suite or final fixed-build non-Kernel rename/result-exchange acceptance is asserted.",
+      "The original RED and earlier mixed JUnit outcomes remain separate historical records."
+    ],
+    "final_review": {
+      "Spec": {
+        "head": "b8362675784522d04c25eeb711839682c8115ed4",
+        "unresolved_findings": 0,
+        "receipt": {
+          "path": "/private/tmp/gda-878-spec-classification-b836/receipt.json",
+          "bytes": 4820,
+          "sha256": "4399be590e9d08ff87ee461a2ab79dea5414afb4536e35c414092076471a0199"
+        }
+      },
+      "Standards": {
+        "head": "b8362675784522d04c25eeb711839682c8115ed4",
+        "unresolved_findings": 0,
+        "targeted_tests_passed": 3,
+        "xml": {
+          "path": "/private/tmp/gda-878-package-final-standards-0o7pjuqq/targeted.xml",
+          "bytes": 759,
+          "sha256": "66e6b5ebf85e056cee1cf0082d4e5d483e476abdfda857149775733d186ed0bf"
+        }
+      },
+      "DDMA_Package_owner": {
+        "head": "cf785a5adecae9702d7e2dc695723c1b1d84c554",
+        "unresolved_findings": 0,
+        "scope": "Package notation owner and actual projection; subsequent classification review belongs to Spec and Standards.",
+        "receipt": {
+          "path": "/private/tmp/gda-878-ddma-package-cf785-proof/receipt.json",
+          "bytes": 1082,
+          "sha256": "3dc09e894466a47cea80d03d2ab3d65e34005950f7d07e44149de9c1a96a9d9a"
+        }
+      }
+    }
+  }
+}

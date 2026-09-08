@@ -758,7 +758,7 @@ structures and complete graph/Experiment/result traversal remain open.
 The [next owner record](evidence/priority-window/protocol-owner-followup.json) captures
 the corresponding RIR counterexample at `18e2fcfa4`: a coherent `formulas` to
 `formula_rows` Schema/projection change admits in both authority consumers, but actual
-public Model check and build fail in the unchanged semantic projector. The next slice
+public Model check and build fail in the unchanged semantic projector. The RIR slice below
 deletes the independent RIR Schema and structural exclusion recipe. It also deletes
 collection output-name/shape settings, the two fixed package-output recipes and
 `lowering.output_member`. The last setting only names an already computed declaration
@@ -800,10 +800,119 @@ indirect references refuses. The independent recheck preserves the original cand
 bytes, passes all 27 focused cases and refuses 16 additional erased, misowned or opaque-data
 mutants. No scoped finding remains.
 
-All 12 relation vectors are covered. The unchanged complete LDB/vector/bounded-fold
-Source graph now has 1,610 tokens, 6,538 occurrences and 47 gaps, down from 54. All 347
+All 12 relation vectors are covered. At this Operation checkpoint, the complete
+LDB/vector/bounded-fold Source graph has 1,610 tokens, 6,538 occurrences and 47 gaps,
+down from 54. All 347
 physical vectors remain. The 2,389-test CI collection has complete, disjoint assignments;
 full CI execution and the remaining extension proof stay open.
+
+## RIR protocol ownership
+
+The [RIR integration record](evidence/priority-window/rir-structure-integration.json)
+pins the production and independent-consumer change at `1768c8bbd`. The authored RIR
+Schema, structural identity recipe, collection output names/shapes, two fixed package
+output recipes and lowering output member are deleted. The generated protocol uses
+the selected terminal Fact contracts, actual semantic collection sources and existing
+numeric, assignment, composition and closure owners. RIR and Trace share the common
+artifact envelope and Formula-reference structure. Source selectors, nominal data and
+local collection names remain under their original owners.
+
+Seven maintained Models and nine Experiments pass 32 actual public commands. Comparing
+each RIR with its baseline changes only wire/content identity; every remaining payload
+member is canonically byte-identical, including semantic identity. All 34 Model-vector
+verdicts are retained; the 13 positive cases produce equal four-member artifacts in
+both lowerers. Only their 26 RIR/debug identity expectations are refreshed. The command
+capture precedes that vector-only reseal; the record distinguishes these evidence scopes.
+
+Generated schemas are detached once before ordering. Required members and schema
+alternatives have canonical order, while const data and arrays inside enum values retain
+their order and duplicates. The inventory uses independent B projection on a detached
+view, without adding a ghost Schema or identity recipe to the authored graph. Reusing
+that view reduces its construction count from 60 to 14 on the same complete graph;
+all inventory fields remain canonically byte-identical. The measured times are local
+observations, not a general performance guarantee.
+
+The initial 155-case integration has 154 passes and one stale expectation that the deleted
+identity recipe must remain an inventory gap. Its correction and Operation/CI regressions
+pass 40 cases. Separate public-projection follow-up passes 16 cases while retaining
+generic projection and Formula closure checks. All 2,427 collected tests and 347 vectors
+have complete, disjoint CI assignments. Full-package type and Ruff checks pass; this does
+not claim execution of every CI partition. This checkpoint has 1,610 tokens, 6,537
+occurrences and 45 explicit gaps across all current packages/vectors and bounded-fold
+Source, with the authored graph and Kernel unchanged by inventory traversal.
+
+Standards and Spec report no scoped findings. DDMA finds one real regression: arbitrary
+collection exclusions can delete execution-required Operation fields while both admission
+consumers accept the graph. Four correctly resealed cases (`id`, `body`, `inputs` and
+`resource_bounds`) refuse at the baseline, admit at the candidate, and then break public
+Model entrypoint resolution. The accepted correction deletes the arbitrary member and
+extension exclusion settings. The fixed RIR owner must omit only Operation evidence
+references, and Model lowering must reuse the existing Package runtime semantic
+projection for notation exclusion. Neither an independent shadow Schema nor a second
+notation exclusion list is restored. That correction is implemented at `7a077a757`; fresh-Kernel negative cases and
+original/renamed public flows close the original DDMA finding. Seven maintained whole
+RIR and Debug artifacts and their generated RIR Schema remain unchanged. The Lock
+projection removes 140 notation occurrences; Source and Package semantic identities
+remain unchanged, while affected content/build provenance identities change. All 34
+Model-vector verdicts and existing oracles remain unchanged.
+
+The corrected inventory reader and public CI registration pass 87 integrated cases.
+The 2,444-test collection and all 347 vectors have complete, disjoint assignments;
+the complete current package/vector inventory still records 45 gaps. This is not
+full CI execution or final extension acceptance.
+
+A subsequent independent Spec counterexample found that adding the actual
+`standard.formula-slots` extension to the Package exclusion list admits under both
+consumers, but unchanged public Model check/build regress from success at `1768c8bbd`
+to internal `StopIteration` at `7a077a757`. The projection removes metadata before
+Formula specialization, and Runtime also needs it for Formula evaluation evidence.
+The correction at `2897fbffd` deletes the authored Package exclusion list from all
+13 Packages, its Kernel member contract and its projection lookup. The existing
+Kernel Source-notation contract now supplies the one actual Operation address used
+by Formula parsing/rendering and Package semantic projection. Only notation at that
+address is omitted. Formula slots, other families' same-spelling members and nested
+opaque data retain their original owners. The independent consumer implements the
+projection separately and both paths use the actual supplied Kernel.
+
+Independent Spec re-runs the original correctly resealed slot candidate at
+`d334e9989`: both admissions and actual public Model check/build refuse the deleted
+Package member at ingress; the unchanged control succeeds. Six public notation and
+Formula cases pass independently. Seven maintained whole RIR, Debug Map and Model
+Explanation artifacts and the generated RIR Schema are byte-identical to `7a077a757`.
+All 34 Model-vector verdicts remain unchanged, with equal four-member outputs and
+mutual admission for the 13 positive cases; no vector oracle is rewritten. Actual
+Runtime comparison preserves five full members byte-for-byte, including both
+complete Formula evaluations (`45 - 8 = 37`, `20 - 6 = 14`). The evaluator manifest
+changes only its content and implementation-provenance identities. Other compiled
+artifact changes are confined to recorded provenance identity leaves.
+
+The inventory follows the same supplied Kernel notation address, including escaped
+pointer characters, while preserving unrelated opaque data. Its address-change test
+checks interpretation of a supplied Kernel; it does not claim that a fixed host
+accepts a new Kernel. The 136-case integration initially has one incomplete copied
+contract-vector fixture; updating only those declared copied subtrees makes that
+case pass. All 2,457 collected tests and 347 vectors have complete, disjoint CI
+assignments. The physical graph inventory still has 45 gaps. These collection and
+focused results do not claim full CI execution or complete #878 acceptance.
+
+Protocol derivation also exposed a refusal-stage defect. Correctly resealed malformed
+definitions were reported as a caller-index identity mismatch. Production now
+distinguishes protocol derivation failure from actual index tampering; both independent
+paths report the existing static reason at the actual language-definition or Runtime
+owner. Runtime classification reuses its existing component validator only on the
+failure path. The prior 97-case run preserves its one incorrect Runtime-subject result;
+the correction does not weaken the original Runtime assertion.
+
+Independent Spec then combines an invalid root identity with duplicate collections in
+one consistent raw graph. The old independent consumer continued into protocol
+derivation and mixed ingress with static diagnostics. The permanent regression fails
+on that old implementation. At `b83626757`, both consumers stop at ingress and no
+protocol projector runs. The existing derived-index tamper case remains an ingress
+refusal. The integrated affected selection passes 22 cases; one redundant transient
+index-tamper test is then removed, with the equivalent permanent independent case
+retained. Final collection verifies 2,458 tests and 347 vectors with complete, disjoint
+assignments. Full-package Pyright and Ruff checks pass. These results close the scoped
+protocol classification defects; they do not close the remaining extension proof.
 
 ## Remaining proof and integration
 
