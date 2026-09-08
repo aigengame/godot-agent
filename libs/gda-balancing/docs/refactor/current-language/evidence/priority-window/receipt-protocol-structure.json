@@ -1338,13 +1338,19 @@
       "bytes": 61624,
       "sha256": "1308ec9dc883ccb0b55ce9ec1083a33a471b73c4bb5d73aa5114e00cb5af9e8f"
     },
+    "documentation_review": {
+      "path": "/private/tmp/gda-878-receipt-final-standards-ajbx5lhe/FINAL-REVIEW-RECEIPT.json",
+      "bytes": 6467,
+      "sha256": "ad3c10d200210bacdba2f3052dbc5038cd422ab2faea5a91f45df1160b4f774a"
+    },
+    "documentation_review_head": "18c2dc65ac65c2ffaad91c87db401084d37b2c74",
     "core_findings": {
       "Standards": 0,
       "Spec": 0,
       "DDMA": 0
     },
     "DDMA_scope": "Fourteen targeted tests plus a fresh real eight-member Model publication. Three reidentified binding mutations and two transport mutations pass local Schema/hash checks but all refuse actual publication authentication.",
-    "final_test_and_documentation_review": "Final B test-only Spec review passed at b0605e9ae15fdeac47aa11ceddd192a63b641fc3. Documentation review is pending."
+    "final_test_and_documentation_review": "Final B test-only Spec review passed at b0605e9ae15fdeac47aa11ceddd192a63b641fc3. Final Standards documentation and CI review passed at 18c2dc65ac65c2ffaad91c87db401084d37b2c74; no unresolved findings."
   },
   "reproduction": [
     "Use the exact package revision and its environment; set PYTHONPATH=src:tests and PYTHONDONTWRITEBYTECODE=1.",
