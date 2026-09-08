@@ -61,6 +61,19 @@ def _rewrite_positions(
     return deepcopy(value)
 
 
+def _member_path_values(
+    graph: Mapping[str, Any], paths: Mapping[str, Mapping[int, str]]
+) -> dict[str, str]:
+    """Rewrite declared dot-path segments together at their original positions."""
+    result = {}
+    for pointer, edits in paths.items():
+        segments = _pointer_value(graph, pointer).split(".")
+        for index, target in edits.items():
+            segments[index] = target
+        result[pointer] = ".".join(segments)
+    return result
+
+
 def _render_formulas(
     kernel: dict[str, Any],
     candidate: dict[str, Any],
@@ -167,6 +180,7 @@ def apply_extension_renaming(
     values: dict[str, str] = {}
     keys: dict[str, str] = {}
     formula_values: dict[str, dict[str, str]] = {}
+    member_paths: dict[str, dict[int, str]] = {}
     for occurrence in inventory.occurrences:
         target = correspondence.get(occurrence.token, occurrence.token).name
         if occurrence.location == "formula":
@@ -175,8 +189,15 @@ def apply_extension_renaming(
             )
         elif occurrence.location == "key":
             keys[occurrence.pointer] = target
+        elif occurrence.location == "member-path":
+            member_paths.setdefault(occurrence.pointer, {})[
+                int(occurrence.projection)
+            ] = target
         else:
             values[occurrence.pointer] = target
+    if values.keys() & member_paths.keys():
+        raise InventoryRefusal("member path also has a whole-value rename")
+    values.update(_member_path_values(graph, member_paths))
     inputs = {k: v for k, v in graph.items() if k not in {"artifacts", "results"}}
     candidate = _rewrite_positions(inputs, values, keys)
     bodies = {

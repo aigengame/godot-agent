@@ -17,6 +17,7 @@ from schema2_extension_inventory_support import (
     token_bijection_from_names,
 )
 from schema2_extension_renaming_support import (
+    _member_path_values,
     _render_formulas,
     _reseal_authored_graph,
     _rewrite_positions,
@@ -69,6 +70,28 @@ def test_positions_decode_json_pointer_escapes_and_array_indices():
         {"/a~1b~0/0/a~1b~0": "changed"},
         {"/a~1b~0": "outer", "/a~1b~0/0/a~1b~0": "inner"},
     ) == {"outer": [{"inner": "changed"}, "user text"]}
+
+
+def test_member_paths_rename_segments_without_changing_equal_user_data(authored_graph):
+    _, graph = authored_graph
+    profile = next(
+        (definition, f"/packages/{pi}/semantic_closure/{ci}/definitions/{di}")
+        for pi, package in enumerate(graph["packages"])
+        for ci, closure in enumerate(package["semantic_closure"])
+        if closure["authority_path"] == "language.resolution_profiles"
+        for di, definition in enumerate(closure["definitions"])
+        if definition["default"]
+    )
+    path = profile[1] + "/manifest_id_path"
+    original = profile[0]["manifest_id_path"]
+    outer, inner = original.split(".")
+    # A segment swap must use the original addresses, not sequential text replace.
+    values = _member_path_values(graph, {path: {0: inner, 1: outer}})
+    assert values == {path: f"{inner}.{outer}"}
+    assert profile[0]["manifest_id_path"] == original
+    assert _rewrite_positions(
+        {"path": original, "notes": original}, values={"/path": values[path]}, keys={}
+    ) == {"path": f"{inner}.{outer}", "notes": original}
 
 
 def test_incomplete_real_graph_cannot_authorize_renaming(authored_graph):
