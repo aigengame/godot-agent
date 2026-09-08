@@ -442,6 +442,120 @@ def _projection_collection_links(kernel: Mapping[str, Any], graph: Mapping[str, 
                     )
 
 
+def _resolution_binding_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    """Read lexical binding occurrences without re-evaluating relation recipes."""
+    contract = kernel["meta_format"]["resolution_judgment"]
+    grammar = contract["relation_recipe_format"]
+    schemas = contract["relation_schemas"]
+    for _, profile, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.resolution_profiles"
+    ):
+        for ji, judgment in enumerate(profile["judgment_chain"]):
+            yield (
+                AuthorityToken("resolution-judgment", (profile["id"],), judgment["id"]),
+                f"{pointer}/judgment_chain/{ji}/id",
+                "declaration",
+                "/meta_format/language_definitions/collections/resolution_profiles",
+            )
+        recipes = profile["relation_recipes"]
+        if [recipe["id"] for recipe in recipes] != [schema["id"] for schema in schemas]:
+            raise InventoryRefusal("resolution recipes do not cover Kernel relations")
+        for ri, (recipe, schema) in enumerate(zip(recipes, schemas, strict=True)):
+            rp = f"{pointer}/relation_recipes/{ri}"
+            if set(recipe) != {"id", "bindings", "predicates", "fields"}:
+                raise InventoryRefusal("resolution recipe has unknown members")
+            yield (
+                AuthorityToken(
+                    "kernel.meta_format.resolution_judgment.relation_schemas.id",
+                    (),
+                    recipe["id"],
+                ),
+                rp + "/id",
+                "reference",
+                "/meta_format/resolution_judgment/relation_schemas",
+            )
+            scope = (profile["id"], recipe["id"])
+            bound: set[str] = set()
+
+            def term(value: dict[str, Any], tp: str, *, source: bool = False):
+                roots = grammar["binding_source_roots" if source else "term_roots"]
+                root = value.get("root")
+                required = {"root", "path"} | (
+                    {"binding"} if root == "binding" else set()
+                )
+                if root not in roots or set(value) != required:
+                    raise InventoryRefusal(
+                        "resolution term has unknown members or root"
+                    )
+                if not isinstance(value["path"], list) or not all(
+                    isinstance(segment, str) and segment for segment in value["path"]
+                ):
+                    raise InventoryRefusal("resolution term has no closed member path")
+                if root == "binding":
+                    if value["binding"] not in bound:
+                        raise InventoryRefusal(
+                            "resolution binding is not lexically available"
+                        )
+                    yield (
+                        AuthorityToken("recipe-binding", scope, value["binding"]),
+                        tp + "/binding",
+                        "reference",
+                        "/meta_format/resolution_judgment/relation_recipe_format/term",
+                    )
+
+            for bi, binding in enumerate(recipe["bindings"]):
+                bp = f"{rp}/bindings/{bi}"
+                if (
+                    set(binding) != set(grammar["binding"]["required_members"])
+                    or not isinstance(binding["name"], str)
+                    or not binding["name"]
+                    or binding["name"] in bound
+                ):
+                    raise InventoryRefusal(
+                        "resolution binding declaration is not unique"
+                    )
+                yield from term(binding["source"], bp + "/source", source=True)
+                yield (
+                    AuthorityToken("recipe-binding", scope, binding["name"]),
+                    bp + "/name",
+                    "declaration",
+                    "/meta_format/resolution_judgment/relation_recipe_format/binding",
+                )
+                bound.add(binding["name"])
+            for pi, predicate in enumerate(recipe["predicates"]):
+                pp = f"{rp}/predicates/{pi}"
+                if (
+                    set(predicate) != set(grammar["predicate"]["required_members"])
+                    or predicate["operator"] not in grammar["predicate_operators"]
+                ):
+                    raise InventoryRefusal(
+                        "resolution predicate does not close its grammar"
+                    )
+                for member in ("left", "right"):
+                    yield from term(predicate[member], pp + "/" + member)
+            if [field["name"] for field in recipe["fields"]] != schema["fields"]:
+                raise InventoryRefusal("resolution fields do not cover Kernel relation")
+            for fi, field in enumerate(recipe["fields"]):
+                fp = f"{rp}/fields/{fi}"
+                if set(field) != set(grammar["field"]["required_members"]) or field[
+                    "pointer"
+                ] != (field["name"] in schema["pointer_fields"]):
+                    raise InventoryRefusal(
+                        "resolution field does not close its grammar"
+                    )
+                yield (
+                    AuthorityToken(
+                        f"kernel.meta_format.resolution_judgment.relation_schemas.{ri}.fields",
+                        (),
+                        field["name"],
+                    ),
+                    fp + "/name",
+                    "reference",
+                    "/meta_format/resolution_judgment/relation_schemas",
+                )
+                yield from term(field["term"], fp + "/term")
+
+
 class _Reader:
     def __init__(self, kernel: Mapping[str, Any], graph: Mapping[str, Any]):
         self.kernel = kernel
@@ -2509,6 +2623,12 @@ class _Reader:
             self.kernel, self.graph
         ):
             self.occurrence(token, pointer, use, law)
+        for token, pointer, use, law in _resolution_binding_links(
+            self.kernel, self.graph
+        ):
+            self.occurrence(token, pointer, use, law)
+            if token.role.startswith("kernel."):
+                self.reserved.add(token)
         self.packages()
         self.rule_chain_links()
         self.assignment_policies()
@@ -3151,6 +3271,10 @@ def validate_extension_inventory(
         (token, pointer, use)
         for token, pointer, use, _ in _projection_collection_links(kernel, graph)
     )
+    for token, pointer, use, _ in _resolution_binding_links(kernel, graph):
+        required.add((token, pointer, use))
+        if token.role.startswith("kernel.") and token not in inventory.reserved:
+            raise InventoryRefusal("Kernel relation role was made renameable")
     lowering_rows = list(
         _authority_path_rows(kernel, graph, "language_bundle.language.model_lowerings")
     )
@@ -3601,6 +3725,11 @@ def _renamed_owner(
     if token.role == "formula-fixed-alias":
         return (
             name(AuthorityToken("language.resolution_profiles", (), token.owner[0])),
+        )
+    if token.role in {"recipe-binding", "resolution-judgment"}:
+        return (
+            name(AuthorityToken("language.resolution_profiles", (), token.owner[0])),
+            *token.owner[1:],
         )
     if token.role in {"assignment-policy", "projection-collection"}:
         return (name(AuthorityToken("language.model_lowerings", (), token.owner[0])),)

@@ -1322,3 +1322,103 @@ def test_ldb_root_framing_has_no_unclassified_authored_members(witness, target):
         read_extension_inventory(kernel, changed)
     with pytest.raises(InventoryRefusal, match="LDB"):
         validate_extension_inventory(kernel, changed, inventory)
+
+
+def test_resolution_binders_keep_lexical_owners_distinct_from_kernel_fields():
+    from gda_balancing.domain.authority.context import (
+        AdmittedAuthorityContext,
+        admit_authority_context,
+    )
+    from gda_balancing.domain.model import (
+        CheckedModel,
+        check_model_source_value,
+        compile_checked_model,
+    )
+    from schema2_bootstrap_conformance_support import _reidentify_package_release
+    from schema2_bootstrap_production_support import _reidentify_graph_root
+
+    kernel, language = mutable_authorities()
+    profile = next(
+        definition
+        for package in language["language"]["packages"]
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.resolution_profiles"
+        for definition in closure["definitions"]
+    )
+    recipe = next(r for r in profile["relation_recipes"] if r["id"] == "packages")
+    binder = recipe["bindings"][0]
+    original = binder["name"]
+    binder["name"] = "opaque.binding"
+    # The existing package recipe has exactly one binding and one field term.
+    assert len(recipe["bindings"]) == len(recipe["fields"]) == 1
+    term = recipe["fields"][0]["term"]
+    assert term["root"] == "binding" and term["binding"] == original
+    term["binding"] = binder["name"]
+    for i, judgment in enumerate(profile["judgment_chain"]):
+        judgment["id"] = f"opaque.judgment.{i}"
+    for package in language["language"]["packages"]:
+        _reidentify_package_release(package)
+    _reidentify_graph_root(language)
+    a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
+    assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
+    context = admit_authority_context(kernel, language)
+    assert isinstance(context, AdmittedAuthorityContext), context
+    source = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/bounded-fold/model-source.json"
+        ).read_text()
+    )
+    checked = check_model_source_value(source, authority_context=context)
+    assert isinstance(checked, CheckedModel), checked
+    assert len(compile_checked_model(checked)) == 8
+    graph = {
+        "packages": language.package_releases,
+        "ldb_root": language.root,
+        "vector_sets": language.package_conformance_vector_sets,
+        "source": source,
+    }
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    selected = AuthorityToken(
+        "recipe-binding", (profile["id"], "packages"), binder["name"]
+    )
+    assert selected in inventory.tokens - inventory.reserved
+    assert len([o for o in inventory.occurrences if o.token == selected]) == 2
+    same_spelling = {token for token in inventory.tokens if token.name == "module"}
+    assert any(t.role == "recipe-binding" for t in same_spelling - inventory.reserved)
+    assert any(t.role.startswith("kernel.") for t in same_spelling & inventory.reserved)
+    assert len(
+        [token for token in inventory.tokens if token.role == "resolution-judgment"]
+    ) == len(profile["judgment_chain"])
+    reference = next(
+        o for o in inventory.occurrences if o.token == selected and o.use == "reference"
+    )
+    incomplete = replace(
+        inventory, occurrences=tuple(o for o in inventory.occurrences if o != reference)
+    )
+    with pytest.raises(InventoryRefusal):
+        validate_extension_inventory(kernel, graph, incomplete)
+    omitted = {t for t in inventory.tokens if t.role == "recipe-binding"}
+    missing_class = replace(
+        inventory,
+        tokens=inventory.tokens - omitted,
+        occurrences=tuple(o for o in inventory.occurrences if o.token not in omitted),
+    )
+    with pytest.raises(InventoryRefusal):
+        validate_extension_inventory(kernel, graph, missing_class)
+    graph_profile = next(
+        definition
+        for package in graph["packages"]
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.resolution_profiles"
+        for definition in closure["definitions"]
+    )
+    graph_recipe = next(
+        recipe
+        for recipe in graph_profile["relation_recipes"]
+        if recipe["id"] == "packages"
+    )
+    graph_recipe["bindings"][0]["source"]["unknown_selector"] = "module"
+    with pytest.raises(InventoryRefusal, match="resolution term"):
+        read_extension_inventory(kernel, graph)
