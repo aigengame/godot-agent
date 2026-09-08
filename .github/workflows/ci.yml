@@ -478,6 +478,12 @@ jobs:
       - name: Install Godot
         uses: ./.github/actions/install-godot
 
+      - name: Install Blender for saved-source asset tests
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --yes blender
+          blender --background --factory-startup --version
+
       - name: Run Godot e2e tests
         # -rs surfaces skip reasons in the log (e.g. absent export templates, or no
         # DisplayServer for windowed capture), so a silently-skipped e2e is visible

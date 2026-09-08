@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=29b7207be8231ce46160c34b0e1336b4412f3a788196bf583b581dafd6b27806 -->
+<!-- gda-readme-i18n: source=README.md sha256=e37039b783e1b1822c93cf395cf57a1bf7afdb777d15fce8c18206342b009e53 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -472,10 +472,10 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `asset-pipeline run` | 暂存选定的 PNG/GLB 文件，可选择调整 PNG 尺寸，然后安装并导入文件，检查 Godot 实际加载出的类型及尺寸/场景。 |
+| `asset-pipeline run` | 导出已保存的 Blender 资产子树，或暂存 PNG/GLB 文件，再安装、导入并检查 Godot 实际加载的结果。 |
 
 请使用明确的源文件到目标位置映射，并指定覆盖策略。图像生成完成后的文件沿用同一流程，
-也可以附带调用方声明的元数据。[文件交接指南](../libs/gda-assets/README.md)介绍了输入、引用与
+也可以附带调用方声明的元数据。[资产管线指南](../libs/gda-assets/README.md)介绍了 Blender 导出、文件输入、引用与
 部分失败的处理方式。该工作流随 gda 一同提供，无需单独安装资产工具。
 
 ### Live 命令 — 经由 `gda-daemon`；Godot 4.6+，macOS/Linux

@@ -96,3 +96,37 @@ def test_success_result_carries_content_block_alongside_structured_content():
     block = result.content[0]
     assert block.type == "text"
     assert block.text == json.dumps(SCENE_CREATE_RESULT, indent=2)
+
+
+def test_asset_production_object_reaches_structured_dispatch_verbatim():
+    payload = {
+        "project_root": "/tmp/consumer",
+        "pipeline": {
+            "completed": [],
+            "outputs": [],
+            "observations": [],
+            "source_mode": "blender_saved",
+        },
+    }
+    runner = FakeGdaRunner(
+        schema_then(lambda args, stdin: gda_result(json.dumps(payload)))
+    )
+    server = build_server(runner)
+    arguments = {
+        "production": {
+            "kind": "blender_saved",
+            "outputs": [{"role": "model", "target": "res://model.glb"}],
+            "options": {
+                "source": "/production/source.blend",
+                "scene": "Scene",
+                "root": "Cube",
+                "uniform_scale": 2,
+            },
+        }
+    }
+    result = call_tool(server, "asset_pipeline_run", arguments)
+    assert result.is_error is False
+    args, stdin, _ = runner.calls[-1]
+    assert args == ["asset-pipeline", "run", "--params-json", "-", "--json"]
+    assert stdin is not None
+    assert json.loads(stdin) == arguments

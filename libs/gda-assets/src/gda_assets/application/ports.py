@@ -3,9 +3,36 @@
 from typing import Protocol
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from gda_assets.domain.artifacts import ImportOutcome, InstalledFile, LoadObservation
 from gda_assets.domain.recipe import AssetFile, AssetRecipe
+
+
+@dataclass(frozen=True)
+class ProductionOutput:
+    role: str
+    target: str
+
+
+@dataclass(frozen=True)
+class ProductionRequest:
+    kind: str
+    outputs: tuple[ProductionOutput, ...]
+    options: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ProducedFiles:
+    files: tuple[AssetFile, ...]
+    source_mode: str
+    observations: dict[str, Any]
+
+
+class AssetProducer(Protocol):
+    def produce(
+        self, request: ProductionRequest, source_root: Path | None, workspace: Path
+    ) -> ProducedFiles: ...
 
 
 class PortFailure(Exception):

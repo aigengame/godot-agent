@@ -415,7 +415,8 @@ def command_argv_bindings(
     Click is duck-typed through ``getattr``, as the surface walker does: it is a
     transitive dependency through Typer, not a direct one.
     """
-    properties = input_model.model_json_schema().get("properties", {})
+    input_schema = input_model.model_json_schema()
+    properties = input_schema.get("properties", {})
     bindings: list[ArgvBinding] = []
     position = 0
     for param in getattr(command, "params", []):
@@ -444,7 +445,9 @@ def command_argv_bindings(
                 required=bool(getattr(param, "required", False)),
                 flag=bool(getattr(param, "is_flag", False)),
                 multiple=multiple,
-                json_value=_takes_a_json_value(bound, properties, multiple),
+                json_value=_takes_a_json_value(
+                    bound, properties, multiple, input_schema.get("$defs", {})
+                ),
             )
         )
         if is_argument:
@@ -466,7 +469,10 @@ def _bound_property(
 
 
 def _takes_a_json_value(
-    bound: Optional[str], properties: "dict[str, Any]", multiple: bool
+    bound: Optional[str],
+    properties: "dict[str, Any]",
+    multiple: bool,
+    definitions: "dict[str, Any]",
 ) -> bool:
     """Whether the parameter's one token is the property's JSON encoding (#669).
 
@@ -482,16 +488,21 @@ def _takes_a_json_value(
     spec = properties.get(bound or "")
     if not isinstance(spec, dict) or multiple:
         return False
-    return _is_compound_spec(spec)
+    return _is_compound_spec(spec, definitions)
 
 
-def _is_compound_spec(spec: "dict[str, Any]") -> bool:
-    """Whether a property schema is an array/object, INCLUDING behind an anyOf."""
+def _is_compound_spec(spec: "dict[str, Any]", definitions: "dict[str, Any]") -> bool:
+    """Recognize compound types, including local model refs in nullable unions."""
+    reference = spec.get("$ref", "")
+    if reference.startswith("#/$defs/"):
+        spec = definitions.get(reference.removeprefix("#/$defs/"), spec)
     if spec.get("type") in ("array", "object"):
         return True
     branches = spec.get("anyOf") or spec.get("oneOf") or []
     return any(
-        _is_compound_spec(branch) for branch in branches if isinstance(branch, dict)
+        _is_compound_spec(branch, definitions)
+        for branch in branches
+        if isinstance(branch, dict)
     )
 
 

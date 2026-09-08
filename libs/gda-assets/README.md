@@ -1,9 +1,11 @@
-# Asset file handoff
+# Asset pipeline
 
 Use `gda asset-pipeline run` to install selected PNG/GLB files and ask Godot to
 load them. The internal `gda_assets` library ships in the normal gda distribution;
-there is no separate executable or installation. This first slice does not
-generate images or author/export Blender scenes.
+there is no separate executable or installation. For saved `.blend` export with
+source inspection and uniform scale preparation, see the
+[Blender production guide](docs/blender.md). Completed image-generation outputs
+use explicit file handoff; this command does not generate images.
 
 ```sh
 gda asset-pipeline run --project ./consumer --source-root ./production \

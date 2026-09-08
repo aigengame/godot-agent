@@ -8,7 +8,15 @@ from typing import Any, Literal, Optional
 import typer
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from gda_assets.api import AssetFile, AssetRecipe, PipelineResult, Resize, run_pipeline
+from gda_assets.api import (
+    AssetFile,
+    AssetRecipe,
+    PipelineResult,
+    Resize,
+    run_pipeline,
+    ProductionRequest,
+    ProductionOutput,
+)
 
 from gda.dispatch import dispatch_recipe, params_or_bad_parameter
 from gda.errors import Failure, invalid_project_failure, make_failure
@@ -59,12 +67,51 @@ class AssetFileInput(BaseModel):
     )
 
 
+class ProductionOutputInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: str = Field(description="Producer output role, currently model.")
+    target: str = Field(description="Explicit res:// destination for this output.")
+
+
+class ProductionInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "kind": "blender_saved",
+                    "outputs": [{"role": "model", "target": "res://art/model.glb"}],
+                    "options": {
+                        "source": "/production/model.blend",
+                        "scene": "AssetScene",
+                        "root": "AssetRoot",
+                        "uniform_scale": 2,
+                    },
+                }
+            ],
+        },
+    )
+    kind: str = Field(description="Producer kind; currently blender_saved.")
+    outputs: list[ProductionOutputInput] = Field(
+        min_length=1,
+        max_length=32,
+        description="Explicit output roles and destinations.",
+    )
+    options: dict[str, Any] = Field(
+        description="Producer-owned configuration, validated by the selected adapter."
+    )
+
+
 class AssetPipelineRunParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
     files: list[AssetFileInput] = Field(
-        min_length=1,
+        default_factory=list,
         max_length=32,
-        description="One to 32 explicit source-to-target file mappings.",
+        description="One to 32 explicit file mappings, or omit when using production.",
+    )
+    production: ProductionInput | None = Field(
+        default=None,
+        description="Produce files before the shared handoff; mutually exclusive with files.",
     )
     source_root: Path | None = Field(
         default=None,
@@ -87,6 +134,10 @@ class AssetPipelineRunParams(BaseModel):
 
     @model_validator(mode="after")
     def _relative_sources_require_a_base(self) -> "AssetPipelineRunParams":
+        if bool(self.files) == (self.production is not None):
+            raise ValueError("Select exactly one of files or production")
+        if self.production is not None and self.source_mode != "existing":
+            raise ValueError("Production determines its observed source mode")
         if self.source_root is None and any(
             not Path(item.source).is_absolute() for item in self.files
         ):
@@ -126,7 +177,9 @@ class PipelineRunResult(BaseModel):
     import_result: ImportResult | None = None
     observations: list[LoadResult]
     failure: PipelineFailureResult | None = None
-    source_mode: Literal["existing", "imagegen"] = "existing"
+    source_mode: str = "existing"
+    production: dict[str, Any] | None = None
+    cleanup: dict[str, bool] | None = None
     caller_declared_provenance: dict[str, Any] | None = None
 
 
@@ -179,7 +232,13 @@ def run_asset_pipeline(
         )
         return failure
     ownership_failure = validate_asset_targets(
-        project, [item.target for item in params.files]
+        project,
+        [
+            item.target
+            for item in (
+                params.production.outputs if params.production else params.files
+            )
+        ],
     )
     if ownership_failure is not None:
         empty = PipelineRunResult(
@@ -221,9 +280,27 @@ def run_asset_pipeline(
     )
     pipeline = run_pipeline(
         recipe,
-        source_root=(params.source_root or project).resolve(),
+        source_root=(
+            params.source_root.resolve()
+            if params.source_root is not None
+            else None
+            if params.production
+            else project.resolve()
+        ),
         project_root=project,
         godot=port,
+        production=(
+            ProductionRequest(
+                params.production.kind,
+                tuple(
+                    ProductionOutput(item.role, item.target)
+                    for item in params.production.outputs
+                ),
+                params.production.options,
+            )
+            if params.production
+            else None
+        ),
     )
     typed_result = _pipeline_result(pipeline)
     serialized = typed_result.model_dump(mode="json")
@@ -239,10 +316,16 @@ def run_asset_pipeline(
                 }
             )
             return failure
-        code = (
+        code = {
+            "invalid_production": "invalid_params",
+            "unsupported_producer": "invalid_params",
+            "producer_unavailable": "binary_not_found",
+            "producer_timeout": "launch_timeout",
+        }.get(
+            pipeline.failure.code,
             "invalid_params"
             if pipeline.failure.stage in {"validate", "stage"}
-            else "operation_failed"
+            else "operation_failed",
         )
         failure = make_failure(
             code,
@@ -287,14 +370,22 @@ ASSET_PIPELINE_RUN_COMMAND = HeadlessCommand(
 )
 
 _app = typer.Typer(
-    help="Install selected files and verify them through Godot.", no_args_is_help=True
+    help="Produce or install selected assets and verify them through Godot.",
+    no_args_is_help=True,
 )
 
 
 @_app.command(name="run", cls=ASSET_PIPELINE_RUN_COMMAND.command_class())
 def asset_pipeline_run(
     files: str = typer.Option(
-        ..., "--files", help="JSON array of source-to-target file mappings."
+        "[]",
+        "--files",
+        help="JSON array of source-to-target file mappings; omit for production.",
+    ),
+    production: Optional[str] = typer.Option(
+        None,
+        "--production",
+        help="JSON producer request with kind, outputs and producer-owned options.",
     ),
     source_root: Optional[Path] = typer.Option(
         None,
@@ -321,15 +412,17 @@ def asset_pipeline_run(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Install selected files, import them, and verify what Godot loads."""
+    """Export saved Blender sources or install files, then verify what Godot loads."""
     try:
         decoded_files = json.loads(files)
+        decoded_production = json.loads(production) if production is not None else None
         decoded_provenance = json.loads(provenance) if provenance is not None else None
     except json.JSONDecodeError as exc:
         raise typer.BadParameter(f"invalid JSON: {exc.msg}") from exc
     params = params_or_bad_parameter(
         AssetPipelineRunParams,
         files=decoded_files,
+        production=decoded_production,
         source_root=source_root,
         overwrite=overwrite,
         source_mode=source_mode,

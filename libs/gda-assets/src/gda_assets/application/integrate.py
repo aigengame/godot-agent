@@ -2,8 +2,15 @@
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from dataclasses import replace
 
-from gda_assets.application.ports import AssetFilesPort, GodotAssetPort, PortFailure
+from gda_assets.application.ports import (
+    AssetFilesPort,
+    GodotAssetPort,
+    PortFailure,
+    AssetProducer,
+    ProductionRequest,
+)
 from gda_assets.domain.artifacts import PipelineFailure, PipelineResult
 from gda_assets.domain.recipe import AssetRecipe, validate_recipe
 
@@ -11,24 +18,45 @@ from gda_assets.domain.recipe import AssetRecipe, validate_recipe
 def run_pipeline(
     recipe: AssetRecipe,
     *,
-    source_root: Path,
+    source_root: Path | None,
     project_root: Path,
     godot: GodotAssetPort,
     files: AssetFilesPort,
+    production: ProductionRequest | None = None,
+    producer: AssetProducer | None = None,
 ) -> PipelineResult:
     result = PipelineResult(
         source_mode=recipe.source_mode, caller_declared_provenance=recipe.provenance
     )
     stage = "validate"
+    workspace = None
     try:
-        try:
-            validate_recipe(recipe)
-        except ValueError as exc:
-            raise PortFailure("invalid_recipe", str(exc)) from exc
-        plans = files.validate(recipe, source_root, project_root)
-        result.completed.append(stage)
-        stage = "stage"
         with TemporaryDirectory(prefix="gda-assets-") as workspace:
+            if production is not None:
+                if recipe.files:
+                    raise PortFailure(
+                        "invalid_recipe",
+                        "Select existing files or production, not both",
+                    )
+                stage = "produce"
+                if producer is None:
+                    raise PortFailure(
+                        "unsupported_producer",
+                        f"Unsupported producer: {production.kind}",
+                    )
+                produced = producer.produce(production, source_root, Path(workspace))
+                result.production = produced.observations
+                result.source_mode = produced.source_mode
+                recipe = replace(recipe, files=produced.files)
+                result.completed.append(stage)
+            stage = "validate"
+            try:
+                validate_recipe(recipe)
+            except ValueError as exc:
+                raise PortFailure("invalid_recipe", str(exc)) from exc
+            plans = files.validate(recipe, source_root or project_root, project_root)
+            result.completed.append(stage)
+            stage = "stage"
             staged = [
                 files.stage(plan, Path(workspace), index)
                 for index, plan in enumerate(plans)
@@ -52,4 +80,7 @@ def run_pipeline(
         result.failure = PipelineFailure(stage, exc.code, str(exc), exc.cause)
     except OSError as exc:
         result.failure = PipelineFailure(stage, "file_io_failed", str(exc))
+    finally:
+        if production is not None and workspace is not None:
+            result.cleanup = {"workspace_removed": not Path(workspace).exists()}
     return result
