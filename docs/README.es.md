@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=4b47e9b0f643e015268f4b1c77e958359477a4698b9b7b1a3a200d6576e7d59f -->
+<!-- gda-readme-i18n: source=README.md sha256=48742d4bf77cfe72601972226e20a41714dfa254945c01828a9643dd3b31eb1f -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -8,6 +8,7 @@
 
 [Descripción del producto](https://aigengame.xyz/) ·
 [¿CLI, Agent Skill o MCP?](https://aigengame.xyz/godot-mcp/) ·
+[Demos jugables](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
 > **Crea y verifica proyectos de Godot desde agentes de programación con IA, scripts de shell y CI.**
@@ -452,7 +453,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `project set` | Define un ajuste del proyecto, forzando el valor a su tipo declarado. |
 | `project add-autoload` | Registra un singleton autoload (nombre → script/escena). |
 | `project remove-autoload` | Cancela el registro de un singleton autoload por nombre. |
-| `project add-input-action` | Registra una acción del InputMap vinculada a teclas (`--key` nombre o keycode, `--deadzone`, `--physical`). |
+| `project add-input-action` | Registra una acción del InputMap vinculada a teclas y/o a un mando (`--key`, `--joy-button`, `--joy-axis` como `<eje>[:<signo>]`, `--device`, `--deadzone`, `--physical`); se requiere al menos una vinculación. |
 | `project remove-input-action` | Cancela el registro de una acción del InputMap por nombre. |
 | `project find-references` | Encuentra todos los archivos del proyecto que referencian un recurso dado. |
 | `project dependencies` | Mapea cada escena/recurso a los recursos de los que depende. |

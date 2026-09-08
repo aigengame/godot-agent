@@ -6,6 +6,7 @@
 
 [Product overview](https://aigengame.xyz/) ·
 [CLI, Agent Skill, or MCP?](https://aigengame.xyz/godot-mcp/) ·
+[Playable demos](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
 > **Build and verify Godot projects with AI coding agents, shell scripts, and CI.**

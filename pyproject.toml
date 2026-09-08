@@ -1,6 +1,6 @@
 [project]
 name = "gda"
-version = "0.14.0"
+version = "0.15.0"
 description = "Godot automation for AI agents to build and verify projects through a CLI, Agent Skill, or MCP server, with structured results, headless operations, and live runtime control."
 readme = "README.md"
 authors = [

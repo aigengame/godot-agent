@@ -181,7 +181,7 @@ const ENGINE_CACHE_DIR := "res://.godot"
 # Values only — the decision that uses them is _should_descend's alone (#804).
 #
 # The same two literals are spelled a second time in Python, in
-# `_engine_skips_directory_of` (src/gda/commands/resource.py), which predicts the
+# `_engine_skips_directory_of` (src/gda/import_evidence.py), which predicts the
 # same rule for an inventory that never spawns the engine. The two spellings are
 # held together by `test_the_two_spellings_of_the_skip_markers_agree` (#808
 # review), not by derivation.
@@ -3312,7 +3312,12 @@ func _op_export_list(_params: Dictionary) -> void:
 # reports it); an unknown name is the export_preset_not_found failure. Beyond the
 # preset's own fields it reports whether the export templates for the running
 # engine version are installed — the readiness check an agent makes before a
-# future export run (issue #121) — and the version directory it checked.
+# future export run (issue #121) — the version directory it checked, and the
+# export-templates directory that version was looked for in. When the optional
+# "host_data_path" param names a data directory other than this run's own, and that
+# one DOES hold the version's templates, the reply names it too: --user-data-root
+# moves the directory Godot reads the templates from, so a redirected run reports
+# none installed on a host that has them (#840).
 func _op_export_get(params: Dictionary) -> void:
 	_diag("running operation: export-get")
 	if not _has_project():
@@ -3334,8 +3339,14 @@ func _op_export_get(params: Dictionary) -> void:
 			var summary := _export_preset_summary(config, section, entry["index"])
 			summary["export_path"] = String(config.get_value(section, "export_path", ""))
 			var version_dir := _export_templates_version_dir()
+			var templates_root := _export_templates_root(OS.get_data_dir())
 			summary["templates_version"] = version_dir
-			summary["templates_installed"] = _export_templates_installed(version_dir)
+			summary["templates_root"] = templates_root
+			var installed := _export_templates_installed(templates_root, version_dir)
+			summary["templates_installed"] = installed
+			summary["templates_root_host"] = _hidden_host_templates_root(
+				_string_param(params, "host_data_path"), templates_root, version_dir, installed
+			)
 			_succeed(summary)
 			return
 
@@ -3408,19 +3419,48 @@ func _export_templates_version_dir() -> String:
 	return "%s.%s" % [dir, v.status]
 
 
+# The export-templates directory under one data directory: <data_dir>/<godot-dir>/
+# export_templates. Headless --script runs have no EditorPaths singleton, so the
+# path is composed from the data dir (the same root the editor uses) plus the
+# "<godot-dir>/export_templates" layout, where <godot-dir> is the engine's
+# per-platform user-dir name (see _godot_user_dir_name — lowercase "godot" on
+# case-sensitive Linux, NOT the macOS/Windows "Godot"). Taking the data dir as an
+# ARGUMENT is what keeps the layout rule in ONE place while two directories are
+# compared (#840): the engine's own OS.get_data_dir(), which a --user-data-root
+# redirect MOVES, and the host's, which gda passes in.
+func _export_templates_root(data_dir: String) -> String:
+	return data_dir.path_join(_godot_user_dir_name()).path_join("export_templates")
+
+
 # Whether the export templates for the running engine version are installed:
-# their per-version directory exists under the user data dir's
-# <godot-dir>/export_templates/. Headless --script runs have no EditorPaths
-# singleton, so the path is derived from OS.get_data_dir() (the same root the editor
-# uses) plus the "<godot-dir>/export_templates/<version>" layout, where <godot-dir>
-# is the engine's per-platform user-dir name (see _godot_user_dir_name — lowercase
-# "godot" on case-sensitive Linux, NOT the macOS/Windows "Godot"). This is the
-# readiness signal an agent checks before a future export run (issue #121); it does
-# not verify per-platform template files, only that the version's templates are
-# present at all.
-func _export_templates_installed(version_dir: String) -> bool:
-	var templates_root := OS.get_data_dir().path_join(_godot_user_dir_name()).path_join("export_templates")
+# their per-version directory exists under the given export-templates root. This is
+# the readiness signal an agent checks before a future export run (issue #121); it
+# does not verify per-platform template files, only that the version's templates
+# are present at all.
+func _export_templates_installed(templates_root: String, version_dir: String) -> bool:
 	return DirAccess.dir_exists_absolute(templates_root.path_join(version_dir))
+
+
+# The HOST's export-templates directory, but only when it holds templates this run
+# cannot see (#840). Godot reads the templates from OS.get_data_dir(), which
+# --user-data-root relocates, so a redirected run reports none installed even on a
+# host whose templates are correctly installed. gda passes the host data directory
+# (it resolves it over its own, unredirected environment) so this reply can name the
+# second directory — and it is named ONLY when something is really HIDDEN: null when
+# no host directory was passed, when the checked root already holds this version
+# (nothing is hidden, whatever the host holds — a redirected root a caller populated
+# is a healthy run, PR #883 review round 3), when the redirect is not in play (the
+# two roots are the same directory), and when the host has no templates for this
+# version either, which is a plain missing-templates run with nothing to disclose.
+func _hidden_host_templates_root(host_data_dir: String, templates_root: String, version_dir: String, installed: bool) -> Variant:
+	if host_data_dir.is_empty() or installed:
+		return null
+	var host_root := _export_templates_root(host_data_dir)
+	if host_root.simplify_path() == templates_root.simplify_path():
+		return null
+	if not _export_templates_installed(host_root, version_dir):
+		return null
+	return host_root
 
 
 # The engine's per-platform user-data directory name. macOS and Windows capitalize it
