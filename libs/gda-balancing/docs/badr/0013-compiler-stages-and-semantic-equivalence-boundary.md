@@ -51,6 +51,20 @@ an explicit boundary for lowering equivalence.
 
 ## Decision
 
+> **Protocol structure direction (#878, 2026-09-08; implementation pending):**
+> The LDB wire-grammar ownership below applies to actual authored grammar and selectors.
+> Fixed core artifact protocol structures need explicit Kernel laws. A correctly sealed
+> Trace Schema can currently rename `events` while both authority consumers admit it;
+> actual Runtime output then fails that Schema. The adopted correction derives each
+> fixed structure from its Kernel law and deletes the corresponding independent LDB
+> configuration. Existing node, scheduler, outcome and typed-value laws remain the
+> semantic owners; their current raw Schema copies must not become new Kernel authority.
+> Schema/Artifact kind names, actual Source selectors and nominal typed content remain
+> LDB-owned. Start with one Trace slice and validate both consumers before extending it.
+> Internal definitions remain replaceable under bADR-0028. The
+> [counterexample record](../refactor/current-language/evidence/priority-window/protocol-structure-counterexample.json)
+> pins the actual failure; this direction does not claim completed implementation.
+
 - **The Standard Schema 2.x compilation and execution pipeline is:**
 
   `Wire representation → Authoring AST → Typed HIR → RIR semantic payload → Resolved Model → Execution IR (EIR) → Runtime`

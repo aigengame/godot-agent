@@ -698,6 +698,35 @@ records unchanged identities for all seven maintained RIRs, and captures indepen
 review and integrated validation. These checks do not establish the remaining complete
 inventory or final fixed-build exchange.
 
+## Fixed protocol structure counterexample
+
+A Schema-only Trace field rename exposes another admitted configuration that the host
+does not implement. At `be57268d0`, rename root `events` to `trace_rows` in both properties
+and required members, then reseal the Package and LDB. Both authority consumers admit
+the candidate; Model Build and Experiment check succeed. The original Experiment run
+exits 0, while the candidate exits 4. The actual producer still writes the same three
+`events` rows and fails its selected Schema at `ArtifactContract.identify`: `trace_rows`
+is missing and `events` is unexpected. Code, Kernel, Model, Experiment and RIR remain
+the same across the comparison. A separate Model check was not run for this probe.
+
+The [counterexample record](evidence/priority-window/protocol-structure-counterexample.json)
+also captures the missing prerequisite for Artifact projection inventory: its seven
+RIR Schema targets have no interpreted field declarations yet. References cannot create
+their own owners or borrow the unrelated Source field owner.
+
+The accepted direction in bADR-0013 is to define fixed core protocol structures in the
+Kernel and delete their independently configurable LDB copies. Derivation must reuse
+the actual node, scheduler, outcome and typed-value laws. Moving every current raw
+Schema into the Kernel would retain stale duplication: the
+[maximum-node follow-up](evidence/primitives/maximum-wire-followup.json) confirms one
+obsolete initialization union branch that still passes the public wire contract after
+#876, although semantic RIR admission refuses it. #879 owns that deletion witness.
+
+Implementation starts with one Trace slice, preserving genuine Source selectors,
+Schema/Artifact kind names and nominal typed content. Incorrect fixed structure must
+refuse before execution; legal kind renaming and typed payloads must still work. This
+direction is not a completed Schema migration or an exemption from the remaining proof.
+
 ## Remaining proof and integration
 
 - Complete the semantic-token inventory and resolve remaining demonstrated name
