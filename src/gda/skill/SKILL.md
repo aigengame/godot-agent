@@ -104,6 +104,17 @@ text stay separate; unavailable execution facts remain unknown. These local
 commands need no Godot project or engine. See each command's `--schema` and the
 [prompt guide](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/docs/prompts.md).
 
+For new model or sprite authoring, use `concept-prepare` with a brief file and new
+record, complete generation externally, and register each local PNG with
+`prompt-register-output`. Then use `concept-select` to create a new handoff from
+explicit record/output pairs and `concept-author` with either
+`blender-reference-blockout` or `sprite-sheet-reference`. These bounded examples
+each consume one selected PNG and report its digest and observable influence; they
+do not prove provider execution, general authoring, similarity, or production
+quality, and they do not install output into Godot. See the
+[concept reference guide](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/docs/concepts.md)
+for runnable JSON and commands, reuse and failure behavior.
+
 ## Setup
 
 - **Engine** — set `GDA_GODOT` to your Godot binary (or pass `--godot PATH`).
@@ -295,7 +306,7 @@ Every headless reply carries its floats at full binary64 precision, so a value r
 
 | Group | Commands |
 | --- | --- |
-| `asset-pipeline` | `run`, `check`, `preview`, `check-package`, `prompt-prepare`, `prompt-inspect`, `prompt-revise`, `prompt-register-output` (production and handoff; project expectations; model preview; package acceptance; local prompt preservation and external output registration) |
+| `asset-pipeline` | `run`, `check`, `preview`, `check-package`, `prompt-prepare`, `prompt-inspect`, `prompt-revise`, `prompt-register-output`, `concept-prepare`, `concept-select`, `concept-author` (production and handoff; project expectations; model preview; package acceptance; prompt and concept-reference workflows) |
 
 Use `gda asset-pipeline preview --path /production/model.glb --output-dir
 /reports/model-preview --settings /project/preview-settings.json --frames 60

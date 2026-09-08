@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=40e478a5d338ee83ba3ba811623d831ed075bd1af73499a68310544b2bb8e50e -->
+<!-- gda-readme-i18n: source=README.md sha256=d5809235a582579160cb9b6183987697a7703eeaf5280f3e074a124989b2b95b -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -479,8 +479,9 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `asset-pipeline check-package` | 在隔离环境中从导出的 PCK 加载资源，按同一套模型要求验收，并检查明确声明的排除路径。 |
 | `asset-pipeline prompt-prepare` / `prompt-inspect` | 在调用外部生成工具前保存提示词和 PNG 参考图，并读取已保存的输入以供复用。 |
 | `asset-pipeline prompt-revise` / `prompt-register-output` | 将修订后的提示词保存为独立尝试，或登记已生成的本地 PNG 及调用者声明、工具报告的信息。 |
+| `asset-pipeline concept-prepare` / `concept-select` / `concept-author` | 保存模型或精灵简报，选择已登记的 PNG 参考图，并运行范围明确的参考图使用示例。 |
 
-[提示词命令](../libs/gda-assets/docs/prompts.md)在本地运行，无需 Godot 或连接生成服务。准备完成后返回交给外部工具的输入，不会生成图片。
+[提示词命令](../libs/gda-assets/docs/prompts.md)在本地运行，无需 Godot 或连接生成服务。准备完成后返回交给外部工具的输入，不会生成图片。[概念参考图流程](../libs/gda-assets/docs/concepts.md)同样由外部工具明确完成生成，也不会把参考图安装到 Godot。
 
 请使用明确的源文件到目标位置映射，并指定覆盖策略。图像生成完成后的文件沿用同一流程，
 也可以附带调用方声明的元数据。[资产管线指南](../libs/gda-assets/README.md)介绍了 Blender 导出、文件输入、引用、

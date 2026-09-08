@@ -12,6 +12,10 @@ the exact prompt and reference inputs. Inspect or revise those saved inputs, the
 register completed local output files. See the [prompt guide](docs/prompts.md)
 for the four local operations and their external-tool handoff.
 
+Use the concept workflow to preserve a model/sprite brief, select registered PNG
+references, and run a bounded Blender blockout or sprite-sheet reference example.
+See the [concept reference guide](docs/concepts.md).
+
 Use `gda asset-pipeline check` to evaluate project-owned model expectations against
 a current Godot inspection or a saved raw inspection report. See the
 [model checks guide](docs/checks.md) for the JSON format, seven supported check

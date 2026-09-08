@@ -488,10 +488,12 @@ names the file, and only `preflight` catches a first-frame failure.
 | `asset-pipeline check-package` | Apply the same model expectations to a resource loaded from an isolated exported PCK and check exact declared exclusions. |
 | `asset-pipeline prompt-prepare` / `prompt-inspect` | Save or reuse one attempt's prompt and PNG reference inputs before external generation. |
 | `asset-pipeline prompt-revise` / `prompt-register-output` | Create a separate revised attempt or preserve a completed local PNG with its declared/reported details. |
+| `asset-pipeline concept-prepare` / `concept-select` / `concept-author` | Preserve a model or sprite brief, select registered PNG references, and run a bounded reference-use example. |
 
 The [prompt commands](libs/gda-assets/docs/prompts.md) work locally without Godot
 or a provider connection. Preparation returns an external handoff; it does not
-generate an image.
+generate an image. The [concept workflow](libs/gda-assets/docs/concepts.md) likewise
+uses explicit external generation and does not install references into Godot.
 
 Use explicit source-to-target mappings and an overwrite policy. Completed
 image-generation files use the same path with optional caller-declared metadata.

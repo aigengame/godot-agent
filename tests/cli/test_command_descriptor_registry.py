@@ -169,6 +169,9 @@ _RECIPE_OPERATIONS = {
     "asset-pipeline-prompt-inspect",
     "asset-pipeline-prompt-revise",
     "asset-pipeline-prompt-register-output",
+    "asset-pipeline-concept-prepare",
+    "asset-pipeline-concept-select",
+    "asset-pipeline-concept-author",
     "export-run",
     # `script run` is the third execution shape (ADR-0031): a user-script passthrough
     # run, fulfilled by a CLI-side recipe (it emits no ADR-0002 sentinel) like export

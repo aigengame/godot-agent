@@ -90,6 +90,24 @@ from gda_assets.domain.prompt import (
     PromptRevision,
     PromptRevisionRequest,
 )
+from gda_assets.domain.concept import (
+    AuthoringArtifact,
+    ConceptAuthoringResult,
+    ConceptAuthorRequest,
+    ConceptBrief,
+    ConceptBriefSnapshot,
+    ConceptCandidate,
+    ConceptConsumer,
+    ConceptPreparation,
+    ConceptPrepareRequest,
+    ConceptSelection,
+    ConceptSelectRequest,
+    ConceptUse,
+    ConsumedConcept,
+    SelectedConcept,
+    SpriteSheetLayout,
+    SpriteSheetObservation,
+)
 
 __all__ = [
     "check_package",
@@ -174,7 +192,65 @@ __all__ = [
     "inspect_prompt",
     "revise_prompt",
     "register_prompt_output",
+    "AuthoringArtifact",
+    "ConceptAuthoringResult",
+    "ConceptAuthorRequest",
+    "ConceptBrief",
+    "ConceptBriefSnapshot",
+    "ConceptCandidate",
+    "ConceptConsumer",
+    "ConceptPreparation",
+    "ConceptPrepareRequest",
+    "ConceptSelection",
+    "ConceptSelectRequest",
+    "ConceptUse",
+    "ConsumedConcept",
+    "SelectedConcept",
+    "SpriteSheetLayout",
+    "SpriteSheetObservation",
+    "prepare_concept",
+    "select_concept",
+    "author_concept",
 ]
+
+
+def prepare_concept(request: ConceptPrepareRequest) -> ConceptPreparation:
+    """Preserve a concept brief and its external generation handoff."""
+    from gda_assets.adapters.concept_files import ConceptFiles
+    from gda_assets.adapters.prompt_files import PromptFiles
+    from gda_assets.application.concept import prepare_concept as _prepare_concept
+
+    return _prepare_concept(request, files=ConceptFiles(), prompts=PromptFiles())
+
+
+def select_concept(request: ConceptSelectRequest) -> ConceptSelection:
+    """Pin explicitly completed, registered candidates into one handoff."""
+    from gda_assets.adapters.concept_files import ConceptFiles
+    from gda_assets.adapters.prompt_files import PromptFiles
+    from gda_assets.application.concept import select_concept as _select_concept
+
+    return _select_concept(request, files=ConceptFiles(), prompts=PromptFiles())
+
+
+def author_concept(request: ConceptAuthorRequest) -> ConceptAuthoringResult:
+    """Run one of the two bounded selected-reference authoring examples."""
+    from gda_assets.adapters.concept_authoring import (
+        BlenderReferenceBlockoutAuthor,
+        SpriteSheetReferenceAuthor,
+    )
+    from gda_assets.adapters.concept_files import ConceptFiles
+    from gda_assets.application.concept import author_concept as _author_concept
+
+    if request.consumer == "blender-reference-blockout":
+        author = BlenderReferenceBlockoutAuthor()
+    elif request.consumer == "sprite-sheet-reference":
+        author = SpriteSheetReferenceAuthor()
+    else:
+        raise PortFailure(
+            "unsupported_concept_consumer",
+            f"Unsupported concept consumer: {request.consumer}",
+        )
+    return _author_concept(request, files=ConceptFiles(), author=author)
 
 
 def prepare_prompt(request: PromptPrepareRequest) -> PromptPreparation:

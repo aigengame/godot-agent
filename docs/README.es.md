@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=40e478a5d338ee83ba3ba811623d831ed075bd1af73499a68310544b2bb8e50e -->
+<!-- gda-readme-i18n: source=README.md sha256=d5809235a582579160cb9b6183987697a7703eeaf5280f3e074a124989b2b95b -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -503,8 +503,9 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `asset-pipeline check-package` | Aplica los mismos requisitos del modelo a un recurso cargado desde un PCK exportado y aislado, y comprueba las exclusiones declaradas mediante rutas exactas. |
 | `asset-pipeline prompt-prepare` / `prompt-inspect` | Guarda o reutiliza el prompt y las referencias PNG de un intento antes de la generación externa. |
 | `asset-pipeline prompt-revise` / `prompt-register-output` | Crea un intento revisado por separado o conserva un PNG local junto con los datos declarados y los comunicados por el proveedor. |
+| `asset-pipeline concept-prepare` / `concept-select` / `concept-author` | Conserva el brief de un modelo o sprite, selecciona referencias PNG registradas y ejecuta un ejemplo acotado de uso de esas referencias. |
 
-Los [comandos de prompts](../libs/gda-assets/docs/prompts.md) funcionan localmente, sin Godot ni conexión con un proveedor. La preparación devuelve las entradas para la herramienta externa; no genera una imagen.
+Los [comandos de prompts](../libs/gda-assets/docs/prompts.md) funcionan localmente, sin Godot ni conexión con un proveedor. La preparación devuelve las entradas para la herramienta externa; no genera una imagen. El [flujo de referencias conceptuales](../libs/gda-assets/docs/concepts.md) también deja la generación en manos de una herramienta externa y no instala las referencias en Godot.
 
 Usa correspondencias explícitas entre origen y destino y define una política de sobrescritura.
 Los archivos que complete la generación de imágenes siguen el mismo flujo y pueden incluir metadatos

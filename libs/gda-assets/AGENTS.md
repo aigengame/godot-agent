@@ -5,7 +5,8 @@ context. It is not a sibling user-facing product. File handoff (#908), saved
 Blender production (#909), model expectation checks (#887), optional content
 observations (#889), controlled runtime refresh (#890), preview (#891), and package
 acceptance (#892), and local prompt records (#912) are implemented. Concept
-selection and authoring consumers remain planned.
+selection and both bounded authoring consumers (#913) are implemented and observed;
+final independent review, CI, and delivery status remain issue-owned.
 Requirements, review, CI, and delivery status live in
 [#907](https://github.com/aigengame/godot-agent/issues/907).
 

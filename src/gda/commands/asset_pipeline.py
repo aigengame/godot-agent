@@ -43,6 +43,18 @@ from gda_assets.api import (
     PortFailure,
     PromptDeclarationKey,
     PromptOptionKey,
+    ConceptAuthoringResult,
+    ConceptAuthorRequest,
+    ConceptCandidate,
+    ConceptConsumer,
+    ConceptPreparation,
+    ConceptPrepareRequest,
+    ConceptSelection,
+    ConceptSelectRequest,
+    SpriteSheetLayout,
+    author_concept,
+    prepare_concept,
+    select_concept,
 )
 
 from gda.dispatch import dispatch_recipe, params_or_bad_parameter
@@ -1563,6 +1575,13 @@ def _json_map(value: str | None, label: str) -> dict[str, Any] | None:
     return decoded
 
 
+def _json_document(value: str, label: str) -> Any:
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise typer.BadParameter(f"invalid {label} JSON: {exc.msg}") from exc
+
+
 @_app.command(name="prompt-prepare", cls=PROMPT_PREPARE_COMMAND.command_class())
 def prompt_prepare(
     record: Path = typer.Option(..., "--record", help="New prompt record directory."),
@@ -1705,6 +1724,309 @@ def prompt_register_output(
             reported_provider=reported_provider,
             reported_model=reported_model,
             reported_options=_json_map(reported_options, "reported-options"),
+        ),
+        json_output=json_output,
+        godot=None,
+        project=None,
+    )
+
+
+class ConceptPrepareParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    brief: Path = Field(
+        description="Caller-authored concept brief JSON file (at most 1 MiB)."
+    )
+    record: Path = Field(
+        description="New exclusive concept and prompt record directory."
+    )
+    producer: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+        description="Optional caller-selected external producer name.",
+    )
+    requested_options: dict[PromptOptionKey, JsonScalar] = Field(
+        default_factory=dict, description=REQUESTED_OPTION_HELP
+    )
+
+
+class ConceptCandidateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    record: Path = Field(description="Existing registered prompt record directory.")
+    output: str = Field(
+        min_length=1,
+        max_length=255,
+        description="Exact registered PNG output slot filename.",
+    )
+
+
+class ConceptSelectParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    brief_record: Path = Field(description="Record created by concept-prepare.")
+    handoff: Path = Field(
+        description="New exclusive selected-reference handoff directory."
+    )
+    candidates: tuple[ConceptCandidateInput, ...] = Field(
+        min_length=1,
+        max_length=8,
+        description="Ordered list of 1 to 8 registered prompt output candidates.",
+    )
+
+
+class SpriteSheetLayoutInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    width: int = Field(strict=True, ge=1, le=2048)
+    height: int = Field(strict=True, ge=1, le=2048)
+    cell_width: int = Field(strict=True, ge=1, le=2048)
+    cell_height: int = Field(strict=True, ge=1, le=2048)
+    frames: int = Field(strict=True, ge=1, le=64)
+
+
+class ConceptAuthorParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    handoff: Path = Field(description="Existing selected-reference handoff directory.")
+    consumer: ConceptConsumer = Field(description="Bounded example authoring consumer.")
+    output: Path = Field(description="New exclusive authoring output directory.")
+    reference_index: int = Field(
+        default=0,
+        strict=True,
+        ge=0,
+        le=7,
+        description="Zero-based selected reference to consume.",
+    )
+    blender_executable: Path | None = Field(
+        default=None,
+        description="Optional Blender executable for the blockout consumer.",
+    )
+    sprite_layout: SpriteSheetLayoutInput | None = Field(
+        default=None, description="Required layout for the sprite-sheet consumer."
+    )
+
+
+class ConceptPreparationResult(BaseModel):
+    preparation: ConceptPreparation
+
+
+class ConceptSelectionResult(BaseModel):
+    selection: ConceptSelection
+
+
+class ConceptAuthorResult(BaseModel):
+    authoring: ConceptAuthoringResult
+
+
+def _concept_failure(exc: PortFailure) -> Failure:
+    if exc.code == "destination_conflict":
+        code = "already_exists"
+    elif exc.code in {
+        "concept_prepare_failed",
+        "concept_select_failed",
+        "concept_author_failed",
+    }:
+        code = "operation_failed"
+    else:
+        code = "invalid_params"
+    return make_failure(code, str(exc), "")
+
+
+def run_concept_prepare(
+    params: ConceptPrepareParams, *, project: Path | None, godot: str | None
+) -> ConceptPreparationResult | Failure:
+    del project, godot
+    try:
+        return ConceptPreparationResult(
+            preparation=prepare_concept(
+                ConceptPrepareRequest(
+                    brief=params.brief.resolve(),
+                    record=params.record.resolve(),
+                    producer=params.producer,
+                    requested_options=params.requested_options,
+                )
+            )
+        )
+    except PortFailure as exc:
+        return _concept_failure(exc)
+
+
+def run_concept_select(
+    params: ConceptSelectParams, *, project: Path | None, godot: str | None
+) -> ConceptSelectionResult | Failure:
+    del project, godot
+    try:
+        return ConceptSelectionResult(
+            selection=select_concept(
+                ConceptSelectRequest(
+                    brief_record=params.brief_record.resolve(),
+                    handoff=params.handoff.resolve(),
+                    candidates=tuple(
+                        ConceptCandidate(item.record.resolve(), item.output)
+                        for item in params.candidates
+                    ),
+                )
+            )
+        )
+    except PortFailure as exc:
+        return _concept_failure(exc)
+
+
+def run_concept_author(
+    params: ConceptAuthorParams, *, project: Path | None, godot: str | None
+) -> ConceptAuthorResult | Failure:
+    del project, godot
+    layout = params.sprite_layout
+    try:
+        return ConceptAuthorResult(
+            authoring=author_concept(
+                ConceptAuthorRequest(
+                    handoff=params.handoff.resolve(),
+                    consumer=params.consumer,
+                    output=params.output.resolve(),
+                    reference_index=params.reference_index,
+                    blender_executable=params.blender_executable.resolve()
+                    if params.blender_executable
+                    else None,
+                    sprite_layout=SpriteSheetLayout(**layout.model_dump())
+                    if layout
+                    else None,
+                )
+            )
+        )
+    except PortFailure as exc:
+        return _concept_failure(exc)
+
+
+def render_concept_preparation(result: ConceptPreparationResult) -> str:
+    value = result.preparation
+    return (
+        f"concept prepared: {value.brief_snapshot.path}\n"
+        f"  use: {value.brief.use}; prompt record: {value.prompt.record.record}\n"
+        f"  handoff: {value.prompt.handoff.action}"
+    )
+
+
+def render_concept_selection(result: ConceptSelectionResult) -> str:
+    value = result.selection
+    return (
+        f"concept references selected: {value.handoff}\n"
+        f"  use: {value.brief.use}; selected: {len(value.selected)}\n"
+        f"  authoring: {value.authoring_status}"
+    )
+
+
+def render_concept_authoring(result: ConceptAuthorResult) -> str:
+    value = result.authoring
+    return (
+        f"concept authored: {value.consumer}\n"
+        f"  consumed: {value.consumed.path}; reference loaded: {value.reference_loaded}\n"
+        f"  influence: {value.influence}; artifacts: "
+        + (", ".join(str(item.path) for item in value.artifacts) or "none")
+    )
+
+
+CONCEPT_PREPARE_COMMAND = _prompt_command(
+    "asset-pipeline-concept-prepare",
+    ConceptPrepareParams,
+    ConceptPreparationResult,
+    render_concept_preparation,
+    run_concept_prepare,
+)
+CONCEPT_SELECT_COMMAND = _prompt_command(
+    "asset-pipeline-concept-select",
+    ConceptSelectParams,
+    ConceptSelectionResult,
+    render_concept_selection,
+    run_concept_select,
+)
+CONCEPT_AUTHOR_COMMAND = _prompt_command(
+    "asset-pipeline-concept-author",
+    ConceptAuthorParams,
+    ConceptAuthorResult,
+    render_concept_authoring,
+    run_concept_author,
+)
+
+
+@_app.command(name="concept-prepare", cls=CONCEPT_PREPARE_COMMAND.command_class())
+def concept_prepare(
+    brief: Path = typer.Option(..., "--brief"),
+    record: Path = typer.Option(..., "--record"),
+    producer: Optional[str] = typer.Option(None, "--producer"),
+    requested_options: str = typer.Option(
+        "{}", "--requested-options", help=REQUESTED_OPTION_HELP
+    ),
+    json_output: bool = json_option(),
+    schema: bool = CONCEPT_PREPARE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+) -> None:
+    """Preserve a concept brief and return an external prompt handoff."""
+    dispatch_recipe(
+        CONCEPT_PREPARE_COMMAND,
+        params_or_bad_parameter(
+            ConceptPrepareParams,
+            brief=brief,
+            record=record,
+            producer=producer,
+            requested_options=_json_map(requested_options, "requested-options"),
+        ),
+        json_output=json_output,
+        godot=None,
+        project=None,
+    )
+
+
+@_app.command(name="concept-select", cls=CONCEPT_SELECT_COMMAND.command_class())
+def concept_select(
+    brief_record: Path = typer.Option(..., "--brief-record"),
+    handoff: Path = typer.Option(..., "--handoff"),
+    candidates: str = typer.Option(
+        ..., "--candidates", help="JSON array of 1 to 8 record/output objects."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = CONCEPT_SELECT_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+) -> None:
+    """Pin completed registered PNG candidates into a reusable handoff."""
+    dispatch_recipe(
+        CONCEPT_SELECT_COMMAND,
+        params_or_bad_parameter(
+            ConceptSelectParams,
+            brief_record=brief_record,
+            handoff=handoff,
+            candidates=_json_document(candidates, "candidates"),
+        ),
+        json_output=json_output,
+        godot=None,
+        project=None,
+    )
+
+
+@_app.command(name="concept-author", cls=CONCEPT_AUTHOR_COMMAND.command_class())
+def concept_author(
+    handoff: Path = typer.Option(..., "--handoff"),
+    consumer: ConceptConsumer = typer.Option(..., "--consumer"),
+    output: Path = typer.Option(..., "--output"),
+    reference_index: int = typer.Option(0, "--reference-index", min=0, max=7),
+    blender_executable: Optional[Path] = typer.Option(None, "--blender-executable"),
+    sprite_layout: Optional[str] = typer.Option(
+        None, "--sprite-layout", help="JSON sprite sheet layout object."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = CONCEPT_AUTHOR_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+) -> None:
+    """Author one bounded example from a selected concept reference."""
+    dispatch_recipe(
+        CONCEPT_AUTHOR_COMMAND,
+        params_or_bad_parameter(
+            ConceptAuthorParams,
+            handoff=handoff,
+            consumer=consumer,
+            output=output,
+            reference_index=reference_index,
+            blender_executable=blender_executable,
+            sprite_layout=_json_document(sprite_layout, "sprite-layout")
+            if sprite_layout is not None
+            else None,
         ),
         json_output=json_output,
         godot=None,
