@@ -58,12 +58,8 @@ class EvidenceVerifyResult(BaseModel):
 
 
 _EVIDENCE_REFUSAL_REASONS = (
-    "evaluation.reason.evaluable-cyclic-prerequisite",
-    "evaluation.reason.evaluable-extra-prerequisite",
     "evaluation.reason.evaluable-ineligible-outcome",
-    "evaluation.reason.evaluable-mismatched-prerequisite",
-    "evaluation.reason.evaluable-missing-prerequisite",
-    "evaluation.reason.evaluable-unresolved-prerequisite",
+    "evaluation.reason.evaluable-outcome-mismatch",
     "evaluation.reason.unknown-evidence-claim-kind",
 )
 
@@ -110,7 +106,6 @@ def run_evidence_verify(
     if isinstance(result, Schema2RefusalReport):
         return result
     assert isinstance(result, EvidenceCandidate)
-    identities = {subject.role: subject.identity for subject in result.subjects}
     return EvidenceVerifyResult(
         claim_kind=result.claim_kind,
         claim_state=cast(Literal["candidate"], result.claim_state),
@@ -118,15 +113,11 @@ def run_evidence_verify(
             Literal["success", "verdict", "runtime-refusal"],
             result.producing_outcome,
         ),
-        rir_semantic_identity=identities["rir-semantic-identity"],
-        experiment_identity=identities["experiment"],
-        resolved_runtime_profile_identity=identities["resolved-runtime-profile"],
-        evaluator_capability_manifest_identity=identities[
-            "evaluator-capability-manifest"
-        ],
-        experiment_run_artifact_set_receipt_identity=identities[
-            "experiment-run-artifact-set-receipt"
-        ],
+        rir_semantic_identity=result.rir_semantic_identity,
+        experiment_identity=result.experiment_identity,
+        resolved_runtime_profile_identity=result.resolved_runtime_profile_identity,
+        evaluator_capability_manifest_identity=result.evaluator_capability_manifest_identity,
+        experiment_run_artifact_set_receipt_identity=result.experiment_run_artifact_set_receipt_identity,
     )
 
 
@@ -165,7 +156,7 @@ def _prepare_evidence_args(root: Path, token: int, refusing: bool) -> tuple[str,
 EVIDENCE_VERIFY = CommandDescriptor(
     group="evidence",
     command="verify",
-    description="Verify one exact Evidence prerequisite graph.",
+    description="Verify one authenticated Experiment outcome as an Evidence candidate.",
     input_model=EvidenceVerifyInput,
     output_model=EvidenceVerifyResult,
     handler=run_evidence_verify,
