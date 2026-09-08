@@ -7,12 +7,13 @@ from gda_balancing.domain.authority.context import AdmittedAuthorityContext
 from gda_balancing.domain.authority.graph import resolve_current_namespaces
 from gda_balancing.domain.canonical import JsonValue, content_identity
 from gda_balancing.domain.model import model_source_identity_domain
+from gda_balancing.domain.artifacts import select_protocol_artifact_contract
 
 from ._release_semantics import (
-    _artifact_identity_domain,
     _member,
     _member_schema_identities,
     _template_admission_profile,
+    _template_model_source_member_kind,
 )
 
 
@@ -152,9 +153,14 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
     profile = _template_admission_profile(language_bundle)
     member_identity_domain = cast(str, profile["member_identity_domain"])
     source_identity_domain = model_source_identity_domain(language_bundle)
-    release_identity_domain = _artifact_identity_domain(
+    release_contract = select_protocol_artifact_contract(
         language_bundle, "template-release"
     )
+    source_kind = _template_model_source_member_kind(kernel, profile)
+    member_kinds = {
+        row["role"]: row["member_kind"]
+        for row in cast(list[dict[str, str]], profile["member_roles"])
+    }
     starter_identity = content_identity(source_identity_domain, starter)
     experiment_id = "standard.quantity-minimal.experiment"
     golden_id = "standard.quantity-minimal.golden"
@@ -179,14 +185,14 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
     members = [
         build_member(
             "starter-model-source",
-            "model-source-package",
-            schema_identities["model-source-package"],
+            source_kind,
+            schema_identities[source_kind],
             starter,
         ),
         build_member(
             "experiment-specification",
-            "experiment-template",
-            schema_identities["experiment-template"],
+            member_kinds["experiment"],
+            schema_identities[member_kinds["experiment"]],
             {
                 "schema_version": "2.0.0",
                 "id": experiment_id,
@@ -206,8 +212,8 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
         ),
         build_member(
             "declared-package-dependencies",
-            "declared-package-dependencies",
-            schema_identities["declared-package-dependencies"],
+            member_kinds["dependencies"],
+            schema_identities[member_kinds["dependencies"]],
             {
                 "schema_version": "2.0.0",
                 "packages": [package.namespace for package in selection.packages],
@@ -215,8 +221,8 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
         ),
         build_member(
             "defaults",
-            "template-defaults",
-            schema_identities["template-defaults"],
+            member_kinds["defaults"],
+            schema_identities[member_kinds["defaults"]],
             {
                 "schema_version": "2.0.0",
                 "symbol_values": [{"symbol": "main.value", "value": 50}],
@@ -224,8 +230,8 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
         ),
         build_member(
             "compatibility",
-            "template-compatibility",
-            schema_identities["template-compatibility"],
+            member_kinds["compatibility"],
+            schema_identities[member_kinds["compatibility"]],
             {
                 "schema_version": "2.0.0",
                 "kernel_identity": kernel_identity,
@@ -235,8 +241,8 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
         ),
         build_member(
             "documentation",
-            "template-documentation",
-            schema_identities["template-documentation"],
+            member_kinds["documentation"],
+            schema_identities[member_kinds["documentation"]],
             {
                 "schema_version": "2.0.0",
                 "media_type": "text/markdown",
@@ -245,8 +251,8 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
         ),
         build_member(
             "coverage-matrix",
-            "genre-coverage-matrix",
-            schema_identities["genre-coverage-matrix"],
+            member_kinds["coverage"],
+            schema_identities[member_kinds["coverage"]],
             {
                 "schema_version": "2.0.0",
                 "rows": [
@@ -266,8 +272,8 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
         ),
         build_member(
             "golden-scenario",
-            "golden-scenario",
-            schema_identities["golden-scenario"],
+            member_kinds["golden"],
+            schema_identities[member_kinds["golden"]],
             {
                 "schema_version": "2.0.0",
                 "id": golden_id,
@@ -279,8 +285,8 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
         ),
         build_member(
             "negative-vector",
-            "negative-vector",
-            schema_identities["negative-vector"],
+            member_kinds["negative-vector"],
+            schema_identities[member_kinds["negative-vector"]],
             {
                 "schema_version": "2.0.0",
                 "id": negative_id,
@@ -293,8 +299,8 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
         ),
         build_member(
             "boundary-vector",
-            "boundary-vector",
-            schema_identities["boundary-vector"],
+            member_kinds["boundary-vector"],
+            schema_identities[member_kinds["boundary-vector"]],
             {
                 "schema_version": "2.0.0",
                 "id": boundary_id,
@@ -317,16 +323,10 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
         for member in members
     ]
     body: dict[str, JsonValue] = {
-        "artifact_kind": "template-release",
-        "artifact_version": "2.0.0",
-        "wire_schema_identity": schema_identities["template-release"],
         "id": "standard.quantity-minimal",
         "kernel_identity": kernel_identity,
         "language_bundle_identity": language_bundle_identity,
         "manifest": cast(JsonValue, manifest),
         "members": cast(JsonValue, members),
     }
-    return {
-        **body,
-        "content_identity": content_identity(release_identity_domain, body),
-    }
+    return release_contract.identify(body)

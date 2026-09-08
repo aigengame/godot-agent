@@ -1,6 +1,7 @@
 """CLI adapter for instantiating packaged Template releases."""
 
 from collections.abc import Callable
+from dataclasses import replace
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -9,7 +10,10 @@ from gda_balancing.interfaces.cli.descriptors import (
     CommandDescriptor,
     ConformanceFixtures,
 )
-from gda_balancing.domain.artifact_set import ProtocolArtifactSetMemberSpec
+from gda_balancing.domain.artifact_set import (
+    ArtifactSetPlan,
+    ProtocolArtifactSetMemberSpec,
+)
 from gda_balancing.domain.template import TemplateProvider, minimal_release
 from gda_balancing.domain.authority.context import (
     AuthorityContextProvider,
@@ -65,6 +69,7 @@ def template_instantiate_handler(
     provider: TemplateProvider,
     *,
     publication_fault: str | None = None,
+    artifact_set: ArtifactSetPlan = _TEMPLATE_INSTANTIATE_ARTIFACT_SET,
     authority_context_provider: AuthorityContextProvider = packaged_authority_context,
 ) -> Callable[
     [TemplateInstantiateInput],
@@ -80,8 +85,10 @@ def template_instantiate_handler(
             inp.package_id,
             inp.out,
             inp.invocation_key,
-            descriptor_identity(TEMPLATE_INSTANTIATE),
-            TEMPLATE_INSTANTIATE.artifact_set,
+            descriptor_identity(
+                replace(TEMPLATE_INSTANTIATE, artifact_set=artifact_set)
+            ),
+            artifact_set,
             provider,
             authority_context_provider,
             publication_fault=publication_fault,

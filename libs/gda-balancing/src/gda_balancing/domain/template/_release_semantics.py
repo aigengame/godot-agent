@@ -8,7 +8,10 @@ from dataclasses import dataclass
 from typing import Any, cast
 import jsonschema
 
-from gda_balancing.domain.artifacts import identified_artifact, verify_artifact
+from gda_balancing.domain.artifacts import (
+    ArtifactContract,
+    select_protocol_artifact_contract,
+)
 from gda_balancing.domain.publication import PublicationMember
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
@@ -91,21 +94,6 @@ def _member(
         **body,
         "content_identity": content_identity(identity_domain, body),
     }
-
-
-def _artifact_identity_domain(
-    language_bundle: dict[str, JsonValue],
-    artifact_kind: str,
-) -> str:
-    language = cast(dict[str, JsonValue], language_bundle["language"])
-    matches = [
-        cast(str, item["identity_domain"])
-        for item in cast(list[dict[str, JsonValue]], language["artifact_contracts"])
-        if item["artifact_kind"] == artifact_kind
-    ]
-    if len(matches) != 1 or not matches[0]:
-        raise ValueError(f"exact identity domain is unavailable for {artifact_kind}")
-    return matches[0]
 
 
 def _member_schema_identities(
@@ -1179,22 +1167,17 @@ def validate_template_release(
     try:
         profile = _template_admission_profile(language_bundle)
         member_identity_domain = cast(str, profile["member_identity_domain"])
-        release_identity_domain = _artifact_identity_domain(
+        release_contract = select_protocol_artifact_contract(
             language_bundle, "template-release"
         )
-        jsonschema.validate(release, schemas["template-release"])
-        if release["wire_schema_identity"] != schema_identities["template-release"]:
+        jsonschema.validate(release, release_contract.schema)
+        if release["wire_schema_identity"] != release_contract.wire_schema_identity:
             return _template_contract_refusal(
                 release,
                 "/wire_schema_identity",
                 "Template release does not bind its admitted wire schema",
             )
-        release_body = {
-            key: value for key, value in release.items() if key != "content_identity"
-        }
-        if release["content_identity"] != content_identity(
-            release_identity_domain, release_body
-        ):
+        if not release_contract.verify(release):
             return _template_contract_refusal(
                 release,
                 "/content_identity",
@@ -1322,12 +1305,14 @@ class TemplateInstantiationPlan:
     command_input_identity: str
     language_bundle: dict[str, JsonValue]
     source_schema: dict[str, JsonValue]
+    source_kind: str
+    receipt_contract: ArtifactContract
     source_identity_domain: str
     source_identity: str
 
-    def member_is_admitted(self, name: str, value: dict[str, Any]) -> bool:
+    def member_is_admitted(self, kind: str, value: dict[str, Any]) -> bool:
         """Re-admit one planned publication member."""
-        if name == "model-source-package":
+        if kind == self.source_kind:
             try:
                 jsonschema.validate(value, self.source_schema)
             except jsonschema.ValidationError:
@@ -1339,7 +1324,9 @@ class TemplateInstantiationPlan:
                 )
                 == self.source_identity
             )
-        return verify_artifact(value, self.language_bundle)
+        return kind == self.receipt_contract.definition[
+            "artifact_kind"
+        ] and self.receipt_contract.verify(value)
 
 
 def prepare_template_instantiation(
@@ -1388,9 +1375,9 @@ def prepare_template_instantiation(
         "starter_identity": starter_identity,
     }
     source_identity = content_identity(source_identity_domain, source)
-    command_input = identified_artifact(
-        language_bundle,
-        "template-instantiate-command-input",
+    command_input = select_protocol_artifact_contract(
+        language_bundle, "template-instantiate-command-input"
+    ).identify(
         {
             "template_identity": release["content_identity"],
             "package_id": package_id,
@@ -1398,9 +1385,10 @@ def prepare_template_instantiation(
             "language_bundle_identity": language_bundle["content_identity"],
         },
     )
-    instantiation_receipt = identified_artifact(
-        language_bundle,
-        "template-instantiation-receipt",
+    receipt_contract = select_protocol_artifact_contract(
+        language_bundle, "template-instantiation-receipt"
+    )
+    instantiation_receipt = receipt_contract.identify(
         {
             "template_identity": release["content_identity"],
             "starter_identity": starter_identity,
@@ -1410,23 +1398,21 @@ def prepare_template_instantiation(
             "language_bundle_identity": language_bundle["content_identity"],
         },
     )
-    language = cast(dict[str, JsonValue], language_bundle["language"])
-    source_schema = next(
-        cast(dict[str, JsonValue], item["schema"])
-        for item in cast(list[dict[str, JsonValue]], language["wire_schemas"])
-        if item["artifact_kind"] == "model-source-package"
+    source_schema = cast(
+        dict[str, JsonValue], wire_schema_for_kind(language_bundle, source_kind)
     )
+    receipt_kind = cast(str, receipt_contract.definition["artifact_kind"])
     return TemplateInstantiationPlan(
         artifacts={
-            "model-source-package": PublicationMember(
+            source_kind: PublicationMember(
                 value=cast(dict[str, Any], source),
-                artifact_kind="model-source-package",
-                wire_schema_identity=admitted.schema_identities["model-source-package"],
+                artifact_kind=source_kind,
+                wire_schema_identity=admitted.schema_identities[source_kind],
                 content_identity=source_identity,
             ),
-            "template-instantiation-receipt": PublicationMember(
+            receipt_kind: PublicationMember(
                 value=cast(dict[str, Any], instantiation_receipt),
-                artifact_kind="template-instantiation-receipt",
+                artifact_kind=receipt_kind,
                 wire_schema_identity=cast(
                     str, instantiation_receipt["wire_schema_identity"]
                 ),
@@ -1436,6 +1422,8 @@ def prepare_template_instantiation(
         command_input_identity=cast(str, command_input["content_identity"]),
         language_bundle=language_bundle,
         source_schema=source_schema,
+        source_kind=source_kind,
+        receipt_contract=receipt_contract,
         source_identity_domain=source_identity_domain,
         source_identity=source_identity,
     )

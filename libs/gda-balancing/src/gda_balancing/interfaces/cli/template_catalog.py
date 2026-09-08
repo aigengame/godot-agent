@@ -98,7 +98,7 @@ def template_get_handler(
 
 
 def template_get_success_schema() -> dict[str, object]:
-    """Closed release framing; member payload precision is LDB-owned."""
+    """Frame a release already admitted under its selected LDB contract."""
     identity = {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
     manifest_entry = {
         "type": "object",
@@ -134,7 +134,7 @@ def template_get_success_schema() -> dict[str, object]:
     return {
         "type": "object",
         "properties": {
-            "artifact_kind": {"const": "template-release"},
+            "artifact_kind": {"type": "string", "minLength": 1},
             "artifact_version": {"const": "2.0.0"},
             "wire_schema_identity": identity,
             "id": {"type": "string", "minLength": 1},
