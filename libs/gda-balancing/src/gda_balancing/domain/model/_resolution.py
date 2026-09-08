@@ -658,22 +658,20 @@ def _formula_pair_diagnostics(
     authority_context: AdmittedAuthorityContext,
 ) -> list[Schema2Diagnostic]:
     diagnostics: list[Schema2Diagnostic] = []
-    requirements = source.get("package_requirements")
-    modules = source.get("modules")
+    profile = _resolution_profile(authority_context.language_bundle)
+    policy = profile["extensions"]["standard.formula"]
+    modules_member = cast(str, profile["modules_member"])
+    formulas_member = cast(str, policy["module_formulas_member"])
+    requirements = source.get(cast(str, profile["requirements_member"]))
+    modules = source.get(modules_member)
     if not isinstance(requirements, list) or not isinstance(modules, list):
         return diagnostics
     for module_index, module in enumerate(modules):
         if not isinstance(module, dict):
             continue
-        formulas = module.get("formulas", [])
+        formulas = module.get(formulas_member, [])
         if not isinstance(formulas, list):
             continue
-        module_context = {
-            "id": module.get("id"),
-            "imports": module.get("imports"),
-            "symbols": module.get("symbols"),
-            "formulas": formulas,
-        }
         for formula_index, formula in enumerate(formulas):
             if not isinstance(formula, dict):
                 continue
@@ -683,7 +681,7 @@ def _formula_pair_diagnostics(
                         "schema_version": source.get("schema_version"),
                         "package_requirements": requirements,
                         "modules": modules,
-                        "module": module_context,
+                        "module": module,
                         "formula": formula,
                     },
                     authority_context,
@@ -696,9 +694,14 @@ def _formula_pair_diagnostics(
                         message=err.message,
                         primary=_location(
                             source_identity,
-                            (
-                                f"/modules/{module_index}/formulas/"
-                                f"{formula_index}/{err.member}"
+                            _pointer(
+                                (
+                                    modules_member,
+                                    module_index,
+                                    formulas_member,
+                                    formula_index,
+                                    err.member,
+                                )
                             ),
                         ),
                     )

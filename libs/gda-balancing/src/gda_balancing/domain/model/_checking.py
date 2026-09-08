@@ -314,7 +314,7 @@ def _check_model_source_bytes(
             (
                 err.pointer
                 if isinstance(err, _FormulaResolutionError)
-                else _formula_failure_pointer(source, message)
+                else _formula_failure_pointer(source, message, ldb)
             ),
             f"Model Formula resolution failed: {message}",
             ldb,

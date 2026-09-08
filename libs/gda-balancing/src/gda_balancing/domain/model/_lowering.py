@@ -642,7 +642,14 @@ def _resolved_formula_programs_and_bindings_impl(
             cast(list[dict[str, Any]], module.get(formulas_member, []))
         ):
             failure_context[:] = [
-                f"/modules/{module_index}/{formulas_member}/{formula_index}"
+                _pointer(
+                    (
+                        profile["modules_member"],
+                        module_index,
+                        formulas_member,
+                        formula_index,
+                    )
+                )
             ]
             formula_id = source_formula.get(formula_id_member)
             key = (module_id, cast(str, formula_id))
@@ -702,8 +709,13 @@ def _resolved_formula_programs_and_bindings_impl(
                 "source_body": body,
                 "source_expression": source_formula["expression"],
             }
-            formula_pointers[key] = (
-                f"/modules/{module_index}/{formulas_member}/{formula_index}"
+            formula_pointers[key] = _pointer(
+                (
+                    profile["modules_member"],
+                    module_index,
+                    formulas_member,
+                    formula_index,
+                )
             )
 
     dependencies: dict[tuple[str, str], list[tuple[str, str]]] = {}
@@ -2693,17 +2705,26 @@ def _invalid_source_value_policy_pointer(
     return None
 
 
-def _formula_failure_pointer(source: dict[str, Any], message: str) -> str:
+def _formula_failure_pointer(
+    source: dict[str, Any], message: str, language_bundle: dict[str, Any]
+) -> str:
+    profile = _resolution_profile(language_bundle)
+    policy = profile["extensions"]["standard.formula"]
+    binding_pointer = _pointer((policy["bindings_member"],))
     if "binding" in message.lower() or "derived Symbol" in message:
-        return "/formula_bindings"
+        return binding_pointer
+    modules_member = cast(str, profile["modules_member"])
+    formulas_member = cast(str, policy["module_formulas_member"])
     for module_index, module in enumerate(
-        cast(list[dict[str, Any]], source.get("modules", []))
+        cast(list[dict[str, Any]], source.get(modules_member, []))
     ):
-        formulas = cast(list[dict[str, Any]], module.get("formulas", []))
+        formulas = cast(list[dict[str, Any]], module.get(formulas_member, []))
         if formulas:
-            suffix = "/body" if "body" in message.lower() or "cycle" in message else ""
-            return f"/modules/{module_index}/formulas/0{suffix}"
-    return "/formula_bindings"
+            parts = [modules_member, module_index, formulas_member, 0]
+            if "body" in message.lower() or "cycle" in message:
+                parts.append(policy["formula_body_member"])
+            return _pointer(parts)
+    return binding_pointer
 
 
 def _symbol_initialization_contract(

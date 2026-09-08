@@ -73,12 +73,21 @@ def run_formula_parse(
 
 
 def _formula_conversion_result_schema() -> dict[str, object]:
+    context = packaged_authority_context()
     source_schema = wire_schema_definition_for_role(
-        packaged_authority_context().language_bundle, "model-source-package"
+        context.language_bundle, "model-source-package"
     )["schema"]
-    body_schema = source_schema["properties"]["modules"]["items"]["properties"][
-        "formulas"
-    ]["items"]["properties"]["body"]
+    profile = next(
+        row
+        for row in context.language_bundle["language"]["resolution_profiles"]
+        if row.get("default") is True
+    )
+    policy = profile["extensions"]["standard.formula"]
+    body_schema = source_schema["properties"][profile["modules_member"]]["items"][
+        "properties"
+    ][policy["module_formulas_member"]]["items"]["properties"][
+        policy["formula_body_member"]
+    ]
     return {
         "type": "object",
         "properties": {
