@@ -367,6 +367,37 @@ def _exact_path(root: Any, dotted: str) -> Any:
     return value
 
 
+def _reference_package_runtime_closure(package, kernel):
+    projection = kernel["meta_format"]["package_release"][
+        "semantic_identity_projection"
+    ]
+    runtime_paths = set(package[projection["path_inventory_member"]])
+    excluded_extensions = set(package[projection["extension_inventory_member"]])
+    runtime_closure = deepcopy(
+        [
+            entry
+            for entry in package[projection["source_member"]]
+            if entry[projection["path_member"]] in runtime_paths
+        ]
+    )
+    for entry in runtime_closure:
+        for definition in entry["definitions"]:
+            if not isinstance(definition, dict) or not isinstance(
+                definition.get("extensions"), dict
+            ):
+                continue
+            retained = {
+                key: value
+                for key, value in definition["extensions"].items()
+                if key not in excluded_extensions
+            }
+            if retained:
+                definition["extensions"] = retained
+            else:
+                definition.pop("extensions")
+    return runtime_closure
+
+
 def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
     assert isinstance(language_bundle, LanguageBundleIndex)
     kernel, _ = mutable_authorities()
@@ -377,30 +408,7 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
     }
     projected_vectors = {vector["id"]: vector for vector in language_bundle["vectors"]}
     for package in language_bundle["language"]["packages"]:
-        runtime_paths = set(package["runtime_semantic_paths"])
-        excluded_extensions = set(package["runtime_semantic_excluded_extensions"])
-        runtime_closure = deepcopy(
-            [
-                entry
-                for entry in package["semantic_closure"]
-                if entry["authority_path"] in runtime_paths
-            ]
-        )
-        for entry in runtime_closure:
-            for definition in entry["definitions"]:
-                if not isinstance(definition, dict) or not isinstance(
-                    definition.get("extensions"), dict
-                ):
-                    continue
-                retained = {
-                    key: value
-                    for key, value in definition["extensions"].items()
-                    if key not in excluded_extensions
-                }
-                if retained:
-                    definition["extensions"] = retained
-                else:
-                    definition.pop("extensions")
+        runtime_closure = _reference_package_runtime_closure(package, kernel)
         package["semantic_identity"] = _reference_content_identity(
             "domain-package-semantic-closure-v2",
             runtime_closure,
@@ -1303,11 +1311,9 @@ def _reference_package_lock(checked: ModelSourceContext) -> dict[str, Any]:
             {
                 "package": package["id"],
                 "semantic_identity": package["semantic_identity"],
-                "definitions": [
-                    entry
-                    for entry in package["semantic_closure"]
-                    if entry["authority_path"] in set(package["runtime_semantic_paths"])
-                ],
+                "definitions": _reference_package_runtime_closure(
+                    package, checked.kernel
+                ),
             }
             for package in selected_packages
         ],
@@ -3947,22 +3953,24 @@ def _reference_runtime_projection(
     selected_closure_values: dict[tuple[str, str], list[Any]] = {}
 
     def projected_runtime_value(specification: dict[str, Any], value: Any) -> Any:
-        if not isinstance(value, dict):
+        roles = checked.kernel["meta_format"]["language_definitions"][
+            "wire_schema_protocol_roles"
+        ]["rir_structure"]["selected_collections"]
+        matches = [
+            role
+            for role in roles.values()
+            if all(
+                _reference_encoded(specification["source"].get(key))
+                == _reference_encoded(item)
+                for key, item in role["source"].items()
+            )
+        ]
+        assert len(matches) <= 1
+        excluded = matches[0].get("excluded_members", []) if matches else []
+        if not excluded:
             return value
-        members = specification.get("excluded_members", [])
-        extensions = specification.get("excluded_extension_members", [])
-        if not members and not extensions:
-            return value
-        projected = {
-            key: deepcopy(item) for key, item in value.items() if key not in members
-        }
-        projected_extensions = projected.get("extensions")
-        if extensions and isinstance(projected_extensions, dict):
-            for member in extensions:
-                projected_extensions.pop(member, None)
-            if not projected_extensions:
-                projected.pop("extensions")
-        return projected
+        assert isinstance(value, dict)
+        return {key: item for key, item in value.items() if key not in excluded}
 
     for specification in profile["collections"]:
         rows = []

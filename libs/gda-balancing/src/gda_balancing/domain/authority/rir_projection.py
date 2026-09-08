@@ -77,13 +77,13 @@ def _owned_contract_schema(contract: dict[str, Any]) -> dict[str, Any]:
 
 def rir_collection_output(
     kernel: dict[str, Any], source: dict[str, Any]
-) -> tuple[str, str] | None:
+) -> tuple[str, str, tuple[str, ...]] | None:
     """Bind an actual semantic source to its fixed compiled output role."""
     fields = kernel["meta_format"]["language_definitions"][
         "wire_schema_protocol_roles"
     ]["rir_structure"]["selected_collections"]
     matches = [
-        (name, role["shape"])
+        (name, role["shape"], tuple(role.get("excluded_members", [])))
         for name, role in fields.items()
         if all(source.get(key) == value for key, value in role["source"].items())
     ]
@@ -636,7 +636,8 @@ def _selected_semantics_schema(kernel, lowering, law, record):
         contract = deepcopy(owner["collections"][parts[-1]])
         if "item_type" in contract:
             contract = {"type": contract["item_type"]}
-        excluded = collection.get("excluded_members", [])
+        output_role = rir_collection_output(kernel, source)
+        excluded = output_role[2] if output_role is not None else ()
         if excluded:
             if not set(excluded) <= contract["field_types"].keys():
                 raise ValueError("RIR member exclusion has no semantic field owner")

@@ -46,6 +46,9 @@ from gda_balancing.domain.structured_values import (
 )
 
 from gda_balancing.domain.authority.rir_projection import rir_collection_output
+from gda_balancing.domain.authority.package_semantics import (
+    package_runtime_semantic_closure,
+)
 
 from gda_balancing.domain.model._resolution import (
     CheckedModel,
@@ -3797,15 +3800,6 @@ def _package_definitions(package: dict[str, Any], authority_path: str) -> list[A
     return cast(list[Any], matches[0])
 
 
-def _runtime_semantic_closure(package: dict[str, Any]) -> list[dict[str, JsonValue]]:
-    runtime_paths = set(cast(list[str], package["runtime_semantic_paths"]))
-    return [
-        cast(dict[str, JsonValue], entry)
-        for entry in cast(list[dict[str, Any]], package["semantic_closure"])
-        if entry["authority_path"] in runtime_paths
-    ]
-
-
 def _namespace_type_exports(packages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(
         [
@@ -3938,7 +3932,12 @@ def _package_lock(checked: ModelSourceContext) -> dict[str, JsonValue]:
                 {
                     "package": package["id"],
                     "semantic_identity": package["semantic_identity"],
-                    "definitions": _runtime_semantic_closure(package),
+                    "definitions": package_runtime_semantic_closure(
+                        package,
+                        checked.kernel["meta_format"]["package_release"][
+                            "semantic_identity_projection"
+                        ],
+                    ),
                 }
                 for package in selected_packages
             ],
@@ -4009,7 +4008,15 @@ def _runtime_projection(
         "capability_bindings": _namespace_capability_bindings(selection),
     }
     runtime_closures = [
-        {"package": package["id"], "definitions": _runtime_semantic_closure(package)}
+        {
+            "package": package["id"],
+            "definitions": package_runtime_semantic_closure(
+                package,
+                kernel["meta_format"]["package_release"][
+                    "semantic_identity_projection"
+                ],
+            ),
+        }
         for package in packages
     ]
 
@@ -4303,22 +4310,13 @@ def _runtime_projection(
     closure_values: dict[tuple[str, str], list[Any]] = {}
 
     def projected_runtime_value(collection: dict[str, Any], value: Any) -> Any:
-        excluded_members = collection.get("excluded_members", [])
-        excluded_extensions = collection.get("excluded_extension_members", [])
-        if not excluded_members and not excluded_extensions:
+        output_role = rir_collection_output(kernel, collection["source"])
+        excluded = output_role[2] if output_role is not None else ()
+        if not excluded:
             return value
         if not isinstance(value, dict):
-            raise ValueError("runtime member exclusion requires a definition")
-        projected_value = deepcopy(value)
-        for member in cast(list[str], excluded_members):
-            projected_value.pop(member, None)
-        extensions = projected_value.get("extensions")
-        if isinstance(extensions, dict):
-            for member in cast(list[str], excluded_extensions):
-                extensions.pop(member, None)
-            if not extensions:
-                projected_value.pop("extensions")
-        return projected_value
+            raise ValueError("compiled member exclusion requires a definition")
+        return {name: item for name, item in value.items() if name not in excluded}
 
     for collection in cast(list[dict[str, Any]], profile["collections"]):
         collection_id = cast(str, collection["id"])
@@ -4340,7 +4338,7 @@ def _runtime_projection(
         output_role = rir_collection_output(kernel, collection["source"])
         if output_role is None:
             continue
-        output_member, shape = output_role
+        output_member, shape, _ = output_role
         if shape == "as-is":
             projected_values: list[Any] = [row["value"] for row in rows]
         elif shape == "package-definition":
