@@ -655,6 +655,69 @@ def test_kernel_references_do_not_reserve_language_owned_identities(witness):
     assert AuthorityToken("type", ("kernel",), "Boolean") in inventory.reserved
 
 
+def test_notation_inventory_uses_only_the_declared_kernel_source(witness):
+    from schema2_bootstrap_conformance_support import _identity
+    from schema2_extension_inventory_support import (
+        _contract_vector_projections,
+        _pointer_value,
+    )
+    from schema2_extension_renaming_support import _reseal_authored_graph
+
+    kernel, graph, before = witness
+    kernel, graph = deepcopy(kernel), deepcopy(graph)
+    copied_subtrees = list(_contract_vector_projections(kernel, graph))
+    source = kernel["meta_format"]["language_definitions"][
+        "wire_schema_protocol_roles"
+    ]["source_notation"]["operation_source"]
+    original = source["extension_member"]
+    renamed = "inventory~notation/owner"
+    source["extension_member"] = renamed
+    changed = []
+    for package in graph["packages"]:
+        for closure in package["semantic_closure"]:
+            if closure["authority_path"] != source["authority_path"]:
+                continue
+            for operation in closure["definitions"]:
+                extensions = operation.get("extensions", {})
+                if original in extensions:
+                    extensions[renamed] = extensions.pop(original)
+                    changed.append(extensions)
+    assert changed
+    # The old spelling at an undeclared address is ordinary opaque content.
+    changed[0][original] = {"opaque": original}
+    # Contract vectors copy declared authored subtrees. Keep exactly those copies
+    # coherent with the address edit; no execution-result oracle changes.
+    for source_pointer, target_pointer, _, _ in copied_subtrees:
+        _pointer_value(graph, target_pointer.rsplit("/", 1)[0])["expect"] = deepcopy(
+            _pointer_value(graph, source_pointer)
+        )
+    kernel["content_identity"] = _identity("schema-major-kernel-v2", kernel)
+    _reseal_authored_graph(kernel, graph)
+    # This checks inventory interpretation of a supplied Kernel contract. It does
+    # not claim that a fixed host supports a different Kernel identity.
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    expected = {token for token in before.tokens if token.role == "operation-notation"}
+    assert expected
+    assert expected == {
+        token for token in inventory.tokens if token.role == "operation-notation"
+    }
+    declarations = [
+        occurrence
+        for occurrence in inventory.occurrences
+        if occurrence.token.role == "operation-notation"
+        and occurrence.use == "declaration"
+    ]
+    assert declarations
+    assert all(
+        "/extensions/inventory~0notation~1owner/" in row.pointer for row in declarations
+    )
+    assert not any(
+        "/extensions/" + original + "/" in row.pointer for row in inventory.occurrences
+    )
+    assert changed[0][original] == {"opaque": original}
+
+
 def test_independent_formula_parser_follows_the_actual_schema_owner(witness):
     from schema2_bootstrap_conformance_support import _bind_package_vector_set
     from schema2_bootstrap_production_support import _reidentify_graph_root
@@ -686,7 +749,7 @@ def test_independent_formula_parser_follows_the_actual_schema_owner(witness):
                 ]
     by_owner = {row["package_id"]: row for row in vectors}
     for package in packages:
-        _bind_package_vector_set(package, by_owner[package["id"]])
+        _bind_package_vector_set(package, by_owner[package["id"]], kernel)
     _reidentify_graph_root(language)
     source = json.loads(
         (
@@ -711,7 +774,10 @@ def test_independent_formula_parser_follows_the_actual_schema_owner(witness):
                 formula["expression"], request, candidate, kernel=kernel
             )
             parsed_bodies.append(parsed)
-            assert render_body(parsed, request, candidate) == formula["expression"]
+            assert (
+                render_body(parsed, request, candidate, kernel=kernel)
+                == formula["expression"]
+            )
     assert (
         parsed_bodies[: len(module["formulas"])]
         == parsed_bodies[len(module["formulas"]) :]
@@ -887,7 +953,7 @@ def test_primitive_signal_reservation_does_not_capture_same_spelling_other_roles
                 "matched": matched,
             }
         )
-    _bind_package_vector_set(owner, vectors)
+    _bind_package_vector_set(owner, vectors, kernel)
     _reidentify_graph_root(language)
     a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
     assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
@@ -974,7 +1040,7 @@ def test_rule_variables_follow_bind_keys_and_keep_rule_scopes(witness):
         bind["shared_variable"] = bind.pop("domain")
         rule["conclusion"]["fields"]["domain"]["name"] = "shared_variable"
     for package in language["language"]["packages"]:
-        _reidentify_package_release(package)
+        _reidentify_package_release(package, kernel)
     _reidentify_graph_root(language)
     a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
     assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
@@ -1264,7 +1330,7 @@ def test_projection_collection_names_preserve_kernel_owned_output_roles():
             if edge[member] == original:
                 edge[member] = renamed
     for package in language["language"]["packages"]:
-        _reidentify_package_release(package)
+        _reidentify_package_release(package, kernel)
     _reidentify_graph_root(language)
     a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
     assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
@@ -1379,7 +1445,7 @@ def test_resolution_binders_keep_lexical_owners_distinct_from_kernel_fields():
     for i, judgment in enumerate(profile["judgment_chain"]):
         judgment["id"] = f"opaque.judgment.{i}"
     for package in language["language"]["packages"]:
-        _reidentify_package_release(package)
+        _reidentify_package_release(package, kernel)
     _reidentify_graph_root(language)
     a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
     assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
@@ -1527,7 +1593,7 @@ def test_contract_projection_includes_late_derived_assignment_modes():
             "expect": deepcopy(owner["semantic_closure"]),
         }
     )
-    _bind_package_vector_set(owner, vector_set)
+    _bind_package_vector_set(owner, vector_set, kernel)
     _reidentify_graph_root(language)
     a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
     assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
@@ -1602,7 +1668,7 @@ def test_protocol_roles_do_not_merge_wire_schema_and_producer_kind_identities():
                     replacements[role].get(name, name)
                     for name in package["exports"][export]
                 ]
-        _reidentify_package_release(package)
+        _reidentify_package_release(package, kernel)
     _reidentify_graph_root(language)
     a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
     assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
@@ -1850,7 +1916,7 @@ def test_inventory_consumes_the_complete_declared_source_module_mapping():
                     for member in ("selector", "scope_selector"):
                         if row.get(member, [])[:1] == [original]:
                             row[member][0] = renamed
-        _reidentify_package_release(package)
+        _reidentify_package_release(package, kernel)
     _reidentify_graph_root(language)
     a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
     assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
@@ -2137,7 +2203,6 @@ def test_value_vector_renaming_retains_two_actual_consumers(witness, family):
         package["dependencies"] = {"required": ["standard.schema"], "optional": []}
         package["exports"] = {key: [] for key in package["exports"]}
         package["profiles"] = {key: [] for key in package["profiles"]}
-        package["runtime_semantic_excluded_extensions"] = []
         for closure in package["semantic_closure"]:
             closure["definitions"] = []
         prototype = next(

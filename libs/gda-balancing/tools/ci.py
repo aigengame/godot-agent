@@ -101,6 +101,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_extension_renaming.py",
         "test_operation_extension_inventory.py",
         "test_operation_root_projection.py",
+        "test_package_notation_projection.py",
         "test_priority_protocol_public.py",
         "test_priority_terminal_refusal.py",
         "test_projection_collection_renaming.py",

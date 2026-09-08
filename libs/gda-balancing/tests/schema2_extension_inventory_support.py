@@ -248,12 +248,18 @@ def _formula_projections(
             parsed = parse_canonical(expression, request, language, kernel=dict(kernel))
             if (
                 render_body(
-                    formula[policies[0][0]["formula_body_member"]], request, language
+                    formula[policies[0][0]["formula_body_member"]],
+                    request,
+                    language,
+                    kernel=dict(kernel),
                 )
                 != expression
             ):
                 raise InventoryRefusal("Formula body and expression disagree")
-            if render_body(parsed, request, language) != expression:
+            if (
+                render_body(parsed, request, language, kernel=dict(kernel))
+                != expression
+            ):
                 raise InventoryRefusal("Formula expression is not canonical")
         except (KeyError, TypeError, ValueError) as error:
             raise InventoryRefusal(
@@ -3352,9 +3358,12 @@ class _Reader:
         scope: tuple[str, str],
         bindings: dict[str, AuthorityToken],
     ) -> None:
+        notation_member = self.kernel["meta_format"]["language_definitions"][
+            "wire_schema_protocol_roles"
+        ]["source_notation"]["operation_source"]["extension_member"]
         for key, extension in operation.get("extensions", {}).items():
             ep = _child(pointer + "/extensions", key)
-            if key == "standard.formula-notation":
+            if key == notation_member:
                 if extension["kind"] == "function":
                     if set(extension) != {"kind", "name", "ordered_ports"}:
                         raise InventoryRefusal(
@@ -4517,8 +4526,12 @@ def _verify_formula_coverage(
     def field(token: AuthorityToken, pointer: str, use: str = "reference") -> None:
         expected.add((token, pointer, use, "value", ""))
 
+    notation_source = kernel["meta_format"]["language_definitions"][
+        "wire_schema_protocol_roles"
+    ]["source_notation"]["operation_source"]
+    notation_member = notation_source["extension_member"]
     for owner, operation, pointer in _authority_path_rows(
-        kernel, graph, "language_bundle.language.operations"
+        kernel, graph, "language_bundle." + notation_source["authority_path"]
     ):
         if not isinstance(owner, str):
             raise InventoryRefusal(
@@ -4526,9 +4539,9 @@ def _verify_formula_coverage(
             )
         scope = (owner, operation["id"])
         extensions = operation.get("extensions", {})
-        notation = extensions.get("standard.formula-notation")
+        notation = extensions.get(notation_member)
         if notation is not None:
-            np = pointer + "/extensions/standard.formula-notation"
+            np = _child(pointer + "/extensions", notation_member)
             member = "name" if notation["kind"] == "function" else "token"
             field(
                 AuthorityToken("operation-notation", scope, notation[member]),
