@@ -25,6 +25,7 @@ from schema2_extension_inventory_support import (
     _attached_language,
     _child,
     _formula_projections,
+    _json_pointer_segments,
     _pointer_value,
     read_extension_inventory,
     source_formula_requests,
@@ -77,11 +78,23 @@ def _member_path_values(
 
 def _renamed_pointer(pointer: str, keys: Mapping[str, str]) -> str:
     original = renamed = ""
-    for part in pointer.split("/")[1:]:
-        original += "/" + part
-        member = part.replace("~1", "/").replace("~0", "~")
+    for member in _json_pointer_segments(pointer):
+        original = _child(original, member)
         renamed = _child(renamed, keys.get(original, member))
     return renamed
+
+
+def _json_pointer_values(
+    graph: Mapping[str, Any], paths: Mapping[str, Mapping[int, str]]
+) -> dict[str, str]:
+    """Rewrite all declared pointer segments before encoding the result."""
+    result = {}
+    for pointer, edits in paths.items():
+        segments = _json_pointer_segments(_pointer_value(graph, pointer))
+        for index, target in edits.items():
+            segments[index] = target
+        result[pointer] = "".join(_child("", segment) for segment in segments)
+    return result
 
 
 def _render_formulas(
@@ -180,6 +193,7 @@ def apply_extension_renaming(
     keys: dict[str, str] = {}
     formula_values: dict[str, dict[str, str]] = {}
     member_paths: dict[str, dict[int, str]] = {}
+    json_pointers: dict[str, dict[int, str]] = {}
     for occurrence in inventory.occurrences:
         target = correspondence.get(occurrence.token, occurrence.token).name
         if occurrence.location == "formula":
@@ -192,11 +206,18 @@ def apply_extension_renaming(
             member_paths.setdefault(occurrence.pointer, {})[
                 int(occurrence.projection)
             ] = target
+        elif occurrence.location == "json-pointer":
+            json_pointers.setdefault(occurrence.pointer, {})[
+                int(occurrence.projection)
+            ] = target
         else:
             values[occurrence.pointer] = target
-    if values.keys() & member_paths.keys():
-        raise InventoryRefusal("member path also has a whole-value rename")
+    if values.keys() & (member_paths.keys() | json_pointers.keys()):
+        raise InventoryRefusal("path also has a whole-value rename")
+    if member_paths.keys() & json_pointers.keys():
+        raise InventoryRefusal("path has conflicting encodings")
     values.update(_member_path_values(graph, member_paths))
+    values.update(_json_pointer_values(graph, json_pointers))
     inputs = {k: v for k, v in graph.items() if k not in {"artifacts", "results"}}
     candidate = _rewrite_positions(inputs, values, keys)
     bodies = {

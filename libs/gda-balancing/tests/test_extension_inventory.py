@@ -2515,9 +2515,9 @@ def test_anonymous_vector_scope_and_fault_paths_follow_actual_type_law(witness, 
     from schema2_extension_inventory_support import (
         _child,
         _json_pointer_segments,
-        _pointer_value,
     )
     from schema2_extension_renaming_support import (
+        _json_pointer_values,
         _reseal_authored_graph,
         _rewrite_positions,
     )
@@ -2662,14 +2662,11 @@ def test_anonymous_vector_scope_and_fault_paths_follow_actual_type_law(witness, 
     rows = [o for o in inventory.occurrences if o.token in renamed]
     values = {o.pointer: renamed[o.token] for o in rows if o.location == "value"}
     keys = {o.pointer: renamed[o.token] for o in rows if o.location == "key"}
+    paths = {}
     for o in rows:
         if o.location == "json-pointer":
-            segments = _json_pointer_segments(_pointer_value(graph, o.pointer))
-            segments[int(o.projection)] = renamed[o.token]
-            path = ""
-            for segment in segments:
-                path = _child(path, segment)
-            values[o.pointer] = path
+            paths.setdefault(o.pointer, {})[int(o.projection)] = renamed[o.token]
+    values.update(_json_pointer_values(graph, paths))
     candidate = _rewrite_positions(graph, values, keys)
     _reseal_authored_graph(kernel, candidate)
     _assert_structured_graph_observations(kernel, candidate)

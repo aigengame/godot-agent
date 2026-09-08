@@ -93,6 +93,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "experiment": _EXPERIMENT_TESTS[::2],
     "experiment-continuation": _EXPERIMENT_TESTS[1::2],
     "extension": (
+        "test_artifact_projection_addresses.py",
         "test_artifact_protocol_roles.py",
         "test_authority_identity_renaming.py",
         "test_extension_inventory.py",

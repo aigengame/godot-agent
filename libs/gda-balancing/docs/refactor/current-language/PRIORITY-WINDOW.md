@@ -645,6 +645,34 @@ the independent 2276-permutation recapture, the failing rename, six passing targ
 checks and 177 passing inventory/authority/CI-policy integration tests. Source fingerprints
 are verified at the recorded review head; required whole-issue CI remains separate.
 
+## Anonymous structured roles and projection addresses
+
+`39e894750` extends the shared typed traversal to anonymous Enum and Record members,
+negative values and diagnostic paths. Equal anonymous comparison types share their
+lexical owner; nominal members retain their package and Type owner. Missing member
+references cannot capture a declared member. The reader checks the actual independent
+observation before certifying these roles; a changed first-fault path leaves a gap.
+All 24 current structured vectors retain their authored observations under both
+consumers. The Enum-selector rename includes its nominal and anonymous occurrences;
+other constructor renames still depend on uncovered vector families.
+
+Diagnostic pointers use decoded RFC 6901 segments. Authoring transports every selected
+segment together and then encodes the pointer, including names containing `/` and `~`.
+It does not rewrite equal strings in ordinary user data. Independent review of the
+structured slice found no actionable issue, including separate nominal/anonymous
+owners and a rename that changes which extra Record field causes the first refusal.
+
+`be57268d0` exposes the Schema addresses already checked by independent semantic
+projection admission. It preserves all 13 baseline admission decisions and publishes
+addresses only after the entire check succeeds. Ordinary content-identity exclusions
+remain exact root keys; absent keys do not acquire fabricated Schema targets. This
+interface is preparation for inventory references, not completion of those gaps.
+
+The [integration record](evidence/priority-window/structured-projection-integration.json)
+records the combined suite, the scoped inventory, raw checks and unchanged public
+priority-window execution. Complete graph coverage and the final fixed-build proof
+remain separate obligations.
+
 ## Remaining proof and integration
 
 - Complete the semantic-token inventory and resolve remaining demonstrated name

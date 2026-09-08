@@ -17,6 +17,7 @@ from schema2_extension_inventory_support import (
     token_bijection_from_names,
 )
 from schema2_extension_renaming_support import (
+    _json_pointer_values,
     _member_path_values,
     _renamed_pointer,
     _render_formulas,
@@ -93,6 +94,28 @@ def test_member_paths_rename_segments_without_changing_equal_user_data(authored_
     assert _rewrite_positions(
         {"path": original, "notes": original}, values={"/path": values[path]}, keys={}
     ) == {"path": f"{inner}.{outer}", "notes": original}
+
+
+def test_diagnostic_pointer_keeps_all_renamed_segments_and_equal_user_text():
+    from schema2_extension_inventory_support import _pointer_value
+
+    pointer = "/value/outer~1key~0/inner~0name"
+    graph = {
+        "value": {"outer/key~": {"inner~name": 3}},
+        "diagnostic": pointer,
+        "notes": pointer,
+    }
+    values = _json_pointer_values(
+        graph, {"/diagnostic": {1: "inner~name", 2: "outer/key~"}}
+    )
+    changed = _rewrite_positions(
+        graph,
+        values,
+        {"/value/outer~1key~0": "inner~name", pointer: "outer/key~"},
+    )
+    assert changed["diagnostic"] == "/value/inner~0name/outer~1key~0"
+    assert _pointer_value(changed, changed["diagnostic"]) == 3
+    assert changed["notes"] == graph["diagnostic"] == pointer
 
 
 def test_incomplete_real_graph_cannot_authorize_renaming(authored_graph):
