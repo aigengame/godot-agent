@@ -115,6 +115,15 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   Kernel/LDB and applicable artifact-schema authorities, or the implementation is exhaustively
   reverse-conformance checked against those exact artifacts. Before those authorities exist, a
   locally hashed envelope is research data, not a permanent Schema artifact.
+  Under #878, the existing Kernel receipt protocol owns one fixed structure: the ordinary
+  artifact envelope, the `descriptor_identity`, `invocation_key` and `manifest_identity` bindings,
+  and the `manifest_locator` and `member_locators` transport fields. Its Wire Schema and
+  transport-only identity projection are derived together. The LDB retains distinct schema/kind
+  declarations and the Artifact Contract identity domain, but cannot author a receipt Schema
+  override or any Artifact Contract's `identity_excluded_members`. The selected private contract
+  snapshot contains the derived projection for existing identity consumers; it is not another
+  authored policy or a fallback. This replaces arbitrary exclusion configuration while retaining
+  the existing receipt encoding, identity and publication authentication requirements.
   An Artifact Contract is the sole identity-domain authority for its artifact schema. A
   non-artifact Wire-Schema definition instead owns its identity domain inline. Admission requires
   exactly one of those authority paths for every Wire Schema, so a host-derived kind-name fallback

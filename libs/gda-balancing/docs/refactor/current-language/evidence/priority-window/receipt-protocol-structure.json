@@ -1,0 +1,1365 @@
+{
+  "scope": "Receipt protocol structure and arbitrary authored identity-exclusion deletion before the final #878 build freeze. Complete #878 acceptance remains open.",
+  "baseline": "6fd19a798d4957a4efe7f023c58a59b91431f5a8",
+  "implementation_and_test_head": "b0605e9ae15fdeac47aa11ceddd192a63b641fc3",
+  "kernel": "sha256:ad78d61004e5ec1865e6c11122e3e9ea9889a8f590aec2152730dff759672a1c",
+  "ldb": "sha256:68ff4187e3fcfd70cceb0cf250c70aa583ca50c13239ae1d6808a03008ed29a5",
+  "counterexample": {
+    "head": "beca558be987e753b304d2ba5f7fc85aff569eb1",
+    "kernel_identity": "sha256:1f1f80c8cc96c48de42e3d711b51fd21f523b5dd23e8eff85ec74e701a9f1229",
+    "cases": [
+      {
+        "case": "control",
+        "A_admits": true,
+        "B_admits": true,
+        "A_diagnostics": [],
+        "B_diagnostics": [],
+        "ordinary_receipt_payload_admits": true,
+        "identity_equals_control": true,
+        "binding_mutation_equal_identity": {
+          "descriptor_identity": false,
+          "invocation_key": false,
+          "manifest_identity": false
+        },
+        "different_locators_equal_identity": true,
+        "public_model_build": {
+          "exit_code": 0,
+          "stderr": "",
+          "raw": "public-control/build-result.json"
+        }
+      },
+      {
+        "case": "absent-exclusion",
+        "A_admits": true,
+        "B_admits": true,
+        "A_diagnostics": [],
+        "B_diagnostics": [],
+        "ordinary_receipt_payload_admits": true,
+        "identity_equals_control": true,
+        "binding_mutation_equal_identity": {
+          "descriptor_identity": false,
+          "invocation_key": false,
+          "manifest_identity": false
+        },
+        "different_locators_equal_identity": true
+      },
+      {
+        "case": "descriptor-exclusion",
+        "A_admits": true,
+        "B_admits": true,
+        "A_diagnostics": [],
+        "B_diagnostics": [],
+        "ordinary_receipt_payload_admits": true,
+        "identity_equals_control": false,
+        "binding_mutation_equal_identity": {
+          "descriptor_identity": true,
+          "invocation_key": false,
+          "manifest_identity": false
+        },
+        "different_locators_equal_identity": true
+      },
+      {
+        "case": "locator-schema-rename",
+        "A_admits": true,
+        "B_admits": true,
+        "A_diagnostics": [],
+        "B_diagnostics": [],
+        "ordinary_receipt_payload_admits": false,
+        "schema_error": "'transport_manifest' is a required property",
+        "public_model_build": {
+          "exit_code": 4,
+          "stderr": "{\"error\": {\"category\": \"internal\", \"code\": \"internal_error\", \"message\": \"the toolkit failed unexpectedly (ValidationError)\"}}\n",
+          "raw": "public-locator-schema-rename/build-result.json"
+        }
+      }
+    ],
+    "original_receipt": {
+      "path": "/private/tmp/gda-878-evidence-claim-inventory-evidence/control/run-receipt.json",
+      "sha256": "d5a0609c264547b02a63ab7bd460036a70f4f63e1d0984a85558daf4915fb906"
+    },
+    "limits": "Fixed source and Kernel; only in-memory reidentified LDB candidates. A/B admission, actual selected ArtifactContract, and two actual public Model builds. No authenticated forgery acceptance or trust activation claimed."
+  },
+  "counterexample_source": {
+    "path": "/private/tmp/gda-878-receipt-protocol-evidence/probe.py",
+    "bytes": 5815,
+    "sha256": "d946c3f72f98905c0f57b0ee86416081a7188baa21685eeede71a2ab895ba1bf"
+  },
+  "decision": {
+    "single_machine_owner": "/meta_format/language_definitions/wire_schema_protocol_roles/receipt_structure",
+    "new_api_file": "src/gda_balancing/domain/authority/receipt_projection.py",
+    "apis": [
+      "receipt_protocol_schema(kernel, artifact_kind)",
+      "project_receipt_protocol(kernel, language)",
+      "artifact_contract_declarations(meta_format, language)"
+    ],
+    "deleted_authored_surface": [
+      "receipt Schema override",
+      "identity_excluded_members required member and field grammar",
+      "identity_excluded_members on all 24 physical ArtifactContract definitions"
+    ],
+    "retained_semantics": "Transport independence remains necessary. The existing ArtifactContract snapshot member is uniformly generated from the one Kernel transport structure (receipt transport keys; all others empty). Physical input presence refuses; typed declaration validation checks its exact derivation before removing it from the grammar view.",
+    "fixture_contract": "Refresh strips only canonical-equal generated values. Co-mutated invalid Schema/exclusions remain authored and refuse.",
+    "unchanged": "No hash algorithm, publication producer/reader API, protocol role, generic registry, fallback or trust activation added. Existing framing/binding bytes and required-array order preserved."
+  },
+  "producer": {
+    "receipt": {
+      "path": "/private/tmp/gda-878-receipt-protocol-evidence/final-a-receipt.json",
+      "bytes": 40092,
+      "sha256": "10a265011678497eb09dd1f84a0955a057620b4e3b2dd798e8d3ddd086be41f9"
+    },
+    "implementation_base": "4fd28b56b399edd6286d76d5dffa2f2ac283cea0",
+    "core": "ba64868637f56b3fea96bb94688beafff20c9520",
+    "followup": "cc05376c62d9f1f95388e0c9b765ba328e1e94d0",
+    "measurement": {
+      "base": "4fd28b56b399edd6286d76d5dffa2f2ac283cea0",
+      "head": "cc05376c62d9f1f95388e0c9b765ba328e1e94d0",
+      "kernel_identity": "sha256:ad78d61004e5ec1865e6c11122e3e9ea9889a8f590aec2152730dff759672a1c",
+      "ldb_identity": "sha256:68ff4187e3fcfd70cceb0cf250c70aa583ca50c13239ae1d6808a03008ed29a5",
+      "receipt_schema": {
+        "canonical_bytes": 950,
+        "sha256": "53908bd786b6daf916cd5f8ad2838626fb9413699869d00657a6d6bb45604c38",
+        "wire_schema_identity": "sha256:1458071325c647715a5e04f042febc82bbb3efff6b2fe9d783e3b1dd50ca9c5f",
+        "exact_before_after": true
+      },
+      "other_schema_declarations_unchanged": [
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-experiment/standard.experiment.json",
+          "artifact_kind": "replay-comparison",
+          "declaration_sha256": "bdacce3523b8fd9e37481d87c10055ed2d33966392bbfc690a8c6a5104b600b3",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "template-instantiate-command-input",
+          "declaration_sha256": "05acf645e749f56023bd160cb3566b670f1a3b363ecc6500baf71883749da071",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "template-instantiation-receipt",
+          "declaration_sha256": "460bfaca443e6548cfb8c8f22c121807267597f98721cd63637614436a1d195a",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "template-release",
+          "declaration_sha256": "db1cdb89f519ceb39f92f475767caad617284667c4787520a3695f6b68fada56",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "experiment-specification",
+          "declaration_sha256": "9c99efd8f090cccbcf26d336c50e67e8ff5ff6e3f3b7b782bba7b7543a6b20c0",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "declared-package-dependencies",
+          "declaration_sha256": "775362cce7a35ef6e35b45eec844a44c8ac929a21c678fc327ac14050627a394",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "template-defaults",
+          "declaration_sha256": "59fa21dad144ea8127a4e2ed94b9df92db9ddd0777a544aa30f3cc54f1929823",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "template-compatibility",
+          "declaration_sha256": "a4fb9d8311fcb7e17309f573f118147a7d1ef930d9dff4a952eea96c7c256863",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "template-documentation",
+          "declaration_sha256": "7d03fa7f17793ceb3b6c25d7acb4ce8e52b1f7f63de5006fa74c0d926ca0ef49",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "genre-coverage-matrix",
+          "declaration_sha256": "a438182cc1549f61d1abe85d77674d6aace451aabfbdd71a6b7998f413752a1c",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "golden-scenario",
+          "declaration_sha256": "f93aec1b59e91370d371d6342e7339e324c335239202894ffafd592078f5dfe7",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "negative-vector",
+          "declaration_sha256": "7adc586d8d356be4a30c1639e71d75400e6bb28d366d74d87df434398fbc3409",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "boundary-vector",
+          "declaration_sha256": "f48d0407a1a817e0171e527d9d8e034659efadb97a6e5573c6bbe748a212d29e",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "artifact-set-manifest",
+          "declaration_sha256": "e879f0e971d805fc0bc3d4b20de0afad59f4e655f476348afe05891e1fac6f22",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "build-receipt",
+          "declaration_sha256": "75a9c04a92ea7328606a09391fa16898bb80f701dd94d050d624a0878387f857",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "capability-manifest",
+          "declaration_sha256": "6d5eea4104251c15138072b2469a623c1d76f2255301caeabc5df332dc0839fb",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "debug-map",
+          "declaration_sha256": "80ad362226e2170ee706f1b36e1fa622392c66fb35057adcb006c342edc7859e",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "model-explanation",
+          "declaration_sha256": "c94057ba408501bf4c8cbbed70c0b0788bff5e9cbb1ef51bac1dd16f04a1406a",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "model-build-command-input",
+          "declaration_sha256": "162ffe4ff994f22a47d9a9d86e2a406e878578be46d6485f4068ef648ac9f3b1",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "package-lock",
+          "declaration_sha256": "1676c70fdda643123b63e699c12cef16bac4e0b1e34fce834fe4b0f8f3e5df2b",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "publication-index",
+          "declaration_sha256": "a7966b666cc2f224d5dc79ebb070c042663e970b9f13aad3e6015070387eeef1",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "resolution-receipt",
+          "declaration_sha256": "3ea298c409885f321063527d8c34b0bfbe05dce52af87b0ae843587e65557795",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "resolved-model",
+          "declaration_sha256": "a8a227811a60d2fa8ba69155b21392487c1c4291f64a7e2640747df493a00531",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "rir-semantic-payload",
+          "declaration_sha256": "0e7a0421d695273f021f1cf55ff24b180e9c76bbe621934ae622576f04d6dab2",
+          "has_authored_schema": false
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "evaluator-capability-manifest",
+          "declaration_sha256": "624434d6238bbcb135fda7f7f37e2ad9d340db4971f1c720e1ab3863dc7c9a05",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "resolved-runtime-profile",
+          "declaration_sha256": "e8e089cb62be9393cab806b6a2da4bab7dbb3e32b17b1e60d752f1a93d4242d8",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "event-trace",
+          "declaration_sha256": "d3e7bc226c73579985ce00dff42f68c48ea34eb7e6bdec20a7c84cecc03c27b0",
+          "has_authored_schema": false
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "snapshot-series",
+          "declaration_sha256": "87095a942fe19b6556f19e91d757f72163afbda4c61eb43af9cbb97e8e2f2418",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "metric-dataset",
+          "declaration_sha256": "2043a2361e7ea337bd2886afbad481228eab4e9c6d05f1679376f4a78a055786",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "evaluation-run",
+          "declaration_sha256": "488a26ea6cf1e26d45b4bd458d91326680c917111e0778f96b8f2dada3534daa",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "experiment-verdict",
+          "declaration_sha256": "a788893badaed8f02818c9078c860dc85fa86d987b57055ad44792f49b9eab66",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "runtime-terminal-audit",
+          "declaration_sha256": "cd56941f52634292c8465f53b448355543a0ef112e985374096becdcd23fd50a",
+          "has_authored_schema": true
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "experiment-template",
+          "declaration_sha256": "68481f4365835e24048568e2156684101b9e9ab0d53918145ef4fda5cbeb65a1",
+          "has_authored_schema": true
+        }
+      ],
+      "other_schema_declaration_count": 33,
+      "other_physical_authored_schema_count": 31,
+      "authored_identity_exclusion_deleted_count": 24,
+      "authored_identity_exclusion_deletions": [
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-experiment/standard.experiment.json",
+          "artifact_kind": "replay-comparison",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "artifact-set-manifest",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "artifact-set-receipt",
+          "removed_value": [
+            "manifest_locator",
+            "member_locators"
+          ]
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "build-receipt",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "capability-manifest",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "debug-map",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "model-explanation",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "model-build-command-input",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "package-lock",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "publication-index",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "resolution-receipt",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "resolved-model",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "rir-semantic-payload",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "template-release",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "template-instantiate-command-input",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "template-instantiation-receipt",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "evaluator-capability-manifest",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "resolved-runtime-profile",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "event-trace",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "snapshot-series",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "metric-dataset",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "evaluation-run",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "experiment-verdict",
+          "removed_value": []
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+          "artifact_kind": "runtime-terminal-audit",
+          "removed_value": []
+        }
+      ],
+      "vectors_byte_unchanged": [
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/core-quantity/core.quantity.conformance-vectors.json",
+          "sha256": "3a45fb61cf7b9f774bba7abf279f9e05cdfc42cc55d9c3f10bd84842317e9b85"
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/game-build/game.build.conformance-vectors.json",
+          "sha256": "b019d52aadc68c40788655fea8f8906436c7c2c18da3fb2cb3e28beb53aff74c"
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/game-check/game.check.conformance-vectors.json",
+          "sha256": "724d5f4c992554e47d173069cae488c9645352719a40e82e2c400db14a084381"
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/game-combat/game.combat.conformance-vectors.json",
+          "sha256": "427bc3c0295aee717110792e5b76b0bd41b9e4945bbab502b861e73677652456"
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/game-effect/game.effect.conformance-vectors.json",
+          "sha256": "39de7d3182c198844d0382b45432d97ca1c7ee2aaf24fd5c1bd14e4ca655669b"
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/game-generation/game.generation.conformance-vectors.json",
+          "sha256": "4b6f98acc9caf32f3fd90435d56dad1ead81e21127a7b0ffdf7384f806fd527e"
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/game-progression/game.progression.conformance-vectors.json",
+          "sha256": "4148438a63832d61c4ef3bf9317db26f6fe567eb0dffcd62e994abce1389d09d"
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/game-resource/game.resource.conformance-vectors.json",
+          "sha256": "7ad23936494aee3acae1769bc798c04176d213a2ff8fcaabef83cfccbc3bf868"
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-compiler/standard.compiler.conformance-vectors.json",
+          "sha256": "830386eecaf7453bad2e8bfb457ea8d96e33f6908b5d5a5d126e2a3483740aeb"
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-conformance-structured/standard.conformance.structured.conformance-vectors.json",
+          "sha256": "bc8defa39257cbe1c9432b8f0c22e29808063e8147673fc36c26b19bbd1ca6b0"
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-experiment/standard.experiment.conformance-vectors.json",
+          "sha256": "ba440f8a2cf0888cdd92ca5cb86da0d7d0de59bf4c247d0ce5d9ccc8acc95d87"
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-runtime/standard.runtime.conformance-vectors.json",
+          "sha256": "519302d2d091881fa7e20a7c6c9ce9fb87bb4c069713d6dff3432e97b41a4477"
+        },
+        {
+          "path": "libs/gda-balancing/src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.conformance-vectors.json",
+          "sha256": "9c3e65df7a1c9c753b7c74e7c0832ec2729f8bc1755f1a8110e69ce921a6fe27"
+        }
+      ],
+      "identity_preservation": [
+        {
+          "case": "fixed-payload",
+          "canonical_bytes_equal": true,
+          "current_verifier_accepts": true,
+          "content_identity": "sha256:4fe61635ae11b9c7e209472c91e99b1314adffacf67da6f6dcd3e0316fc17ae3",
+          "canonical_sha256": "413587b3ef601e527f4f56d0750593f8dd70969d320b74ceb51f966ae599becd"
+        },
+        {
+          "case": "original-public-experiment-receipt",
+          "canonical_bytes_equal": true,
+          "current_verifier_accepts": true,
+          "content_identity": "sha256:73f00439606df60a29cc5c25948676735d31b1d8e13960978b707a071c0be770",
+          "canonical_sha256": "af3e751041d85526456eebef44b6e327dd9126d407238738f7137ed481860b4b"
+        }
+      ],
+      "producer_hash_owner_sources_unchanged": [
+        {
+          "path": "src/gda_balancing/domain/artifacts.py",
+          "sha256": "79e0390f76c0f4c148fb22b553334afe0865cf5523d02ec17fd3353df0c1c3c6"
+        },
+        {
+          "path": "src/gda_balancing/domain/publication.py",
+          "sha256": "6bace180b64334510e2f510940d3ed3cd84184e0e76a2dd38182c5e3be802257"
+        },
+        {
+          "path": "src/gda_balancing/domain/canonical.py",
+          "sha256": "04fb86081618109971d7132c5625ea7f553eefda44412b53c3358ca7312a6aa8"
+        }
+      ]
+    },
+    "public_cases": [
+      {
+        "mode": "derived",
+        "commands": [
+          {
+            "command": [
+              "model",
+              "build"
+            ],
+            "exit_code": 0,
+            "artifact_kind": "artifact-set-receipt",
+            "wire_schema_identity": "sha256:1458071325c647715a5e04f042febc82bbb3efff6b2fe9d783e3b1dd50ca9c5f",
+            "content_identity": "sha256:a7daf128dc92f1408805702b9adfed60324a491c3061b8ff1c4ce742af7059eb",
+            "member_count": 8,
+            "diagnostics": []
+          },
+          {
+            "command": [
+              "model",
+              "inspect"
+            ],
+            "exit_code": 0,
+            "artifact_kind": "model-explanation",
+            "wire_schema_identity": "sha256:20cf9e793c4ad9cd2bceb7edce57e2113545378faaa148aea459aaf3f6d91ca3",
+            "content_identity": "sha256:42ee18372c6f2436cf42b8da3cdf2857f9126b829fb1b4e15a5a592689bad45b",
+            "member_count": 0,
+            "diagnostics": []
+          }
+        ],
+        "raw": {
+          "path": "a-followup/test_public_build_uses_only_th0/public/cli-results.json",
+          "bytes": 7507,
+          "sha256": "9b23cfbcf50c0555f248fa6e4c7320032efdff8a9fad46de241d86483aaf1d99"
+        },
+        "source": {
+          "path": "a-followup/test_public_build_uses_only_th0/public/model-source.json",
+          "bytes": 2214,
+          "sha256": "162b7b9a0cb8278548184f6bdc31f26b64080bc40a21c9bd601fe83a88b96827"
+        }
+      },
+      {
+        "mode": "renamed",
+        "commands": [
+          {
+            "command": [
+              "model",
+              "build"
+            ],
+            "exit_code": 0,
+            "artifact_kind": "review.receipt.artifact",
+            "wire_schema_identity": "sha256:40ff10056b38bf9aae87a4350a5106cc3e7c98adec5f6d0f13b0a6f0174c4f80",
+            "content_identity": "sha256:f21629167975085df541fda1ce276028f289e3d06f93ac0ad96cb4074869c402",
+            "member_count": 8,
+            "diagnostics": []
+          },
+          {
+            "command": [
+              "model",
+              "inspect"
+            ],
+            "exit_code": 0,
+            "artifact_kind": "model-explanation",
+            "wire_schema_identity": "sha256:20cf9e793c4ad9cd2bceb7edce57e2113545378faaa148aea459aaf3f6d91ca3",
+            "content_identity": "sha256:42ee18372c6f2436cf42b8da3cdf2857f9126b829fb1b4e15a5a592689bad45b",
+            "member_count": 0,
+            "diagnostics": []
+          }
+        ],
+        "raw": {
+          "path": "a-followup/test_public_build_uses_only_th1/public/cli-results.json",
+          "bytes": 7510,
+          "sha256": "147f019aa614be8c4d5f193c768e38568aedd787cbc40eb243c0170aef999cb6"
+        },
+        "source": {
+          "path": "a-followup/test_public_build_uses_only_th1/public/model-source.json",
+          "bytes": 2214,
+          "sha256": "162b7b9a0cb8278548184f6bdc31f26b64080bc40a21c9bd601fe83a88b96827"
+        }
+      },
+      {
+        "mode": "authored-override",
+        "commands": [
+          {
+            "command": [
+              "model",
+              "build"
+            ],
+            "exit_code": 2,
+            "artifact_kind": null,
+            "wire_schema_identity": null,
+            "content_identity": null,
+            "member_count": 0,
+            "diagnostics": [
+              "kernel.vector_mismatch"
+            ]
+          }
+        ],
+        "raw": {
+          "path": "a-followup/test_public_build_uses_only_th2/public/cli-results.json",
+          "bytes": 894,
+          "sha256": "fd87ca8082759604a3ad48fc4cbf835706b18dbe8b8be4f6049b9e4cc2770d04"
+        },
+        "source": {
+          "path": "a-followup/test_public_build_uses_only_th2/public/model-source.json",
+          "bytes": 2214,
+          "sha256": "162b7b9a0cb8278548184f6bdc31f26b64080bc40a21c9bd601fe83a88b96827"
+        }
+      }
+    ],
+    "raw_reference_verification": {
+      "verified_raw_references": 37,
+      "unique_raw_references": 37,
+      "producer_source_and_resource_files_match_root": 156
+    },
+    "limits": [
+      "No full package suite, remote CI, full maintained Model/Experiment rebuild, or whole #878 inventory completion claimed.",
+      "Final logical-label rename and independent B final-fixture public checks were not run by A here; B is separately assigned.",
+      "Receipt contract verification of the original Experiment receipt preserves its complete canonical bytes and identity; it is not a rerun of that original Experiment or authentication of a forged publication.",
+      "Kernel/LDB identities intentionally change with machine ownership cleanup; no claim that every generated Model artifact remains byte-identical.",
+      "Other 33 Schema declarations are byte-identical as canonical data: 31 physical authored schemas and 2 existing derived Trace/RIR declarations.",
+      "No GitHub, push, primary-checkout, or documentation changes performed by this worker."
+    ]
+  },
+  "independent": {
+    "receipt": {
+      "path": "/private/tmp/gda-receipt-b-final-receipt.json",
+      "bytes": 27191,
+      "sha256": "f273b9dde384c5ef85d4f568cd688a0acb591122274b092af2f426dc9649807e"
+    },
+    "core": "13c749e6414f1c742f0808e148d3134b35c3598c",
+    "followup": "258e51d3912317cd4d6d62d82f7407c7cf461506",
+    "scope": "Original and distinct receipt Schema/Artifact names both independently admit the same raw authorities, run actual public Model check/build8, compare all four independently compiled semantic artifacts and mutually admit them. Independently reconstructed receipts pass production verify and public inspect. Both cases newly publish eight opaque logical labels through the existing production publication mechanism, independently check Receipt Schema/hash, authenticate the declared publication, and run public Model inspect.",
+    "identity_scope": "Original receipt Schema remains the same 950 canonical bytes and original wire identity. Changing the producer artifact_kind deliberately changes its Schema to 953 bytes and its wire identity. A and B agree for each identical input. Changing publication labels changes the manifest binding and thus receipt content identity; transport relocation alone remains identity-excluded in the earlier permanent case. No claim of cross-rename identity equality.",
+    "public_cases": [
+      {
+        "observation": {
+          "schema_bytes": 950,
+          "schema_sha256": "53908bd786b6daf916cd5f8ad2838626fb9413699869d00657a6d6bb45604c38",
+          "schema_kind": "artifact-set-receipt",
+          "artifact_kind": "artifact-set-receipt",
+          "wire_schema_identity": "sha256:1458071325c647715a5e04f042febc82bbb3efff6b2fe9d783e3b1dd50ca9c5f",
+          "receipt_identity": "sha256:7bd4187234b8719ebc9cddfaa62e21c435178ba90d98744e347794aa1115a548",
+          "relabeled_receipt_identity": "sha256:2eaa1c566d1af31fa7ab03decf9f07554a5f9d4667de6e3e9033ffab7161c11e",
+          "four_artifact_identities": {
+            "package-lock": "sha256:3a9d66d21c10e8f68578bcc0207296152742a8bf29b88f8896bd0a3b5539f2d2",
+            "rir-semantic-payload": "sha256:e92feacedf845919ccd0cbbcc482b6f99a15bd17240d780477849fb3a6b81146",
+            "resolved-model": "sha256:26510db9b6866d4a5c61f88477910b612eff1f4677f8350339e9dc0f60abdace",
+            "debug-map": "sha256:f92bdc263715604a7eca8a9796f6dd820a6f17c80db536d3b92ff0a0b56f8871"
+          },
+          "labels": [
+            "opaque-23",
+            "opaque-20",
+            "opaque-17",
+            "opaque-14",
+            "opaque-11",
+            "opaque-8",
+            "opaque-5",
+            "opaque-2"
+          ]
+        },
+        "comparison": {
+          "path": "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu0/public/independent-comparison.json",
+          "bytes": 1076,
+          "sha256": "566040c5665c22893ed089b56f539284b29576f8225f04cd7ceaed89b6616c78"
+        },
+        "commands": {
+          "path": "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu0/public/cli-results.json",
+          "bytes": 11353,
+          "sha256": "c63588116ee8c769a6231811d6728859d6f3eab5dd83dfc66c404dd1886c06ab"
+        },
+        "command_statuses": [
+          {
+            "arguments": [
+              "model",
+              "check",
+              "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu0/public/model-source.json"
+            ],
+            "returncode": 0
+          },
+          {
+            "arguments": [
+              "model",
+              "build",
+              "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu0/public/model-source.json",
+              "--out",
+              "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu0/public/build",
+              "--invocation-key",
+              "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2"
+            ],
+            "returncode": 0
+          },
+          {
+            "arguments": [
+              "model",
+              "inspect",
+              "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu0/public/independent-receipt.json"
+            ],
+            "returncode": 0
+          },
+          {
+            "arguments": [
+              "model",
+              "inspect",
+              "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu0/public/independent-receipt.json"
+            ],
+            "returncode": 0
+          }
+        ],
+        "source": {
+          "path": "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu0/public/model-source.json",
+          "bytes": 2214,
+          "sha256": "162b7b9a0cb8278548184f6bdc31f26b64080bc40a21c9bd601fe83a88b96827"
+        },
+        "kernel": {
+          "path": "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu0/public/runtime/gda_balancing/schema2/authorities/kernel.json",
+          "bytes": 153742,
+          "sha256": "ce75a57815ee6fbfd91c715669c3ed7529c52dec2cca25b99fc41b12c8d06223"
+        },
+        "ldb_root": {
+          "path": "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu0/public/runtime/gda_balancing/schema2/authorities/language-bundle.json",
+          "bytes": 2809,
+          "sha256": "006df004f4d0d61ea7a47c3f00059f1fad551f4d5a33e6fc76385cbd5e815c67"
+        },
+        "original_receipt": {
+          "content_identity": "sha256:7bd4187234b8719ebc9cddfaa62e21c435178ba90d98744e347794aa1115a548",
+          "canonical_sha256": "c92cde7580069bc8334324253d03be99074f4aaa2aaaf757133275686a09f72d"
+        },
+        "relabeled_receipt": {
+          "path": "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu0/public/independent-receipt.json",
+          "bytes": 3177,
+          "sha256": "7f427c48a653faa72d50b25550fb68a8cab9fd764bfb85f739d583a9ab61508a"
+        },
+        "four_artifacts": {
+          "package-lock": {
+            "content_identity": "sha256:3a9d66d21c10e8f68578bcc0207296152742a8bf29b88f8896bd0a3b5539f2d2",
+            "canonical_sha256": "9ab6e032ccef370545366627875c14a8d329f04b381a8b7af53e8397a2915798"
+          },
+          "rir-semantic-payload": {
+            "content_identity": "sha256:e92feacedf845919ccd0cbbcc482b6f99a15bd17240d780477849fb3a6b81146",
+            "canonical_sha256": "e7d19a301d320bc65efc500b3f3da400f0771afd91bbd5d3e06f5b0149a5a533"
+          },
+          "resolved-model": {
+            "content_identity": "sha256:26510db9b6866d4a5c61f88477910b612eff1f4677f8350339e9dc0f60abdace",
+            "canonical_sha256": "306cffa5faeb26b9ef791b085cc786073068a7611e0112c4aac6ea701ad68b4b"
+          },
+          "debug-map": {
+            "content_identity": "sha256:f92bdc263715604a7eca8a9796f6dd820a6f17c80db536d3b92ff0a0b56f8871",
+            "canonical_sha256": "31b3458cd504fcab60b96b0af4d3a3718a3d5627d8ffd74f8e2f22d486589e48"
+          }
+        }
+      },
+      {
+        "observation": {
+          "schema_bytes": 953,
+          "schema_sha256": "2e654363f260387d19d0e86437eab0fc427b2b6a5db9a79a0980d285c6d71638",
+          "schema_kind": "review.receipt.schema",
+          "artifact_kind": "review.receipt.artifact",
+          "wire_schema_identity": "sha256:40ff10056b38bf9aae87a4350a5106cc3e7c98adec5f6d0f13b0a6f0174c4f80",
+          "receipt_identity": "sha256:85a22449cbdae02b28c7b0c7cfcc04f61d07debc469a3937941f0eca1539f19b",
+          "relabeled_receipt_identity": "sha256:3919dbb2991576e964fe22ccebf8fb058f4cad058f87ee0235c0f101149d33b4",
+          "four_artifact_identities": {
+            "package-lock": "sha256:5845cc9b8b27aec2bc1f41cec0944700a6423acf2e43b8eeefc9d845da36026b",
+            "rir-semantic-payload": "sha256:e92feacedf845919ccd0cbbcc482b6f99a15bd17240d780477849fb3a6b81146",
+            "resolved-model": "sha256:29604dbd55b8f40f370a12fbed2f8000e131a9f733221bb8ae66f76d88617d1a",
+            "debug-map": "sha256:f92bdc263715604a7eca8a9796f6dd820a6f17c80db536d3b92ff0a0b56f8871"
+          },
+          "labels": [
+            "opaque-23",
+            "opaque-20",
+            "opaque-17",
+            "opaque-14",
+            "opaque-11",
+            "opaque-8",
+            "opaque-5",
+            "opaque-2"
+          ]
+        },
+        "comparison": {
+          "path": "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu1/public/independent-comparison.json",
+          "bytes": 1080,
+          "sha256": "24980336df7c4d18a484b0affbb2a77a4872ec59f1cef43b836460e23c52afec"
+        },
+        "commands": {
+          "path": "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu1/public/cli-results.json",
+          "bytes": 11356,
+          "sha256": "50a12a65444c9b080ee1da787c24247c07cffdae75fdf104b624302d340b0c30"
+        },
+        "command_statuses": [
+          {
+            "arguments": [
+              "model",
+              "check",
+              "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu1/public/model-source.json"
+            ],
+            "returncode": 0
+          },
+          {
+            "arguments": [
+              "model",
+              "build",
+              "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu1/public/model-source.json",
+              "--out",
+              "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu1/public/build",
+              "--invocation-key",
+              "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2"
+            ],
+            "returncode": 0
+          },
+          {
+            "arguments": [
+              "model",
+              "inspect",
+              "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu1/public/independent-receipt.json"
+            ],
+            "returncode": 0
+          },
+          {
+            "arguments": [
+              "model",
+              "inspect",
+              "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu1/public/independent-receipt.json"
+            ],
+            "returncode": 0
+          }
+        ],
+        "source": {
+          "path": "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu1/public/model-source.json",
+          "bytes": 2214,
+          "sha256": "162b7b9a0cb8278548184f6bdc31f26b64080bc40a21c9bd601fe83a88b96827"
+        },
+        "kernel": {
+          "path": "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu1/public/runtime/gda_balancing/schema2/authorities/kernel.json",
+          "bytes": 153742,
+          "sha256": "ce75a57815ee6fbfd91c715669c3ed7529c52dec2cca25b99fc41b12c8d06223"
+        },
+        "ldb_root": {
+          "path": "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu1/public/runtime/gda_balancing/schema2/authorities/language-bundle.json",
+          "bytes": 2809,
+          "sha256": "6f880538fc0235707ad2f636ce23f7c679ad76dae99f896149ff3489e95f014c"
+        },
+        "original_receipt": {
+          "content_identity": "sha256:85a22449cbdae02b28c7b0c7cfcc04f61d07debc469a3937941f0eca1539f19b",
+          "canonical_sha256": "cb83b2f13d291c42a5c069e9d22ff7fc7209b0c5a7b9cbac1433e619076c23d9"
+        },
+        "relabeled_receipt": {
+          "path": "/private/tmp/gda-receipt-b-renamed-third-tmp/test_receipt_renamed_public_bu1/public/independent-receipt.json",
+          "bytes": 3180,
+          "sha256": "f4c155fdea254d9ab31090c54ac2f5d1500323c1fcd8b3906a9671d3f8fb0c6c"
+        },
+        "four_artifacts": {
+          "package-lock": {
+            "content_identity": "sha256:5845cc9b8b27aec2bc1f41cec0944700a6423acf2e43b8eeefc9d845da36026b",
+            "canonical_sha256": "5abebdc510e7a76ae20400bbb7bebfc75700f7b37219983a33dcdfb0ed31db5a"
+          },
+          "rir-semantic-payload": {
+            "content_identity": "sha256:e92feacedf845919ccd0cbbcc482b6f99a15bd17240d780477849fb3a6b81146",
+            "canonical_sha256": "e7d19a301d320bc65efc500b3f3da400f0771afd91bbd5d3e06f5b0149a5a533"
+          },
+          "resolved-model": {
+            "content_identity": "sha256:29604dbd55b8f40f370a12fbed2f8000e131a9f733221bb8ae66f76d88617d1a",
+            "canonical_sha256": "0fc90b1fe90575c0742327a7525ea913b3be4196209095cbd0dedd5149d44b86"
+          },
+          "debug-map": {
+            "content_identity": "sha256:f92bdc263715604a7eca8a9796f6dd820a6f17c80db536d3b92ff0a0b56f8871",
+            "canonical_sha256": "31b3458cd504fcab60b96b0af4d3a3718a3d5627d8ffd74f8e2f22d486589e48"
+          }
+        }
+      }
+    ],
+    "verified_references": 27,
+    "verified_unique_references": 27,
+    "current_source_files_match": 5,
+    "limits": [
+      "No full extension inventory/renaming acceptance: 36 exact uncovered rows remain.",
+      "No new authenticated receipt feature or trust activation is claimed; existing publication validators were exercised.",
+      "Independent compilation covers the existing four semantic members; other public Model output members are verified by their existing production contracts.",
+      "The 126 retained cases were not rerun after the isolated two-case followup; their original 125-pass plus one corrected assertion receipts remain preserved.",
+      "No completed Evidence suite, 34-vector gate, global CI or examples/oracles was rerun or rewritten for this followup."
+    ]
+  },
+  "deletion_scan": {
+    "receipt": {
+      "path": "/private/tmp/gda-878-root/receipt-root-verification.json",
+      "bytes": 21130,
+      "sha256": "4efbebe9b7683ba5aff51f918887c61c5b4bacef1193150175b6766322265a3c"
+    },
+    "authored_artifact_contract_exclusions_remaining": 0,
+    "authored_artifact_contract_exclusions_deleted": 24,
+    "receipt_schema_override_remaining": false,
+    "retained_canonical_hash_rule": [
+      {
+        "pointer": "src/gda_balancing/schema2/authorities/kernel.json/canonical_encoding/identity_excluded_members",
+        "value": [
+          "content_identity"
+        ]
+      }
+    ],
+    "canonical_encoding_unchanged": true,
+    "scope": "The retired surface is LDB ArtifactContract configurability. The Kernel canonical hash continues excluding its own content_identity; this unrelated fixed law is unchanged."
+  },
+  "tests": [
+    {
+      "path": "/private/tmp/gda-878-receipt-protocol-evidence/a-green.xml",
+      "bytes": 2499,
+      "sha256": "8cb5b58b4490eaaa66d7ade3a6d1517965fa16604cb31ad4adcc0335ee92a410",
+      "scope": "Fifteen producer and retained publication/recovery/alias cases, including public build/inspect",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "/private/tmp/gda-878-receipt-protocol-evidence/a-followup.xml",
+      "bytes": 2089,
+      "sha256": "d0a27ebe981233319bda9a685b1bf2e6621c51f9af123fe84f0c3abc09d9897a",
+      "scope": "Twelve final A cases, including distinct kind/schema public build and co-mutated fixture refusal",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "/private/tmp/gda-receipt-b-first.xml",
+      "bytes": 2737,
+      "sha256": "4f00dda51dc0faa8c1400d76292f39d408d91a35a813637cfbed33082f30b212",
+      "scope": "Fourteen independent grammar, binding, identity and inventory cases",
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "/private/tmp/gda-receipt-b-retained.xml",
+      "bytes": 26111,
+      "sha256": "e9725f9353683216baeb1cb79cc6e619d54fb38d0a2c501d3626f863763de277",
+      "scope": "Historical adjacent 126-case run: 125 pass and one stale assertion requiring the deleted gap fails",
+      "tests": 126,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "/private/tmp/gda-receipt-b-retained-corrected.xml",
+      "bytes": 408,
+      "sha256": "e1a11cd547e20faaf37b6196939c0a50d40e10c93aaa689b2f1fe624d5b945f2",
+      "scope": "That one corrected assertion passes; its real debug-map gap and admission/inverse checks remain",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "/private/tmp/gda-receipt-b-renamed-third.xml",
+      "bytes": 620,
+      "sha256": "1936b84a894176a2294844e6096d4a1eb2918b2a4362a663804a298747bf3ac2",
+      "scope": "Two final B public cases with independent four-artifact comparison and actual relabeled publication/read/inspect",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "/private/tmp/gda-878-root/receipt-integrated.xml",
+      "bytes": 4566,
+      "sha256": "58d52a4c844beb9f28453f4489444385c2a6a6cea64783e13a18a73dbaa1bf43",
+      "scope": "Primary integration: 26 A/B receipt cases before the isolated final B two-case addition",
+      "tests": 26,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "/private/tmp/gda-878-root/receipt-ci-policy.xml",
+      "bytes": 1705,
+      "sha256": "d0b671c62c73c2d2b4bfdb75aca244d4287b2c62dd59dac7071bc27d8e9a913b",
+      "scope": "Twelve CI policy cases after registering both receipt test files",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "test_failure_disposition": {
+    "A_initial": "3 failures were new-test tuple diagnostics indexed as mappings; all intended candidates already refused. Test-only indexing correction; original failure log retained.",
+    "B_adjacent": "The only failed assertion demanded the now-deleted authored identity-exclusion gap. The corrected test still requires its real debug-map schema gap and passed separately; all admission/build and inverse assertions remain.",
+    "B_preparation": [
+      {
+        "xml": {
+          "path": "/private/tmp/gda-receipt-b-renamed-first.xml",
+          "bytes": 6526,
+          "sha256": "564433d023bd2dbb7a626f202661f0f9f16cf1ccb283044d2a8c87fa23bdee7e",
+          "cases": 2,
+          "failures": [
+            {
+              "classname": "tests.test_receipt_protocol_structure_independent",
+              "name": "test_receipt_renamed_public_build_and_labels_are_consumed_independently[original]",
+              "time": "1.517"
+            },
+            {
+              "classname": "tests.test_receipt_protocol_structure_independent",
+              "name": "test_receipt_renamed_public_build_and_labels_are_consumed_independently[distinct-kinds]",
+              "time": "0.974"
+            }
+          ],
+          "errors": [],
+          "skipped": []
+        },
+        "disposition": "Test incorrectly passed raw graph into context factory; corrected to actual derived index. Not a product RED."
+      },
+      {
+        "xml": {
+          "path": "/private/tmp/gda-receipt-b-renamed-second.xml",
+          "bytes": 7460,
+          "sha256": "b2dae34ad50a57e8a09c8a9ad3ff4c6a45efb42a22c00883c6f8915833ef6af1",
+          "cases": 2,
+          "failures": [
+            {
+              "classname": "tests.test_receipt_protocol_structure_independent",
+              "name": "test_receipt_renamed_public_build_and_labels_are_consumed_independently[original]",
+              "time": "1.672"
+            },
+            {
+              "classname": "tests.test_receipt_protocol_structure_independent",
+              "name": "test_receipt_renamed_public_build_and_labels_are_consumed_independently[distinct-kinds]",
+              "time": "1.198"
+            }
+          ],
+          "errors": [],
+          "skipped": []
+        },
+        "disposition": "Test serialized a frozen production view with the independent plain-JSON encoder; corrected to the actual owned index. Not a product RED."
+      }
+    ],
+    "overlap": "These scopes overlap and are not a whole-suite total. Historical failures are retained with their exact corrected checks."
+  },
+  "inventory": {
+    "kernel": "sha256:ad78d61004e5ec1865e6c11122e3e9ea9889a8f590aec2152730dff759672a1c",
+    "ldb": "sha256:68ff4187e3fcfd70cceb0cf250c70aa583ca50c13239ae1d6808a03008ed29a5",
+    "graph_scope": "Complete current packaged LDB with all package and vector-set roots; no added Model Source input",
+    "tokens": 1607,
+    "occurrences": 6463,
+    "reserved": 124,
+    "gaps": 36,
+    "removed_gap_rows": [
+      {
+        "law": "/meta_format/language_definitions",
+        "pointer": "/packages/12/semantic_closure/2/definitions/13",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "law": "/meta_format/language_definitions/collections/artifact_contracts",
+        "pointer": "/packages/12/semantic_closure/1/definitions/1/identity_excluded_members",
+        "reason": "identity projection member-address roles are not yet complete"
+      }
+    ],
+    "all_other_gap_rows_unchanged": true,
+    "receipt": {
+      "path": "/private/tmp/gda-878-root/receipt-final-inventory.json",
+      "bytes": 8599,
+      "sha256": "5a928db63baeaaa68144073c48a72fe356588f23a5fbf0ffdeb64a5f2d0f46eb"
+    },
+    "remaining_gap_rows": [
+      {
+        "pointer": "/packages/0/semantic_closure/9/definitions/0",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.model_lowerings roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/10/semantic_closure/2/definitions/0",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/0",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/1",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/10",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/11",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/12",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/14",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/15",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/16",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/17",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/18",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/19",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/2",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/20",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/21",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/22",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/24",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/25",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/27",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/28",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/29",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/3",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/30",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/31",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/32",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/4",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/5",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/6",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/7",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/8",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/9",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/24/definitions/0",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.template_admission_profiles roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/25/definitions/0",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/8/semantic_closure/20/definitions/0",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.resolution_profiles roles are not yet traversed"
+      },
+      {
+        "pointer": "/vector_sets",
+        "law": "/meta_format/package_vector",
+        "reason": "remaining vector families: operation-execution, scheduler-scenario, source-or-rule-or-reason"
+      }
+    ],
+    "scope": "Complete physical packaged LDB and vector roots. No new Model Source is included and no arbitrary-name or Schema exemption is added."
+  },
+  "ci_collection": {
+    "receipt": {
+      "path": "/private/tmp/gda-878-root/receipt-ci-inventory-final.json",
+      "bytes": 2044,
+      "sha256": "f1d75bb976ca9180d4f1050be0aa9758244429c01cb043a8dd7de7b21e79d34b"
+    },
+    "tests": 2583,
+    "vectors": 339,
+    "missing_or_overlapping": false,
+    "scope": "Collection only, not execution of all required shards."
+  },
+  "static_checks": {
+    "primary": [
+      {
+        "path": "/private/tmp/gda-878-root/receipt-ruff.log",
+        "bytes": 19,
+        "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+      },
+      {
+        "path": "/private/tmp/gda-878-root/receipt-pyright.log",
+        "bytes": 37,
+        "sha256": "6d88a1b220adb7a3d62092b6e38431f0b3fe8babe9864fab90e5849766260332"
+      },
+      {
+        "path": "/private/tmp/gda-878-root/receipt-rebuild.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "primary_scope": "Integrated core plus CI registration; the final test-only B addition has its own Ruff/format/Pyright evidence and matching source hashes.",
+    "independent_followup": {
+      "ruff_check": "pass",
+      "ruff_format_check": "pass",
+      "pyright_errors": 0,
+      "pyright_warnings": 0,
+      "git_diff_check": "pass"
+    }
+  },
+  "review": {
+    "Standards_core": {
+      "path": "/private/tmp/gda-878-receipt-standards-ad1sxix_/REVIEW-RECEIPT.json",
+      "bytes": 5603,
+      "sha256": "0fbcdb163d6ec82d34f7fa87970b9dbd7c36fd1e9cfcece4fc90ebbbbc7c075e"
+    },
+    "Spec_core": {
+      "path": "/private/tmp/gda-878-spec-receipt-382/receipt.json",
+      "bytes": 9656,
+      "sha256": "67da5935c0f2d8dba3a9c2e4d5ff539dae604e3668cc81d883b35e24fa4e081a"
+    },
+    "Spec_final_test_followup": {
+      "path": "/private/tmp/gda-878-spec-receipt-b060/receipt.json",
+      "bytes": 6565,
+      "sha256": "2456b2169c3380af8f84b87f71097944022017220221cfac4853265911504f32"
+    },
+    "DDMA_core": {
+      "path": "/private/tmp/gda-878-ddma-receipt-382c-proof/receipt.json",
+      "bytes": 61624,
+      "sha256": "1308ec9dc883ccb0b55ce9ec1083a33a471b73c4bb5d73aa5114e00cb5af9e8f"
+    },
+    "core_findings": {
+      "Standards": 0,
+      "Spec": 0,
+      "DDMA": 0
+    },
+    "DDMA_scope": "Fourteen targeted tests plus a fresh real eight-member Model publication. Three reidentified binding mutations and two transport mutations pass local Schema/hash checks but all refuse actual publication authentication.",
+    "final_test_and_documentation_review": "Final B test-only Spec review passed at b0605e9ae15fdeac47aa11ceddd192a63b641fc3. Documentation review is pending."
+  },
+  "reproduction": [
+    "Use the exact package revision and its environment; set PYTHONPATH=src:tests and PYTHONDONTWRITEBYTECODE=1.",
+    "Run tests/test_receipt_protocol_structure.py and tests/test_receipt_protocol_structure_independent.py with pytest -p no:cacheprovider and a fresh explicit --basetemp.",
+    "The original four candidates are preserved above. At the recorded red base, reseal actual authored receipt Schema/exclusion mutations with the existing _graph helper; compare A/B admission, selected receipt identification and real public Model build. No authenticated-forgery conclusion follows from the local contract comparison.",
+    "Run the current publication/recovery/alias checks in tests/test_schema2_publication_contracts.py with an independent temporary store.",
+    "Run tools/rebuild_schema2_ldb.py src/gda_balancing/schema2/authorities --check for the resource fixed point.",
+    "Run tools/ci.py verify-inventory --report <new-path> for required-shard collection; this does not execute all tests."
+  ],
+  "rollback": "Restore the complete baseline code, machine resources, tests and current authored inputs together in an isolated checkout, then repeat public build/inspect/recovery. Final #878/#879 whole-slice rollback is not claimed by this bounded receipt checkpoint.",
+  "remaining": [
+    "Thirty-six exact inventory gaps, including thirty-one physical artifact Wire Schemas and five other owner/vector families",
+    "Final fixed independent builds, complete reachable inventory/bijection and mutual Runtime-result consumption",
+    "Causal non-RPG original/input-variant execution under that fixed basis",
+    "Complete required CI, final issue reviews, development-branch integration and final rollback closure",
+    "No formal release or deferred authenticated-claim activation"
+  ]
+}

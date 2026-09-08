@@ -319,7 +319,9 @@ _Avoid_: compiler identity in RIR, semantic build id, Resolved Model provenance 
 A separately identified publication artifact that binds one producing Command invocation to the
 manifest and locators for its exact committed artifact set. It owns publication facts. It is not a
 domain member such as a Build receipt or Resolution receipt
-(bADR-0012/0013/0021).
+(bADR-0012/0013/0021). Its fixed framing and transport-independent identity projection come from
+the Kernel receipt protocol; the LDB owns its schema/kind names and Artifact Contract identity
+domain, without an authored receipt Schema or configurable identity exclusions.
 _Avoid_: Build receipt, outcome receipt, member receipt
 
 **Package Lock**:

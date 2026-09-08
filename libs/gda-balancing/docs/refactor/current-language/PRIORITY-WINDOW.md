@@ -1116,6 +1116,57 @@ Ruff and Pyright pass. This is not full CI execution or the final fixed-build
 non-RPG proof. Rollback restores the whole prior code, Kernel, LDB, tests and
 current inputs; there is no reader or graph fallback in the candidate.
 
+## Receipt framing and identity projection
+
+The receipt counterexample exposes two independently configurable descriptions of
+one fixed protocol. Four correctly resealed candidates admit in both authority
+implementations. A nonexistent identity exclusion is accepted without effect;
+excluding `descriptor_identity` makes receipts for different descriptors share a
+content identity. Coherently renaming `manifest_locator` in the authored Schema
+and exclusion list still admits, but an actual public Model build exits 4 because
+Publication produces the fixed field. The unchanged control builds successfully.
+These observations do not establish acceptance of an authenticated forgery.
+
+The correction extends the existing Kernel receipt protocol with one fixed
+binding/transport structure, reusing the ordinary artifact envelope. The exact
+Wire Schema and transport-only identity projection are derived together. All 24
+authored `identity_excluded_members` fields, their Artifact Contract grammar and
+the authored receipt Schema are deleted. Physical overrides refuse even when
+they equal the generated values. The selected private Artifact Contract retains
+one uniformly derived projection for existing identity consumers; it is not an
+authored policy, alternate protocol or fallback. The core canonical hash still
+excludes its own `content_identity`; that separate fixed law is unchanged.
+
+This preserves the original 950 canonical Schema bytes and wire identity. The
+original fixed and public receipt values retain their complete canonical bytes
+and content identities under the selected contract. Descriptor, invocation and
+manifest changes still affect identity; transport relocation does not. This
+comparison does not claim an old Experiment rerun or cross-version authenticated
+publication compatibility. Current recovery, alias and symlink checks retain
+their existing outcomes. Thirty-three other Schema declarations are unchanged:
+31 physical authored Schemas and the existing derived Trace/RIR declarations.
+Package vector bytes and the existing publication authentication API are unchanged.
+
+Real public build/inspect succeeds with separate renamed receipt artifact and
+Schema names. Independent B derives the same encoding without calling the
+production projection. Its paired original and renamed cases lower four matching
+Model artifacts, mutually admit them, reconstruct the actual receipt for A
+admission and public inspection, and publish/inspect eight-member sets under
+opaque logical labels. The renamed receipt's distinct wire identity truthfully
+reflects its changed artifact kind. Illegal authored overrides and missing or
+ambiguous actual schema-to-contract bindings still refuse. Fixture refresh only
+removes canonical-equal generated values; it preserves co-mutated Schema and
+exclusion attacks so actual admission rejects them.
+
+The [structured verification record](evidence/priority-window/receipt-protocol-structure.json)
+separates the original counterexamples, producer and independent checks, integration
+and review. The complete current package/vector inventory has 1,607 tokens,
+6,463 occurrences, 124 reserved tokens and 36 remaining gaps. Exactly the receipt
+Schema and arbitrary identity-exclusion gaps close; all other gap rows are
+unchanged. This is a prerequisite deletion checkpoint, not complete inventory,
+full CI execution or the final fixed-build non-RPG proof. Whole-slice rollback
+restores the prior code, Kernel, LDB, tests and current inputs together.
+
 ## Remaining proof and integration
 
 - Complete the semantic-token inventory and resolve remaining demonstrated name

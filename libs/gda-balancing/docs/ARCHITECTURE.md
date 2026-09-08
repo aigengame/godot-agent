@@ -1729,6 +1729,11 @@ admission reuses the admitted request's selected output contracts. Schema/kind/d
 independent cross-artifact admission, authenticated anchors and atomic visibility remain.
 Publication does not look up omitted framing meaning in the full LDB.
 
+The Artifact-set receipt's fixed framing is derived from its existing Kernel protocol owner
+(bADR-0012). LDB declarations retain their actual schema and artifact kind names, but cannot
+override that structure or configure which artifact members enter identity. Transport relocation
+preserves receipt identity; the producing invocation and committed manifest remain bound.
+
 Every successful `model build` artifact set includes its Debug Map and Model explanation. Its Build
 receipt and artifact-set framing bind both exact identities. If either projection cannot be
 generated, validated, or committed, the command publishes no partial success. `model inspect`
