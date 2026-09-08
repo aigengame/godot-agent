@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 import struct
+import zipfile
 
 import pytest
 
@@ -151,3 +152,48 @@ def test_package_only_inspection_sees_imported_remap_and_exclusion(
     )
     assert isinstance(omitted, Failure)
     assert omitted.error.code == "path_not_found"
+
+
+def test_public_package_check_refuses_an_installed_release_template_before_script(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("GDA_USER_DATA_ROOT", str(tmp_path / "user-data"))
+    archive = (
+        Path.home()
+        / "Library/Application Support/Godot/export_templates/4.6.3.stable/macos.zip"
+    )
+    if not archive.is_file():
+        pytest.skip("Godot 4.6.3 macOS export template is not installed")
+    member = "macos_template.app/Contents/MacOS/godot_macos_release.universal"
+    with zipfile.ZipFile(archive) as bundle:
+        if member not in bundle.namelist():
+            pytest.skip("installed template has no macOS release binary")
+        bundle.extract(member, tmp_path)
+    template = tmp_path / member
+    template.chmod(0o755)
+    package = tmp_path / "probe.pck"
+    package.write_bytes(b"capability probe stops before package loading")
+    expectations = tmp_path / "expectations.json"
+    expectations.write_text(
+        '{"checks":[{"id":"nodes","kind":"count","metric":"node_count","min":1}]}'
+    )
+
+    failure = Gda(None, godot=template, json_output=True).error(
+        "asset-pipeline",
+        "check-package",
+        "--package",
+        str(package),
+        "--path",
+        "res://model.glb",
+        "--expectations",
+        str(expectations),
+        code="operation_failed",
+        timeout=60,
+    )
+    partial = failure["partial_result"]["package_check"]
+    assert "requires a Godot desktop editor binary" in failure["message"]
+    assert "release export template" in failure["diagnostics"]
+    assert partial["completed"] == ["validate", "stage", "cleanup"]
+    assert partial["presence"] is None and partial["inspection"] is None
+    assert partial["cleanup"] == {"staging_removed": True, "issues": []}
+    assert not Path(partial["package"]["root"]).exists()

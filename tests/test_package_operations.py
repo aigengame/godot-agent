@@ -11,7 +11,7 @@ from gda.commands.resource import (
     run_package_resource_presence_operation,
 )
 from gda.errors import Failure
-from gda.package_runner import PackageGodotRunner
+from gda.package_runner import PackageGodotRunner, make_package_runner
 from gda.parser import build_result
 from gda.runner import RunResult
 
@@ -45,7 +45,7 @@ def _package(tmp_path: Path, suffix: str = ".pck") -> Path:
     return package
 
 
-def test_package_runner_requires_editor_help_and_uses_isolated_main_pack(tmp_path):
+def test_package_runner_uses_isolated_main_pack(tmp_path):
     calls = []
     working_directories = []
 
@@ -55,8 +55,6 @@ def test_package_runner_requires_editor_help_and_uses_isolated_main_pack(tmp_pat
         calls.append(args)
         working_directories.append(cwd)
         assert cwd.is_dir()
-        if args == ["--help"]:
-            return RunResult("Option legend (this build = editor)\n-e, --editor", "", 0)
         return RunResult(build_result({"ok": True}), "", 0)
 
     package = _package(tmp_path)
@@ -65,18 +63,17 @@ def test_package_runner_requires_editor_help_and_uses_isolated_main_pack(tmp_pat
     )
 
     assert outcome.exit_code == 0
-    assert calls[1][:2] == ["--main-pack", str(package)]
-    assert "--path" not in calls[1]
-    assert calls[1][-3:] == [
+    assert calls[0][:2] == ["--main-pack", str(package)]
+    assert "--path" not in calls[0]
+    assert calls[0][-3:] == [
         "--",
         "test-op",
         '{"path": "res://model.glb"}',
     ]
-    assert working_directories[0] == working_directories[1]
     assert not working_directories[0].exists()
 
 
-def test_package_runner_refuses_path_enabled_template_without_running_payload(tmp_path):
+def test_returning_operation_refuses_template_before_running_payload(tmp_path):
     calls = []
 
     def launch(
@@ -90,13 +87,21 @@ def test_package_runner_refuses_path_enabled_template_without_running_payload(tm
             0,
         )
 
-    result = PackageGodotRunner(
-        Path("/template"), _package(tmp_path), make_launch=launch
-    ).run("test-op", {})
+    package = _package(tmp_path)
+    result = run_package_resource_presence_operation(
+        package,
+        PackageResourcePresenceParams(paths=["res://model.glb"]),
+        godot="/template",
+        make_runner=lambda binary, selected: make_package_runner(
+            binary, selected, make_launch=launch
+        ),
+    )
 
     assert calls == [["--help"]]
-    assert "operation_failed" in result.stdout
-    assert "requires a Godot editor binary" in result.stdout
+    assert isinstance(result, Failure)
+    assert result.error.code == "operation_failed"
+    assert "requires a Godot desktop editor binary" in result.error.message
+    assert "release export template" in result.error.diagnostics
 
 
 def test_package_inspection_returns_the_existing_typed_model(tmp_path):

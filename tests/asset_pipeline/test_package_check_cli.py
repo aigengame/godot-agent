@@ -49,6 +49,7 @@ def test_check_package_help_schema_and_mcp_share_the_public_contract():
         option in help_text
         for option in ("--package", "--path", "--expectations", "--exclude")
     )
+    assert "--project" not in help_text
 
 
 def test_check_package_argv_and_params_json_pass_the_same_request(
@@ -56,7 +57,7 @@ def test_check_package_argv_and_params_json_pass_the_same_request(
 ):
     package = tmp_path / "game.pck"
     expectations = tmp_path / "expectations.json"
-    project = minimal_project(tmp_path / "unrelated-project")
+    monkeypatch.setenv("GDA_PROJECT", str(tmp_path / "absent-project"))
     calls = []
 
     def check(request, *, godot):
@@ -104,8 +105,6 @@ def test_check_package_argv_and_params_json_pass_the_same_request(
                 "asset-pipeline",
                 "check-package",
                 *args,
-                "--project",
-                str(project),
                 "--godot",
                 "godot-custom",
                 "--json",

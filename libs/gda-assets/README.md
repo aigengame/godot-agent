@@ -142,7 +142,8 @@ gda asset-pipeline check-package --package ./build/game.pck \
 ```
 
 `export run --mode pack` uses Godot's native export, including its cold import; do
-not run a redundant source import first. The package check needs no project and
+not run a redundant source import first. The package check has no `--project`
+option, ignores inherited `GDA_PROJECT` and working-directory project context, and
 resolves `res://` only inside the staged PCK. Each repeated `--exclude` selects one
 exact normalized resource path (at most 64), checked through the engine namespace;
 there are no globs, recursive scans, or complete package inventory. Use optional
@@ -151,7 +152,7 @@ scope as a source check.
 
 Always read `package_check.verdict`: completed `pass`, `fail`, and `insufficient`
 results exit 0. The outer `origin` is `package_editor_inspection`; the reused inner
-`check.origin` is `supplied_report` because the workflow hands the observed model
+`check.observation_source` is `supplied_report` because the workflow hands the observed model
 facts to the existing evaluator. The result also identifies the original and staged
 package paths, SHA-256, size, inspecting engine, selected resource presence, exact
 exclusion verdicts, completed stages, cleanup, failure, and limitations.

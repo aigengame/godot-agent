@@ -1165,6 +1165,7 @@ ASSET_PIPELINE_PACKAGE_CHECK_COMMAND = HeadlessCommand(
     output_model=AssetPipelinePackageCheckResult,
     render=render_asset_package_check,
     kind=ExecutionKind.COMPOSITE,
+    inherits_project=False,
     recipe=run_asset_package_check,
 )
 
@@ -1190,7 +1191,6 @@ def asset_pipeline_check_package(
     schema: bool = ASSET_PIPELINE_PACKAGE_CHECK_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
 ) -> None:
     """Inspect a PCK with a Godot editor binary. Read verdict; completed checks exit 0."""
     dispatch_recipe(
@@ -1207,5 +1207,5 @@ def asset_pipeline_check_package(
         ),
         json_output=json_output,
         godot=godot,
-        project=project,
+        project=None,
     )

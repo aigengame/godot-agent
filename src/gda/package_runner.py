@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from gda.parser import build_result, error_envelope
+from gda.errors import Failure, classify_launch_or_crash, make_failure
 from gda.runner import (
     DEFAULT_TIMEOUT_SECONDS,
     GodotRunner,
@@ -16,7 +16,7 @@ from gda.runner import (
 )
 
 
-PackageRunnerFactory = Callable[[Path, Path], GodotRunner]
+PackageRunnerFactory = Callable[[Path, Path], GodotRunner | Failure]
 
 
 @dataclass
@@ -31,30 +31,6 @@ class PackageGodotRunner:
     def run(self, operation: str, params: dict) -> RunResult:
         with TemporaryDirectory(prefix="gda-package-inspect-") as directory:
             cwd = Path(directory)
-            capability = self.make_launch(
-                self.binary,
-                ["--help"],
-                cwd=cwd,
-                timeout=self.timeout,
-                timeout_label="Godot package inspector capability probe",
-            )
-            if capability.exit_code != 0 or capability.launch_failure is not None:
-                return capability
-            # `--editor` is compiled only under TOOLS_ENABLED. `--script` and
-            # `--main-pack` alone are insufficient: path-enabled export templates
-            # publish both as X options too.
-            if "-e, --editor" not in capability.stdout:
-                return RunResult(
-                    stdout=build_result(
-                        error_envelope(
-                            "operation_failed",
-                            "package inspection requires a Godot editor binary; "
-                            "the configured binary is not an editor build",
-                        )
-                    ),
-                    stderr="",
-                    exit_code=1,
-                )
             return self.make_launch(
                 self.binary,
                 [
@@ -68,5 +44,40 @@ class PackageGodotRunner:
             )
 
 
-def make_package_runner(binary: Path, package: Path) -> GodotRunner:
-    return PackageGodotRunner(binary, package)
+def make_package_runner(
+    binary: Path,
+    package: Path,
+    *,
+    make_launch: LaunchFn = launch,
+) -> GodotRunner | Failure:
+    """Admit a desktop editor before any package payload can be launched."""
+    with TemporaryDirectory(prefix="gda-package-capability-") as directory:
+        capability = make_launch(
+            binary,
+            ["--help"],
+            cwd=Path(directory),
+            timeout=DEFAULT_TIMEOUT_SECONDS,
+            timeout_label="Godot package inspector capability probe",
+        )
+    failed = classify_launch_or_crash(capability, binary)
+    if failed is not None:
+        return failed
+    diagnostics = "\n".join(
+        part for part in (capability.stdout.strip(), capability.stderr.strip()) if part
+    )
+    if capability.exit_code != 0:
+        return make_failure(
+            "operation_failed",
+            "Godot package inspector capability probe failed",
+            diagnostics,
+        )
+    # `--editor` is compiled only under TOOLS_ENABLED. Mentions of `--script`
+    # or `--main-pack` alone do not prove the editor APIs this operation reports.
+    if "-e, --editor" not in capability.stdout:
+        return make_failure(
+            "operation_failed",
+            "package inspection requires a Godot desktop editor binary; "
+            "the configured binary is not an editor build",
+            diagnostics,
+        )
+    return PackageGodotRunner(binary, package, make_launch=make_launch)

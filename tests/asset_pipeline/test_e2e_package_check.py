@@ -279,7 +279,12 @@ def test_cold_exported_packages_use_only_imported_remaps_for_checks_and_exclusio
     _export(run, "Included", included)
     included_before = included.read_bytes()
     package_result = _package(
-        Gda(unrelated, json_output=True),
+        Gda(
+            None,
+            json_output=True,
+            cwd=unrelated,
+            extra_env={"GDA_PROJECT": str(tmp_path / "absent-project")},
+        ),
         included,
         expectations,
         "--exclude",

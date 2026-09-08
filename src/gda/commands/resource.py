@@ -35,6 +35,7 @@ from gda.errors import (
     containment_refusal,
     Failure,
     make_failure,
+    unresolvable_binary_failure,
 )
 from gda.execution import ExecutionKind
 from gda.headless import (
@@ -1471,11 +1472,18 @@ def run_package_inspect_model_operation(
         return admitted
     selected_package, paths = admitted
     factory = make_runner or make_package_runner
+    try:
+        binary = resolve_godot_binary(godot)
+    except ValueError as exc:
+        return unresolvable_binary_failure(str(exc))
+    runner = factory(binary, selected_package)
+    if isinstance(runner, Failure):
+        return runner
     outcome = RESOURCE_INSPECT_MODEL_COMMAND.execute(
         params.model_copy(update={"path": paths[0]}),
-        godot=godot,
+        godot=str(binary),
         project=None,
-        make_runner=lambda binary, _project: factory(binary, selected_package),
+        make_runner=lambda _binary, _project: runner,
     )
     if isinstance(outcome, Failure):
         return outcome
@@ -1501,11 +1509,18 @@ def run_package_resource_presence_operation(
         return admitted
     selected_package, paths = admitted
     factory = make_runner or make_package_runner
+    try:
+        binary = resolve_godot_binary(godot)
+    except ValueError as exc:
+        return unresolvable_binary_failure(str(exc))
+    runner = factory(binary, selected_package)
+    if isinstance(runner, Failure):
+        return runner
     outcome = PACKAGE_RESOURCE_PRESENCE_COMMAND.execute(
         params.model_copy(update={"paths": paths}),
-        godot=godot,
+        godot=str(binary),
         project=None,
-        make_runner=lambda binary, _project: factory(binary, selected_package),
+        make_runner=lambda _binary, _project: runner,
     )
     if isinstance(outcome, Failure):
         return outcome
