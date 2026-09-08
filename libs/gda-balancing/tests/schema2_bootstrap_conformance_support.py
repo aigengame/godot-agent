@@ -10792,9 +10792,10 @@ def _consumer_b_evaluate_structured_value_vector(
         rule = rules[0]
         operator = rule.get("operator")
         if operator == "enum-member":
-            if not isinstance(value, str) or value not in type_expression.get(
-                rule["members_member"], []
-            ):
+            members = type_expression.get(rule["members_member"])
+            if not isinstance(members, list):
+                raise Refusal("structured-value-type-mismatch", pointer)
+            if not isinstance(value, str) or value not in members:
                 raise Refusal("structured-value-unknown-enum", pointer)
             return value
         if operator == "closed-record":

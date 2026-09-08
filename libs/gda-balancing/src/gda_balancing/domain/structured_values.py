@@ -734,7 +734,9 @@ def _validate(
     operator = rule.get("operator")
     if operator == "enum-member":
         members = type_expression.get(cast(str, rule["members_member"]))
-        if not isinstance(value, str) or value not in cast(list[Any], members):
+        if not isinstance(members, list):
+            raise StructuredValueFault("structured-value-type-mismatch", pointer)
+        if not isinstance(value, str) or value not in members:
             raise StructuredValueFault("structured-value-unknown-enum", pointer)
         return value
     if operator == "closed-record":
