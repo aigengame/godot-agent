@@ -1204,7 +1204,21 @@ gda's scoping is in the decision and the report. A real run settles each state
 every `invalid` request settles here without spending a pass) and lists every created
 file, classified against the explicit cache root: `cache_owned` (under `res://.godot`) vs
 `source_adjacent` (`.import` and `.uid` sidecars — the GDA-DF-038 noise, accounted file by
-file). `--dry-run` writes nothing and reports the decidable inventory: the per-asset
+file). An `invalid` or `failed` asset also says WHY (#853): `reason` names the check that
+decided it — `sidecar_marked_invalid` (the engine failed the last import),
+`sidecar_unparsable`, `receipt_unsupported`, or the settlement's own
+`dest_missing_after_pass` — and `detail` the offending line or path where the check
+knows one the record does not already carry (the malformed `dest_files=`/`files=` line,
+the derived `.md5` receipt). The three artifact reasons are decided in the evidence
+adapter and SURVIVE the settlement, so a real run's `failed` still names the pre-pass
+check that refused it; `dest_missing_after_pass` is the one only the command can decide
+— no check refused the asset, the pass ran, and it is still not cached. For a `failed`
+the pass ran over, `engine_output` carries that pass's stderr lines naming the asset's
+`res://` path, verbatim and in order, bounded to 20 with `engine_output_truncated` when
+more matched (#665's rule without its spill file; the engine's `at:` continuation lines
+name a source file, not the asset, so they stay out). PIPE-DF-191 is the caller who got
+the bare `failed` and had to prove the outcome from unchanged resource bytes.
+`--dry-run` writes nothing and reports the decidable inventory: the per-asset
 states, the requested assets' sidecars-to-be, and `pass_will_also_import` — the OTHER
 stale assets the project-wide pass will re-import (invalid ones excluded; assets under a
 nested project's, a `.gdignore`d or a **dot-prefixed** directory excluded too, since the

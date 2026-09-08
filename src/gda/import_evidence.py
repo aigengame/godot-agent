@@ -7,9 +7,12 @@ non-command engine knowledge in the core, as ``binary`` and ``display`` already
 do; the dependency direction stays commands -> core only, so nothing here
 imports Typer, the CLI, or the wire models.
 
-The adapter answers with EVIDENCE only — the four states below. A settlement
-(``imported`` / ``not_importable`` / ``failed``) is the command's post-pass
-verdict over the same artifacts, never something this module can return.
+The adapter answers with EVIDENCE only — the four states below, and for
+``invalid`` the check that decided it (#853). A settlement (``imported`` /
+``not_importable`` / ``failed``) is the command's post-pass verdict over the
+same artifacts, never something this module can return; the command carries an
+``invalid`` reason through into the ``failed`` it settles, because the pass
+never retries such an asset.
 
 The contract, as the command carried it (moved intact, #741):
 
@@ -57,6 +60,22 @@ from typing import Literal
 EvidenceStatus = Literal["cached", "missing", "stale", "invalid"]
 """The four states the adapter can read from a project's own artifacts."""
 
+EvidenceReason = Literal[
+    "sidecar_unparsable",
+    "sidecar_marked_invalid",
+    "receipt_unsupported",
+]
+"""Which artifact check produced an ``invalid`` verdict (#853).
+
+Only ``invalid`` carries one. ``cached``, ``missing`` and ``stale`` are states
+the engine's own pass acts on, so naming a "reason" for them would invent a
+failure; ``invalid`` is the verdict the pass will NOT change, and PIPE-DF-191
+is the caller who could not tell an importer error (``sidecar_marked_invalid``
+— repair the source) from unreadable syntax (``sidecar_unparsable`` /
+``receipt_unsupported`` — delete the sidecar and re-import). The command
+carries a settlement reason of its own for a ``failed`` no check here decided.
+"""
+
 CreatedFileClass = Literal["cache_owned", "source_adjacent"]
 """Which side of the cache root a file the engine pass created falls on."""
 
@@ -78,11 +97,21 @@ class AssetEvidence:
     or ``None`` when the asset has none; ``dest_files`` are the destinations that
     sidecar declares, in the engine's own order (empty when there is no sidecar
     or it declares none).
+
+    ``reason`` names the check that produced an ``invalid`` verdict and is
+    ``None`` on every other state (#853). ``detail`` is the offending line or
+    path when the check knows one AND the record does not already carry it: the
+    malformed ``dest_files=`` / ``files=`` line, or the derived ``.md5``
+    receipt's ``res://`` path, which appears nowhere else. Bytes that do not
+    decode and the engine's own ``valid=false`` name no detail — the sidecar
+    path is already here.
     """
 
     status: EvidenceStatus
     sidecar: str | None = None
     dest_files: list[str] = field(default_factory=list)
+    reason: EvidenceReason | None = None
+    detail: str | None = None
 
 
 def classify_created_file(rel: str) -> CreatedFileClass:
@@ -220,21 +249,27 @@ def asset_state(project: Path, res_path: str) -> AssetEvidence:
     sidecar_res = res_path + ".import"
 
     def state(
-        status: EvidenceStatus, dests: "list[str] | None" = None
+        status: EvidenceStatus,
+        dests: "list[str] | None" = None,
+        *,
+        reason: "EvidenceReason | None" = None,
+        detail: "str | None" = None,
     ) -> AssetEvidence:
         return AssetEvidence(
             status=status,
             sidecar=sidecar_res,
             dest_files=dests or [],
+            reason=reason,
+            detail=detail,
         )
 
     try:
         text = sidecar_fs.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         # The engine's parse-error branch: skip, never auto-reimport.
-        return state("invalid")
+        return state("invalid", reason="sidecar_unparsable")
     if _INVALID_LINE.search(text):
-        return state("invalid")
+        return state("invalid", reason="sidecar_marked_invalid")
     importer = _IMPORTER_LINE.search(text)
     if importer is None:
         # No importer DECLARED: nothing proves this sidecar's cache.
@@ -250,7 +285,11 @@ def asset_state(project: Path, res_path: str) -> AssetEvidence:
         try:
             dests = [str(d) for d in json.loads(dest_match.group(1))]
         except ValueError:
-            return state("invalid")
+            return state(
+                "invalid",
+                reason="sidecar_unparsable",
+                detail=dest_match.group(0),
+            )
     if _UID_LINE.search(text) is None:
         return state("stale", dests)  # pre-UID format: the engine re-imports
     # Every remap/destination reference must exist (path=, path.<variant>=,
@@ -262,7 +301,11 @@ def asset_state(project: Path, res_path: str) -> AssetEvidence:
         try:
             to_check.extend(str(f) for f in json.loads(files_match.group(1)))
         except ValueError:
-            return state("invalid")
+            return state(
+                "invalid",
+                reason="sidecar_unparsable",
+                detail=files_match.group(0),
+            )
     for ref in to_check:
         if ref.startswith("res://") and not (project / ref[len("res://") :]).is_file():
             return state("stale", dests)
@@ -296,7 +339,12 @@ def asset_state(project: Path, res_path: str) -> AssetEvidence:
     # Variant values conservatively take the sanctioned no-pass direction.
     assignments = _parse_receipt_assignments(receipt_text)
     if assignments is None:
-        return state("invalid", dests)
+        return state(
+            "invalid",
+            dests,
+            reason="receipt_unsupported",
+            detail="res://" + receipt.relative_to(project).as_posix(),
+        )
     # The engine compares the sidecar's source_file only AFTER the receipt has
     # parsed — the .md5 read sits above the "file was moved" check in
     # _test_for_reimport — so a copied sidecar naming another source is stale,

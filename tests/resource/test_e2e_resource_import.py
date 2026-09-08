@@ -418,3 +418,36 @@ def test_lone_surrogate_receipt_matches_the_engines_deliberate_skip(tmp_path):
     assert real["assets"][0]["status"] == "failed"
     assert real["engine_pass"] is False
     assert real["created"] == []
+
+
+@pytest.mark.e2e
+def test_a_failed_asset_names_its_reason_and_the_engines_own_lines(tmp_path):
+    # #853, against the real engine: ordinary text named .png imports for the
+    # first time, so the pass RUNS and still leaves no cache — the settlement's
+    # own `dest_missing_after_pass`, with the engine's stderr lines for that
+    # asset attached. PIPE-DF-191 got this verdict bare and had to prove the
+    # outcome from unchanged resource bytes.
+    project = _project(tmp_path)
+    gda = Gda(project, json_output=True, timeout=180)
+    (project / "broken.png").write_text("this is not a png", encoding="utf-8")
+
+    first = json.loads(gda("resource", "import", "res://broken.png").stdout)
+    asset = first["assets"][0]
+    assert asset["status"] == "failed", first
+    assert asset["reason"] == "dest_missing_after_pass"
+    assert asset["engine_output_truncated"] is False
+    # The engine's own words, verbatim, and only the lines that name the asset
+    # (the pass also imports icon.png in the same run).
+    assert any(
+        "Error importing 'res://broken.png'" in line for line in asset["engine_output"]
+    ), asset["engine_output"]
+    assert all("res://broken.png" in line for line in asset["engine_output"])
+
+    # The other direction, on the same artifacts: the pass wrote `valid=false`,
+    # so the SECOND run's pre-pass check refuses the asset before any engine
+    # starts — and that check is what the settled `failed` reports.
+    second = json.loads(gda("resource", "import", "res://broken.png").stdout)
+    assert second["engine_pass"] is False
+    assert second["assets"][0]["status"] == "failed"
+    assert second["assets"][0]["reason"] == "sidecar_marked_invalid"
+    assert second["assets"][0]["engine_output"] == []

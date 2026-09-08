@@ -348,3 +348,114 @@ def test_created_files_are_classified_against_the_cache_root(tmp_path):
     assert classify_created_file("scripts/tool.gd.uid") == "source_adjacent"
     # A sibling whose name only STARTS with the cache root is not under it.
     assert classify_created_file(".godotignore") == "source_adjacent"
+
+
+# --- the reason behind an `invalid` verdict (#853) -------------------------------
+
+
+def test_a_sidecar_that_is_not_utf8_names_the_unparsable_reason(tmp_path):
+    # The first `invalid` branch: the bytes do not decode, so no line can be
+    # named — the sidecar path IS the offending artifact and the record already
+    # carries it, so `detail` stays empty rather than repeating it.
+    project = icon_project(tmp_path)
+    (project / "icon.png.import").write_bytes(b'importer="texture"\n\xff\xfe\n')
+
+    evidence = asset_state(project, "res://icon.png")
+
+    assert evidence.status == "invalid"
+    assert evidence.reason == "sidecar_unparsable"
+    assert evidence.detail is None
+    assert evidence.sidecar == "res://icon.png.import"
+
+
+def test_a_malformed_dest_files_line_names_that_line(tmp_path):
+    # The second spelling of the same reason, and the one that CAN name a line:
+    # `dest_files=` looks like the engine's list but does not parse.
+    project = icon_project(tmp_path)
+    (project / "icon.png.import").write_text(
+        '[remap]\n\nimporter="texture"\nuid="uid://test"\n\n[deps]\n\n'
+        'source_file="res://icon.png"\ndest_files=[oops]\n',
+        encoding="utf-8",
+    )
+
+    evidence = asset_state(project, "res://icon.png")
+
+    assert evidence.status == "invalid"
+    assert evidence.reason == "sidecar_unparsable"
+    assert evidence.detail == "dest_files=[oops]"
+
+
+def test_a_malformed_files_line_names_that_line(tmp_path):
+    # The engine's OTHER remap list (`files=`), read after the destinations:
+    # one reason, whichever list failed, and the line says which.
+    project = icon_project(tmp_path)
+    (project / "icon.png.import").write_text(
+        '[remap]\n\nimporter="texture"\nuid="uid://test"\nfiles=[oops]\n\n'
+        '[deps]\n\nsource_file="res://icon.png"\n',
+        encoding="utf-8",
+    )
+
+    evidence = asset_state(project, "res://icon.png")
+
+    assert evidence.status == "invalid"
+    assert evidence.reason == "sidecar_unparsable"
+    assert evidence.detail == "files=[oops]"
+
+
+def test_a_valid_false_sidecar_names_the_engines_own_verdict(tmp_path):
+    # Not a parse failure at all: the ENGINE marked the last import failed, and
+    # the reason must say so — the caller's fix is a source repair, not a syntax
+    # repair (PIPE-DF-191 could not tell the two apart).
+    project = icon_project(tmp_path)
+    sidecar(project, "icon.png", None, valid=False)
+
+    evidence = asset_state(project, "res://icon.png")
+
+    assert evidence.status == "invalid"
+    assert evidence.reason == "sidecar_marked_invalid"
+    assert evidence.detail is None
+
+
+def test_unsupported_receipt_syntax_names_the_receipt_path(tmp_path):
+    # The third reason, whose `detail` earns its place: the `.md5` receipt is
+    # derived from the asset path and appears NOWHERE else on the record, so the
+    # offending artifact would otherwise be unnameable.
+    project = icon_project(tmp_path)
+    cached_asset(project, "icon.png", DEST)
+    receipt_path(project, "icon.png").write_text("source_md5=[\n", encoding="utf-8")
+
+    evidence = asset_state(project, "res://icon.png")
+
+    assert evidence.status == "invalid"
+    assert evidence.reason == "receipt_unsupported"
+    assert (
+        evidence.detail
+        == "res://" + receipt_path(project, "icon.png").relative_to(project).as_posix()
+    )
+
+
+def test_a_lone_surrogate_receipt_is_the_same_receipt_reason(tmp_path):
+    # The VariantParser divergence has its own state test above; here it must
+    # arrive under the SAME reason, because the caller's fix is the same one.
+    project = icon_project(tmp_path)
+    cached_asset(project, "icon.png", DEST)
+    receipt_path(project, "icon.png").write_text(
+        'source_md5="\\ud800"\n', encoding="utf-8"
+    )
+
+    assert asset_state(project, "res://icon.png").reason == "receipt_unsupported"
+
+
+def test_the_states_the_engine_would_act_on_carry_no_reason(tmp_path):
+    # The reason explains a verdict the pass will NOT change. `cached`,
+    # `missing` and `stale` are all states the engine acts on itself, so
+    # attaching an explanation to them would invent a failure.
+    project = icon_project(tmp_path)
+    assert asset_state(project, "res://icon.png").reason is None  # missing
+    cached_asset(project, "icon.png", DEST)
+    cached = asset_state(project, "res://icon.png")
+    assert cached.status == "cached" and cached.reason is None
+    (project / "icon.png").write_bytes(b"\x89PNG different bytes")
+    stale = asset_state(project, "res://icon.png")
+    assert stale.status == "stale"
+    assert stale.reason is None and stale.detail is None
