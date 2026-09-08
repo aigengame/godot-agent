@@ -183,13 +183,11 @@ def _dotted_pointer(root: str, path: str) -> str:
 
 def _formula_policy_rows(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
     return [
-        (value, _child(pointer + "/extensions", key), profile["id"])
+        (profile["formula_resolution"], pointer + "/formula_resolution", profile["id"])
         for _, profile, pointer in _authority_path_rows(
             kernel, graph, "language_bundle.language.resolution_profiles"
         )
         if profile.get("default") is True
-        for key, value in profile.get("extensions", {}).items()
-        if isinstance(value, dict) and "formula_id_member" in value
     ]
 
 
@@ -3636,7 +3634,7 @@ class _Reader:
 
         def operand(value: dict[str, Any], path: str) -> None:
             kind = value.get("kind")
-            if kind not in policy["allowed_operand_kinds"]:
+            if kind not in self.meta["formula_resolution"]["operand_kinds"]:
                 raise InventoryRefusal("unknown Formula operand kind")
             if kind == "parameter":
                 token = parameters.get(value["parameter"])
@@ -3675,7 +3673,7 @@ class _Reader:
         for ni, node in enumerate(body[policy["body_nodes_member"]]):
             np = f"/{policy['body_nodes_member']}/{ni}"
             kind = node["node"]
-            if kind not in policy["allowed_body_nodes"]:
+            if kind not in self.meta["formula_resolution"]["body_nodes"]:
                 raise InventoryRefusal("unknown Formula body node")
             if kind == "operation-call":
                 coordinate = node["operation"]

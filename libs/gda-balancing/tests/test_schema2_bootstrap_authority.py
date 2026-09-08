@@ -1100,9 +1100,9 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         for definition in entry["definitions"]
         if definition["id"] == "exact-import-resolution-v1"
     )
-    assert resolution_profile["formula_resolution"][
-        "fixed_value_type_aliases"
-    ] == [{"alias": "Boolean", "contract": "kernel-boolean"}]
+    assert resolution_profile["formula_resolution"]["fixed_value_type_aliases"] == [
+        {"alias": "Boolean", "contract": "kernel-boolean"}
+    ]
     quantity_operations = {
         definition["id"]: definition
         for entry in packages["core.quantity"]["semantic_closure"]

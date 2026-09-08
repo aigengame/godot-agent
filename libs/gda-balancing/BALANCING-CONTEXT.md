@@ -490,7 +490,10 @@ grouping/token bounds in `formula_grammar`, plus `operation_notation_schema`. Th
 requires these fields on the Source protocol role; neither lives in JSON Schema metadata
 or carries an unused grammar version. The selected
 `standard.compiler` Resolution profile owns contextual contract matching, local-result transfer
-rules, and infix normalization. Package Release content identity binds notation, while the
+rules, and infix normalization through its closed `formula_resolution` field. The Kernel
+relates its actual selectors and inference rules to the Source and runtime-node contracts.
+The former compiler extension wrapper and duplicate per-profile syntax filters are retired;
+the Source and Kernel define the accepted Formula shapes. Package Release content identity binds notation, while the
 Kernel-declared runtime-semantic projection excludes each release's explicitly inventoried
 non-runtime notation extensions.
 bADR-0024 owns its grammar, exact pair validation, identity effects, and conformance requirements.

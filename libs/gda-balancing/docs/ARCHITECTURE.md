@@ -845,6 +845,15 @@ Their old `$defs` metadata placement and unused grammar-version gate are deleted
 (#878, bADR-0024). Grammar changes retain exact Package/LDB integrity without changing
 the identity of an unchanged Source Schema.
 
+The compiler Resolution profile owns contextual Formula policy in its required, closed
+`formula_resolution` field. Admission relates its selectors to the actual Source Schema
+and local-result inference to existing Kernel node laws. Real budgets, charges, aliases
+and normalization choices remain in that owner. The former compiler extension wrapper,
+nine ineffective configuration fields and the inconsistent extra body-node filter are
+deleted. Source alternatives and their Kernel contract define accepted Formula shapes;
+there is no second per-profile syntax subset. Runtime Formula lifecycle policy retains
+its separate Runtime profile owner (bADR-0024).
+
 The pure-expression judgment is closed to literals, typed reads, pure calls, value selection, local
 bindings, statically bounded aggregation, and lookup. Named-stream sampling is a separate judgment
 with a statically declared random-stream effect; it is never reclassified as pure. Recursion and

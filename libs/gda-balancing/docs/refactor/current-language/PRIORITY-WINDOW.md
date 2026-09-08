@@ -673,6 +673,31 @@ records the combined suite, the scoped inventory, raw checks and unchanged publi
 priority-window execution. Complete graph coverage and the final fixed-build proof
 remain separate obligations.
 
+## Closed Formula resolution and deleted syntax subsets
+
+`5bb784c76` replaces the compiler Resolution profile's `standard.formula` extension
+wrapper with one required, closed `formula_resolution` field. Source grammar remains
+owned by the Source Wire Schema Definition; Runtime Formula lifecycle remains owned by
+the Runtime profile. The new boundary relates actual Source selectors to their fields
+and local-result inference to existing Kernel node laws. It retains real budgets,
+charges, aliases and normalization choices without a second node specification.
+
+The first pass deleted seven ineffective fields. Independent review then demonstrated
+two more: narrowing `allowed_operand_kinds` and `allowed_binding_sites` did not restrict
+actual compilation. A third field, `allowed_body_nodes`, filtered Operation calls but
+Formula calls bypassed it. `812359313` deletes all three, including the partial filter.
+It does not add enforcement solely to preserve the old knobs. The Kernel and admitted
+Source alternatives define accepted Formula shapes; reintroduced old fields refuse.
+This retires nine ineffective configurations and one inconsistent extra policy.
+
+The conformance inventory reads the same explicit compiler field and uses the actual
+Kernel shape sets. Its former extension-shape search and separate subset checks are
+deleted. The [integration record](evidence/priority-window/formula-resolution-integration.json)
+separates the original 32-command public verification from the later deletion checks,
+records unchanged identities for all seven maintained RIRs, and captures independent
+review and integrated validation. These checks do not establish the remaining complete
+inventory or final fixed-build exchange.
+
 ## Remaining proof and integration
 
 - Complete the semantic-token inventory and resolve remaining demonstrated name
