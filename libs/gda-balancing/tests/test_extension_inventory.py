@@ -1473,3 +1473,59 @@ def test_contract_vector_expected_values_inherit_only_declared_projection_roles(
     numeric["expect"] += 1
     with pytest.raises(InventoryRefusal, match="expected subtree"):
         read_extension_inventory(kernel, changed)
+
+
+def test_contract_projection_includes_late_derived_assignment_modes():
+    from schema2_bootstrap_conformance_support import _bind_package_vector_set
+    from schema2_bootstrap_production_support import _reidentify_graph_root
+
+    kernel, language = mutable_authorities()
+    owner = next(
+        package
+        for package in language["language"]["packages"]
+        if any(
+            closure["authority_path"] == "language.model_lowerings"
+            and closure["definitions"]
+            for closure in package["semantic_closure"]
+        )
+    )
+    vector_set = next(
+        row
+        for row in language.package_conformance_vector_sets
+        if row["package_id"] == owner["id"]
+    )
+    vector_id = "inventory.complete-lowering-projection"
+    vector_set["vectors"].append(vector_id)
+    vector_set["vector_definitions"].append(
+        {
+            "id": vector_id,
+            "category": "positive",
+            "kind": "package-contract",
+            "probe": {"path": "semantic_closure"},
+            "expect": deepcopy(owner["semantic_closure"]),
+        }
+    )
+    _bind_package_vector_set(owner, vector_set)
+    _reidentify_graph_root(language)
+    a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
+    assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
+    graph = {
+        "packages": language.package_releases,
+        "ldb_root": language.root,
+        "vector_sets": language.package_conformance_vector_sets,
+    }
+    inventory = read_extension_inventory(kernel, graph)
+    target = [
+        occurrence
+        for occurrence in inventory.occurrences
+        if occurrence.token.role == "assignment-mode"
+        and occurrence.pointer.startswith("/vector_sets/")
+        and "/expect/" in occurrence.pointer
+    ]
+    assert target, "the vector must include roles derived after package traversal"
+    validate_extension_inventory(kernel, graph, inventory)
+    incomplete = replace(
+        inventory, occurrences=tuple(o for o in inventory.occurrences if o != target[0])
+    )
+    with pytest.raises(InventoryRefusal, match="projection coverage"):
+        validate_extension_inventory(kernel, graph, incomplete)

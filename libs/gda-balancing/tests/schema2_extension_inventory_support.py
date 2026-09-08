@@ -2741,11 +2741,11 @@ class _Reader:
             if token.role.startswith("kernel."):
                 self.reserved.add(token)
         self.packages()
-        self.contract_vectors()
         self.rule_chain_links()
         self.assignment_policies()
         self.formula_aliases()
         self.source()
+        self.contract_vectors()
         declarations = {o.token for o in self.occurrences if o.use == "declaration"}
         unresolved = self.tokens - declarations - self.reserved
         if unresolved:
