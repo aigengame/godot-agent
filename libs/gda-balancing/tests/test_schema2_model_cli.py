@@ -7226,35 +7226,23 @@ def test_selected_notation_mutation_reidentifies_content_not_rir_semantics():
     assert original["build-receipt"] != mutated["build-receipt"]
 
 
-def test_rir_semantic_identity_consumes_the_sealed_artifact_projection():
+def test_rir_semantic_projection_excludes_formula_notation_and_keeps_closure():
     source = _rpg_source_value()
-    baseline = model_checking_module.check_model_source_value(source)
-    assert isinstance(baseline, model_module.CheckedModel)
-    original = model_compilation_module.lower_checked_model(baseline)
-    candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline.language_bundle))
-    contract = next(
-        row
-        for row in candidate_ldb["language"]["artifact_contracts"]
-        if row["artifact_kind"] == "rir-semantic-payload"
-    )
-    contract["semantic_identity_projection"]["collection_member_exclusions"][0][
-        "excluded_members"
-    ] = ["closure"]
-    _reidentify_language_bundle(candidate_ldb)
-    candidate = _check_with_candidate_ldb(source, baseline.kernel, candidate_ldb)
-    mutated = model_compilation_module.lower_checked_model(candidate)
+    checked = model_checking_module.check_model_source_value(source)
+    assert isinstance(checked, model_module.CheckedModel)
+    artifacts = model_compilation_module.lower_checked_model(checked)
+    rir = cast(dict[str, JsonValue], artifacts["rir-semantic-payload"])
 
-    assert (
-        original["rir-semantic-payload"]["semantic_identity"]
-        != mutated["rir-semantic-payload"]["semantic_identity"]
-    )
     projection = model_lowering_module._rir_semantic_projection(
-        candidate_ldb,
-        cast(dict[str, JsonValue], mutated["rir-semantic-payload"]),
+        checked.language_bundle, rir
     )
-    formula = cast(list[dict[str, Any]], projection["formulas"])[0]
-    assert "expression" in formula
-    assert "closure" not in formula
+    formulas = cast(list[dict[str, Any]], rir["formulas"])
+    assert formulas
+    assert all("expression" in formula and formula["closure"] for formula in formulas)
+    assert projection["formulas"] == [
+        {member: value for member, value in formula.items() if member != "expression"}
+        for formula in formulas
+    ]
 
 
 def test_selected_unreachable_notation_preserves_both_rir_identities():

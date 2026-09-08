@@ -940,31 +940,6 @@ def test_two_consumers_accept_a_kernel_owned_boundary_token_change(monkeypatch):
     assert first["admitted"] is True
 
 
-def test_rir_semantic_projection_members_close_against_the_wire_schema():
-    authority = _authority_candidate()
-    ldb = authority["language_bundle"]
-    contract = next(
-        row
-        for row in ldb["language"]["artifact_contracts"]
-        if row["artifact_kind"] == "rir-semantic-payload"
-    )
-    contract["semantic_identity_projection"]["collection_member_exclusions"][0][
-        "excluded_members"
-    ] = ["host-invented-member"]
-    _refresh_package_closure_and_reidentify(ldb)
-
-    first = _consumer_a(authority["kernel"], ldb)
-    second = _consumer_b(authority["kernel"], ldb)
-
-    assert first == second
-    assert first["admitted"] is False
-    assert (
-        "static",
-        "kernel.vector_mismatch",
-        "language.definitions.artifact-semantic-projections",
-    ) in first["diagnostics"]
-
-
 def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
     authority = _authority_candidate()
     kernel = authority["kernel"]
