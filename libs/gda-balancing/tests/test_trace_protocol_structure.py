@@ -126,7 +126,7 @@ def test_trace_schema_is_derived_without_an_authored_shadow_or_shared_oracle(
 @pytest.mark.parametrize(
     "changed_shape", [False, True], ids=["old-placement", "trace-rows"]
 )
-def test_authored_trace_schema_refuses_at_both_admissions_and_public_ingress(
+def test_authored_trace_schema_refuses_at_both_admissions_and_public_entry(
     tmp_path, changed_shape
 ):
     kernel, ldb = mutable_authorities()
@@ -141,14 +141,14 @@ def test_authored_trace_schema_refuses_at_both_admissions_and_public_ingress(
         observation = consumer(kernel, graph)
         assert not observation["admitted"]
         assert (
-            "ingress",
-            "kernel.identity_mismatch",
-            "language-bundle.admitted-index",
+            "static",
+            "kernel.vector_mismatch",
+            "language.definitions",
         ) in observation["diagnostics"]
     candidate = _PublicCandidate(tmp_path, authorities=(kernel, graph))
     result = candidate.cli("model", "check", str(candidate.source), success=False)
-    assert result["error"]["stage"] == "ingress"
-    assert result["error"]["diagnostics"][0]["code"] == "kernel.identity_mismatch"
+    assert result["error"]["stage"] == "static"
+    assert result["error"]["diagnostics"][0]["code"] == "kernel.vector_mismatch"
     assert not list((tmp_path / "store").rglob("artifact-set-receipt.json"))
 
 
@@ -362,9 +362,9 @@ def test_fixture_resealing_preserves_boolean_integer_schema_drift():
         observation = consumer(kernel, graph)
         assert not observation["admitted"]
         assert (
-            "ingress",
-            "kernel.identity_mismatch",
-            "language-bundle.admitted-index",
+            "static",
+            "kernel.vector_mismatch",
+            "language.definitions",
         ) in observation["diagnostics"]
 
 

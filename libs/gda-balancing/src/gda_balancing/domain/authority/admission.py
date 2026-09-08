@@ -19,6 +19,7 @@ from gda_balancing.domain.authority.rir_projection import rir_collection_output
 from gda_balancing.domain.authority.graph import (
     LanguageBundleGraph,
     LanguageBundleIndex,
+    ProtocolProjectionError,
     canonical_graph_members,
     derive_language_index,
 )
@@ -33,6 +34,7 @@ from gda_balancing.domain.authority.package_validation import (
 from gda_balancing.domain.authority.runtime_validation import (
     _operation_result_source_shape_is_closed,
     _runtime_authority_is_closed,
+    _runtime_component_contract_is_closed,
     derive_operation_value_contracts,
 )
 from gda_balancing.domain.authority.template_validation import (
@@ -5151,17 +5153,32 @@ def admit_authorities(
                         vector_set_byte_sizes=list(graph_vector_set_sizes),
                         descriptor_order=cast(list[str], descriptor_order),
                     )
+                except ProtocolProjectionError:
+                    expected_index = None
+                    runtime = kernel.get("meta_format", {}).get("runtime_program")
+                    subject = (
+                        "language.runtime"
+                        if not isinstance(runtime, dict)
+                        or not _runtime_component_contract_is_closed(runtime)
+                        else "language.definitions"
+                    )
+                    refuse(
+                        "kernel.vector_mismatch",
+                        "static",
+                        subject,
+                    )
                 except ValueError:
                     expected_index = None
-                if expected_index is None:
                     refuse(
                         "kernel.identity_mismatch",
                         "ingress",
                         "language-bundle.admitted-index",
                     )
-                elif raw_graph_candidate:
+                if expected_index is not None and raw_graph_candidate:
                     language_bundle = expected_index
-                elif dict(expected_index) != dict(language_bundle):
+                elif expected_index is not None and dict(expected_index) != dict(
+                    language_bundle
+                ):
                     refuse(
                         "kernel.identity_mismatch",
                         "ingress",

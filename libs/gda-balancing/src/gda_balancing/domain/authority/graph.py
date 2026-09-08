@@ -10,6 +10,10 @@ from types import MappingProxyType
 from typing import Any
 
 
+class ProtocolProjectionError(ValueError):
+    """Authored definitions cannot produce their Kernel-defined protocol."""
+
+
 def project_artifact_protocols(
     kernel: dict[str, Any], language: dict[str, Any]
 ) -> None:
@@ -17,10 +21,15 @@ def project_artifact_protocols(
     from gda_balancing.domain.authority.trace_projection import project_trace_schema
     from gda_balancing.domain.authority.rir_projection import project_rir_schema
 
-    project_trace_schema(kernel, language)
-    project_rir_schema(kernel, language)
-    if any("schema" not in row for row in language["artifact_wire_schemas"]):
-        raise ValueError("an authored artifact schema is missing")
+    try:
+        project_trace_schema(kernel, language)
+        project_rir_schema(kernel, language)
+        if any("schema" not in row for row in language["artifact_wire_schemas"]):
+            raise ValueError("an authored artifact schema is missing")
+    except (KeyError, TypeError, ValueError, IndexError) as error:
+        raise ProtocolProjectionError(
+            "authored definitions do not close their artifact protocols"
+        ) from error
 
 
 def canonical_graph_members(

@@ -871,12 +871,9 @@ def test_two_consumers_refuse_reidentified_runtime_component_drift(
 
     assert first == second
     assert first["admitted"] is False
-    expected = (
-        ("ingress", "kernel.identity_mismatch", "language-bundle.admitted-index")
-        if mutation == "arbitrary-runtime-configuration"
-        else ("static", "kernel.vector_mismatch", "language.runtime")
-    )
-    assert expected in first["diagnostics"]
+    assert ("static", "kernel.vector_mismatch", "language.runtime") in first[
+        "diagnostics"
+    ]
 
 
 def test_two_consumers_refuse_cancel_target_without_a_prior_schedule_producer():
