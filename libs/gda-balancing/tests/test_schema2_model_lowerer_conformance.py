@@ -1138,6 +1138,7 @@ def _reference_resolved_symbols(
                     },
                 ),
             ]
+            targets = [name for name, _value in adapters] + ["value_kind"]
             if (
                 imported[profile["import_symbol_member"]]
                 in package["exports"]["nominal_types"]
@@ -1149,7 +1150,6 @@ def _reference_resolved_symbols(
                 profile["symbols_member"],
                 symbol_index,
             )
-            targets = [name for name, _value in adapters]
             if len(set(targets)) != len(targets) or any(
                 name in fields for name in targets
             ):

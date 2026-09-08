@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 
+import jsonschema
 import pytest
 
 from gda_balancing.domain.authority.vector_validation import _fact_is_closed
@@ -67,6 +68,49 @@ def test_independent_initial_fact_refusal_precedes_all_language_rules(
         if row["id"] == profile["structural_reason"]
     )
     assert result == ((reason["diagnostic"], f"{prefix}/{index}"),)
+    assert source == snapshot
+
+
+def test_independent_inactive_nominal_adapter_owns_its_absent_discriminator(
+    monkeypatch,
+):
+    kernel, graph, source, context = _fixture("nominal-conflict")
+    symbols = source["modules"][0]["symbols"]
+    for symbol in symbols:
+        symbol.pop("value_kind", None)
+    symbols[0].update(type="quantity", value_kind="nominal-structured")
+    admission = _consumer_b(kernel, graph)
+    assert admission["admitted"], admission["diagnostics"]
+    language = context.language_bundle["language"]
+    schema = next(
+        row["schema"]
+        for row in language["wire_schemas"]
+        if row.get("protocol_role") == "model-source-package"
+    )
+    assert not list(jsonschema.Draft202012Validator(schema).iter_errors(source))
+    imported = next(
+        row for row in source["modules"][0]["imports"] if row["alias"] == "quantity"
+    )
+    package = next(
+        row for row in language["packages"] if row["id"] == imported["package"]
+    )
+    assert imported["symbol"] not in package["exports"]["nominal_types"]
+    snapshot = deepcopy(source)
+    calls = []
+    original = reference._reference_apply
+
+    def observed(*args, **kwargs):
+        calls.append(args[1])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(reference, "_reference_apply", observed)
+    result = reference._reference_check_source(source, kernel, context.language_bundle)
+    assert calls == []
+    profile = next(row for row in language["resolution_profiles"] if row["default"])
+    reason = next(
+        row for row in language["reasons"] if row["id"] == profile["structural_reason"]
+    )
+    assert result == ((reason["diagnostic"], "/modules/0/symbols/0"),)
     assert source == snapshot
 
 
