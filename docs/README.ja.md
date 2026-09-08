@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=150ed6831b06c9466fc94b1a74fc01750974b5285c215a4cbb7cd852cc5c1c4a -->
+<!-- gda-readme-i18n: source=README.md sha256=f5c8db9324ad6e438a7942a949c484d9d2db9a474c93f656664330b15baa420c -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -34,8 +34,6 @@
 > `gda` は **pre-1.0** です。現時点ですべてのコマンドがエンドツーエンドで動作しますが、
 > コマンド体系は 1.0 までにまだ変わる可能性があります。
 
----
-
 ## 目次
 
 - [なぜ `gda`？](#why-gda)
@@ -48,8 +46,6 @@
 - [設定](#configuration)
 - [コントリビューション](#contributing)
 - [ライセンス](#license)
-
----
 
 <a id="why-gda"></a>
 ## なぜ `gda`？
@@ -75,8 +71,6 @@
 これらの機能は[実際のゲーム制作](https://aigengame.xyz/#showcase)を通じて磨かれ、その過程は
 公開されている[dogfooding の記録](https://github.com/aigengame/godot-agent/milestone/10)にまとめられています。
 
----
-
 <a id="capabilities-at-a-glance"></a>
 ## ひと目でわかる機能
 
@@ -87,8 +81,6 @@
 | ランタイム挙動を検証する（Live） | ランタイム状態の読み取り、宣言済みメソッドの呼び出し、入力シミュレーション、フレーム取得、ログとエラーの収集、パフォーマンス計測 | `gda daemon start`、その後 `game` / `input` / `screen` / `diag` / `logger` / `perf` |
 | AI コーディングエージェントを接続する | CLI の直接実行、Agent Skill の再利用可能なガイダンス、または MCP ツールの検出と呼び出し | `gda` / `gda skill` / `gda-mcp` |
 | 自動化環境で安定して実行する | 構造化結果、型付きのスキーマと失敗、範囲を制御した実行、分離されたログ、復旧に使える診断情報 | `--json` / `--schema` / `--user-data-root` / タイムアウト |
-
----
 
 <a id="installation"></a>
 ## インストール
@@ -121,8 +113,6 @@ uv sync                  # create the environment + install dependencies
 uv run gda --help
 ```
 </details>
-
----
 
 <a id="quick-start"></a>
 ## クイックスタート
@@ -175,8 +165,6 @@ gda daemon stop
 
 (`gda screen capture` も Live で動作しますが、ウィンドウ付きのセッションが必要です — `gda daemon
 start --windowed` でデーモンを起動してください。)
-
----
 
 <a id="choose-your-integration"></a>
 ## 統合方法を選ぶ
@@ -323,8 +311,6 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 > ごとのプロジェクト固定 — は [登録レシピ](gda-mcp-registration.md) にあります。
 </details>
 
----
-
 <a id="how-it-works"></a>
 ## 仕組み
 
@@ -361,8 +347,6 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 ¹ Headless は設計上クロスプラットフォームです(ワンショットのプロセスで、プラットフォーム固有の
   依存がありません)— Windows でも Headless の全機能が使えますが、CI ではまだ検証されていません。
 ² Live 操作は Unix ドメインソケットを使うため、Windows はまだサポートされていません。
-
----
 
 <a id="command-reference"></a>
 ## コマンドリファレンス
@@ -566,8 +550,6 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `--version` | インストール済みの `gda` のバージョンを表示します。`--json` を付けると、その出どころも出力します — インストール種別(`wheel`・`editable`・`unknown`)と、editable インストールの場合はソースチェックアウトの Git リビジョンです。 |
 | `--help`    | `gda` または任意のコマンドの使い方を表示します。 |
 
----
-
 <a id="configuration"></a>
 ## 設定
 
@@ -601,8 +583,6 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
   メソッドが呼ばれることはありません。
 
 </details>
-
----
 
 <details>
 <summary><strong>内部の仕組み</strong> — 構造化出力の契約と終了コード</summary>
@@ -701,8 +681,6 @@ CONTEXT.md          # the project's shared domain language
 ワンショットの Headless プロセスを起動すること(`runner.py`)と、デーモン経由で実行中ゲームと対話する
 こと(`live_runner.py`)です。e2e スイートは、その両方にわたって実際のエンジンを駆動します。
 </details>
-
----
 
 <a id="contributing"></a>
 ## コントリビューション

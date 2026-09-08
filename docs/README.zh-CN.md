@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=150ed6831b06c9466fc94b1a74fc01750974b5285c215a4cbb7cd852cc5c1c4a -->
+<!-- gda-readme-i18n: source=README.md sha256=f5c8db9324ad6e438a7942a949c484d9d2db9a474c93f656664330b15baa420c -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -33,8 +33,6 @@
 > `gda` 处于 **pre-1.0** 阶段：目前每条命令都能端到端跑通，但在 1.0 之前命令界面
 > 仍可能变化。
 
----
-
 ## 目录
 
 - [为什么选择 `gda`？](#why-gda)
@@ -47,8 +45,6 @@
 - [配置](#configuration)
 - [贡献](#contributing)
 - [许可证](#license)
-
----
 
 <a id="why-gda"></a>
 ## 为什么选择 `gda`？
@@ -70,8 +66,6 @@
 这些能力在[真实游戏制作](https://aigengame.xyz/zh/#showcase)中持续打磨，相关过程记录在
 公开的[dogfooding 记录](https://github.com/aigengame/godot-agent/milestone/10)中。
 
----
-
 <a id="capabilities-at-a-glance"></a>
 ## 能力速览
 
@@ -82,8 +76,6 @@
 | 验证运行时行为（Live） | 读取运行时状态、调用已声明的方法、模拟输入、捕获画面、收集日志和错误以及测量性能 | `gda daemon start`，然后使用 `game` / `input` / `screen` / `diag` / `logger` / `perf` |
 | 接入 Coding Agent | 使用 CLI 直接执行、Agent Skill 可复用指导，或 MCP 工具发现与调用 | `gda` / `gda skill` / `gda-mcp` |
 | 在自动化环境中可靠运行 | 获得结构化结果、带类型的 Schema 与失败信息、明确的执行边界、隔离日志和可直接处理的诊断信息 | `--json` / `--schema` / `--user-data-root` / 超时设置 |
-
----
 
 <a id="installation"></a>
 ## 安装
@@ -116,8 +108,6 @@ uv sync                  # create the environment + install dependencies
 uv run gda --help
 ```
 </details>
-
----
 
 <a id="quick-start"></a>
 ## 快速上手
@@ -167,8 +157,6 @@ gda daemon stop
 
 （`gda screen capture` 也能实时工作，但需要一个带窗口的会话——用
 `gda daemon start --windowed` 启动 daemon。）
-
----
 
 <a id="choose-your-integration"></a>
 ## 选择你的集成方式
@@ -307,8 +295,6 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 > 用户级与项目级、各 agent 的项目固定方式——都在[注册配方](gda-mcp-registration.md)里。
 </details>
 
----
-
 <a id="how-it-works"></a>
 ## 工作原理
 
@@ -342,8 +328,6 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 ¹ Headless 在设计上就是跨平台的（一次性进程，无平台相关依赖）——Windows 保留完整的
   headless 命令界面，尽管 CI 还没有对它做过验证。
 ² Live 操作使用 Unix 域套接字，所以暂不支持 Windows。
-
----
 
 <a id="command-reference"></a>
 ## 命令参考
@@ -546,8 +530,6 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `--version` | 打印已安装的 `gda` 版本。加上 `--json` 时，同时给出它的来源——安装类型（`wheel`、`editable` 或 `unknown`），以及 editable 安装对应源码检出的 Git 版本号。 |
 | `--help`    | 显示 `gda` 或任意命令的用法。                                |
 
----
-
 <a id="configuration"></a>
 ## 配置
 
@@ -578,8 +560,6 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 - **`game call`** 只运行节点 `GDA_CALLABLE` 声明中列出的那一个方法；未声明的绝不会被调用。
 
 </details>
-
----
 
 <details>
 <summary><strong>底层原理</strong> — 结构化输出契约与退出码</summary>
@@ -677,8 +657,6 @@ CONTEXT.md          # the project's shared domain language
 headless 进程（`runner.py`），以及通过 daemon 与正在运行的游戏对话（`live_runner.py`）。
 e2e 套件会驱动真实引擎覆盖这两条边界。
 </details>
-
----
 
 <a id="contributing"></a>
 ## 贡献

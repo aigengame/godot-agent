@@ -32,8 +32,6 @@
 > `gda` is **pre-1.0**: every command works end to end today, but the command surface may
 > still change before 1.0.
 
----
-
 ## Contents
 
 - [Why `gda`?](#why-gda)
@@ -46,8 +44,6 @@
 - [Configuration](#configuration)
 - [Contributing](#contributing)
 - [License](#license)
-
----
 
 ## Why `gda`?
 
@@ -74,8 +70,6 @@ These capabilities were refined while
 [building a real game](https://aigengame.xyz/#showcase), with the work documented in a public
 [dogfooding record](https://github.com/aigengame/godot-agent/milestone/10).
 
----
-
 ## Capabilities at a glance
 
 | Goal | What `gda` provides | Start with |
@@ -85,8 +79,6 @@ These capabilities were refined while
 | Verify runtime behavior (Live) | Read runtime state, call declared methods, simulate input, capture frames, collect logs and errors, and sample performance | `gda daemon start`, then `game` / `input` / `screen` / `diag` / `logger` / `perf` |
 | Connect an AI coding agent | Use direct CLI execution, reusable Agent Skill guidance, or MCP tool discovery and calling | `gda` / `gda skill` / `gda-mcp` |
 | Run reliably in automation | Receive structured results, typed schemas and failures, bounded execution, isolated logs, and actionable diagnostics | `--json` / `--schema` / `--user-data-root` / timeouts |
-
----
 
 ## Installation
 
@@ -118,8 +110,6 @@ uv sync                  # create the environment + install dependencies
 uv run gda --help
 ```
 </details>
-
----
 
 ## Quick start
 
@@ -169,8 +159,6 @@ gda daemon stop
 
 (`gda screen capture` works live too, but needs a windowed session — start the daemon
 with `gda daemon start --windowed`.)
-
----
 
 ## Choose your integration
 
@@ -314,8 +302,6 @@ command — register via the JSON above or the Settings → MCP UI.
 > [registration recipes](docs/gda-mcp-registration.md).
 </details>
 
----
-
 ## How it works
 
 `gda` is one Godot automation toolchain with three components and two complementary
@@ -351,8 +337,6 @@ self-disables in the exported game — so a shipped game never *runs* anything d
 ¹ Headless is cross-platform by design (one-shot processes, no platform-specific
   dependency) — Windows keeps the full headless surface, though CI does not exercise it yet.
 ² Live operations use Unix domain sockets, so Windows is not supported yet.
-
----
 
 ## Command reference
 
@@ -555,8 +539,6 @@ Read injected mouse coordinates from `event.position` — in a daemon session
 | `--version` | Print the installed `gda` version. With `--json`, also where it came from — install kind (`wheel`, `editable`, or `unknown`) and, for an editable install, the source checkout's Git revision. |
 | `--help`    | Show usage for `gda` or any command.                                |
 
----
-
 ## Configuration
 
 `gda` finds the Godot binary from the **`--godot <path>`** flag, otherwise the
@@ -589,8 +571,6 @@ project is trusted ([ADR-0009](docs/adr/0009-trust-boundary-trusted-project.md))
   undeclared is ever called.
 
 </details>
-
----
 
 <details>
 <summary><strong>Under the hood</strong> — the structured-output contract & exit codes</summary>
@@ -690,8 +670,6 @@ CONTEXT.md          # the project's shared domain language
 one-shot headless process (`runner.py`) and talking to a running game via the daemon
 (`live_runner.py`). The e2e suite drives a real engine across both.
 </details>
-
----
 
 ## Contributing
 
