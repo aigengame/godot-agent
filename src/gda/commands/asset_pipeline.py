@@ -77,10 +77,16 @@ from gda.integrations.preview import GdaPreviewHost
 from gda.integrations.package import GdaGodotPackagePort
 
 
+class _AssetCommandModel(BaseModel):
+    # Core commands mount this group too. Build its validators and serializers
+    # only when an asset command or schema request first uses the model.
+    model_config = ConfigDict(defer_build=True)
+
+
 StrictCoordinate = Annotated[float, Field(strict=True)]
 
 
-class AssetResizeInput(BaseModel):
+class AssetResizeInput(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid")
     width: int = Field(
         strict=True, ge=1, le=16384, description="Requested output width in pixels."
@@ -99,7 +105,7 @@ class AssetResizeInput(BaseModel):
         return self
 
 
-class AssetFileInput(BaseModel):
+class AssetFileInput(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid")
     source: str = Field(
         description="Source file relative to source_root, or an absolute path."
@@ -116,13 +122,13 @@ class AssetFileInput(BaseModel):
     )
 
 
-class ProductionOutputInput(BaseModel):
+class ProductionOutputInput(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid")
     role: str = Field(description="Producer output role, currently model.")
     target: str = Field(description="Explicit res:// destination for this output.")
 
 
-class ProductionInput(BaseModel):
+class ProductionInput(_AssetCommandModel):
     model_config = ConfigDict(
         extra="forbid",
         json_schema_extra={
@@ -151,7 +157,7 @@ class ProductionInput(BaseModel):
     )
 
 
-class AssetRefreshInput(BaseModel):
+class AssetRefreshInput(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid")
     path: str = Field(
         description="Selected GLB output whose imported root is compared with the runtime instance."
@@ -194,7 +200,7 @@ class AssetRefreshInput(BaseModel):
     )
 
 
-class AssetPipelineRunParams(BaseModel):
+class AssetPipelineRunParams(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid")
     files: list[AssetFileInput] = Field(
         default_factory=list,
@@ -259,18 +265,18 @@ class AssetPipelineRunParams(BaseModel):
         return self
 
 
-class InstalledAssetResult(BaseModel):
+class InstalledAssetResult(_AssetCommandModel):
     source: str
     target: str
     state: str
     resize: AssetResizeInput | None = None
 
 
-class ImportResult(BaseModel):
+class ImportResult(_AssetCommandModel):
     facts: dict[str, Any]
 
 
-class LoadResult(BaseModel):
+class LoadResult(_AssetCommandModel):
     path: str
     resource_type: str
     texture_size: tuple[int, int] | None = None
@@ -278,14 +284,14 @@ class LoadResult(BaseModel):
     engine: dict[str, Any] | None = None
 
 
-class PipelineFailureResult(BaseModel):
+class PipelineFailureResult(_AssetCommandModel):
     stage: str
     code: str
     message: str
     cause: dict[str, Any] | None = None
 
 
-class PipelineRunResult(BaseModel):
+class PipelineRunResult(_AssetCommandModel):
     completed: list[str]
     outputs: list[InstalledAssetResult]
     import_result: ImportResult | None = None
@@ -299,7 +305,7 @@ class PipelineRunResult(BaseModel):
     refresh: RefreshResult | None = None
 
 
-class AssetPipelineRunResult(BaseModel):
+class AssetPipelineRunResult(_AssetCommandModel):
     project_root: str = Field(description="Resolved Godot project root.")
     pipeline: PipelineRunResult = Field(
         description="Bounded result of this pipeline invocation."
@@ -608,7 +614,7 @@ def asset_pipeline_run(
     )
 
 
-class PreviewCameraInput(BaseModel):
+class PreviewCameraInput(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid")
     name: Literal["front", "side", "three_quarter"]
     position: tuple[StrictCoordinate, StrictCoordinate, StrictCoordinate]
@@ -619,7 +625,7 @@ class PreviewCameraInput(BaseModel):
     up: tuple[StrictCoordinate, StrictCoordinate, StrictCoordinate] = (0.0, 1.0, 0.0)
 
 
-class PreviewSettingsInput(BaseModel):
+class PreviewSettingsInput(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid")
     width: int = Field(default=640, strict=True, ge=64, le=2048)
     height: int = Field(default=360, strict=True, ge=64, le=2048)
@@ -627,7 +633,7 @@ class PreviewSettingsInput(BaseModel):
     cameras: tuple[PreviewCameraInput, ...] = ()
 
 
-class AssetPipelinePreviewParams(BaseModel):
+class AssetPipelinePreviewParams(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid")
     path: str = Field(
         min_length=1, description="Local GLB path or project-owned res:// GLB resource."
@@ -670,7 +676,7 @@ class AssetPipelinePreviewParams(BaseModel):
     )
 
 
-class AssetPipelinePreviewResult(BaseModel):
+class AssetPipelinePreviewResult(_AssetCommandModel):
     preview: PreviewResult = Field(description="Bounded isolated preview result.")
 
 
@@ -877,7 +883,7 @@ def register(root: typer.Typer) -> None:
     root.add_typer(_app, name="asset-pipeline")
 
 
-class AssetPipelineCheckParams(BaseModel):
+class AssetPipelineCheckParams(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid")
     expectations: Path = Field(
         description="Project-owned expectation JSON file; relative paths use the caller's working directory."
@@ -919,7 +925,7 @@ class AssetPipelineCheckParams(BaseModel):
         return self
 
 
-class AssetConditionResult(BaseModel):
+class AssetConditionResult(_AssetCommandModel):
     id: str
     verdict: Literal["pass", "fail", "insufficient"]
     location: dict[str, Any]
@@ -928,7 +934,7 @@ class AssetConditionResult(BaseModel):
     reason: str
 
 
-class AssetPipelineCheckResult(BaseModel):
+class AssetPipelineCheckResult(_AssetCommandModel):
     completed: list[str]
     resource: str | None
     observation_source: Literal["godot", "supplied_report"] | None
@@ -1066,7 +1072,7 @@ def asset_pipeline_check(
     )
 
 
-class AssetPipelinePackageCheckParams(BaseModel):
+class AssetPipelinePackageCheckParams(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid")
     package: Path = Field(description="Local .pck file to inspect in isolation.")
     path: str = Field(description="Exact res:// model resource inside the package.")
@@ -1093,7 +1099,7 @@ class AssetPipelinePackageCheckParams(BaseModel):
     )
 
 
-class AssetPipelinePackageCheckResult(BaseModel):
+class AssetPipelinePackageCheckResult(_AssetCommandModel):
     package_check: PackageCheckResult = Field(
         description="Editor-based inspection and project-intent verdict for one PCK."
     )
@@ -1243,7 +1249,7 @@ PromptVariableKey = Annotated[str, Field(max_length=128)]
 PromptVariableValue = Annotated[str, Field(max_length=4096)]
 
 
-class PromptPrepareParams(BaseModel):
+class PromptPrepareParams(_AssetCommandModel):
     model_config = ConfigDict(
         extra="forbid",
         allow_inf_nan=False,
@@ -1305,12 +1311,12 @@ class PromptPrepareParams(BaseModel):
         return self
 
 
-class PromptInspectParams(BaseModel):
+class PromptInspectParams(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid")
     record: Path = Field(description="Existing prompt record directory.")
 
 
-class PromptReviseParams(BaseModel):
+class PromptReviseParams(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     source_record: Path = Field(
         description="Existing record whose saved snapshots are reused."
@@ -1351,7 +1357,7 @@ class PromptReviseParams(BaseModel):
     )
 
 
-class PromptRegisterOutputParams(BaseModel):
+class PromptRegisterOutputParams(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     record: Path = Field(description="Existing prompt record directory.")
     output: Path = Field(description="Existing completed local PNG file.")
@@ -1387,15 +1393,15 @@ class PromptRegisterOutputParams(BaseModel):
     )
 
 
-class PromptPreparationResult(BaseModel):
+class PromptPreparationResult(_AssetCommandModel):
     preparation: PromptPreparation
 
 
-class PromptRevisionResult(BaseModel):
+class PromptRevisionResult(_AssetCommandModel):
     revision: PromptRevision
 
 
-class PromptRecordResult(BaseModel):
+class PromptRecordResult(_AssetCommandModel):
     prompt_record: PromptRecord
 
 
@@ -1731,7 +1737,7 @@ def prompt_register_output(
     )
 
 
-class ConceptPrepareParams(BaseModel):
+class ConceptPrepareParams(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     brief: Path = Field(
         description="Caller-authored concept brief JSON file (at most 1 MiB)."
@@ -1750,7 +1756,7 @@ class ConceptPrepareParams(BaseModel):
     )
 
 
-class ConceptCandidateInput(BaseModel):
+class ConceptCandidateInput(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid")
     record: Path = Field(description="Existing registered prompt record directory.")
     output: str = Field(
@@ -1760,7 +1766,7 @@ class ConceptCandidateInput(BaseModel):
     )
 
 
-class ConceptSelectParams(BaseModel):
+class ConceptSelectParams(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid")
     brief_record: Path = Field(description="Record created by concept-prepare.")
     handoff: Path = Field(
@@ -1773,7 +1779,7 @@ class ConceptSelectParams(BaseModel):
     )
 
 
-class SpriteSheetLayoutInput(BaseModel):
+class SpriteSheetLayoutInput(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid")
     width: int = Field(strict=True, ge=1, le=2048)
     height: int = Field(strict=True, ge=1, le=2048)
@@ -1782,7 +1788,7 @@ class SpriteSheetLayoutInput(BaseModel):
     frames: int = Field(strict=True, ge=1, le=64)
 
 
-class ConceptAuthorParams(BaseModel):
+class ConceptAuthorParams(_AssetCommandModel):
     model_config = ConfigDict(extra="forbid")
     handoff: Path = Field(description="Existing selected-reference handoff directory.")
     consumer: ConceptConsumer = Field(description="Bounded example authoring consumer.")
@@ -1803,15 +1809,15 @@ class ConceptAuthorParams(BaseModel):
     )
 
 
-class ConceptPreparationResult(BaseModel):
+class ConceptPreparationResult(_AssetCommandModel):
     preparation: ConceptPreparation
 
 
-class ConceptSelectionResult(BaseModel):
+class ConceptSelectionResult(_AssetCommandModel):
     selection: ConceptSelection
 
 
-class ConceptAuthorResult(BaseModel):
+class ConceptAuthorResult(_AssetCommandModel):
     authoring: ConceptAuthoringResult
 
 
