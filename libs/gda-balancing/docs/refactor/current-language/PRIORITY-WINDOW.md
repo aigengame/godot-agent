@@ -722,10 +722,11 @@ Schema into the Kernel would retain stale duplication: the
 obsolete initialization union branch that still passes the public wire contract after
 #876, although semantic RIR admission refuses it. #879 owns that deletion witness.
 
-The Trace slice is implemented on the issue branch at `34e8c8b15`. Its independently
+The Trace slice and review corrections are implemented at `a63025243`. Its independently
 authored LDB Schema is deleted. The existing language index derives the fixed structure
 from three Kernel container contracts and the existing scheduler, outcome and
-nominal-value laws. Independent B admission constructs its own Schema. The actual
+nominal-value laws. RNG records and resolved-symbol targets reuse their existing owners;
+they do not gain duplicate contracts. Independent B admission constructs its own Schema. The actual
 Kernel is an explicit projection input; there is no ambient authority or old-placement
 fallback. Unsupported resealed Kernel mutations refuse through the existing build
 support boundary, without an additional field-name allowlist.
@@ -737,11 +738,22 @@ complete ArtifactSet semantic admission. The fixed protocol does not make nomina
 payload data or real Source selectors Kernel-owned.
 
 The [Trace integration record](evidence/priority-window/trace-structure-integration.json)
-distinguishes these public checks from maintained artifact comparison and inventory
-integration. All seven maintained RIRs and nine Metric datasets are unchanged. Trace
-Schemas omit eight redundant enum constraints, so their exact wire/content identities
-and dependent artifact references change truthfully; actual Trace observations do not.
-Other protocol structures and complete graph renaming remain open.
+separates the initial 110 artifact pairs across seven Models and nine Experiments from
+the final correction's 14-pair periodic-Effect case. Their RIRs, Metrics and Trace
+observations remain unchanged within each stated comparison. The initial Schema omits
+eight redundant enum constraints; the correction uses the existing RNG alphabet/width
+projection with an equivalent regex spelling. Exact wire/content identities and dependent
+references change truthfully. Preserving an internal identity does not justify another
+regex-conversion mechanism.
+
+The final 168-test integration passes. Scoped Standards and DDMA findings are closed;
+the implementation and authored-inventory Spec reviews have no actionable findings.
+Canonical equality preserves malformed Boolean/integer fixtures for real refusal, and
+projection results no longer alias the input Kernel. All 2,362 collected tests and 347
+vectors have CI assignments; this is not an all-shard execution result. The current
+whole-LDB/vector/bounded-fold-Source inventory has 1,582 tokens, 6,137 occurrences and
+54 remaining gaps, with its physical graph and Kernel unchanged. Other protocol
+structures and complete graph/Experiment/result traversal remain open.
 
 ## Remaining proof and integration
 

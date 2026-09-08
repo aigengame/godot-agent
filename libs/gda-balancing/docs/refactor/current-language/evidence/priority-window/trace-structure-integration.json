@@ -39,7 +39,8 @@
     "raw_artifact_hashes_verified": 220,
     "binding_edits": 0,
     "unchanged": "all7RIR/debug-map/model-explanation; all9metric-dataset/resolved-runtime-profile; all9Trace semantic payloads excluding wire_schema_identity/content_identity",
-    "changed": "Build/Lock provenance; Trace wire/content identities and dependent audit identities; actual evaluator build identity"
+    "changed": "Build/Lock provenance; Trace wire/content identities and dependent audit identities; actual evaluator build identity",
+    "scope_limit": "The seven-Model/nine-Experiment comparison is at the initial Trace implementation, not a repeated final-head run of all scenarios."
   },
   "initial_worker_validation": {
     "runs": [
@@ -120,7 +121,7 @@
     "skipped": "0",
     "time": "2.485"
   },
-  "initial_integration_disposition": "160 passed and 3 failed. Two incomplete duplicate-binding test fixtures were repaired by exporting the duplicate declaration; all 10 inventory tests then passed. The remaining priority reason-rename failure exposed shared frozen Kernel lists in the production Trace projection; correction is pending.",
+  "initial_integration_disposition": "160 passed and 3 failed. Two incomplete duplicate-binding test fixtures were repaired by exporting the duplicate declaration; all 10 inventory tests then passed. The remaining priority reason-rename failure exposed shared frozen Kernel lists. The final production correction and all 168 integrated tests pass at a63025243.",
   "initial_semantic_inventory": {
     "tokens": 1582,
     "occurrences": 6137,
@@ -161,11 +162,132 @@
     {
       "path": "/private/tmp/gda-878-ddma-trace-34e8-proof/receipt.json",
       "sha256": "dd9c7bb76dc0dec6a6ed3a7c4675501b01cda19b06f314576b4ec9665134c5d9"
+    },
+    {
+      "path": "/private/tmp/gda-878-trace-structure-proof/FOLLOWUP-RECEIPT.json",
+      "sha256": "c788ee2ab1993a1c67abb65d5b4b9ca8331b6132858c2dce8215a71db8db7410"
+    },
+    {
+      "path": "/private/tmp/gda-878-trace-structure-proof/followup-rng-target.py",
+      "sha256": "07468ca9705b1c1fd0cdee9f533cf441e4c24ee3a1c9f719017bb9b893edcca3"
+    },
+    {
+      "path": "/private/tmp/gda-878-trace-structure-proof/followup-comparison.json",
+      "sha256": "d356589fdd8a13edeec3269d59fcaebb6456bdff81a0831ae20222520716dc47"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/trace-final-semantic-inventory.json",
+      "sha256": "144e5a01db07c5500c0867581e7bd0fd6c6a09c03234f662341c9d05e3bddc51"
+    },
+    {
+      "path": "/private/tmp/gda-878-trace-standards-evidence/schema-equality-recheck-result.json",
+      "sha256": "75b8dd64261540460da29816d33a5738145eabadf1c8a5385d9d3d6766ae0b63"
+    },
+    {
+      "path": "/private/tmp/gda-878-ddma-trace-a630-proof/receipt.json",
+      "sha256": "2842fab2985ae62a573269757804e96d33d9f6f63f5c618bd61e3f4055aacd15"
+    },
+    {
+      "path": "/private/tmp/gda-878-ddma-trace-a630-proof/preservation-receipt.json",
+      "sha256": "618390e7ffa3788698cf8e4ce958942018ce113402c2fd99795865d297394502"
+    },
+    {
+      "path": "/private/tmp/gda-878-spec-trace-inventory-c873/receipt.json",
+      "sha256": "bdd53db5c2d529ee561dab49ef94892887e2e3c98c53a95c67f081c53985dce7"
     }
   ],
   "limits": [
-    "This record is an intermediate integration checkpoint until the identified review corrections are validated.",
-    "No all-shard CI or final fixed-build rename/result exchange is claimed.",
-    "Old-input/history/execution-binding deletion and complete consumer closure retain #879 acceptance."
-  ]
+    "Trace implementation and its scoped reviews are complete; the full #878 extension proof is not.",
+    "No all-shard CI execution or final fixed-build rename/result exchange is claimed.",
+    "The maintained 110-pair baseline comparison and 14-pair follow-up have distinct heads and scopes.",
+    "Other protocol structures and complete graph/Experiment/result traversal remain open; #879 retains final deletion and consumer closure."
+  ],
+  "final_implementation": {
+    "head": "a6302524370e4c012625a61f3660cef738caa8d1",
+    "inventory_commit": "c873dcaa5f682d7be275c6e3f51940de2bd68846",
+    "worker_followup_commit": "906d7c5f14a1de6a4dc32ba5c5e667fc8b9a768f",
+    "resources": [
+      {
+        "path": "src/gda_balancing/schema2/authorities/kernel.json",
+        "content_identity": "sha256:b27ab67f832e27cba28b1214001e8280f3a496b520b4ae86650d53408f138abc",
+        "raw_bytes": 259133,
+        "canonical_bytes": 141221,
+        "sha256": "31fcf12778bb1cf3b6e2742a8ea8059a2174b0624a9525515a216b8a03c3f71f"
+      },
+      {
+        "path": "src/gda_balancing/schema2/authorities/language-bundle.json",
+        "content_identity": "sha256:e16bf222924d62e673d16d2cbeb460fc9040db2fd129c3847ed0c2605604176e",
+        "raw_bytes": 2810,
+        "canonical_bytes": 2810,
+        "sha256": "4caef30013d288b321f8411e4d91049058b3a609ed0d9e12a3671328263466d0"
+      }
+    ],
+    "corrections": [
+      "Compare authored and derived test-fixture Schema using canonical bytes; integer 1 cannot disappear as equivalent to true.",
+      "Return owned projection data so mutation cannot change the input Kernel and frozen authority works through the real priority path.",
+      "Derive RNG fields/encoding from named_rng and resolved-symbol shape from its existing Fact owners; refuse inconsistent owners instead of duplicating their laws."
+    ],
+    "schema_changes": {
+      "initial": "Eight redundant enum type/minLength constraints are omitted; accepted values are unchanged.",
+      "followup": [
+        {
+          "path": "/properties/events/items/properties/rng_draws/items/properties/candidate_hex/pattern",
+          "before": "^[0-9a-f]{16}$",
+          "after": "^[0123456789abcdef]{16}$"
+        }
+      ],
+      "decision": "Use the existing alphabet/width projection. Do not add a regex compactor solely to preserve an internal identity. Reseal the changed exact content.",
+      "package_vector_schemas": "All eight existing variants remain canonically equal."
+    }
+  },
+  "followup_maintained_comparison": {
+    "scenario": "rpg-periodic-effect/same-time-experiment",
+    "baseline": "e48de111874d1c644c8275ce7657425580e4fe45",
+    "head": "906d7c5f14a1de6a4dc32ba5c5e667fc8b9a768f",
+    "artifact_pairs": 14,
+    "raw_artifact_pairs_independently_checked": 14,
+    "rng_draws": 3,
+    "schedule_target_references": 3,
+    "unchanged": "RIR, Package Lock, Debug Map, Model Explanation, Metric dataset and resolved Runtime profile; Trace payload except wire_schema_identity/content_identity.",
+    "changed": "Exact Kernel/LDB, Trace wire/content identities and dependent provenance/audit references; actual evaluator source identity.",
+    "authored_experiment_binding_edits": 0
+  },
+  "final_primary_integration": {
+    "path": "/private/tmp/gda-878-root/trace-final.xml",
+    "sha256": "d1a842c5af2f8c81e4483ce3ceede96162502879751b35499b267fee50d8e15d",
+    "tests": "168",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "204.718",
+    "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_trace_protocol_inventory.py tests/test_trace_protocol_structure.py tests/test_extension_inventory.py tests/test_extension_renaming.py tests/test_artifact_protocol_roles.py tests/test_priority_protocol_public.py tests/test_priority_terminal_refusal.py tests/test_ci_policy.py -q -p no:cacheprovider"
+  },
+  "final_ci_collection": {
+    "path": "/private/tmp/gda-878-root/trace-final-ci-inventory.json",
+    "sha256": "d9c93625d971eb81b1d325349c17d589c657bd3f36f858376579ae753b77099e",
+    "current_test_count": 2362,
+    "current_package_vector_count": 347,
+    "missing_package_vectors": [],
+    "missing_tests": [],
+    "overlapping_tests": [],
+    "uncovered_tests": [],
+    "unexpected_shard_tests": [],
+    "scope": "Complete collection and shard assignment, not execution of all CI shards."
+  },
+  "final_semantic_inventory": {
+    "head": "a6302524370e4c012625a61f3660cef738caa8d1",
+    "kernel": "sha256:b27ab67f832e27cba28b1214001e8280f3a496b520b4ae86650d53408f138abc",
+    "ldb": "sha256:e16bf222924d62e673d16d2cbeb460fc9040db2fd129c3847ed0c2605604176e",
+    "tokens": 1582,
+    "occurrences": 6137,
+    "physical_graph_and_kernel_unchanged": true,
+    "scope": "All current LDB packages and vectors plus bounded-fold Source. Experiment/result traversal remains open.",
+    "gaps": 54
+  },
+  "review_closure": {
+    "Standards": "The true/integer-1 finding is closed at a63025243. The original counterexample now preserves the malformed integer and both real consumers refuse the authored Schema.",
+    "Spec": "Trace implementation at 34e8 and authored-inventory integration at c873 have no actionable findings. The inventory review runs 10 tests and 18 additional negative cases; it explicitly retains all other coverage gaps.",
+    "DDMA": "Duplicated owner laws and production aliasing are closed at a63025243. Independent projection mutation, owner disagreement and eight Package vector schema preservation checks pass.",
+    "scope": "Scoped review closure only; the complete issue still requires final Standards, Spec and DDMA review."
+  }
 }
