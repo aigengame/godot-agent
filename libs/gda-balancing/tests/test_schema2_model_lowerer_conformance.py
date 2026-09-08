@@ -49,7 +49,9 @@ from schema2_authority_support import (
 )
 from schema2_bootstrap_production_support import _recursive_nominal_owner_candidate
 from schema2_bootstrap_conformance_support import (
+    _consumer_b_fact_is_closed,
     _consumer_b_operation_composition_subjects,
+    _consumer_b_source_fact_transport_is_supported,
 )
 
 
@@ -70,6 +72,12 @@ class _ReferenceRuntimeProjectionExhausted(Exception):
 
 
 class _ReferenceEntrypointError(ValueError):
+    def __init__(self, pointer: str, message: str):
+        super().__init__(message)
+        self.pointer = pointer
+
+
+class _ReferenceSourceFactError(ValueError):
     def __init__(self, pointer: str, message: str):
         super().__init__(message)
         self.pointer = pointer
@@ -951,7 +959,7 @@ def _reference_check_source(
         ]
         assert len(runtime_reasons) == 1
         return ((runtime_reasons[0]["diagnostic"], ""),)
-    except _ReferenceEntrypointError as error:
+    except (_ReferenceEntrypointError, _ReferenceSourceFactError) as error:
         return (
             (
                 reasons[profile["structural_reason"]]["diagnostic"],
@@ -1063,7 +1071,14 @@ def _reference_apply(
     }
 
 
-def _reference_resolved_symbols(checked: ModelSourceContext) -> list[dict[str, Any]]:
+def _reference_resolved_symbols(
+    checked: ModelSourceContext,
+) -> list[tuple[dict[str, Any], tuple[object, ...]]]:
+    transport = checked.kernel["meta_format"]["language_definitions"]["collections"][
+        "model_lowerings"
+    ]["source_fact_transport"]
+    if not _consumer_b_source_fact_transport_is_supported(transport):
+        raise _ReferenceSourceFactError("", "Source Fact transport law is unsupported")
     language = checked.language_bundle["language"]
     lowering = _reference_lowering(language)
     profile = next(
@@ -1080,12 +1095,12 @@ def _reference_resolved_symbols(checked: ModelSourceContext) -> list[dict[str, A
     for part in profile["manifest_id_path"].split("."):
         model_id = model_id[part]
     rows = []
-    for module in checked.source[profile["modules_member"]]:
+    for module_index, module in enumerate(checked.source[profile["modules_member"]]):
         imports = {
             item[profile["import_alias_member"]]: item
             for item in module[profile["imports_member"]]
         }
-        for symbol in module[profile["symbols_member"]]:
+        for symbol_index, symbol in enumerate(module[profile["symbols_member"]]):
             if id(symbol) not in selected_symbol_ids:
                 continue
             resolved_symbol_ids.add(id(symbol))
@@ -1105,31 +1120,52 @@ def _reference_resolved_symbols(checked: ModelSourceContext) -> list[dict[str, A
                     profile["symbol_type_member"],
                 }
             }
-            fields[profile["symbol_fact_member"]] = symbol[
-                profile["symbol_name_member"]
+            adapters = [
+                (profile["symbol_fact_member"], symbol[profile["symbol_name_member"]]),
+                (
+                    "resolved_symbol",
+                    {
+                        "model": model_id,
+                        "module": module[profile["module_id_member"]],
+                        "name": symbol[profile["symbol_name_member"]],
+                    },
+                ),
+                (
+                    "type_identity",
+                    {
+                        "package": package_key,
+                        "id": imported[profile["import_symbol_member"]],
+                    },
+                ),
             ]
-            fields["resolved_symbol"] = {
-                "model": model_id,
-                "module": module[profile["module_id_member"]],
-                "name": symbol[profile["symbol_name_member"]],
-            }
-            fields["type_identity"] = {
-                "package": package_key,
-                "id": imported[profile["import_symbol_member"]],
-            }
             if (
                 imported[profile["import_symbol_member"]]
                 in package["exports"]["nominal_types"]
             ):
-                fields["value_kind"] = "nominal-structured"
-            rows.append(fields)
+                adapters.append(("value_kind", "nominal-structured"))
+            pointer = (
+                profile["modules_member"],
+                module_index,
+                profile["symbols_member"],
+                symbol_index,
+            )
+            targets = [name for name, _value in adapters]
+            if len(set(targets)) != len(targets) or any(
+                name in fields for name in targets
+            ):
+                raise _ReferenceSourceFactError(
+                    _reference_pointer(list(pointer)),
+                    "Source member conflicts with an initial Fact adapter",
+                )
+            fields.update(adapters)
+            rows.append((fields, pointer))
     assert resolved_symbol_ids == selected_symbol_ids
     return sorted(
         rows,
         key=lambda item: (
-            item["resolved_symbol"]["model"],
-            item["resolved_symbol"]["module"],
-            item["resolved_symbol"]["name"],
+            item[0]["resolved_symbol"]["model"],
+            item[0]["resolved_symbol"]["module"],
+            item[0]["resolved_symbol"]["name"],
         ),
     )
 
@@ -2641,11 +2677,20 @@ def _reference_rir(
     if lock is None:
         lock = _reference_package_lock(checked)
     declarations = []
-    for symbol in _reference_resolved_symbols(checked):
+    initial_facts = []
+    for symbol, pointer in _reference_resolved_symbols(checked):
         rule_prefix = (
             "structured_" if symbol.get("value_kind") == "nominal-structured" else ""
         )
         fact = {"kind": lowering[f"{rule_prefix}initial_fact_kind"], "fields": symbol}
+        if not _consumer_b_fact_is_closed(
+            fact, checked.kernel["meta_format"], checked.language_bundle
+        ):
+            raise _ReferenceSourceFactError(
+                _reference_pointer(list(pointer)), "Initial Source Fact is not closed"
+            )
+        initial_facts.append((fact, rule_prefix))
+    for fact, rule_prefix in initial_facts:
         for invocation in lowering[f"{rule_prefix}rule_chain"]:
             fact = _reference_apply(language, invocation, fact)
         declarations.append(fact["fields"])

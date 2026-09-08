@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:370b84ea9a5e7b14b6090fabf53d9a5347f3b6467bf5ca1b3d4b394402fcf846"
+    "sha256:fdcd2bcd31edd1b0d9f8154644bdcf5380540ea5a6bfcef76cd5d07d65d1a059"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -6177,6 +6177,20 @@ def _consumer_b_template_admission_is_closed(
     )
 
 
+def _consumer_b_source_fact_transport_is_supported(value: Any) -> bool:
+    return value == {
+        "unadapted_members": "copy-name-and-value",
+        "adapters": [
+            "profile-symbol-name",
+            "resolved-symbol-identity",
+            "imported-type-identity",
+            "nominal-export-kind",
+        ],
+        "adapter_conflicts": "refuse",
+        "initial_fact_admission": "before-first-language-rule",
+    }
+
+
 def _consumer_b_language_definitions_are_closed(
     ldb: dict[str, Any], meta: dict[str, Any]
 ) -> bool:
@@ -6186,6 +6200,13 @@ def _consumer_b_language_definitions_are_closed(
         return False
     collections = authority.get("collections")
     if not isinstance(collections, dict):
+        return False
+    lowering_contract = collections.get("model_lowerings")
+    if not isinstance(
+        lowering_contract, dict
+    ) or not _consumer_b_source_fact_transport_is_supported(
+        lowering_contract.get("source_fact_transport")
+    ):
         return False
     for name, contract in collections.items():
         values = language.get(name)
