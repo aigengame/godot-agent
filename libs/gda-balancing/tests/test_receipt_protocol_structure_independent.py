@@ -3,11 +3,34 @@
 from copy import deepcopy
 from dataclasses import replace
 import hashlib
+import json
 
 from jsonschema import Draft202012Validator
 import pytest
 
-from gda_balancing.domain.artifacts import select_artifact_contract
+from gda_balancing.application.model_build import MODEL_BUILD_ARTIFACT_SET
+from gda_balancing.domain.artifact_set import (
+    ProtocolArtifactSetMemberSpec,
+    label_artifacts,
+    resolve_artifact_set,
+)
+from gda_balancing.domain.artifacts import (
+    artifacts_by_protocol_role,
+    select_artifact_contract,
+    verify_artifact,
+)
+from gda_balancing.domain.authority.context import (
+    AdmittedAuthorityContext,
+    admit_authority_context,
+)
+from gda_balancing.domain.model import admit_resolved_model
+from gda_balancing.domain.model._resolution import ModelSourceContext
+from gda_balancing.domain.publication import (
+    PublicationMember,
+    publish_artifact_set,
+    read_authenticated_declared_artifact_set,
+    select_publication_contracts,
+)
 from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_conformance_support import (
     _consumer_b,
@@ -24,8 +47,16 @@ from schema2_extension_inventory_support import (
     read_extension_inventory,
     validate_extension_inventory,
 )
+from test_bounded_fold_public import _source
+from test_current_namespace_public import _PublicCandidate, _members
+from test_receipt_protocol_structure import _rename_receipt
 from test_rir_protocol_structure_independent import _raw_language
-from test_trace_protocol_structure import _authored, _graph
+from test_schema2_model_lowerer_conformance import (
+    _reference_admits_semantic_artifacts,
+    _reference_check_source,
+    _reference_semantic_artifacts,
+)
+from test_trace_protocol_structure import _authored, _graph, _index
 
 
 def _receipt(language):
@@ -265,3 +296,172 @@ def test_receipt_inventory_keeps_binding_tokens_without_authored_schema_ghosts(
     )
     with pytest.raises(InventoryRefusal):
         validate_extension_inventory(kernel, graph, altered)
+
+
+@pytest.mark.parametrize("renamed", [False, True], ids=["original", "distinct-kinds"])
+def test_receipt_renamed_public_build_and_labels_are_consumed_independently(
+    tmp_path, monkeypatch, renamed
+):
+    kernel, ldb = mutable_authorities()
+    authored = _authored(ldb)
+    if renamed:
+        _rename_receipt(authored)
+    graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        observation = consumer(kernel, graph)
+        assert observation["admitted"], observation["diagnostics"]
+    index = _index(kernel, graph)
+    context = admit_authority_context(kernel, index)
+    assert isinstance(context, AdmittedAuthorityContext), context
+    schema_row, binding = _receipt(_raw_language(graph))
+    schema_b = _consumer_b_receipt_schema(kernel, binding["artifact_kind"])
+    selected = select_artifact_contract(index, binding["artifact_kind"])
+    assert _encoded(schema_b) == _encoded(_receipt(index["language"])[0]["schema"])
+    assert (
+        _identity(binding["wire_schema_identity_domain"], schema_b)
+        == selected.wire_schema_identity
+    )
+    if renamed:
+        assert schema_row["artifact_kind"] != binding["artifact_kind"]
+        inventory = read_extension_inventory(kernel, authored)
+        validate_extension_inventory(kernel, authored, inventory)
+        assert (
+            AuthorityToken(
+                "language.artifact_wire_schemas", (), schema_row["artifact_kind"]
+            )
+            in inventory.tokens - inventory.reserved
+        )
+        assert (
+            AuthorityToken("language.artifact_contracts", (), binding["artifact_kind"])
+            in inventory.tokens - inventory.reserved
+        )
+
+    source = _source()
+    public = _PublicCandidate(tmp_path / "public", authorities=(kernel, graph))
+    public.write_source(source)
+    public.cli("model", "check", str(public.source))
+    receipt_a = public.cli(
+        "model",
+        "build",
+        str(public.source),
+        "--out",
+        str(public.directory / "build"),
+        "--invocation-key",
+        "d2" * 32,
+    )
+    built = artifacts_by_protocol_role(index, _members(receipt_a))
+    assert len(built) == 8
+    reference_checked = _reference_check_source(source, kernel, index)
+    assert isinstance(reference_checked, ModelSourceContext), reference_checked
+    reference = _reference_semantic_artifacts(reference_checked)
+    assert all(
+        _encoded(built[role]) == _encoded(value) for role, value in reference.items()
+    )
+    assert _reference_admits_semantic_artifacts(built, reference_checked)
+    assert all(verify_artifact(value, index) for value in reference.values())
+    assert admit_resolved_model(
+        {
+            role: reference[role]
+            for role in ("package-lock", "rir-semantic-payload", "resolved-model")
+        },
+        authority_context=context,
+    ).admitted
+
+    transport = kernel["meta_format"]["language_definitions"][
+        "wire_schema_protocol_roles"
+    ]["receipt_structure"]["transport"]
+
+    def reconstructed_receipt(value):
+        Draft202012Validator(schema_b).validate(value)
+        assert value["wire_schema_identity"] == _identity(
+            binding["wire_schema_identity_domain"], schema_b
+        )
+        body = {
+            name: child for name, child in value.items() if name != "content_identity"
+        }
+        reconstructed = {
+            **body,
+            "content_identity": _identity(
+                binding["identity_domain"],
+                {name: child for name, child in body.items() if name not in transport},
+            ),
+        }
+        assert _encoded(reconstructed) == _encoded(value)
+        assert selected.verify(reconstructed)
+        return reconstructed
+
+    receipt_b = reconstructed_receipt(receipt_a)
+    receipt_path = public.directory / "independent-receipt.json"
+    receipt_path.write_text(json.dumps(receipt_b))
+    public.cli("model", "inspect", str(receipt_path))
+
+    # Caller-chosen labels follow the same actual publication plan mechanism as
+    # the existing protocol-label witness; neither Schema kind nor data spelling
+    # is used to select a member's protocol responsibility.
+    plan = tuple(
+        ProtocolArtifactSetMemberSpec(
+            member.protocol_role,
+            logical_name=f"opaque-{23 - offset * 3}",
+            role=member.role,
+        )
+        for offset, member in enumerate(MODEL_BUILD_ARTIFACT_SET)
+    )
+    resolved = resolve_artifact_set(index, plan)
+    values = label_artifacts(built, resolved, lambda value: value["artifact_kind"])
+    members = {
+        label: PublicationMember(
+            value=value,
+            artifact_kind=value["artifact_kind"],
+            wire_schema_identity=value["wire_schema_identity"],
+            content_identity=value["content_identity"],
+        )
+        for label, value in values.items()
+    }
+    monkeypatch.setenv("GDA_BALANCING_STORE_DIR", public.env["GDA_BALANCING_STORE_DIR"])
+    monkeypatch.setenv(
+        "GDA_BALANCING_ANCHOR_KEY", public.env["GDA_BALANCING_ANCHOR_KEY"]
+    )
+    relabeled = publish_artifact_set(
+        members,
+        str(public.directory / "relabeled"),
+        "d3" * 32,
+        receipt_a["descriptor_identity"],
+        reference_checked.source_identity,
+        select_publication_contracts(index),
+        resolved,
+        lambda _name, value: verify_artifact(value, index),
+        artifact_set_validator=lambda rows: _reference_admits_semantic_artifacts(
+            artifacts_by_protocol_role(index, rows), reference_checked
+        ),
+    )
+    receipt_path.write_text(json.dumps(reconstructed_receipt(relabeled)))
+    restored = read_authenticated_declared_artifact_set(
+        str(receipt_path), (MODEL_BUILD_ARTIFACT_SET,), authority_context=context
+    )
+    assert restored.artifacts == values
+    locators = relabeled["member_locators"]
+    assert isinstance(locators, list)
+    assert all(isinstance(row, dict) for row in locators)
+    assert [row["logical_name"] for row in locators if isinstance(row, dict)] == [
+        member.logical_name for member in plan
+    ]
+    public.cli("model", "inspect", str(receipt_path))
+    (public.directory / "independent-comparison.json").write_text(
+        json.dumps(
+            {
+                "schema_bytes": len(_encoded(schema_b)),
+                "schema_sha256": hashlib.sha256(_encoded(schema_b)).hexdigest(),
+                "schema_kind": schema_row["artifact_kind"],
+                "artifact_kind": binding["artifact_kind"],
+                "wire_schema_identity": selected.wire_schema_identity,
+                "receipt_identity": receipt_b["content_identity"],
+                "relabeled_receipt_identity": relabeled["content_identity"],
+                "four_artifact_identities": {
+                    role: value["content_identity"] for role, value in reference.items()
+                },
+                "labels": [member.logical_name for member in plan],
+            },
+            indent=2,
+        )
+        + "\n"
+    )
