@@ -212,8 +212,22 @@ _RECIPE_OPERATIONS = {
     # `input sequence` (#838) names the injection route of each phase it applied,
     # and the harness reply counts the events without enumerating them: only the
     # request holds the per-event kinds, so the recipe completes the sentinel op's
-    # result the way `perf monitors` correlates its reply.
+    # result after confirming the total event count. The accepted request supplies
+    # each event's kind and opt-in mode (#854), not a second wire counter.
     "input-sequence",
+    # `input action` / `input tap` (#854) correlate the door the reply says the
+    # harness used with the one the request asked for. Their classifiers decode
+    # the current wire replies first; the recipes compare public routes only.
+    "input-action",
+    "input-tap",
+    # The five `project` WRITERS (#843). Each persists through
+    # ProjectSettings.save(), which reserializes project.godot; bounding that write
+    # needs the file as it stood BEFORE the engine ran, which only the CLI holds.
+    "project-set",
+    "project-add-autoload",
+    "project-remove-autoload",
+    "project-add-input-action",
+    "project-remove-input-action",
 }
 
 

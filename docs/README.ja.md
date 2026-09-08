@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=41a3705d6fc5b98a0be3142348d531fcddca5966b8ee26b2be3a819379d51e1a -->
+<!-- gda-readme-i18n: source=README.md sha256=19ad6158c5b039c114900ecb852916971dc1c781ca9be7240976efecf9a54662 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -8,6 +8,7 @@
 
 [製品概要](https://aigengame.xyz/) ·
 [CLI、Agent Skill、MCP のどれを選ぶ？](https://aigengame.xyz/godot-mcp/) ·
+[プレイ可能なデモ](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
 > **AI コーディングエージェント、シェルスクリプト、CI から Godot プロジェクトを構築・検証できます。**
@@ -448,12 +449,15 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `project set` | プロジェクト設定を設定します。値は宣言された型に変換されます。 |
 | `project add-autoload` | オートロードのシングルトンを登録します(名前 → スクリプト/シーン)。 |
 | `project remove-autoload` | オートロードのシングルトンを名前で指定して登録解除します。 |
-| `project add-input-action` | キーに割り当てた InputMap アクションを登録します(`--key` はキー名またはキーコード、`--deadzone`、`--physical`)。 |
+| `project add-input-action` | キーやコントローラーに割り当てた InputMap アクションを登録します(`--key`、`--joy-button`、`--joy-axis` は `<軸>[:<符号>]` 形式、`--device`、`--deadzone`、`--physical`)。バインドは 1 つ以上必要です。 |
 | `project remove-input-action` | InputMap アクションを名前で指定して登録解除します。 |
 | `project find-references` | 指定したリソースを参照するすべてのプロジェクトファイルを見つけます。 |
 | `project dependencies` | 各シーン/リソースを、それが依存するリソースに対応付けます。 |
 | `project find-unused-resources` | どこからも参照されていないリソースファイルを見つけます。 |
 | `project statistics` | プロジェクトのファイル数/行数、オートロードなどを報告します。 |
+
+`project` の書き込みはエンジン経由で保存され、エンジンはファイル全体を再シリアライズ
+します。gda は削除された明示的な行を復元し、残りの変更を結果で報告します。
 
 **`resource`** — リソースファイル(`.tres`)とプロジェクトのインポート済みアセット
 
@@ -541,8 +545,8 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `input key` | キーイベントを(修飾キー付きで)注入します。 |
 | `input mouse-click` | `(x, y)` の位置に完全なクリックジェスチャ(移動、押下、解放)を注入します。 |
 | `input mouse-move` | `(x, y)` へのマウス移動を注入します。 |
-| `input action` | マッピング済みの入力アクションを押下/解放します(ポーリング状態のみが変化し、`_input`/`_gui_input` には届きません)。 |
-| `input tap` | キーまたはアクションを 1 回タップします(押下、保持、解放を複数フレームで実行。`--key` はイベントを届け、`--action` はポーリング状態のみを変えます)。 |
+| `input action` | マッピング済みの入力アクションを押下/解放します(ポーリング状態のみが変化。`--as-event` を付けると `_input`/`_gui_input` に届きます)。 |
+| `input tap` | キーまたはアクションを 1 回タップします(押下、保持、解放を複数フレームで実行。`--key` はイベントを届け、`--action` はポーリング状態を変えます。`--as-event` を付けた場合を除く)。 |
 | `input sequence` | 複数フレームにわたるイベントのタイムラインを注入します。 |
 
 注入されたマウス座標は `event.position` から読み取ってください——デーモンセッションでは

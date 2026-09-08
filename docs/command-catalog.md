@@ -1087,6 +1087,60 @@ the built-in `ui_*` actions as defaults, so adding e.g. `ui_accept` reports `alr
 design). `gda project remove-input-action NAME` unregisters the action and persists `project.godot`;
 a missing action is `unknown_setting`, mirroring `remove-autoload`. A failed save is `save_failed`.
 
+**What a write does to `project.godot`** (established by #843): every writer in this group —
+`set`, `add-autoload`, `remove-autoload`, `add-input-action`, `remove-input-action` — persists
+through `ProjectSettings.save()`, which does not edit the file but **reserializes** it from the
+engine's merged settings (`ProjectSettings::save_custom`). Three things follow that the caller
+never asked for: an explicit line whose value equals the engine's initial value is **deleted**
+(`if (v->variant == v->initial) continue;`), `application/config/features` is **added or
+rewritten** (the rendering method appended, `C#` added or removed, unsupported features trimmed —
+and an older list can pull further compatibility settings in with it), and the **sections are
+written in the engine's own order**. gda bounds the write to the request and discloses the rest:
+it reads `project.godot` before the operation, **restores the dropped declarations verbatim**
+into the section they were written in, and reports the residual mutation on **every** write
+result — `added_settings`, `rewritten_settings`, `restored_settings`, and `sections_reordered`
+(one human line per non-empty category). The layout is NOT restored: the engine owns it, so gda
+says the order changed instead of fighting it. The **addressed** setting is in none of those
+lists — its new value, its appearance or its removal IS the request — with one exception it is
+named under `restored_settings` for: a `set` of a setting TO the engine default on a file that
+never declared it, where there is nothing in the pre-write file to restore, so the operation
+moves that default aside and the ENGINE writes the line from the request's coerced value (gda
+hand-builds no Godot literal, the ADR-0033 rule).
+
+Five residuals stay out of scope, and are listed rather than fixed so a reader is not surprised
+by them. **Comments**: the engine writes its own header and keeps none of the file's. The **key
+order inside** a section: only the section order is reported. **Line endings**: the engine's
+writer emits LF, so a CRLF `project.godot` comes back LF — unlike the harness install, which is
+gda's own line edit and preserves CRLF (ADR-0018, #654); a write goes through the engine, and gda
+restores lines into what it wrote. A **byte-order mark**: Godot's reader does not strip one, so
+the engine reads the marked first key as a setting of its own and leaves a permanent duplicate
+(`"ï»¿config_version"=5`) beside the `config_version=5` its writer always emits — gda reports it
+under `added_settings` and does not remove it, because it is a setting the file now declares. And
+a key whose spelling gda cannot decode is excluded from every comparison, so it is neither
+restored nor reported. That decoder mirrors `VariantParser`'s tokenizer — four hex digits after
+`\u`, SIX after `\U`, every other escape standing for the character it precedes, and a bare key
+dropping every character of code 32 or less (`parse_tag_assign_eof` accumulates only `c > 32`, so
+`foo bar` IS `foobar`) — so what stays refused is what the engine refuses the whole FILE for: a
+truncated or non-hex escape, an unpaired UTF-16 surrogate. Near-unreachable either way, since the
+engine's own `property_name_encode` escapes only `\\` and `\"`. A file gda cannot read on either
+side, or a run with no project resolved, rewrites nothing and reports the four keys as they are
+declared — empty — which on that one path means **unknown**, not "nothing changed": gda has no
+reading to compare, so it makes no claim about what the save did.
+
+The restore also runs when the operation FAILED (PR #898 review): a run that never reached the
+save leaves the file equal to what gda read, so nothing is written, while a run that saved and
+then crashed or timed out has already dropped the declarations and gets them back. The failure
+envelope is the operation's own, unchanged — so on that path the repair is not reported, and a
+file the engine left half-written is restored into as it stands, since that is not detectable
+from outside. A restore gda cannot write is itself `save_failed` (exit 4), naming the
+declarations to put back by hand; a restore gda REFUSES because `project.godot` changed on disk
+after the engine wrote it is `file_changed_externally` (exit 4), which names them too and leaves
+the other writer's file exactly as it found it. The restore is an optimistic, atomic replace of
+the engine's output (ADR-0018 Decision 4, the guarantee the scene/script writers already give):
+staged in a sibling file, re-checked against the target's mtime and size, and committed with one
+rename — a reader sees the engine's output or the restored file, never a half-written one. If the
+operation had already failed, its envelope stands instead.
+
 | Command | Description |
 | --- | --- |
 | `gda project info` | Project metadata (name, main scene, viewport, engine version) |
@@ -1195,6 +1249,18 @@ resolved absolute artifact path. Missing output parent directories are created
 before the native export and reported in `created_dirs`, outermost to innermost;
 an uncreatable parent is reported as `export_output_parent_failed` before Godot
 runs.
+
+Export-template discovery follows the user-data placement (#840). Godot reads the
+templates from its data directory, and `--user-data-root` relocates exactly that,
+so a release/debug run under an isolated root finds none even where the host has
+them installed. `gda export get` therefore reports `templates_root` — the
+export-templates directory checked, which holds the `templates_version` directory
+— and `templates_root_host`, the host's directory when the redirect hid installed
+templates there (null otherwise). The `export_templates_missing` failure names the
+same two directories in its message, gives the two remedies (run without the
+redirect, or `--mode pack`, which needs no templates), and carries them typed on
+`evidence` as `templates_root_checked` / `templates_root_host` — the second key
+present only in the hidden case, which is how the two shapes are told apart.
 
 ### Asset-file groups (create/edit files; headless)
 
@@ -1518,11 +1584,25 @@ re-derives every verdict from a running engine.
   handler. gda derives the route CLI-side from the event kind; the phased ops
   (`input tap`, `input mouse-click`, `input sequence`) report it per phase, since
   one sequence can mix the two — a tap targets exactly one of `--key` / `--action`,
-  and that target selects the route both its phases take. Drive event-driven UI
-  with a key or mouse event and use an action where the game polls
-  `Input.is_action_*`: a successful action injection is not evidence that the event
-  path works (GDA-DF-048, GDA-DF-075). For mouse
-  ops and sequence mouse events, the reliable injected coordinate is
+  and that target (with its mode, below) selects the route both its phases take.
+  Drive event-driven UI with a key or mouse event and use an action where the game
+  polls `Input.is_action_*`: a successful action injection is not evidence that the
+  event path works (GDA-DF-048, GDA-DF-075). The state route is an action's DEFAULT,
+  not its only door: `input action --as-event`, `input tap --action --as-event` and
+  a sequence `action` event with `"as_event": true` deliver the action as an
+  `InputEventAction` pushed through the same root viewport (#854), so handlers
+  matching it can receive the event while `Input.is_action_pressed` stays untouched —
+  those results report `viewport_event`, per phase on the phased ops. The opt-in is
+  explicit because changing the default would silently alter what every existing
+  call means, and the delivery is `Viewport.push_input` rather than
+  `Input.parse_input_event`, which would drive both routes at once and leave the
+  reported route with nothing to distinguish. `--as-event` rides an action: a key
+  tap already pushes an event and refuses it model-side.
+  Normal event propagation and consumption rules still apply: the route is not
+  proof that a specific handler ran or a UI action succeeded. Use the current
+  bundled harness; after updating gda, stop/start an existing daemon session so
+  the game loads it. Mixed-version sessions are not supported (ADR-0018).
+  For mouse ops and sequence mouse events, the reliable injected coordinate is
   `InputEventMouseButton.position` / `InputEventMouseMotion.position`; Godot may
   leave `Viewport.get_mouse_position()` and `Node2D.get_global_mouse_position()`
   stale in daemon sessions, so game code should read the injected coordinate from

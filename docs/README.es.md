@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=41a3705d6fc5b98a0be3142348d531fcddca5966b8ee26b2be3a819379d51e1a -->
+<!-- gda-readme-i18n: source=README.md sha256=19ad6158c5b039c114900ecb852916971dc1c781ca9be7240976efecf9a54662 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -8,6 +8,7 @@
 
 [Descripción del producto](https://aigengame.xyz/) ·
 [¿CLI, Agent Skill o MCP?](https://aigengame.xyz/godot-mcp/) ·
+[Demos jugables](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
 > **Crea y verifica proyectos de Godot desde agentes de programación con IA, scripts de shell y CI.**
@@ -452,12 +453,16 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `project set` | Define un ajuste del proyecto, forzando el valor a su tipo declarado. |
 | `project add-autoload` | Registra un singleton autoload (nombre → script/escena). |
 | `project remove-autoload` | Cancela el registro de un singleton autoload por nombre. |
-| `project add-input-action` | Registra una acción del InputMap vinculada a teclas (`--key` nombre o keycode, `--deadzone`, `--physical`). |
+| `project add-input-action` | Registra una acción del InputMap vinculada a teclas y/o a un mando (`--key`, `--joy-button`, `--joy-axis` como `<eje>[:<signo>]`, `--device`, `--deadzone`, `--physical`); se requiere al menos una vinculación. |
 | `project remove-input-action` | Cancela el registro de una acción del InputMap por nombre. |
 | `project find-references` | Encuentra todos los archivos del proyecto que referencian un recurso dado. |
 | `project dependencies` | Mapea cada escena/recurso a los recursos de los que depende. |
 | `project find-unused-resources` | Encuentra archivos de recurso que nada referencia. |
 | `project statistics` | Informa los recuentos de archivos/líneas del proyecto, los autoloads y más. |
+
+Cada escritura de `project` guarda a través del motor, que reserializa el archivo
+completo: gda restaura las líneas explícitas que el motor elimina e informa del resto
+en el resultado.
 
 **`resource`** — archivos de recurso (`.tres`) y los assets importados del proyecto
 
@@ -545,8 +550,8 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `input key` | Inyecta un evento de tecla (con modificadores). |
 | `input mouse-click` | Inyecta el gesto de clic completo (movimiento, pulsación, liberación) en `(x, y)`. |
 | `input mouse-move` | Inyecta un movimiento de ratón hacia `(x, y)`. |
-| `input action` | Presiona/suelta una acción de entrada mapeada: solo cambia el estado consultado, nunca llega a `_input`/`_gui_input`. |
-| `input tap` | Toca una tecla o acción: pulsa, mantiene y suelta a lo largo de varios frames (`--key` entrega un evento, `--action` solo cambia el estado consultado). |
+| `input action` | Presiona/suelta una acción de entrada mapeada: solo cambia el estado consultado, salvo que `--as-event` la entregue a `_input`/`_gui_input`. |
+| `input tap` | Toca una tecla o acción: pulsa, mantiene y suelta a lo largo de varios frames (`--key` entrega un evento, `--action` cambia el estado consultado salvo con `--as-event`). |
 | `input sequence` | Inyecta una línea de tiempo de eventos de varios frames. |
 
 Lee las coordenadas de ratón inyectadas desde `event.position` — en una sesión del daemon

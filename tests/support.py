@@ -923,6 +923,11 @@ EXPORT_GET_RESULT = {
     "export_path": "build/index.html",
     "templates_installed": True,
     "templates_version": "4.6.3.stable",
+    # #840: the directory the engine actually checked, plus the host directory
+    # holding templates a `--user-data-root` redirect hid (null when none is
+    # hidden — the common, unredirected case this payload stands for).
+    "templates_root": "/host/data/Godot/export_templates",
+    "templates_root_host": None,
 }
 
 # Canned ``gda project <command> --json`` analysis result payloads (issue #178).
@@ -1385,6 +1390,7 @@ INPUT_TAP_KEY_RESULT = {
 
 INPUT_TAP_ACTION_RESULT = {
     "kind": "tap",
+    "as_event": False,
     "action": "jump",
     "strength": 1.0,
     "hold_frames": 2,
@@ -1407,6 +1413,7 @@ INPUT_MOUSE_MOVE_RESULT = {
 
 INPUT_ACTION_RESULT = {
     "kind": "action",
+    "as_event": False,
     "action": "jump",
     "pressed": True,
     "strength": 1.0,
