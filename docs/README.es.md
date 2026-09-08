@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=150ed6831b06c9466fc94b1a74fc01750974b5285c215a4cbb7cd852cc5c1c4a -->
+<!-- gda-readme-i18n: source=README.md sha256=f5c8db9324ad6e438a7942a949c484d9d2db9a474c93f656664330b15baa420c -->
 
 # gda — Automatización de Godot para agentes de IA
 
