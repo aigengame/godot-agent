@@ -35,6 +35,7 @@ class TokenOccurrence:
     use: str
     law: str
     location: str = "value"
+    projection: str = ""
 
 
 @dataclass(frozen=True, order=True)
@@ -77,7 +78,15 @@ def _pointer_value(graph: Any, pointer: str) -> Any:
     return value
 
 
-def _occurrence_value(graph: Any, occurrence: TokenOccurrence) -> Any:
+def _occurrence_value(
+    graph: Any, occurrence: TokenOccurrence, formula_projections: Mapping[str, Any]
+) -> Any:
+    if occurrence.location == "formula":
+        return _pointer_value(
+            formula_projections[occurrence.pointer], occurrence.projection
+        )
+    if occurrence.projection:
+        raise InventoryRefusal("only Formula occurrences may have an AST projection")
     if occurrence.location == "value":
         return _pointer_value(graph, occurrence.pointer)
     if occurrence.location == "key":
@@ -88,6 +97,67 @@ def _occurrence_value(graph: Any, occurrence: TokenOccurrence) -> Any:
             raise InventoryRefusal("key occurrence does not identify an object member")
         return key
     raise InventoryRefusal("unknown occurrence location")
+
+
+def _attached_language(
+    kernel: Mapping[str, Any], graph: Mapping[str, Any]
+) -> dict[str, Any]:
+    language: dict[str, Any] = {"packages": graph["packages"]}
+    for projection in kernel["meta_format"]["package_release"]["semantic_closure"][
+        "projections"
+    ]:
+        path = projection["authority_path"].split(".")
+        if path[0] != "language":
+            continue
+        target = language
+        for segment in path[1:-1]:
+            target = target.setdefault(segment, {})
+        target[path[-1]] = [
+            definition
+            for package in graph["packages"]
+            for closure in package["semantic_closure"]
+            if closure["authority_path"] == projection["authority_path"]
+            for definition in closure["definitions"]
+        ]
+    return {"language": language}
+
+
+def _formula_projections(
+    kernel: Mapping[str, Any], graph: Mapping[str, Any]
+) -> dict[str, Any]:
+    from schema2_formula_conformance_support import parse_canonical, render_body
+
+    source = graph.get("source")
+    if not source:
+        return {}
+    language = _attached_language(kernel, graph)
+    projections = {}
+    for mi, module in enumerate(source["modules"]):
+        for fi, formula in enumerate(module.get("formulas", [])):
+            expression = formula.get("expression")
+            if expression is None:
+                continue
+            request = {
+                "schema_version": source["schema_version"],
+                "package_requirements": source["package_requirements"],
+                "module": module,
+                "modules": source["modules"],
+                "formula": formula,
+            }
+            try:
+                parsed = parse_canonical(
+                    expression, request, language, kernel=dict(kernel)
+                )
+                if render_body(formula["body"], request, language) != expression:
+                    raise InventoryRefusal("Formula body and expression disagree")
+                if render_body(parsed, request, language) != expression:
+                    raise InventoryRefusal("Formula expression is not canonical")
+            except (KeyError, TypeError, ValueError) as error:
+                raise InventoryRefusal(
+                    "Formula expression does not close independently"
+                ) from error
+            projections[f"/source/modules/{mi}/formulas/{fi}/expression"] = parsed
+    return projections
 
 
 class _Reader:
@@ -119,6 +189,7 @@ class _Reader:
             row["id"]: f"/meta_format/runtime_program/nodes/{i}"
             for i, row in enumerate(self.meta["runtime_program"]["nodes"])
         }
+        self.formula_projections: dict[str, Any] = {}
         self.seeds: list[tuple[dict[str, Any], str, dict[str, Any]]] = []
         self.operand_contracts: dict[
             tuple[tuple[str, str], tuple[int, ...], str], tuple[dict[str, Any], ...]
@@ -135,11 +206,15 @@ class _Reader:
         law: str,
         *,
         location: str = "value",
+        projection: str = "",
     ) -> None:
         if not isinstance(token.name, str) or not token.name:
             raise InventoryRefusal(f"invalid token at {pointer}")
-        occurrence = TokenOccurrence(token, pointer, use, law, location)
-        if _occurrence_value(self.graph, occurrence) != token.name:
+        occurrence = TokenOccurrence(token, pointer, use, law, location, projection)
+        if (
+            _occurrence_value(self.graph, occurrence, self.formula_projections)
+            != token.name
+        ):
             raise InventoryRefusal(
                 f"token occurrence does not match bytes at {pointer}"
             )
@@ -320,23 +395,11 @@ class _Reader:
                     )
 
     def operation_operand_projection(self) -> None:
-        language: dict[str, Any] = {"packages": self.graph["packages"]}
-        for projection in self.projections:
-            path = projection["authority_path"].split(".")
-            if path[0] != "language":
-                continue
-            target = language
-            for segment in path[1:-1]:
-                target = target.setdefault(segment, {})
-            target[path[-1]] = [
-                definition
-                for (_, role, _), (definition, _) in self.definitions.items()
-                if role == projection["authority_path"]
-            ]
+        language = _attached_language(self.kernel, self.graph)
         closed: dict[tuple[str, str], tuple[set[str], set[str], int]] = {}
         subjects = _consumer_b_operation_composition_subjects(
             dict(self.kernel),
-            {"language": language},
+            language,
             closed_operations=closed,
             operand_contracts=self.operand_contracts,
         )
@@ -977,6 +1040,7 @@ class _Reader:
             raise InventoryRefusal(
                 "Source does not match its admitted closed wire schema"
             )
+        self.formula_projections = _formula_projections(self.kernel, self.graph)
         law = "/meta_format/resolution_judgment"
         model = source["manifest"]["id"]
         self.occurrence(
@@ -1036,11 +1100,13 @@ class _Reader:
                         "Source initializer roles are not yet complete",
                     )
             if module.get("formulas"):
-                self.gap(
-                    mp + "/formulas",
-                    law,
-                    "Formula text and binding spans are not yet complete",
-                )
+                self.formulas(source, module, mp, aliases)
+        if source.get("formula_bindings"):
+            self.gap(
+                "/source/formula_bindings",
+                law,
+                "Formula binding-site and Operation slot links are not yet complete",
+            )
         entry = AuthorityToken(
             "source-module", (model,), source["manifest"]["entry_module"]
         )
@@ -1064,6 +1130,257 @@ class _Reader:
                 )
                 self.source_operand(argument["operand"], ap + "/operand", model, law)
             self.source_operand(entrypoint["result"], ep + "/result", model, law)
+
+    def source_contract(
+        self, value: dict[str, Any], pointer: str, aliases: Mapping[str, AuthorityToken]
+    ) -> None:
+        if "type" in value:
+            name = value["type"]
+            alias = aliases.get(name)
+            if alias is None:
+                raise InventoryRefusal(f"unknown Formula Type alias at {pointer}")
+            self.occurrence(
+                alias,
+                pointer + "/type",
+                "reference",
+                "/meta_format/resolution_judgment",
+            )
+        self.value_contract(
+            {key: val for key, val in value.items() if key != "type"}, pointer
+        )
+
+    def formulas(
+        self,
+        source: dict[str, Any],
+        module: dict[str, Any],
+        pointer: str,
+        aliases: Mapping[str, AuthorityToken],
+    ) -> None:
+        policies = [
+            (value, pp + "/extensions/" + key.replace("~", "~0").replace("/", "~1"))
+            for (_, role, _), (definition, pp) in self.definitions.items()
+            if role == "language.resolution_profiles"
+            and definition.get("default") is True
+            for key, value in definition.get("extensions", {}).items()
+            if isinstance(value, dict) and "formula_id_member" in value
+        ]
+        if len(policies) != 1:
+            raise InventoryRefusal("Formula policy does not have one admitted owner")
+        policy, law = policies[0]
+        model = source["manifest"]["id"]
+        module_scope = (model, module["id"])
+        for fi, formula in enumerate(module.get(policy["module_formulas_member"], [])):
+            fp = f"{pointer}/{policy['module_formulas_member']}/{fi}"
+            name = formula[policy["formula_id_member"]]
+            scope = (*module_scope, name)
+            self.occurrence(
+                AuthorityToken("source-formula", module_scope, name),
+                fp + "/" + policy["formula_id_member"],
+                "declaration",
+                law,
+            )
+            parameters = {}
+            for pi, parameter in enumerate(
+                formula[policy["formula_parameters_member"]]
+            ):
+                pp = f"{fp}/{policy['formula_parameters_member']}/{pi}"
+                token = AuthorityToken(
+                    "source-formula-parameter",
+                    scope,
+                    parameter[policy["parameter_id_member"]],
+                )
+                if token.name in parameters:
+                    raise InventoryRefusal("duplicate Formula parameter")
+                parameters[token.name] = token
+                self.occurrence(
+                    token, pp + "/" + policy["parameter_id_member"], "declaration", law
+                )
+                self.source_contract(parameter, pp, aliases)
+            self.source_contract(
+                formula[policy["formula_result_member"]],
+                fp + "/" + policy["formula_result_member"],
+                aliases,
+            )
+            body = formula[policy["formula_body_member"]]
+            self.formula_body(
+                body,
+                fp + "/" + policy["formula_body_member"],
+                scope,
+                aliases,
+                parameters,
+                policy,
+                law,
+            )
+            ep = fp + "/expression"
+            if ep in self.formula_projections:
+                self.formula_body(
+                    self.formula_projections[ep],
+                    ep,
+                    scope,
+                    aliases,
+                    parameters,
+                    policy,
+                    law,
+                    projected=True,
+                )
+
+    def formula_body(
+        self,
+        body: dict[str, Any],
+        pointer: str,
+        scope: tuple[str, str, str],
+        aliases: Mapping[str, AuthorityToken],
+        parameters: Mapping[str, AuthorityToken],
+        policy: Mapping[str, Any],
+        law: str,
+        *,
+        projected: bool = False,
+    ) -> None:
+        locals_: dict[str, AuthorityToken] = {}
+
+        def emit(token: AuthorityToken, path: str, use: str = "reference") -> None:
+            self.occurrence(
+                token,
+                pointer if projected else pointer + path,
+                use,
+                law,
+                location="formula" if projected else "value",
+                projection=path if projected else "",
+            )
+
+        def contract(value: dict[str, Any], path: str) -> None:
+            alias = aliases.get(value["type"])
+            if alias is None:
+                raise InventoryRefusal("unknown Formula result Type alias")
+            emit(alias, path + "/type")
+            # These are identity joins declared by the selected runtime projection,
+            # not another Formula type inference algorithm.
+            for seed, _, collection in self.seeds:
+                member_path = seed["declaration_path"]
+                if len(member_path) != 1 or member_path[0] not in value:
+                    continue
+                source = collection["source"]
+                if source["kind"] != "semantic-closure":
+                    continue
+                role = source["authority_path"]
+                projection = next(
+                    row for row in self.projections if row["authority_path"] == role
+                )
+                if seed["target_path"] != (
+                    []
+                    if projection["key_member"] is None
+                    else [projection["key_member"]]
+                ):
+                    continue
+                emit(
+                    self.declared(role, "", value[member_path[0]]),
+                    path + "/" + member_path[0],
+                )
+
+        def operand(value: dict[str, Any], path: str) -> None:
+            kind = value.get("kind")
+            if kind not in policy["allowed_operand_kinds"]:
+                raise InventoryRefusal("unknown Formula operand kind")
+            if kind == "parameter":
+                token = parameters.get(value["parameter"])
+                if token is None:
+                    raise InventoryRefusal("unknown Formula parameter reference")
+                emit(token, path + "/parameter")
+            elif kind == "local":
+                token = locals_.get(value["local"])
+                if token is None:
+                    raise InventoryRefusal("unknown Formula local reference")
+                emit(token, path + "/local")
+            elif kind == "symbol":
+                emit(
+                    AuthorityToken("source-module", scope[:1], value["module"]),
+                    path + "/module",
+                )
+                emit(
+                    AuthorityToken(
+                        "source-symbol", (scope[0], value["module"]), value["symbol"]
+                    ),
+                    path + "/symbol",
+                )
+            elif type(value["value"]) is not int:
+                raise InventoryRefusal("unknown Formula literal payload")
+
+        normalizations = policy["inline_body_normalizations"]
+        inline = next(
+            (row for row in normalizations if body.get("node") == row["node"]), None
+        )
+        if inline is not None:
+            token = parameters.get(body[inline["parameter_member"]])
+            if token is None:
+                raise InventoryRefusal("unknown inline Formula parameter")
+            emit(token, "/" + inline["parameter_member"])
+            return
+        for ni, node in enumerate(body[policy["body_nodes_member"]]):
+            np = f"/{policy['body_nodes_member']}/{ni}"
+            kind = node["node"]
+            if kind not in policy["allowed_body_nodes"]:
+                raise InventoryRefusal("unknown Formula body node")
+            if kind == "operation-call":
+                coordinate = node["operation"]
+                emit(
+                    AuthorityToken("namespace", (), coordinate["package"]),
+                    np + "/operation/package",
+                )
+                emit(
+                    AuthorityToken(
+                        "language.operations",
+                        (coordinate["package"],),
+                        coordinate["id"],
+                    ),
+                    np + "/operation/id",
+                )
+                for ai, argument in enumerate(node["arguments"]):
+                    ap = f"{np}/arguments/{ai}"
+                    emit(
+                        AuthorityToken(
+                            "operation-port",
+                            (coordinate["package"], coordinate["id"]),
+                            argument["port"],
+                        ),
+                        ap + "/port",
+                    )
+                    operand(argument["operand"], ap + "/operand")
+            elif kind == "formula-call":
+                coordinate = node["formula"]
+                emit(
+                    AuthorityToken("source-module", scope[:1], coordinate["module"]),
+                    np + "/formula/module",
+                )
+                emit(
+                    AuthorityToken(
+                        "source-formula",
+                        (scope[0], coordinate["module"]),
+                        coordinate["id"],
+                    ),
+                    np + "/formula/id",
+                )
+                for ai, argument in enumerate(node["arguments"]):
+                    ap = f"{np}/arguments/{ai}"
+                    emit(
+                        AuthorityToken(
+                            "source-formula-parameter",
+                            (scope[0], coordinate["module"], coordinate["id"]),
+                            argument["parameter"],
+                        ),
+                        ap + "/parameter",
+                    )
+                    operand(argument["operand"], ap + "/operand")
+            elif kind == "conditional":
+                for member in ("condition", "when_true", "when_false"):
+                    operand(node[member], np + "/" + member)
+            contract(node["result"], np + "/result")
+            name = node[policy["node_id_member"]]
+            token = AuthorityToken("source-formula-local", scope, name)
+            if name in locals_ or name in parameters:
+                raise InventoryRefusal("duplicate or capturing Formula local")
+            emit(token, np + "/" + policy["node_id_member"], "declaration")
+            locals_[name] = token
+        operand(body[policy["body_result_member"]], "/" + policy["body_result_member"])
 
     def source_operand(
         self, operand: dict[str, Any], pointer: str, model: str, law: str
@@ -1120,14 +1437,15 @@ def read_extension_inventory(
 
 
 def validate_inventory_occurrences(
-    graph: Mapping[str, Any], inventory: ExtensionInventory
+    kernel: Mapping[str, Any], graph: Mapping[str, Any], inventory: ExtensionInventory
 ) -> None:
     """Independently check exact bytes and uniqueness of a supplied occurrence set."""
+    projections = _formula_projections(kernel, graph)
     if len(inventory.occurrences) != len(set(inventory.occurrences)):
         raise InventoryRefusal("duplicate token occurrence")
     for occurrence in inventory.occurrences:
         try:
-            value = _occurrence_value(graph, occurrence)
+            value = _occurrence_value(graph, occurrence, projections)
         except (KeyError, IndexError, ValueError, TypeError) as error:
             raise InventoryRefusal("invalid token occurrence pointer") from error
         if occurrence.token not in inventory.tokens or value != occurrence.token.name:
@@ -1159,6 +1477,173 @@ def validate_token_bijection(
     inventory.require_complete()
 
 
+def _verify_formula_coverage(
+    kernel: Mapping[str, Any], graph: Mapping[str, Any], inventory: ExtensionInventory
+) -> None:
+    source = graph.get("source")
+    if not source:
+        return
+    projections = _formula_projections(kernel, graph)
+    found = {
+        (o.token, o.pointer, o.use, o.location, o.projection)
+        for o in inventory.occurrences
+    }
+    expected: set[tuple[AuthorityToken, str, str, str, str]] = set()
+    model = source["manifest"]["id"]
+    for mi, module in enumerate(source["modules"]):
+        ms = (model, module["id"])
+        for fi, formula in enumerate(module.get("formulas", [])):
+            fp = f"/source/modules/{mi}/formulas/{fi}"
+            fs = (*ms, formula["id"])
+            expected.add(
+                (
+                    AuthorityToken("source-formula", ms, formula["id"]),
+                    fp + "/id",
+                    "declaration",
+                    "value",
+                    "",
+                )
+            )
+            for pi, parameter in enumerate(formula["parameters"]):
+                expected.add(
+                    (
+                        AuthorityToken("source-formula-parameter", fs, parameter["id"]),
+                        f"{fp}/parameters/{pi}/id",
+                        "declaration",
+                        "value",
+                        "",
+                    )
+                )
+            bodies = [(formula["body"], fp + "/body", "value")]
+            if fp + "/expression" in projections:
+                bodies.append(
+                    (projections[fp + "/expression"], fp + "/expression", "formula")
+                )
+            for body, base, location in bodies:
+
+                def needed(
+                    token: AuthorityToken, path: str, use: str = "reference"
+                ) -> None:
+                    expected.add(
+                        (
+                            token,
+                            base + path if location == "value" else base,
+                            use,
+                            location,
+                            path if location == "formula" else "",
+                        )
+                    )
+
+                if body.get("node") == "parameter":
+                    needed(
+                        AuthorityToken(
+                            "source-formula-parameter", fs, body["parameter"]
+                        ),
+                        "/parameter",
+                    )
+                    continue
+                references = [(body["result"], "/result")]
+                for ni, node in enumerate(body["nodes"]):
+                    np = f"/nodes/{ni}"
+                    needed(
+                        AuthorityToken("source-formula-local", fs, node["id"]),
+                        np + "/id",
+                        "declaration",
+                    )
+                    if node["node"] == "operation-call":
+                        ref = node["operation"]
+                        needed(
+                            AuthorityToken("namespace", (), ref["package"]),
+                            np + "/operation/package",
+                        )
+                        needed(
+                            AuthorityToken(
+                                "language.operations", (ref["package"],), ref["id"]
+                            ),
+                            np + "/operation/id",
+                        )
+                        for ai, argument in enumerate(node["arguments"]):
+                            ap = f"{np}/arguments/{ai}"
+                            needed(
+                                AuthorityToken(
+                                    "operation-port",
+                                    (ref["package"], ref["id"]),
+                                    argument["port"],
+                                ),
+                                ap + "/port",
+                            )
+                            references.append((argument["operand"], ap + "/operand"))
+                    elif node["node"] == "formula-call":
+                        ref = node["formula"]
+                        needed(
+                            AuthorityToken("source-module", (model,), ref["module"]),
+                            np + "/formula/module",
+                        )
+                        needed(
+                            AuthorityToken(
+                                "source-formula", (model, ref["module"]), ref["id"]
+                            ),
+                            np + "/formula/id",
+                        )
+                        for ai, argument in enumerate(node["arguments"]):
+                            ap = f"{np}/arguments/{ai}"
+                            needed(
+                                AuthorityToken(
+                                    "source-formula-parameter",
+                                    (model, ref["module"], ref["id"]),
+                                    argument["parameter"],
+                                ),
+                                ap + "/parameter",
+                            )
+                            references.append((argument["operand"], ap + "/operand"))
+                    elif node["node"] == "conditional":
+                        references.extend(
+                            (node[member], np + "/" + member)
+                            for member in ("condition", "when_true", "when_false")
+                        )
+                    else:
+                        raise InventoryRefusal("unclassified Formula AST node")
+                for operand, path in references:
+                    if operand["kind"] == "parameter":
+                        needed(
+                            AuthorityToken(
+                                "source-formula-parameter", fs, operand["parameter"]
+                            ),
+                            path + "/parameter",
+                        )
+                    elif operand["kind"] == "local":
+                        needed(
+                            AuthorityToken(
+                                "source-formula-local", fs, operand["local"]
+                            ),
+                            path + "/local",
+                        )
+                    elif operand["kind"] == "symbol":
+                        needed(
+                            AuthorityToken(
+                                "source-module", (model,), operand["module"]
+                            ),
+                            path + "/module",
+                        )
+                        needed(
+                            AuthorityToken(
+                                "source-symbol",
+                                (model, operand["module"]),
+                                operand["symbol"],
+                            ),
+                            path + "/symbol",
+                        )
+                    elif operand["kind"] != "literal":
+                        raise InventoryRefusal("unclassified Formula AST operand")
+    if not expected <= found:
+        raise InventoryRefusal(
+            "Formula declaration or reference coverage is incomplete or misowned"
+        )
+    owned_paths = {(row[1], row[2], row[3], row[4]) for row in expected}
+    if any(row[1:] in owned_paths and row not in expected for row in found):
+        raise InventoryRefusal("extra incorrectly owned Formula occurrence")
+
+
 def validate_extension_inventory(
     kernel: Mapping[str, Any], graph: Mapping[str, Any], inventory: ExtensionInventory
 ) -> None:
@@ -1168,7 +1653,8 @@ def validate_extension_inventory(
     explicit unfinished obligation until the corresponding consuming-law pass
     is implemented; require_complete still refuses that inventory.
     """
-    validate_inventory_occurrences(graph, inventory)
+    validate_inventory_occurrences(kernel, graph, inventory)
+    _verify_formula_coverage(kernel, graph, inventory)
     meta = kernel["meta_format"]
     projections = meta["package_release"]["semantic_closure"]["projections"]
     unique = next(
@@ -1516,7 +2002,14 @@ def _renamed_owner(
         if len(token.owner) == 1:
             return (model,)
         module = name(AuthorityToken("source-module", token.owner[:1], token.owner[1]))
-        return (model, module)
+        if len(token.owner) == 2:
+            return (model, module)
+        if len(token.owner) == 3 and token.role.startswith("source-formula-"):
+            formula = name(
+                AuthorityToken("source-formula", token.owner[:2], token.owner[2])
+            )
+            return (model, module, formula)
+        raise InventoryRefusal("unknown Source token owner")
     namespace = name(AuthorityToken("namespace", (), token.owner[0]))
     if len(token.owner) == 1:
         return (namespace,)

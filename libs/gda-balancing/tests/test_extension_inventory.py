@@ -138,13 +138,13 @@ def test_independent_coverage_refuses_removed_or_misowned_inventory(witness, mut
 
 @pytest.mark.parametrize("mutation", ["extra", "duplicate"])
 def test_occurrence_guard_refuses_unbound_or_repeated_positions(witness, mutation):
-    _, graph, inventory = witness
+    kernel, graph, inventory = witness
     extra = inventory.occurrences[0]
     if mutation == "extra":
         extra = replace(extra, pointer="/source/manifest/id")
     candidate = replace(inventory, occurrences=(*inventory.occurrences, extra))
     with pytest.raises(InventoryRefusal):
-        validate_inventory_occurrences(graph, candidate)
+        validate_inventory_occurrences(kernel, graph, candidate)
 
 
 @pytest.mark.parametrize(
@@ -686,3 +686,74 @@ def test_independent_formula_parser_follows_the_actual_schema_owner(witness):
         parsed_bodies[: len(module["formulas"])]
         == parsed_bodies[len(module["formulas"]) :]
     )
+
+
+def test_formula_text_inventory_is_checked_by_independent_ast_projection(witness):
+    kernel, graph, _ = witness
+    graph = deepcopy(graph)
+    graph["source"] = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/progression-periodic-effect/model-source.json"
+        ).read_bytes()
+    )
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    scope = ("example.progression-periodic-effect", "effect", "periodic-magnitude")
+    # Use the authored model name, independent of the example directory name.
+    scope = (graph["source"]["manifest"]["id"], *scope[1:])
+    parameter = AuthorityToken("source-formula-parameter", scope, "current_value")
+    formula_local = AuthorityToken("source-formula-local", scope, "raw_magnitude")
+    assert {parameter, formula_local} <= inventory.tokens
+    text = [
+        o
+        for o in inventory.occurrences
+        if o.location == "formula" and o.token == parameter
+    ]
+    assert len(text) == 1
+    assert text[0].pointer.endswith("/formulas/0/expression")
+    assert text[0].projection == "/nodes/0/arguments/0/operand/parameter"
+    changed = deepcopy(graph)
+    formula = changed["source"]["modules"][0]["formulas"][0]
+    formula["expression"] = formula["expression"].replace(
+        "current_value - threshold", "threshold - current_value"
+    )
+    with pytest.raises(InventoryRefusal, match="Formula expression"):
+        validate_inventory_occurrences(kernel, changed, inventory)
+    assert not any(gap.reason.startswith("Formula text") for gap in inventory.uncovered)
+
+
+def test_formula_reference_coverage_refuses_erased_or_misowned_text_occurrences(
+    witness,
+):
+    kernel, graph, _ = witness
+    graph = deepcopy(graph)
+    graph["source"] = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/progression-periodic-effect/model-source.json"
+        ).read_bytes()
+    )
+    inventory = read_extension_inventory(kernel, graph)
+    original = next(
+        o
+        for o in inventory.occurrences
+        if o.location == "formula" and o.token.role == "source-formula-parameter"
+    )
+    for replacement in (
+        None,
+        replace(
+            original,
+            token=replace(
+                original.token, owner=(*original.token.owner[:2], "other-formula")
+            ),
+        ),
+    ):
+        kept = tuple(o for o in inventory.occurrences if o != original)
+        if replacement is not None:
+            kept += (replacement,)
+        candidate = replace(
+            inventory, occurrences=kept, tokens=frozenset(o.token for o in kept)
+        )
+        with pytest.raises(InventoryRefusal, match="Formula .*coverage"):
+            validate_extension_inventory(kernel, graph, candidate)
