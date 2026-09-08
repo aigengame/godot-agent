@@ -7446,8 +7446,16 @@ def _consumer_b_operation_composition_subjects(
     fold_input_bounds: dict[tuple[tuple[str, str], str], int] | None = None,
     closed_operations: dict[tuple[str, str], tuple[set[str], set[str], int]]
     | None = None,
+    operand_contracts: dict[
+        tuple[tuple[str, str], tuple[int, ...], str], tuple[dict[str, Any], ...]
+    ]
+    | None = None,
 ) -> tuple[str, ...]:
-    """Independently close exact nested calls without using production admission."""
+    """Close calls independently; optionally expose successful operand judgments.
+
+    Operand locations use the actual Operation owner and nested body indices.
+    The projection contains copied contracts only after the whole judgment closes.
+    """
     language = ldb.get("language")
     if not isinstance(language, dict):
         return ()
@@ -7574,6 +7582,10 @@ def _consumer_b_operation_composition_subjects(
     closed: dict[tuple[str, str], tuple[set[str], set[str], int]] = {}
     guard_body_coordinates: set[tuple[str, str]] = set()
     guard_owners: dict[tuple[str, str], tuple[str, str]] = {}
+    guard_paths: dict[tuple[str, str], tuple[int, ...]] = {}
+    inferred_operands: dict[
+        tuple[tuple[str, str], tuple[int, ...], str], tuple[dict[str, Any], ...]
+    ] = {}
 
     def subject(
         coordinate: tuple[str, str],
@@ -8519,11 +8531,16 @@ def _consumer_b_operation_composition_subjects(
                     guard_owners[guard_coordinate] = guard_owners.get(
                         coordinate, coordinate
                     )
+                    guard_paths[guard_coordinate] = (
+                        *guard_paths.get(coordinate, ()),
+                        instruction_index,
+                    )
                     try:
                         guard_closure = close(guard_coordinate, (*stack, coordinate))
                     finally:
                         guard_body_coordinates.discard(guard_coordinate)
                         guard_owners.pop(guard_coordinate, None)
+                        guard_paths.pop(guard_coordinate, None)
                         by_coordinate.pop(guard_coordinate, None)
                         closed.pop(guard_coordinate, None)
                     if guard_closure is None:
@@ -8598,24 +8615,29 @@ def _consumer_b_operation_composition_subjects(
                             if isinstance(value_name, str)
                             else None
                         )
-                        declared_results: tuple[tuple[dict[str, Any], str], ...]
-                        if value_candidates is None:
-                            declared_results = ()
-                        else:
-                            declared_results = tuple(
-                                result
-                                for candidate in value_candidates
-                                if (
-                                    result := lookup_contract(
-                                        candidate,
-                                        instruction.get("key"),
-                                        locals_.get(cast(str, instruction.get("key")))
-                                        if isinstance(instruction.get("key"), str)
-                                        else None,
-                                    )
-                                )
-                                is not None
+                        resolved_lookups: list[
+                            tuple[dict[str, Any], tuple[dict[str, Any], str]]
+                        ] = []
+                        for candidate in value_candidates or ():
+                            lookup_result = lookup_contract(
+                                candidate,
+                                instruction.get("key"),
+                                locals_.get(cast(str, instruction.get("key")))
+                                if isinstance(instruction.get("key"), str)
+                                else None,
                             )
+                            if lookup_result is not None:
+                                resolved_lookups.append((candidate, lookup_result))
+                        declared_results = tuple(
+                            result for _, result in resolved_lookups
+                        )
+                        inferred_operands[
+                            (
+                                guard_owners.get(coordinate, coordinate),
+                                (*guard_paths.get(coordinate, ()), instruction_index),
+                                "value",
+                            )
+                        ] = tuple(candidate for candidate, _ in resolved_lookups)
                         if any(
                             signal not in node.get("refusals", [])
                             or len(reasons_by_signal.get(signal, [])) != 1
@@ -8904,6 +8926,12 @@ def _consumer_b_operation_composition_subjects(
         close(coordinate, ())
     if closed_operations is not None:
         closed_operations.update(closed)
+    if (
+        operand_contracts is not None
+        and not found
+        and set(closed) == set(by_coordinate)
+    ):
+        operand_contracts.update(deepcopy(inferred_operands))
     return tuple(sorted(found))
 
 

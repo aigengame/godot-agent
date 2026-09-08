@@ -10,6 +10,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+import jsonschema
+
+from schema2_bootstrap_conformance_support import (
+    _consumer_b_operation_composition_subjects,
+)
+
 
 class InventoryRefusal(ValueError):
     """The graph, coverage proof, or rename map does not close."""
@@ -28,6 +34,7 @@ class TokenOccurrence:
     pointer: str
     use: str
     law: str
+    location: str = "value"
 
 
 @dataclass(frozen=True, order=True)
@@ -70,6 +77,19 @@ def _pointer_value(graph: Any, pointer: str) -> Any:
     return value
 
 
+def _occurrence_value(graph: Any, occurrence: TokenOccurrence) -> Any:
+    if occurrence.location == "value":
+        return _pointer_value(graph, occurrence.pointer)
+    if occurrence.location == "key":
+        parent, _, encoded = occurrence.pointer.rpartition("/")
+        key = encoded.replace("~1", "/").replace("~0", "~")
+        container = _pointer_value(graph, parent)
+        if not isinstance(container, dict) or key not in container:
+            raise InventoryRefusal("key occurrence does not identify an object member")
+        return key
+    raise InventoryRefusal("unknown occurrence location")
+
+
 class _Reader:
     def __init__(self, kernel: Mapping[str, Any], graph: Mapping[str, Any]):
         self.kernel = kernel
@@ -100,21 +120,31 @@ class _Reader:
             for i, row in enumerate(self.meta["runtime_program"]["nodes"])
         }
         self.seeds: list[tuple[dict[str, Any], str, dict[str, Any]]] = []
+        self.operand_contracts: dict[
+            tuple[tuple[str, str], tuple[int, ...], str], tuple[dict[str, Any], ...]
+        ] = {}
 
     def gap(self, pointer: str, law: str, reason: str) -> None:
         self.uncovered.add(UncoveredRole(pointer, law, reason))
 
     def occurrence(
-        self, token: AuthorityToken, pointer: str, use: str, law: str
+        self,
+        token: AuthorityToken,
+        pointer: str,
+        use: str,
+        law: str,
+        *,
+        location: str = "value",
     ) -> None:
         if not isinstance(token.name, str) or not token.name:
             raise InventoryRefusal(f"invalid token at {pointer}")
-        if _pointer_value(self.graph, pointer) != token.name:
+        occurrence = TokenOccurrence(token, pointer, use, law, location)
+        if _occurrence_value(self.graph, occurrence) != token.name:
             raise InventoryRefusal(
                 f"token occurrence does not match bytes at {pointer}"
             )
         self.tokens.add(token)
-        self.occurrences.add(TokenOccurrence(token, pointer, use, law))
+        self.occurrences.add(occurrence)
 
     def declared(self, role: str, namespace: str, name: str) -> AuthorityToken:
         if role == "language.nominal_types":
@@ -142,6 +172,7 @@ class _Reader:
     def index(self) -> None:
         allowed = {
             "packages",
+            "ldb_root",
             "vector_sets",
             "source",
             "experiment",
@@ -215,6 +246,61 @@ class _Reader:
                     "declaration",
                     "/meta_format/package_release/type_export",
                 )
+        if "ldb_root" in self.graph:
+            root = self.graph["ldb_root"]
+            descriptors = root["package_descriptors"]
+            if sorted(row["id"] for row in descriptors) != sorted(package_ids):
+                raise InventoryRefusal(
+                    "LDB descriptor graph does not exactly cover packages"
+                )
+            for i, descriptor in enumerate(descriptors):
+                self.namespace(
+                    descriptor["id"],
+                    f"/ldb_root/package_descriptors/{i}/id",
+                    "reference",
+                    "/meta_format/language_bundle/package_descriptor",
+                )
+            self.gap(
+                "/ldb_root",
+                "/meta_format/language_bundle",
+                "generated content/byte-size framing must be rederived on rename",
+            )
+        else:
+            self.gap(
+                "/ldb_root",
+                "/meta_format/language_bundle",
+                "exact reachable root descriptor graph was not supplied",
+            )
+        for vi, vectors in enumerate(self.graph.get("vector_sets", [])):
+            vp = f"/vector_sets/{vi}"
+            self.namespace(
+                vectors["package_id"],
+                vp + "/package_id",
+                "reference",
+                "/meta_format/package_conformance_vector_set",
+            )
+            definitions = vectors["vector_definitions"]
+            if sorted(row["id"] for row in definitions) != sorted(vectors["vectors"]):
+                raise InventoryRefusal("vector owner list does not close definitions")
+            for di, definition in enumerate(definitions):
+                token = self.declared(
+                    "vectors", vectors["package_id"], definition["id"]
+                )
+                if token in self.tokens:
+                    raise InventoryRefusal("duplicate vector identity")
+                self.occurrence(
+                    token,
+                    f"{vp}/vector_definitions/{di}/id",
+                    "declaration",
+                    "/meta_format/package_conformance_vector_set",
+                )
+            for ri, name in enumerate(vectors["vectors"]):
+                self.reference(
+                    "vectors",
+                    name,
+                    f"{vp}/vectors/{ri}",
+                    "/meta_format/package_conformance_vector_set",
+                )
         for contract in self.meta["runtime_program"]["fixed_value_contracts"].values():
             ref = contract["type"]
             self.reserved.add(AuthorityToken("type", (ref["package"],), ref["id"]))
@@ -232,6 +318,35 @@ class _Reader:
                     self.seeds.append(
                         (seed, f"{pointer}/runtime_projection/seeds/{i}", collection)
                     )
+
+    def operation_operand_projection(self) -> None:
+        language: dict[str, Any] = {"packages": self.graph["packages"]}
+        for projection in self.projections:
+            path = projection["authority_path"].split(".")
+            if path[0] != "language":
+                continue
+            target = language
+            for segment in path[1:-1]:
+                target = target.setdefault(segment, {})
+            target[path[-1]] = [
+                definition
+                for (_, role, _), (definition, _) in self.definitions.items()
+                if role == projection["authority_path"]
+            ]
+        closed: dict[tuple[str, str], tuple[set[str], set[str], int]] = {}
+        subjects = _consumer_b_operation_composition_subjects(
+            dict(self.kernel),
+            {"language": language},
+            closed_operations=closed,
+            operand_contracts=self.operand_contracts,
+        )
+        expected = {
+            (owner, name)
+            for owner, role, name in self.definitions
+            if role == "language.operations"
+        }
+        if subjects or set(closed) != expected:
+            raise InventoryRefusal("independent Operation composition did not close")
 
     def type_reference(self, value: Any, pointer: str) -> None:
         law = "/meta_format/literal_typing/typed_envelope_profile/admission/nominal_type_reference"
@@ -381,12 +496,18 @@ class _Reader:
                     definition[rule["element_member"]], item, _child(pointer, i)
                 )
         elif rule["operator"] == "closed-record":
-            self.gap(
-                pointer,
-                law,
-                "Record object-key occurrences require key-location support",
-            )
             for field in definition[rule["fields_member"]]:
+                field_name = field[rule["field_name_member"]]
+                if owner is None:
+                    self.gap(pointer, law, "anonymous Record value scope is unresolved")
+                else:
+                    self.occurrence(
+                        AuthorityToken("record-field", owner, field_name),
+                        _child(pointer, field_name),
+                        "reference",
+                        law,
+                        location="key",
+                    )
                 self.typed_value(
                     field[rule["field_type_member"]],
                     value[field[rule["field_name_member"]]],
@@ -484,9 +605,7 @@ class _Reader:
         elif isinstance(value, dict):
             kind = value.get("kind")
             if kind in {"port", "local"}:
-                member = "port" if kind == "port" else "name"
-                if member not in value:
-                    member = "name"
+                member = kind
                 self.operand(
                     value[member], _child(pointer, member), scope, bindings, law
                 )
@@ -538,12 +657,15 @@ class _Reader:
                     bindings,
                     law,
                 )
-            elif source["kind"] != "unit":
-                self.gap(
-                    pointer + "/result/source",
+            elif source["kind"] == "operation-result":
+                self.occurrence(
+                    AuthorityToken("operation-site", scope, source["site"]),
+                    pointer + "/result/source/site",
+                    "reference",
                     law,
-                    "Operation-result site reference is not yet covered",
                 )
+            elif source["kind"] != "unit":
+                raise InventoryRefusal("unknown Operation result source")
         if "default_outcome" in operation:
             self.occurrence(
                 AuthorityToken(
@@ -553,16 +675,47 @@ class _Reader:
                 "reference",
                 "/meta_format/runtime_program/outcome_contract",
             )
+        for member, role in (
+            ("rule", "language.rules"),
+            ("runtime_profile", "language.runtime_profiles"),
+            ("numeric_policy", "language.quantity.numeric_policies"),
+        ):
+            if member in operation:
+                self.reference(
+                    role,
+                    operation[member],
+                    pointer + "/" + member,
+                    "/meta_format/language_definitions/collections/operations",
+                )
+        for i, reason in enumerate(operation.get("refusals", [])):
+            self.reference(
+                "language.reasons",
+                reason,
+                f"{pointer}/refusals/{i}",
+                "/meta_format/language_definitions/collections/operations",
+            )
+        if self.graph.get("vector_sets"):
+            for i, name in enumerate(operation.get("vectors", [])):
+                self.reference(
+                    "vectors",
+                    name,
+                    f"{pointer}/vectors/{i}",
+                    "/meta_format/package_vector",
+                )
+        for gi, group in enumerate(
+            operation.get("alias_policy", {}).get("writable_groups", [])
+        ):
+            for pi, name in enumerate(group["ports"]):
+                self.occurrence(
+                    AuthorityToken("operation-port", scope, name),
+                    f"{pointer}/alias_policy/writable_groups/{gi}/ports/{pi}",
+                    "reference",
+                    law,
+                )
         for member in (
-            "rule",
-            "runtime_profile",
             "owner_type",
-            "numeric_policy",
-            "refusals",
             "effects",
-            "vectors",
             "extensions",
-            "alias_policy",
         ):
             if member in operation and operation[member]:
                 self.gap(
@@ -571,12 +724,26 @@ class _Reader:
                     f"Operation {member} links are not yet complete",
                 )
 
+    def callee(
+        self, reference: dict[str, Any], pointer: str, law: str
+    ) -> tuple[str, str]:
+        self.namespace(reference["package"], pointer + "/package", "reference", law)
+        self.reference(
+            "language.operations",
+            reference["id"],
+            pointer + "/id",
+            law,
+            reference["package"],
+        )
+        return reference["package"], reference["id"]
+
     def body(
         self,
         body: list[dict[str, Any]],
         pointer: str,
         scope: tuple[str, str],
         bindings: dict[str, AuthorityToken],
+        body_path: tuple[int, ...] = (),
     ) -> None:
         for i, instruction in enumerate(body):
             ip = _child(pointer, i)
@@ -601,39 +768,67 @@ class _Reader:
             if operator == "bounded-lookup":
                 members.discard("key")
                 consumed.add("key")
-                self.gap(
-                    ip + "/key",
-                    law,
-                    "lookup key role requires the selected operand constructor",
+                candidates = self.operand_contracts.get(
+                    (scope, (*body_path, i), "value")
                 )
-            if operator == "bounded-pure-fold":
-                members.update({"value", "initial"})
-                consumed.update(
-                    {"site", "operation", "accumulator_port", "item_port", "arguments"}
-                )
+                if not candidates:
+                    raise InventoryRefusal("lookup has no closed operand judgment")
+                roles = set()
+                for contract in candidates:
+                    reference = contract["type"]
+                    owner = (
+                        (reference["package"], reference["id"])
+                        if "package" in reference
+                        else None
+                    )
+                    nominal = self.types[owner] if owner is not None else None
+                    constructor, cp = next(
+                        (definition, dp)
+                        for (_, role, name), (
+                            definition,
+                            dp,
+                        ) in self.definitions.items()
+                        if role == "language.constructors"
+                        and (
+                            name == nominal["constructor"]
+                            if nominal is not None
+                            else definition.get("value_rule", {}).get("definition_kind")
+                            == reference.get("kind")
+                        )
+                    )
+                    kind = constructor["value_rule"]["operator"]
+                    roles.add(kind)
+                    if kind == "closed-record":
+                        if owner is None:
+                            self.gap(
+                                ip + "/key",
+                                law,
+                                "anonymous Record lookup field scope is unresolved",
+                            )
+                            continue
+                        self.occurrence(
+                            AuthorityToken("record-field", owner, instruction["key"]),
+                            ip + "/key",
+                            "reference",
+                            cp + "/value_rule",
+                        )
+                    elif kind == "bounded-list":
+                        self.operand(
+                            instruction["key"], ip + "/key", scope, bindings, law
+                        )
+                    else:
+                        raise InventoryRefusal(
+                            "lookup operand has an unknown consuming law"
+                        )
+                if len(roles) > 1:
+                    raise InventoryRefusal("lookup key has conflicting semantic roles")
+            if operator in {"bounded-pure-fold", "invoke-operation"}:
+                consumed.update({"site", "operation", "arguments"})
                 site = AuthorityToken("operation-site", scope, instruction["site"])
                 self.occurrence(site, ip + "/site", "declaration", law)
-                callee = instruction["operation"]
-                self.namespace(
-                    callee["package"], ip + "/operation/package", "reference", law
+                target_scope = self.callee(
+                    instruction["operation"], ip + "/operation", law
                 )
-                self.reference(
-                    "language.operations",
-                    callee["id"],
-                    ip + "/operation/id",
-                    law,
-                    callee["package"],
-                )
-                target_scope = (callee["package"], callee["id"])
-                for member in ("accumulator_port", "item_port"):
-                    self.occurrence(
-                        AuthorityToken(
-                            "operation-port", target_scope, instruction[member]
-                        ),
-                        ip + "/" + member,
-                        "reference",
-                        law,
-                    )
                 for ai, argument in enumerate(instruction["arguments"]):
                     ap = f"{ip}/arguments/{ai}"
                     self.occurrence(
@@ -647,9 +842,58 @@ class _Reader:
                     self.operand(
                         argument["operand"], ap + "/operand", scope, bindings, law
                     )
+                if operator == "bounded-pure-fold":
+                    members.update({"value", "initial"})
+                    consumed.update({"accumulator_port", "item_port"})
+                    for member in ("accumulator_port", "item_port"):
+                        self.occurrence(
+                            AuthorityToken(
+                                "operation-port", target_scope, instruction[member]
+                            ),
+                            ip + "/" + member,
+                            "reference",
+                            law,
+                        )
+                else:
+                    consumed.update({"result", "outcomes"})
+                    result = instruction["result"]
+                    if result["kind"] == "local":
+                        token = AuthorityToken("operation-local", scope, result["name"])
+                        self.occurrence(token, ip + "/result/name", "declaration", law)
+                        bindings[result["name"]] = token
+                    elif (
+                        result["kind"]
+                        not in self.meta["runtime_program"]["invocation_contract"][
+                            "result_binding_kinds"
+                        ]
+                    ):
+                        raise InventoryRefusal("unknown invocation result binding")
+                    for oi, outcome in enumerate(instruction["outcomes"]):
+                        op = f"{ip}/outcomes/{oi}"
+                        self.occurrence(
+                            AuthorityToken(
+                                "operation-outcome", target_scope, outcome["outcome"]
+                            ),
+                            op + "/outcome",
+                            "reference",
+                            law,
+                        )
+                        if outcome["action"]["kind"] == "propagate":
+                            self.occurrence(
+                                AuthorityToken(
+                                    "operation-outcome",
+                                    scope,
+                                    outcome["action"]["outcome"],
+                                ),
+                                op + "/action/outcome",
+                                "reference",
+                                law,
+                            )
             elif operator == "guarded-outcome-block":
                 consumed.update({"body", "outcome"})
-                self.body(instruction["body"], ip + "/body", scope, bindings)
+                self.body(
+                    instruction["body"], ip + "/body", scope, bindings, (*body_path, i)
+                )
                 self.occurrence(
                     AuthorityToken("operation-outcome", scope, instruction["outcome"]),
                     ip + "/outcome",
@@ -678,6 +922,18 @@ class _Reader:
         source = self.graph.get("source")
         if not source:
             return
+        schemas = [
+            value["schema"]
+            for (_, role, _), (value, _) in self.definitions.items()
+            if role == "language.wire_schemas"
+            and value["artifact_kind"] == "model-source-package"
+        ]
+        if len(schemas) != 1 or not jsonschema.Draft202012Validator(
+            schemas[0]
+        ).is_valid(source):
+            raise InventoryRefusal(
+                "Source does not match its admitted closed wire schema"
+            )
         law = "/meta_format/resolution_judgment"
         model = source["manifest"]["id"]
         self.occurrence(
@@ -746,15 +1002,52 @@ class _Reader:
             "source-module", (model,), source["manifest"]["entry_module"]
         )
         self.occurrence(entry, "/source/manifest/entry_module", "reference", law)
-        if source.get("entrypoints"):
-            self.gap(
-                "/source/entrypoints",
+        for ei, entrypoint in enumerate(source.get("entrypoints", [])):
+            ep = f"/source/entrypoints/{ei}"
+            self.occurrence(
+                AuthorityToken("source-entrypoint", (model,), entrypoint["id"]),
+                ep + "/id",
+                "declaration",
                 law,
-                "Source entrypoint/argument/result links are not yet complete",
             )
+            target_scope = self.callee(entrypoint["operation"], ep + "/operation", law)
+            for ai, argument in enumerate(entrypoint["arguments"]):
+                ap = f"{ep}/arguments/{ai}"
+                self.occurrence(
+                    AuthorityToken("operation-port", target_scope, argument["port"]),
+                    ap + "/port",
+                    "reference",
+                    law,
+                )
+                self.source_operand(argument["operand"], ap + "/operand", model, law)
+            self.source_operand(entrypoint["result"], ep + "/result", model, law)
+
+    def source_operand(
+        self, operand: dict[str, Any], pointer: str, model: str, law: str
+    ) -> None:
+        if operand["kind"] == "symbol":
+            self.occurrence(
+                AuthorityToken("source-module", (model,), operand["module"]),
+                pointer + "/module",
+                "reference",
+                law,
+            )
+            self.occurrence(
+                AuthorityToken(
+                    "source-symbol", (model, operand["module"]), operand["symbol"]
+                ),
+                pointer + "/symbol",
+                "reference",
+                law,
+            )
+        elif operand["kind"] == "literal":
+            self.typed_literal(operand["value"], pointer + "/value")
+        elif operand["kind"] != "discard":
+            self.gap(pointer, law, "Source operand form is not yet traversed")
 
     def finish(self) -> ExtensionInventory:
         self.index()
+        self.operation_operand_projection()
         self.packages()
         self.source()
         declarations = {o.token for o in self.occurrences if o.use == "declaration"}
@@ -791,7 +1084,7 @@ def validate_inventory_occurrences(
         raise InventoryRefusal("duplicate token occurrence")
     for occurrence in inventory.occurrences:
         try:
-            value = _pointer_value(graph, occurrence.pointer)
+            value = _occurrence_value(graph, occurrence)
         except (KeyError, IndexError, ValueError, TypeError) as error:
             raise InventoryRefusal("invalid token occurrence pointer") from error
         if occurrence.token not in inventory.tokens or value != occurrence.token.name:
@@ -844,7 +1137,11 @@ def validate_extension_inventory(
         row["path"].removeprefix("language_bundle."): row.get("scope")
         for row in unique["arguments"]["collections"]
     }
-    actual = {(o.token, o.pointer, o.use) for o in inventory.occurrences}
+    actual = {
+        (o.token, o.pointer, o.use)
+        for o in inventory.occurrences
+        if o.location == "value"
+    }
     required: set[tuple[AuthorityToken, str, str]] = set()
     for pi, package in enumerate(graph["packages"]):
         owner, pp = package["id"], f"/packages/{pi}"
@@ -930,7 +1227,10 @@ def validate_extension_inventory(
                                         "declaration",
                                     )
                                 )
-                            if node["semantics"]["operator"] == "bounded-pure-fold":
+                            if node["semantics"]["operator"] in {
+                                "bounded-pure-fold",
+                                "invoke-operation",
+                            }:
                                 required.add(
                                     (
                                         AuthorityToken(
@@ -952,6 +1252,173 @@ def validate_extension_inventory(
                     "declaration",
                 )
             )
+    for i, descriptor in enumerate(
+        graph.get("ldb_root", {}).get("package_descriptors", [])
+    ):
+        required.add(
+            (
+                AuthorityToken("namespace", (), descriptor["id"]),
+                f"/ldb_root/package_descriptors/{i}/id",
+                "reference",
+            )
+        )
+    for vi, vector_set in enumerate(graph.get("vector_sets", [])):
+        vp = f"/vector_sets/{vi}"
+        required.add(
+            (
+                AuthorityToken("namespace", (), vector_set["package_id"]),
+                vp + "/package_id",
+                "reference",
+            )
+        )
+        for member, use in (
+            ("vector_definitions", "declaration"),
+            ("vectors", "reference"),
+        ):
+            for i, row in enumerate(vector_set[member]):
+                name = row["id"] if use == "declaration" else row
+                path = f"{vp}/{member}/{i}" + ("/id" if use == "declaration" else "")
+                owner = (
+                    (vector_set["package_id"],)
+                    if scopes.get("vectors") == "package"
+                    else ()
+                )
+                required.add((AuthorityToken("vectors", owner, name), path, use))
+    source = graph.get("source")
+    if source:
+        model = source["manifest"]["id"]
+        required.add(
+            (
+                AuthorityToken("source-model", (), model),
+                "/source/manifest/id",
+                "declaration",
+            )
+        )
+        required.add(
+            (
+                AuthorityToken(
+                    "source-module", (model,), source["manifest"]["entry_module"]
+                ),
+                "/source/manifest/entry_module",
+                "reference",
+            )
+        )
+        for i, namespace in enumerate(source["package_requirements"]):
+            required.add(
+                (
+                    AuthorityToken("namespace", (), namespace),
+                    f"/source/package_requirements/{i}",
+                    "reference",
+                )
+            )
+        for mi, module in enumerate(source["modules"]):
+            scope, mp = (model, module["id"]), f"/source/modules/{mi}"
+            required.add(
+                (
+                    AuthorityToken("source-module", (model,), module["id"]),
+                    mp + "/id",
+                    "declaration",
+                )
+            )
+            for ii, row in enumerate(module["imports"]):
+                ip = f"{mp}/imports/{ii}"
+                required.add(
+                    (
+                        AuthorityToken("source-type-alias", scope, row["alias"]),
+                        ip + "/alias",
+                        "declaration",
+                    )
+                )
+                required.add(
+                    (
+                        AuthorityToken("namespace", (), row["package"]),
+                        ip + "/package",
+                        "reference",
+                    )
+                )
+                required.add(
+                    (
+                        AuthorityToken("type", (row["package"],), row["symbol"]),
+                        ip + "/symbol",
+                        "reference",
+                    )
+                )
+            for si, row in enumerate(module["symbols"]):
+                sp = f"{mp}/symbols/{si}"
+                required.add(
+                    (
+                        AuthorityToken("source-symbol", scope, row["symbol"]),
+                        sp + "/symbol",
+                        "declaration",
+                    )
+                )
+                required.add(
+                    (
+                        AuthorityToken("source-type-alias", scope, row["type"]),
+                        sp + "/type",
+                        "reference",
+                    )
+                )
+        for ei, entry in enumerate(source.get("entrypoints", [])):
+            ep = f"/source/entrypoints/{ei}"
+            operation = entry["operation"]
+            callee = (operation["package"], operation["id"])
+            required.add(
+                (
+                    AuthorityToken("source-entrypoint", (model,), entry["id"]),
+                    ep + "/id",
+                    "declaration",
+                )
+            )
+            required.add(
+                (
+                    AuthorityToken("namespace", (), callee[0]),
+                    ep + "/operation/package",
+                    "reference",
+                )
+            )
+            required.add(
+                (
+                    AuthorityToken("language.operations", (), callee[1])
+                    if scopes.get("language.operations") != "package"
+                    else AuthorityToken("language.operations", callee[:1], callee[1]),
+                    ep + "/operation/id",
+                    "reference",
+                )
+            )
+            operands = [(entry["result"], ep + "/result")]
+            for ai, argument in enumerate(entry["arguments"]):
+                ap = f"{ep}/arguments/{ai}"
+                required.add(
+                    (
+                        AuthorityToken("operation-port", callee, argument["port"]),
+                        ap + "/port",
+                        "reference",
+                    )
+                )
+                operands.append((argument["operand"], ap + "/operand"))
+            for operand, op in operands:
+                if operand["kind"] == "symbol":
+                    required.add(
+                        (
+                            AuthorityToken(
+                                "source-module", (model,), operand["module"]
+                            ),
+                            op + "/module",
+                            "reference",
+                        )
+                    )
+                    required.add(
+                        (
+                            AuthorityToken(
+                                "source-symbol",
+                                (model, operand["module"]),
+                                operand["symbol"],
+                            ),
+                            op + "/symbol",
+                            "reference",
+                        )
+                    )
     if not required <= actual:
         first = sorted(required - actual, key=lambda row: row[1])[0]
         raise InventoryRefusal(
