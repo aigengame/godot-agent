@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:9dc4e8991b70970d32d1012a7545dee57ef7ac2f4966721694255f39d6ff3c2c"
+    "sha256:b13ab5a5e3a6741bfca0ccd70b8e033bdeea0d11bf076aef54d021ae59c0e582"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -2434,9 +2434,86 @@ def _consumer_b_meta_validate_schema(
     return True
 
 
+def _consumer_b_source_notation_contract_is_supported(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == {"role", "required_members"}
+        and value["role"] == "model-source-package"
+        and value["required_members"]
+        == ["formula_grammar", "operation_notation_schema"]
+    )
+
+
+def _consumer_b_source_notation_is_closed(ldb: dict[str, Any], contract: Any) -> bool:
+    if not _consumer_b_source_notation_contract_is_supported(contract):
+        return False
+    source = None
+    for row in ldb["language"]["wire_schemas"]:
+        owned = set(contract["required_members"]) & row.keys()
+        if row.get("protocol_role") != contract["role"]:
+            if owned:
+                return False
+            continue
+        if source is not None or owned != set(contract["required_members"]):
+            return False
+        source = row
+    if source is None:
+        return False
+    try:
+        grammar = source["formula_grammar"]
+        identifier = grammar["identifier_token_pattern"]
+        if grammar["bare_identifier_pattern"] != "^" + identifier + "$":
+            return False
+        for name in (
+            "identifier_token_pattern",
+            "integer_literal_pattern",
+            "whitespace_pattern",
+        ):
+            if re.fullmatch(grammar[name], "") is not None:
+                return False
+        groups = grammar["group_delimiters"]
+        condition = grammar["conditional_keywords"]
+        if len(groups) != 2 or len(condition) != 3:
+            return False
+        words = [grammar["binding_keyword"], *condition]
+        if len(set(words)) != len(words):
+            return False
+        if any(
+            word not in grammar["reserved_identifiers"]
+            or re.fullmatch(identifier, word) is None
+            for word in words
+        ):
+            return False
+        characters = [
+            *groups,
+            *(
+                grammar[name]
+                for name in (
+                    "named_argument_operator",
+                    "binding_terminator",
+                    "argument_separator",
+                    "coordinate_separator",
+                    "identifier_quote",
+                )
+            ),
+        ]
+        if any(len(character) != 1 for character in characters) or len(
+            set(characters)
+        ) != len(characters):
+            return False
+        quote, escape = grammar["identifier_quote"], grammar["escape_character"]
+        return (
+            len(escape) == 1
+            and escape != quote
+            and set(grammar["escapable_identifier_characters"]) == {quote, escape}
+        )
+    except (KeyError, TypeError, re.error):
+        return False
+
+
 def _consumer_b_wire_schema_identity_domains_are_closed(
     ldb: dict[str, Any],
-    protocol_roles: dict[str, list[str]],
+    protocol_roles: dict[str, Any],
 ) -> bool:
     language = ldb.get("language")
     if not isinstance(language, dict):
@@ -5060,6 +5137,10 @@ def _consumer_b_language_definitions_are_closed(
             _consumer_b_definition_is_closed(value, contract, ldb) for value in values
         ):
             return False
+    if not _consumer_b_source_notation_is_closed(
+        ldb, authority.get("wire_schema_protocol_roles", {}).get("source_notation")
+    ):
+        return False
     quantity = language.get("quantity")
     quantity_contract = authority.get("quantity")
     if not isinstance(quantity, dict) or not isinstance(quantity_contract, dict):
@@ -9852,6 +9933,12 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         )
     if not _consumer_b_runtime_authority_is_closed(kernel, ldb):
         refuse("kernel.vector_mismatch", "static", "language.runtime")
+    if not _consumer_b_source_notation_contract_is_supported(
+        meta.get("language_definitions", {})
+        .get("wire_schema_protocol_roles", {})
+        .get("source_notation")
+    ):
+        refuse("kernel.vector_mismatch", "static", "kernel.meta-format.source-notation")
     if not _consumer_b_wire_schema_identity_domains_are_closed(
         ldb, kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"]
     ):

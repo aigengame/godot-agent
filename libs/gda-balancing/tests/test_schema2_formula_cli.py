@@ -1047,16 +1047,15 @@ def test_standard_schema_owns_the_closed_formula_notation_grammar(run_cli) -> No
 
     assert (exit_code, stderr) == (0, "")
     release = json.loads(stdout)
-    source_schema = next(
-        definition["schema"]
+    source_definition = next(
+        definition
         for closure in release["semantic_closure"]
         if closure["authority_path"] == "language.wire_schemas"
         for definition in closure["definitions"]
         if definition["artifact_kind"] == "model-source-package"
     )
-    grammar = source_schema["$defs"]["formulaNotationGrammar"]["const"]
+    grammar = source_definition["formula_grammar"]
     assert grammar == {
-        "version": "1.1.0",
         "bare_identifier_pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
         "identifier_token_pattern": "[A-Za-z_][A-Za-z0-9_]*",
         "integer_literal_pattern": "-?(?:0|[1-9][0-9]*)",
@@ -1078,7 +1077,7 @@ def test_standard_schema_owns_the_closed_formula_notation_grammar(run_cli) -> No
         "max_group_depth": 1536,
         "max_tokens": 4096,
     }
-    notation_schema = source_schema["$defs"]["formulaOperationNotation"]
+    notation_schema = source_definition["operation_notation_schema"]
     assert notation_schema["oneOf"][0]["required"] == [
         "kind",
         "token",
@@ -2309,7 +2308,7 @@ def test_independent_consumer_types_zero_node_results() -> None:
 def test_independent_consumer_enforces_notation_resource_bounds() -> None:
     context = authority_module.packaged_authority_context()
     grammar = next(
-        definition["schema"]["$defs"]["formulaNotationGrammar"]["const"]
+        definition["formula_grammar"]
         for package in context.language_bundle["language"]["packages"]
         if package["id"] == "standard.schema"
         for closure in package["semantic_closure"]

@@ -16,9 +16,9 @@ import jsonschema
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 
 
-def _source_schema(language_bundle: dict[str, Any]) -> dict[str, Any]:
+def _source_definition(language_bundle: dict[str, Any]) -> dict[str, Any]:
     schemas = [
-        definition["schema"]
+        definition
         for package in language_bundle["language"]["packages"]
         for closure in package["semantic_closure"]
         if closure.get("authority_path") == "language.wire_schemas"
@@ -30,15 +30,14 @@ def _source_schema(language_bundle: dict[str, Any]) -> dict[str, Any]:
     return schemas[0]
 
 
+def _source_schema(language_bundle: dict[str, Any]) -> dict[str, Any]:
+    return _source_definition(language_bundle)["schema"]
+
+
 def _authority(
     language_bundle: dict[str, Any],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    grammar = (
-        _source_schema(language_bundle)
-        .get("$defs", {})
-        .get("formulaNotationGrammar", {})
-        .get("const")
-    )
+    grammar = _source_definition(language_bundle).get("formula_grammar")
     if not isinstance(grammar, dict):
         raise ValueError("independent consumer found no Formula grammar")
     return grammar, cast(
@@ -223,6 +222,9 @@ def _operand(value: Any, grammar: dict[str, Any]) -> str:
 def _selected_notations(
     request: dict[str, Any], language_bundle: dict[str, Any]
 ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    notation_validator = jsonschema.Draft202012Validator(
+        _source_definition(language_bundle)["operation_notation_schema"]
+    )
     selected = set(request.get("package_requirements", []))
     rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for package in language_bundle["language"]["packages"]:
@@ -236,6 +238,10 @@ def _selected_notations(
                     "standard.formula-notation"
                 )
                 if operation.get("purity") == "pure" and isinstance(notation, dict):
+                    if not notation_validator.is_valid(notation):
+                        raise ValueError(
+                            "Operation notation violates its selected schema"
+                        )
                     rows.append(({**operation, "package": package["id"]}, notation))
     return rows
 
@@ -303,7 +309,9 @@ def render_body(
             )
         else:
             raise ValueError("node kind is not admitted")
-        lines.append(f"let {_identifier(node['id'], grammar)} = {rhs};")
+        lines.append(
+            f"{grammar['binding_keyword']} {_identifier(node['id'], grammar)} = {rhs};"
+        )
     lines.append(_operand(body["result"], grammar))
     return "\n".join(lines)
 
@@ -899,9 +907,12 @@ def parse_canonical(
         return {"nodes": [], "result": operand}
 
     for line in lines[:-1]:
-        if not line.startswith("let ") or not line.endswith(";"):
+        binding_prefix = grammar["binding_keyword"] + " "
+        if not line.startswith(binding_prefix) or not line.endswith(";"):
             raise ValueError("canonical binding line is malformed")
-        assignment = _split_outside(line[4:-1], " = ", quote, escape)
+        assignment = _split_outside(
+            line[len(binding_prefix) : -1], " = ", quote, escape
+        )
         if len(assignment) != 2:
             raise ValueError("canonical binding assignment is malformed")
         local = _unquote(assignment[0], grammar)

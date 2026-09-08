@@ -912,7 +912,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:9dc4e8991b70970d32d1012a7545dee57ef7ac2f4966721694255f39d6ff3c2c",
+  "content_identity": "sha256:b13ab5a5e3a6741bfca0ccd70b8e033bdeea0d11bf076aef54d021ae59c0e582",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3394,9 +3394,144 @@
             "artifact_kind": {
               "type": "non-empty-string"
             },
+            "formula_grammar": {
+              "field_types": {
+                "argument_separator": {
+                  "type": "non-empty-string"
+                },
+                "bare_identifier_pattern": {
+                  "type": "non-empty-string"
+                },
+                "binding_keyword": {
+                  "type": "non-empty-string"
+                },
+                "binding_terminator": {
+                  "type": "non-empty-string"
+                },
+                "conditional_keywords": {
+                  "type": "string-list"
+                },
+                "coordinate_separator": {
+                  "type": "non-empty-string"
+                },
+                "escapable_identifier_characters": {
+                  "type": "string-list"
+                },
+                "escape_character": {
+                  "type": "non-empty-string"
+                },
+                "group_delimiters": {
+                  "type": "string-list"
+                },
+                "identifier_quote": {
+                  "type": "non-empty-string"
+                },
+                "identifier_token_pattern": {
+                  "type": "non-empty-string"
+                },
+                "integer_literal_pattern": {
+                  "type": "non-empty-string"
+                },
+                "max_expression_bytes": {
+                  "type": "positive-signed-int64"
+                },
+                "max_group_depth": {
+                  "type": "positive-signed-int64"
+                },
+                "max_tokens": {
+                  "type": "positive-signed-int64"
+                },
+                "named_argument_operator": {
+                  "type": "non-empty-string"
+                },
+                "request_identity_domain": {
+                  "type": "non-empty-string"
+                },
+                "reserved_identifiers": {
+                  "type": "string-list"
+                },
+                "signed_integer_context": {
+                  "const": "operand-position"
+                },
+                "whitespace_pattern": {
+                  "type": "non-empty-string"
+                }
+              },
+              "required_members": [
+                "argument_separator",
+                "bare_identifier_pattern",
+                "binding_keyword",
+                "binding_terminator",
+                "conditional_keywords",
+                "coordinate_separator",
+                "escapable_identifier_characters",
+                "escape_character",
+                "group_delimiters",
+                "identifier_quote",
+                "identifier_token_pattern",
+                "integer_literal_pattern",
+                "max_expression_bytes",
+                "max_group_depth",
+                "max_tokens",
+                "named_argument_operator",
+                "request_identity_domain",
+                "reserved_identifiers",
+                "signed_integer_context",
+                "whitespace_pattern"
+              ],
+              "type": "closed-object"
+            },
+            "operation_notation_schema": {
+              "allowed_keywords": [
+                "$schema",
+                "const",
+                "enum",
+                "items",
+                "maxItems",
+                "maximum",
+                "minItems",
+                "minLength",
+                "minimum",
+                "pattern",
+                "properties",
+                "required",
+                "type",
+                "unevaluatedProperties",
+                "uniqueItems",
+                "oneOf"
+              ],
+              "dialect": "https://json-schema.org/draft/2020-12/schema",
+              "keyword_type_requirements": {
+                "items": [
+                  "array"
+                ],
+                "minItems": [
+                  "array"
+                ],
+                "minLength": [
+                  "string"
+                ],
+                "properties": [
+                  "object"
+                ],
+                "required": [
+                  "object"
+                ],
+                "unevaluatedProperties": [
+                  "object"
+                ]
+              },
+              "object_closure_keyword": "unevaluatedProperties",
+              "object_closure_value": false,
+              "references": "forbidden",
+              "type": "closed-json-schema",
+              "type_form": "single-string"
+            },
+            "protocol_role": {
+              "type": "non-empty-string"
+            },
             "schema": {
               "allowed_keywords": [
-                "$defs",
                 "$schema",
                 "const",
                 "enum",
@@ -3443,18 +3578,17 @@
             },
             "wire_schema_identity_domain": {
               "type": "non-empty-string"
-            },
-            "protocol_role": {
-              "type": "non-empty-string"
             }
           },
+          "optional_members": [
+            "wire_schema_identity_domain",
+            "protocol_role",
+            "formula_grammar",
+            "operation_notation_schema"
+          ],
           "required_members": [
             "artifact_kind",
             "schema"
-          ],
-          "optional_members": [
-            "wire_schema_identity_domain",
-            "protocol_role"
           ]
         },
         "literal_typing_profiles": {
@@ -3916,7 +4050,14 @@
         "standalone_inputs": [
           "experiment-specification",
           "model-source-package"
-        ]
+        ],
+        "source_notation": {
+          "role": "model-source-package",
+          "required_members": [
+            "formula_grammar",
+            "operation_notation_schema"
+          ]
+        }
       }
     },
     "package_dependency_constraint": {

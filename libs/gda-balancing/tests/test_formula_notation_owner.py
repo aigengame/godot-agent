@@ -63,7 +63,7 @@ def test_public_model_uses_the_renamed_admitted_schema_owner(tmp_path, source_fa
         # Derive the expected owner directly from the admitted graph; do not
         # consult the host Formula owner resolver under test.
         schemas = [
-            (package["id"], definition["schema"])
+            (package["id"], definition)
             for package in language.package_releases
             for closure in package["semantic_closure"]
             if closure["authority_path"] == "language.wire_schemas"
@@ -71,11 +71,11 @@ def test_public_model_uses_the_renamed_admitted_schema_owner(tmp_path, source_fa
             if definition.get("artifact_kind") == "model-source-package"
         ]
         assert [owner for owner, _schema in schemas] == [namespace]
-        definitions = schemas[0][1]["$defs"]
+        definitions = schemas[0][1]
         notation_definitions.append(
             [
-                definitions["formulaNotationGrammar"],
-                definitions["formulaOperationNotation"],
+                definitions["formula_grammar"],
+                definitions["operation_notation_schema"],
             ]
         )
         candidate = _PublicCandidate(

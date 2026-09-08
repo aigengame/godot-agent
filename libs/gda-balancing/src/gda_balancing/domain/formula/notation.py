@@ -84,39 +84,10 @@ def _contextual_refusal(error: ValueError) -> FormulaNotationRefusal:
 def _notation_authority(
     authority_context: AdmittedAuthorityContext,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    definitions = _formula_source_schema(authority_context).get("$defs")
-    if not isinstance(definitions, dict):
-        raise ValueError("Model Source schema has no Formula notation definitions")
-    grammar_schema = definitions.get("formulaNotationGrammar")
-    notation_schema = definitions.get("formulaOperationNotation")
-    grammar = grammar_schema.get("const") if isinstance(grammar_schema, dict) else None
-    if not isinstance(grammar, dict) or not isinstance(notation_schema, dict):
-        raise ValueError("Model Source Formula notation authority is incomplete")
-    token_pattern = grammar.get("identifier_token_pattern")
-    bare_pattern = grammar.get("bare_identifier_pattern")
-    integer_pattern = grammar.get("integer_literal_pattern")
-    whitespace_pattern = grammar.get("whitespace_pattern")
-    if (
-        grammar.get("version") != "1.1.0"
-        or not isinstance(token_pattern, str)
-        or bare_pattern != f"^{token_pattern}$"
-        or not isinstance(integer_pattern, str)
-        or not isinstance(whitespace_pattern, str)
-        or grammar.get("signed_integer_context") != "operand-position"
-        or not isinstance(grammar.get("max_group_depth"), int)
-        or cast(int, grammar["max_group_depth"]) < 1
-    ):
-        raise ValueError("Model Source Formula notation grammar is malformed")
-    try:
-        if (
-            re.fullmatch(token_pattern, "") is not None
-            or re.fullmatch(integer_pattern, "") is not None
-            or re.fullmatch(whitespace_pattern, "") is not None
-        ):
-            raise ValueError("Formula notation token patterns admit empty input")
-    except re.error as err:
-        raise ValueError("Formula notation token pattern is malformed") from err
-    return grammar, notation_schema
+    definition = wire_schema_definition_for_role(
+        authority_context.language_bundle, "model-source-package"
+    )
+    return definition["formula_grammar"], definition["operation_notation_schema"]
 
 
 def formula_notation_request_identity_domain(

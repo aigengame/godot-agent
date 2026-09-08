@@ -7395,12 +7395,12 @@ def test_unlocked_escaping_authority_changes_rir_content_not_semantics():
     original = model_compilation_module.lower_checked_model(baseline)
 
     candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline.language_bundle))
-    source_schema = next(
-        row["schema"]
+    source_definition = next(
+        row
         for row in candidate_ldb["language"]["wire_schemas"]
         if row["artifact_kind"] == "model-source-package"
     )
-    grammar = source_schema["$defs"]["formulaNotationGrammar"]["const"]
+    grammar = source_definition["formula_grammar"]
     grammar["escape_character"] = "~"
     grammar["escapable_identifier_characters"] = ["`", "~"]
     source["modules"][0]["formulas"][0]["expression"] = (

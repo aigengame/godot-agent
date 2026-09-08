@@ -6,6 +6,7 @@ declared generic inputs/result and normative vectors.
 """
 
 import json
+import re
 
 import jsonschema
 from dataclasses import dataclass
@@ -79,7 +80,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:9dc4e8991b70970d32d1012a7545dee57ef7ac2f4966721694255f39d6ff3c2c"
+    "sha256:b13ab5a5e3a6741bfca0ccd70b8e033bdeea0d11bf076aef54d021ae59c0e582"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -400,9 +401,68 @@ def _language_bundle_is_closed(
     )
 
 
+def _source_notation_contract_is_supported(contract: Any) -> bool:
+    return contract == {
+        "role": "model-source-package",
+        "required_members": ["formula_grammar", "operation_notation_schema"],
+    }
+
+
+def _source_notation_is_closed(language_bundle: dict[str, Any], contract: Any) -> bool:
+    """Interpret the Source role's two required Formula notation fields."""
+    if not _source_notation_contract_is_supported(contract):
+        return False
+    fields = set(contract["required_members"])
+    sources = []
+    for definition in language_bundle["language"]["wire_schemas"]:
+        if definition.get("protocol_role") == contract["role"]:
+            if not fields <= set(definition):
+                return False
+            sources.append(definition)
+        elif fields & set(definition):
+            return False
+    if len(sources) != 1:
+        return False
+    grammar = sources[0]["formula_grammar"]
+    try:
+        token = grammar["identifier_token_pattern"]
+        patterns = (
+            token,
+            grammar["integer_literal_pattern"],
+            grammar["whitespace_pattern"],
+        )
+        groups = grammar["group_delimiters"]
+        keywords = [grammar["binding_keyword"], *grammar["conditional_keywords"]]
+        punctuation = [
+            *groups,
+            grammar["named_argument_operator"],
+            grammar["binding_terminator"],
+            grammar["argument_separator"],
+            grammar["coordinate_separator"],
+            grammar["identifier_quote"],
+        ]
+        return (
+            grammar["bare_identifier_pattern"] == f"^{token}$"
+            and all(re.fullmatch(pattern, "") is None for pattern in patterns)
+            and len(groups) == 2
+            and len(grammar["conditional_keywords"]) == 3
+            and len(keywords) == len(set(keywords))
+            and all(re.fullmatch(token, keyword) is not None for keyword in keywords)
+            and set(keywords) <= set(grammar["reserved_identifiers"])
+            and all(len(character) == 1 for character in punctuation)
+            and len(punctuation) == len(set(punctuation))
+            and len(grammar["escape_character"]) == 1
+            and grammar["escape_character"] != grammar["identifier_quote"]
+            and set(grammar["escapable_identifier_characters"])
+            == {grammar["identifier_quote"], grammar["escape_character"]}
+        )
+    except (KeyError, TypeError, re.error):
+        return False
+
+
 def _wire_schema_identity_domains_are_closed(
     language_bundle: dict[str, Any],
-    protocol_roles: dict[str, list[str]],
+    protocol_roles: dict[str, Any],
 ) -> bool:
     language = language_bundle.get("language")
     if not isinstance(language, dict):
@@ -2731,6 +2791,11 @@ def _language_definitions_are_closed(
             _definition_is_closed(value, contract, language_bundle) for value in values
         ):
             return False
+    if not _source_notation_is_closed(
+        language_bundle,
+        authority.get("wire_schema_protocol_roles", {}).get("source_notation"),
+    ):
+        return False
     quantity = language.get("quantity")
     quantity_contract = authority.get("quantity")
     if not isinstance(quantity, dict) or not isinstance(quantity_contract, dict):
@@ -5563,6 +5628,12 @@ def admit_authorities(
         )
     if not _runtime_authority_is_closed(kernel, language_bundle):
         refuse("kernel.vector_mismatch", "static", "language.runtime")
+    if not _source_notation_contract_is_supported(
+        meta_format.get("language_definitions", {})
+        .get("wire_schema_protocol_roles", {})
+        .get("source_notation")
+    ):
+        refuse("kernel.vector_mismatch", "static", "kernel.meta-format.source-notation")
     if not _wire_schema_identity_domains_are_closed(
         language_bundle,
         kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"],
