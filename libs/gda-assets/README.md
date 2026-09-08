@@ -125,6 +125,44 @@ saved from `gda resource inspect-model`. Add `--baseline ./older-report.json` fo
 a separate compatible comparison. Completed `pass`, `fail`, and `insufficient`
 verdicts all exit 0; malformed input or workflow failure exits nonzero.
 
+## Check an exported package
+
+Use one expectation file first against the source project, then against the PCK:
+
+```sh
+gda asset-pipeline check --project ./consumer \
+  --path res://art/model.glb --expectations ./model.expectations.json --json
+
+gda export run --project ./consumer --preset "Linux/X11" \
+  --mode pack --output ./build/game.pck --json
+
+gda asset-pipeline check-package --package ./build/game.pck \
+  --path res://art/model.glb --expectations ./model.expectations.json \
+  --exclude res://dev/test.gd --json
+```
+
+`export run --mode pack` uses Godot's native export, including its cold import; do
+not run a redundant source import first. The package check needs no project and
+resolves `res://` only inside the staged PCK. Each repeated `--exclude` selects one
+exact normalized resource path (at most 64), checked through the engine namespace;
+there are no globs, recursive scans, or complete package inventory. Use optional
+`--subtree`, `--max-nodes`, and `--max-items` to retain the same bounded model-fact
+scope as a source check.
+
+Always read `package_check.verdict`: completed `pass`, `fail`, and `insufficient`
+results exit 0. The outer `origin` is `package_editor_inspection`; the reused inner
+`check.origin` is `supplied_report` because the workflow hands the observed model
+facts to the existing evaluator. The result also identifies the original and staged
+package paths, SHA-256, size, inspecting engine, selected resource presence, exact
+exclusion verdicts, completed stages, cleanup, failure, and limitations.
+
+The input must be a regular standalone `.pck` no larger than 1 GiB. The workflow
+copies it into owned temporary staging before starting Godot, removes staging after
+the engine work, and retains the original package. Load or workflow failures exit
+nonzero with `error.partial_result.package_check`; cleanup issues remain explicit.
+This initial path requires a desktop editor-capable Godot binary. It does not run a
+release executable or prove native input, rendering, or gameplay behavior.
+
 ## Preview a model
 
 Write captures to a new output directory:

@@ -95,9 +95,12 @@ matching observed setups and report scene-level mean/p95 deltas; they do not pro
 content equality, repeatable pixels or timing, or per-mesh cost. The current fixture
 has no overlays, and Godot node names provide only limited source-object mapping.
 
-**Package acceptance**: Evaluate the same expectations against facts obtained from
-the actual exported package in isolation. Package inspection and native executable
-render/input testing are separate results.
+**Package acceptance**: Copy one bounded standalone PCK into owned staging, inspect
+selected resources through a desktop editor in the package namespace, and apply the
+same model expectations. Exact declared exclusions are presence checks, not globs or
+package inventory. The result preserves package identity, inspecting engine, fact
+scope, verdict, partial failure and cleanup. Editor inspection and native executable
+render/input behavior remain separate observations.
 
 ## Naming and authority
 

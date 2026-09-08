@@ -3,9 +3,9 @@
 This subtree carries **Asset Pipeline**, gda's internal asset-workflow supporting
 context. It is not a sibling user-facing product. File handoff (#908), saved
 Blender production (#909), model expectation checks (#887), optional content
-observations (#889), and controlled runtime refresh (#890) are implemented;
-the preview workflow (#891) is under implementation and validation, while other
-workflows remain planned. Requirements and delivery status live in
+observations (#889), controlled runtime refresh (#890), preview (#891), and package
+acceptance (#892) are implemented. Prompt and concept workflows remain planned.
+Requirements, review, CI, and delivery status live in
 [#907](https://github.com/aigengame/godot-agent/issues/907).
 
 Inherit root `AGENTS.md`, `RULES.md`, issue tracker, and triage conventions except

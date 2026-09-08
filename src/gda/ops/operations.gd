@@ -333,6 +333,8 @@ func _initialize() -> void:
 			_op_resource_load(params)
 		"resource-inspect-model":
 			_op_resource_inspect_model(params)
+		"package-resource-presence":
+			_op_package_resource_presence(params)
 		"resource-inspect-model-content":
 			_op_resource_inspect_model_content(params)
 		"resource-import-options":
@@ -3340,7 +3342,7 @@ func _op_resource_import_config_check(params: Dictionary) -> void:
 func _op_resource_inspect_model(params: Dictionary) -> void:
 	_diag("running operation: resource-inspect-model")
 	var path := _string_param(params, "path")
-	if not FileAccess.file_exists(path):
+	if not (FileAccess.file_exists(path) or ResourceLoader.exists(path, "PackedScene")):
 		_fail(OP_ERROR_PATH_NOT_FOUND, "resource not found: " + path)
 		return
 	var resource: Resource = ResourceLoader.load(path)
@@ -3440,6 +3442,32 @@ func _op_resource_inspect_model(params: Dictionary) -> void:
 	}
 	root.free()
 	_succeed(result)
+
+
+func _op_package_resource_presence(params: Dictionary) -> void:
+	_diag("running operation: package-resource-presence")
+	var paths: Variant = params.get("paths")
+	if not paths is Array or paths.is_empty() or paths.size() > 64:
+		_fail(OP_ERROR_INVALID_PARAMS, "paths must contain 1..64 exact res:// resource paths")
+		return
+	var resources: Array = []
+	for value: Variant in paths:
+		if not value is String or not value.begins_with("res://") or value == "res://":
+			_fail(OP_ERROR_INVALID_PATH, "package resources must use exact res:// paths")
+			return
+		var relative: String = value.substr(6)
+		if "\\" in relative or ":" in relative:
+			_fail(OP_ERROR_INVALID_PATH, "package resources must use exact res:// paths")
+			return
+		for part: String in relative.split("/"):
+			if part.is_empty() or part == "." or part == "..":
+				_fail(OP_ERROR_INVALID_PATH, "package resources must use exact res:// paths")
+				return
+		resources.append({
+			"path": value,
+			"present": ResourceLoader.exists(value) or FileAccess.file_exists(value),
+		})
+	_succeed({"engine_version": Engine.get_version_info(), "resources": resources})
 
 
 # --- BEGIN shared static model content sampling (#890) ---
