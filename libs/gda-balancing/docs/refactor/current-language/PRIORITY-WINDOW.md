@@ -89,6 +89,41 @@ priority or target may be declared gameplay-alternative rollback outcomes; those
 outcomes must not be mislabeled as Runtime failures. Bounds and illegal callback or
 phase cases retain their actual refusal requirements.
 
+Both repairs are integrated at `c0a204f2d`. Re-running the original typed builder
+without changes now completes public build/check/run and complete artifact admission
+for both inputs. The original Source SHA-256 remains
+`cf8533d08fe527d194a9926b3c9b9dd46864394688fa49f8371968878675af7f`.
+The baseline has 12 trace entries, 123 charged node steps, cancellation `[2]` and
+final power 7; the pass variant has 10 entries, 87 steps, cancellation `[1]` and
+final power 0. These counts belong to the original typed protocol, not the earlier
+scalar contrast or the pending permanent candidate. The observation-file SHA-256 is
+`0351f3faadc65e925d62a44bafa2886629d3781ccccd0a555cec84448bf90786`.
+
+Permanent public regressions cover capture after a preceding write, nominal List/Enum
+value capture, retained writable references, and publication of a later-refusal audit.
+Coordinated argument/name/StateRef and nominal type/value/capture mutations still fail
+the semantic catalog consumer; malformed bare values and open envelopes fail wire
+admission. Both test files run in the required `composition` CI partition. The
+integrated focused suite and CI policy checks pass (22 tests). The wire correction
+changes only two schema leaves and their seals; all seven maintained Model RIRs are
+byte-identical before and after it, so their Experiments need no rebinding.
+
+## Permanent candidate design corrections
+
+The bounded design review accepts the pending-ID/Counter lists and reverse fold.
+Action owns ID allocation, target validity and refusal of a second proposal in this
+one-window witness. Turn owns window/priority/pass policy and propagates Action's
+declared rollback outcomes. A direct Action invocation must not bypass its lifecycle
+or target checks. Actor input is bounded to the two responders.
+
+Use a final resolution slot at logical time 7 for the permanent candidate. This also
+admits the longest legal seven-choice sequence: proposal, pass, counter, pass,
+counter, pass, pass. The original diagnostic's slot at time 5 cannot cover that
+sequence because it closes at time 6. Inputs outside the stated timing contract must
+retain the existing scheduling refusal; no clock primitive, new phase, reset protocol
+or reentrant window is introduced. The maximum valid sequence must complete under
+the unchanged Event/run budgets. These corrections await their permanent public tests.
+
 ## Remaining proof and integration
 
 - Derive every reachable non-Kernel token and occurrence from the applicable Kernel/LDB,

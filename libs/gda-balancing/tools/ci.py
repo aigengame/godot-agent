@@ -108,6 +108,8 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_formula_runtime_seam.py",
         "test_public_execution_identity.py",
         "test_public_formula_runtime_seam.py",
+        "test_scheduled_argument_capture.py",
+        "test_scheduled_structured_values.py",
         "test_schema2_bootstrap_composition.py",
     ),
     "interfaces": (
