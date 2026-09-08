@@ -3106,6 +3106,7 @@ def test_the_conformance_matrix_is_carried_by_help_schema_and_the_skill():
         "skill": _flat(read_skill_text()),
     }
     for name, text in surfaces.items():
+        assert "propagation" in text and "consumption" in text, name
         # The two spellings that DISTINGUISH the rows: plain `input action` is a
         # substring of the opt-in, so asserting it would assert nothing.
         for injection in ("input action --as-event", "input key"):

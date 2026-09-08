@@ -485,7 +485,7 @@ class InputActionParams(RelayedLiveParams):
     ``as_event`` opts INTO the other route (#854): gda builds an
     ``InputEventAction`` (action, pressed, strength) and pushes it through the root
     viewport instead, so ``_input``, ``_gui_input`` and ``_unhandled_input``
-    handlers matching the action DO receive it, while ``Input.is_action_pressed``
+    handlers matching the action can receive it, while ``Input.is_action_pressed``
     stays untouched. The default stays the state route — flipping it would silently
     change what every existing call means. Delivery is ``Viewport.push_input``,
     never ``Input.parse_input_event``, which would drive both routes at once and
@@ -496,6 +496,9 @@ class InputActionParams(RelayedLiveParams):
       input action            : yes | no  | no
       input action --as-event : no  | yes | yes
       input key <mapped key>  : no  | yes | yes
+
+    Delivery follows Godot's normal propagation and event consumption rules; the
+    route is not proof that every handler ran or that a UI action succeeded.
     """
 
     action: str = Field(
@@ -1808,7 +1811,7 @@ def input_action(
 
     --as-event opts INTO the other door (#854): gda builds an InputEventAction
     (action, pressed, strength) and pushes it through the root viewport, so the
-    handlers above DO receive it and Input.is_action_pressed stays untouched. The
+    handlers above can receive it and Input.is_action_pressed stays untouched. The
     default is unchanged — flipping it would silently change what every existing
     call means. The delivery is Viewport.push_input, never
     Input.parse_input_event, which would drive both routes at once.
@@ -1818,6 +1821,9 @@ def input_action(
       input action            : yes | no  | no
       input action --as-event : no  | yes | yes
       input key <mapped key>  : no  | yes | yes
+
+    Delivery follows Godot's normal propagation and event consumption rules; the
+    route is not proof that every handler ran or that a UI action succeeded.
 
     A value the engine reports crosses the wire at full binary64 precision — the
     reply is serialized with Godot's full-precision JSON writer, so a small or
