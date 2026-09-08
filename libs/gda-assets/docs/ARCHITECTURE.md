@@ -315,9 +315,10 @@ boundaries, selected raster transforms, deterministic emitters, and isolation te
 ideas. Its raster-shaped orchestration and game manifest policy are redesigned in
 the new home. The equal-frame packer/SpriteFrames emitter is not complete Aseprite
 support for trimmed regions, frame timing, or richer metadata. Panda is archived
-and unmaintained; do not change its original codebase or make its tests regression
-targets or acceptance gates for the new pipeline. Maintained validation belongs
-to gda and Asset Pipeline.
+and unmaintained. Its unchanged historical scenarios may be run for one-time
+compatibility diagnosis; a failure creates no Panda maintenance or migration
+obligation. Do not make those scenarios routine acceptance gates for the new
+pipeline. Maintained validation belongs to gda and Asset Pipeline.
 
 ## Evidence limits and validation gates
 

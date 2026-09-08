@@ -27,8 +27,9 @@ prompt preparation and concept-reference handoff. Project recipes, prompts,
 selected concepts, art direction, and gameplay expectations are project-owned
 inputs. Panda Adventure is a one-time scaffold source for this work; it is not a
 runtime dependency or a migration target. The project owner has confirmed that
-Panda is archived and receives no further maintenance. Its historical examples
-are not maintained regression targets or acceptance gates for Asset Pipeline.
+Panda is archived and receives no further maintenance. Its unchanged historical
+examples may support one-time compatibility diagnosis; they are not maintained
+regression targets or acceptance gates for Asset Pipeline.
 
 The gda-side integration contract is owned by
 [ADR-0042](docs/adr/0042-asset-pipeline-supporting-context-integration.md);
