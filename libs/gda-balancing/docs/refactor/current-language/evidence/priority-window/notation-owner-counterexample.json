@@ -1,0 +1,107 @@
+{
+  "source_head": "1596e77ea6807d4b91b8709da52c72eed346b0de",
+  "scope": "Only exact namespace-valued strings; all Kernel bytes and longer constructor/profile/reason tokens unchanged. This is a bounded substitution probe, not a complete namespace ownership inventory.",
+  "renaming": {
+    "standard.schema": "probe.schema"
+  },
+  "raw_receipt_sha256": "fbaaf3ffdce56ebfa387de0a20bcaeabc2f16566613a595b60dbc0dc187b12cc",
+  "probe_sha256": "9edc666e2ff3b220654412dceb350e7d25f6c25bfb045c89140692b6afaea514",
+  "cases": {
+    "baseline": {
+      "authority_admitted": true,
+      "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+      "language_bundle_identity": "sha256:58a42db14b212162ef24022266e700397da38636484f5dd935a97af8b955d617",
+      "notation_owner": [
+        "standard.schema"
+      ],
+      "source_sha256": "2384e92b81d239ebd023c8965f46d05c2daa855757ed53e59d9f3f198480f493",
+      "public_commands": [
+        {
+          "entrypoint": "python -m gda_balancing model check",
+          "returncode": 0,
+          "stderr_empty": true,
+          "member_count": 0,
+          "diagnostics": [],
+          "stdout_sha256": "4f83c127c2f5633c3a1c6dc5673a1ebedba258462b4432bfe69f99cc4f3a78e6"
+        },
+        {
+          "entrypoint": "python -m gda_balancing model build",
+          "returncode": 0,
+          "stderr_empty": true,
+          "member_count": 8,
+          "diagnostics": [],
+          "stdout_sha256": "1f92f1bc6415a3d91162efbd33554665fd19c3db2b9421650530b43113ae6b0b"
+        }
+      ]
+    },
+    "renamed": {
+      "authority_admitted": true,
+      "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+      "language_bundle_identity": "sha256:59842152b011f5549cf3ce5eab88ec15c1e84915961f29ffc78874aab8e093d0",
+      "notation_owner": [
+        "probe.schema"
+      ],
+      "source_sha256": "2384e92b81d239ebd023c8965f46d05c2daa855757ed53e59d9f3f198480f493",
+      "public_commands": [
+        {
+          "entrypoint": "python -m gda_balancing model check",
+          "returncode": 2,
+          "stderr_empty": true,
+          "member_count": 0,
+          "diagnostics": [
+            {
+              "code": "language.source_contract_mismatch",
+              "message": "standard.schema has no unique Formula notation authority",
+              "primary": {
+                "content_identity": "sha256:885818a9b68c40ba1c403efbc15560dd516b03f9114bf7165aa893ffba7caa2e",
+                "kind": "artifact",
+                "pointer": "/modules/0/formulas/0/body"
+              },
+              "related": []
+            },
+            {
+              "code": "language.source_contract_mismatch",
+              "message": "standard.schema has no unique Formula notation authority",
+              "primary": {
+                "content_identity": "sha256:885818a9b68c40ba1c403efbc15560dd516b03f9114bf7165aa893ffba7caa2e",
+                "kind": "artifact",
+                "pointer": "/modules/0/formulas/1/body"
+              },
+              "related": []
+            }
+          ],
+          "stdout_sha256": "e9fde8226ed63c8d48bb9fc3026bbf52b783c7b6e6d8e34dd315501e7737f8dc"
+        },
+        {
+          "entrypoint": "python -m gda_balancing model build",
+          "returncode": 2,
+          "stderr_empty": true,
+          "member_count": 0,
+          "diagnostics": [
+            {
+              "code": "language.source_contract_mismatch",
+              "message": "standard.schema has no unique Formula notation authority",
+              "primary": {
+                "content_identity": "sha256:885818a9b68c40ba1c403efbc15560dd516b03f9114bf7165aa893ffba7caa2e",
+                "kind": "artifact",
+                "pointer": "/modules/0/formulas/0/body"
+              },
+              "related": []
+            },
+            {
+              "code": "language.source_contract_mismatch",
+              "message": "standard.schema has no unique Formula notation authority",
+              "primary": {
+                "content_identity": "sha256:885818a9b68c40ba1c403efbc15560dd516b03f9114bf7165aa893ffba7caa2e",
+                "kind": "artifact",
+                "pointer": "/modules/0/formulas/1/body"
+              },
+              "related": []
+            }
+          ],
+          "stdout_sha256": "e9fde8226ed63c8d48bb9fc3026bbf52b783c7b6e6d8e34dd315501e7737f8dc"
+        }
+      ]
+    }
+  }
+}
