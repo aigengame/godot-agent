@@ -1039,6 +1039,83 @@ its 1,618 tokens, 6,606 occurrences and 109 reserved tokens remain unchanged. Th
 correction precedes the final build freeze and does not close the remaining inventory
 or non-RPG proof.
 
+## Evidence candidate validation
+
+The next inventory counterexample concerns the LDB Evidence claim definition.
+A legal claim-id rename admits in both consumers and passes public Model and
+Experiment execution, but the CLI's fixed `Literal["evaluable"]` result rejects it
+as an internal fault. A coherent subject-role/edge rename also admits, then fails
+in the host's graph projector. Excluding `success` from the selected claim policy
+instead produces a correct eligibility refusal. These observations distinguish
+the unnecessary representation from a policy that affects real behavior.
+
+The candidate path accepts an authenticated run receipt, RIR and Experiment; it
+does not accept a caller-authored graph. The six reconstructed graph edges repeat
+existing admission checks. Experiment owns the RIR semantic binding; complete
+ArtifactSet admission recomputes the expected profile and checks outcome members,
+producer capabilities, journal state and terminal-audit closure. Publication
+authenticates original bytes and closed membership. The extra producer edge even
+compares the same manifest identity to itself. There is no uncovered semantic
+relationship that requires preserving this graph or moving it into the Kernel.
+
+The implementation deletes `subject_roles`, `prerequisite_edges`, synthetic
+`vector.input.graph`, and the host subject/edge/graph values, projector and graph
+checker. It also deletes the unused `permitted_issuer_classes` and
+`permitted_verifier_classes`: both current lists are empty, and no production
+consumer reads them. Their presence does not supply an issuer/verifier contract.
+Application authenticates the original publication, admits explicit
+RIR/Experiment, selects the claim, validates the complete outcome and then invokes
+Domain eligibility. Domain derives success, verdict or post-dispatch refusal from
+the validated actual primary member. It receives existing checked values rather
+than caller-supplied outcome or dispatch flags. Candidate output names the same
+five identities directly and carries the actual admitted claim id.
+
+The selected producing-outcome policy, unknown-claim refusal, original producer
+acceptance and all real artifact/terminal checks remain. The Kernel change only
+removes obsolete grammar; it adds no graph law, scheduling phase or identity.
+Future assertion issuance, trust and #542–#544 activation remain deferred.
+
+Retirement is explicit. Five inner `evaluable.graph-*` vectors and four graph-only
+reasons/diagnostics retire with their eight outer predicate vectors. The packaged
+outer count changes from 347 to 339. Four inner outcome/dispatch vectors retain
+their actual inputs and expectations after removing `input.graph`. The real
+full-set mismatch reason and its two predicate vectors become
+`evaluable-outcome-mismatch`; their predicates and expected results remain.
+Malformed actual members and cross-bindings still refuse at their existing owners.
+An internal cycle with no public graph input is retired, not reassigned to an
+unrelated test. Synthetic edge pointers and graph-specific multi-error counts are
+not preserved; the full-set mismatch points at the actual run receipt.
+
+The original #541 graph-shape requirement is narrowly superseded for this candidate
+path, together with bADR-0018 and the current architecture/glossary descriptions.
+The [structured verification record](evidence/priority-window/evidence-candidate-validation.json)
+keeps producer, independent-consumer and review observations separate. Forty
+production-side cases retain the actual artifact boundaries, including eight
+full-set mutations. Four public cases exercise three admitted claim/policy
+candidates through real Model/Experiment commands: all produce the same complete
+RIR and numeric results, the renamed claim works, its retired name refuses, and an
+actual policy excluding success refuses the otherwise successful publication.
+Independent review additionally authenticates three original outcome publications
+and twelve malformed variants; all original candidates pass and all variants refuse.
+
+The independent gate preserves all 34 Model-vector verdicts: four artifact kinds
+agree and are mutually admitted for thirteen positives; twenty-one negatives
+retain their complete diagnostics. Eighty-six inventory cases and that Model gate
+pass together. Spec review then found that an extra reserved classification could
+hide a claim-local name from the rename domain. The reverse pass now checks the
+exact Evidence reserved partition; the new regression fails before the fix and
+all ten Evidence inventory cases pass after it. Independent recheck rejects extra
+exemptions for all four local names and omissions of all fifteen Kernel markers.
+Standards, Spec and DDMA findings for this deletion are resolved.
+
+The current inventory has 1,607 tokens, 6,464 occurrences, 124 reserved tokens and
+38 explicit gaps. Only the Evidence definition gap closes; all other gap rows are
+unchanged. CI policy passes twelve cases, and collection accounts for 2,555 tests
+and 339 vectors with no missing or overlapping shard coverage. Resource rebuild,
+Ruff and Pyright pass. This is not full CI execution or the final fixed-build
+non-RPG proof. Rollback restores the whole prior code, Kernel, LDB, tests and
+current inputs; there is no reader or graph fallback in the candidate.
+
 ## Remaining proof and integration
 
 - Complete the semantic-token inventory and resolve remaining demonstrated name

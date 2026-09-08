@@ -1,0 +1,642 @@
+{
+  "scope": "Evidence candidate graph and inactive placeholder deletion before final #878 build freeze. This is not complete #878 acceptance.",
+  "baseline": "c7f9cb483084868076f66249bcb69a77741d4ffd",
+  "integrated_head": "80541ff3e6a0f34647c69f2d9b8a59cb8afd9b4a",
+  "implementation_and_test_head": "0e318453ebe264ecb3787331baf77b8ff21701bf",
+  "kernel": "sha256:9fc51b9a1c14e1bb40175f0d8979290c24110b494d8394594648b8eaa0f85ddb",
+  "ldb": "sha256:766c360278f45d975be003a47e10c0de205a3a833d4690d0f5e716ddbff58bd9",
+  "deleted": [
+    "EvidenceGraph/EvidenceSubject/EvidencePrerequisite/projector/DFS removed",
+    "Claim subject_roles/prerequisite_edges and vector graph removed",
+    "Inactive permitted_issuer_classes/permitted_verifier_classes removed",
+    "Candidate retains five explicit identities; actual claim and eligibility retained"
+  ],
+  "deletion_scan": {
+    "path": "/private/tmp/gda-878-root/evidence-graph-deletion-scan.json",
+    "bytes": 228,
+    "sha256": "4f0fc8a7709e285d0362f1997135fb30c88851c9132cf1c5bb45530b7a2daaa7"
+  },
+  "retained": [
+    "Original authenticated publication, including its actual producing descriptor and evaluator",
+    "Explicit RIR and Experiment admission, complete outcome-set semantic validation and terminal-audit closure",
+    "Actual selected claim id and producing-outcome eligibility",
+    "Five explicitly named candidate subject identities; no new Evidence publication or identity"
+  ],
+  "decision": {
+    "old_graph_input_was_public": false,
+    "old_producer_edge_was_self_comparison": true,
+    "replacement_graph_or_registry_added": false,
+    "validation_order": [
+      "original Publication authentication",
+      "explicit RIR/Experiment admission",
+      "claim selection",
+      "complete outcome-set validation",
+      "Domain eligibility"
+    ],
+    "outcome_source": "Existing validated primary member, not caller-supplied outcome or dispatch flags",
+    "diagnostic_change": "Retire synthetic graph categories, counts and edge pointers. Retain actual artifact/member/binding/capability refusals; full-set mismatch uses evaluable-outcome-mismatch at the actual run receipt."
+  },
+  "producer": {
+    "receipt": {
+      "path": "/private/tmp/gda-878-evidence-graph-delete-evidence/final/FINAL-RECEIPT.json",
+      "bytes": 5602,
+      "sha256": "0101f50d25e9cb140e6d2a86af8ac105f7f5decd4ed42fd9c25036263f67e285"
+    },
+    "independent_supplement": {
+      "path": "/private/tmp/gda-878-evidence-graph-delete-evidence/final/INDEPENDENT-SUPPLEMENT.json",
+      "bytes": 1083,
+      "sha256": "18455c0b116626ac9bfd5c99b2fb4a7819016a3427cfd9b352808c040a9717d3"
+    },
+    "raw_manifest": {
+      "path": "/private/tmp/gda-878-evidence-graph-delete-evidence/final/RAW-MANIFEST.json",
+      "bytes": 391608,
+      "sha256": "326a54306c7283fd15ca2771ce460de275411f97cd5d65027528c412f28de373"
+    },
+    "raw_verification": {
+      "files": 1027,
+      "missing": 0,
+      "mismatches": 0
+    },
+    "source_manifest": {
+      "path": "/private/tmp/gda-878-evidence-graph-delete-evidence/final/SOURCE-MANIFEST.json",
+      "bytes": 15648,
+      "sha256": "a5c5fd01a18cc1fca4eb4e6b0b86d95a0917ea6986324d43ca6268637d5e452b"
+    },
+    "current_production_source_hashes_match": 127,
+    "scope_limit": "Eight permanent in-memory mutations of a real authenticated and fully admitted six-member outcome exercise the full-set validator. Existing actual authenticated publication/refusal cases are retained. These mutations are not claimed to be newly authenticated publications."
+  },
+  "resources": {
+    "comparison": {
+      "bytes": 4751,
+      "path": "/private/tmp/gda-878-evidence-graph-delete-evidence/resource-comparison.json",
+      "sha256": "7b9aa59d5f701ae11bf4d9f19b7b33915529a961773064f1f79894ee3c3d5bb9"
+    },
+    "outer_vectors": {
+      "changed_same_id_vectors": [],
+      "outer_vector_count_after": 339,
+      "outer_vector_count_before": 347,
+      "removed_ids": [
+        "evaluation.accept.evaluable-cyclic-prerequisite",
+        "evaluation.accept.evaluable-extra-prerequisite",
+        "evaluation.accept.evaluable-missing-prerequisite",
+        "evaluation.accept.evaluable-unresolved-prerequisite",
+        "evaluation.refuse.evaluable-cyclic-prerequisite",
+        "evaluation.refuse.evaluable-extra-prerequisite",
+        "evaluation.refuse.evaluable-missing-prerequisite",
+        "evaluation.refuse.evaluable-unresolved-prerequisite"
+      ],
+      "renamed_ids": {
+        "evaluation.accept.evaluable-mismatched-prerequisite": "evaluation.accept.evaluable-outcome-mismatch",
+        "evaluation.refuse.evaluable-mismatched-prerequisite": "evaluation.refuse.evaluable-outcome-mismatch"
+      },
+      "unchanged_complete_vectors": 337
+    },
+    "inner_retired": [
+      "evaluable.graph-cyclic",
+      "evaluable.graph-extra",
+      "evaluable.graph-mismatched",
+      "evaluable.graph-missing",
+      "evaluable.graph-unresolved"
+    ],
+    "kernel_bytes": 153148,
+    "runtime_component_unchanged": "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a",
+    "full_slice_resource_files": 4,
+    "arithmetic_resource_or_verdict_oracle_changes": []
+  },
+  "public": {
+    "receipt": {
+      "path": "/private/tmp/gda-878-evidence-graph-delete-evidence/final/PUBLIC-OBSERVATIONS.json",
+      "bytes": 11667,
+      "sha256": "1ca2e10658e45f9bbfcd41e9ece85f0c1333b5d91cfd93cf54ef47994764f712"
+    },
+    "candidates": 3,
+    "full_rir_equal": true,
+    "metrics": {
+      "ordered_value": 1234,
+      "selected_count": 2
+    },
+    "cases": [
+      {
+        "case": "control",
+        "command_outcomes": [
+          {
+            "command": "model check",
+            "returncode": 0
+          },
+          {
+            "command": "model build",
+            "returncode": 0
+          },
+          {
+            "command": "experiment check",
+            "returncode": 0
+          },
+          {
+            "command": "experiment run",
+            "returncode": 0
+          },
+          {
+            "command": "evidence verify",
+            "returncode": 0
+          }
+        ],
+        "evidence": {
+          "claim_kind": "evaluable",
+          "claim_state": "candidate",
+          "evaluator_capability_manifest_identity": "sha256:78b10faa62c83036eec6c02b8adeaee494a5b838fc0b093df2ccfe7ddb859d40",
+          "experiment_identity": "sha256:ed0b6c94501f357e0829c4029eba8807a349754027fca9c903cc33440fe1be85",
+          "experiment_run_artifact_set_receipt_identity": "sha256:1cdc28114a5a1b186db8d5daf09b541ea2ceb4d451ec7e64e3759283c6c85bec",
+          "producing_outcome": "success",
+          "resolved_runtime_profile_identity": "sha256:c0c262e9e2834e74bda68b266d03c5d3e7bc98edc739326b31f6d76f6eb53ae0",
+          "rir_semantic_identity": "sha256:cc898ce62f64df33c397c62b022e556d4ec3411ed5ab99bb126a371d8cefd143"
+        }
+      },
+      {
+        "case": "renamed",
+        "command_outcomes": [
+          {
+            "command": "model check",
+            "returncode": 0
+          },
+          {
+            "command": "model build",
+            "returncode": 0
+          },
+          {
+            "command": "experiment check",
+            "returncode": 0
+          },
+          {
+            "command": "experiment run",
+            "returncode": 0
+          },
+          {
+            "command": "evidence verify",
+            "returncode": 0
+          },
+          {
+            "command": "evidence verify",
+            "returncode": 2
+          }
+        ],
+        "evidence": {
+          "error": {
+            "category": "refusal",
+            "diagnostics": [
+              {
+                "code": "evaluation.unknown_evidence_claim_kind",
+                "message": "Unknown Evidence claim kind: evaluable",
+                "primary": {
+                  "content_identity": "unidentified",
+                  "kind": "artifact",
+                  "pointer": "/claim_kind"
+                },
+                "related": []
+              }
+            ],
+            "stage": "evaluation",
+            "truncated": false
+          }
+        }
+      },
+      {
+        "case": "without-success",
+        "command_outcomes": [
+          {
+            "command": "model check",
+            "returncode": 0
+          },
+          {
+            "command": "model build",
+            "returncode": 0
+          },
+          {
+            "command": "experiment check",
+            "returncode": 0
+          },
+          {
+            "command": "experiment run",
+            "returncode": 0
+          },
+          {
+            "command": "evidence verify",
+            "returncode": 2
+          }
+        ],
+        "evidence": {
+          "error": {
+            "category": "refusal",
+            "diagnostics": [
+              {
+                "code": "evaluation.evaluable_ineligible_outcome",
+                "message": "Producing outcome is not eligible for the selected Evidence claim",
+                "primary": {
+                  "content_identity": "sha256:1cdc28114a5a1b186db8d5daf09b541ea2ceb4d451ec7e64e3759283c6c85bec",
+                  "kind": "artifact",
+                  "pointer": "/producing_outcome"
+                },
+                "related": []
+              }
+            ],
+            "stage": "evaluation",
+            "truncated": false
+          }
+        }
+      }
+    ]
+  },
+  "independent": {
+    "receipt": {
+      "path": "/private/tmp/gda-evidence-b-final-receipt.json",
+      "bytes": 5606,
+      "sha256": "e1211f99d58976b240e7d266618a0f280cecc8d0d9d3098469cab943cbc35dd1"
+    },
+    "model_gate": {
+      "total": 34,
+      "positive_four_artifact_parity_and_mutual_admission": 13,
+      "unchanged_exact_refusals": 21,
+      "oracles_edited": false
+    },
+    "limits": [
+      "No production, Kernel, resources, docs, examples, or remote writes by B; A commits are validation dependencies.",
+      "Authority no longer configures the synthetic graph or future issuer/verifier placeholders. Active candidate eligibility and the real complete-publication validators remain.",
+      "Internal graph cycles have no public graph input; their synthetic obligation is explicitly retired, not falsely replaced.",
+      "Candidate output is open/nonissuing. No authenticated Evidence, issuer/verifier trust or whole #878 completion is claimed.",
+      "Inventory closes exactly the Evidence definition gap; 38 unrelated original raw-authority gaps remain explicit."
+    ]
+  },
+  "tests": [
+    {
+      "path": "/private/tmp/gda-878-evidence-graph-delete-evidence/a-gate.xml",
+      "bytes": 6153,
+      "sha256": "f4642661a081f11d806ec10237eb75a5f18a904e7a07af2df2ed6f3f04e152e3",
+      "scope": "Forty retained A boundary and eight actual full-set mutation cases in three modules",
+      "tests": 40,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "/private/tmp/gda-878-evidence-graph-delete-evidence/policy.xml",
+      "bytes": 809,
+      "sha256": "a6d65132a865be8332d1efdcf60ff0a29faa0333ca3c3168ea6bca015691fd75",
+      "scope": "Four public claim/policy cases over three admitted candidates",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "/private/tmp/gda-evidence-b-v2.xml",
+      "bytes": 3031,
+      "sha256": "9fd51c989936baec0eb2c29bfc989683c7a2b16007655ce5ed89c97e785eb7ce",
+      "scope": "Sixteen independent B closed-grammar and eligibility cases",
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "/private/tmp/gda-evidence-inventory-model.xml",
+      "bytes": 13315,
+      "sha256": "28f424d3377813cb48498e12c2d7dfaf39f4a163244e7bd0e2a587b9a718f52b",
+      "scope": "Eighty-six inventory cases and one gate executing all 34 Model vectors",
+      "tests": 87,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "/private/tmp/gda-evidence-b-retained-public.xml",
+      "bytes": 5258,
+      "sha256": "c90131df5c9db408d247abc93994b6bf7f74b9f55e28609579ef663a9d7989ea",
+      "scope": "Independent retained Evidence and public claim/policy follow-up",
+      "tests": 34,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "/private/tmp/gda-878-root/evidence-reserved-red.xml",
+      "bytes": 3231,
+      "sha256": "1f4151fa60b61ad223f54c738c6ec3defecc1043990fa3efee2ee63154f49eca",
+      "scope": "New forged-reserved regression before the primary fix; expected failure",
+      "tests": 1,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "/private/tmp/gda-878-root/evidence-reserved-green.xml",
+      "bytes": 1722,
+      "sha256": "bfcd3844499e216d87b86b0e9bfa29cb9627afb6f0f5d03d6440a0a60c7734bd",
+      "scope": "Ten Evidence inventory cases after the exact reserved partition fix",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "/private/tmp/gda-878-root/evidence-graph-ci.xml",
+      "bytes": 1705,
+      "sha256": "fd5694a9fb8fd30237e6aaf020f453db3f818b99f39e499145cac2b411cbcbf3",
+      "scope": "CI policy only",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "inventory": {
+    "kernel": "sha256:9fc51b9a1c14e1bb40175f0d8979290c24110b494d8394594648b8eaa0f85ddb",
+    "ldb": "sha256:766c360278f45d975be003a47e10c0de205a3a833d4690d0f5e716ddbff58bd9",
+    "graph_scope": "Complete current packaged LDB with all package and vector-set roots; no added Model Source input",
+    "tokens": 1607,
+    "occurrences": 6464,
+    "reserved": 124,
+    "gaps": 38,
+    "retired_gap": {
+      "pointer": "/packages/10/semantic_closure/26/definitions/0",
+      "law": "/meta_format/language_definitions",
+      "reason": "nested language.evidence_claim_kinds roles are not yet traversed"
+    },
+    "all_other_gap_rows_unchanged": true,
+    "receipt": {
+      "path": "/private/tmp/gda-878-root/evidence-graph-final-inventory.json",
+      "bytes": 8789,
+      "sha256": "600189f06cc9a78d10ef40bc5067a56a150949e1d4caf3ebd231fecf91ce98b2"
+    },
+    "remaining_gap_rows": [
+      {
+        "pointer": "/packages/0/semantic_closure/9/definitions/0",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.model_lowerings roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/10/semantic_closure/2/definitions/0",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/1/definitions/1/identity_excluded_members",
+        "law": "/meta_format/language_definitions/collections/artifact_contracts",
+        "reason": "identity projection member-address roles are not yet complete"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/0",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/1",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/10",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/11",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/12",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/13",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/14",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/15",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/16",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/17",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/18",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/19",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/2",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/20",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/21",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/22",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/24",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/25",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/27",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/28",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/29",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/3",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/30",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/31",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/32",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/4",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/5",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/6",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/7",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/8",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/2/definitions/9",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.artifact_wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/24/definitions/0",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.template_admission_profiles roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/12/semantic_closure/25/definitions/0",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.wire_schemas roles are not yet traversed"
+      },
+      {
+        "pointer": "/packages/8/semantic_closure/20/definitions/0",
+        "law": "/meta_format/language_definitions",
+        "reason": "nested language.resolution_profiles roles are not yet traversed"
+      },
+      {
+        "pointer": "/vector_sets",
+        "law": "/meta_format/package_vector",
+        "reason": "remaining vector families: operation-execution, scheduler-scenario, source-or-rule-or-reason"
+      }
+    ],
+    "correction": "Spec exposed an added reserved classification hiding a claim-vector name. The inverse pass now checks the exact reserved partition for Evidence-owned tokens; it does not clear unrelated gaps."
+  },
+  "ci_collection": {
+    "receipt": {
+      "path": "/private/tmp/gda-878-root/evidence-graph-ci-inventory-final.json",
+      "bytes": 2044,
+      "sha256": "15c228570c23dafb4ae0624038485c7672109b7acf898348e09b47dba35429a3"
+    },
+    "tests": 2555,
+    "vectors": 339,
+    "missing_or_overlapping": false,
+    "scope": "Collection, not complete execution."
+  },
+  "static_checks": [
+    {
+      "path": "/private/tmp/gda-878-root/evidence-graph-ruff.log",
+      "bytes": 19,
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/evidence-graph-pyright.log",
+      "bytes": 37,
+      "sha256": "6d88a1b220adb7a3d62092b6e38431f0b3fe8babe9864fab90e5849766260332"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/evidence-graph-rebuild-final.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "review": {
+    "DDMA_core": {
+      "path": "/private/tmp/gda-878-ddma-evidence-00d6-proof/receipt.json",
+      "bytes": 6657,
+      "sha256": "d5eaad74ce2e52a3bb0ff91c6d17b59a6139792f5763f4d85c9d244ac18afa33"
+    },
+    "DDMA_final": {
+      "path": "/private/tmp/gda-878-ddma-evidence-d8b8-proof/receipt.json",
+      "bytes": 2580,
+      "sha256": "a95538e5ddd688d781e94c41062e8da06849bb5b23b4c45020759daff06cf854"
+    },
+    "Standards_core": {
+      "path": "/private/tmp/gda-878-evidence-standards-4ih8cb_8/REVIEW-RECEIPT.json",
+      "bytes": 7352,
+      "sha256": "528532de128a2b263c98bb48765d0c49744f3036151f9c0b6d5af815e63eff67"
+    },
+    "Standards_inventory": {
+      "path": "/private/tmp/gda-878-evidence-standards-4ih8cb_8/INVENTORY-RECHECK-RECEIPT.json",
+      "bytes": 2573,
+      "sha256": "2db5c2383261d246c8c2cefd73521fa60ff83f20c2947f99879908f3cbcb2c71"
+    },
+    "Spec_original_P2": {
+      "path": "/private/tmp/gda-878-spec-evidence-0d/receipt.json",
+      "bytes": 5639,
+      "sha256": "399f0814cb287d1f621e8535c856d5f1d056dcd1f52342faad4d4ade0d6567af"
+    },
+    "Spec_partition_recheck": {
+      "path": "/private/tmp/gda-878-spec-evidence-0e/receipt.json",
+      "bytes": 9176,
+      "sha256": "66ef95c2d2ccd587b44b08f27a81354bed870c65d4822448308f7c6976284c9b"
+    },
+    "documentation_review": {
+      "path": "/private/tmp/gda-878-evidence-final-docs-u0u_mrgz/FINAL-REVIEW-RECEIPT.json",
+      "bytes": 4612,
+      "sha256": "c598e135ac499fb28544044cc0e25f08e4afd592604a552302dfc2a5f1e5208b"
+    },
+    "remaining_actionable_findings": 0
+  },
+  "reproduction": [
+    "Use the package environment with PYTHONPATH=src:tests and PYTHONDONTWRITEBYTECODE=1.",
+    "Run tests/test_schema2_evidence_verify.py, tests/test_schema2_evidence_cli.py, tests/test_evidence_claim_identity.py and tests/test_evidence_candidate_independent.py with pytest -p no:cacheprovider and a fresh explicit --basetemp.",
+    "Run tests/test_extension_inventory.py for role/owner/law and reserved-partition mutations.",
+    "Run tools/rebuild_schema2_ldb.py src/gda_balancing/schema2/authorities --check without writing resources.",
+    "Run tools/ci.py verify-inventory --report <new-json-path> to check required-shard collection; this does not run all tests."
+  ],
+  "limits": [
+    "The 38 remaining inventory gaps, fixed independent builds and causal non-RPG witness remain open.",
+    "No complete independent Formula Runtime evaluator or exhaustive whole-language rename proof is claimed.",
+    "No full CI, installed wheel/Godot acceptance, final coherent rollback or dev integration is claimed.",
+    "No formal release, authenticated claim issuance, trust activation or new public Evidence graph input is introduced."
+  ]
+}

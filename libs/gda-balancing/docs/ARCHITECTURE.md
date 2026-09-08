@@ -2041,30 +2041,37 @@ and deduplication, and explicit truncation before aggregation runs.
 
 #### First candidate/open evidence-verification slice
 
-Issue #541 delivers the first executable `evidence verify` judgment. This slice validates the exact
-artifact graph for the LDB-owned `evaluable` claim kind. A successful result is only
+Issue #541 delivers the first executable `evidence verify` judgment; #875 and #878 remove its
+unnecessary build bindings and duplicate graph representation. The current path validates actual
+artifacts and the selected LDB claim's eligibility. The packaged claim id is `evaluable`; the command
+reads the admitted definition and does not hardcode that id in its result. A successful result is only
 `candidate`/open. It does not issue an Evidence assertion, authenticate an independent Verifier, or
 close a claim.
 
 The current command takes explicit `rir`, `specification` and
-`experiment_run_artifact_set_receipt` inputs, plus `claim_kind: evaluable`. It independently admits
-the supplied RIR, checks the Experiment's semantic binding, authenticates the complete original
-run publication and validates its semantic outcome. Model Source, compiler invocation and a
+`experiment_run_artifact_set_receipt` inputs, plus the selected `claim_kind`. It authenticates the
+complete original run publication, independently admits the supplied RIR, checks the Experiment's
+semantic binding, selects the claim and validates the complete semantic outcome before judging
+eligibility. Model Source, compiler invocation and a
 Model-build publication are not prerequisites. Build provenance remains separately verifiable
 when claimed. No store scan, sibling-path guessing or replacement receipt supplies execution input.
 
-The LDB-owned prerequisite graph relates five subjects: existing RIR semantic identity, Experiment,
-pure Runtime profile, supplied evaluator manifest and authenticated Experiment-run Artifact-set
-receipt. Experiment binds RIR meaning; the profile binds Experiment and RIR; the publication binds
-Experiment, profile and producer. Missing, extra, duplicate, mismatched, unresolved and cyclic
-prerequisites remain refusals. Post-dispatch refusal additionally requires the complete terminal
-audit and all independent journal, rollback and cross-artifact checks.
+The candidate result names five subjects directly: existing RIR semantic identity, Experiment,
+pure Runtime profile, original evaluator manifest and authenticated Experiment-run Artifact-set
+receipt. Experiment admission owns the RIR binding. Full ArtifactSet admission recomputes the
+expected profile, checks every result member and producer capability, and validates journal,
+rollback and terminal-audit closure. Publication admission authenticates original member bytes,
+identities and closed membership. These owners replace the duplicate authored subject/edge lists,
+host graph and graph-only checker; no replacement graph is added to the Kernel. Missing, extra or
+duplicate real members, false bindings, unsupported capabilities and incomplete terminal audits
+still refuse. Synthetic graph cycles have no public input representation; their retired diagnostics
+and edge pointers are not a compatibility contract.
 
 The `evaluable` judgment means that the Experiment, admitted RIR semantics, pure Runtime profile
 and supported producer passed admission and reached Runtime dispatch. A successful producing
 outcome, a completed `experiment-verdict` artifact set, or a complete post-dispatch Runtime-refusal
 outcome can support the judgment. Invalid Experiment or Metric intent, evaluator-capability failure,
-Runtime-profile admission failure, a pre-dispatch refusal, or an incomplete outcome graph cannot
+Runtime-profile admission failure, a pre-dispatch refusal, or an incomplete outcome set cannot
 support it. The judgment does not establish execution success, Metric-target success,
 reproducibility, cross-evaluator conformance, or Claim closure.
 

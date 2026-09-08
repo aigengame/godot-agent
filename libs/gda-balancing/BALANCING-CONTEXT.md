@@ -1495,10 +1495,14 @@ never upgrades to replay identity. Progress is an evidence graph, never a mutabl
 _Avoid_: workflow status, passed flag, maturity level
 
 **Evidence claim kind**:
-A closed LDB definition, with an id and no own-version label, defining one Evidence assertion
-label's subject types, required prerequisite graph, eligibility judgment, issuer/verifier class,
-and vectors. Domain packages may provide subjects and policies but cannot mint claim labels; an unknown or incomplete
-claim kind is an `evaluation` refusal. `approved` is deliberately excluded because it belongs only
+A closed LDB definition, with an id and no own-version label, defining one claim's eligibility
+and validation vectors. The current candidate/open judgment reads that admitted id and the actual
+producing-outcome policy after existing validators admit the original publication, RIR, Experiment
+and complete result set. It carries five explicit subject identities; there is no separately
+authored or reconstructed prerequisite graph. Unused issuer/verifier-class placeholders are
+deleted. An unknown or incomplete claim kind is an `evaluation` refusal;
+the host cannot invent a label or weaken its eligibility. Future authenticated assertion
+relationships remain subject to #542–#544. `approved` is excluded because it belongs only
 to Approval Record authority (bADR-0018).
 _Avoid_: free-form evidence label, package claim alias, approved assertion
 
