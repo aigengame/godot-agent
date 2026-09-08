@@ -371,7 +371,10 @@ def test_project_remove_autoload_dispatches_name_and_reports_result(monkeypatch)
 
     assert result.exit_code == 0
     data = json.loads(result.stdout)
-    assert data == REMOVE_AUTOLOAD_RESULT
+    # Plus the residual-mutation report every project write carries (#843) — empty
+    # here, since the fake engine rewrites no project.godot.
+    assert data | REMOVE_AUTOLOAD_RESULT == data
+    assert data["restored_settings"] == []
     assert fake.calls == [("project-remove-autoload", {"name": "Global"})]
 
 
@@ -757,7 +760,9 @@ def test_project_remove_input_action_dispatches_name_and_reports_result(monkeypa
     )
 
     assert result.exit_code == 0
-    assert json.loads(result.stdout) == REMOVE_INPUT_ACTION_RESULT
+    data = json.loads(result.stdout)
+    assert data | REMOVE_INPUT_ACTION_RESULT == data
+    assert data["restored_settings"] == []
     assert fake.calls == [("project-remove-input-action", {"name": "jump"})]
 
 

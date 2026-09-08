@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ee5d00fce018fc5861a9fd976b007d5311fd0cabc8a51d521e70a41c3ab2eaf8 -->
+<!-- gda-readme-i18n: source=README.md sha256=b5201cbced637f6939b29899e07f19c05617f0dddd7d540063fc9e16732d17b9 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -8,6 +8,7 @@
 
 [Descripción del producto](https://aigengame.xyz/) ·
 [¿CLI, Agent Skill o MCP?](https://aigengame.xyz/godot-mcp/) ·
+[Demos jugables](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
 > **Crea y verifica proyectos de Godot desde agentes de programación con IA, scripts de shell y CI.**
@@ -452,12 +453,16 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `project set` | Define un ajuste del proyecto, forzando el valor a su tipo declarado. |
 | `project add-autoload` | Registra un singleton autoload (nombre → script/escena). |
 | `project remove-autoload` | Cancela el registro de un singleton autoload por nombre. |
-| `project add-input-action` | Registra una acción del InputMap vinculada a teclas (`--key` nombre o keycode, `--deadzone`, `--physical`). |
+| `project add-input-action` | Registra una acción del InputMap vinculada a teclas y/o a un mando (`--key`, `--joy-button`, `--joy-axis` como `<eje>[:<signo>]`, `--device`, `--deadzone`, `--physical`); se requiere al menos una vinculación. |
 | `project remove-input-action` | Cancela el registro de una acción del InputMap por nombre. |
 | `project find-references` | Encuentra todos los archivos del proyecto que referencian un recurso dado. |
 | `project dependencies` | Mapea cada escena/recurso a los recursos de los que depende. |
 | `project find-unused-resources` | Encuentra archivos de recurso que nada referencia. |
 | `project statistics` | Informa los recuentos de archivos/líneas del proyecto, los autoloads y más. |
+
+Cada escritura de `project` guarda a través del motor, que reserializa el archivo
+completo: gda restaura las líneas explícitas que el motor elimina e informa del resto
+en el resultado.
 
 **`resource`** — archivos de recurso (`.tres`) y los assets importados del proyecto
 

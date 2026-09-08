@@ -15,6 +15,8 @@ sidecar and a now-empty ``[autoload]`` section, so install → uninstall leaves
 Both halves RETURN the exact path/section set they touched.
 """
 
+import pytest
+
 from gda.harness.install import (
     HARNESS_AUTOLOAD_NAME,
     HARNESS_FILE,
@@ -342,6 +344,147 @@ def test_round_trip_leaves_a_pre_existing_user_autoload_section_unchanged(tmp_pa
 
     assert project_godot.read_bytes() == before
     assert result.removed_sections == ()  # a user section is never dropped
+
+
+def test_install_joins_a_whitespaced_autoload_section_it_finds(tmp_path):
+    # Godot's own parser strips a section header's inner whitespace
+    # (`VariantParser::_parse_tag`), so `[ autoload ]` IS the autoload section and
+    # the install joins it instead of appending a second one. Recognizing the
+    # header by its literal text saw the section (the shared reader tracks it by
+    # name) but not its header, and appended a duplicate (PR #898 review).
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(
+        _NO_AUTOLOAD + '\n[ autoload ]\n\nOther="*res://other.gd"\n', encoding="utf-8"
+    )
+    before = project_godot.read_bytes()
+
+    install = install_harness(tmp_path)
+
+    installed = project_godot.read_text(encoding="utf-8")
+    assert installed.count("autoload ]") == 1  # joined, never a second section
+    assert install.created_sections == ()  # gda joined a section, it did not make one
+    assert _autoload_line() in installed
+
+    uninstall_harness(tmp_path)
+
+    assert project_godot.read_bytes() == before
+
+
+def test_install_joins_a_commented_autoload_section_it_finds(tmp_path):
+    # Godot's parser reads past a trailing comment (`parse_tag_assign_eof` eats a
+    # `;` to end of line), so `[autoload] ; note` IS the autoload section. The
+    # installer's own `.strip()` did not remove the comment and the header was
+    # missed: install appended a SECOND `[autoload]` section, and uninstall then
+    # left the entry behind (PR #898 review, round 3). Every raw line now goes
+    # through the shared reader's `config_line`.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(
+        _NO_AUTOLOAD + '\n[autoload] ; kept by the user\nOther="*res://other.gd"\n',
+        encoding="utf-8",
+    )
+    before = project_godot.read_bytes()
+
+    install = install_harness(tmp_path)
+
+    installed = project_godot.read_text(encoding="utf-8")
+    assert installed.count("[autoload]") == 1  # joined, never a second section
+    assert install.created_sections == ()  # gda joined a section, it did not make one
+    assert _autoload_line() in installed
+    assert "; kept by the user" in installed
+
+    _write_engine_uid_sidecar(tmp_path)
+    result = uninstall_harness(tmp_path)
+
+    # The entry is gda's and goes; the commented header is the user's and stays,
+    # so the round trip is byte-identical.
+    assert project_godot.read_bytes() == before
+    assert result.removed_sections == ()
+
+
+def test_uninstall_keeps_a_commented_autoload_header_it_empties(tmp_path):
+    # gda removes the ENTRY from whichever spelling of the section holds it, but
+    # the header it drops is only the one it WRITES: a bare `[autoload]`. Dropping
+    # this one would take the user's comment with it.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(
+        f"{_NO_AUTOLOAD}\n[autoload] ; kept by the user\n{_autoload_line()}\n",
+        encoding="utf-8",
+    )
+
+    result = uninstall_harness(tmp_path)
+
+    text = project_godot.read_text(encoding="utf-8")
+    assert _autoload_line() not in text
+    assert "[autoload] ; kept by the user" in text
+    assert result.removed_sections == ()
+
+
+def test_uninstall_keeps_a_whitespaced_autoload_header_it_empties(tmp_path):
+    # gda removes the ENTRY from whichever spelling of the section holds it, but
+    # the header it drops is only the one it WRITES: `[autoload]`. Dropping
+    # `[ autoload ]` too would delete a line gda never wrote — the regression the
+    # name-based recognition introduced (PR #898 review, round 2).
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(
+        f"{_NO_AUTOLOAD}\n[ autoload ]\n\n{_autoload_line()}\n", encoding="utf-8"
+    )
+
+    result = uninstall_harness(tmp_path)
+
+    text = project_godot.read_text(encoding="utf-8")
+    assert _autoload_line() not in text  # the entry is gda's and goes
+    assert "[ autoload ]" in text  # the header is not, and stays
+    assert result.removed_sections == ()
+
+
+@pytest.mark.parametrize(
+    "project_text",
+    [
+        # At EOF and mid-file: an ALREADY-EMPTY user section, in the spelling
+        # Godot's parser reads as the autoload section but gda never writes.
+        _NO_AUTOLOAD + "\n[ autoload ]\n",
+        _NO_AUTOLOAD + "\n[ autoload ]\n\n[other]\n\nkey=1\n",
+    ],
+    ids=["at-eof", "mid-file"],
+)
+def test_round_trip_leaves_an_empty_whitespaced_autoload_section_intact(
+    tmp_path, project_text
+):
+    # The install JOINS such a section (Godot reads it as the autoload section) and
+    # the uninstall takes only its own entry back out, so the round trip is
+    # byte-identical and both receipts are empty — gda created no section, so it
+    # removed none.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(project_text, encoding="utf-8")
+    before = project_godot.read_bytes()
+
+    install = install_harness(tmp_path)
+    assert install.created_sections == ()
+    _write_engine_uid_sidecar(tmp_path)
+
+    result = uninstall_harness(tmp_path)
+
+    assert project_godot.read_bytes() == before
+    assert result.removed_sections == ()
+
+
+def test_round_trip_drops_a_pre_existing_empty_autoload_section(tmp_path):
+    # The KNOWN exception the module docstring lists and `uninstall_harness`
+    # explains: an already-empty `[autoload]` — the spelling gda itself writes —
+    # does not survive the round trip, because telling "gda wrote this header"
+    # from "gda joined it" needs pre-install state this module refuses to persist
+    # (and which the install's own receipt cannot supply: an uninstall is a
+    # separate run). Pinned here so the exception stays a decision, not a drift.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(
+        _NO_AUTOLOAD + "\n[autoload]\n\n[other]\n\nkey=1\n", encoding="utf-8"
+    )
+
+    install_harness(tmp_path)
+    result = uninstall_harness(tmp_path)
+
+    assert "[autoload]" not in project_godot.read_text(encoding="utf-8")
+    assert result.removed_sections == ("[autoload]",)
 
 
 def test_round_trip_preserves_crlf_line_endings(tmp_path):

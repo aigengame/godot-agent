@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ee5d00fce018fc5861a9fd976b007d5311fd0cabc8a51d521e70a41c3ab2eaf8 -->
+<!-- gda-readme-i18n: source=README.md sha256=b5201cbced637f6939b29899e07f19c05617f0dddd7d540063fc9e16732d17b9 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -8,6 +8,7 @@
 
 [产品概览](https://aigengame.xyz/zh/) ·
 [CLI、Agent Skill 还是 MCP？](https://aigengame.xyz/zh/godot-mcp/) ·
+[可玩示例](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
 > **让 Coding Agent、Shell 脚本与 CI 构建并验证 Godot 项目。**
@@ -428,12 +429,15 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `project set` | 设置一个项目设置，并把值强制转换为它声明的类型。 |
 | `project add-autoload` | 注册一个 autoload 单例（名称 → 脚本/场景）。 |
 | `project remove-autoload` | 按名称注销一个 autoload 单例。 |
-| `project add-input-action` | 注册一个绑定按键的 InputMap 动作（`--key` 键名或键码、`--deadzone`、`--physical`）。 |
+| `project add-input-action` | 注册一个绑定按键和/或手柄的 InputMap 动作（`--key`、`--joy-button`、`--joy-axis` 形如 `<轴>[:<符号>]`、`--device`、`--deadzone`、`--physical`）；至少需要一个绑定。 |
 | `project remove-input-action` | 按名称注销一个 InputMap 动作。 |
 | `project find-references` | 找出引用了给定资源的每一个项目文件。 |
 | `project dependencies` | 把每个场景/资源映射到它所依赖的资源。 |
 | `project find-unused-resources` | 找出没有任何东西引用的资源文件。 |
 | `project statistics` | 报告项目的文件/行数统计、autoload 等信息。 |
+
+每次 `project` 写入都经由引擎保存，而引擎会重新序列化整个文件：gda 会把它删掉的显式
+配置行按原样恢复，并在结果中报告其余改动。
 
 **`resource`** — 资源文件（`.tres`）与项目的已导入资产
 

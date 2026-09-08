@@ -6,6 +6,7 @@
 
 [Product overview](https://aigengame.xyz/) ·
 [CLI, Agent Skill, or MCP?](https://aigengame.xyz/godot-mcp/) ·
+[Playable demos](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
 > **Build and verify Godot projects with AI coding agents, shell scripts, and CI.**
@@ -443,6 +444,9 @@ names the file, and only `preflight` catches a first-frame failure.
 | `project dependencies` | Map each scene/resource to the resources it depends on. |
 | `project find-unused-resources` | Find resource files that nothing references. |
 | `project statistics` | Report the project's file/line counts, autoloads, and more. |
+
+Every `project` write saves through the engine, which reserializes the whole file:
+gda restores the explicit lines it drops and reports the rest on the result.
 
 **`resource`** — resource files (`.tres`) and the project's imported assets
 

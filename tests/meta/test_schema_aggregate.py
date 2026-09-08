@@ -362,7 +362,14 @@ _IGNORED_VALUE_MARKER = "a value passed in is ignored"
 
 # …and the properties it excuses today. Pinned so the phrase cannot become a
 # quiet escape hatch: a new computed property has to be acknowledged here.
-_COMPUTED_PROPERTIES = {"script set: mode", "shader set: mode"}
+_COMPUTED_PROPERTIES = {
+    "script set: mode",
+    "shader set: mode",
+    # #840: the host data directory the export-templates check compares against.
+    # gda resolves it from its own environment — the one thing a caller inside a
+    # redirected run cannot know — so it is stamped model-side like the two modes.
+    "export get: host_data_path",
+}
 
 
 def test_every_directly_supplyable_input_property_has_an_argv_binding():

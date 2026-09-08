@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ee5d00fce018fc5861a9fd976b007d5311fd0cabc8a51d521e70a41c3ab2eaf8 -->
+<!-- gda-readme-i18n: source=README.md sha256=b5201cbced637f6939b29899e07f19c05617f0dddd7d540063fc9e16732d17b9 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -8,6 +8,7 @@
 
 [製品概要](https://aigengame.xyz/) ·
 [CLI、Agent Skill、MCP のどれを選ぶ？](https://aigengame.xyz/godot-mcp/) ·
+[プレイ可能なデモ](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
 > **AI コーディングエージェント、シェルスクリプト、CI から Godot プロジェクトを構築・検証できます。**
@@ -448,12 +449,15 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `project set` | プロジェクト設定を設定します。値は宣言された型に変換されます。 |
 | `project add-autoload` | オートロードのシングルトンを登録します(名前 → スクリプト/シーン)。 |
 | `project remove-autoload` | オートロードのシングルトンを名前で指定して登録解除します。 |
-| `project add-input-action` | キーに割り当てた InputMap アクションを登録します(`--key` はキー名またはキーコード、`--deadzone`、`--physical`)。 |
+| `project add-input-action` | キーやコントローラーに割り当てた InputMap アクションを登録します(`--key`、`--joy-button`、`--joy-axis` は `<軸>[:<符号>]` 形式、`--device`、`--deadzone`、`--physical`)。バインドは 1 つ以上必要です。 |
 | `project remove-input-action` | InputMap アクションを名前で指定して登録解除します。 |
 | `project find-references` | 指定したリソースを参照するすべてのプロジェクトファイルを見つけます。 |
 | `project dependencies` | 各シーン/リソースを、それが依存するリソースに対応付けます。 |
 | `project find-unused-resources` | どこからも参照されていないリソースファイルを見つけます。 |
 | `project statistics` | プロジェクトのファイル数/行数、オートロードなどを報告します。 |
+
+`project` の書き込みはエンジン経由で保存され、エンジンはファイル全体を再シリアライズ
+します。gda は削除された明示的な行を復元し、残りの変更を結果で報告します。
 
 **`resource`** — リソースファイル(`.tres`)とプロジェクトのインポート済みアセット
 
