@@ -7,6 +7,7 @@ from gda_assets.application.ports import ModelInspectionPort
 from gda_assets.domain.model import (
     ModelFacts,
     ModelCheckResult,
+    ModelComparison,
     NodeFacts,
     MaterialFacts,
     SurfaceFacts,
@@ -43,6 +44,7 @@ __all__ = [
     "TrackFacts",
     "AnimationFacts",
     "ModelCheckResult",
+    "ModelComparison",
     "ModelInspectionPort",
     "AssetFile",
     "AssetRecipe",

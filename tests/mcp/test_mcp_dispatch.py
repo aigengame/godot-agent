@@ -149,7 +149,13 @@ def test_asset_check_content_verdict_is_relayed_as_success_with_explicit_verdict
                     "reason": "Required node",
                 }
             ],
-            "comparison": None,
+            "comparison": {
+                "status": "comparable",
+                "reasons": [],
+                "resources": {"before": "res://model.glb", "after": "res://model.glb"},
+                "changes": [],
+                "incomplete_sections": [],
+            },
             "failure": None,
         }
         runner = FakeGdaRunner(

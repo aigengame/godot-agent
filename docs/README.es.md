@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=bb3de349a31d49df94362315c1b48bf4365bd29bc497611c0a0c9ab536f95aef -->
+<!-- gda-readme-i18n: source=README.md sha256=45a25a690000e9c729f1038676fb3bbd3f05c81ff42b4272eb5dfc9a0d203541 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -608,7 +608,8 @@ proyecto es de confianza ([ADR-0009](adr/0009-trust-boundary-trusted-project.md)
 - **Los autoloads** arrancan en cada operación `--project` que inicia el motor, incluidas las de solo
   lectura (un `resource import` con la caché íntegra no arranca nada).
 - **El `_init` de los scripts de la escena** se ejecuta allí donde se instancia una escena: todo comando
-  `node` que modifica la escena, `node get` y la comprobación de carga de GLB de `asset-pipeline run`;
+  `node` que modifica la escena, `node get`, `resource inspect-model`,
+  `asset-pipeline check --path` y la comprobación de carga de GLB de `asset-pipeline run`;
   `scene get` / `scene list` / `node list` leen sin instanciar.
 - **`script run`** ejecuta íntegramente el script indicado; **`scene preflight`** arranca la escena y
   ejecuta su `_ready`.

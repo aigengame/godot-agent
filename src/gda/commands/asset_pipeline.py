@@ -12,6 +12,7 @@ from gda_assets.api import (
     AssetFile,
     AssetRecipe,
     PipelineResult,
+    ModelComparison,
     Resize,
     run_pipeline,
     ProductionRequest,
@@ -500,7 +501,7 @@ class AssetPipelineCheckResult(BaseModel):
         description="Content verdict. Every completed evaluation exits 0; invalid input or workflow failure exits nonzero."
     )
     checks: list[AssetConditionResult]
-    comparison: dict[str, Any] | None
+    comparison: ModelComparison | None
     failure: PipelineFailureResult | None
 
 
@@ -567,7 +568,7 @@ def render_asset_check(result: AssetPipelineCheckResult) -> str:
         f"  {item.verdict:>12}  {item.id}: {item.reason}" for item in result.checks
     )
     if result.comparison:
-        lines.append(f"  comparison: {result.comparison['status']}")
+        lines.append(f"  comparison: {result.comparison.status}")
     return "\n".join(lines)
 
 

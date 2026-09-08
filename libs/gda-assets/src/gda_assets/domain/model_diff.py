@@ -3,7 +3,16 @@
 from dataclasses import asdict
 from typing import Any, Iterable
 
-from gda_assets.domain.model import MaterialFacts, ModelFacts, NodeFacts, TrackFacts
+from gda_assets.domain.model import (
+    MaterialFacts,
+    ModelFacts,
+    NodeFacts,
+    TrackFacts,
+    ModelComparison,
+    ModelChange,
+    IncompleteSection,
+    ComparedResources,
+)
 
 
 def _change(
@@ -26,15 +35,11 @@ def _change(
 
 
 def _omissions(*facts: ModelFacts) -> list[dict[str, Any]]:
-    entries = {
-        (section, None if node == "." else node)
-        for fact in facts
-        for node, section in fact.omissions
-    }
+    entries = {(section, node) for fact in facts for node, section in fact.omissions}
     return [
         {
             "section": section,
-            **({"node": node} if node is not None else {}),
+            "node": node,
             "reason": "observation omitted",
         }
         for section, node in sorted(entries, key=lambda item: (item[0], item[1] or ""))
@@ -307,7 +312,7 @@ def _compare_animations(
             )
 
 
-def compare_models(before: ModelFacts, after: ModelFacts) -> dict[str, Any]:
+def compare_models(before: ModelFacts, after: ModelFacts) -> ModelComparison:
     """Compare like-for-like observations without treating omitted data as absence."""
     reasons = []
     if before.subtree != after.subtree:
@@ -330,7 +335,7 @@ def compare_models(before: ModelFacts, after: ModelFacts) -> dict[str, Any]:
         "incomplete_sections": incomplete,
     }
     if reasons:
-        return result
+        return _comparison_result(result)
 
     changes: list[dict[str, Any]] = result["changes"]
     old_nodes = {node.path: node for node in before.nodes}
@@ -442,7 +447,7 @@ def compare_models(before: ModelFacts, after: ModelFacts) -> dict[str, Any]:
         _compare_value(changes, "bounds", {}, before.bounds, after.bounds)
     if result["incomplete_sections"]:
         result["status"] = "partial"
-    return result
+    return _comparison_result(result)
 
 
 def _add_incomplete(
@@ -452,3 +457,15 @@ def _add_incomplete(
     if item not in incomplete:
         incomplete.append(item)
         incomplete.sort(key=lambda entry: (entry["section"], entry.get("node", "")))
+
+
+def _comparison_result(result: dict[str, Any]) -> ModelComparison:
+    return ModelComparison(
+        status=result["status"],
+        reasons=result["reasons"],
+        resources=ComparedResources(**result["resources"]),
+        changes=[ModelChange(**change) for change in result["changes"]],
+        incomplete_sections=[
+            IncompleteSection(**section) for section in result["incomplete_sections"]
+        ],
+    )

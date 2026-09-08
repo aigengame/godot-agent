@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=bb3de349a31d49df94362315c1b48bf4365bd29bc497611c0a0c9ab536f95aef -->
+<!-- gda-readme-i18n: source=README.md sha256=45a25a690000e9c729f1038676fb3bbd3f05c81ff42b4272eb5dfc9a0d203541 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -603,7 +603,8 @@ Blender からのエクスポート、ファイル入力、参照、部分的な
 - **オートロード**は、エンジンを起動するすべての `--project` 操作で実行されます。読み取り専用の操作も
   例外ではありません(キャッシュが完全な `resource import` は何も起動しません)。
 - **シーンスクリプトの `_init`** は、シーンをインスタンス化する操作では必ず実行されます。すべての変更系
-  `node` コマンド、`node get`、`asset-pipeline run` の GLB ロードチェックが該当し、
+  `node` コマンド、`node get`、`resource inspect-model`、`asset-pipeline check --path`、
+  `asset-pipeline run` の GLB ロードチェックが該当し、
   `scene get` / `scene list` / `node list` はインスタンス化せずに読み取ります。
 - **`script run`** は指定したスクリプトをすべて実行し、**`scene preflight`** はシーンを起動して `_ready` を実行します。
 - **`resource import`** はキャッシュ欠落時にエンジンのインポーター(およびプロジェクトのインポートプラグイン)を

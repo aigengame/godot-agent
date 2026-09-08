@@ -1,4 +1,4 @@
-from dataclasses import replace
+from dataclasses import asdict, replace
 
 from gda_assets.domain.model import (
     AnimationFacts,
@@ -9,7 +9,11 @@ from gda_assets.domain.model import (
     SurfaceFacts,
     TrackFacts,
 )
-from gda_assets.domain.model_diff import compare_models
+from gda_assets.domain.model_diff import compare_models as _compare_models
+
+
+def compare_models(before: ModelFacts, after: ModelFacts) -> dict:
+    return asdict(_compare_models(before, after))
 
 
 def _facts(*nodes: NodeFacts, omissions=(), resource="res://before.glb") -> ModelFacts:
@@ -158,7 +162,7 @@ def test_compare_models_does_not_infer_removals_from_omitted_collections() -> No
             "node": "Anim",
             "reason": "observation omitted",
         },
-        {"section": "nodes", "reason": "observation omitted"},
+        {"section": "nodes", "node": ".", "reason": "observation omitted"},
         {"section": "skin_binds", "node": "Body", "reason": "observation omitted"},
         {"section": "surfaces", "node": "Body", "reason": "observation omitted"},
     ]

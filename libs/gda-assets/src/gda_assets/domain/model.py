@@ -114,6 +114,37 @@ class CheckResult:
     reason: str
 
 
+@dataclass(frozen=True)
+class ModelChange:
+    section: str
+    location: dict[str, Any]
+    kind: Literal["added", "removed", "changed"]
+    before: Any
+    after: Any
+
+
+@dataclass(frozen=True)
+class IncompleteSection:
+    section: str
+    reason: str
+    node: str
+
+
+@dataclass(frozen=True)
+class ComparedResources:
+    before: str
+    after: str
+
+
+@dataclass(frozen=True)
+class ModelComparison:
+    status: Literal["comparable", "partial", "non_comparable"]
+    reasons: list[str]
+    resources: ComparedResources
+    changes: list[ModelChange]
+    incomplete_sections: list[IncompleteSection]
+
+
 @dataclass
 class ModelCheckResult:
     completed: list[str] = field(default_factory=list)
@@ -121,5 +152,5 @@ class ModelCheckResult:
     observation_source: str | None = None
     verdict: Verdict | None = None
     checks: list[CheckResult] = field(default_factory=list)
-    comparison: dict[str, Any] | None = None
+    comparison: ModelComparison | None = None
     failure: PipelineFailure | None = None

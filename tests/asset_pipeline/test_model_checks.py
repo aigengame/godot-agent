@@ -375,3 +375,31 @@ def test_inspection_failure_keeps_native_code_details_and_workflow_stage(
     assert partial["completed"] == ["validate"]
     assert partial["failure"]["stage"] == "inspect"
     assert partial["failure"]["cause"]["code"] == "not_a_scene"
+
+
+def test_comparison_schema_publishes_fixed_contract_for_cli_and_mcp():
+    import json
+    from typer.testing import CliRunner
+    from gda.cli import app
+
+    result = CliRunner().invoke(app, ["asset-pipeline", "check", "--schema"])
+    schema = json.loads(result.stdout)["output"]
+    choices = schema["properties"]["comparison"]["anyOf"]
+    reference = next(choice["$ref"] for choice in choices if "$ref" in choice)
+    comparison = schema["$defs"][reference.rsplit("/", 1)[1]]
+    assert set(comparison["properties"]) == {
+        "status",
+        "reasons",
+        "resources",
+        "changes",
+        "incomplete_sections",
+    }
+    assert set(comparison["properties"]["status"]["enum"]) == {
+        "comparable",
+        "partial",
+        "non_comparable",
+    }
+    change_ref = comparison["properties"]["changes"]["items"]["$ref"]
+    change = schema["$defs"][change_ref.rsplit("/", 1)[1]]
+    assert set(change["required"]) == {"section", "location", "kind", "before", "after"}
+    assert set(change["properties"]["kind"]["enum"]) == {"added", "removed", "changed"}
