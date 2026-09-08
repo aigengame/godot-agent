@@ -1421,9 +1421,7 @@ class _Reader:
             lowering["id"],
         )
 
-    def source_value_policy(
-        self, symbol: dict[str, Any], pointer: str, type_reference: dict[str, str]
-    ) -> None:
+    def source_value_policy(self, symbol: dict[str, Any], pointer: str) -> None:
         policy, law, lowering = self.source_assignment_policy()
         roles = [row for row in policy["roles"] if row["role"] == symbol["role"]]
         if len(roles) != 1:
@@ -1451,14 +1449,6 @@ class _Reader:
             "reference",
             law,
         )
-        if "value" in value:
-            literal = value["value"]
-            if isinstance(literal, dict) and set(literal) == {"type", "value"}:
-                self.typed_literal(literal, pointer + "/value_policy/value")
-            else:
-                self.typed_value(
-                    type_reference, literal, pointer + "/value_policy/value"
-                )
 
     def packages(self) -> None:
         for pi, package in enumerate(self.graph["packages"]):
@@ -2070,17 +2060,12 @@ class _Reader:
                 law,
             )
             aliases = {}
-            alias_types = {}
             for ii, import_ in enumerate(module["imports"]):
                 ip = f"{mp}/imports/{ii}"
                 alias = AuthorityToken(
                     "source-type-alias", module_scope, import_["alias"]
                 )
                 aliases[import_["alias"]] = alias
-                alias_types[import_["alias"]] = {
-                    "package": import_["package"],
-                    "id": import_["symbol"],
-                }
                 self.occurrence(alias, ip + "/alias", "declaration", law)
                 self.namespace(import_["package"], ip + "/package", "reference", law)
                 self.occurrence(
@@ -2104,7 +2089,7 @@ class _Reader:
                 self.value_contract(
                     {k: v for k, v in symbol.items() if k != "type"}, sp
                 )
-                self.source_value_policy(symbol, sp, alias_types[symbol["type"]])
+                self.source_value_policy(symbol, sp)
             if module.get("formulas"):
                 self.formulas(source, module, mp, aliases)
         self.formula_bindings(source)

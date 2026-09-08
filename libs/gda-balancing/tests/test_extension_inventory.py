@@ -1238,6 +1238,36 @@ def test_assignment_modes_follow_selected_policy_and_symbol_role(witness):
         validate_extension_inventory(kernel, graph, incomplete_class)
 
 
+def test_source_value_policy_uses_its_scalar_wire_contract(witness):
+    from gda_balancing.domain.model import CheckedModel, check_model_source_value
+
+    kernel, graph, _ = witness
+    candidate = deepcopy(graph)
+    symbol = candidate["source"]["modules"][0]["symbols"][2]
+    symbol["value_policy"] = {"mode": "model-fixed", "value": 3}
+    checked = check_model_source_value(candidate["source"])
+    assert isinstance(checked, CheckedModel), checked
+    inventory = read_extension_inventory(kernel, candidate)
+    validate_extension_inventory(kernel, candidate, inventory)
+    assert not any(
+        o.pointer.startswith("/source/modules/0/symbols/2/value_policy/value")
+        for o in inventory.occurrences
+    )
+
+    # These could be ordinary Record field names elsewhere. This position is
+    # closed by the admitted Source schema to an integer, never an envelope.
+    symbol["value_policy"]["value"] = {"type": "state", "value": "items"}
+    refused = check_model_source_value(candidate["source"])
+    assert not isinstance(refused, CheckedModel), refused
+    assert any(
+        diagnostic.primary.kind == "artifact"
+        and diagnostic.primary.pointer.endswith("/symbols/2/value_policy/value")
+        for diagnostic in refused.diagnostics
+    )
+    with pytest.raises(InventoryRefusal, match="closed wire schema"):
+        read_extension_inventory(kernel, candidate)
+
+
 @pytest.mark.parametrize("target", ["root", "resources", "descriptor"])
 def test_ldb_root_framing_has_no_unclassified_authored_members(witness, target):
     kernel, graph, inventory = witness
