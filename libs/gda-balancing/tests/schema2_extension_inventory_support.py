@@ -1166,6 +1166,36 @@ def _resolution_binding_links(kernel: Mapping[str, Any], graph: Mapping[str, Any
                 yield from term(field["term"], fp + "/term")
 
 
+def _close_projection_occurrences(graph, occurrences, projections):
+    """Transport roles to a fixed point over existing canonical value positions.
+
+    Projection values are already checked equal by their machine-law reader.
+    Each step preserves an existing token and descendant position; it cannot
+    manufacture roles for opaque data, even when projections form a cycle.
+    """
+    closed = set(occurrences)
+    pending = list(closed)
+    while pending:
+        row = pending.pop()
+        for source, target in projections:
+            if not (
+                (row.pointer == source and row.location != "key")
+                or row.pointer.startswith(source + "/")
+            ):
+                continue
+            pointer = target + row.pointer.removeprefix(source)
+            # The graph is finite. A propagated address must name an actual
+            # member, not a synthetic path produced by cycling projections.
+            _pointer_value(graph, pointer)
+            copied = TokenOccurrence(
+                row.token, pointer, "reference", row.law, row.location, row.projection
+            )
+            if copied not in closed:
+                closed.add(copied)
+                pending.append(copied)
+    return tuple(sorted(closed))
+
+
 def _operation_relation_surfaces(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
     """Join declared relation policies, selectors, and exact Operation projections.
 
@@ -1374,6 +1404,9 @@ def _operation_relation_surfaces(kernel: Mapping[str, Any], graph: Mapping[str, 
                         project(f"{left}/{index}/{member}", f"{right}/{j}/{member}")
             elif operator == "canonical-equal":
                 project(left, right)
+                # Equality binds the addressed value roles in either direction;
+                # neither operand is required to be the interpreted source.
+                project(right, left)
             elif operator not in {
                 "integer-equal",
                 "integer-greater-than",
@@ -1381,8 +1414,8 @@ def _operation_relation_surfaces(kernel: Mapping[str, Any], graph: Mapping[str, 
             }:
                 raise InventoryRefusal("Operation relation operator is unclassified")
         declared[scope] = roles
-        # Ordered projections make metadata/body roles available to capability
-        # copies before contract vectors project these entire authored subtrees.
+        # These copies join the same closure as body-derived roles. Contract
+        # vectors subsequently project the complete authored subtrees.
         project(mp, pp + "/contract/expect")
         project(dp, pp + "/relations")
         covered.update((mp, dp))
@@ -4224,19 +4257,17 @@ class _Reader:
             )
             if row.token.role.startswith("kernel."):
                 self.reserved.add(row.token)
-        for source, target in self.relation_projections:
-            for row in tuple(self.occurrences):
-                if (
-                    row.pointer == source and row.location != "key"
-                ) or row.pointer.startswith(source + "/"):
-                    self.occurrence(
-                        row.token,
-                        target + row.pointer.removeprefix(source),
-                        "reference",
-                        row.law,
-                        location=row.location,
-                        projection=row.projection,
-                    )
+        for row in _close_projection_occurrences(
+            self.graph, self.occurrences, self.relation_projections
+        ):
+            self.occurrence(
+                row.token,
+                row.pointer,
+                row.use,
+                row.law,
+                location=row.location,
+                projection=row.projection,
+            )
         self.contract_vectors()
         declarations = {o.token for o in self.occurrences if o.use == "declaration"}
         free = {o.token for o in self.occurrences if o.use == "unresolved-reference"}
@@ -4996,9 +5027,6 @@ def validate_extension_inventory(
     relation_links, relation_projections, relation_surfaces, relation_vectors = (
         _operation_relation_surfaces(kernel, graph)
     )
-    expected_relations = {
-        (o.token, o.pointer, o.use, o.location, o.projection) for o in relation_links
-    }
 
     def relation_position(pointer):
         return any(
@@ -5009,20 +5037,17 @@ def validate_extension_inventory(
             for root in relation_vectors
         )
 
-    # External sources are already owned by the Operation instruction reader.
-    # Internal canonical copies may inherit only the interpreted relation roles,
-    # never an extra caller-supplied classification of opaque metadata.
-    available = expected_relations | {
-        row for row in all_occurrences if not relation_position(row[1])
+    # Recompute the complete projection closure from independently derived
+    # relation roles and already-owned external instruction occurrences. Never
+    # seed it with the caller's claimed roles inside the relation surfaces.
+    seeds = relation_links | {
+        row for row in inventory.occurrences if not relation_position(row.pointer)
     }
-    for source, target in relation_projections:
-        copied = {
-            (row[0], target + row[1].removeprefix(source), "reference", row[3], row[4])
-            for row in available
-            if (row[1] == source and row[3] != "key") or row[1].startswith(source + "/")
-        }
-        expected_relations.update(copied)
-        available.update(copied)
+    expected_relations = {
+        (row.token, row.pointer, row.use, row.location, row.projection)
+        for row in _close_projection_occurrences(graph, seeds, relation_projections)
+        if relation_position(row.pointer)
+    }
     observed_relations = {row for row in all_occurrences if relation_position(row[1])}
     if (
         expected_relations != observed_relations

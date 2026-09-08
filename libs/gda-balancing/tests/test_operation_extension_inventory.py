@@ -498,3 +498,144 @@ def test_simultaneous_relation_and_member_rename_preserves_public_periodic_execu
             [(row["state_before"], row["state_after"]) for row in transition]
         )
     assert observations[0] == observations[1]
+
+
+def _schedule_copy_candidate(kernel, original, copy_first, interpreted_on_left=True):
+    graph = deepcopy(original)
+    package = next(row for row in graph["packages"] if row["id"] == "game.effect")
+    operation = next(
+        row
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.operations"
+        for row in closure["definitions"]
+        if row["id"] == "game.effect.apply-live-periodic-v1"
+    )
+    declarations = operation["extensions"]["standard.operation-relations"]
+    metadata = operation["extensions"]["game.effect.periodic"]
+    # Replace one existing relation to keep the candidate's vector set complete
+    # and unchanged in size. Its opaque role ID does not prescribe the operator.
+    copied = declarations.pop(0)
+    copied["probe"] = {
+        "left_path": ["extensions", "game.effect.periodic", "schedule"],
+        "operator": "canonical-equal",
+        "right_path": None,
+        "right_value": deepcopy(metadata["schedule"]),
+    }
+    if not interpreted_on_left:
+        metadata["schedule_mirror"] = deepcopy(metadata["schedule"])
+        copied["probe"].update(
+            left_path=["extensions", "game.effect.periodic", "schedule_mirror"],
+            right_path=["extensions", "game.effect.periodic", "schedule"],
+            right_value=None,
+        )
+    declarations.insert(0 if copy_first else len(declarations), copied)
+    for closure in package["semantic_closure"]:
+        if closure["authority_path"] == "language.capabilities":
+            for definition in closure["definitions"]:
+                for policy in definition.get("extensions", {}).get(
+                    "standard.operation-relation-policy", []
+                ):
+                    if policy["operation"] == operation["id"]:
+                        policy["contract"]["expect"] = deepcopy(metadata)
+                        policy["relations"] = deepcopy(declarations)
+    vectors = next(
+        row for row in graph["vector_sets"] if row["package_id"] == package["id"]
+    )
+    positions = []
+    for i, vector in enumerate(vectors["vector_definitions"]):
+        if vector.get("operation") != operation["id"]:
+            continue
+        if (
+            vector.get("kind") == "operation-contract"
+            and vector["probe"]["path"] == "extensions"
+        ):
+            vector["expect"] = deepcopy(operation["extensions"])
+        elif vector.get("kind") == "operation-relation":
+            vector["probe"] = deepcopy(
+                next(
+                    row["probe"] for row in declarations if row["id"] == vector["role"]
+                )
+            )
+            positions.append(i)
+    by_role = {
+        vectors["vector_definitions"][i]["role"]: vectors["vector_definitions"][i]
+        for i in positions
+    }
+    for i, declaration in zip(positions, declarations, strict=True):
+        vectors["vector_definitions"][i] = by_role[declaration["id"]]
+    vectors["vectors"] = [row["id"] for row in vectors["vector_definitions"]]
+    _reseal_authored_graph(kernel, graph)
+    return graph
+
+
+@pytest.mark.parametrize(
+    "copy_first", [True, False], ids=["copy-before-projection", "copy-after-projection"]
+)
+@pytest.mark.parametrize(
+    "interpreted_on_left", [True, False], ids=["interpreted-left", "interpreted-right"]
+)
+def test_transitive_projection_roles_are_complete_in_both_authored_orders(
+    witness, copy_first, interpreted_on_left
+):
+    kernel, original, _ = witness
+    graph = _schedule_copy_candidate(kernel, original, copy_first, interpreted_on_left)
+    before = _encoded(graph)
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, _authored(graph))
+        assert result["admitted"], result["diagnostics"]
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    assert _encoded(graph) == before
+    token = AuthorityToken(
+        "language.operations", ("game.effect",), "game.effect.tick-live-periodic-v1"
+    )
+    copy_path = "/probe/right_value/" if interpreted_on_left else "/schedule_mirror/"
+    indirect = [
+        row
+        for row in inventory.occurrences
+        if row.token == token and copy_path in row.pointer
+    ]
+    # Literal RHS: declaration/policy/relation-vector/contract-vector. Metadata
+    # LHS: metadata/policy-contract/contract-vector. Both carry two actual ticks.
+    expected = 8 if interpreted_on_left else 6
+    assert len(indirect) == expected
+    erased = replace(
+        inventory,
+        occurrences=tuple(row for row in inventory.occurrences if row not in indirect),
+    )
+    with pytest.raises(InventoryRefusal, match="Operation relation coverage"):
+        validate_extension_inventory(kernel, graph, erased)
+    positions = [row for row in inventory.occurrences if row.token == token]
+    renamed = _rewrite_positions(
+        graph,
+        {
+            row.pointer: "inventory.renamed-tick"
+            for row in positions
+            if row.location == "value"
+        },
+        {
+            row.pointer: "inventory.renamed-tick"
+            for row in positions
+            if row.location == "key"
+        },
+    )
+    _reseal_authored_graph(kernel, renamed)
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, _authored(renamed))
+        assert result["admitted"], result["diagnostics"]
+    renamed_inventory = read_extension_inventory(kernel, renamed)
+    validate_extension_inventory(kernel, renamed, renamed_inventory)
+    renamed_token = replace(token, name="inventory.renamed-tick")
+    assert (
+        len(
+            [
+                row
+                for row in renamed_inventory.occurrences
+                if row.token == renamed_token and copy_path in row.pointer
+            ]
+        )
+        == expected
+    )
+    assert sum(
+        len(group["vector_definitions"]) for group in graph["vector_sets"]
+    ) == sum(len(group["vector_definitions"]) for group in original["vector_sets"])
