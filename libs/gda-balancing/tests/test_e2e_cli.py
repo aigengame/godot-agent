@@ -1040,7 +1040,7 @@ class TestKeyUserPath:
             for evaluation in snapshot_evaluations
         ] == [("game.effect.apply-snapshot-periodic-v1", 15)]
         assert all(
-            evaluation["context"] == {"phase": "event", "frame": "pre-event-snapshot"}
+            evaluation["context"] == {"phase": "event"}
             and evaluation["frame_identity"]
             == next(
                 event["snapshot_before_identity"]

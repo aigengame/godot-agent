@@ -416,7 +416,6 @@ def test_roguelike_model_build_publishes_the_reward_formula_boundary(tmp_path, r
 
     assert formula["expression"] == "rare_weight"
     assert binding["site"]["context"] == {
-        "frame": "pre-event-snapshot",
         "phase": "event",
     }
     assert binding["site"]["slot"] == "rare-threshold-policy"
@@ -587,15 +586,12 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
         "observation",
     }
     assert bindings_by_phase["initialization"]["site"]["context"] == {
-        "frame": "pre-snapshot",
         "phase": "initialization",
     }
     assert bindings_by_phase["observation"]["site"]["context"] == {
-        "frame": "post-transition-snapshot",
         "phase": "observation",
     }
     assert bindings_by_phase["event"]["site"]["context"] == {
-        "frame": "pre-event-snapshot",
         "phase": "event",
     }
     assert (
@@ -1733,7 +1729,6 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
     assert binding["site"]["slot"] == "damage-policy"
     assert binding["site"]["context"] == {
         "phase": "event",
-        "frame": "pre-event-snapshot",
     }
     assert [row["operand"]["parameter"] for row in binding["arguments"]] == [
         "damage_before_defense",

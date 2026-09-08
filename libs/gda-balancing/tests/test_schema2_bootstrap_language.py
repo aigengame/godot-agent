@@ -547,7 +547,6 @@ def test_stat_contribution_releases_own_pure_formula_slots():
         [slot] = operation["extensions"]["standard.formula-slots"]
         assert slot["id"] == contract["slot"]
         assert slot["context"] == {
-            "frame": "pre-event-snapshot",
             "phase": "event",
         }
         assert [parameter["id"] for parameter in slot["parameters"]] == contract[

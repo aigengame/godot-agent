@@ -327,7 +327,7 @@ def _forged_formula():
         "formula": {"module": "forged", "id": "forged", "identity": "forged"},
         "operation": {"package": "forged", "id": "forged", "identity": "forged"},
         "slot": "forged",
-        "context": {"phase": "event", "frame": "forged"},
+        "context": {"phase": "event"},
         "arguments": [],
         "result": 0,
         "frame_identity": "forged",

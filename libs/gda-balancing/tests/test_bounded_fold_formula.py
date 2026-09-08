@@ -41,7 +41,7 @@ def _slot_authorities():
         "standard.formula-slots": [
             {
                 "id": "accumulator-policy",
-                "context": {"phase": "event", "frame": "pre-event-snapshot"},
+                "context": {"phase": "event"},
                 "parameters": [
                     {
                         **scalar,
