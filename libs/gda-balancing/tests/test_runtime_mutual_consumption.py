@@ -131,6 +131,18 @@ def _two_root_specification(rir, items):
     scope="module", params=[[1, 2, 3, 4], [4, 3, 2, 1]], ids=["forward", "reverse"]
 )
 def mutual_results(independent_fold, tmp_path_factory, request):
+    kernel, context, rir = independent_fold
+    return _exchange_results(
+        kernel,
+        context,
+        rir,
+        _two_root_specification(rir, request.param),
+        _source(),
+        tmp_path_factory.mktemp("mutual-runtime"),
+    )
+
+
+def _exchange_results(kernel, reference_context, rir, specification, source, directory):
     from pathlib import Path
     import json
 
@@ -146,16 +158,14 @@ def mutual_results(independent_fold, tmp_path_factory, request):
     from schema2_runtime_independent_support import reference_runtime_artifacts
     from test_current_namespace_public import _PublicCandidate, _members
 
-    kernel, reference_context, rir = independent_fold
-    specification = _two_root_specification(rir, request.param)
     # B computes its complete result before A executes: no A trace or payload
     # template is available to the independent Scenario driver.
     independent = reference_runtime_artifacts(reference_context, rir, specification)
     candidate = _PublicCandidate(
-        tmp_path_factory.mktemp("mutual-runtime"),
+        directory,
         authorities=(kernel, reference_context.language_bundle),
     )
-    candidate.write_source(_source())
+    candidate.write_source(source)
     build = candidate.cli(
         "model",
         "build",
@@ -226,6 +236,7 @@ def test_both_consumers_admit_the_other_runtime_result(mutual_results):
     )
     assert set(first_manifest["effects"]) == {
         "event.commit",
+        "event.schedule",
         "snapshot.commit",
         "metric.observe",
     }
@@ -297,7 +308,7 @@ def test_independent_consumer_rejects_identity_valid_result_mutations(
     assert not reference_admits_runtime_artifacts(context, rir, specification, changed)
 
 
-def test_reference_runtime_declines_unimplemented_input_phase(independent_fold):
+def test_reference_runtime_declines_unimplemented_transition_payload(independent_fold):
     from schema2_runtime_independent_support import (
         IndependentRuntimeUnsupported,
         reference_runtime_artifacts,
@@ -305,35 +316,10 @@ def test_reference_runtime_declines_unimplemented_input_phase(independent_fold):
 
     _, context, rir = independent_fold
     specification = _two_root_specification(rir, [1, 2, 3, 4])
-    root = specification["scenarios"][0]["event_plan"][0]
-    root.clear()
-    root.update(
-        {
-            "kind": "external-input",
-            "root_event_ref": "authored-input",
-            "logical_time": 0,
-            "priority": 0,
-            "source_identity": "sha256:" + "b" * 64,
-            "source_sequence": 0,
-            "facts": [
-                {
-                    "target": {
-                        "model": "example.bounded-fold",
-                        "module": "fold",
-                        "name": "items",
-                    },
-                    "value": {
-                        "type": {
-                            "package": "standard.conformance.structured",
-                            "id": "IntList4",
-                        },
-                        "value": [1, 2, 3, 4],
-                    },
-                }
-            ],
-        }
-    )
-    with pytest.raises(IndependentRuntimeUnsupported, match="only transition roots"):
+    specification["scenarios"][0]["event_plan"][0]["payload"] = [
+        deepcopy(specification["scenarios"][0]["assignments"][0])
+    ]
+    with pytest.raises(IndependentRuntimeUnsupported, match="transition payloads"):
         reference_runtime_artifacts(context, rir, specification)
 
 
@@ -411,3 +397,133 @@ def test_independent_selected_type_admission_rejects_incomplete_closure(
             selected_semantics=selected,
             resource_limit=1024,
         )
+
+
+@pytest.fixture(
+    scope="module", params=[False, True], ids=["priority", "single-counter"]
+)
+def priority_mutual_results(tmp_path_factory, request):
+    from priority_protocol_support import authorities, source, specification
+
+    kernel, language, turn = authorities()
+    authored = source(turn)
+    context = _reference_check_source(authored, kernel, language)
+    assert not isinstance(context, tuple), context
+    rir = _reference_semantic_artifacts(context)["rir-semantic-payload"]
+    return _exchange_results(
+        kernel,
+        context,
+        rir,
+        specification(rir, request.param),
+        authored,
+        tmp_path_factory.mktemp("priority-mutual"),
+    )
+
+
+def test_priority_six_members_cross_the_actual_runtime_boundary(
+    priority_mutual_results,
+):
+    from gda_balancing.domain.experiment_artifacts import (
+        validate_experiment_artifact_set,
+    )
+    from schema2_runtime_independent_support import reference_admits_runtime_artifacts
+
+    context, rir, specification, independent, production, checked = (
+        priority_mutual_results
+    )
+    assert len(independent) == 6
+    assert validate_experiment_artifact_set(checked, independent)
+    assert reference_admits_runtime_artifacts(context, rir, specification, production)
+    for name in independent:
+        if name != "evaluator-capability-manifest":
+            assert independent[name] == production[name], name
+    expected = specification["metrics"][0]["target"]["minimum"]
+    assert independent["metric-dataset"]["samples"][0]["value"] == expected
+    assert expected in (0, 7)
+    events = independent["event-trace"]["events"]
+    roots = specification["scenarios"][0]["event_plan"]
+    assert [
+        event["root_event_ref"] for event in events if "root_event_ref" in event
+    ] == [event["root_event_ref"] for event in roots]
+    schedules = [row for event in events for row in event["schedules"]]
+    assert len(schedules) == 1
+    scheduled = next(event for event in events if "parent_event_id" in event)
+    assert scheduled["event_id"] == schedules[0]["event_id"]
+    assert scheduled["ordering_key"]["logical_time"] == 7
+    captured = {row["name"]: row["value"] for row in schedules[0]["arguments"]}
+    assert captured["status"]["value"] == "pending"
+    assert len(captured["counters"]["value"]) == (2 if expected == 7 else 1)
+    assert (
+        independent["evaluator-capability-manifest"]["evaluator_build_identity"]
+        != production["evaluator-capability-manifest"]["evaluator_build_identity"]
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation", ["nominal-owner", "quantity-domain", "source-sequence"]
+)
+def test_independent_priority_input_admission_has_no_value_defaults(
+    priority_mutual_results, mutation
+):
+    from schema2_runtime_independent_support import reference_runtime_artifacts
+
+    context, rir, original, _, _, _ = priority_mutual_results
+    changed = deepcopy(original)
+    if mutation == "source-sequence":
+        changed["scenarios"][0]["event_plan"][0]["source_sequence"] = 1
+        message = "source sequence"
+    else:
+        fact = next(
+            row
+            for event in changed["scenarios"][0]["event_plan"]
+            for row in event.get("facts", [])
+            if row["target"]["name"]
+            == ("counter" if mutation == "nominal-owner" else "actor")
+        )
+        if mutation == "nominal-owner":
+            fact["value"]["type"]["package"] = "undeclared.owner"
+            message = "nominal owner"
+        else:
+            fact["value"] = 2
+            message = "declared domain"
+    with pytest.raises(ValueError, match=message):
+        reference_runtime_artifacts(context, rir, changed)
+
+
+@pytest.mark.parametrize("mutation", ["captured-value", "captured-state-reference"])
+def test_independent_priority_consumer_checks_actual_scheduled_captures(
+    priority_mutual_results, mutation
+):
+    from schema2_runtime_independent_support import reference_admits_runtime_artifacts
+    from test_schema2_model_lowerer_conformance import _reference_artifact
+
+    context, rir, specification, _, production, _ = priority_mutual_results
+    changed = deepcopy(production)
+    trace = changed["event-trace"]
+    scheduled = next(row for event in trace["events"] for row in event["schedules"])
+    catalog = next(
+        row["event_spec"]
+        for row in changed["snapshot-series"]["event_catalog"]
+        if row["event_id"] == scheduled["event_id"]
+    )
+    if mutation == "captured-value":
+        for rows in (scheduled["arguments"], catalog["arguments"]):
+            next(row for row in rows if row["name"] == "power")["value"] += 1
+    else:
+        for rows in (scheduled["state_references"], catalog["state_references"]):
+            next(row for row in rows if row["name"] == "power")["target"]["name"] = (
+                "final_power"
+            )
+    fields = {
+        key: value
+        for key, value in trace.items()
+        if key
+        not in {
+            "artifact_kind",
+            "artifact_version",
+            "wire_schema_identity",
+            "content_identity",
+        }
+    }
+    changed["event-trace"] = _reference_artifact(context, "event-trace", fields)
+    assert not reference_admits_runtime_artifacts(context, rir, specification, changed)

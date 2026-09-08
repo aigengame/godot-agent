@@ -14,8 +14,12 @@ import jsonschema
 
 from schema2_operation_execution_independent_support import (
     ReferenceEventFrame,
+    ReferenceEventDispatch,
     _reference_fact_rows,
     reference_execute_event,
+)
+from schema2_bootstrap_conformance_support import (
+    _consumer_b_evaluate_structured_value_vector,
 )
 from test_schema2_model_lowerer_conformance import (
     ModelSourceContext,
@@ -86,13 +90,8 @@ def _supported_shape(specification, rir):
         raise IndependentRuntimeUnsupported(
             "Scenario RNG continuation is not implemented"
         )
-    if any(
-        event["kind"] != "transition-invocation" or event["payload"]
-        for event in scenario["event_plan"]
-    ):
-        raise IndependentRuntimeUnsupported(
-            "only transition roots without payload are implemented"
-        )
+    if any(event.get("payload") for event in scenario["event_plan"]):
+        raise IndependentRuntimeUnsupported("transition payloads are not implemented")
     if scenario["terminal_condition"]["kind"] not in {"queue-drained", "event-count"}:
         raise IndependentRuntimeUnsupported("unsupported terminal condition")
     names = [row["resolved_symbol"]["name"] for row in rir["declarations"]]
@@ -127,6 +126,13 @@ def _supported_shape(specification, rir):
         "invoke-operation",
         "bounded-pure-fold",
         "bounded-list-append",
+        "schedule-operation",
+        "guarded-outcome-block",
+        "typed-require",
+        "bounded-lookup",
+        "collection-is-empty",
+        "canonical-equal",
+        "gameplay-precondition",
     }
     # Capability names belong to this declared machine, not authored Operation IDs.
     operators = {row["id"]: row["semantics"]["operator"] for row in runtime["nodes"]}
@@ -145,7 +151,12 @@ def _supported_shape(specification, rir):
         "instruction_nodes": sorted(
             node for node, operator in operators.items() if operator in allowed
         ),
-        "effects": ["event.commit", "metric.observe", "snapshot.commit"],
+        "effects": [
+            "event.commit",
+            "event.schedule",
+            "metric.observe",
+            "snapshot.commit",
+        ],
         "numeric_policies": ["exact-int64"],
         "rng_algorithms": [runtime["named_rng"]["algorithm"]],
         "runtime_profiles": [specification["runtime"]["profile"]],
@@ -240,15 +251,14 @@ def reference_runtime_artifacts(
         )
         roots.append(
             {
-                "kind": authored["kind"],
+                **deepcopy(authored),
                 "event_id": event_id,
-                "root_event_ref": authored["root_event_ref"],
-                "entrypoint": authored["entrypoint"],
-                "payload": deepcopy(authored["payload"]),
                 "ordering_key": ordering,
                 "zero_time_depth": 0,
             }
         )
+        del roots[-1]["logical_time"]
+        del roots[-1]["priority"]
         root_map.append(
             {
                 "scenario": scenario_id,
@@ -310,6 +320,59 @@ def reference_runtime_artifacts(
             for row in scenario["assignments"]
         }
     )
+
+    def admit_value(key, value):
+        declaration = declarations[key]
+        if declaration.get("value_kind") == "nominal-structured":
+            if (
+                not isinstance(value, dict)
+                or value.get("type") != declaration["type_identity"]
+            ):
+                raise ValueError("input nominal owner differs from declaration")
+            result = _consumer_b_evaluate_structured_value_vector(
+                {
+                    "input": {
+                        "action": "admit",
+                        "left": value,
+                        "right": None,
+                        "key": None,
+                        "limit": None,
+                    }
+                },
+                selected_semantics=semantic,
+                resource_limit=semantic["execution_resources"]["max_rule_match_steps"],
+            )
+            if result["outcome"] != "admitted":
+                raise ValueError("input structured value is not admitted")
+        else:
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ValueError("input quantity is not an integer")
+            if declaration["domain_kind"] == "closed-interval":
+                interval = declaration["domain"]
+                if not interval["minimum"] <= value <= interval["maximum"]:
+                    raise ValueError("input quantity is outside declared domain")
+            if (
+                not runtime["numeric"]["minimum"]
+                <= value
+                <= runtime["numeric"]["maximum"]
+            ):
+                raise ValueError("input quantity is outside numeric domain")
+
+    for key, value in initializers.items():
+        admit_value(key, value)
+    input_sequences = {}
+    for authored in scenario["event_plan"]:
+        if authored["kind"] != "external-input":
+            continue
+        source = authored["source_identity"]
+        if authored["source_sequence"] != input_sequences.get(source, 0):
+            raise ValueError("external input source sequence is not contiguous")
+        input_sequences[source] = authored["source_sequence"] + 1
+        for row in authored["facts"]:
+            key = _coordinate(row["target"])
+            if declarations[key]["role"] != "input":
+                raise ValueError("external input must target an input declaration")
+            admit_value(key, row["value"])
     frame = ReferenceEventFrame(initializers, {}, {}, 0, {})
     next_sequence = len(roots)
     lifecycle = runtime["runtime_configuration"]["lifecycle_roles"]
@@ -404,35 +467,104 @@ def reference_runtime_artifacts(
             raise IndependentRuntimeUnsupported(
                 "terminal-audit production is not implemented"
             )
-        entrypoint = entrypoints[active["entrypoint"]]
-        coordinate = (entrypoint["operation"]["package"], entrypoint["operation"]["id"])
-        actual = reference_execute_event(
-            {},
-            operations[coordinate],
-            operations,
-            scenario,
-            seed=specification["seed"]["value"],
-            resolved_entrypoint=entrypoint,
-            resolved_declarations=rir["declarations"],
-            resolved_call_sites=rir["call_sites"],
-            root_operation_coordinate=coordinate,
-            selected_semantics=semantic,
-            resource_limit=bounds["max_node_steps"],
-            include_execution_evidence=True,
-            frame=ReferenceEventFrame(
-                frame.values,
-                frame.rng_states,
-                frame.rng_indices,
-                frame.node_steps,
-                ordering,
-            ),
-        )
-        if "refusal" in actual:
-            raise IndependentRuntimeUnsupported(
-                f"terminal-audit production is not implemented: {actual['refusal']}"
+        if active["kind"] == "external-input":
+            before = state_rows()
+            updated = dict(frame.values)
+            updated.update(
+                {
+                    _coordinate(row["target"]): deepcopy(row["value"])
+                    for row in active["facts"]
+                }
             )
-        charge = actual.pop("execution_evidence")["resource_charge"]
-        frame = actual.pop("continuation")
+            frame = ReferenceEventFrame(
+                updated, frame.rng_states, frame.rng_indices, frame.node_steps, ordering
+            )
+            contract = scheduler["external_input_identity"]
+            material = {
+                "experiment_identity": experiment_identity,
+                "scenario_id": scenario_id,
+                **active,
+            }
+            external_identity = _reference_content_identity(
+                contract["domain"],
+                {key: material[key] for key in contract["projection"]},
+            )
+            actual = {
+                "operation": None,
+                "entrypoint": None,
+                "calls": [],
+                "outcome": {"id": "input-admitted", "kind": "success"},
+                "facts": _reference_fact_rows(
+                    {key[2]: value for key, value in frame.values.items()}
+                ),
+                "state_before": before,
+                "state_after": state_rows(),
+                "rng_draws": [],
+                "schedules": [],
+                "cancellations": [],
+            }
+            charge = 0
+        else:
+            entrypoint = (
+                entrypoints[active["entrypoint"]]
+                if active["kind"] == "transition-invocation"
+                else None
+            )
+            ref = (
+                entrypoint["operation"]
+                if entrypoint is not None
+                else active["operation"]
+            )
+            coordinate = (ref["package"], ref["id"])
+            actual = reference_execute_event(
+                {},
+                operations[coordinate],
+                operations,
+                scenario,
+                seed=specification["seed"]["value"],
+                resolved_entrypoint=entrypoint,
+                resolved_declarations=rir["declarations"],
+                resolved_call_sites=rir["call_sites"],
+                root_operation_coordinate=coordinate,
+                selected_semantics=semantic,
+                resource_limit=bounds["max_node_steps"],
+                include_execution_evidence=True,
+                frame=ReferenceEventFrame(
+                    frame.values,
+                    frame.rng_states,
+                    frame.rng_indices,
+                    frame.node_steps,
+                    ordering,
+                ),
+                dispatch=ReferenceEventDispatch(
+                    active, experiment_identity, next_sequence
+                ),
+            )
+            if "refusal" in actual:
+                raise IndependentRuntimeUnsupported(
+                    f"terminal-audit production is not implemented: {actual['refusal']}"
+                )
+            charge = actual.pop("execution_evidence")["resource_charge"]
+            frame = actual.pop("continuation")
+            children = actual.pop("scheduled_events")
+            for child in children:
+                if (
+                    child["ordering_key"]["logical_time"] > bounds["max_logical_time"]
+                    or child["zero_time_depth"] > bounds["max_zero_time_depth"]
+                ):
+                    raise IndependentRuntimeUnsupported(
+                        "scheduled Event resource refusal"
+                    )
+                catalog_event(child)
+            next_sequence += len(children)
+            pending.extend(children)
+            pending.sort(key=order)
+            if (
+                len(pending) > bounds["max_queue_events"]
+                or len(catalog) > bounds["max_total_events"]
+            ):
+                raise IndependentRuntimeUnsupported("scheduled Event resource refusal")
+            external_identity = None
         if charge > bounds["max_event_steps"]:
             raise IndependentRuntimeUnsupported(
                 "terminal-audit production is not implemented"
@@ -441,14 +573,18 @@ def reference_runtime_artifacts(
             {
                 "index": len(events),
                 "event_id": active["event_id"],
-                "root_event_ref": active["root_event_ref"],
                 "ordering_key": deepcopy(ordering),
-                "external_input_identity": None,
+                "external_input_identity": external_identity,
                 "observation": None,
                 "formula_evaluations": [],
                 "snapshot_before_identity": snapshots[-1]["snapshot_identity"],
             }
         )
+        if "root_event_ref" in active:
+            actual["root_event_ref"] = active["root_event_ref"]
+        else:
+            actual["parent_event_id"] = active["parent_event_id"]
+            actual["schedule_call_site_identity"] = active["call_site_identity"]
         committed += 1
         logical_boundary = (
             not pending

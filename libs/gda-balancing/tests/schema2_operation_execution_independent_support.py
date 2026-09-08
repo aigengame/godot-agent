@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
+from schema2_bootstrap_conformance_support import _encoded
+
 OperationCoordinate = tuple[str, str]
 SymbolCoordinate = tuple[str, str, str]
 
@@ -19,6 +21,15 @@ class ReferenceEventFrame:
     rng_indices: Mapping[str, int]
     node_steps: int
     ordering_key: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class ReferenceEventDispatch:
+    """Actual scheduler inputs needed by an independent Event's effects."""
+
+    event: Mapping[str, Any]
+    experiment_identity: str
+    next_enqueue_sequence: int
 
 
 def _operation_coordinate(reference: dict[str, Any]) -> OperationCoordinate:
@@ -129,9 +140,10 @@ def reference_execute_event(
     resource_limit: int | None = None,
     selected_semantics: Mapping[str, Any] | None = None,
     frame: ReferenceEventFrame | None = None,
+    dispatch: ReferenceEventDispatch | None = None,
 ) -> dict[str, Any]:
-    if frame is not None and resolved_entrypoint is None:
-        raise ValueError("a committed Event frame requires a resolved entrypoint")
+    if frame is not None and resolved_declarations is None:
+        raise ValueError("a committed Event frame requires resolved declarations")
     if selected_semantics is not None and language_bundle is not None:
         raise ValueError("select RIR semantics or authority-vector inputs, not both")
     runtime = (
@@ -144,8 +156,8 @@ def reference_execute_event(
     variables: dict[str | tuple[str, str, str], Any]
     state_targets: set[str | tuple[str, str, str]]
     display_names: dict[str | tuple[str, str, str], str]
-    if resolved_entrypoint is not None:
-        assert resolved_declarations is not None
+    if resolved_declarations is not None:
+        assert resolved_entrypoint is not None or dispatch is not None
         declarations = {
             (
                 row["resolved_symbol"]["model"],
@@ -160,7 +172,11 @@ def reference_execute_event(
                 row["target"]["module"],
                 row["target"]["name"],
             ): row["value"]
-            for row in resolved_entrypoint["scenario_input_contract"]["initializers"]
+            for row in (
+                resolved_entrypoint["scenario_input_contract"]["initializers"]
+                if resolved_entrypoint is not None
+                else []
+            )
         }
         variables.update(
             {
@@ -183,7 +199,9 @@ def reference_execute_event(
                 operand["symbol"]["module"],
                 operand["symbol"]["name"],
             )
-            for binding in resolved_entrypoint["arguments"]
+            for binding in (
+                resolved_entrypoint["arguments"] if resolved_entrypoint else []
+            )
             if (operand := binding["operand"])["kind"] == "symbol"
         }
         while True:
@@ -313,7 +331,7 @@ def reference_execute_event(
             and declaration.get("value_kind") != "nominal-structured"
             and declaration["domain_kind"] == "closed-interval"
         }
-        if resolved_entrypoint is not None
+        if resolved_declarations is not None
         else {}
     )
     before = {name: cell["value"] for name, cell in state_cells.items()}
@@ -321,6 +339,17 @@ def reference_execute_event(
     rng_indices: dict[str, int] = dict(frame.rng_indices) if frame is not None else {}
     draws: list[dict[str, Any]] = []
     calls: list[dict[str, Any]] = []
+    scheduled_events: list[dict[str, Any]] = []
+    schedules: list[dict[str, Any]] = []
+
+    def identify(domain: str, body: Any) -> str:
+        return (
+            "sha256:"
+            + hashlib.sha256(
+                f"gda-balancing:{domain}:".encode() + _encoded(body)
+            ).hexdigest()
+        )
+
     executed_resource_charge = 0
     call_sites = {
         (
@@ -687,6 +716,122 @@ def reference_execute_event(
                         ),
                     )
                     continue
+                if operator == "schedule-operation":
+                    assert dispatch is not None
+                    scheduler = runtime["scheduler"]
+                    ordering = dispatch.event["ordering_key"]
+                    logical_time = instruction["logical_time"]
+                    # This success-only producer declines invalid scheduling scope.
+                    assert logical_time >= ordering["logical_time"]
+                    assert logical_time != ordering["logical_time"] or (
+                        instruction["priority"] <= ordering["priority"]
+                    )
+                    schedule_law = scheduler["call_site_identity"]["schedule"]
+                    material = {
+                        "parent_event_id": dispatch.event["event_id"],
+                        "parent_operation": selected["id"],
+                        "site": instruction["site"],
+                        "operation": instruction["operation"],
+                    }
+                    site_identity = identify(
+                        schedule_law["domain"],
+                        {key: material[key] for key in schedule_law["projection"]},
+                    )
+                    captures = []
+                    references = []
+                    for binding in instruction["arguments"]:
+                        operand = binding["operand"]
+                        actual = (
+                            arguments[operand["port"]]
+                            if operand["kind"] == "port"
+                            else (
+                                locals_[operand["local"]]
+                                if operand["kind"] == "local"
+                                else {"value": operand["literal"]}
+                            )
+                        )
+                        captures.append(
+                            {
+                                "name": binding["port"],
+                                "value": deepcopy(actual["value"]),
+                            }
+                        )
+                        aliases = [
+                            key
+                            for key, target in state_cells.items()
+                            if target is actual
+                        ]
+                        assert len(aliases) <= 1
+                        if aliases:
+                            key = aliases[0]
+                            assert isinstance(key, tuple)
+                            references.append(
+                                {
+                                    "name": binding["port"],
+                                    "target": dict(
+                                        zip(
+                                            ("model", "module", "name"),
+                                            key,
+                                            strict=True,
+                                        )
+                                    ),
+                                }
+                            )
+                    captures.sort(key=lambda row: row["name"])
+                    references.sort(key=lambda row: row["name"])
+                    sequence = len(scheduled_events)
+                    child_order = {
+                        "logical_time": logical_time,
+                        "phase": scheduler["schedule"]["child_phase"],
+                        "priority": instruction["priority"],
+                        "enqueue_sequence": dispatch.next_enqueue_sequence + sequence,
+                    }
+                    fields = {
+                        "experiment_identity": dispatch.experiment_identity,
+                        "scenario_id": scenario["id"],
+                        "parent_event_id": dispatch.event["event_id"],
+                        "call_site_identity": site_identity,
+                        "schedule_sequence": sequence,
+                        **child_order,
+                    }
+                    identity_law = scheduler["event_identity"]
+                    child_id = identify(
+                        identity_law["domain"],
+                        {
+                            key: fields[key]
+                            for key in identity_law["variants"]["scheduled"]
+                        },
+                    )
+                    child = {
+                        "kind": "scheduled-transition",
+                        "event_id": child_id,
+                        "ordering_key": child_order,
+                        "zero_time_depth": dispatch.event["zero_time_depth"] + 1
+                        if logical_time == ordering["logical_time"]
+                        else 0,
+                        "parent_event_id": dispatch.event["event_id"],
+                        "call_site_identity": site_identity,
+                        "schedule_sequence": sequence,
+                        "operation": deepcopy(instruction["operation"]),
+                        "arguments": captures,
+                        "state_references": references,
+                    }
+                    scheduled_events.append(child)
+                    schedules.append(
+                        {
+                            "event_id": child_id,
+                            "call_site_identity": site_identity,
+                            "parent_operation": selected["id"],
+                            "call_path": path_text(path),
+                            "operation": deepcopy(instruction["operation"]),
+                            "arguments": captures,
+                            "state_references": references,
+                            "ordering_key": child_order,
+                            "outcome": "queued",
+                        }
+                    )
+                    write_local(instruction["result"]["name"], child_id)
+                    continue
                 if operator == "invoke-operation":
                     child_coordinate = _operation_coordinate(instruction["operation"])
                     child = operations[child_coordinate]
@@ -776,10 +921,7 @@ def reference_execute_event(
                     ):
                         refusal_reference = semantics["refusal_reference"]
                         reason_id = instruction[refusal_reference["instruction_member"]]
-                        assert language is not None
-                        declared = [
-                            row for row in language["reasons"] if row["id"] == reason_id
-                        ]
+                        declared = [row for row in reasons if row["id"] == reason_id]
                         assert len(declared) == 1
                         raise _ReferenceRuntimeRefusal(declared[0]["diagnostic"])
                 elif operator == "guarded-outcome-block":
@@ -964,7 +1106,17 @@ def reference_execute_event(
             result = None
         return outcome, result
 
-    if resolved_entrypoint is None:
+    if dispatch is not None and dispatch.event["kind"] == "scheduled-transition":
+        root_frame = {
+            row["name"]: {"value": deepcopy(row["value"])}
+            for row in dispatch.event["arguments"]
+        }
+        for row in dispatch.event["state_references"]:
+            symbol = row["target"]
+            root_frame[row["name"]] = cells[
+                tuple(symbol[key] for key in ("model", "module", "name"))
+            ]
+    elif resolved_entrypoint is None:
         root_arguments = [
             {
                 "port": port["id"],
@@ -999,6 +1151,10 @@ def reference_execute_event(
             path=(
                 (static_segment(resolved_entrypoint["id"]),)
                 if resolved_entrypoint
+                else (
+                    static_segment("scheduled:" + dispatch.event["call_site_identity"]),
+                )
+                if dispatch is not None
                 else ()
             ),
         )
@@ -1077,10 +1233,10 @@ def reference_execute_event(
             for name in sorted(state_cells)
         ],
         "rng_draws": draws,
-        "schedules": [],
+        "schedules": schedules,
         "cancellations": [],
     }
-    if resolved_entrypoint is None:
+    if resolved_declarations is None:
         event["result"] = result
     if resolved_entrypoint is not None:
         event["entrypoint"] = {
@@ -1088,6 +1244,11 @@ def reference_execute_event(
             "identity": resolved_entrypoint["identity"],
         }
         event["calls"] = calls
+    if resolved_declarations is not None and resolved_entrypoint is None:
+        event["entrypoint"] = None
+        event["calls"] = calls
+    if dispatch is not None:
+        event["scheduled_events"] = scheduled_events
     if include_execution_evidence:
         event["execution_evidence"] = {
             "ordering_key": {
