@@ -2129,6 +2129,134 @@ def _terminal_audit_is_valid(
     return True
 
 
+def _metric_dataset_matches_observations(
+    checked: CheckedExperiment,
+    trace: dict[str, Any],
+    snapshot_series: dict[str, Any],
+    dataset: dict[str, Any],
+    primary_name: str,
+    primary: dict[str, Any],
+) -> bool:
+    """Derive complete samples from the already validated committed evidence."""
+    metrics = {
+        _metric_definition_identity(metric): metric
+        for metric in checked.value["metrics"]
+    }
+    snapshots = {row["snapshot_identity"]: row for row in snapshot_series["snapshots"]}
+    scenario_events: dict[str, list[dict[str, Any]]] = {
+        scenario["id"]: [] for scenario in checked.value["scenarios"]
+    }
+    observations: dict[tuple[str, str], dict[str, Any]] = {}
+    for event in trace["events"]:
+        snapshot = snapshots[event["snapshot_after_identity"]]
+        scenario_id = snapshot["scenario"]
+        if scenario_id not in scenario_events:
+            return False
+        observation = event["observation"]
+        if observation is None:
+            scenario_events[scenario_id].append(event)
+            continue
+        identity = observation["metric_definition_identity"]
+        metric = metrics.get(identity)
+        key = (scenario_id, identity)
+        if (
+            metric is None
+            or key in observations
+            or observation
+            != {
+                "metric": metric["id"],
+                "metric_definition_identity": identity,
+                "window": metric["window"],
+            }
+        ):
+            return False
+        observations[key] = event
+    if set(observations) != {
+        (scenario_id, identity)
+        for scenario_id in scenario_events
+        for identity in metrics
+    }:
+        return False
+
+    expected_samples: list[dict[str, Any]] = []
+    for identity, metric in metrics.items():
+        selector = metric["observation"]
+        replications = 0
+        for scenario_id, events in scenario_events.items():
+            event = observations[scenario_id, identity]
+            snapshot = snapshots[event["snapshot_after_identity"]]
+            if selector["source"] == "event":
+                values = [
+                    fact["integer"]
+                    for observed_event in events
+                    if observed_event["outcome"]["id"] == selector["name"]
+                    for fact in observed_event["facts"]
+                    if fact["name"] == selector["member"] and fact["kind"] == "integer"
+                ]
+            else:
+                if selector["name"] not in {"terminal", f"{scenario_id}:terminal"}:
+                    continue
+                values = [
+                    row["value"]
+                    for row in snapshot["values"]
+                    if row["name"] == selector["member"]
+                ]
+            if len(values) != 1 or type(values[0]) is not int:
+                return False
+            value = values[0]
+            replications += 1
+            expected_samples.append(
+                {
+                    "metric": metric["id"],
+                    "metric_definition_identity": identity,
+                    "scenario": scenario_id,
+                    "status": "value",
+                    "value": value,
+                    "unit": metric["unit"],
+                    "logical_time": event["ordering_key"]["logical_time"],
+                    "event_id": event["event_id"],
+                    "snapshot_identity": snapshot["snapshot_identity"],
+                    "window": metric["window"]["name"],
+                    "dimensions": metric["dimensions"],
+                    "replication_identity": scenario_id,
+                    "source_kind": "simulated",
+                    "provenance": {
+                        "scenario": scenario_id,
+                        "observation_source": selector["source"],
+                        "observation_name": selector["name"],
+                        "observation_member": selector["member"],
+                    },
+                    "within_target": metric["target"]["minimum"]
+                    <= value
+                    <= metric["target"]["maximum"],
+                    "source": selector["source"],
+                    "member": selector["member"],
+                }
+            )
+        if replications == 0:
+            return False
+    expected_samples.sort(
+        key=lambda row: (
+            row["metric_definition_identity"].encode("utf-8"),
+            row["replication_identity"].encode("utf-8"),
+        )
+    )
+    if dataset["metric_definition_identities"] != sorted(metrics) or canonical_bytes(
+        dataset["samples"]
+    ) != canonical_bytes(cast(JsonValue, expected_samples)):
+        return False
+    failed_metrics = [
+        sample["metric"] for sample in expected_samples if not sample["within_target"]
+    ]
+    return (
+        primary_name == "experiment-verdict"
+        and primary["outcome"] == "rejected"
+        and primary["failed_metrics"] == failed_metrics
+        if failed_metrics
+        else primary_name == "evaluation-run" and primary["outcome"] == "accepted"
+    )
+
+
 def validate_experiment_artifact_set(
     checked: CheckedExperiment, artifacts: dict[str, dict[str, Any]]
 ) -> bool:
@@ -2205,23 +2333,8 @@ def validate_experiment_artifact_set(
             or not _terminal_statuses_are_valid(trace, snapshot_series)
         ):
             return False
-        event_ids = {
-            event["event_id"] for event in cast(list[dict[str, Any]], trace["events"])
-        }
-        snapshot_ids = {
-            snapshot["snapshot_identity"]
-            for snapshot in cast(list[dict[str, Any]], snapshot_series["snapshots"])
-        }
-        metric_identities = sorted(
-            _metric_definition_identity(metric) for metric in checked.value["metrics"]
-        )
-        return dataset.get("metric_definition_identities") == metric_identities and all(
-            sample.get("event_id") in event_ids
-            and sample.get("snapshot_identity") in snapshot_ids
-            and sample.get("metric_definition_identity") in metric_identities
-            and cast(dict[str, Any], sample.get("provenance", {})).get("scenario")
-            == sample.get("scenario")
-            for sample in cast(list[dict[str, Any]], dataset["samples"])
+        return _metric_dataset_matches_observations(
+            checked, trace, snapshot_series, dataset, primary_name, primary
         )
     except (KeyError, TypeError, ValueError, IndexError):
         return False
