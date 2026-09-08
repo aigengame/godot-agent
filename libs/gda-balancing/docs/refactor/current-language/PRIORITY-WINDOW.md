@@ -722,10 +722,26 @@ Schema into the Kernel would retain stale duplication: the
 obsolete initialization union branch that still passes the public wire contract after
 #876, although semantic RIR admission refuses it. #879 owns that deletion witness.
 
-Implementation starts with one Trace slice, preserving genuine Source selectors,
-Schema/Artifact kind names and nominal typed content. Incorrect fixed structure must
-refuse before execution; legal kind renaming and typed payloads must still work. This
-direction is not a completed Schema migration or an exemption from the remaining proof.
+The Trace slice is implemented on the issue branch at `34e8c8b15`. Its independently
+authored LDB Schema is deleted. The existing language index derives the fixed structure
+from three Kernel container contracts and the existing scheduler, outcome and
+nominal-value laws. Independent B admission constructs its own Schema. The actual
+Kernel is an explicit projection input; there is no ambient authority or old-placement
+fallback. Unsupported resealed Kernel mutations refuse through the existing build
+support boundary, without an additional field-name allowlist.
+
+Both the old placement and the `events` to `trace_rows` override now refuse in A/B and
+public ingress. Real public typed-Record scenarios succeed with original names and
+distinct renamed Schema/Artifact names. A structurally valid forged call still fails
+complete ArtifactSet semantic admission. The fixed protocol does not make nominal
+payload data or real Source selectors Kernel-owned.
+
+The [Trace integration record](evidence/priority-window/trace-structure-integration.json)
+distinguishes these public checks from maintained artifact comparison and inventory
+integration. All seven maintained RIRs and nine Metric datasets are unchanged. Trace
+Schemas omit eight redundant enum constraints, so their exact wire/content identities
+and dependent artifact references change truthfully; actual Trace observations do not.
+Other protocol structures and complete graph renaming remain open.
 
 ## Remaining proof and integration
 

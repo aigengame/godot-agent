@@ -1,0 +1,171 @@
+{
+  "issue": 878,
+  "base": "18e2fcfa4de54e8956acc5223f2bf9f85323d25d",
+  "trace_commit": "34e8c8b1524a58778605f0ba253c81d9fccfec41",
+  "worker_commit": "e48de111874d1c644c8275ce7657425580e4fe45",
+  "scope": "Event Trace ownership and authored inventory only. Complete extension proof remains open.",
+  "decision": "Delete physical LDB Trace Schema; derive it from actual Kernel structure and existing semantic laws in the language index. B reconstructs independently. Inventory reads only physical declaration/binding occurrences.",
+  "initial_resources": [
+    {
+      "path": "src/gda_balancing/schema2/authorities/kernel.json",
+      "raw_bytes_before": 252067,
+      "raw_bytes_after": 259541,
+      "canonical_bytes_after": 141629,
+      "sha256": "38be7ff3626b1330a675f9617318f69f4d6f47882332250ef12da2cf6b17349f",
+      "content_identity": "sha256:a3eb39cb653bd6ebf65e26bd7d80d784690fa1d8064faa7f83d8f65ec6ca382f"
+    },
+    {
+      "path": "src/gda_balancing/schema2/authorities/language-bundle.json",
+      "raw_bytes_before": 2810,
+      "raw_bytes_after": 2810,
+      "canonical_bytes_after": 2810,
+      "sha256": "2bd9dca4c52d0baba0dc88caa445a1df7577ce7c3bd189fea68758471fc58091",
+      "content_identity": "sha256:7db4f2b0c49f4ad7a160378fc713b9b4438a2d95202b2d903464958cd728ea75"
+    },
+    {
+      "path": "src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+      "raw_bytes_before": 313660,
+      "raw_bytes_after": 303045,
+      "canonical_bytes_after": 303045,
+      "sha256": "5a995db96bd4c07ae60878a7c6433a396743a1667bfcb20c3f0ed48cb8b80354",
+      "content_identity": "sha256:30978cda52fe99df6d7c749abbeadde7e48dc24995cae971664aa61ba4c06427"
+    }
+  ],
+  "maintained_comparison": {
+    "baseline": "81235931322562b2eca3095c856f5f84ac2586ad",
+    "models": 7,
+    "experiments": 9,
+    "artifact_pairs": 110,
+    "raw_artifact_hashes_verified": 220,
+    "binding_edits": 0,
+    "unchanged": "all7RIR/debug-map/model-explanation; all9metric-dataset/resolved-runtime-profile; all9Trace semantic payloads excluding wire_schema_identity/content_identity",
+    "changed": "Build/Lock provenance; Trace wire/content identities and dependent audit identities; actual evaluator build identity"
+  },
+  "initial_worker_validation": {
+    "runs": [
+      {
+        "path": "/private/tmp/gda-878-trace-structure-proof/trace-regression.xml",
+        "sha256": "d397f03e88d7905a727b636bb71d0600fa44a020d69798f7a6e2e4fb3eb822b7",
+        "counts": {
+          "name": "pytest",
+          "errors": "0",
+          "failures": "0",
+          "skipped": "0",
+          "tests": "11",
+          "time": "25.457",
+          "timestamp": "2026-09-08T16:55:36.899765+08:00",
+          "hostname": "LeledeMacBook-Air.local"
+        }
+      },
+      {
+        "path": "/private/tmp/gda-878-trace-structure-proof/retained-regression.xml",
+        "sha256": "790527e258e9cbc9ae5ffc32e2bcb0dabff37c1c058c1ac1ad5de8fc8fe025d4",
+        "counts": {
+          "name": "pytest",
+          "errors": "0",
+          "failures": "2",
+          "skipped": "0",
+          "tests": "137",
+          "time": "161.152",
+          "timestamp": "2026-09-08T16:56:37.294741+08:00",
+          "hostname": "LeledeMacBook-Air.local"
+        }
+      },
+      {
+        "path": "/private/tmp/gda-878-trace-structure-proof/retained-followup.xml",
+        "sha256": "99331ac74a933219c9da65a301617fded634738e78a9dd52e05d765ce1385312",
+        "counts": {
+          "name": "pytest",
+          "errors": "0",
+          "failures": "0",
+          "skipped": "0",
+          "tests": "2",
+          "time": "1.765",
+          "timestamp": "2026-09-08T17:00:48.730667+08:00",
+          "hostname": "LeledeMacBook-Air.local"
+        }
+      },
+      {
+        "path": "/private/tmp/gda-878-trace-structure-proof/trace-independent-identity.xml",
+        "sha256": "b7f11b0c25f1db4a694df56198380fcce5fa36a3a6e7cd33d0cc900ab462f156",
+        "counts": {
+          "name": "pytest",
+          "errors": "0",
+          "failures": "0",
+          "skipped": "0",
+          "tests": "1",
+          "time": "1.685",
+          "timestamp": "2026-09-08T17:02:13.694116+08:00",
+          "hostname": "LeledeMacBook-Air.local"
+        }
+      }
+    ],
+    "disposition": "11 new cases passed; 137 retained cases initially135passed+2correctly-earlier-refusals, both targeted ports passed; final identity assertion separately passed. No claim of a repeated final 148-case aggregate run."
+  },
+  "initial_primary_integration": {
+    "path": "/private/tmp/gda-878-root/trace-integration.xml",
+    "sha256": "886cbf7818a4536d3e37b456051924012046baf762b33d339586fd2aaab28409",
+    "tests": "163",
+    "failures": "3",
+    "errors": "0",
+    "skipped": "0",
+    "time": "219.262"
+  },
+  "inventory_followup": {
+    "path": "/private/tmp/gda-878-root/trace-inventory-followup.xml",
+    "sha256": "fefc388ca8b9e46d6fe9065818f93e2c1cd42ebc2819fb70cb9136c1adc24a24",
+    "tests": "10",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "2.485"
+  },
+  "initial_integration_disposition": "160 passed and 3 failed. Two incomplete duplicate-binding test fixtures were repaired by exporting the duplicate declaration; all 10 inventory tests then passed. The remaining priority reason-rename failure exposed shared frozen Kernel lists in the production Trace projection; correction is pending.",
+  "initial_semantic_inventory": {
+    "tokens": 1582,
+    "occurrences": 6137,
+    "gaps": 54,
+    "physical_graph_unchanged": true,
+    "scope": "All current LDB packages and vectors plus the maintained bounded-fold Source; no complete Experiment/result traversal claim."
+  },
+  "review_at_34e8": {
+    "Standards": "One confirmed canonical equality bug in test helper: true vs1 erases a malformed Schema. Correction pending.",
+    "Spec": "No actionable scoped finding;13 tests and175 real Trace structural mutations passed.110 raw artifacts reread.",
+    "DDMA": "Confirmed duplicated RNG and resolved-symbol laws plus production projection aliases into Kernel. Corrections pending."
+  },
+  "raw_evidence": [
+    {
+      "path": "/private/tmp/gda-878-trace-structure-proof/FINAL-RECEIPT.json",
+      "sha256": "68285c5047b6fe7d9a70b48c68eb4de3280b437594b0ea3bc8c1d8a0168342f9"
+    },
+    {
+      "path": "/private/tmp/gda-878-trace-structure-proof/maintained.py",
+      "sha256": "e029a732c22ec0186176a6aef5da99f00c0874c8b69b3ecd28ef346d1b9a56d7"
+    },
+    {
+      "path": "/private/tmp/gda-878-trace-structure-proof/maintained-comparison.json",
+      "sha256": "15fc5ce34eb67f7e2094efe3ba16c461079c56883f1f66441614eb492ce180f9"
+    },
+    {
+      "path": "/private/tmp/gda-878-trace-structure-proof/baseline-red/receipt.json",
+      "sha256": "3658d5dd7950c1a0d08aa30e0aaf0122621179d8724ee123faa0ae09fec1c2f3"
+    },
+    {
+      "path": "/private/tmp/gda-878-spec-trace-34e8/receipt.json",
+      "sha256": "3e26be57390bf0addb47a364a9b37bb24efae505c449e8fe9b852b3bd403d7c0"
+    },
+    {
+      "path": "/private/tmp/gda-878-trace-standards-evidence/schema-equality-result.json",
+      "sha256": "0dca5ad5248f242475875fdc7450f2cfa257a7e9ace3dcc6c7648aea2cb00827"
+    },
+    {
+      "path": "/private/tmp/gda-878-ddma-trace-34e8-proof/receipt.json",
+      "sha256": "dd9c7bb76dc0dec6a6ed3a7c4675501b01cda19b06f314576b4ec9665134c5d9"
+    }
+  ],
+  "limits": [
+    "This record is an intermediate integration checkpoint until the identified review corrections are validated.",
+    "No all-shard CI or final fixed-build rename/result exchange is claimed.",
+    "Old-input/history/execution-binding deletion and complete consumer closure retain #879 acceptance."
+  ]
+}

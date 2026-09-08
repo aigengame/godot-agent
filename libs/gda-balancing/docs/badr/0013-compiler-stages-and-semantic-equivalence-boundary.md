@@ -51,19 +51,24 @@ an explicit boundary for lowering equivalence.
 
 ## Decision
 
-> **Protocol structure direction (#878, 2026-09-08; implementation pending):**
+> **Protocol structure direction (#878, 2026-09-08; Trace implementation on the issue branch):**
 > The LDB wire-grammar ownership below applies to actual authored grammar and selectors.
 > Fixed core artifact protocol structures need explicit Kernel laws. A correctly sealed
-> Trace Schema can currently rename `events` while both authority consumers admit it;
+> Trace Schema at the recorded baseline can rename `events` while both authority consumers admit it;
 > actual Runtime output then fails that Schema. The adopted correction derives each
 > fixed structure from its Kernel law and deletes the corresponding independent LDB
 > configuration. Existing node, scheduler, outcome and typed-value laws remain the
 > semantic owners; their current raw Schema copies must not become new Kernel authority.
 > Schema/Artifact kind names, actual Source selectors and nominal typed content remain
-> LDB-owned. Start with one Trace slice and validate both consumers before extending it.
+> LDB-owned. The Trace slice now deletes its physical LDB `schema` and derives the
+> closed envelope, Event and terminal structures in the existing language index from
+> the actual supplied Kernel. Independent admission derives its own Schema; an LDB
+> override is refused. Other artifact structures retain their current owners pending
+> their own evidence and implementation.
 > Internal definitions remain replaceable under bADR-0028. The
 > [counterexample record](../refactor/current-language/evidence/priority-window/protocol-structure-counterexample.json)
-> pins the actual failure; this direction does not claim completed implementation.
+> pins the actual failure; the [Trace integration record](../refactor/current-language/evidence/priority-window/trace-structure-integration.json)
+> scopes implementation and validation. Complete extension proof remains open.
 
 - **The Standard Schema 2.x compilation and execution pipeline is:**
 

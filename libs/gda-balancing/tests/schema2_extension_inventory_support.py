@@ -19,6 +19,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_evaluate_structured_value_vector,
     _consumer_b_value_program_instruction_is_closed,
     _consumer_b_operation_composition_subjects,
+    _consumer_b_project_trace_schema,
     _consumer_b_replay_comparison_vector_is_closed,
     _consumer_b_relation_paths_are_typed,
 )
@@ -157,6 +158,15 @@ def _attached_language(
             if closure["authority_path"] == projection["authority_path"]
             for definition in closure["definitions"]
         ]
+    # Protocol projection writes only to the derived view. The inventory must
+    # retain the physical authored graph, including the absence of a Trace schema.
+    language["artifact_wire_schemas"] = [
+        dict(row) for row in language["artifact_wire_schemas"]
+    ]
+    try:
+        _consumer_b_project_trace_schema(dict(kernel), language)
+    except (KeyError, TypeError, ValueError, IndexError) as error:
+        raise InventoryRefusal("wire protocol structure does not close") from error
     return {"language": language}
 
 
@@ -617,12 +627,27 @@ def _wire_protocol_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
         producer = AuthorityToken("language.artifact_contracts", (), name)
         producers[name] = producer
         yield token, pointer + "/schema_kind", "reference", law
-        identity_kind = schema["schema"].get("properties", {}).get("artifact_kind", {})
+        effective_schema = schema
+        if "schema" not in schema:
+            effective_schema = next(
+                item
+                for item in language["language"]["artifact_wire_schemas"]
+                if item["artifact_kind"] == schema_name
+            )
+        identity_kind = (
+            effective_schema["schema"].get("properties", {}).get("artifact_kind", {})
+        )
         if identity_kind.get("const") != name:
             raise InventoryRefusal(
                 "identified wire schema does not bind its producer kind"
             )
-        yield producer, sp + "/schema/properties/artifact_kind/const", "reference", law
+        if "schema" in schema:
+            yield (
+                producer,
+                sp + "/schema/properties/artifact_kind/const",
+                "reference",
+                law,
+            )
     standalone = {
         name: token
         for name, (row, _, token) in schemas.items()
@@ -2215,6 +2240,14 @@ class _Reader:
         if role == "language.replay_comparison_policies":
             # The independent observation-member pass closes the complete
             # policy shape and every actual check reference before this pass.
+            return True
+        if (
+            role == "language.artifact_wire_schemas"
+            and value.get("protocol_role") == "event-trace"
+        ):
+            # The protocol pass checks the physical declaration and producer
+            # binding. The Kernel supplies structure; no authored field names
+            # or independently configurable schema remain in this definition.
             return True
         if role == "language.artifact_contracts":
             # _wire_protocol_links has closed this definition's shape and its

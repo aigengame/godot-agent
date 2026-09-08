@@ -110,6 +110,8 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_runtime_mutual_consumption.py",
         "test_source_module_routing.py",
         "test_template_protocol_roles.py",
+        "test_trace_protocol_inventory.py",
+        "test_trace_protocol_structure.py",
     ),
     "bounded-fold": (
         "test_bounded_fold_formula.py",

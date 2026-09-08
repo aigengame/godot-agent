@@ -837,6 +837,14 @@ do not become host dispatch authority; extension schemas may omit a core role
 equivalence selects a defined output field, follows its binding reference, and checks
 the actual source path; it does not fix the local binder's spelling.
 
+Event Trace structure is derived from the actual Kernel in the language index.
+The Kernel owns its closed protocol containers and reuses the existing scheduler,
+outcome and nominal-value contracts. The LDB retains the Schema declaration and
+Artifact Contract binding, with distinct open names, but cannot author an independent
+Trace `schema`. Independent admission constructs the same projection without using
+the production generator. Source grammar and nominal Record/Enum values retain their
+existing owners; this Trace change does not relocate all artifact schemas (bADR-0013).
+
 The Source Wire Schema Definition also owns `formula_grammar` and
 `operation_notation_schema`. The Kernel requires both on its Source protocol role;
 generic notation remains in `standard.schema`, independently of contextual compiler
