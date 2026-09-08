@@ -176,6 +176,12 @@ def test_independent_schema_order_preserves_opaque_law_arrays_and_duplicate_vari
         actual
     )
     assert value == original
+    shared = {"type": "object", "required": ["z", "a"]}
+    aliased = {"properties": {"schema": shared, "payload": {"const": shared}}}
+    detached = _consumer_b_order_derived_schema(kernel, aliased)
+    assert detached["properties"]["schema"]["required"] == ["a", "z"]
+    assert detached["properties"]["payload"]["const"]["required"] == ["z", "a"]
+    assert shared["required"] == ["z", "a"]
 
 
 def test_independent_rir_terminal_contract_equality_keeps_boolean_and_integer_distinct():

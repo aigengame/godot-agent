@@ -2902,7 +2902,7 @@ def _consumer_b_order_derived_schema(
         raise ValueError("unsupported derived Schema ordering law")
 
     def visit(schema):
-        result = deepcopy(schema)
+        result = dict(schema)
         if "required" in result:
             result["required"] = sorted(result["required"])
         if "enum" in result:
@@ -2921,7 +2921,7 @@ def _consumer_b_order_derived_schema(
                 )
         return result
 
-    return visit(value)
+    return visit(deepcopy(value))
 
 
 def _consumer_b_artifact_envelope(
