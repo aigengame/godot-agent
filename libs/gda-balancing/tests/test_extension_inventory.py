@@ -623,3 +623,66 @@ def test_kernel_references_do_not_reserve_language_owned_identities(witness):
         assert token in inventory.tokens - inventory.reserved
     assert AuthorityToken("namespace", (), "standard.schema") not in inventory.reserved
     assert AuthorityToken("type", ("kernel",), "Boolean") in inventory.reserved
+
+
+def test_independent_formula_parser_follows_the_actual_schema_owner(witness):
+    from schema2_bootstrap_conformance_support import _bind_package_vector_set
+    from schema2_bootstrap_production_support import _reidentify_graph_root
+    from schema2_formula_conformance_support import parse_canonical, render_body
+
+    kernel, language = mutable_authorities()
+    original = deepcopy(language)
+    renamed_owner = "inventory.schema"
+    packages = language["language"]["packages"]
+    for package in packages:
+        if package["id"] == "standard.schema":
+            package["id"] = renamed_owner
+        for kind in ("required", "optional"):
+            package["dependencies"][kind] = [
+                renamed_owner if name == "standard.schema" else name
+                for name in package["dependencies"][kind]
+            ]
+    vectors = language.package_conformance_vector_sets
+    for vector_set in vectors:
+        if vector_set["package_id"] == "standard.schema":
+            vector_set["package_id"] = renamed_owner
+        for vector in vector_set["vector_definitions"]:
+            if vector.get("kind") == "package-contract" and vector.get("probe") == {
+                "path": "dependencies.required"
+            }:
+                vector["expect"] = [
+                    renamed_owner if name == "standard.schema" else name
+                    for name in vector["expect"]
+                ]
+    by_owner = {row["package_id"]: row for row in vectors}
+    for package in packages:
+        _bind_package_vector_set(package, by_owner[package["id"]])
+    _reidentify_graph_root(language)
+    source = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/progression-periodic-effect/model-source.json"
+        ).read_bytes()
+    )
+    module = next(row for row in source["modules"] if row.get("formulas"))
+    parsed_bodies = []
+    for candidate in (original, language):
+        a, b = _consumer_a(kernel, candidate), _consumer_b(kernel, candidate)
+        assert a["admitted"] and b["admitted"], (a, b)
+        for formula in module["formulas"]:
+            request = {
+                "schema_version": source["schema_version"],
+                "package_requirements": source["package_requirements"],
+                "module": module,
+                "modules": source["modules"],
+                "formula": formula,
+            }
+            parsed = parse_canonical(
+                formula["expression"], request, candidate, kernel=kernel
+            )
+            parsed_bodies.append(parsed)
+            assert render_body(parsed, request, candidate) == formula["expression"]
+    assert (
+        parsed_bodies[: len(module["formulas"])]
+        == parsed_bodies[len(module["formulas"]) :]
+    )

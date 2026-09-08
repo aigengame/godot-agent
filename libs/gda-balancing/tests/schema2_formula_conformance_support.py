@@ -20,7 +20,6 @@ def _source_schema(language_bundle: dict[str, Any]) -> dict[str, Any]:
     schemas = [
         definition["schema"]
         for package in language_bundle["language"]["packages"]
-        if package.get("id") == "standard.schema"
         for closure in package["semantic_closure"]
         if closure.get("authority_path") == "language.wire_schemas"
         for definition in closure["definitions"]
