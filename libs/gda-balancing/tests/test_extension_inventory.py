@@ -202,6 +202,25 @@ def test_uncovered_roles_cannot_be_certified_by_a_self_consistent_mapping(witnes
         inventory.require_complete()
 
 
+@pytest.mark.parametrize("unchanged", ["all", "one"])
+def test_bijection_requires_each_non_kernel_name_to_change(witness, unchanged):
+    _, _, inventory = witness
+    assert inventory.uncovered  # This isolated map check does not waive real gaps.
+    names = {
+        token: f"renamed.token.{i}"
+        for i, token in enumerate(sorted(inventory.tokens - inventory.reserved))
+    }
+    if unchanged == "all":
+        names = {token: token.name for token in names}
+    else:
+        token = next(iter(names))
+        names[token] = token.name
+    with pytest.raises(InventoryRefusal, match="name unchanged"):
+        validate_token_bijection(
+            inventory, token_bijection_from_names(inventory, names)
+        )
+
+
 def test_unknown_runtime_node_or_member_is_never_silently_ignored(witness):
     kernel, graph, _ = witness
     for mutation in ("node", "member"):

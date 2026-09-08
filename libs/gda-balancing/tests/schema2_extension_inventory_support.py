@@ -2806,6 +2806,8 @@ def validate_token_bijection(
         raise InventoryRefusal("Kernel-reserved token in bijection")
     if set(sources) != set(inventory.tokens - inventory.reserved):
         raise InventoryRefusal("bijection domain is not the complete inventory")
+    if any(source.name == target.name for source, target in pairs):
+        raise InventoryRefusal("token bijection leaves a non-Kernel name unchanged")
     correspondence = dict(pairs)
     if any(
         source.role != target.role
