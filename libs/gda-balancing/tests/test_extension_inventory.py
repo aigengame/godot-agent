@@ -1103,3 +1103,41 @@ def test_formula_binding_inventory_closes_real_slots_and_independently_detects_o
         o.token.role == "formula-fixed-alias" and o.token.name == "Boolean"
         for o in inventory.occurrences
     )
+
+
+def test_constructor_member_addresses_are_closed_and_dimension_identity_is_covered(
+    witness,
+):
+    kernel, graph, _ = witness
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    dimension = AuthorityToken("unit-dimension", (), "dimensionless")
+    assert dimension in inventory.tokens - inventory.reserved
+    without_dimension = replace(
+        inventory,
+        tokens=inventory.tokens - {dimension},
+        occurrences=tuple(o for o in inventory.occurrences if o.token != dimension),
+    )
+    with pytest.raises(InventoryRefusal, match="missing or incorrectly owned"):
+        validate_extension_inventory(kernel, graph, without_dimension)
+    assert not any(
+        gap.reason
+        in {
+            "nested language.quantity.units roles are not yet traversed",
+            "nested language.components roles are not yet traversed",
+            "nested language.constructors roles are not yet traversed",
+            "nested language.structured_operations roles are not yet traversed",
+        }
+        for gap in inventory.uncovered
+    )
+    changed = deepcopy(graph)
+    nominal = next(
+        definition
+        for package in changed["packages"]
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.nominal_types"
+        for definition in closure["definitions"]
+    )
+    nominal["definition"]["unclassified"] = "dimensionless"
+    with pytest.raises(InventoryRefusal, match="undeclared members"):
+        read_extension_inventory(kernel, changed)

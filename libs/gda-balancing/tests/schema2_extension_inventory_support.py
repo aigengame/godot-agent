@@ -13,6 +13,7 @@ from typing import Any
 import jsonschema
 
 from schema2_bootstrap_conformance_support import (
+    _consumer_b_definition_is_closed,
     _consumer_b_operation_composition_subjects,
 )
 
@@ -651,6 +652,10 @@ class _Reader:
         if len(constructors) != 1:
             raise InventoryRefusal(f"unknown structured constructor at {pointer}")
         constructor, cp = constructors[0]
+        if set(definition) != {"kind", *constructor["parameters"]}:
+            raise InventoryRefusal(
+                f"structured definition has undeclared members at {pointer}"
+            )
         rule = constructor["value_rule"]
         law = cp + "/value_rule"
         operator = rule["operator"]
@@ -674,6 +679,10 @@ class _Reader:
         elif operator == "closed-record":
             for i, field in enumerate(definition[rule["fields_member"]]):
                 fp = f"{pointer}/{rule['fields_member']}/{i}"
+                if set(field) != {rule["field_name_member"], rule["field_type_member"]}:
+                    raise InventoryRefusal(
+                        f"Record field has undeclared members at {fp}"
+                    )
                 if owner is None:
                     self.gap(fp, law, "anonymous Record scope is not yet represented")
                 else:
@@ -882,6 +891,95 @@ class _Reader:
         """Close simple declared contracts; unknown nested DSLs remain explicit."""
         if role == "language.rules":
             self.rule(value, pointer)
+            return True
+        if role in {
+            "language.quantity.units",
+            "language.components",
+            "language.constructors",
+            "language.conversions",
+            "language.structured_operations",
+        }:
+            contracts = self.meta["language_definitions"]
+            if role.startswith("language.quantity."):
+                contracts = contracts["quantity"]
+            contract = contracts["collections"][role.rsplit(".", 1)[1]]
+            if not _consumer_b_definition_is_closed(
+                value, contract, _attached_language(self.kernel, self.graph)
+            ):
+                raise InventoryRefusal(
+                    "typed metadata does not close its declared Kernel shape"
+                )
+            if role == "language.quantity.units":
+                self.occurrence(
+                    AuthorityToken("unit-dimension", (), value["dimension"]),
+                    pointer + "/dimension",
+                    "declaration",
+                    "/meta_format/language_definitions/quantity/collections/units",
+                )
+            elif role == "language.components":
+                self.reference(
+                    "language.constructors",
+                    value["constructor"],
+                    pointer + "/constructor",
+                    "/meta_format/language_definitions/collections/components",
+                )
+                fact_members = {
+                    name
+                    for fields in self.meta["fact"]["field_contracts"].values()
+                    for name in fields
+                }
+                if not set(value["fields"]) <= fact_members:
+                    raise InventoryRefusal(
+                        "component field does not address a declared fact member"
+                    )
+            elif role == "language.constructors":
+                rule = value.get("value_rule")
+                if not isinstance(rule, dict):
+                    raise InventoryRefusal("constructor has no declared value rule")
+                if "definition_kind" in rule:
+                    nested = {"field_name_member", "field_type_member"}
+                    members = {
+                        item
+                        for name, item in rule.items()
+                        if name.endswith("_member") and name not in nested
+                    }
+                    if set(value["parameters"]) != members:
+                        raise InventoryRefusal(
+                            "constructor parameters do not close its definition member selectors"
+                        )
+                elif rule["operator"] == "exact-integer":
+                    fields = {
+                        name
+                        for row in self.meta["fact"]["field_contracts"].values()
+                        for name in row
+                    }
+                    if not set(value["parameters"]) <= fields:
+                        raise InventoryRefusal(
+                            "scalar constructor parameter has no declared fact field"
+                        )
+                else:
+                    raise InventoryRefusal("constructor primitive rule is unclassified")
+            elif role == "language.structured_operations":
+                self.reference(
+                    "language.constructors",
+                    value["owner_constructor"],
+                    pointer + "/owner_constructor",
+                    "/meta_format/language_definitions/collections/structured_operations",
+                )
+                if "refusal_signal" in value["law"]:
+                    signal = value["law"]["refusal_signal"]
+                    token = AuthorityToken("diagnostic-signal", ("runtime",), signal)
+                    self.occurrence(
+                        token,
+                        pointer + "/law/refusal_signal",
+                        "reference",
+                        "/meta_format/runtime_program/nodes",
+                    )
+                    if any(
+                        signal in node.get("refusals", [])
+                        for node in self.nodes.values()
+                    ):
+                        self.reserved.add(token)
             return True
         if role == "diagnostics":
             contract = self.meta["admitted_language_index"]["diagnostic"]
@@ -2697,6 +2795,40 @@ def validate_extension_inventory(
         if o.location == "value"
     }
     required: set[tuple[AuthorityToken, str, str]] = set()
+    for _, unit, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.quantity.units"
+    ):
+        required.add(
+            (
+                AuthorityToken("unit-dimension", (), unit["dimension"]),
+                pointer + "/dimension",
+                "declaration",
+            )
+        )
+    for _, definition, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.structured_operations"
+    ):
+        required.add(
+            (
+                AuthorityToken(
+                    "language.constructors", (), definition["owner_constructor"]
+                ),
+                pointer + "/owner_constructor",
+                "reference",
+            )
+        )
+        if "refusal_signal" in definition["law"]:
+            required.add(
+                (
+                    AuthorityToken(
+                        "diagnostic-signal",
+                        ("runtime",),
+                        definition["law"]["refusal_signal"],
+                    ),
+                    pointer + "/law/refusal_signal",
+                    "reference",
+                )
+            )
     for owner, name, pointer, target, _ in _declared_metadata_links(kernel, graph):
         role, scoped = _declared_target_role(kernel, target)
         if role == source_format_role:
