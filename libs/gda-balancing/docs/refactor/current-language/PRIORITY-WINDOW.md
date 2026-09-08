@@ -973,6 +973,72 @@ The 2,511 collected tests and 347 vectors have complete, disjoint CI assignments
 full-package Pyright and Ruff checks pass. Collection proves coverage, not execution
 of the full CI matrix. These results do not close the remaining extension proof.
 
+## Runtime Formula contexts
+
+At the Source checkpoint `90907e57020a519451dbb4cdafcf520877215a8b`,
+RuntimeProfile Formula metadata repeats the fixed lifecycle phases and Snapshot
+domain. Compilation and artifact admission copy and compare the static `frame`
+labels, but execution uses the phase and actual frame identity. Other extension
+metadata has no execution reader. The Snapshot-domain helper checks the scheduler's
+existing domain and discards its return value.
+
+The implementation deletes this extension and the unused RuntimeProfile `extensions`
+member, static Formula slot/site/Trace `context.frame` fields, their Schema declarations,
+and the Snapshot-domain helper and call. The existing Kernel Runtime configuration
+adds only `formula_initialization_phase`; Event and observation phases derive from
+the existing active lifecycle role and scheduler observation law. Compiler callers
+pass their actual Kernel laws; execution and result consumers use the selected
+execution closure. The old host phase table and attribute-based grouping are deleted.
+There is no new lifecycle phase, profile selector or packaged-Kernel fallback.
+
+The compiled context retains `phase`. Actual Initialization-frame and Snapshot
+identities, explicit operands, site identities, cache charging, and atomic refusal
+boundaries remain. `game.effect.periodic.magnitude.frame` and its Operation-relation
+policy have a separate meaning and remain unchanged; matching spelling alone is
+not a deletion boundary.
+
+The [Runtime context evidence](evidence/priority-window/runtime-formula-contexts.json)
+separates the original deletion probes, later output-Schema correction, independent
+Model checks, and maintained-consumer comparison. Independent DDMA review found that
+the resolved Runtime Profile output Schema still permitted `extensions`. Its sole
+remaining property is now deleted. A permanent test starts with an actual published
+profile and reidentifies the old-field mutant; the wire Schema itself refuses it at
+`runtime_profile`, before any whole-set argument can mask the residual contract.
+
+The final independent gate retains all 34 Model-vector verdicts and mutually admits
+the same four artifact kinds for all 13 positives. Resource comparison retains all
+347 vector IDs and all other numerical, resource and verdict values: only 26 observed
+artifact-identity expectations and four actual Formula slot `context.frame` fields
+change. Ten independent regressions cover the retired interface, phase-only contexts,
+real slot admission, and malformed-context Schema boundaries.
+
+All seven maintained Models and nine Experiments run on the baseline and candidate
+through 64 real CLI commands. Both sides pass complete outcome artifact-set admission;
+Event outcomes, facts, state, Snapshot values and Metrics match. The nine checked-in
+Experiments change only their observed RIR semantic identity. A separate RPG comparison
+also retains four complete RNG rows, two nonempty Formula argument/result records and
+all Snapshot resource ledgers. That comparison predates the identity-only vector
+refresh; the record keeps those scopes distinct. It does not claim complete artifact
+byte equality or independent Formula Runtime execution.
+
+The integrated focused tests pass 33 cases; the five public Formula lifecycle cases
+retain actual frames, cache charging and atomic refusals. Standards review then found
+nine retired context labels in existing fixtures and exact expectations. Removing
+only those labels preserves all other assertions and restores the intended numerical
+and semantic-tamper checks; eleven affected cases pass. Some initial pytest artifacts
+were automatically removed by later runs. Their original manifests remain historical;
+new captures in explicit stable directories preserve the repeated checks and raw outputs.
+The resource rebuild tool's
+remaining old projection argument now passes its actual Kernel, and its two existing
+tests prove exact current-byte reconstruction and invalid-namespace refusal. CI policy
+passes 12 cases; 2,522 collected tests and 347 vectors have complete, disjoint shard
+coverage. Ruff and Pyright pass. Collection is not full CI execution.
+
+The inventory drops only the deleted RuntimeProfile extension gap, from 40 to 39;
+its 1,618 tokens, 6,606 occurrences and 109 reserved tokens remain unchanged. This
+correction precedes the final build freeze and does not close the remaining inventory
+or non-RPG proof.
+
 ## Remaining proof and integration
 
 - Complete the semantic-token inventory and resolve remaining demonstrated name

@@ -493,9 +493,9 @@ or carries an unused grammar version. The selected
 rules, and infix normalization through its closed `formula_resolution` field. The Kernel
 relates its actual selectors and inference rules to the Source and runtime-node contracts.
 The former compiler extension wrapper and duplicate per-profile syntax filters are retired;
-the Source and Kernel define the accepted Formula shapes. Package Release content identity binds notation, while the
-Kernel-declared runtime-semantic projection excludes each release's explicitly inventoried
-non-runtime notation extensions.
+the Source and Kernel define the accepted Formula shapes. Package Release content identity
+binds notation. The runtime-semantic projection excludes Operation notation only at the
+Source-notation address declared by the Kernel; packages cannot author arbitrary exclusions.
 bADR-0024 owns its grammar, exact pair validation, identity effects, and conformance requirements.
 _Avoid_: host expression dialect, display-only operation table, fully qualified call dump
 
@@ -541,6 +541,9 @@ The exact lifecycle boundary and typed value environment in which a Formula bind
 Initialization, Event, observation, and Effect capture/re-evaluation contexts select committed
 Snapshots or the pre-Snapshot Initialization frame plus explicit operands without giving the
 Formula ambient state or timing authority (bADR-0014/0017/0022).
+The compiled context retains only its Kernel-owned phase. Its former static `frame`
+label and RuntimeProfile extension are retired; actual frame/Snapshot identities remain
+explicit evaluation inputs and continue to distinguish cache entries and artifact evidence.
 _Avoid_: formula mode, ambient evaluation environment, live formula
 
 **Core Extension Invariance**:

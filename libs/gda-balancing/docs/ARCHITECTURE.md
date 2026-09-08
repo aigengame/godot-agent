@@ -859,8 +859,11 @@ and local-result inference to existing Kernel node laws. Real budgets, charges, 
 and normalization choices remain in that owner. The former compiler extension wrapper,
 nine ineffective configuration fields and the inconsistent extra body-node filter are
 deleted. Source alternatives and their Kernel contract define accepted Formula shapes;
-there is no second per-profile syntax subset. Runtime Formula lifecycle policy retains
-its separate Runtime profile owner (bADR-0024).
+there is no second per-profile syntax subset. Formula lifecycle phases come from the
+Kernel Runtime laws: initialization from `formula_initialization_phase`, Event from
+the active lifecycle role, and observation from the scheduler observation contract.
+The unused RuntimeProfile extension and static `context.frame` labels are deleted;
+Runtime reads the laws in its selected execution closure (bADR-0024).
 
 The pure-expression judgment is closed to literals, typed reads, pure calls, value selection, local
 bindings, statically bounded aggregation, and lookup. Named-stream sampling is a separate judgment
@@ -925,7 +928,9 @@ remains owned by Model Source.
 
 Formula evaluation uses one timing model across derived values and Operations. A Formula itself has
 no lifecycle timing. Every read or call lowers to an identified evaluation site with explicit
-operands and context.
+operands and a phase-only context. The actual Initialization-frame or Snapshot identity
+remains a separate dynamic evaluation input; deleting a static frame label does not
+remove that identity or its cache and artifact checks.
 
 A `derived` Symbol is read-only computed data, not stored state. Repeated reads at one site use the
 same pure result and deterministic charge vector when the frame or Snapshot, operands, and Numeric

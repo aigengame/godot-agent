@@ -19,8 +19,8 @@ status: accepted
 
 > **Resolution ownership correction (#878, 2026-09-08):** The `standard.compiler`
 > Resolution profile now owns one required, closed `formula_resolution` field.
-> It replaces `extensions["standard.formula"]` in this profile; the separate Runtime
-> lifecycle extension is unaffected. Admission checks actual Source selectors and
+> It replaces `extensions["standard.formula"]` in this profile. That slice left the
+> Runtime extension unchanged; the correction below retires it. Admission checks actual Source selectors and
 > relates local-result inference to existing Kernel node laws. Nine ineffective
 > configuration fields are deleted, together with `allowed_body_nodes` and its
 > inconsistent extra filter. The latter previously restricted Operation calls while
@@ -29,6 +29,19 @@ status: accepted
 > Kernel contract. Actual budgets, charges, aliases and normalization choices retain
 > their owner. Old fields and placement refuse; there is no compatibility reader.
 > This is branch implementation; the complete #878 extension proof remains open.
+
+> **Runtime context correction (#878, 2026-09-08):** Formula phases now derive from the
+> existing Kernel Runtime configuration and scheduler contracts. Initialization has one
+> explicit `formula_initialization_phase`; Event and observation reuse the active
+> lifecycle role and scheduler observation phase. The RuntimeProfile Formula extension,
+> its now-unused `extensions` interface, static slot/site/Trace `context.frame` fields,
+> and the discarded Snapshot-domain comparison are deleted. Compiler paths receive
+> their admitted Kernel laws; Runtime receives its existing selected execution laws.
+> No ambient Kernel fallback or new phase registry is added. Actual Initialization-frame
+> and Snapshot identities, site identities, cache charges and atomic refusal semantics
+> remain. Effect magnitude capture/re-evaluation `frame` policy has a separate owner
+> and is unchanged. The [Runtime context record](../refactor/current-language/PRIORITY-WINDOW.md#runtime-formula-contexts)
+> records scoped branch validation; #878's final fixed-build extension proof remains open.
 
 > **Execution-binding supersession (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#execution-identity-implementation-875-2026-09-07)):**
 > The whole-LDB Resolved Model wrapper below remains exact Build provenance, not permanent

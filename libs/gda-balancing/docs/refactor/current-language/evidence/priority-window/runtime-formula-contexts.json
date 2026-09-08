@@ -1,0 +1,1459 @@
+{
+  "scope": "Runtime Formula context deletion before the final #878 build freeze. This is not full #878 acceptance.",
+  "baseline": "90907e57020a519451dbb4cdafcf520877215a8b",
+  "integrated_implementation_head": "da4e0cece0b07e9c23b4c63567f18378ca9d0c8e",
+  "test_migration_head": "a1fc19cf5286e45ced64b506fcf85f8ffcb20dec",
+  "kernel": "sha256:362ae9a429d39751924e1c2d1f730f708ecddce23b9a8ce209944a6f142ae314",
+  "ldb": "sha256:f4b85e849efde4e145874c6b1b4dce0119d973f1af35f6577d630745fbae21af",
+  "decision": {
+    "deleted": [
+      "RuntimeProfile Formula extension and family extensions member",
+      "Static Formula slot/site/Trace context.frame and corresponding Schema leaves",
+      "Discarded Snapshot-domain helper and comparison",
+      "Host phase table and attribute-based Formula grouping"
+    ],
+    "phase_owners": {
+      "initialization": "runtime_program.runtime_configuration.formula_initialization_phase",
+      "event": "runtime_program.runtime_configuration.lifecycle_roles.active",
+      "observation": "runtime_program.scheduler.observation.phase"
+    },
+    "retained": [
+      "Actual frame/Snapshot and evaluation-site identities",
+      "Explicit operands, numeric/refusal laws, cache charges and atomic refusal",
+      "Separate game.effect.periodic.magnitude.frame and relation policy",
+      "Selected execution-law closure without ambient Kernel fallback"
+    ]
+  },
+  "producer_evidence": {
+    "receipt": {
+      "path": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/FINAL-RECEIPT.json",
+      "bytes": 23874,
+      "sha256": "fdde43bd1d03a73c0c986a3eb586cc6d7bdb845f40e914750c55425a2092d638"
+    },
+    "summary": {
+      "scope": "Bounded RuntimeProfile Formula extension and redundant context.frame deletion; no complete #878 or all-schema invariance claim.",
+      "baseline_head": "90907e57020a519451dbb4cdafcf520877215a8b",
+      "final_local_head": "53e5218666c0830770374a6c299cf72088721a5d",
+      "A_commits": [
+        "b703d5c0299a99ad3d8ee4d47dd5fa1c21be8fc9",
+        "72d3e43d0d22dfd5ad5ce648e2b98dab5cedca34",
+        "ca0edbf66655692abfa81ec8d68c1a1781a31677",
+        "551edd94f0eeb202e8204393b725f3531d1733c9"
+      ],
+      "B_paired_commit": "25dced444712bfbf513a623d3a8119dc7d384a9f",
+      "root_example_pair": "da4e0cece0b07e9c23b4c63567f18378ca9d0c8e",
+      "kernel": "sha256:362ae9a429d39751924e1c2d1f730f708ecddce23b9a8ce209944a6f142ae314",
+      "ldb": "sha256:f4b85e849efde4e145874c6b1b4dce0119d973f1af35f6577d630745fbae21af",
+      "tests": [
+        {
+          "receipt": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/seam-reachability.xml",
+          "cases": 24,
+          "seconds": 3.159,
+          "groups": {
+            "tests.test_formula_runtime_seam": 20,
+            "tests.test_program_reachability": 2,
+            "tests.test_schema2_experiment_cli": 2
+          }
+        },
+        {
+          "receipt": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/profile-wire.xml",
+          "cases": 1,
+          "seconds": 1.612,
+          "groups": {
+            "tests.test_runtime_formula_contexts": 1
+          }
+        },
+        {
+          "receipt": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/public-formula.xml",
+          "cases": 5,
+          "seconds": 8.487,
+          "groups": {
+            "tests.test_public_formula_runtime_seam": 5
+          }
+        },
+        {
+          "receipt": "/private/tmp/gda-runtime-profile-b-final-34.xml",
+          "cases": 11,
+          "seconds": 26.082,
+          "groups": {
+            "tests.test_schema2_model_lowerer_conformance": 1,
+            "tests.test_runtime_profile_independent": 10
+          }
+        }
+      ],
+      "static": {
+        "A_foundation": "13 production +3 caller files Ruff/format/Pyright zero at b703",
+        "new_permanent_wire_test": "Ruff/format/Pyright zero at 551e"
+      },
+      "rpg_comparison": {
+        "baseline_head": "90907e57020a519451dbb4cdafcf520877215a8b",
+        "candidate_head": "67fc08f6f0d3ed2d349b11bf7f348c2af5a650cc",
+        "baseline_kernel": "sha256:fdcd2bcd31edd1b0d9f8154644bdcf5380540ea5a6bfcef76cd5d07d65d1a059",
+        "candidate_kernel": "sha256:362ae9a429d39751924e1c2d1f730f708ecddce23b9a8ce209944a6f142ae314",
+        "candidate_ldb": "sha256:44e223b45c2040dc1a2a95e4789926a8252cf78e92b728b527ec8000be284f0e",
+        "public_commands": 4,
+        "build_members": 8,
+        "run_members": 6,
+        "events": 8,
+        "snapshots": 9,
+        "whole_rng_rows_equal": 4,
+        "formula_evaluations": 2,
+        "formula_values_arguments_equal": true,
+        "snapshot_real_frame_bindings_verified": true,
+        "all_snapshot_values_ledgers_equal": true,
+        "final_resource_ledger": {
+          "event_steps": 0,
+          "node_steps": 86,
+          "queue_events": 0,
+          "total_events": 8
+        },
+        "compiled_formulas_exact_equal": true,
+        "binding_semantics_equal_except_removed_frame_and_derived_identities": 7,
+        "program_body_operands_results_numeric_bounds_refusals_equal_except_exact_generated_site_prefix": 6,
+        "selected_execution_laws_delta_only_initialization_phase_owner": true,
+        "metrics": [
+          {
+            "metric": "enemy_damage_dealt",
+            "value": 14,
+            "within_target": true
+          },
+          {
+            "metric": "player_resource_remaining",
+            "value": 26,
+            "within_target": true
+          },
+          {
+            "metric": "player_health_remaining",
+            "value": 86,
+            "within_target": true
+          },
+          {
+            "metric": "enemy_resource_remaining",
+            "value": 23,
+            "within_target": true
+          },
+          {
+            "metric": "player_damage_dealt",
+            "value": 37,
+            "within_target": true
+          },
+          {
+            "metric": "enemy_health_remaining",
+            "value": 63,
+            "within_target": true
+          }
+        ],
+        "source_bytes_equal": true,
+        "experiment_authored_values_equal_except_actual_rir_binding": true,
+        "producer_changed": true,
+        "producer_before": "sha256:38088e7ad82664fe1adae31ae52baf1e26a4d5ed1fb407d4de064d2cd36d4eb6",
+        "producer_after": "sha256:bb9bb4c5d5096f17d550340a1b7b5930e5eaa1365b4bdeeb585710a743654048",
+        "profile_delta_only_deleted_extension": true,
+        "raw_complete_leaf_diff": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/artifact-diffs.json",
+        "limits": [
+          "One maintained RPG scenario; original five public Formula lifecycle cases are separately rerun.",
+          "All 14 member bytes retained; exact identity changes and identity-sorted compiled-row reordering are not claimed byte invariant.",
+          "Publication manifests/locators also change with fresh store and paths; this comparison asserts no identity exemption for semantic result values."
+        ]
+      },
+      "final_source_python_matches_captured_rpg_source_manifest": true,
+      "post_capture_changes": "26 independently observed vector identity leaves and derived publication metadata; 9 maintained Experiment bindings/tools/CI from root; no Python producer change.",
+      "independent_final_receipt": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/independent-final-receipt.json",
+      "independent_resource_fixedpoint": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/independent-final-fixedpoint.json",
+      "resource_delta": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/resource-delta.json",
+      "vector_ids_retained": 347,
+      "independently_observed_oracle_leaves": 26,
+      "actual_slot_context_vector_frame_removals": 4,
+      "numeric_resource_verdict_expectations_unchanged": true,
+      "source_vectors": {
+        "positive": 13,
+        "negative": 21,
+        "positive_four_artifact_parity_and_mutual_consumption": true,
+        "negative_diagnostics_preserved": true,
+        "lock_oracles_unchanged": 13,
+        "observation": "/private/tmp/gda-runtime-profile-b-vector-observations.json"
+      },
+      "wire_red_green": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/profile-wire-historical-control.json",
+      "public_retired_active_profile": {
+        "receipt": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/retired-profile/cli-results.json",
+        "returncode": 2,
+        "stage": "static",
+        "diagnostic_pointers": [
+          "/language/definitions",
+          "/language/runtime"
+        ]
+      },
+      "public_formula_calls": [
+        {
+          "nodeid": "tests/test_public_formula_runtime_seam.py::test_public_numeric_formula_refusal_uses_the_real_instruction_site_before_snapshot_zero",
+          "raw": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/formula-cli/224e60803d2dd0ae.json",
+          "commands": [
+            {
+              "arguments": [
+                "model",
+                "build",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_numeric_formula_re0/source.json",
+                "--out",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_numeric_formula_re0/build",
+                "--invocation-key",
+                "0101010101010101010101010101010101010101010101010101010101010101"
+              ],
+              "returncode": 0,
+              "stage": null,
+              "diagnostics": []
+            },
+            {
+              "arguments": [
+                "experiment",
+                "check",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_numeric_formula_re0/experiment.json",
+                "--rir",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_numeric_formula_re0/.gda-balancing-store-v2/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json"
+              ],
+              "returncode": 0,
+              "stage": null,
+              "diagnostics": []
+            },
+            {
+              "arguments": [
+                "experiment",
+                "run",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_numeric_formula_re0/experiment.json",
+                "--rir",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_numeric_formula_re0/.gda-balancing-store-v2/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json",
+                "--out",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_numeric_formula_re0/run-02",
+                "--invocation-key",
+                "0202020202020202020202020202020202020202020202020202020202020202"
+              ],
+              "returncode": 2,
+              "stage": "runtime",
+              "diagnostics": [
+                {
+                  "code": "runtime.numeric_overflow",
+                  "message": "Initialization program sha256:055193abdeb3f7030ec0b247d8d40a7739a847680a30c81f26a4ae87b9554164 refused before Snapshot 0 at evaluation site sha256:a55c31b3b220080d58611388d49f5fc137f314d363e4a224cd9d238ba9a8411f in immutable frame sha256:c6fda85274d772c170cb937f7701c8a6426a3a54c8d7287ca811e4d81f34450c",
+                  "primary": {
+                    "identity": "sha256:a55c31b3b220080d58611388d49f5fc137f314d363e4a224cd9d238ba9a8411f",
+                    "kind": "runtime",
+                    "subject": "formula-evaluation-site"
+                  },
+                  "related": [
+                    {
+                      "identity": "sha256:c6fda85274d772c170cb937f7701c8a6426a3a54c8d7287ca811e4d81f34450c",
+                      "kind": "runtime",
+                      "subject": "initialization-frame"
+                    },
+                    {
+                      "content_identity": "sha256:8b2d99f3df3d69d8a8abaa6a143055b2468c830afe09ed62e628b47622b490db",
+                      "kind": "artifact",
+                      "pointer": "/scenarios/0/assignments"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "nodeid": "tests/test_public_formula_runtime_seam.py::test_public_nonempty_formula_phases_preserve_frames_charge_and_cached_results",
+          "raw": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/formula-cli/47c2d2b00cac94be.json",
+          "commands": [
+            {
+              "arguments": [
+                "model",
+                "build",
+                "/private/tmp/gda-878-runtime-profile-delete/libs/gda-balancing/examples/schema2/progression-periodic-effect/model-source.json",
+                "--out",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_nonempty_formula_p0/build",
+                "--invocation-key",
+                "0101010101010101010101010101010101010101010101010101010101010101"
+              ],
+              "returncode": 0,
+              "stage": null,
+              "diagnostics": []
+            },
+            {
+              "arguments": [
+                "experiment",
+                "check",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_nonempty_formula_p0/experiment.json",
+                "--rir",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_nonempty_formula_p0/.gda-balancing-store-v2/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json"
+              ],
+              "returncode": 0,
+              "stage": null,
+              "diagnostics": []
+            },
+            {
+              "arguments": [
+                "experiment",
+                "run",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_nonempty_formula_p0/experiment.json",
+                "--rir",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_nonempty_formula_p0/.gda-balancing-store-v2/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json",
+                "--out",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_nonempty_formula_p0/run-02",
+                "--invocation-key",
+                "0202020202020202020202020202020202020202020202020202020202020202"
+              ],
+              "returncode": 0,
+              "stage": null,
+              "diagnostics": []
+            },
+            {
+              "arguments": [
+                "experiment",
+                "run",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_nonempty_formula_p0/experiment.json",
+                "--rir",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_nonempty_formula_p0/.gda-balancing-store-v2/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json",
+                "--out",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_nonempty_formula_p0/run-03",
+                "--invocation-key",
+                "0303030303030303030303030303030303030303030303030303030303030303"
+              ],
+              "returncode": 0,
+              "stage": null,
+              "diagnostics": []
+            }
+          ]
+        },
+        {
+          "nodeid": "tests/test_public_formula_runtime_seam.py::test_public_formula_budget_refusal_preserves_site_frame_and_atomic_prefix[observation-20-1-19-22]",
+          "raw": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/formula-cli/76b69ac5d4246d83.json",
+          "commands": [
+            {
+              "arguments": [
+                "model",
+                "build",
+                "/private/tmp/gda-878-runtime-profile-delete/libs/gda-balancing/examples/schema2/progression-periodic-effect/model-source.json",
+                "--out",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref2/build",
+                "--invocation-key",
+                "0101010101010101010101010101010101010101010101010101010101010101"
+              ],
+              "returncode": 0,
+              "stage": null,
+              "diagnostics": []
+            },
+            {
+              "arguments": [
+                "experiment",
+                "check",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref2/experiment.json",
+                "--rir",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref2/.gda-balancing-store-v2/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json"
+              ],
+              "returncode": 0,
+              "stage": null,
+              "diagnostics": []
+            },
+            {
+              "arguments": [
+                "experiment",
+                "run",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref2/experiment.json",
+                "--rir",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref2/.gda-balancing-store-v2/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json",
+                "--out",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref2/run-02",
+                "--invocation-key",
+                "0202020202020202020202020202020202020202020202020202020202020202"
+              ],
+              "returncode": 2,
+              "stage": "runtime",
+              "diagnostics": [
+                {
+                  "code": "runtime.step_limit_exceeded",
+                  "message": "Runtime program exhausted its exact step bound",
+                  "primary": {
+                    "content_identity": "sha256:683f78b20ee267807a9fdbd789c499b77c39426976c4497515ed9d251bb7408b",
+                    "kind": "artifact",
+                    "pointer": "/scenarios/0/entrypoint"
+                  },
+                  "related": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "nodeid": "tests/test_public_formula_runtime_seam.py::test_public_formula_budget_refusal_preserves_site_frame_and_atomic_prefix[event-5-0-3-6]",
+          "raw": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/formula-cli/c903e863602dd042.json",
+          "commands": [
+            {
+              "arguments": [
+                "model",
+                "build",
+                "/private/tmp/gda-878-runtime-profile-delete/libs/gda-balancing/examples/schema2/progression-periodic-effect/model-source.json",
+                "--out",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref1/build",
+                "--invocation-key",
+                "0101010101010101010101010101010101010101010101010101010101010101"
+              ],
+              "returncode": 0,
+              "stage": null,
+              "diagnostics": []
+            },
+            {
+              "arguments": [
+                "experiment",
+                "check",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref1/experiment.json",
+                "--rir",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref1/.gda-balancing-store-v2/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json"
+              ],
+              "returncode": 0,
+              "stage": null,
+              "diagnostics": []
+            },
+            {
+              "arguments": [
+                "experiment",
+                "run",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref1/experiment.json",
+                "--rir",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref1/.gda-balancing-store-v2/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json",
+                "--out",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref1/run-02",
+                "--invocation-key",
+                "0202020202020202020202020202020202020202020202020202020202020202"
+              ],
+              "returncode": 2,
+              "stage": "runtime",
+              "diagnostics": [
+                {
+                  "code": "runtime.step_limit_exceeded",
+                  "message": "Runtime program exhausted its exact step bound",
+                  "primary": {
+                    "content_identity": "sha256:49398f47534fc405d64331eaf9479d72603a66a3a3600d9162d338dcbd1ba33f",
+                    "kind": "artifact",
+                    "pointer": "/scenarios/0/entrypoint"
+                  },
+                  "related": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "nodeid": "tests/test_public_formula_runtime_seam.py::test_public_formula_budget_refusal_preserves_site_frame_and_atomic_prefix[initialization-2-0-0-3]",
+          "raw": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/formula-cli/fc3aa5f8db533094.json",
+          "commands": [
+            {
+              "arguments": [
+                "model",
+                "build",
+                "/private/tmp/gda-878-runtime-profile-delete/libs/gda-balancing/examples/schema2/progression-periodic-effect/model-source.json",
+                "--out",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref0/build",
+                "--invocation-key",
+                "0101010101010101010101010101010101010101010101010101010101010101"
+              ],
+              "returncode": 0,
+              "stage": null,
+              "diagnostics": []
+            },
+            {
+              "arguments": [
+                "experiment",
+                "check",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref0/experiment.json",
+                "--rir",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref0/.gda-balancing-store-v2/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json"
+              ],
+              "returncode": 0,
+              "stage": null,
+              "diagnostics": []
+            },
+            {
+              "arguments": [
+                "experiment",
+                "run",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref0/experiment.json",
+                "--rir",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref0/.gda-balancing-store-v2/invocations/9c6809c426d2104be8dc1ae13b3007a6a0f168d7c16f247cdee98e5695ef2b69/0101010101010101010101010101010101010101010101010101010101010101/rir-semantic-payload.json",
+                "--out",
+                "/private/var/folders/st/jbx51z7j2dz0640yh13br5340000gn/T/pytest-of-lelej/pytest-3552/test_public_formula_budget_ref0/run-02",
+                "--invocation-key",
+                "0202020202020202020202020202020202020202020202020202020202020202"
+              ],
+              "returncode": 2,
+              "stage": "runtime",
+              "diagnostics": [
+                {
+                  "code": "runtime.step_limit_exceeded",
+                  "message": "Initialization program sha256:3dc95256f091f8c52e7e93a4efa567815746f599aefb0c1bca9503f4374b84bc refused before Snapshot 0 at evaluation site sha256:752c85a03de71e4d9a37325298bd4d6b272c0dd4e6b2ed024f7ae5fe11b25977 in immutable frame sha256:1ae742e1fe597b9d98edcefc7a2b0a4b0c09078e0c937e73af1941f09f244016",
+                  "primary": {
+                    "identity": "sha256:752c85a03de71e4d9a37325298bd4d6b272c0dd4e6b2ed024f7ae5fe11b25977",
+                    "kind": "runtime",
+                    "subject": "formula-evaluation-site"
+                  },
+                  "related": [
+                    {
+                      "identity": "sha256:1ae742e1fe597b9d98edcefc7a2b0a4b0c09078e0c937e73af1941f09f244016",
+                      "kind": "runtime",
+                      "subject": "initialization-frame"
+                    },
+                    {
+                      "content_identity": "sha256:a95f7931dda3fb52f34f2aed7190f52f4766180784045ee04dfd5ddc170a107e",
+                      "kind": "artifact",
+                      "pointer": "/scenarios/0/assignments"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "raw_manifest": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/RAW-MANIFEST.json",
+      "raw_manifest_sha256": "ca6646b83aa0aa370f707beddf980a42731452c48ccb0cb546d380baf8374fb6",
+      "raw_file_count": 206,
+      "limits": [
+        "The RPG full raw capture is pinned to 67fc/Schema44e; final source is identical and later oracle-only resource update is explicitly recorded.",
+        "The root independently owns and verifies all7 maintained Models/9Experiments; this receipt does not substitute its result for this worker single-RPG capture.",
+        "No wheel/Godot/full CI rerun in this bounded slice.",
+        "Schema projection identities and identity-sorted rows change truthfully; full byte invariance is not claimed."
+      ]
+    },
+    "raw_manifest": {
+      "path": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/RAW-MANIFEST.json",
+      "bytes": 65274,
+      "sha256": "ca6646b83aa0aa370f707beddf980a42731452c48ccb0cb546d380baf8374fb6"
+    },
+    "historical_raw_verification": {
+      "verified_files": 124,
+      "missing_files": 82,
+      "mismatches": 0,
+      "details": {
+        "path": "/private/tmp/gda-878-root/runtime-profile-original-manifest-verification.json",
+        "bytes": 33603,
+        "sha256": "b84c07e8e015bbbd71157627166ef4d01bd827d1b8664ecf7e92e34f49d76ac0"
+      }
+    },
+    "preservation_limit": "The original manifest includes 82 global pytest temporary files removed by later runs. Original records remain unchanged; the stable follow-up supplies a new complete capture."
+  },
+  "test_migration_followup": {
+    "receipt": {
+      "path": "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/FOLLOWUP-RECEIPT.json",
+      "bytes": 8222,
+      "sha256": "081a8a273dffc80cd75b307c91b3a6391f18023e0c33bf2047416e71ea41a2db"
+    },
+    "summary": {
+      "scope": "Five-file test migration and stable replacement evidence for final Formula public gates. No production/authority/example changes.",
+      "commit": "41e512dc7d60f3cc4bda42c37bbcb0a99a73b972",
+      "base": "53e5218666c0830770374a6c299cf72088721a5d",
+      "root_pair": "da4e0cece0b07e9c23b4c63567f18378ca9d0c8e",
+      "changed_sources": [
+        {
+          "path": "tests/test_artifact_protocol_roles.py",
+          "sha256": "75109fec38f3799cc94513b7e9ac0dea441281f3be93190ca1de2e419e9e9039"
+        },
+        {
+          "path": "tests/test_bounded_fold_formula.py",
+          "sha256": "961b04d0d23486a9d3db77636e8243f744e82ddb37fc99b27fccf3ae352b5a54"
+        },
+        {
+          "path": "tests/test_e2e_cli.py",
+          "sha256": "814eed4fcc149f27467e34d6e14fedf1074d07ae1dfda1f390aa6d50a9547396"
+        },
+        {
+          "path": "tests/test_schema2_bootstrap_language.py",
+          "sha256": "0a3131f8a8fe8dc0daf10bb88aff3eb598b3d8fc89a9700c6f8d442ab69679e4"
+        },
+        {
+          "path": "tests/test_schema2_model_cli.py",
+          "sha256": "f36949062886cc71c040ae6d80f9fba884bd2c4fe796e0ddb5f4694cf3a92d81"
+        }
+      ],
+      "preservation": {
+        "base": "53e5218666c0830770374a6c299cf72088721a5d",
+        "removed_retired_context_frame_entries": {
+          "test_schema2_bootstrap_language.py": 1,
+          "test_schema2_model_cli.py": 5,
+          "test_e2e_cli.py": 1,
+          "test_bounded_fold_formula.py": 1,
+          "test_artifact_protocol_roles.py": 1
+        },
+        "only_AST_delta_is_nine_context_frame_deletions": true,
+        "assertion_counts_unchanged": {
+          "test_schema2_bootstrap_language.py": 181,
+          "test_schema2_model_cli.py": 686,
+          "test_e2e_cli.py": 226,
+          "test_bounded_fold_formula.py": 14,
+          "test_artifact_protocol_roles.py": 43
+        },
+        "all_test_functions_decorators_parametrization_other_assertions_unchanged": true,
+        "retained_literal_wrong_context": [
+          [
+            "tests/test_schema2_model_cli.py",
+            2078,
+            {
+              "phase": "event",
+              "frame": "host-owned-frame"
+            }
+          ]
+        ],
+        "frame_search_classification": {
+          "retired_positive_or_wire_shape_forgery_context_labels": "the9removedentries",
+          "effect_magnitude_frame": "retainedexactbootstrapauthority/runtimeprofileindependentfiles",
+          "real_frame_identity_snapshot_cache_meter": "retainedallfilesandadjacente2eassertions",
+          "negative_old_interface_or_context_mutation": "retainedruntimeprofileindependentandmodelCLIwrongcontext",
+          "python_profiler_or_independent_EventFrame_or_lexical_call_frame": "retained;separatedomainmeaning"
+        }
+      },
+      "historical_standards_red": {
+        "head": "da4e0cece0b07e9c23b4c63567f18378ca9d0c8e",
+        "cases": 4,
+        "failed": 3,
+        "passed": 1,
+        "raw": "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/standards-historical-red.xml"
+      },
+      "stable_verification": [
+        {
+          "raw_xml": "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/public-formula-stable.xml",
+          "raw_log": "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/public-formula-stable.log",
+          "cases": 5,
+          "seconds": 8.983,
+          "basetemp": "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/public-formula-tmp",
+          "nodeids": [
+            "tests.test_public_formula_runtime_seam::test_public_nonempty_formula_phases_preserve_frames_charge_and_cached_results",
+            "tests.test_public_formula_runtime_seam::test_public_formula_budget_refusal_preserves_site_frame_and_atomic_prefix[initialization-2-0-0-3]",
+            "tests.test_public_formula_runtime_seam::test_public_formula_budget_refusal_preserves_site_frame_and_atomic_prefix[event-5-0-3-6]",
+            "tests.test_public_formula_runtime_seam::test_public_formula_budget_refusal_preserves_site_frame_and_atomic_prefix[observation-20-1-19-22]",
+            "tests.test_public_formula_runtime_seam::test_public_numeric_formula_refusal_uses_the_real_instruction_site_before_snapshot_zero"
+          ]
+        },
+        {
+          "raw_xml": "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/targeted-stable.xml",
+          "raw_log": "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/targeted-stable.log",
+          "cases": 11,
+          "seconds": 44.868,
+          "basetemp": "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/context-migration-tmp",
+          "nodeids": [
+            "tests.test_bounded_fold_formula::test_public_fold_step_executes_bound_formula_for_each_actual_accumulator",
+            "tests.test_bounded_fold_formula::test_fold_formula_parameter_must_cover_later_accumulators_not_only_initial_zero",
+            "tests.test_schema2_bootstrap_language::test_stat_contribution_releases_own_pure_formula_slots",
+            "tests.test_schema2_model_cli::test_roguelike_model_build_publishes_the_reward_formula_boundary",
+            "tests.test_schema2_model_cli::test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol",
+            "tests.test_schema2_model_cli::test_model_build_binds_a_formula_to_an_operation_slot",
+            "tests.test_schema2_model_cli::test_formula_slot_authority_drift_reaches_the_public_model_check_refusal[context-formula.refuse.context-mismatch-model.reason.formula-context-mismatch-language.formula_context_mismatch-/formula_bindings/2/site]",
+            "tests.test_schema2_model_cli::test_formula_slot_authority_drift_reaches_the_public_model_check_refusal[refusals-formula.refuse.refusal-widening-model.reason.formula-refusal-widening-language.formula_refusal_widening-/formula_bindings/2/formula]",
+            "tests.test_artifact_protocol_roles::test_renamed_roles_retain_semantic_trace_and_first_refusal_checks[original]",
+            "tests.test_artifact_protocol_roles::test_renamed_roles_retain_semantic_trace_and_first_refusal_checks[renamed]",
+            "tests.test_e2e_cli.TestKeyUserPath::test_periodic_effect_snapshot_and_live_policies_observe_same_time_order"
+          ]
+        }
+      ],
+      "first_migration_pass": {
+        "cases": 11,
+        "seconds": 44.6,
+        "raw": "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/targeted.xml",
+        "status": "Successful prior run; superseded for stable artifact retention by targeted-stable."
+      },
+      "static": {
+        "ruff": "0",
+        "format": "5 files already formatted",
+        "pyright": "0 errors, 0 warnings",
+        "diff_check": "0"
+      },
+      "old_raw_evidence": {
+        "manifest": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/RAW-MANIFEST.json",
+        "sha256": "ca6646b83aa0aa370f707beddf980a42731452c48ccb0cb546d380baf8374fb6",
+        "status": "Historical capture-time verification; no longer all206 raw files available.",
+        "original_entries": 206,
+        "still_equal": 124,
+        "now_missing": 82,
+        "now_changed": 0,
+        "recheck": "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/historical-206-recheck.json",
+        "old_paths_not_recreated": true,
+        "original_final_and_manifest_unchanged": true
+      },
+      "replacement": {
+        "public_formula_raw_call_files": [
+          "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/formula-cli/224e60803d2dd0ae.json",
+          "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/formula-cli/47c2d2b00cac94be.json",
+          "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/formula-cli/76b69ac5d4246d83.json",
+          "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/formula-cli/c903e863602dd042.json",
+          "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/formula-cli/fc3aa5f8db533094.json"
+        ],
+        "stable_basetemps": [
+          "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/public-formula-tmp",
+          "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/context-migration-tmp"
+        ],
+        "raw_manifest": "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/STABLE-RAW-MANIFEST.json",
+        "sha256": "6b64aebea3c30ccf9908f7adf525ecff3399a0d4f9b8e7b5b0da928e84b3e0dd",
+        "raw_files": 424,
+        "all_json_reparsed": 411
+      },
+      "limits": [
+        "This rerun supplies new final-state evidence; it does not recover the missing historical bytes.",
+        "The e2e test uses the existing installed console script with this isolated tree first on PYTHONPATH; no newly built wheel claim.",
+        "No full package CI or Godot verification in this bounded followup."
+      ]
+    },
+    "stable_manifest": {
+      "path": "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/STABLE-RAW-MANIFEST.json",
+      "bytes": 157298,
+      "sha256": "6b64aebea3c30ccf9908f7adf525ecff3399a0d4f9b8e7b5b0da928e84b3e0dd"
+    },
+    "stable_raw_verification": {
+      "verified_files": 424,
+      "missing": [],
+      "mismatches": 0
+    },
+    "tests": [
+      {
+        "path": "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/targeted-stable.xml",
+        "bytes": 2140,
+        "sha256": "e3ab68f5378b6d2c03424fa76b02647b4c48f115db1a2dc8b05fe1ff5669a465",
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "scope": "Eleven retained fixture/expectation migration cases"
+      },
+      {
+        "path": "/private/tmp/gda-878-runtime-profile-delete-evidence/followup/public-formula-stable.xml",
+        "bytes": 1125,
+        "sha256": "cbdac27bb5470f3c8364a644969f6a190a21f527fa02e09324a70fdd8e09f308",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "scope": "Five public Formula lifecycle cases with stable raw capture"
+      }
+    ]
+  },
+  "independent_model_evidence": {
+    "receipt": {
+      "path": "/private/tmp/gda-runtime-profile-b-final-receipt.json",
+      "bytes": 3497,
+      "sha256": "23162320cfc95a43b92cf21006a44b9f843ce1bddbed15995fa3b3733c7079b5"
+    },
+    "summary": {
+      "worktree": "/private/tmp/gda-878-runtime-profile-independent",
+      "validated_head": "2032d7550c6768290e548373d8579c63c187af4f",
+      "independent_B_commit": "25dced444712bfbf513a623d3a8119dc7d384a9f",
+      "paired_A_commits": [
+        "b703d5c0299a99ad3d8ee4d47dd5fa1c21be8fc9",
+        "72d3e43d0d22dfd5ad5ce648e2b98dab5cedca34",
+        "ca0edbf66655692abfa81ec8d68c1a1781a31677"
+      ],
+      "kernel": "sha256:362ae9a429d39751924e1c2d1f730f708ecddce23b9a8ce209944a6f142ae314",
+      "ldb": "sha256:f4b85e849efde4e145874c6b1b4dce0119d973f1af35f6577d630745fbae21af",
+      "xml": {
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "seconds": 26.082,
+        "sha256": "b39a3581ef7b0af352ea3838fbba755e3ba7ff2882f1bbef97fff0e98150a0c9"
+      },
+      "model_vectors": 34,
+      "positive_four_artifact_equal_and_mutually_consumed": 13,
+      "refusals_complete_diagnostics_equal_to_unchanged_expect": 21,
+      "package_vector_ids": 347,
+      "new_regression_cases": 10,
+      "updated_expected_identity_leaves": 26,
+      "authoring_fixedpoint": {
+        "resource_count": 27,
+        "all_stored_bytes_equal": true,
+        "authored_equal": true
+      },
+      "artifact_hashes": {
+        "/private/tmp/gda-runtime-profile-b-final-34.xml": "b39a3581ef7b0af352ea3838fbba755e3ba7ff2882f1bbef97fff0e98150a0c9",
+        "/private/tmp/gda-runtime-profile-b-final-fixedpoint.py": "7527e93054f80e857427b06e97796a8f730ef501e5bfddc1016c84a60ac78614",
+        "/private/tmp/gda-runtime-profile-b-final-fixedpoint.json": "6e9cb0077d268a8ee43396df1c6ea69b2febe009516eda2b48c8c8b59f85919e",
+        "/private/tmp/gda-runtime-profile-b-checkpoint-receipt.json": "1cf1ca014a28fe332138ea3451e5e25f7af40ed51dc95b46b5228d2bd9d77b7a",
+        "/private/tmp/gda-runtime-profile-b-vector-observations.json": "6549eb85ec206193a5550235b554f47623bbb13460b4f63bc9a978b4744c2140",
+        "/private/tmp/gda-runtime-profile-b-oracle-candidates-final.json": "1648da4a98343689e0931df9c44c0e57034c71b7a4addffcf9ce9b5d4d95cf49",
+        "/private/tmp/gda-878-runtime-profile-delete-evidence/final/oracle-application-receipt.json": "988de3e8b4ab436d456308df2265b3754b8eed31e1a0e43a86281f78feba50d2"
+      },
+      "test_command": "pytest -q tests/test_schema2_model_lowerer_conformance.py::test_permanent_model_program_vectors_close_both_compiler_pipelines tests/test_runtime_profile_independent.py --junitxml=/private/tmp/gda-runtime-profile-b-final-34.xml",
+      "limits": [
+        "Only B test helpers and tests were committed here. A owns all production and resource edits; root owns examples, tools, docs and CI.",
+        "The existing permanent gate executes all 34 Model vectors within one pytest case; the other 10 cases are the new independent regressions.",
+        "B does not implement whole Runtime Formula execution, so no such execution parity is claimed.",
+        "Shared _reseal_authored_graph is authoring only, separately from the independent B interpretation and compiler evidence.",
+        "The standalone rebuild tool in this isolated tree has the confirmed preexisting Package-helper argument mismatch. Root separately fixed actual Kernel forwarding and reported --check exit 0 with no resource changes; that tool fix was not locally applied or independently rerun here.",
+        "Initial fixedpoint script incorrectly asserted 53 stored resources; actual graph has 13 packages, 13 vector sets and one root. All byte comparisons passed before that count assertion; corrected receipt records the actual 27.",
+        "This closes only the delegated RuntimeProfile/context deletion slice, not all #878 acceptance."
+      ]
+    }
+  },
+  "maintained_public_comparison": {
+    "baseline_receipt": {
+      "path": "/private/tmp/gda-878-runtime-maintained-rebind/baseline-v2/receipt.json",
+      "bytes": 450350,
+      "sha256": "ca1e2eda95a108f61cd31a511bc01a78518a43ae95fea39b1ab05f83545865ed"
+    },
+    "candidate_receipt": {
+      "path": "/private/tmp/gda-878-runtime-maintained-rebind/candidate/receipt.json",
+      "bytes": 455483,
+      "sha256": "27b20137a9d71985d8284e91927e48ea6649f76833992fb8071a423978f28568"
+    },
+    "baseline_raw_verification": {
+      "verified_files": 208,
+      "missing": [],
+      "mismatches": 0
+    },
+    "candidate_raw_verification": {
+      "verified_files": 217,
+      "missing": [],
+      "mismatches": 0
+    },
+    "model_count": 7,
+    "experiment_count": 9,
+    "public_commands": 64,
+    "complete_artifact_set_admission_both_sides": true,
+    "equal_observations": [
+      "Event outcomes, facts and states",
+      "Snapshot values",
+      "Metrics and target verdicts"
+    ],
+    "rebindings": [
+      {
+        "path": "examples/schema2/bounded-fold/experiment.json",
+        "before_sha256": "010d5c260bd4eef407a8562c3f84f16e29006afb3a70525c5910bad9225f030f",
+        "after_sha256": "d364a6c9fd28d7cc1a78bfbe221147e2eb44b9917e31eee123ee89ea1029bf4b",
+        "old": "sha256:ea32b36eb93a9b4286e15a5f8927fc63f6e80e7b3bcb1f40d2fa954498bc8013",
+        "new": "sha256:cc898ce62f64df33c397c62b022e556d4ec3411ed5ab99bb126a371d8cefd143"
+      },
+      {
+        "path": "examples/schema2/progression-periodic-effect/experiment.json",
+        "before_sha256": "4058159d52fa4fb3f011ce48bd42c24d5e6714721907f3349dd95a642af33e23",
+        "after_sha256": "c49f3ab5219759db5878889aec5069225571f0182673ace4227e1bbff4337051",
+        "old": "sha256:5b67e07cc8d559ab285015d59b2d6a88602f5e5731453a5acd4dd7ffe4331ae0",
+        "new": "sha256:023dfc320e0f333153c428b5adf11c63e3df981bc291939338ba99ab7f8f2fb1"
+      },
+      {
+        "path": "examples/schema2/roguelike-reward-build/experiment.json",
+        "before_sha256": "862672e6276e5438d3dfa2da2ab7307d777aedbb0d4e909dc83724bc4c7b6d99",
+        "after_sha256": "29d16691aca4f7472eeaf3f50499f80fa977bc0ace835f0c5d8c5c6660aa7a18",
+        "old": "sha256:ef0b9c7c084f3c4932d7a211f1f66d04776267767c081cae744697150248f359",
+        "new": "sha256:c3aaae9dec55a77ad4dd914fa198ab1de288199961c5325594b40169b2fdb36e"
+      },
+      {
+        "path": "examples/schema2/rpg-combat-cast/experiment.json",
+        "before_sha256": "4a77bd838043b5d7cdd232a57b4e9d9cc4c41bbda75a4405db33b8a77cb14210",
+        "after_sha256": "5654a9e54cec1a736ed771fe7ee3b91d226503213d5653487eebcd060b3316e7",
+        "old": "sha256:58f77ca141165c5085246e4d72b5919161f3911e7b30b34b2b6e7484b2410656",
+        "new": "sha256:de47109c873a562818ea0f3bb2a53daa3e47f3406796332fb38a2079e942dd58"
+      },
+      {
+        "path": "examples/schema2/rpg-combat-cast/multi-time-experiment.json",
+        "before_sha256": "278df7b7b746b4c5c8185f58ca39174ed89faa0e708d8d5b0ef79bece9b2b883",
+        "after_sha256": "cb907c6ede39cf6dc156a53a9269af486454d493822274f089b339f6f3bcf5ca",
+        "old": "sha256:58f77ca141165c5085246e4d72b5919161f3911e7b30b34b2b6e7484b2410656",
+        "new": "sha256:de47109c873a562818ea0f3bb2a53daa3e47f3406796332fb38a2079e942dd58"
+      },
+      {
+        "path": "examples/schema2/rpg-periodic-effect/experiment.json",
+        "before_sha256": "a39434d608601d6518fa6c3264e2396ca06126176622bd531e3271dd17561afc",
+        "after_sha256": "5b9b2b988416813b6917c6f5df0967217a3cc1c283f047ed82e37b0a27269395",
+        "old": "sha256:07b658003cb92f3b297c8c73ef9ab2462978811c07084aa49308dee70be67928",
+        "new": "sha256:d5e53250f6400c951053ec7ea1bbcb9f1c125788b6cf830f9e8a590d4ec81c91"
+      },
+      {
+        "path": "examples/schema2/rpg-periodic-effect/same-time-experiment.json",
+        "before_sha256": "271d8401def8707c5fee983f2fc5ebbef390fedbce4bf1356c39cd8ace47485d",
+        "after_sha256": "e25078df4f71fc3d2cc30d79ad646371e9ea283516b375aeefd46cf66b247094",
+        "old": "sha256:07b658003cb92f3b297c8c73ef9ab2462978811c07084aa49308dee70be67928",
+        "new": "sha256:d5e53250f6400c951053ec7ea1bbcb9f1c125788b6cf830f9e8a590d4ec81c91"
+      },
+      {
+        "path": "examples/schema2/rpg-stat-composition/experiment.json",
+        "before_sha256": "e0bd5de5aac4f10399f5f7ee879fef350c745381f1cb98e1de3271a513fb77a9",
+        "after_sha256": "7616ce2665831ce953f8642df84b8903fc81af6b6a503a47fd4aebe250aac7dc",
+        "old": "sha256:7980b01b829e42bfd0254946f5cef9f9a7490987b7c646d5dc39d22752de6e07",
+        "new": "sha256:5eeec5ebc618a529a98c01992c4c9fc67bece9dc12ca8388116ad9f6f93b0ba6"
+      },
+      {
+        "path": "examples/schema2/structured-selection/experiment.json",
+        "before_sha256": "5e3cf00163cff17e6de9a1010c239f83b5c696edd9ca2028324a148aefb3368d",
+        "after_sha256": "c4a8a8db5204c3267a62e747b37b54adfc56b2c40c78b93841c9481544666a86",
+        "old": "sha256:3858fa0b51e55075b105b808fa88153d494973ab33e37fc3b6c461c91d679205",
+        "new": "sha256:9e390d7d02dc016b95fc461f569797424335b8c8eed645bbd3afd9ddd68cae5d"
+      }
+    ],
+    "reproduction_script": {
+      "path": "/private/tmp/gda-878-runtime-maintained-check.py",
+      "bytes": 6985,
+      "sha256": "6a7121b0fdee04244e37ef2fc20c3db0d20ac5c8787543d30ee1947617f2d983",
+      "source": "\"\"\"Record real maintained CLI runs and rebind only observed RIR meaning changes.\"\"\"\nimport argparse\nfrom copy import deepcopy\nimport hashlib\nimport json\nimport os\nfrom pathlib import Path\nimport subprocess\nimport sys\n\nfrom gda_balancing.application.experiment_inputs import check_experiment_inputs\nfrom gda_balancing.domain.experiment import CheckedExperiment\nfrom gda_balancing.domain.experiment_artifacts import validate_experiment_artifact_set\n\nparser = argparse.ArgumentParser()\nparser.add_argument('mode', choices=('baseline', 'candidate'))\nparser.add_argument('package', type=Path)\nparser.add_argument('output', type=Path)\nparser.add_argument('--baseline', type=Path)\nparser.add_argument('--write', action='store_true')\nargs = parser.parse_args()\nargs.output.mkdir(parents=True, exist_ok=False)\nenv = {**os.environ, 'GDA_BALANCING_STORE_DIR': str(args.output / 'store'),\n       'GDA_BALANCING_ANCHOR_KEY': 'a5' * 32}\ncommands, rows, updates = [], [], []\n\ndef dump(path, value):\n    path.write_text(json.dumps(value, indent=2) + '\\n')\n\ndef sha(path):\n    return hashlib.sha256(path.read_bytes()).hexdigest()\n\ndef cli(*arguments):\n    result = subprocess.run([sys.executable, '-m', 'gda_balancing', *map(str, arguments)],\n                            cwd=args.output, env=env, capture_output=True, text=True, timeout=60)\n    commands.append({'arguments': list(map(str, arguments)), 'exit': result.returncode,\n                     'stdout': result.stdout, 'stderr': result.stderr})\n    dump(args.output / 'commands.json', commands)\n    assert result.returncode == 0 and result.stderr == '', commands[-1]\n    return json.loads(result.stdout)\n\ndef members(receipt):\n    return {row['logical_name']: json.loads(Path(row['locator']).read_text())\n            for row in receipt['member_locators']}\n\ndef observation(values):\n    primary = values.get('evaluation-run', values.get('experiment-verdict'))\n    assert primary is not None, sorted(values)\n    return {\n        'outcome': primary['outcome'],\n        'events': [{key: event[key] for key in (\n            'index', 'entrypoint', 'facts', 'outcome', 'state_before', 'state_after')}\n            for event in values['event-trace']['events']],\n        'snapshots': [{key: item[key] for key in ('index', 'logical_time', 'scenario', 'values')}\n                      for item in values['snapshot-series']['snapshots']],\n        'metrics': [{key: item[key] for key in ('metric', 'value', 'within_target')}\n                    for item in values['metric-dataset']['samples']],\n    }\n\nbaseline = json.loads(args.baseline.read_text()) if args.baseline else None\nbaseline_rows = {row['source']: row for row in baseline['models']} if baseline else {}\nfor source in sorted((args.package / 'examples/schema2').glob('*/model-source.json')):\n    relative_source = str(source.relative_to(args.package))\n    name = source.parent.name\n    out = args.output / name\n    out.mkdir()\n    cli('model', 'check', source)\n    build_key = hashlib.sha256(('build:' + relative_source).encode()).hexdigest()\n    receipt = cli('model', 'build', source, '--out', out / 'build', '--invocation-key', build_key)\n    built = members(receipt)\n    assert len(built) == 8, sorted(built)\n    rir = built['rir-semantic-payload']\n    rir_path = Path(next(row['locator'] for row in receipt['member_locators']\n                         if row['logical_name'] == 'rir-semantic-payload'))\n    row = {'source': relative_source, 'source_sha256': sha(source),\n           'rir_semantic_identity': rir['semantic_identity'], 'experiments': []}\n    if baseline:\n        assert row['source_sha256'] == baseline_rows[relative_source]['source_sha256']\n    for spec in sorted(source.parent.glob('*experiment.json')):\n        original = json.loads(spec.read_text())\n        updated = deepcopy(original)\n        old = original['model']['rir_semantic_identity']\n        if args.mode == 'baseline':\n            assert old == rir['semantic_identity'], (spec, old, rir['semantic_identity'])\n        updated['model']['rir_semantic_identity'] = rir['semantic_identity']\n        spec_path = spec if args.mode == 'baseline' else out / spec.name\n        if args.mode == 'candidate':\n            dump(spec_path, updated)\n        cli('experiment', 'check', spec_path, '--rir', rir_path)\n        run_key = hashlib.sha256(('run:' + str(spec.relative_to(args.package))).encode()).hexdigest()\n        run = cli('experiment', 'run', spec_path, '--rir', rir_path,\n                  '--out', out / (spec.stem + '-run'), '--invocation-key', run_key)\n        values = members(run)\n        assert len(values) == 6, sorted(values)\n        checked = check_experiment_inputs(str(spec_path), str(rir_path))\n        assert isinstance(checked, CheckedExperiment), checked\n        assert validate_experiment_artifact_set(checked, values), spec\n        observed = observation(values)\n        relative = str(spec.relative_to(args.package))\n        if baseline:\n            reference = next(item for item in baseline_rows[relative_source]['experiments']\n                             if item['path'] == relative)\n            assert observed == reference['observations'], relative\n        row['experiments'].append({'path': relative, 'before_sha256': sha(spec),\n            'old_rir_semantic_identity': old, 'new_rir_semantic_identity': rir['semantic_identity'],\n            'observations': observed, 'artifact_set_admitted': True,\n            'candidate_input': str(spec_path), 'run_receipt': run})\n        if args.mode == 'candidate' and old != rir['semantic_identity']:\n            updates.append((spec, old, rir['semantic_identity'], sha(spec)))\n    rows.append(row)\n    dump(args.output / 'partial.json', {'models': rows})\n    print(json.dumps({'mode': args.mode, 'model': name, 'experiments': len(row['experiments'])}), flush=True)\n\nassert len(rows) == 7 and sum(len(row['experiments']) for row in rows) == 9\nchanges = []\nif args.write:\n    assert args.mode == 'candidate' and baseline is not None\n    for path, old, new, before_sha in updates:\n        assert sha(path) == before_sha\n        original_text = path.read_text()\n        assert original_text.count(old) == 1\n        path.write_text(original_text.replace(old, new))\n        changes.append({'path': str(path.relative_to(args.package)), 'before_sha256': before_sha,\n                        'after_sha256': sha(path), 'old': old, 'new': new})\nmanifest = [{'path': str(path), 'bytes': path.stat().st_size, 'sha256': sha(path)}\n            for path in sorted(args.output.rglob('*')) if path.is_file()]\ndump(args.output / 'receipt.json', {'mode': args.mode, 'models': rows, 'changes': changes,\n     'command_count': len(commands), 'raw_manifest': manifest,\n     'scope': 'Public commands and complete artifact-set admission; compares event outcomes, facts, states, snapshot values and metrics. No full-byte, RNG-ledger or independent Runtime parity claim.'})\nprint(json.dumps({'complete': True, 'commands': len(commands), 'updated_files': len(changes)}), flush=True)\n"
+    },
+    "reproduction": [
+      "Archive baseline src and examples from the repository root into a new temporary directory.",
+      "Set PYTHONPATH to that baseline src and run the stored script in baseline mode with its package and a new output directory.",
+      "Set PYTHONPATH to the candidate src and run candidate mode with its package, a new output directory and --baseline pointing to the first receipt.json.",
+      "Omit --write for read-only reproduction; --write changes only the nine observed RIR bindings after every comparison passes."
+    ],
+    "setup_errors": [
+      "The first archive was invoked from the package directory with repository-root paths; no archive content was produced.",
+      "The first baseline run reused an invocation key across different canonical inputs and correctly refused. baseline/commands.json preserves it; baseline-v2 uses per-input keys."
+    ]
+  },
+  "rpg_evidence": {
+    "receipt": {
+      "path": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/rpg-comparison-receipt.json",
+      "bytes": 2641,
+      "sha256": "1aa1bd6904b70bea5be190010abefed636fd6ffd2305a85cf788aae282c2debc"
+    },
+    "summary": {
+      "baseline_head": "90907e57020a519451dbb4cdafcf520877215a8b",
+      "candidate_head": "67fc08f6f0d3ed2d349b11bf7f348c2af5a650cc",
+      "baseline_kernel": "sha256:fdcd2bcd31edd1b0d9f8154644bdcf5380540ea5a6bfcef76cd5d07d65d1a059",
+      "candidate_kernel": "sha256:362ae9a429d39751924e1c2d1f730f708ecddce23b9a8ce209944a6f142ae314",
+      "candidate_ldb": "sha256:44e223b45c2040dc1a2a95e4789926a8252cf78e92b728b527ec8000be284f0e",
+      "public_commands": 4,
+      "build_members": 8,
+      "run_members": 6,
+      "events": 8,
+      "snapshots": 9,
+      "whole_rng_rows_equal": 4,
+      "formula_evaluations": 2,
+      "formula_values_arguments_equal": true,
+      "snapshot_real_frame_bindings_verified": true,
+      "all_snapshot_values_ledgers_equal": true,
+      "final_resource_ledger": {
+        "event_steps": 0,
+        "node_steps": 86,
+        "queue_events": 0,
+        "total_events": 8
+      },
+      "compiled_formulas_exact_equal": true,
+      "binding_semantics_equal_except_removed_frame_and_derived_identities": 7,
+      "program_body_operands_results_numeric_bounds_refusals_equal_except_exact_generated_site_prefix": 6,
+      "selected_execution_laws_delta_only_initialization_phase_owner": true,
+      "metrics": [
+        {
+          "metric": "enemy_damage_dealt",
+          "value": 14,
+          "within_target": true
+        },
+        {
+          "metric": "player_resource_remaining",
+          "value": 26,
+          "within_target": true
+        },
+        {
+          "metric": "player_health_remaining",
+          "value": 86,
+          "within_target": true
+        },
+        {
+          "metric": "enemy_resource_remaining",
+          "value": 23,
+          "within_target": true
+        },
+        {
+          "metric": "player_damage_dealt",
+          "value": 37,
+          "within_target": true
+        },
+        {
+          "metric": "enemy_health_remaining",
+          "value": 63,
+          "within_target": true
+        }
+      ],
+      "source_bytes_equal": true,
+      "experiment_authored_values_equal_except_actual_rir_binding": true,
+      "producer_changed": true,
+      "producer_before": "sha256:38088e7ad82664fe1adae31ae52baf1e26a4d5ed1fb407d4de064d2cd36d4eb6",
+      "producer_after": "sha256:bb9bb4c5d5096f17d550340a1b7b5930e5eaa1365b4bdeeb585710a743654048",
+      "profile_delta_only_deleted_extension": true,
+      "raw_complete_leaf_diff": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/artifact-diffs.json",
+      "limits": [
+        "One maintained RPG scenario; original five public Formula lifecycle cases are separately rerun.",
+        "All 14 member bytes retained; exact identity changes and identity-sorted compiled-row reordering are not claimed byte invariant.",
+        "Publication manifests/locators also change with fresh store and paths; this comparison asserts no identity exemption for semantic result values."
+      ]
+    }
+  },
+  "resource_changes": {
+    "receipt": {
+      "path": "/private/tmp/gda-878-runtime-profile-delete-evidence/final/resource-delta.json",
+      "bytes": 11192,
+      "sha256": "978a4d8d48461defd6bfcbaff47c9c48001fa54a8773b4f7b119ee88a2855909"
+    },
+    "summary": {
+      "base": "90907e57020a519451dbb4cdafcf520877215a8b",
+      "head": "551edd94f0eeb202e8204393b725f3531d1733c9",
+      "kernel": "sha256:362ae9a429d39751924e1c2d1f730f708ecddce23b9a8ce209944a6f142ae314",
+      "kernel_bytes": 153686,
+      "kernel_delta": [
+        [
+          "/content_identity",
+          "sha256:fdcd2bcd31edd1b0d9f8154644bdcf5380540ea5a6bfcef76cd5d07d65d1a059",
+          "sha256:362ae9a429d39751924e1c2d1f730f708ecddce23b9a8ce209944a6f142ae314"
+        ],
+        [
+          "/meta_format/language_definitions/collections/runtime_profiles/field_types/extensions",
+          {
+            "type": "canonical-value"
+          },
+          null
+        ],
+        [
+          "/meta_format/language_definitions/collections/runtime_profiles/optional_members",
+          [
+            "runtime_program_version",
+            "numeric_law",
+            "rng",
+            "budget_scopes",
+            "extensions"
+          ],
+          [
+            "runtime_program_version",
+            "numeric_law",
+            "rng",
+            "budget_scopes"
+          ]
+        ],
+        [
+          "/meta_format/language_definitions/wire_schema_protocol_roles/trace_structure/event/field_types/formula_evaluations/items/field_types/context/field_types/frame",
+          {
+            "type": "non-empty-string"
+          },
+          null
+        ],
+        [
+          "/meta_format/language_definitions/wire_schema_protocol_roles/trace_structure/event/field_types/formula_evaluations/items/field_types/context/required_members",
+          [
+            "phase",
+            "frame"
+          ],
+          [
+            "phase"
+          ]
+        ],
+        [
+          "/meta_format/runtime_profile_definition/active_runtime/optional_members",
+          [
+            "extensions"
+          ],
+          []
+        ],
+        [
+          "/meta_format/runtime_program/component_contract/components/runtime_configuration/objects//member_types/formula_initialization_phase",
+          null,
+          "string"
+        ],
+        [
+          "/meta_format/runtime_program/component_contract/content_identity",
+          "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798",
+          "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
+        ],
+        [
+          "/meta_format/runtime_program/runtime_configuration/formula_initialization_phase",
+          null,
+          "initialization"
+        ]
+      ],
+      "vector_ids_preserved": 347,
+      "vector_id_digest": "1cbbe1b0db6171692e6b1ec11b5b4c78515de962912fc950a440c47d03db0206",
+      "oracle_identity_leaves": 26,
+      "slot_context_frame_removals": 4,
+      "other_numeric_resource_verdict_values_equal": true,
+      "vector_definition_changes": [
+        {
+          "package": "core.quantity",
+          "vector": "model.compile.boundary-max-symbols",
+          "changes": [
+            [
+              "/expect/debug_map_identity",
+              "sha256:d6ec91e3f2942a836b4ff7f1c9e3906497f2aa848fdab02f9a38e91341881a1d",
+              "sha256:58fe98d03c446444dda5ba51a7a4d0bb6842e5c3eb29eba9a42e47dc4bb75e7d"
+            ],
+            [
+              "/expect/rir_identity",
+              "sha256:4862baaff31835135857ba4b855444da5a3a1e38a061ede5e0618ae8d77f0f19",
+              "sha256:54702b1a0407cd73b0393096e7cea21eec1d97c0fd70f6d8cbd8c427440f3614"
+            ]
+          ]
+        },
+        {
+          "package": "core.quantity",
+          "vector": "model.compile.mutation-role-change",
+          "changes": [
+            [
+              "/expect/debug_map_identity",
+              "sha256:e6ebcd2b865e557dc89647b5e75a62994ed9634c08eb3308e7a3e43630be0c08",
+              "sha256:51341a70b58b4cb8e32896da8bfd52b587eff4ce7f955c938c663a41ed8d8a48"
+            ],
+            [
+              "/expect/rir_identity",
+              "sha256:aa51ca27607da3c99f59ca8f7180f1d48ee3c5717625ca7855dbc6222ebb08c1",
+              "sha256:ee5c6c2f368fa128d2c2806d756fcdd8d40245d37ec2c8f39f4bb9909afe2e3b"
+            ]
+          ]
+        },
+        {
+          "package": "core.quantity",
+          "vector": "model.compile.positive",
+          "changes": [
+            [
+              "/expect/debug_map_identity",
+              "sha256:a005d50ed1a46a0b3746dfe25fec15d9242e48fe3ec79557529c8ea283b17808",
+              "sha256:aa7ee383f8e644a74845376345d9ab788430d80838e10a2c9fb51b1136ebe72d"
+            ],
+            [
+              "/expect/rir_identity",
+              "sha256:3ff36b11f946d38cdaf3c4455208f891ae9d56748f1554784189cf5c87473607",
+              "sha256:9e870fb84c07d6cc62eb6b1be2c1c73a4af1c145f05d9a4d2a537b7c9a335cad"
+            ]
+          ]
+        },
+        {
+          "package": "core.quantity",
+          "vector": "model.compile.semantic-equivalent-order",
+          "changes": [
+            [
+              "/expect/debug_map_identity",
+              "sha256:0586dacf5efa7746f2faa0788b14706382768a63e5a119345b04c6e00e7f2ea3",
+              "sha256:3f12c6d0d29872633b09b33dfed982651c56e8a044f212208f94ecf4fb50e700"
+            ],
+            [
+              "/expect/rir_identity",
+              "sha256:3ff36b11f946d38cdaf3c4455208f891ae9d56748f1554784189cf5c87473607",
+              "sha256:9e870fb84c07d6cc62eb6b1be2c1c73a4af1c145f05d9a4d2a537b7c9a335cad"
+            ]
+          ]
+        },
+        {
+          "package": "core.quantity",
+          "vector": "quantity.assignment-policy.optional-override",
+          "changes": [
+            [
+              "/expect/debug_map_identity",
+              "sha256:2333281f1e0e2a454ed813604464fe88e575482540ac3e3894062fd2ed65e783",
+              "sha256:39ad1e6cec0775ec6546c3152099e70965f45bd8fb3a20e342f4cd5ff5476aa8"
+            ],
+            [
+              "/expect/rir_identity",
+              "sha256:bfa26eaf84e583663df07e50dae691f1a65a56f8a8e809d4f80ecc834ef7f1a2",
+              "sha256:b9da2449ee3cc907cc7ee3b3fa200e363e53013de05b685d47df71550a2883f8"
+            ]
+          ]
+        },
+        {
+          "package": "core.quantity",
+          "vector": "quantity.literal.integer-admitted",
+          "changes": [
+            [
+              "/expect/debug_map_identity",
+              "sha256:5fc56147d2b95ce369441b417860036914dd77880acd0bfe8f9e645f248a7259",
+              "sha256:31e9ac1a6ddcebf02e239c93c2f5b4270bf5d699b9f617a628ca5ed6f844cb60"
+            ],
+            [
+              "/expect/rir_identity",
+              "sha256:dce7dfcab7a36bd93c834273d65b4c7d06ac2d61a318aba175fc205fa3bf5d89",
+              "sha256:ba5532c2a0189b125a659fb28ffbdfe871889cba4f933770f9169fb178d00b22"
+            ]
+          ]
+        },
+        {
+          "package": "core.quantity",
+          "vector": "formula.quantity.accept.pure-operation-closure",
+          "changes": [
+            [
+              "/expect/debug_map_identity",
+              "sha256:8d671b930d82434b30563fd1b8dc0d7f227094972e20f3de3cf04fae4c5442c7",
+              "sha256:54146f2efab7eaa4b77a3e7a5af7f5d1ad69e43b131eba3e7b759aac5f8282e9"
+            ],
+            [
+              "/expect/rir_identity",
+              "sha256:bf10a211f7aa3594ef3f561a0c33a938e1fdd4f516e784d4a95a7e38f2d5d767",
+              "sha256:87fd105bf06203d0d1c4173a5d89c7c154e2593a9bc900a83461102f82760d32"
+            ]
+          ]
+        },
+        {
+          "package": "game.build",
+          "vector": "game.build.v2-0.contribution.formula-slot",
+          "changes": [
+            [
+              "/expect/standard.formula-slots/0/context/frame",
+              "pre-event-snapshot",
+              null
+            ]
+          ]
+        },
+        {
+          "package": "game.combat",
+          "vector": "game.combat.model-binding.distinct-defenses",
+          "changes": [
+            [
+              "/expect/debug_map_identity",
+              "sha256:00edc92451d23ec5841f324bc5cb6dd1b34bb4688472196c4a75a51539dc5145",
+              "sha256:5b3553e48af3a3414e77b7f7ee6663937aefc6a6c46295e5b42c441aa10cfeb7"
+            ],
+            [
+              "/expect/rir_identity",
+              "sha256:fd4ee414a6d1cc8958f72a311bcb68df104dfce8140a48a89cc30e6bd2432ae2",
+              "sha256:2570a26f41957b6e83d85171e62e06719f58d568e3d7c04b933a05dbfa86a78c"
+            ]
+          ]
+        },
+        {
+          "package": "game.combat",
+          "vector": "game.combat.model-binding.symbol-rename",
+          "changes": [
+            [
+              "/expect/debug_map_identity",
+              "sha256:1b94b6e99e8f8ccbd0f46e16d4788c774fa62cce39da879f5bf0552023aa5d03",
+              "sha256:bdfb82526ab37976b0692c7d0c5c78a345d5ac940489ca938ba2360f4c24a69a"
+            ],
+            [
+              "/expect/rir_identity",
+              "sha256:4cebd52e4a542bd00f23a2d292ff49b966f2d7ee95b0a79ee879516c9b401710",
+              "sha256:40f32a57c4a1cc6944bc64ef234a6cf42ac320fcc238229feeede238f00ab0e9"
+            ]
+          ]
+        },
+        {
+          "package": "game.combat",
+          "vector": "game.combat.model-binding.multiple-entrypoints",
+          "changes": [
+            [
+              "/expect/debug_map_identity",
+              "sha256:1f1edaa2ea317cf0c0dd2bad4643bd1bb8c0becc77c023c2bed2a5a761999db0",
+              "sha256:def15c91ae9678b27cc88c4be4ddb3aa5d222f3e31dbcf235eecba0a4f76e283"
+            ],
+            [
+              "/expect/rir_identity",
+              "sha256:857d1dcf641605eefe13708aac1f974a556cfa47ce8ca90fe3fad4e36a6d59f6",
+              "sha256:f09bd5db0b3a23fd60ebeb88af68371c191afe7b0bf06ef58f967fba36c09ddb"
+            ]
+          ]
+        },
+        {
+          "package": "game.combat",
+          "vector": "formula.combat.accept.damage-slot-binding",
+          "changes": [
+            [
+              "/expect/debug_map_identity",
+              "sha256:8d671b930d82434b30563fd1b8dc0d7f227094972e20f3de3cf04fae4c5442c7",
+              "sha256:54146f2efab7eaa4b77a3e7a5af7f5d1ad69e43b131eba3e7b759aac5f8282e9"
+            ],
+            [
+              "/expect/rir_identity",
+              "sha256:bf10a211f7aa3594ef3f561a0c33a938e1fdd4f516e784d4a95a7e38f2d5d767",
+              "sha256:87fd105bf06203d0d1c4173a5d89c7c154e2593a9bc900a83461102f82760d32"
+            ]
+          ]
+        },
+        {
+          "package": "game.effect",
+          "vector": "game.effect.v2-0.contribution.formula-slot",
+          "changes": [
+            [
+              "/expect/standard.formula-slots/0/context/frame",
+              "pre-event-snapshot",
+              null
+            ]
+          ]
+        },
+        {
+          "package": "game.effect",
+          "vector": "game.effect.apply-snapshot-periodic-v1.periodic-contract",
+          "changes": [
+            [
+              "/expect/standard.formula-slots/0/context/frame",
+              "pre-event-snapshot",
+              null
+            ]
+          ]
+        },
+        {
+          "package": "game.progression",
+          "vector": "game.progression.v1-0.contribution.formula-slot",
+          "changes": [
+            [
+              "/expect/standard.formula-slots/0/context/frame",
+              "pre-event-snapshot",
+              null
+            ]
+          ]
+        },
+        {
+          "package": "standard.compiler",
+          "vector": "formula.compiler.accept.closed-static-graph",
+          "changes": [
+            [
+              "/expect/debug_map_identity",
+              "sha256:8d671b930d82434b30563fd1b8dc0d7f227094972e20f3de3cf04fae4c5442c7",
+              "sha256:54146f2efab7eaa4b77a3e7a5af7f5d1ad69e43b131eba3e7b759aac5f8282e9"
+            ],
+            [
+              "/expect/rir_identity",
+              "sha256:bf10a211f7aa3594ef3f561a0c33a938e1fdd4f516e784d4a95a7e38f2d5d767",
+              "sha256:87fd105bf06203d0d1c4173a5d89c7c154e2593a9bc900a83461102f82760d32"
+            ]
+          ]
+        },
+        {
+          "package": "standard.schema",
+          "vector": "formula.schema.accept.named-typed-pure-graph",
+          "changes": [
+            [
+              "/expect/debug_map_identity",
+              "sha256:8d671b930d82434b30563fd1b8dc0d7f227094972e20f3de3cf04fae4c5442c7",
+              "sha256:54146f2efab7eaa4b77a3e7a5af7f5d1ad69e43b131eba3e7b759aac5f8282e9"
+            ],
+            [
+              "/expect/rir_identity",
+              "sha256:bf10a211f7aa3594ef3f561a0c33a938e1fdd4f516e784d4a95a7e38f2d5d767",
+              "sha256:87fd105bf06203d0d1c4173a5d89c7c154e2593a9bc900a83461102f82760d32"
+            ]
+          ]
+        }
+      ],
+      "periodic_magnitude_frame_unchanged": true
+    }
+  },
+  "integrated_checks": [
+    {
+      "path": "/private/tmp/gda-878-root/runtime-profile-integrated.xml",
+      "bytes": 5350,
+      "sha256": "3fd73a3a060cf776645454a9f0436313312195f6873c5349d870135c066e8fc6",
+      "tests": 33,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "scope": "33 integrated interface/Schema, reachability and Formula seam cases"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/runtime-profile-rebuild.xml",
+      "bytes": 535,
+      "sha256": "2c97e505926679cb2b361348fe5235eb890a17d9561953c7d0191914c8254f13",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "scope": "Retained resource rebuild byte-equality and namespace refusal"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/runtime-profile-ci.xml",
+      "bytes": 1705,
+      "sha256": "693d99ec3b352964e458eecb21e1ad7345ce1ead92b89dd065b635c8261d43ea",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "scope": "CI selection/coverage policy only"
+    }
+  ],
+  "resource_rebuild": {
+    "red": {
+      "path": "/private/tmp/gda-878-root/runtime-profile-rebuild-red.log",
+      "bytes": 1304,
+      "sha256": "3c53b54bd9a3af3cc2586a874d4030c4fa898847f97c9e38ced019785a309868"
+    },
+    "green": {
+      "path": "/private/tmp/gda-878-root/runtime-profile-rebuild-green.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "change": "Pass the actual Kernel to package_runtime_semantic_closure; no resource writes in --check."
+  },
+  "static_checks": [
+    {
+      "path": "/private/tmp/gda-878-root/runtime-profile-ruff.log",
+      "bytes": 19,
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/runtime-profile-format.log",
+      "bytes": 28,
+      "sha256": "19dbcc6b41d5ff37d5fbccc79424256390bd6a5e680fa27e70cad9e57b1c6e58"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/runtime-profile-pyright.log",
+      "bytes": 37,
+      "sha256": "6d88a1b220adb7a3d62092b6e38431f0b3fe8babe9864fab90e5849766260332"
+    }
+  ],
+  "ci_collection": {
+    "receipt": {
+      "path": "/private/tmp/gda-878-root/runtime-profile-ci-inventory.json",
+      "bytes": 2044,
+      "sha256": "5d3a8897837588d5b6a5724d4ab6051c05c536a88fa82dfc3c0f093e29beb0c5"
+    },
+    "tests": 2522,
+    "vectors": 347,
+    "missing": [],
+    "uncovered": [],
+    "overlapping": [],
+    "scope": "Collection only, not complete execution."
+  },
+  "inventory": {
+    "receipt": {
+      "path": "/private/tmp/gda-878-root/runtime-profile-final-inventory.json",
+      "bytes": 8627,
+      "sha256": "d73db8f05344df4d79a481a1dbabff2bd45b987eb26c7ecb73efadffbb2f63a3"
+    },
+    "tokens": 1618,
+    "occurrences": 6606,
+    "reserved": 109,
+    "remaining_gaps": 39,
+    "retired": [
+      {
+        "pointer": "/packages/11/semantic_closure/22/definitions/0/extensions",
+        "law": "/meta_format/runtime_profile_definition",
+        "reason": "Runtime profile extension roles are not yet complete"
+      }
+    ],
+    "all_other_gaps_unchanged": true
+  },
+  "review": {
+    "DDMA": {
+      "state": "resolved",
+      "receipt": {
+        "path": "/private/tmp/gda-878-ddma-runtime-de754-proof/receipt.json",
+        "bytes": 3372,
+        "sha256": "d1e39bd86b7029953ee5fdffa5d173dd323e1b5a7b2e481f707de6e490a6f894"
+      }
+    },
+    "Standards": {
+      "state": "resolved at a1fc19cf5; zero remaining findings in the bounded test and documentation follow-up",
+      "original_red": {
+        "path": "/private/tmp/gda-878-runtime-formula-standards-lpozx958/targeted.xml",
+        "bytes": 9266,
+        "sha256": "d684f43f477210f7e8adfa9a120cc58a411bca6b58b11400bcdecce486b627e0",
+        "tests": 4,
+        "failures": 3,
+        "errors": 0,
+        "skipped": 0,
+        "scope": "Three retained-test migration failures and one passing new wire control"
+      },
+      "followup_receipt": {
+        "path": "/private/tmp/gda-878-runtime-final-standards-smkm4n6h/REVIEW-RECEIPT.json",
+        "bytes": 6228,
+        "sha256": "451d981c5b93639bf114ed4228acce0a5761a7852e4d1c3be6edadd1df2e10b4"
+      }
+    },
+    "Spec": {
+      "state": "resolved at da4e0cece; zero findings in the a1fc19cf5 test and documentation follow-up",
+      "receipt": {
+        "path": "/private/tmp/gda-878-spec-runtime-da4/receipt.json",
+        "bytes": 11932,
+        "sha256": "4ce108a32b067219830b7cd92fc11761eb44a52d19daf1bf4ca22ebf363af32b"
+      },
+      "followup_receipt": {
+        "path": "/private/tmp/gda-878-spec-runtime-da4/followup/receipt.json",
+        "bytes": 3192,
+        "sha256": "72eb6fae8c47860f0feb532881308ed1c6a42cbec9ad55ff77fdb9a6edd3b473"
+      }
+    }
+  },
+  "limits": [
+    "The 39 remaining inventory gaps and final causal non-RPG tracer remain open.",
+    "Independent compilation and artifact checks are not an independent Formula Runtime evaluator.",
+    "RPG RNG/ledger comparison predates the identity-only vector refresh; maintained public comparison uses the final resources.",
+    "No full CI, wheel/Godot acceptance, final rollback closure, dev integration, formal release or trust activation is claimed."
+  ]
+}
