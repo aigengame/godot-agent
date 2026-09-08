@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:b27ab67f832e27cba28b1214001e8280f3a496b520b4ae86650d53408f138abc"
+    "sha256:e01262748043b1c7ccdaebe67c3d65c4c68a8ee5e515355042dfc69037fa8c2b"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -2086,6 +2086,23 @@ def _consumer_b_package_semantic_projections_are_exact(
     )
     if not isinstance(projections, list):
         return False
+    projected_language = deepcopy(ldb["language"])
+    for path, member in (
+        ("language.artifact_wire_schemas", "artifact_wire_schemas"),
+        ("language.artifact_contracts", "artifact_contracts"),
+    ):
+        projected_language[member] = [
+            deepcopy(definition)
+            for package in packages
+            for entry in package["semantic_closure"]
+            if entry["authority_path"] == path
+            for definition in entry["definitions"]
+        ]
+    try:
+        _consumer_b_project_trace_schema(kernel, projected_language)
+        _consumer_b_project_rir_schema(kernel, projected_language)
+    except (KeyError, TypeError, ValueError, IndexError):
+        return False
     for index, projection in enumerate(projections):
         if not isinstance(projection, dict):
             return False
@@ -2108,16 +2125,11 @@ def _consumer_b_package_semantic_projections_are_exact(
                 return False
             embedded.extend(entry["definitions"])
 
-        if authority_path == "language.artifact_wire_schemas":
-            projected = {
-                "artifact_wire_schemas": deepcopy(embedded),
-                "artifact_contracts": ldb["language"]["artifact_contracts"],
-            }
-            try:
-                _consumer_b_project_trace_schema(kernel, projected)
-            except (KeyError, TypeError, ValueError, IndexError):
-                return False
-            embedded = projected["artifact_wire_schemas"]
+        if authority_path in {
+            "language.artifact_wire_schemas",
+            "language.artifact_contracts",
+        }:
+            embedded = projected_language[authority_path.split(".")[1]]
 
         def definition_value(value: Any) -> bytes | None:
             if key_member is not None and (
@@ -2762,6 +2774,178 @@ def _consumer_b_source_notation_is_closed(ldb: dict[str, Any], contract: Any) ->
         return False
 
 
+def _consumer_b_protocol_contract_schema(contract: dict[str, Any]) -> dict[str, Any]:
+    """Project the declared closed contract algebra without calling Consumer A."""
+    contract = deepcopy(contract)
+    if "const" in contract:
+        return {"const": contract["const"]}
+    if "enum" in contract:
+        if not isinstance(contract["enum"], list):
+            raise ValueError("enum contract is not a list")
+        return {"enum": contract["enum"]}
+    kind = contract.get("type")
+    if kind == "closed-object" or (
+        kind is None and "required_members" in contract and "field_types" in contract
+    ):
+        required = contract["required_members"]
+        optional = contract.get("optional_members", [])
+        fields = contract["field_types"]
+        if (
+            contract.get("closed", True) is not True
+            or len(required) != len(set(required))
+            or len(optional) != len(set(optional))
+            or set(required) & set(optional)
+            or set(fields) != set(required) | set(optional)
+        ):
+            raise ValueError("incomplete closed object")
+        return {
+            "type": "object",
+            "properties": {
+                name: _consumer_b_protocol_contract_schema(value)
+                for name, value in fields.items()
+            },
+            "required": required,
+            "unevaluatedProperties": False,
+        }
+    if kind == "closed-discriminated-object":
+        return {
+            "oneOf": [
+                _consumer_b_protocol_contract_schema(value)
+                for value in contract["variants"].values()
+            ]
+        }
+    if kind == "one-of":
+        return {
+            "oneOf": [
+                _consumer_b_protocol_contract_schema(value)
+                for value in contract["alternatives"]
+            ]
+        }
+    if kind == "list-of":
+        return {
+            "type": "array",
+            "items": _consumer_b_protocol_contract_schema(contract["items"]),
+            **{
+                name: contract[name]
+                for name in ("uniqueItems", "minItems")
+                if name in contract
+            },
+        }
+    if kind in {"list", "string-list", "path-segments"}:
+        result: dict[str, Any] = {"type": "array"}
+        if kind != "list":
+            result["items"] = {"type": "string", "minLength": 1}
+        if kind == "string-list":
+            result["uniqueItems"] = True
+        if kind == "path-segments":
+            result["minItems"] = 1
+        return result
+    if kind in {"canonical-json", "canonical-value"}:
+        return {}
+    if kind == "closed-int64-interval":
+        return {
+            "type": "object",
+            "required": ["minimum", "maximum"],
+            "properties": {
+                name: _consumer_b_protocol_contract_schema({"type": "signed-int64"})
+                for name in ("minimum", "maximum")
+            },
+            "unevaluatedProperties": False,
+        }
+    if kind in {"signed-int64", "positive-signed-int64"}:
+        return {
+            "type": "integer",
+            "minimum": 1 if kind == "positive-signed-int64" else -(2**63),
+            "maximum": 2**63 - 1,
+        }
+    if kind in {"inventory-list-path", "signed-int64-path"}:
+        return {"type": "string", "minLength": 1}
+    if kind in {
+        "inventory-member",
+        "non-empty-string",
+        "string",
+        "integer",
+        "boolean",
+        "null",
+    }:
+        return {
+            "type": "string"
+            if kind in {"inventory-member", "non-empty-string"}
+            else kind,
+            **(
+                {"minLength": 1}
+                if kind in {"inventory-member", "non-empty-string"}
+                else {}
+            ),
+            **{
+                key: contract[key]
+                for key in ("pattern", "maxLength", "minimum", "maximum")
+                if key in contract
+            },
+        }
+    raise ValueError(f"unsupported protocol field contract: {kind!r}")
+
+
+def _consumer_b_order_derived_schema(
+    kernel: dict[str, Any], value: dict[str, Any]
+) -> dict[str, Any]:
+    convention = kernel["meta_format"]["language_definitions"][
+        "wire_schema_protocol_roles"
+    ]["derived_schema_order"]
+    if convention != {
+        "required": "unicode-lexicographic",
+        "alternatives": "canonical-bytes",
+        "enum_values": "opaque-canonical-bytes",
+        "duplicates": "preserve",
+        "const": "opaque",
+    }:
+        raise ValueError("unsupported derived Schema ordering law")
+
+    def visit(schema):
+        result = deepcopy(schema)
+        if "required" in result:
+            result["required"] = sorted(result["required"])
+        if "enum" in result:
+            result["enum"] = sorted(result["enum"], key=_encoded)
+        for key in ("properties", "$defs"):
+            if key in result:
+                result[key] = {
+                    name: visit(child) for name, child in result[key].items()
+                }
+        if "items" in result:
+            result["items"] = visit(result["items"])
+        for key in ("oneOf", "anyOf"):
+            if key in result:
+                result[key] = sorted(
+                    [visit(child) for child in result[key]], key=_encoded
+                )
+        return result
+
+    return visit(value)
+
+
+def _consumer_b_artifact_envelope(
+    kernel: dict[str, Any], payload: dict[str, Any], artifact_kind: str
+) -> dict[str, Any]:
+    common = deepcopy(
+        kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
+            "artifact_envelope"
+        ]
+    )
+    payload = deepcopy(payload)
+    if (
+        set(common["required_members"]) & set(payload["required_members"])
+        or "artifact_kind" in common["field_types"]
+    ):
+        raise ValueError("Artifact envelope has duplicate owners")
+    common["field_types"]["artifact_kind"] = {"const": artifact_kind}
+    common["required_members"].extend(payload["required_members"])
+    common["field_types"].update(payload["field_types"])
+    if payload.get("optional_members"):
+        common["optional_members"] = payload["optional_members"]
+    return common
+
+
 def _consumer_b_trace_schema(
     kernel: dict[str, Any], artifact_kind: str
 ) -> dict[str, Any]:
@@ -2871,6 +3055,14 @@ def _consumer_b_trace_schema(
     add(schedule, {"operation": coordinate, "ordering_key": order})
     add(schedule["field_types"]["arguments"]["items"], {"value": value})
     add(
+        columns["formula_evaluations"]["items"],
+        {
+            "formula": meta["language_definitions"]["wire_schema_protocol_roles"][
+                "formula_reference"
+            ],
+        },
+    )
+    add(
         columns["formula_evaluations"]["items"]["field_types"]["context"],
         {
             "phase": {
@@ -2887,7 +3079,6 @@ def _consumer_b_trace_schema(
     add(
         law["envelope"],
         {
-            "artifact_kind": {"const": artifact_kind},
             "events": {"type": "list-of", "items": event},
             "root_event_map": {
                 "type": "list-of",
@@ -2897,64 +3088,17 @@ def _consumer_b_trace_schema(
         },
     )
 
-    def schema(contract):
-        if "const" in contract:
-            if set(contract) != {"const"}:
-                raise ValueError("unknown constant contract member")
-            return {"const": contract["const"]}
-        if "enum" in contract:
-            if set(contract) != {"enum"}:
-                raise ValueError("unknown enum contract member")
-            return {"enum": contract["enum"]}
-        kind = contract["type"]
-        if kind == "closed-object":
-            if set(contract) - {
-                "type",
-                "closed",
-                "required_members",
-                "optional_members",
-                "field_types",
-            }:
-                raise ValueError("unknown closed-object contract member")
-            required, optional = (
-                contract["required_members"],
-                contract.get("optional_members", []),
-            )
-            fields = contract["field_types"]
-            if (
-                contract["closed"] is not True
-                or set(required) & set(optional)
-                or set(fields) != set(required) | set(optional)
-            ):
-                raise ValueError("incomplete closed-object contract")
-            return {
-                "type": "object",
-                "properties": {key: schema(item) for key, item in fields.items()},
-                "required": required,
-                "unevaluatedProperties": False,
-            }
-        if kind == "list-of" and set(contract) == {"type", "items"}:
-            return {"type": "array", "items": schema(contract["items"])}
-        if kind == "one-of" and set(contract) == {"type", "alternatives"}:
-            return {"oneOf": [schema(item) for item in contract["alternatives"]]}
-        if kind == "canonical-json" and set(contract) == {"type"}:
-            return {}
-        if kind in {"non-empty-string", "string", "integer", "boolean", "null"} and set(
-            contract
-        ) <= {"type", "maxLength", "pattern"}:
-            return {
-                "type": "string" if kind == "non-empty-string" else kind,
-                **({"minLength": 1} if kind == "non-empty-string" else {}),
-                **{key: item for key, item in contract.items() if key != "type"},
-            }
-        raise ValueError("unknown Trace field contract")
-
-    return {
-        "$schema": meta["language_definitions"]["collections"]["artifact_wire_schemas"][
-            "field_types"
-        ]["schema"]["dialect"],
-        **schema(law["envelope"]),
-    }
+    return _consumer_b_order_derived_schema(
+        kernel,
+        {
+            "$schema": meta["language_definitions"]["collections"][
+                "artifact_wire_schemas"
+            ]["field_types"]["schema"]["dialect"],
+            **_consumer_b_protocol_contract_schema(
+                _consumer_b_artifact_envelope(kernel, law["envelope"], artifact_kind)
+            ),
+        },
+    )
 
 
 def _consumer_b_project_trace_schema(
@@ -2962,8 +3106,6 @@ def _consumer_b_project_trace_schema(
 ) -> None:
     for definition in language["artifact_wire_schemas"]:
         if definition.get("protocol_role") != "event-trace":
-            if "schema" not in definition:
-                raise ValueError("authored schema is missing")
             continue
         if "schema" in definition:
             raise ValueError("Trace structure has an obsolete authored owner")
@@ -2977,6 +3119,713 @@ def _consumer_b_project_trace_schema(
         definition["schema"] = _consumer_b_trace_schema(
             kernel, bindings[0]["artifact_kind"]
         )
+
+
+def _consumer_b_rir_schema(
+    kernel: dict[str, Any], language_bundle: dict[str, Any], artifact_kind: str
+) -> dict[str, Any]:
+    """Derive RIR wire grammar from Kernel laws and the selected authored owners."""
+    meta = kernel["meta_format"]
+    language = language_bundle["language"]
+    protocols = meta["language_definitions"]["wire_schema_protocol_roles"]
+    law = protocols["rir_structure"]
+    containers = law["containers"]
+    runtime = meta["runtime_program"]
+    invocation = runtime["invocation_contract"]
+    formula_law = meta["formula_resolution"]
+    convert = _consumer_b_protocol_contract_schema
+
+    def one(rows):
+        if len(rows) != 1:
+            raise ValueError("RIR semantic owner is missing or ambiguous")
+        return rows[0]
+
+    def obj(fields, required=None):
+        return {
+            "type": "object",
+            "properties": fields,
+            "required": list(fields) if required is None else required,
+            "unevaluatedProperties": False,
+        }
+
+    def array(item):
+        return {"type": "array", "items": item}
+
+    def alternatives(rows):
+        if not rows:
+            raise ValueError("RIR has no declared variant")
+        return {"oneOf": rows}
+
+    def container(name, additions=None):
+        contract = deepcopy(containers[name])
+        fields = contract["field_types"]
+        additions = {} if additions is None else additions
+        if fields.keys() & additions.keys():
+            raise ValueError("RIR container repeats another semantic owner")
+        projected = {key: convert(value) for key, value in fields.items()}
+        projected.update(additions)
+        required, optional = (
+            contract["required_members"],
+            contract.get("optional_members", []),
+        )
+        if set(projected) != set(required) | set(optional) or set(required) & set(
+            optional
+        ):
+            raise ValueError(f"RIR container is incomplete: {name}")
+        return obj(projected, required)
+
+    text = {"type": "string", "minLength": 1}
+    integer = {
+        "type": "integer",
+        "minimum": runtime["numeric"]["minimum"],
+        "maximum": runtime["numeric"]["maximum"],
+    }
+    profiles = language["resolution_profiles"]
+    profile = one([row for row in profiles if row.get("default") is True])
+    lowering = one(
+        [
+            row
+            for row in language["model_lowerings"]
+            if row["id"] == profile["model_lowering"]
+        ]
+    )
+    if lowering["resolution_profile"] != profile["id"]:
+        raise ValueError("RIR lowering has a different Resolution owner")
+    terminal_fields = []
+    for chain_name in ("rule_chain", "structured_rule_chain"):
+        terminal = lowering[chain_name][-1]
+        rule = one([row for row in language["rules"] if row["id"] == terminal["rule"]])
+        fact = one(
+            [
+                row
+                for row in meta["fact"]["schemas"]
+                if row["kind"] == rule["conclusion"]["fact_kind"]
+            ]
+        )
+        terminal_fields.append(meta["fact"]["field_contracts"][fact["field_contract"]])
+    quantity, nominal = terminal_fields
+    for key in ("resolved_symbol", "type_identity"):
+        if _encoded(deepcopy(quantity[key])) != _encoded(deepcopy(nominal[key])):
+            raise ValueError("RIR terminal coordinate contracts disagree")
+    symbol = convert(quantity["resolved_symbol"])
+    coordinate = convert(quantity["type_identity"])
+    operation = obj(
+        {**coordinate["properties"], "identity": text},
+        [*coordinate["required"], "identity"],
+    )
+    declarations = alternatives(
+        [
+            obj({key: convert(value) for key, value in fields.items()})
+            for fields in terminal_fields
+        ]
+    )
+    signatures = [
+        obj({name: convert(fields[name]) for name in law["value_signature"][subset]})
+        for fields, subset in (
+            (quantity, "quantity_members"),
+            (nominal, "nominal_members"),
+        )
+    ]
+    for fixed in runtime["fixed_value_contracts"].values():
+        signatures.append(
+            {
+                "const": {
+                    ("type_identity" if key == "type" else key): deepcopy(value)
+                    for key, value in fixed.items()
+                }
+            }
+        )
+    signature = alternatives(signatures)
+    parameters = alternatives(
+        [
+            obj({"id": text, **row["properties"]}, ["id", *row["required"]])
+            if "properties" in row
+            else obj(
+                {
+                    "id": text,
+                    **{key: {"const": value} for key, value in row["const"].items()},
+                }
+            )
+            for row in signatures
+        ]
+    )
+    typed_law = meta["literal_typing"]["typed_envelope_profile"]
+    typed = obj({typed_law["type_member"]: coordinate, typed_law["value_member"]: {}})
+    value = alternatives([integer, {"type": "boolean"}, typed])
+    state_value = alternatives([integer, typed])
+    formula_literal = {
+        "type": "integer",
+        "minimum": runtime["numeric"]["minimum"],
+        "maximum": runtime["numeric"]["maximum"],
+    }
+    operand_schemas = {
+        "parameter": container("formula_parameter_operand"),
+        "local": container("formula_local_operand"),
+        "symbol": container("formula_symbol_operand", {"resolved_symbol": symbol}),
+        "literal": container("formula_literal_operand", {"value": formula_literal}),
+    }
+    formula_operand = alternatives(
+        [operand_schemas[kind] for kind in formula_law["operand_kinds"]]
+    )
+    formula_ref = convert(protocols["formula_reference"])
+    formula_nodes = []
+    callees = {row["node"]: row for row in formula_law["static_callees"]}
+    for kind in formula_law["body_nodes"]:
+        fields = {"node": {"const": kind}, "result": signature}
+        if kind == "conditional":
+            fields.update(
+                {
+                    key: formula_operand
+                    for key in containers["conditional_operands"]["required_members"]
+                }
+            )
+        else:
+            callee = callees[kind]
+            keys = callee["coordinate_members"]
+            reference = obj(
+                {**{key: text for key in keys}, "identity": text}, [*keys, "identity"]
+            )
+            fields[callee["member"]] = reference
+            argument_key = "parameter" if kind == "formula-call" else "port"
+            fields["arguments"] = array(
+                obj({argument_key: text, "operand": formula_operand})
+            )
+        base = container(
+            "formula_node", {"node": fields["node"], "result": fields["result"]}
+        )
+        for name, field_schema in fields.items():
+            if name in {"node", "result"}:
+                continue
+            if name in base["properties"]:
+                raise ValueError("Formula node repeats a container field")
+            base["properties"][name] = field_schema
+            base["required"].append(name)
+        formula_nodes.append(base)
+    formula_body = container(
+        "formula_body",
+        {"nodes": array(alternatives(formula_nodes)), "result": formula_operand},
+    )
+    max_steps = convert(
+        meta["language_definitions"]["collections"]["operations"]["field_types"][
+            "resource_bounds"
+        ]
+    )
+    formula = container(
+        "formula",
+        {
+            "parameters": array(parameters),
+            "result": signature,
+            "body": formula_body,
+            "closure": container("formula_closure", {"resource_charge": max_steps}),
+        },
+    )
+    contexts = [
+        row["extensions"]["standard.formula"]["contexts"]
+        for row in language["runtime_profiles"]
+        if "standard.formula" in row.get("extensions", {})
+    ]
+    context_rows = one(contexts)
+    context = alternatives(
+        [
+            obj(
+                {
+                    key: {"const": deepcopy(value)}
+                    for key, value in row.items()
+                    if key in {"phase", "frame"}
+                }
+            )
+            for row in context_rows
+        ]
+    )
+    active = runtime["runtime_configuration"]["lifecycle_roles"]["active"]
+    active_context = one([row for row in context_rows if row["phase"] == active])
+    binding_sites = []
+    for kind in formula_law["binding_sites"]:
+        if kind == "derived-symbol":
+            binding_sites.append(
+                container(
+                    "derived_site",
+                    {
+                        "kind": {"const": kind},
+                        "resolved_symbol": symbol,
+                        "context": context,
+                    },
+                )
+            )
+        elif kind == "operation-slot":
+            binding_sites.append(
+                container(
+                    "operation_site",
+                    {
+                        "kind": {"const": kind},
+                        "operation": operation,
+                        "context": obj(
+                            {
+                                key: {"const": deepcopy(value)}
+                                for key, value in active_context.items()
+                                if key in {"phase", "frame"}
+                            }
+                        ),
+                    },
+                )
+            )
+        else:
+            raise ValueError("unsupported Formula binding site")
+    site = alternatives(binding_sites)
+    binding_operands = {
+        **operand_schemas,
+        "slot-parameter": container("binding_slot_operand"),
+    }
+    binding_operand = alternatives(
+        [binding_operands[kind] for kind in law["operand_contexts"]["binding"]]
+    )
+    formula_binding = container(
+        "formula_binding",
+        {
+            "site": site,
+            "formula": formula_ref,
+            "arguments": array(
+                container("binding_argument", {"operand": binding_operand})
+            ),
+        },
+    )
+    instructions = []
+    inference_nodes = {
+        row["node"]
+        for row in profile["formula_resolution"]["notation_conversion"][
+            "local_result_inference"
+        ]
+    }
+    for node_id in sorted(inference_nodes):
+        node = one([row for row in runtime["nodes"] if row["id"] == node_id])
+        if node["family"] != "expression":
+            raise ValueError("Formula initializer node is not an expression")
+        fields = {
+            name: {"const": node_id}
+            if name == "node"
+            else integer
+            if any(
+                row.get("literal_member") == name and row["node"] == node_id
+                for row in profile["formula_resolution"]["notation_conversion"][
+                    "local_result_inference"
+                ]
+            )
+            else text
+            for name in node["required_members"]
+        }
+        instructions.append(obj(fields, node["required_members"]))
+    program = container(
+        "value_program",
+        {
+            "site": one(
+                [
+                    row
+                    for row in binding_sites
+                    if row["properties"]["kind"]["const"] == law["initialization_site"]
+                ]
+            ),
+            "target": symbol,
+            "inputs": array(
+                container(
+                    "program_input",
+                    {
+                        "operand": alternatives(
+                            [
+                                operand_schemas[kind]
+                                for kind in law["operand_contexts"]["initialization"]
+                            ]
+                        )
+                    },
+                )
+            ),
+            "body": array(
+                container(
+                    "program_instruction", {"instruction": alternatives(instructions)}
+                )
+            ),
+            "result": container("program_result"),
+            "resource_bounds": max_steps,
+        },
+    )
+    literal_fields = meta["language_definitions"]["collections"][
+        "literal_typing_profiles"
+    ]["field_types"]
+    contextual_quantity = obj(
+        {
+            "id": text,
+            **{
+                name: convert(literal_fields[name])
+                for name in meta["literal_typing"]["match_members"]
+            },
+        }
+    )
+    contextual_nominal = obj(
+        {
+            "id": text,
+            "type": coordinate,
+            "value_kind": convert(literal_fields["value_kind"]),
+        }
+    )
+    contextual = alternatives(
+        [
+            contextual_quantity,
+            contextual_nominal,
+            *[
+                {"const": deepcopy(row)}
+                for row in [runtime["fixed_value_contracts"]["kernel-boolean"]]
+            ],
+        ]
+    )
+    compiled_actuals = {
+        "literal": container(
+            "contextual_literal_operand", {"value": value, "context_type": contextual}
+        ),
+        "symbol": container("entrypoint_symbol_operand", {"symbol": symbol}),
+        "event-reference": container("event_reference_operand"),
+        "port": container("call_port_operand"),
+        "local": container("call_local_operand"),
+    }
+
+    def arguments(context):
+        operand = alternatives(
+            [compiled_actuals[kind] for kind in law["operand_contexts"][context]]
+        )
+        return array(
+            container(
+                "argument",
+                {
+                    "port": container("formal_port", {"operation": coordinate}),
+                    "operand": operand,
+                },
+            )
+        )
+
+    alias_policy = meta["language_definitions"]["collections"]["operations"][
+        "field_types"
+    ]["alias_policy"]["field_types"]
+    alias = container(
+        "alias",
+        {
+            "policy": {
+                "enum": [
+                    alias_policy["read_only"]["const"],
+                    alias_policy["writable_groups"]["items"]["field_types"][
+                        "semantics"
+                    ]["const"],
+                ]
+            }
+        },
+    )
+    result_binding = alternatives(
+        [
+            obj(
+                {"kind": {"const": kind}, **({"name": text} if kind == "local" else {})}
+            )
+            for kind in invocation["result_binding_kinds"]
+        ]
+    )
+    call = container(
+        "call_site",
+        {
+            "parent_operation": coordinate,
+            "operation": coordinate,
+            "arguments": arguments("call"),
+            "result": container("call_result", {"binding": result_binding}),
+            "aliases": array(alias),
+            "outcomes": array(
+                container(
+                    "call_outcome",
+                    {
+                        "action": alternatives(
+                            [
+                                obj(
+                                    {
+                                        "kind": {"const": action},
+                                        **(
+                                            {"outcome": text}
+                                            if action == "propagate"
+                                            else {}
+                                        ),
+                                    }
+                                )
+                                for action in invocation["outcome_actions"]
+                            ]
+                        )
+                    },
+                )
+            ),
+            "closure": container("call_closure"),
+        },
+    )
+    assignment_mode = meta["language_definitions"]["collections"]["model_lowerings"][
+        "field_types"
+    ]["assignment_policy"]["field_types"]["roles"]["items"]["field_types"]["modes"][
+        "items"
+    ]["field_types"]
+
+    def cardinality(member):
+        return {
+            "enum": [
+                value
+                for value in assignment_mode[member]["enum"]
+                if value != "forbidden"
+            ]
+        }
+
+    entry = container(
+        "entrypoint",
+        {
+            "operation": coordinate,
+            "arguments": arguments("entrypoint"),
+            "aliases": array(alias),
+            "result": alternatives(
+                [
+                    container("entrypoint_symbol_operand", {"symbol": symbol}),
+                    container("entrypoint_discard_result"),
+                ]
+            ),
+            "resource_bounds": max_steps,
+            "scenario_input_contract": container(
+                "scenario_inputs",
+                {
+                    "targets": array(
+                        container(
+                            "scenario_target",
+                            {
+                                "target": symbol,
+                                "cardinality": cardinality("experiment_cardinality"),
+                            },
+                        )
+                    ),
+                    "initializers": array(
+                        container(
+                            "initializer", {"target": symbol, "value": state_value}
+                        )
+                    ),
+                },
+            ),
+            "event_local_payload_contract": container(
+                "event_inputs",
+                {
+                    "targets": array(
+                        container(
+                            "event_target",
+                            {
+                                "target": symbol,
+                                "cardinality": cardinality("event_payload_cardinality"),
+                            },
+                        )
+                    ),
+                    "event_references": array(container("event_reference")),
+                },
+            ),
+            "external_fact_contract": container(
+                "external_inputs",
+                {
+                    "targets": array(
+                        container(
+                            "external_target",
+                            {
+                                "target": symbol,
+                                "value_contract": alternatives(signatures[:2]),
+                                "cardinality": cardinality("external_fact_cardinality"),
+                            },
+                        )
+                    )
+                },
+            ),
+        },
+    )
+    selected = {}
+    profile_collections = lowering["runtime_projection"]["collections"]
+    closure_schemas = {}
+    collection_items = {}
+    for collection in profile_collections:
+        source = collection["source"]
+        if source["kind"] == "namespace-member":
+            if source["member"] == "types":
+                exported = deepcopy(meta["package_release"]["type_export"])
+                exported["required_members"].append("package")
+                exported["field_types"]["package"] = {"type": "non-empty-string"}
+                item = convert(exported)
+            elif source["member"] == "capability_bindings":
+                item = container("capability_binding")
+            else:
+                raise ValueError("unsupported namespace source")
+        else:
+            contract = _consumer_b_semantic_item_contract(
+                source["authority_path"], meta["language_definitions"]
+            )
+            if contract is None:
+                raise ValueError("unknown semantic closure owner")
+            contract = deepcopy(contract)
+            for name in collection.get("excluded_members", []):
+                if name not in contract["field_types"]:
+                    raise ValueError("unknown excluded definition field")
+                del contract["field_types"][name]
+                for members in ("required_members", "optional_members"):
+                    if name in contract.get(members, []):
+                        contract[members].remove(name)
+            item = convert(contract)
+            closure_schemas[source["authority_path"]] = item
+        collection_items[collection["id"]] = item
+    for member, declared in law["selected_collections"].items():
+        matches = [
+            row
+            for row in profile_collections
+            if all(
+                row["source"].get(key) == value
+                for key, value in declared["source"].items()
+            )
+        ]
+        collection = one(matches)
+        item = collection_items[collection["id"]]
+        shape = declared["shape"]
+        if shape == "package-definition":
+            item = obj({"package": text, "definition": item})
+        elif shape not in {"as-is", "definition"}:
+            raise ValueError("unknown selected output shape")
+        selected[member] = array(item)
+    execution = meta["runtime_projection"]["execution_closure"]
+    laws = {"runtime_program": obj({})}
+    laws["runtime_program"]["properties"]["nodes"] = array(
+        {"enum": deepcopy(runtime["nodes"])}
+    )
+    laws["runtime_program"]["required"].append("nodes")
+    optional_laws = set()
+    for selector in execution["law_selectors"]:
+        source_value = meta
+        for segment in selector["source_path"]:
+            source_value = source_value[segment]
+        path = selector["output_path"]
+        if len(path) == 2 and path[0] == "runtime_program":
+            target = laws["runtime_program"]
+            target["properties"][path[1]] = {"const": deepcopy(source_value)}
+        elif len(path) == 1:
+            laws[path[0]] = {"const": deepcopy(source_value)}
+            if selector["when"] == "typed-values":
+                optional_laws.add(path[0])
+        else:
+            raise ValueError("unsupported execution law path")
+    selected["execution_laws"] = obj(
+        laws, [name for name in laws if name not in optional_laws]
+    )
+    resource_types = meta["admitted_language_index"]["resources"]["field_types"]
+    selected["execution_resources"] = obj(
+        {
+            row["output_member"]: convert(resource_types[row["source_member"]])
+            for row in execution["resources"]
+        },
+        [],
+    )
+    reason_contract = deepcopy(meta["diagnostic_reason"])
+    reason_contract["field_types"] = reason_contract.pop("member_types")
+    reason_contract["field_types"]["predicate"] = {
+        "type": "one-of",
+        "alternatives": [
+            {
+                "type": "closed-object",
+                "required_members": row["required_members"],
+                "optional_members": row["optional_members"],
+                "field_types": row["member_types"],
+            }
+            for row in reason_contract["predicate_schemas"]
+        ],
+    }
+    diagnostic_contract = deepcopy(meta["admitted_language_index"]["diagnostic"])
+    diagnostic_contract["field_types"]["stage"] = {
+        "enum": deepcopy(kernel["admission"]["refusal_stages"])
+    }
+    for member, path, contract in (
+        ("diagnostic_reasons", execution["reasons"]["authority_path"], reason_contract),
+        (
+            "diagnostics",
+            execution["reasons"]["diagnostic_authority_path"],
+            diagnostic_contract,
+        ),
+    ):
+        item = convert(contract)
+        selected[member] = array(obj({"package": text, "definition": item}))
+        closure_schemas[path] = item
+    closure_entries = alternatives(
+        [
+            obj(
+                {"authority_path": {"const": path}, "definitions": array(schema)},
+                meta["package_release"]["semantic_closure"]["entry_members"],
+            )
+            for path, schema in sorted(closure_schemas.items())
+        ]
+    )
+    for member, output in law["namespace_outputs"].items():
+        if output == "selected-packages":
+            selected[member] = array(container("namespace_package"))
+        elif output == "selected-semantic-closures":
+            selected[member] = array(
+                container("namespace_closure", {"definitions": array(closure_entries)})
+            )
+        else:
+            raise ValueError("unknown namespace output")
+    payload = container(
+        "envelope",
+        {
+            "declarations": array(declarations),
+            "formulas": array(formula),
+            "formula_bindings": array(formula_binding),
+            "initialization_programs": array(program),
+            "call_sites": array(call),
+            "entrypoints": array(entry),
+            "selected_semantics": obj(selected),
+        },
+    )
+    common = deepcopy(protocols["artifact_envelope"])
+    common["field_types"]["artifact_kind"] = {"const": artifact_kind}
+    schema = convert(common)
+    if schema["properties"].keys() & payload["properties"].keys():
+        raise ValueError("RIR repeats the artifact envelope")
+    schema["properties"].update(payload["properties"])
+    schema["required"].extend(payload["required"])
+    return _consumer_b_order_derived_schema(
+        kernel,
+        {
+            "$schema": meta["language_definitions"]["collections"][
+                "artifact_wire_schemas"
+            ]["field_types"]["schema"]["dialect"],
+            **schema,
+        },
+    )
+
+
+def _consumer_b_project_rir_schema(
+    kernel: dict[str, Any], language: dict[str, Any]
+) -> None:
+    definitions = [
+        row
+        for row in language["artifact_wire_schemas"]
+        if row.get("protocol_role") == "rir-semantic-payload"
+    ]
+    if len(definitions) != 1:
+        raise ValueError("RIR protocol role is missing or ambiguous")
+    definition = definitions[0]
+    bindings = [
+        row
+        for row in language["artifact_contracts"]
+        if row["schema_kind"] == definition["artifact_kind"]
+    ]
+    if len(bindings) != 1:
+        raise ValueError("RIR artifact kind binding is missing or ambiguous")
+    binding = bindings[0]
+    if "schema" in definition or "semantic_identity_projection" in binding:
+        raise ValueError("RIR structure has an obsolete authored owner")
+    definition["schema"] = _consumer_b_rir_schema(
+        kernel, {"language": language}, binding["artifact_kind"]
+    )
+    binding["semantic_identity_projection"] = deepcopy(
+        kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
+            "rir_structure"
+        ]["semantic_projection"]
+    )
+    if any("schema" not in row for row in language["artifact_wire_schemas"]):
+        raise ValueError("authored artifact schema is missing")
 
 
 def _consumer_b_wire_schema_identity_domains_are_closed(
@@ -3988,83 +4837,6 @@ def _consumer_b_contract_kind(contract: Any) -> str | None:
     return None
 
 
-def _consumer_b_contract_fits_schema(contract: dict[str, Any], schema: Any) -> bool:
-    if not isinstance(schema, dict):
-        return False
-    if "const" in contract:
-        literal = contract["const"]
-        return (
-            ("const" not in schema or schema["const"] == literal)
-            and (not isinstance(schema.get("enum"), list) or literal in schema["enum"])
-            and (
-                schema.get("type") is None
-                or schema.get("type") == _consumer_b_kind(literal)
-            )
-        )
-    if isinstance(contract.get("enum"), list) and contract["enum"]:
-        values = contract["enum"]
-        kinds = {_consumer_b_kind(value) for value in values}
-        return (
-            len(kinds) == 1
-            and schema.get("type") in {None, next(iter(kinds))}
-            and (
-                not isinstance(schema.get("enum"), list)
-                or set(values) <= set(schema["enum"])
-            )
-        )
-    kind = contract.get("type")
-    if kind in {"inventory-member", "non-empty-string", "string"}:
-        return schema.get("type") == "string"
-    if kind in {"positive-signed-int64", "signed-int64"}:
-        return schema.get("type") == "integer"
-    if kind == "boolean":
-        return schema.get("type") == "boolean"
-    if kind == "string-list":
-        items = schema.get("items")
-        return (
-            schema.get("type") == "array"
-            and isinstance(items, dict)
-            and items.get("type") == "string"
-        )
-    if kind == "canonical-value":
-        return True
-    if kind == "closed-discriminated-object":
-        return schema == {}
-    if kind == "list-of":
-        return (
-            schema.get("type") == "array"
-            and isinstance(contract.get("items"), dict)
-            and _consumer_b_contract_fits_schema(contract["items"], schema.get("items"))
-        )
-    object_contract = kind == "closed-object" or (
-        kind is None
-        and isinstance(contract.get("required_members"), list)
-        and isinstance(contract.get("field_types"), dict)
-    )
-    if not object_contract:
-        return False
-    required = contract.get("required_members")
-    optional = contract.get("optional_members", [])
-    fields = contract.get("field_types")
-    properties = schema.get("properties")
-    return (
-        schema.get("type") == "object"
-        and isinstance(required, list)
-        and isinstance(optional, list)
-        and isinstance(fields, dict)
-        and isinstance(properties, dict)
-        and not set(required) & set(optional)
-        and set(fields) == set(required) | set(optional)
-        and set(properties) == set(fields)
-        and set(schema.get("required", [])) == set(required)
-        and schema.get("unevaluatedProperties") is False
-        and all(
-            _consumer_b_contract_fits_schema(fields[name], properties[name])
-            for name in fields
-        )
-    )
-
-
 def _consumer_b_execution_projection_is_closed(
     value: Any,
     meta: dict[str, Any],
@@ -4245,7 +5017,6 @@ def _consumer_b_runtime_projection_is_closed(
         not isinstance(profile, dict)
         or set(profile)
         != {
-            "outputs",
             "collections",
             "seeds",
             "edges",
@@ -4257,17 +5028,14 @@ def _consumer_b_runtime_projection_is_closed(
         != {
             "closed",
             "collection_source_kinds",
-            "output_shapes",
             "seed_operators",
             "edge_operators",
-            "output_kinds",
             "collection",
             "seed",
             "edge",
             "type_reference_closure",
             "operation_roots",
             "path_typing",
-            "output_typing",
             "resource_accounting",
             "execution_closure",
         }
@@ -4275,24 +5043,15 @@ def _consumer_b_runtime_projection_is_closed(
     ):
         return False
     sources = set(contract.get("collection_source_kinds", []))
-    allowed_shapes = set(contract.get("output_shapes", []))
     seeds_allowed = set(contract.get("seed_operators", []))
     edges_allowed = set(contract.get("edge_operators", []))
-    outputs_allowed = set(contract.get("output_kinds", []))
     if (
         sources != {"namespace-member", "semantic-closure"}
-        or allowed_shapes
-        != {"as-is", "package-definition", "definition", "closure-only"}
         or seeds_allowed != {"declaration-field"}
         or edges_allowed != {"equal"}
-        or outputs_allowed
-        != {
-            "selected-packages",
-            "selected-semantic-closures",
-        }
         or contract.get("collection")
         != {
-            "required_members": ["id", "source", "output_member", "output_shape"],
+            "required_members": ["id", "source"],
             "optional_members": ["excluded_extension_members", "excluded_members"],
             "namespace_source_members": ["kind", "member", "package_path"],
             "closure_source_members": ["kind", "authority_path"],
@@ -4352,17 +5111,6 @@ def _consumer_b_runtime_projection_is_closed(
             "semantic_closure": "kernel-language-definition-contract",
             "empty_path": "identity",
         }
-        or contract.get("output_typing")
-        != {
-            "source": "collection-element-contract",
-            "target": "rir-selected-semantics-member-schema",
-            "shape_transforms": {
-                "as-is": "identity",
-                "definition": "identity",
-                "package-definition": "package-and-definition-object",
-                "closure-only": "no-output",
-            },
-        }
         or contract.get("operation_roots")
         != {
             "required_members": ["collection"],
@@ -4413,14 +5161,12 @@ def _consumer_b_runtime_projection_is_closed(
             and all(isinstance(segment, str) and segment for segment in value)
         )
 
-    outputs = profile.get("outputs")
     collections = profile.get("collections")
     seeds = profile.get("seeds")
     edges = profile.get("edges")
     type_reference_closure = profile.get("type_reference_closure")
     if (
-        not isinstance(outputs, list)
-        or not isinstance(collections, list)
+        not isinstance(collections, list)
         or not isinstance(seeds, list)
         or not isinstance(edges, list)
         or not isinstance(type_reference_closure, dict)
@@ -4467,37 +5213,25 @@ def _consumer_b_runtime_projection_is_closed(
         != contract["operation_roots"]["authority_path"]
     ):
         return False
-    projected_members = []
-    for output in outputs:
-        if not isinstance(output, dict) or output.get("kind") not in outputs_allowed:
-            return False
-        expected = {"kind", "source_member", "output_member", "package_member"}
-        if output["kind"] == "selected-packages":
-            expected.add("members")
-        elif output["kind"] == "selected-semantic-closures":
-            expected |= {
-                "entries_member",
-                "authority_path_member",
-                "definitions_member",
-            }
-        if set(output) != expected:
-            return False
-        scalar_members = expected - {"kind", "members"}
-        if any(
-            not isinstance(output.get(member), str) or not output[member]
-            for member in scalar_members
-        ):
-            return False
-        if "members" in output and (
-            not isinstance(output["members"], list)
-            or not output["members"]
-            or not all(
-                isinstance(member, str) and member for member in output["members"]
+    rir_law = meta["language_definitions"]["wire_schema_protocol_roles"][
+        "rir_structure"
+    ]
+    outputs = rir_law["namespace_outputs"]
+    projected_members = list(outputs)
+    declared_outputs = rir_law["selected_collections"]
+
+    def output_for(collection):
+        matches = [
+            (name, value["shape"])
+            for name, value in declared_outputs.items()
+            if all(
+                collection["source"].get(key) == item
+                for key, item in value["source"].items()
             )
-            or len(output["members"]) != len(set(output["members"]))
-        ):
-            return False
-        projected_members.append(output["output_member"])
+        ]
+        if len(matches) > 1:
+            raise ValueError("multiple RIR output owners")
+        return matches[0] if matches else None
 
     collection_names = []
     authority_paths = set()
@@ -4507,8 +5241,6 @@ def _consumer_b_runtime_projection_is_closed(
         expected_collection_members = {
             "id",
             "source",
-            "output_member",
-            "output_shape",
         }
         exclusion_fields = ("excluded_extension_members", "excluded_members")
         expected_collection_members.update(
@@ -4519,7 +5251,6 @@ def _consumer_b_runtime_projection_is_closed(
             or not isinstance(collection.get("id"), str)
             or not collection["id"]
             or not isinstance(collection.get("source"), dict)
-            or collection.get("output_shape") not in allowed_shapes
             or any(
                 field in collection
                 and (
@@ -4535,13 +5266,9 @@ def _consumer_b_runtime_projection_is_closed(
             )
         ):
             return False
-        output_member = collection.get("output_member")
-        if (collection["output_shape"] == "closure-only") != (output_member is None):
-            return False
-        if output_member is not None:
-            if not isinstance(output_member, str) or not output_member:
-                return False
-            projected_members.append(output_member)
+        output = output_for(collection)
+        if output is not None:
+            projected_members.append(output[0])
         source = collection["source"]
         if source.get("kind") == "namespace-member":
             if (
@@ -4562,7 +5289,11 @@ def _consumer_b_runtime_projection_is_closed(
         else:
             return False
         collection_names.append(collection["id"])
-    if len(collection_names) != len(set(collection_names)):
+    if (
+        len(projected_members) != len(set(projected_members))
+        or set(projected_members) != set(outputs) | set(declared_outputs)
+        or len(collection_names) != len(set(collection_names))
+    ):
         return False
     collection_set = set(collection_names)
     referenced_sources = []
@@ -4782,133 +5513,28 @@ def _consumer_b_runtime_projection_is_closed(
             fields = payload.get(fields_key)
             if not isinstance(fields, dict) or not set(excluded) <= set(fields):
                 return False
-            payload = deepcopy(payload)
-            payload[fields_key] = {
-                key: value for key, value in fields.items() if key not in excluded
-            }
-            for members_key in (
-                ("required",)
-                if representation == "schema"
-                else ("required_members", "optional_members")
-            ):
-                if members_key in payload:
-                    payload[members_key] = [
-                        key for key in payload[members_key] if key not in excluded
-                    ]
-        member = collection["output_member"]
-        if member is None:
-            continue
+    for member, kind in outputs.items():
         target = selected_properties.get(member)
-        if (
-            not isinstance(target, dict)
-            or target.get("type") != "array"
-            or not isinstance(target.get("items"), dict)
-        ):
+        if not isinstance(target, dict) or target.get("type") != "array":
             return False
-        shape = collection["output_shape"]
-        if representation == "schema":
-            if shape != "as-is" or payload != target["items"]:
-                return False
-        elif shape == "definition":
-            if not _consumer_b_contract_fits_schema(payload, target["items"]):
-                return False
-        elif shape == "package-definition":
-            item = target["items"]
-            properties = item.get("properties")
-            if not (
-                item.get("type") == "object"
-                and isinstance(properties, dict)
-                and set(properties) == {"package", "definition"}
-                and set(item.get("required", [])) == {"package", "definition"}
-                and item.get("unevaluatedProperties") is False
-                and properties["package"].get("type") == "string"
-                and _consumer_b_contract_fits_schema(payload, properties["definition"])
-            ):
-                return False
+        item = target.get("items")
+        if not isinstance(item, dict):
+            return False
+        fields = item.get("properties")
+        if not isinstance(fields, dict):
+            return False
+        if kind == "selected-packages":
+            names = rir_law["containers"]["namespace_package"]["required_members"]
+        elif kind == "selected-semantic-closures":
+            names = rir_law["containers"]["namespace_closure"]["required_members"]
         else:
             return False
-    for output in outputs:
-        source_schema = selected_properties.get(output["source_member"])
-        target_schema = selected_properties.get(output["output_member"])
         if (
-            not isinstance(source_schema, dict)
-            or source_schema.get("type") != "array"
-            or not isinstance(source_schema.get("items"), dict)
-            or not isinstance(target_schema, dict)
-            or target_schema.get("type") != "array"
-            or not isinstance(target_schema.get("items"), dict)
-            or _consumer_b_kind(
-                _consumer_b_schema_path(
-                    source_schema["items"],
-                    [output["package_member"]],
-                ),
-                schema=True,
-            )
-            != "string"
+            set(fields) != set(names)
+            or set(item.get("required", [])) != set(names)
+            or item.get("unevaluatedProperties") is not False
         ):
             return False
-        if output["kind"] == "selected-packages" and any(
-            _consumer_b_schema_path(source_schema["items"], [member]) is None
-            for member in output["members"]
-        ):
-            return False
-        if output["kind"] == "selected-packages":
-            source_properties = source_schema["items"].get("properties")
-            target_item = target_schema["items"]
-            target_properties = target_item.get("properties")
-            members = set(output["members"])
-            if not (
-                isinstance(source_properties, dict)
-                and isinstance(target_properties, dict)
-                and set(target_properties) == members
-                and set(target_item.get("required", [])) == members
-                and target_item.get("unevaluatedProperties") is False
-                and all(
-                    source_properties[member] == target_properties[member]
-                    for member in members
-                )
-            ):
-                return False
-        if output["kind"] == "selected-semantic-closures":
-            entries = _consumer_b_schema_path(
-                source_schema["items"],
-                [output["entries_member"]],
-            )
-            if (
-                not isinstance(entries, dict)
-                or entries.get("type") != "array"
-                or not isinstance(entries.get("items"), dict)
-                or _consumer_b_kind(
-                    _consumer_b_schema_path(
-                        entries["items"],
-                        [output["authority_path_member"]],
-                    ),
-                    schema=True,
-                )
-                != "string"
-                or _consumer_b_schema_path(
-                    entries["items"],
-                    [output["definitions_member"]],
-                )
-                is None
-            ):
-                return False
-            source_properties = source_schema["items"].get("properties")
-            target_item = target_schema["items"]
-            target_properties = target_item.get("properties")
-            members = {output["package_member"], output["entries_member"]}
-            if not (
-                isinstance(source_properties, dict)
-                and isinstance(target_properties, dict)
-                and set(target_properties) == members
-                and set(target_item.get("required", [])) == members
-                and target_item.get("unevaluatedProperties") is False
-                and all(
-                    source_properties[member] == target_properties[member]
-                    for member in members
-                )
-            ):
-                return False
     return True
 
 
@@ -10110,6 +10736,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 )
             try:
                 _consumer_b_project_trace_schema(kernel, language)
+                _consumer_b_project_rir_schema(kernel, language)
             except (KeyError, TypeError, ValueError, IndexError):
                 refuse(
                     "kernel.identity_mismatch",
@@ -11518,7 +12145,6 @@ __all__ = [
     "_consumer_b_canonical_contract_supported",
     "_consumer_b_canonical_equal",
     "_consumer_b_closed_json_schema",
-    "_consumer_b_contract_fits_schema",
     "_consumer_b_contract_kind",
     "_consumer_b_contract_path",
     "_consumer_b_definition_is_closed",
