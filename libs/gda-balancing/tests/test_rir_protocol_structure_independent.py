@@ -14,10 +14,12 @@ from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_conformance_support import (
     _consumer_b,
     _consumer_b_order_derived_schema,
+    _consumer_b_package_runtime_semantic_closure,
     _consumer_b_project_rir_schema,
     _consumer_b_rir_schema,
     _encoded,
     _identity,
+    _reidentify_package_release,
 )
 from schema2_bootstrap_production_support import _consumer_a
 from test_current_namespace_public import _PublicCandidate, _members
@@ -87,6 +89,106 @@ def test_independent_packages_refuse_retired_extension_exclusion_inventory(exclu
         for consumer in (_consumer_a, _consumer_b)
     }
     assert all(not result["admitted"] for result in observations.values()), observations
+    package_index = next(
+        index
+        for index, row in enumerate(graph.package_releases)
+        if row["id"] == package["id"]
+    )
+    assert all(
+        result["diagnostics"]
+        == [
+            (
+                "ingress",
+                "kernel.member_set_mismatch",
+                f"language-bundle.language.packages.{package_index}",
+            )
+        ]
+        for result in observations.values()
+    ), observations
+
+
+def test_independent_package_notation_owner_preserves_other_roles_and_opaque_data(
+    monkeypatch,
+):
+    kernel, ldb = mutable_authorities()
+    authored = _authored(ldb)
+    graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        observation = consumer(kernel, graph)
+        assert observation["admitted"], observation["diagnostics"]
+    for package in graph.package_releases:
+        copied = deepcopy(package)
+        _reidentify_package_release(copied, kernel)
+        assert copied == package
+    packages = deepcopy(graph.package_releases)
+    authored = {"packages": packages}
+    owner = kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
+        "source_notation"
+    ]["operation_source"]
+    member = owner["extension_member"]
+    operation = next(
+        row
+        for row in _definitions(authored, owner["authority_path"])
+        if member in row.get("extensions", {})
+    )
+    # Annotate projection inputs after admission; these are not new vector oracles.
+    operation["extensions"]["audit-note"] = {member: [member]}
+    profile = next(iter(_definitions(authored, "language.runtime_profiles")))
+    profile.setdefault("extensions", {})[member] = {"literal": member}
+
+    def unavailable(*_args, **_kwargs):
+        raise AssertionError("Consumer B called A's package projection")
+
+    monkeypatch.setattr(
+        "gda_balancing.domain.authority.package_semantics.package_runtime_semantic_closure",
+        unavailable,
+    )
+    projected = []
+    for package in packages:
+        _reidentify_package_release(package, kernel)
+        projected.extend(_consumer_b_package_runtime_semantic_closure(package, kernel))
+    original = deepcopy((kernel, packages))
+    projected_operation = next(
+        definition
+        for entry in projected
+        if entry["authority_path"] == owner["authority_path"]
+        for definition in entry["definitions"]
+        if definition.get("extensions", {}).get("audit-note") == {member: [member]}
+    )
+    assert member not in projected_operation["extensions"]
+    assert any(
+        definition.get("extensions", {}).get(member) == {"literal": member}
+        for entry in projected
+        if entry["authority_path"] == "language.runtime_profiles"
+        for definition in entry["definitions"]
+    )
+    assert any(
+        "standard.formula-slots" in definition.get("extensions", {})
+        for entry in projected
+        if entry["authority_path"] == owner["authority_path"]
+        for definition in entry["definitions"]
+    )
+
+    # This pure projection probe supplies a changed owner law, not an admitted Kernel.
+    renamed_kernel = deepcopy(kernel)
+    renamed_kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
+        "source_notation"
+    ]["operation_source"]["extension_member"] = "opaque.notation.address"
+    renamed_packages = deepcopy(packages)
+    for package in renamed_packages:
+        for entry in package["semantic_closure"]:
+            if entry["authority_path"] != owner["authority_path"]:
+                continue
+            for definition in entry["definitions"]:
+                extensions = definition.get("extensions", {})
+                if member in extensions:
+                    extensions["opaque.notation.address"] = extensions.pop(member)
+        _reidentify_package_release(package, renamed_kernel)
+    assert [row["semantic_identity"] for row in renamed_packages] == [
+        row["semantic_identity"] for row in packages
+    ]
+    projected_operation["extensions"]["audit-note"][member].append("output mutation")
+    assert (kernel, packages) == original
 
 
 def test_independent_rir_admission_derives_raw_graph_without_production_schema(
