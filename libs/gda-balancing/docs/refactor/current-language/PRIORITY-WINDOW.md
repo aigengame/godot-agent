@@ -356,7 +356,8 @@ same names. A coherent Enum `members` to `labels` selector/parameter/definition-
 rename admits in both consumers under the unchanged Kernel. Actual public Python
 Model/Experiment APIs also build and run the maintained structured-selection case;
 the produced artifact set validates. Constructor-scoped address and key occurrences
-must therefore enter the inventory. This probe is not a CLI subprocess claim.
+enter the inventory at `1592ce626`; literal payload values remain data. The integrated
+77-test checkpoint passes. This probe is not a CLI subprocess claim.
 
 ## Artifact protocol-role direction
 
@@ -397,19 +398,66 @@ when importing RIR. Reuse existing reference and reachability judgments; do not 
 another owner field, retain the old edge, or treat an unknown-root fallback to every
 Operation as authority. Actual call typing, missing-owner/unknown-operation refusals,
 selected numeric/runtime rules and resource accounting still apply. This correction
-is authorized but not implemented at this checkpoint. The witness also remains a
-regression input for #879's final dependency and deletion review.
+is implemented at `8eaf2c95d`. The witness also remains a regression input for #879's
+final dependency and deletion review.
+
+The implementation deletes the field, its machine declarations and the cross-owner
+Type edge. Actual Source entrypoints and reachable normalized Formula roots seed the
+existing reference closure; RIR import independently derives that same selection.
+The unknown-root fallback is removed. An unused compiler namespace can remain absent
+from declarations-only execution, while a reached Operation still requires its actual
+numeric/runtime profile. No extra compiler-owner eligibility gate is introduced.
+
+Seven maintained Models publish 56 members, and nine Experiments are rebound to the
+actual new RIRs. All seven authored Source files remain unchanged. The 34 Model vectors
+retain 13 admitted and 21 refused outcomes; only derived RIR/Debug identity oracles
+change, and a fresh process verifies their fixed point. Paired worker suites pass
+278 tests. An independent Spec review at `8eaf2c95d` reports no actionable finding
+after 20 targeted tests and additional unused-Formula and resealed unbound-Formula
+probes. These are scoped results, not a full #878 review.
+
+The new closure changes the minimal compilation charge from 375 to 319. The permanent
+test still checks two limits below, the exact limit and two above, including complete
+refusal envelopes. The CI obligation inventory now requires all five current limits.
+The two-owner specialization fixture selects both Operations through real entrypoints
+and distinct Formula bindings, compares shared/equal/detached objects with independent
+compilation, and separately checks that an unused copied Operation is absent.
+
+## Refusal replay and local collection references
+
+The paired priority run exposes a separate consumer defect: Runtime correctly refuses
+List capacity overflow, but independent audit replay constructs a structured fault
+with an LDB reason ID and an implicit static stage. The current fault API expects the
+intrinsic signal and actual stage. `c7e2ae9bd` corrects that construction and removes
+the redundant lookup. Existing selected-reason decoding and exact terminal checks
+remain. Original and renamed reasons pass; five resealed position, path, site,
+resource and reason forgeries still refuse. Runtime and machine authority are unchanged
+by this correction. The integrated roots/public-priority/refusal/CI suite passes 40 tests.
+
+Three type-closure collection references also used fixed host names despite their
+open LDB declarations. `6c215a552` resolves the unique referenced collections and
+checks their actual typed sources. It deletes the name constraints and retains exact
+field/path/source validation. Renaming all 16 collection labels passes both authority
+consumers, independent lowering, public CLI build/check/run and artifact admission.
+The complete RIR and all Runtime members are equal without normalization. The same
+public test fails before repair. Nineteen new cases and 182 related worker cases pass;
+the primary projection/inventory/authoring/CI suite passes 99 tests.
+
+The [correction record](evidence/priority-window/root-projection-correction.json)
+preserves exact commits, source hashes, scoped reviews and parsed primary results.
+CI collection accounts for 2175 tests and 347 package vectors with no missing,
+overlapping or unassigned tests. Ruff and full Pyright pass. This is collection and
+focused execution evidence; all-shard CI and the final complete rename remain open.
 
 ## Remaining proof and integration
 
 - Complete the semantic-token inventory and resolve remaining demonstrated name
   coupling before the final build freeze. Artifact declaration IDs and protocol roles
   must be distinguished by actual authority; an open string cannot be exempted merely
-  because a host recognizes its spelling. The existing `types.id` to
-  `operations.owner_type` projection edge also joins across package namespaces. Its
-  actual machine consumer must be considered; a text search alone does not prove that
-  the field is inert. Preserve distinct nominal Type owners and validate the complete
-  rename relation instead of merging their identities.
+  because a host recognizes its spelling. The old Type-to-Operation edge is deleted;
+  its counterexample and permanent tests remain evidence for final dependency review.
+  Preserve distinct nominal Type owners and validate the complete rename relation
+  instead of merging their identities.
 - Derive every reachable non-Kernel token and occurrence from the applicable Kernel/LDB,
   node, constructor and authored-input contracts. An ordinary JSON string walk cannot
   distinguish an identity from user data. A graph rooted at the complete LDB includes
