@@ -1025,7 +1025,11 @@ func _signal_arg_count(node: Node, signal_name: String) -> int:
 # Inject input into the RUNNING game on the main thread at a frame boundary
 # (ADR-0020). Key/mouse events ride the game's real input flow via the root
 # viewport's push_input (scene-aware); actions go through Input.action_press/
-# release against the running InputMap. The model bounds every request up front
+# release against the running InputMap — unless the caller opts in with
+# `as_event` (#854), which sends the action through push_input as an
+# InputEventAction instead. The two doors stay disjoint either way: a state
+# change reaches no handler, and a pushed event leaves the polled state
+# untouched. The model bounds every request up front
 # (ADR-0015), so the harness only decides what needs the live engine: a key name
 # the engine cannot resolve (live_invalid_key) and an action the running InputMap
 # does not declare (live_unknown_action). `input sequence` reuses the time-windowed
@@ -1145,6 +1149,23 @@ func _push_mouse_button_phase(pos: Vector2, button: String, pressed: bool, doubl
 	_last_injected_mouse_position = pos
 
 
+# Push an action as an EVENT: build an InputEventAction and send it through the
+# same root-viewport door key and mouse events take, so `_input`, `_gui_input` and
+# `_unhandled_input` handlers matching the action receive it (#854). The opt-in is
+# the CALLER's (`as_event`); without it an action stays a state change.
+# Deliberately NOT Input.parse_input_event, which would update the polled state as
+# well: the two routes are disjoint by construction, and a pushed event leaves
+# Input.is_action_pressed untouched exactly as a pushed key event does
+# (GDA-DF-050). Shared by the single-frame action op, an action tap, and a
+# sequence action event.
+func _push_action_event(action: String, pressed: bool, strength: float) -> void:
+	var event := InputEventAction.new()
+	event.action = action
+	event.pressed = pressed
+	event.strength = strength
+	_input_viewport().push_input(event)
+
+
 # Push a mouse-motion event to a viewport position. Shared by the single-frame move
 # op and a sequence mouse-move event.
 func _push_mouse_move(pos: Vector2) -> void:
@@ -1256,7 +1277,10 @@ func _handle_input_mouse_move(params: Dictionary) -> String:
 
 # input action: press or release a named input action against the running
 # InputMap. The action MUST exist in the running InputMap — an unknown action is
-# the typed live_unknown_action error (validated via InputMap.has_action).
+# the typed live_unknown_action error (validated via InputMap.has_action). With
+# `as_event` the same press/release is delivered as an InputEventAction through
+# the root viewport instead (#854); the reply echoes which door was used, and the
+# CLI derives the reported injection_route from that echo.
 func _handle_input_action(params: Dictionary) -> String:
 	var action := _string_param(params, "action")
 	if not InputMap.has_action(action):
@@ -1264,7 +1288,10 @@ func _handle_input_action(params: Dictionary) -> String:
 				"the running InputMap has no action: " + action)
 	var release := bool(params.get("release", false))
 	var strength := _float_param(params, "strength", 1.0)
-	if release:
+	var as_event := bool(params.get("as_event", false))
+	if as_event:
+		_push_action_event(action, not release, 0.0 if release else strength)
+	elif release:
 		Input.action_release(action)
 	else:
 		Input.action_press(action, strength)
@@ -1273,6 +1300,7 @@ func _handle_input_action(params: Dictionary) -> String:
 		"action": action,
 		"pressed": not release,
 		"strength": 0.0 if release else strength,
+		"as_event": as_event,
 	})
 
 
@@ -1300,9 +1328,16 @@ func _handle_input_tap(params: Dictionary) -> Variant:
 			return _error(LIVE_ERROR_UNKNOWN_ACTION,
 					"the running InputMap has no action: " + action)
 		var strength := _float_param(params, "strength", 1.0)
-		press = func() -> void: Input.action_press(action, strength)
-		release = func() -> void: Input.action_release(action)
-		echo = {"action": action, "strength": strength}
+		# `as_event` picks the door for BOTH phases of an action tap (#854); a key
+		# tap already pushes events, and the model refuses the flag there.
+		var as_event := bool(params.get("as_event", false))
+		if as_event:
+			press = func() -> void: _push_action_event(action, true, strength)
+			release = func() -> void: _push_action_event(action, false, 0.0)
+		else:
+			press = func() -> void: Input.action_press(action, strength)
+			release = func() -> void: Input.action_release(action)
+		echo = {"action": action, "strength": strength, "as_event": as_event}
 	else:
 		var keycode := _resolve_keycode(key)
 		if keycode == KEY_NONE:
@@ -1456,10 +1491,17 @@ func _apply_sequence_event(event: Dictionary) -> Variant:
 			if not InputMap.has_action(action):
 				return {"code": LIVE_ERROR_UNKNOWN_ACTION,
 						"message": "the running InputMap has no action: " + action}
-			if bool(event.get("release", false)):
+			var releasing := bool(event.get("release", false))
+			var strength := _float_param(event, "strength", 1.0)
+			# Per EVENT, so one sequence can mix a state action, an event-mode
+			# action and a key event; the CLI reports the route of each phase.
+			if bool(event.get("as_event", false)):
+				_push_action_event(action, not releasing,
+						0.0 if releasing else strength)
+			elif releasing:
 				Input.action_release(action)
 			else:
-				Input.action_press(action, _float_param(event, "strength", 1.0))
+				Input.action_press(action, strength)
 			return null
 		_:
 			return {"code": LIVE_ERROR_INVALID_EVENT_SPEC,
@@ -1735,7 +1777,8 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Va
 					state["outcome"] = {"error": err}
 		if state["outcome"] != null and current >= last_event:
 			_injected_mouse_button_mask = 0
-			return state["outcome"]
+			var decided: Dictionary = state["outcome"]
+			return decided
 		return current
 	var finalize := func(_samples: Array) -> String:
 		# Defensive only: the sampler decides every path within the budget.

@@ -106,7 +106,18 @@ two are disjoint by construction — a state change is not an event — so a suc
 action injection is not evidence the event path works, which twice read as one in
 dogfooding. Every `input` result names the route it used (`injection_route`,
 top-level on the single-event commands and per phase on the phased ones), derived
-CLI-side from the event kind (#838). The opt-in event mode for actions is #854.
+CLI-side from the event kind (#838) plus ONE opt-in: `--as-event` (`as_event` on a
+sequence `action` event) asks for an action to be delivered as an
+`InputEventAction` through the same `push_input`, so it takes the `viewport_event`
+route and reaches those handlers while the polled state stays untouched (#854).
+The opt-in changes which door an action takes, never the disjointness — which is
+why it is `push_input` and not `Input.parse_input_event`, whose state update would
+put one injection on both routes at once. The default stays the state route:
+changing it would silently alter what every existing call means.
+The route reports the injection mechanism, not proof that a particular handler ran
+or a UI action succeeded. Normal event propagation and consumption still apply.
+Action/tap routes are projected from decoded harness replies; sequence phases are
+derived from the accepted request after its event count is confirmed (ADR-0023).
 _Avoid_: input mode, injection method, path
 
 **Headless launch**:

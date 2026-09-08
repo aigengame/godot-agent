@@ -344,7 +344,10 @@ def test_input_action_presses_an_action_through_the_live_channel(monkeypatch, tm
     assert data["action"] == "jump"
     assert data["pressed"] is True
     assert fake.calls == [
-        ("input-action", {"action": "jump", "release": False, "strength": 1.0})
+        (
+            "input-action",
+            {"action": "jump", "release": False, "strength": 1.0, "as_event": False},
+        )
     ]
 
 
@@ -369,7 +372,15 @@ def test_input_action_release_and_strength_are_threaded(monkeypatch, tmp_path):
     )
 
     assert fake.calls == [
-        ("input-action", {"action": "move_right", "release": False, "strength": 0.5})
+        (
+            "input-action",
+            {
+                "action": "move_right",
+                "release": False,
+                "strength": 0.5,
+                "as_event": False,
+            },
+        )
     ]
 
 
@@ -478,6 +489,7 @@ def test_input_tap_key_dispatches_the_press_hold_release_window(monkeypatch, tmp
                 "strength": None,
                 "hold_frames": 2,
                 "settle_frames": 2,
+                "as_event": False,
             },
         )
     ]
@@ -523,6 +535,7 @@ def test_input_tap_action_threads_strength_and_frame_counts(monkeypatch, tmp_pat
                 "strength": 0.5,
                 "hold_frames": 6,
                 "settle_frames": 0,
+                "as_event": False,
             },
         )
     ]
@@ -764,6 +777,12 @@ _MALFORMED_TAP_REPLIES = [
     {**INPUT_TAP_KEY_RESULT, "key": ""},
     {**INPUT_TAP_KEY_RESULT, "keycode": 0},
     {**INPUT_TAP_KEY_RESULT, "modifiers": ["control"]},
+    # The event mode echoed on a KEY tap: the mode rides an action tap alone
+    # (#854), so a key-family reply carrying the key AT ALL is a drifted harness —
+    # a false echo is not a harmless one, it is a harness answering about a mode
+    # this target does not have.
+    {**INPUT_TAP_KEY_RESULT, "as_event": True},
+    {**INPUT_TAP_KEY_RESULT, "as_event": False},
 ]
 
 _MALFORMED_CLICK_REPLIES = [
@@ -2060,7 +2079,7 @@ _MIRRORED_MODELS = [
         "action",
         "ActionSequenceEvent",
         "InputActionParams",
-        ("action", "release", "strength"),
+        ("action", "release", "strength", "as_event"),
     ),
 ]
 
@@ -2312,6 +2331,29 @@ def test_every_event_kind_declares_its_route_and_only_action_takes_the_state_one
         input_module.injection_route("joypad_button")
 
 
+def test_the_event_mode_is_offered_by_the_state_route_kind_alone(monkeypatch):
+    # #854 adds a SECOND input to the one derivation, and no sixth event kind: the
+    # opt-in flips the kind whose declared route is `action_state` to the event
+    # route, and asking for it on a kind that already pushes an event is a gda bug,
+    # not a silently ignored flag. Derived from the table above rather than from a
+    # second membership list naming "action".
+    import gda.commands.input as input_module
+
+    state_kinds = {
+        kind
+        for kind, route in input_module.INJECTION_ROUTES.items()
+        if route == "action_state"
+    }
+    assert state_kinds == {"action"}
+    for kind in state_kinds:
+        assert input_module.injection_route(kind, as_event=True) == "viewport_event"
+    for kind in set(input_module.INJECTION_ROUTES) - state_kinds:
+        with pytest.raises(ValueError, match="already takes the viewport_event route"):
+            input_module.injection_route(kind, as_event=True)
+    # The default is untouched: the opt-in is what changes the door (#854).
+    assert input_module.injection_route("action") == "action_state"
+
+
 def test_input_sequence_phases_are_reported_in_application_order(monkeypatch, tmp_path):
     # The harness applies a sequence by advancing the clock one index at a time and,
     # at each index, walking the events in REQUEST order — so the reported phases
@@ -2492,3 +2534,750 @@ def test_the_bundled_skill_states_which_route_each_input_command_takes():
     assert "viewport_event" in skill
     assert "_gui_input" in skill
     assert "Input.is_action_" in skill
+
+
+# --- the opt-in event mode for actions (#854) ---------------------------------
+#
+# An action injection changes the POLLED state and reaches no handler, and until
+# #838 nothing said so; #854 adds the other door as an EXPLICIT opt-in rather than
+# changing what an existing call means (GDA-DF-075 asked for exactly that). With
+# `--as-event` gda builds an InputEventAction and pushes it through the root
+# viewport — the same door a key event takes — so `_input`, `_gui_input` and
+# `_unhandled_input` handlers matching the action receive it while
+# `Input.is_action_pressed` stays untouched. Delivery is `Viewport.push_input`,
+# never `Input.parse_input_event`, which would update the polled state too and
+# collapse the two routes into one.
+
+# The conformance matrix the issue documents, in the whitespace-flattened form
+# every surface must carry it in (help, --schema and the bundled skill).
+_MATRIX_ROWS = (
+    "input action : yes | no | no",
+    "input action --as-event : no | yes | yes",
+    "input key <mapped key> : no | yes | yes",
+)
+
+
+def _flat(text: str) -> str:
+    """Collapse whitespace, so a phrase assertion survives wrapping and indentation."""
+    return re.sub(r"\s+", " ", text)
+
+
+def test_input_action_as_event_relays_the_mode_and_names_the_event_route(
+    monkeypatch, tmp_path
+):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel({**INPUT_ACTION_RESULT, "as_event": True}),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "action",
+            "jump",
+            "--as-event",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["injection_route"] == "viewport_event"
+    assert fake.calls == [
+        (
+            "input-action",
+            {"action": "jump", "release": False, "strength": 1.0, "as_event": True},
+        )
+    ]
+
+
+def test_input_action_without_the_flag_keeps_the_state_route(monkeypatch, tmp_path):
+    # The default is the decision, not an oversight: an existing call means what it
+    # meant before, down to the relayed request.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_ACTION_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "action",
+            "jump",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["injection_route"] == "action_state"
+    assert fake.calls == [
+        (
+            "input-action",
+            {"action": "jump", "release": False, "strength": 1.0, "as_event": False},
+        )
+    ]
+
+
+def test_input_action_as_event_release_still_names_the_event_route(
+    monkeypatch, tmp_path
+):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(
+                {
+                    **INPUT_ACTION_RESULT,
+                    "pressed": False,
+                    "strength": 0.0,
+                    "as_event": True,
+                }
+            ),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "action",
+            "jump",
+            "--release",
+            "--as-event",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["pressed"] is False
+    assert data["injection_route"] == "viewport_event"
+    assert fake.calls == [
+        (
+            "input-action",
+            {"action": "jump", "release": True, "strength": 1.0, "as_event": True},
+        )
+    ]
+
+
+def test_input_action_params_json_as_event_dispatches_like_argv(monkeypatch, tmp_path):
+    # ADR-0015 parity: --params-json accepts exactly what the published schema
+    # accepts, and reaches the same live seam with the same request.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel({**INPUT_ACTION_RESULT, "as_event": True}),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "action",
+            "--params-json",
+            '{"action": "jump", "as_event": true}',
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["injection_route"] == "viewport_event"
+    assert fake.calls == [
+        (
+            "input-action",
+            {"action": "jump", "release": False, "strength": 1.0, "as_event": True},
+        )
+    ]
+
+
+def test_input_tap_action_as_event_phases_name_the_event_route(monkeypatch, tmp_path):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel({**INPUT_TAP_ACTION_RESULT, "as_event": True}),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "tap",
+            "--action",
+            "jump",
+            "--as-event",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert [
+        phase["injection_route"] for phase in json.loads(result.stdout)["phases"]
+    ] == ["viewport_event", "viewport_event"]
+    assert fake.calls == [
+        (
+            "input-tap",
+            {
+                "key": None,
+                "action": "jump",
+                "modifiers": [],
+                "strength": 1.0,
+                "hold_frames": 2,
+                "settle_frames": 2,
+                "as_event": True,
+            },
+        )
+    ]
+
+
+def test_input_tap_action_without_the_flag_keeps_the_state_route(monkeypatch, tmp_path):
+    data = _input_json(
+        monkeypatch,
+        tmp_path,
+        INPUT_TAP_ACTION_RESULT,
+        "tap",
+        "--action",
+        "jump",
+    )
+
+    assert [phase["injection_route"] for phase in data["phases"]] == [
+        "action_state",
+        "action_state",
+    ]
+
+
+def test_input_tap_key_refuses_the_event_mode_argv(monkeypatch, tmp_path):
+    # A key tap already pushes an event; `--as-event` on it is a request that means
+    # nothing, and a silently inert flag is the GDA-DF-037 failure the tap's
+    # per-family rules exist to prevent.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_TAP_KEY_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "tap",
+            "--key",
+            "Right",
+            "--as-event",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+    assert "rides an action tap only" in result.stdout + result.stderr
+    assert fake.calls == []
+
+
+def test_input_tap_params_json_key_with_the_event_mode_is_invalid_params(
+    monkeypatch, tmp_path
+):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_TAP_KEY_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "tap",
+            "--params-json",
+            '{"key": "Right", "as_event": true}',
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "invalid_params"
+    assert "rides an action tap only" in error["message"]
+    assert fake.calls == []
+
+
+def test_input_sequence_action_event_mode_names_the_event_route_per_phase(
+    monkeypatch, tmp_path
+):
+    # The AC's sequence half: `as_event` rides an `action` event, one sequence may
+    # mix all three, and every phase reports the route it took.
+    events = [
+        {"type": "action", "action": "jump", "frame": 0},
+        {"type": "action", "action": "jump", "as_event": True, "frame": 1},
+        {"type": "key", "key": "Right", "frame": 2},
+    ]
+    data = _input_json(
+        monkeypatch,
+        tmp_path,
+        # One of the three events opted in, and the reply says so: the count is
+        # the harness's own statement of what it put through the event door.
+        {**INPUT_SEQUENCE_RESULT, "events": 3, "frames": 3},
+        "sequence",
+        "--events",
+        json.dumps(events),
+    )
+
+    assert data["phases"] == [
+        {"frame": 0, "phase": "press", "injection_route": "action_state"},
+        {"frame": 1, "phase": "press", "injection_route": "viewport_event"},
+        {"frame": 2, "phase": "press", "injection_route": "viewport_event"},
+    ]
+
+
+def test_input_sequence_action_event_mode_relays_the_flag(monkeypatch, tmp_path):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(
+                {
+                    **INPUT_SEQUENCE_RESULT,
+                    "events": 1,
+                    "frames": 1,
+                }
+            ),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "sequence",
+            "--events",
+            json.dumps(
+                [
+                    {
+                        "type": "action",
+                        "action": "jump",
+                        "as_event": True,
+                        "release": True,
+                    }
+                ]
+            ),
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert fake.calls == [
+        (
+            "input-sequence",
+            {
+                "events": [
+                    {
+                        "frame": 0,
+                        "physics_frame": None,
+                        "type": "action",
+                        "action": "jump",
+                        "release": True,
+                        "strength": 1.0,
+                        "as_event": True,
+                    }
+                ]
+            },
+        )
+    ]
+
+
+def test_the_event_mode_is_not_valid_on_a_key_sequence_event(monkeypatch, tmp_path):
+    # The union's own refusal, derived from the variants: the flag exists on the
+    # action kind alone, and the message names where it IS accepted.
+    message = _reject(
+        monkeypatch, tmp_path, {"type": "key", "key": "Right", "as_event": True}
+    )
+
+    assert "'as_event' is not valid on a 'key' sequence event" in message
+    assert "'as_event' is accepted on: action" in message
+
+
+def _input_text(monkeypatch, tmp_path, payload, *argv) -> str:
+    """Run one `gda input` command over a faked live seam WITHOUT --json."""
+    inject_live_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
+    result = CliRunner().invoke(
+        app, ["input", *argv, "--project", str(minimal_project(tmp_path))]
+    )
+    assert result.exit_code == 0, result.stdout + result.stderr
+    return result.stdout
+
+
+def test_the_human_render_names_the_event_mode(monkeypatch, tmp_path):
+    # The opt-in makes two existing human lines AMBIGUOUS: `action jump pressed`
+    # and `tap action jump: …` both meant the state route before #854, and nothing
+    # else on that channel says otherwise. So both name the mode. The lines that
+    # were never ambiguous stay as they are — a key tap prints its target, and a
+    # sequence's line names no kinds at all.
+    default = _input_text(monkeypatch, tmp_path, INPUT_ACTION_RESULT, "action", "jump")
+    opted_in = _input_text(
+        monkeypatch,
+        tmp_path,
+        {**INPUT_ACTION_RESULT, "as_event": True},
+        "action",
+        "jump",
+        "--as-event",
+    )
+    released = _input_text(
+        monkeypatch,
+        tmp_path,
+        {**INPUT_ACTION_RESULT, "pressed": False, "strength": 0.0, "as_event": True},
+        "action",
+        "jump",
+        "--release",
+        "--as-event",
+    )
+
+    assert "action jump pressed (strength 1.0)" in default
+    assert "as event" not in default
+    assert "action jump pressed as event (strength 1.0)" in opted_in
+    assert "action jump released as event" in released
+
+
+def test_the_human_render_names_the_event_mode_on_an_action_tap(monkeypatch, tmp_path):
+    # The tap's line is ambiguous for the same reason and gets the same word. A KEY
+    # tap is untouched: its printed target already names the only route it can take.
+    default = _input_text(
+        monkeypatch, tmp_path, INPUT_TAP_ACTION_RESULT, "tap", "--action", "jump"
+    )
+    opted_in = _input_text(
+        monkeypatch,
+        tmp_path,
+        {**INPUT_TAP_ACTION_RESULT, "as_event": True},
+        "tap",
+        "--action",
+        "jump",
+        "--as-event",
+    )
+    key_tap = _input_text(
+        monkeypatch, tmp_path, INPUT_TAP_KEY_RESULT, "tap", "--key", "Right"
+    )
+
+    assert "tap action jump:" in default
+    assert "as event" not in default
+    assert "tap action jump as event:" in opted_in
+    assert "as event" not in key_tap
+
+
+def test_input_action_help_carries_the_conformance_matrix():
+    result = CliRunner().invoke(app, ["input", "action", "--help"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    flat = _flat_help(result)
+    assert "--as-event" in flat
+    assert "InputEventAction" in flat
+    for row in _MATRIX_ROWS:
+        assert row in flat, (row, flat)
+
+
+def test_input_tap_help_states_the_event_mode_rides_an_action_tap():
+    result = CliRunner().invoke(app, ["input", "tap", "--help"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    flat = _flat_help(result)
+    assert "--as-event" in flat
+    assert "InputEventAction" in flat
+    assert "viewport_event" in flat
+
+
+def test_input_sequence_help_states_the_action_event_mode():
+    result = CliRunner().invoke(app, ["input", "sequence", "--help"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    flat = _flat_help(result)
+    assert "as_event" in flat
+
+
+def test_input_action_schema_publishes_the_event_mode_and_the_matrix():
+    result = CliRunner().invoke(app, ["input", "action", "--schema"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    schema = json.loads(result.stdout)
+    mode = schema["input"]["properties"]["as_event"]
+    assert mode["type"] == "boolean"
+    assert mode["default"] is False
+    assert "InputEventAction" in mode["description"]
+    flat = _flat(schema["input"]["description"])
+    for row in _MATRIX_ROWS:
+        assert row in flat, (row, flat)
+
+
+def test_input_tap_schema_publishes_the_event_mode_flag():
+    result = CliRunner().invoke(app, ["input", "tap", "--schema"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    schema = json.loads(result.stdout)
+    mode = schema["input"]["properties"]["as_event"]
+    assert mode["type"] == "boolean"
+    assert mode["default"] is False
+    assert "action tap" in mode["description"]
+    assert "as_event" in _flat(schema["input"]["description"])
+
+
+def test_input_sequence_schema_publishes_the_event_mode_on_the_action_variant_only():
+    variants = _variants()
+
+    assert "as_event" in variants["action"]["properties"]
+    for kind in ("key", "mouse_click", "mouse_button", "mouse_move"):
+        assert "as_event" not in variants[kind]["properties"], kind
+    assert "as_event" not in variants["action"]["required"]
+    assert (
+        "InputEventAction"
+        in variants["action"]["properties"]["as_event"]["description"]
+    )
+
+
+def _matrix_claims() -> list[tuple[str, list[str]]]:
+    """``_MATRIX_ROWS`` parsed back into (injection spelling, [verdicts]).
+
+    Parsed from the rendered rows rather than declared a second time: the row IS
+    the claim, and a parallel literal list would itself be a copy to drift.
+    """
+    claims = []
+    for row in _MATRIX_ROWS:
+        label, _, verdicts = row.partition(" : ")
+        claims.append((label.split(" <")[0], [v.strip() for v in verdicts.split("|")]))
+    return claims
+
+
+def _skill_matrix_rows() -> dict[str, list[str]]:
+    """The skill's matrix TABLE as {injection cell: [verdict cells]}, pipes stripped."""
+    from gda.commands.meta import read_skill_text
+
+    rows: dict[str, list[str]] = {}
+    for line in read_skill_text().splitlines():
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) != 4 or "input " not in cells[0]:
+            continue
+        if not all(cell.startswith(("yes", "no")) for cell in cells[1:]):
+            continue
+        rows[_flat(cells[0])] = cells[1:]
+    return rows
+
+
+def test_the_conformance_matrix_is_carried_by_help_schema_and_the_skill():
+    # The matrix is stated on three surfaces because each answers a different
+    # reader (a human at the terminal, a schema client, an agent reading the
+    # bundled skill). It is the same claim, so nothing may carry a stale copy —
+    # and carrying it means the VERDICTS, not the vocabulary. help and --schema
+    # render the rows as one line each, pinned verbatim against `_MATRIX_ROWS` by
+    # the two tests above; the skill renders them as a markdown table, so its
+    # cells are READ here: flipping a cell there is invisible to a substring
+    # search, while the same flip in help or --schema already fails.
+    from gda.commands.meta import read_skill_text
+
+    help_result = CliRunner().invoke(app, ["input", "action", "--help"])
+    schema_result = CliRunner().invoke(app, ["input", "action", "--schema"])
+    assert help_result.exit_code == 0, help_result.stdout
+    assert schema_result.exit_code == 0, schema_result.stdout
+
+    surfaces = {
+        "help": _flat_help(help_result),
+        "schema": _flat(json.loads(schema_result.stdout)["input"]["description"]),
+        "skill": _flat(read_skill_text()),
+    }
+    for name, text in surfaces.items():
+        assert "propagation" in text and "consumption" in text, name
+        # The two spellings that DISTINGUISH the rows: plain `input action` is a
+        # substring of the opt-in, so asserting it would assert nothing.
+        for injection in ("input action --as-event", "input key"):
+            assert injection in text, (name, injection)
+        for observer in ("Input.is_action_pressed", "_unhandled_input", "_gui_input"):
+            assert observer in text, (name, observer)
+
+    # Longest spelling first, so the opt-in takes its own row before the plain
+    # injection (whose spelling both rows contain) can claim it. What is pinned is
+    # each row's three yes/no VERDICTS: `_skill_matrix_rows` reads only rows whose
+    # verdict cells START with yes/no, so the header and any row written in other
+    # words are skipped rather than checked, and a trailing qualifier
+    # ("(focused Control)") is not asserted. Consuming the rows still pins the
+    # table's size within that vocabulary — a fourth yes/no row fails on the
+    # leftover.
+    rows = _skill_matrix_rows()
+    for injection, verdicts in sorted(
+        _matrix_claims(), key=lambda claim: -len(claim[0])
+    ):
+        hits = [cell for cell in rows if injection in cell]
+        assert len(hits) == 1, (injection, sorted(rows))
+        cells = rows.pop(hits[0])
+        assert [cell.split()[0] for cell in cells] == verdicts, (injection, cells)
+    assert rows == {}, rows
+
+
+# --- current wire decoding and public value boundaries (#854) -----------------
+
+
+@pytest.mark.parametrize(
+    ("argv", "wire"),
+    [
+        (["action", "jump"], INPUT_ACTION_RESULT),
+        (["tap", "--action", "jump"], INPUT_TAP_ACTION_RESULT),
+    ],
+)
+@pytest.mark.parametrize("as_event", [False, True])
+@pytest.mark.parametrize("bad_mode", ["missing", None, "false", 0, 1])
+def test_action_wire_requires_a_boolean_mode(
+    monkeypatch, tmp_path, argv, wire, as_event, bad_mode
+):
+    payload = {**wire, "as_event": bad_mode}
+    if bad_mode == "missing":
+        del payload["as_event"]
+    # Public-looking fields cannot bypass the wire decoder.
+    payload["injection_route"] = "viewport_event"
+    if "phases" in payload:
+        payload["phases"] = [
+            {**p, "injection_route": "viewport_event"} for p in payload["phases"]
+        ]
+    inject_live_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            *argv,
+            *(["--as-event"] if as_event else []),
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+    assert result.exit_code == EXIT_PARSE, result.stdout + result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "contract_violation"
+    assert "requires a boolean 'as_event'" in error["message"]
+    assert "predates" not in error["message"]
+
+
+@pytest.mark.parametrize(
+    ("argv", "wire"),
+    [
+        (["action", "jump"], INPUT_ACTION_RESULT),
+        (["tap", "--action", "jump"], INPUT_TAP_ACTION_RESULT),
+    ],
+)
+@pytest.mark.parametrize("requested", [False, True])
+def test_applied_action_route_must_match_the_request(
+    monkeypatch, tmp_path, argv, wire, requested
+):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel({**wire, "as_event": not requested}), stderr="", exit_code=0
+        ),
+    )
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            *argv,
+            *(["--as-event"] if requested else []),
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+    assert result.exit_code == EXIT_PARSE, result.stdout + result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "contract_violation"
+    assert "route for a request that asked for" in error["message"]
+
+
+@pytest.mark.parametrize("as_event", [False, True])
+def test_decoded_action_results_are_plain_round_trippable_public_values(
+    as_event, tmp_path
+):
+    from gda.commands.input import INPUT_ACTION_COMMAND, INPUT_TAP_COMMAND
+
+    route = "viewport_event" if as_event else "action_state"
+    for command, wire in (
+        (INPUT_ACTION_COMMAND, INPUT_ACTION_RESULT),
+        (INPUT_TAP_COMMAND, INPUT_TAP_ACTION_RESULT),
+    ):
+        # Wire route fields are not authoritative. Only the decoder consumes the
+        # mode, then emits one public route. Public models need no source guessing.
+        payload = {**wire, "as_event": as_event, "injection_route": "wrong"}
+        if "phases" in payload:
+            payload["phases"] = [
+                {**p, "injection_route": "wrong"} for p in payload["phases"]
+            ]
+        assert command.classify is not None
+        public = command.classify(
+            RunResult(stdout=sentinel(payload), stderr="", exit_code=0), tmp_path
+        )
+        model = command.output_model
+        assert isinstance(public, model)
+        dumped = public.model_dump()
+        if "phases" in dumped:
+            assert [p["injection_route"] for p in dumped["phases"]] == [route, route]
+        else:
+            assert dumped["injection_route"] == route
+        assert "as_event" not in dumped
+        assert "as_event" not in model.model_json_schema()["properties"]
+        assert not model.__private_attributes__
+        assert model.model_validate(dumped) == public
+        assert model.model_validate_json(public.model_dump_json()) == public
+
+
+def test_public_tap_values_validate_routes_without_wire_metadata():
+    from pydantic import ValidationError
+
+    from gda.commands.input import InputTapResult
+
+    valid = {
+        **INPUT_TAP_ACTION_RESULT,
+        "phases": [
+            {**p, "injection_route": "viewport_event"}
+            for p in INPUT_TAP_ACTION_RESULT["phases"]
+        ],
+    }
+    del valid["as_event"]
+    public = InputTapResult.model_validate(valid)
+    assert InputTapResult.model_validate_json(public.model_dump_json()) == public
+    invalid = {
+        **valid,
+        "phases": [
+            valid["phases"][0],
+            {**valid["phases"][1], "injection_route": "action_state"},
+        ],
+    }
+    with pytest.raises(ValidationError, match="one injection route"):
+        InputTapResult.model_validate(invalid)
+    invalid_key = {
+        **INPUT_TAP_KEY_RESULT,
+        "phases": [
+            {**p, "injection_route": "action_state"}
+            for p in INPUT_TAP_KEY_RESULT["phases"]
+        ],
+    }
+    with pytest.raises(ValidationError, match="key tap uses the viewport_event"):
+        InputTapResult.model_validate(invalid_key)
