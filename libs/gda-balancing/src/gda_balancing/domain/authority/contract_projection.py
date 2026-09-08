@@ -165,7 +165,9 @@ def ordered_protocol_schema(
         raise ValueError("unsupported derived protocol Schema ordering")
 
     def visit(value: dict[str, Any]) -> dict[str, Any]:
-        result = deepcopy(value)
+        # A Schema node can share a caller-owned object with opaque const/enum
+        # data. Replace this node without mutating that other occurrence.
+        result = dict(value)
         if "required" in result:
             result["required"] = sorted(result["required"])
         if "properties" in result:
@@ -185,4 +187,4 @@ def ordered_protocol_schema(
             result["enum"] = sorted(result["enum"], key=canonical_bytes)
         return result
 
-    return visit(schema)
+    return visit(deepcopy(schema))

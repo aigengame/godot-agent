@@ -329,6 +329,7 @@ def test_generated_schema_sorting_keeps_const_and_enum_payload_order():
         "required": ["z", "a"],
         "properties": {
             "a": {"const": data},
+            "schema": data,
             "z": {"enum": [data, {"required": ["a", "z"], "body": [1, 2]}]},
         },
         "oneOf": [{"const": 1}, {"const": 1}],
@@ -336,6 +337,7 @@ def test_generated_schema_sorting_keeps_const_and_enum_payload_order():
     result = ordered_protocol_schema(kernel, original)
     assert result["required"] == ["a", "z"]
     assert result["properties"]["a"]["const"] == data
+    assert result["properties"]["schema"]["required"] == ["a", "z"]
     assert data in result["properties"]["z"]["enum"]
     assert result["oneOf"] == [{"const": 1}, {"const": 1}]
     assert original["required"] == ["z", "a"]
