@@ -120,19 +120,6 @@ src/gda/
    `resource` group's but is `project find-references`'s result shape, so it
    lives in `commands/project.py`.
 
-## Input event-mode boundary (#854, 2026-09-08)
-
-The input group owns event-kind validation, injection-route projection, and its
-wire-to-public reply adapters (ADR-0023). These stay in `commands/input.py`; no
-package or generic adapter framework is needed. Public result models hold only
-public values and their invariants, not transport provenance.
-
-`screen capture --await-events` continues to import the public `InputSequenceEvent`
-union and to use the harness's shared event application path. It does not import
-input-specific compatibility checks or maintain a second event-mode counter.
-Capture receipts and predicates remain the screen group's responsibility. This
-preserves the one-way ownership edge in point 5.
-
 ## Considered options
 
 - **Horizontal split only** (per-group `models/`, `render/`, `cli/` trees, no
@@ -212,3 +199,15 @@ preserves the one-way ownership edge in point 5.
 > `tests/cli/test_render.py::test_the_failure_channel_takes_only_the_renderer_no_group_can_supply`,
 > so headless cannot become a general consumer of presentation. The guard test the
 > #687 note names was renamed and widened to state both halves.
+
+> **Outcome (2026-09-08, #854):** the `input` group owns event-kind validation, the
+> injection-route projection, and its wire-to-public reply adapters (ADR-0023's note
+> of the same date). All of it stays in `commands/input.py` — no package, no generic
+> adapter framework — and its public result models hold public values and their
+> invariants only, never transport provenance.
+>
+> `screen capture --await-events` keeps importing the public `InputSequenceEvent`
+> union and using the harness's shared event application path; it imports no
+> input-specific compatibility check and keeps no second event-mode counter. Capture
+> receipts and predicates remain the `screen` group's. Point 5's one-way ownership
+> edge is preserved.

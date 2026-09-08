@@ -47,9 +47,8 @@ so two instances can touch the project at once.
 > existing idempotent content-compare: a mismatch re-materializes, a match is a no-op
 > (never an unconditional overwrite, which would bump mtime and trip the concurrent-
 > editor prompt of point 4). `gda daemon start` runs this self-sync **whether or not a
-> daemon is already up** (PR #247 review), so it updates the installed harness on
-> disk; it does not reload the harness in an existing engine session.
-> `harness_synced` is true only on a real stale→current rewrite, distinct from
+> daemon is already up** (PR #247 review), so upgrading `gda` never strands a stale
+> harness; `harness_synced` is true only on a real stale→current rewrite, distinct from
 > a first install (`installed_harness`). The paired `gda daemon uninstall` strips the
 > `[autoload]` entry **first**, then deletes the files — crash-safe ordering, so a
 > mid-failure leaves a harmless stray inert `.gd`, never a dangling autoload (point 3);
@@ -218,22 +217,23 @@ so two instances can touch the project at once.
 > It now runs the same transaction as the other two, so a repeat start on a refusing
 > tree returns the same envelope and hands the project back byte-identical.
 
-## Current-version support policy (#854, 2026-09-08)
-
-Live commands target the harness bundled with the running gda checkout or release.
-The harness is controlled and shipped with the CLI; it is not an independently
-versioned external service. Callers can use the current version for each run.
-Mixed-version CLI/harness sessions are not a supported compatibility target.
-
-Installation and an engine session are different lifetimes. `daemon start` can
-sync the installed file while reusing an already-running daemon and game. After
-updating gda, stop and start that session before using the updated live commands.
-Do not automatically restart a user's running game from an input command.
-
-Keep the install version, content synchronization, and ordinary reply validation.
-Do not add per-feature version negotiation, fallback routes, hidden source flags,
-or applied-mode counters to accommodate old sessions. A malformed current reply
-is still a `contract_violation`; it is not evidence of a particular old version.
+> **Outcome (2026-09-08, #854) — live commands target the harness bundled with the
+> running gda; a mixed-version session is not a compatibility target.** The harness is
+> controlled and shipped with the CLI, not an independently versioned service, so every
+> run can use the current version. Installation and an engine session are different
+> lifetimes: the #225 note's self-sync on a repeat `daemon start` updates the installed
+> FILE while reusing an already-running daemon and game — it does not reload the
+> harness in that session. After updating gda, stop and start the session before using
+> the updated live commands; no input command restarts a user's running game on its
+> own.
+>
+> Keep the install version, the content synchronization, and ordinary reply
+> validation. Do not add per-feature version negotiation, fallback routes, hidden
+> source flags, or applied-mode counters to accommodate old sessions: #854's review
+> rounds built exactly that set and then removed it, because old-version support is
+> not a priority and the complexity it bought was out of proportion. A malformed
+> current reply is still a `contract_violation`; it is not evidence of a particular
+> old version.
 
 ## Decision
 

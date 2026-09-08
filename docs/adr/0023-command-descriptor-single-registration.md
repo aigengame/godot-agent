@@ -94,27 +94,6 @@ renderer and resolves to exactly one channel (`recipe` xor `kind`-runner), and t
 no renderer is orphaned. The "command wired without a renderer" failure
 (`render()`'s `KeyError`) moves from first-invocation to test time.
 
-## Reply decoding and public results (#854, 2026-09-08)
-
-The descriptor's `output_model` describes the public result, not necessarily the
-harness wire reply. When those shapes differ, the group-local `classify` function
-uses `classify_live` with a private reply adapter and returns the public result.
-Wire validation and projection finish inside this boundary. A public result must
-retain its meaning and value equality after serialization and revalidation; it
-must not carry hidden wire-presence flags or infer its source from field shape.
-
-The existing `recipe` seam remains appropriate for checks that need the request,
-such as comparing an action's applied route with its requested route, and for
-completing a sequence's request-derived phases after its event count is confirmed.
-It consumes public results, not private attributes left by a validator. This needs
-no new descriptor field, transport hook, registry, or cross-command adapter layer.
-
-For #854, the input group owns the action/tap reply adapters and the route
-projection. Sequence phases describe the accepted request, not independent
-handler-delivery telemetry. Live conformance tests establish engine behavior.
-Per-feature capability echoes and event-mode counters are not required to support
-old harness sessions; the current-version policy is recorded in ADR-0018.
-
 ## Considered options
 
 - **Per-command-group modules** (`gda/commands/scene/` holding that group's models +
@@ -162,3 +141,24 @@ old harness sessions; the current-version policy is recorded in ADR-0018.
   and the per-group module split above.
 - Generalises the `kind` selector of ADR-0017 and reuses the tree-walk of ADR-0012;
   amends neither — it completes the direction both set.
+
+> **Outcome (2026-09-08, #854):** the descriptor's `output_model` describes the PUBLIC
+> result, not necessarily the harness wire reply. Where the two shapes differ, the
+> group-local `classify` decodes the reply — `classify_live` over a private reply
+> adapter — and returns the public result, so wire validation and projection finish
+> inside that boundary. A public result must keep its meaning and value equality
+> across serialization and revalidation; it carries no hidden wire-presence flag and
+> infers nothing from field shape. `screen capture`'s `_CaptureReply` was the
+> precedent; `input action` / `input tap` now follow it.
+>
+> The `recipe` seam stays the place for checks that need the REQUEST — comparing an
+> action's applied route with the one asked for, or completing a sequence's
+> request-derived phases once its event count is confirmed — and it consumes public
+> results, never private attributes a validator left behind. No new descriptor field,
+> transport hook, registry, or cross-command adapter layer was needed.
+>
+> For #854 the `input` group owns the action/tap reply adapters and the route
+> projection; sequence phases describe the accepted request, not handler-delivery
+> telemetry, which the live conformance tests establish. Per-feature capability
+> echoes and event-mode counters are not required for old harness sessions: the
+> current-version policy is ADR-0018's note of the same date.
