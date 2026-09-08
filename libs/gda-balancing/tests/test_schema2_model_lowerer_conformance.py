@@ -994,12 +994,8 @@ def _renamed_reason_authorities(
     for profile in language["resolution_profiles"]:
         if profile["structural_reason"] == reason_id:
             profile["structural_reason"] = renamed_reason
-        source_boundary = profile.get("extensions", {}).get("standard.source-boundary")
-        if (
-            isinstance(source_boundary, dict)
-            and source_boundary.get("parse_reason") == reason_id
-        ):
-            source_boundary["parse_reason"] = renamed_reason
+        if profile["parse_reason"] == reason_id:
+            profile["parse_reason"] = renamed_reason
         for judgment in profile["judgment_chain"]:
             if judgment["reason"] == reason_id:
                 judgment["reason"] = renamed_reason

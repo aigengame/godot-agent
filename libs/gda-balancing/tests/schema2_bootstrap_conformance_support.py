@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:c2d65129e9cf8e5dad275fd88e95197ed023a171b9b30db7c43b2de400fbcccc"
+    "sha256:5bb3deb5cf3649bf391b51806d6fe3bb64a18315e8f33ca63b5dfe1183c2e1bd"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
@@ -4206,6 +4206,7 @@ def _consumer_b_resolution_contract_is_closed(value: Any) -> bool:
             "operations",
             "result",
             "stage_order",
+            "parse_reason_stage",
             "relation_schemas",
             "relation_recipe_format",
             "routing_equivalences",
@@ -4213,6 +4214,7 @@ def _consumer_b_resolution_contract_is_closed(value: Any) -> bool:
             "law_format",
         }
         or value.get("closed") is not True
+        or value.get("parse_reason_stage") != "parse"
     ):
         return False
     stages = value.get("stage_order")
@@ -6466,7 +6468,9 @@ def _consumer_b_language_definitions_are_closed(
     for profile in profiles:
         chain = profile.get("judgment_chain")
         if (
-            not isinstance(chain, list)
+            reason_stages.get(profile.get("parse_reason"))
+            != resolution_contract["parse_reason_stage"]
+            or not isinstance(chain, list)
             or not _consumer_b_relation_recipes_are_closed(
                 profile,
                 resolution_contract,
