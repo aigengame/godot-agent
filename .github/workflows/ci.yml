@@ -481,8 +481,9 @@ jobs:
       - name: Install Blender for saved-source asset tests
         run: |
           sudo apt-get update -qq
-          sudo apt-get install --yes blender
-          blender --background --factory-startup --version
+          sudo apt-get install --yes blender python3-numpy
+          blender --background --factory-startup --python-exit-code 1 \
+            --python-expr 'import numpy; import bpy; print(bpy.app.version_string, numpy.__version__)'
 
       - name: Run Godot e2e tests
         # -rs surfaces skip reasons in the log (e.g. absent export templates, or no
