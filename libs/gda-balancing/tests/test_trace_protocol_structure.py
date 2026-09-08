@@ -424,7 +424,9 @@ def test_trace_projection_uses_existing_rng_and_resolved_symbol_owners(project):
         target["field_types"]["scope"] = target["field_types"].pop("module")
         target["required_members"][target["required_members"].index("module")] = "scope"
     event = project(kernel, "event-trace")["properties"]["events"]["items"]
-    assert event["properties"]["rng_draws"]["items"]["required"] == expected_members
+    assert event["properties"]["rng_draws"]["items"]["required"] == sorted(
+        expected_members
+    )
     assert event["properties"]["rng_draws"]["items"]["properties"]["candidate_hex"] == {
         "type": "string",
         "maxLength": 8,
@@ -433,7 +435,7 @@ def test_trace_projection_uses_existing_rng_and_resolved_symbol_owners(project):
     projected_target = event["properties"]["schedules"]["items"]["properties"][
         "state_references"
     ]["items"]["properties"]["target"]
-    assert projected_target["required"] == ["model", "scope", "name"]
+    assert projected_target["required"] == ["model", "name", "scope"]
     assert set(projected_target["properties"]) == {"model", "scope", "name"}
     assert project(kernel, "event-trace") != baseline
     rng["trace_members"].append("missing-field-contract")
