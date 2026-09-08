@@ -315,13 +315,7 @@ def _append_replay_list(
         )
     values = cast(list[JsonValue], admitted[value_member])
     if len(values) == maximum:
-        reason = next(
-            row
-            for row in authority.reasons.values()
-            if row.get("stage") == "runtime"
-            and row.get("signal") == law["refusal_signal"]
-        )
-        raise StructuredValueFault(reason["id"], "/value")
+        raise StructuredValueFault(law["refusal_signal"], "/value", stage="runtime")
     return {
         type_member: admitted[type_member],
         value_member: [*values, item_envelope[value_member]],
