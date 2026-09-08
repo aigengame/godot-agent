@@ -2155,15 +2155,32 @@ def _runtime_projection_is_closed(
         or not isinstance(collections, list)
         or not isinstance(seeds, list)
         or not isinstance(edges, list)
-        or type_reference_closure
+        or not isinstance(type_reference_closure, dict)
+        or set(type_reference_closure)
+        != set(contract["type_reference_closure"]["required_members"])
+        or any(
+            not isinstance(type_reference_closure[member], str)
+            or not type_reference_closure[member]
+            for member in (
+                "source_collection",
+                "target_type_collection",
+                "target_constructor_collection",
+            )
+        )
+        or {
+            member: type_reference_closure[member]
+            for member in (
+                "constructor_kind_path",
+                "coordinate_members",
+                "source_definition_path",
+                "structural_kind_member",
+            )
+        }
         != {
             "constructor_kind_path": ["value_rule", "definition_kind"],
             "coordinate_members": ["package", "id"],
-            "source_collection": "nominal_types",
             "source_definition_path": ["definition"],
             "structural_kind_member": "kind",
-            "target_constructor_collection": "constructors",
-            "target_type_collection": "types",
         }
     ):
         return False
@@ -2298,6 +2315,20 @@ def _runtime_projection_is_closed(
     if len(collection_ids) != len(set(collection_ids)):
         return False
     collection_names = set(collection_ids)
+    collection_sources = {
+        collection["id"]: collection["source"] for collection in collections
+    }
+    if (
+        collection_sources.get(type_reference_closure["source_collection"])
+        != {"kind": "semantic-closure", "authority_path": "language.nominal_types"}
+        or collection_sources.get(type_reference_closure["target_type_collection"])
+        != {"kind": "namespace-member", "member": "types", "package_path": ["package"]}
+        or collection_sources.get(
+            type_reference_closure["target_constructor_collection"]
+        )
+        != {"kind": "semantic-closure", "authority_path": "language.constructors"}
+    ):
+        return False
 
     for seed in seeds:
         if not isinstance(seed, dict) or seed.get("operator") not in seed_operators:

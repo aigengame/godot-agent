@@ -3824,15 +3824,32 @@ def _consumer_b_runtime_projection_is_closed(
         or not isinstance(collections, list)
         or not isinstance(seeds, list)
         or not isinstance(edges, list)
-        or type_reference_closure
+        or not isinstance(type_reference_closure, dict)
+        or set(type_reference_closure)
+        != set(contract["type_reference_closure"]["required_members"])
+        or any(
+            not isinstance(type_reference_closure[member], str)
+            or not type_reference_closure[member]
+            for member in (
+                "source_collection",
+                "target_type_collection",
+                "target_constructor_collection",
+            )
+        )
+        or {
+            member: type_reference_closure[member]
+            for member in (
+                "constructor_kind_path",
+                "coordinate_members",
+                "source_definition_path",
+                "structural_kind_member",
+            )
+        }
         != {
             "constructor_kind_path": ["value_rule", "definition_kind"],
             "coordinate_members": ["package", "id"],
-            "source_collection": "nominal_types",
             "source_definition_path": ["definition"],
             "structural_kind_member": "kind",
-            "target_constructor_collection": "constructors",
-            "target_type_collection": "types",
         }
     ):
         return False
@@ -3949,6 +3966,26 @@ def _consumer_b_runtime_projection_is_closed(
     if len(collection_names) != len(set(collection_names)):
         return False
     collection_set = set(collection_names)
+    referenced_sources = []
+    for member in (
+        "source_collection",
+        "target_type_collection",
+        "target_constructor_collection",
+    ):
+        referenced = [
+            collection["source"]
+            for collection in collections
+            if collection["id"] == type_reference_closure[member]
+        ]
+        if len(referenced) != 1:
+            return False
+        referenced_sources.append(referenced[0])
+    if referenced_sources != [
+        {"kind": "semantic-closure", "authority_path": "language.nominal_types"},
+        {"kind": "namespace-member", "member": "types", "package_path": ["package"]},
+        {"kind": "semantic-closure", "authority_path": "language.constructors"},
+    ]:
+        return False
 
     for seed in seeds:
         if not isinstance(seed, dict) or seed.get("operator") not in seeds_allowed:
