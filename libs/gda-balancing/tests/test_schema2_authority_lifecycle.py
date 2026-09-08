@@ -284,10 +284,10 @@ def test_packaged_context_derives_immutable_replay_comparison_policy_index():
             },
             "policy": {
                 "checks": [
-                    "evaluation-outcome-status",
-                    "event-trace-identity",
-                    "snapshot-series-identity",
-                    "metric-dataset-identity",
+                    "evaluation_outcome_status",
+                    "event_trace_identity",
+                    "snapshot_series_identity",
+                    "metric_dataset_identity",
                 ],
                 "comparator": "canonical-equal",
                 "id": "exact-replay-v1",

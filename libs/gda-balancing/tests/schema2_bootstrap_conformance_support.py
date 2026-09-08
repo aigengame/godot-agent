@@ -813,7 +813,7 @@ def _consumer_b_replay_comparison_vector_is_closed(
         return False
     observed_checks = [
         {
-            "key": member.replace("_", "-"),
+            "key": member,
             "match": _consumer_b_canonical_equal(original[member], replay[member]),
             "original": original[member],
             "replay": replay[member],

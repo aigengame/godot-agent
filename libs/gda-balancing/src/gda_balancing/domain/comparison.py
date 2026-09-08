@@ -333,23 +333,17 @@ def _comparison_value(
     if original_runtime["content_identity"] != replay_runtime["content_identity"]:
         raise ValueError("Replay inputs do not share one semantic execution identity")
 
-    observations = {
-        "evaluation-outcome-status": "evaluation_outcome_status",
-        "event-trace-identity": "event_trace_identity",
-        "snapshot-series-identity": "snapshot_series_identity",
-        "metric-dataset-identity": "metric_dataset_identity",
-    }
-    if policy_checks != list(observations):
+    if policy_checks != list(original):
         raise ValueError("the admitted Replay policy has unsupported checks")
     checks = [
         {
-            "key": key,
+            "key": member,
             "match": canonical_bytes(cast(JsonValue, original[member]))
             == canonical_bytes(cast(JsonValue, replay[member])),
             "original": original[member],
             "replay": replay[member],
         }
-        for key, member in observations.items()
+        for member in original
     ]
     return cast(
         dict[str, JsonValue],
@@ -466,21 +460,15 @@ def validate_published_exact_replay_comparison(
         if original_runtime["content_identity"] != replay_runtime["content_identity"]:
             return False
 
-        observations = {
-            "evaluation-outcome-status": "evaluation_outcome_status",
-            "event-trace-identity": "event_trace_identity",
-            "snapshot-series-identity": "snapshot_series_identity",
-            "metric-dataset-identity": "metric_dataset_identity",
-        }
         checks = [
             {
-                "key": key,
+                "key": member,
                 "match": canonical_bytes(cast(JsonValue, original[member]))
                 == canonical_bytes(cast(JsonValue, replay[member])),
                 "original": original[member],
                 "replay": replay[member],
             }
-            for key, member in observations.items()
+            for member in original
         ]
         expected_result = (
             "matched"
@@ -500,7 +488,7 @@ def validate_published_exact_replay_comparison(
             and value.get("replay_outcome_identity") == replay_identity
             and canonical_bytes(cast(JsonValue, value.get("policy")))
             == canonical_bytes(cast(JsonValue, policy))
-            and policy_checks == list(observations)
+            and policy_checks == list(original)
             and canonical_bytes(cast(JsonValue, value.get("original_observation")))
             == canonical_bytes(cast(JsonValue, original))
             and canonical_bytes(cast(JsonValue, value.get("replay_observation")))

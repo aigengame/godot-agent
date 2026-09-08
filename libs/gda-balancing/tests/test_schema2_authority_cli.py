@@ -1577,10 +1577,10 @@ def test_standard_experiment_owns_closed_exact_replay_policy(run_cli):
     experiment = releases["standard.experiment"]
     policy = {
         "checks": [
-            "evaluation-outcome-status",
-            "event-trace-identity",
-            "snapshot-series-identity",
-            "metric-dataset-identity",
+            "evaluation_outcome_status",
+            "event_trace_identity",
+            "snapshot_series_identity",
+            "metric_dataset_identity",
         ],
         "comparator": "canonical-equal",
         "id": "exact-replay-v1",

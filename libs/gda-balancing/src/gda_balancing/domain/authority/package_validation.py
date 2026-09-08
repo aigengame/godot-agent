@@ -151,12 +151,11 @@ def _replay_comparison_vector_is_closed(
         return False
     observed_checks = []
     for member in observation_members:
-        key = member.replace("_", "-")
-        if key not in policy["checks"]:
+        if member not in policy["checks"]:
             return False
         observed_checks.append(
             {
-                "key": key,
+                "key": member,
                 "match": _canonical_equal(original[member], replay[member]),
                 "original": original[member],
                 "replay": replay[member],
