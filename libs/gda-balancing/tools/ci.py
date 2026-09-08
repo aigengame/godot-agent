@@ -91,6 +91,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "experiment": _EXPERIMENT_TESTS[::2],
     "experiment-continuation": _EXPERIMENT_TESTS[1::2],
     "extension": (
+        "test_artifact_protocol_roles.py",
         "test_authority_identity_renaming.py",
         "test_extension_inventory.py",
         "test_extension_renaming.py",
@@ -98,8 +99,10 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_priority_protocol_public.py",
         "test_priority_terminal_refusal.py",
         "test_projection_collection_renaming.py",
+        "test_resolution_field_binding_roles.py",
         "test_runtime_effect_renaming.py",
         "test_runtime_mutual_consumption.py",
+        "test_template_protocol_roles.py",
     ),
     "bounded-fold": (
         "test_bounded_fold_formula.py",

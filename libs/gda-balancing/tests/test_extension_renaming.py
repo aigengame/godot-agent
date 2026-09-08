@@ -14,6 +14,7 @@ from schema2_extension_inventory_support import (
     InventoryRefusal,
     _formula_projections,
     read_extension_inventory,
+    token_bijection_from_names,
 )
 from schema2_extension_renaming_support import (
     _render_formulas,
@@ -75,7 +76,13 @@ def test_incomplete_real_graph_cannot_authorize_renaming(authored_graph):
     before = deepcopy(graph)
     inventory = read_extension_inventory(kernel, graph)
     assert inventory.uncovered
-    pairs = [(token, token) for token in inventory.tokens - inventory.reserved]
+    pairs = token_bijection_from_names(
+        inventory,
+        {
+            token: f"renamed.token.{i}"
+            for i, token in enumerate(sorted(inventory.tokens - inventory.reserved))
+        },
+    )
     with pytest.raises(InventoryRefusal, match="uncovered semantic role"):
         apply_extension_renaming(kernel, graph, pairs)
     assert graph == before

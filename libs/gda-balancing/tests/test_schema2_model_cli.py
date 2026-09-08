@@ -35,6 +35,7 @@ import jsonschema
 import pytest
 from gda_balancing.domain.model import admit_rir
 from gda_balancing.domain.artifact_semantics import artifact_semantic_projection
+from gda_balancing.domain.artifact_set import resolve_artifact_set
 from gda_balancing.domain.authority.admission import admit_authorities
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.domain.diagnostics import ArtifactLocation, Schema2RefusalReport
@@ -3870,15 +3871,16 @@ def test_model_publisher_materializes_the_descriptor_declared_primary_member(
         for member in model_build_command_module.MODEL_BUILD.artifact_set
     )
     out = tmp_path / "primary.json"
+    context = model_compilation_module.authority_context_for_checked(checked)
 
     publication_module.publish_lazy_artifact_set(
-        model_compilation_module.authority_context_for_checked(checked),
+        context,
         checked.source_identity,
         str(out),
         "b" * 64,
         "sha256:" + "b" * 64,
         model_compilation_module.model_build_command_input_identity(checked),
-        artifact_set,
+        resolve_artifact_set(context.language_bundle, artifact_set),
         lambda: model_compilation_module.compile_checked_model(checked),
         model_compilation_module.validate_compiled_artifacts,
     )
@@ -4615,18 +4617,22 @@ def test_same_invocation_key_concurrent_writers_recover_one_committed_set(
     )
     key = "6" * 64
     descriptor = descriptor_identity(model_build_command_module.MODEL_BUILD)
+    context = model_compilation_module.authority_context_for_checked(checked)
+    artifact_set = resolve_artifact_set(
+        context.language_bundle, model_build_command_module.MODEL_BUILD.artifact_set
+    )
 
     def publish(out: Path, *, announce: bool = False):
         if announce:
             second_started.set()
         return publication_module.publish_lazy_artifact_set(
-            model_compilation_module.authority_context_for_checked(checked),
+            context,
             checked.source_identity,
             str(out),
             key,
             descriptor,
             model_compilation_module.model_build_command_input_identity(checked),
-            model_build_command_module.MODEL_BUILD.artifact_set,
+            artifact_set,
             lambda: model_compilation_module.compile_checked_model(checked),
             model_compilation_module.validate_compiled_artifacts,
         )

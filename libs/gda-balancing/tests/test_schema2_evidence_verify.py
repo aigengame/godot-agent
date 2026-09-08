@@ -23,6 +23,7 @@ from gda_balancing.domain.artifacts import (
     verify_artifact,
     wire_schema_identity,
 )
+from gda_balancing.domain.artifact_set import resolve_artifact_set
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 from gda_balancing.domain.diagnostics import (
@@ -777,7 +778,7 @@ def test_public_cli_refuses_an_authenticated_incomplete_terminal_audit(
         descriptor_identity(EXPERIMENT_RUN),
         "sha256:" + "1" * 64,
         select_publication_contracts(admitted.authority_context.language_bundle),
-        artifact_set,
+        resolve_artifact_set(admitted.authority_context.language_bundle, artifact_set),
         lambda _name, value: verify_artifact(
             value, admitted.authority_context.language_bundle
         ),
