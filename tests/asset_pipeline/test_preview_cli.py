@@ -12,6 +12,30 @@ from tests.mcp_support import FakeGdaRunner, gda_result, list_tools, schema_then
 from tests.support import minimal_project
 
 
+def test_preview_timeout_help_does_not_advertise_the_refused_zero_boundary():
+    result = CliRunner().invoke(app, ["asset-pipeline", "preview", "--help"])
+    assert result.exit_code == 0
+    assert "0<=x<=50" not in result.output
+    assert "positive" in result.output.lower()
+
+
+def test_preview_human_result_reports_comparison_and_diagnostic_coverage(tmp_path):
+    from gda.commands.asset_pipeline import (
+        AssetPipelinePreviewResult,
+        render_asset_preview,
+    )
+    from gda_assets.domain.preview_result import PreviewComparison, PreviewDiagnostics
+
+    preview = PreviewResult(
+        request=PreviewRequest(tmp_path / "model.glb", tmp_path / "out"),
+        comparison=PreviewComparison("non_comparable", ("preview_setup_mismatch",)),
+        diagnostics=PreviewDiagnostics((), True),
+    )
+    rendered = render_asset_preview(AssetPipelinePreviewResult(preview=preview))
+    assert "non_comparable" in rendered and "preview_setup_mismatch" in rendered
+    assert "diagnostics" in rendered and "truncated=True" in rendered
+
+
 def test_preview_schema_and_mcp_publish_bounded_typed_contract():
     result = CliRunner().invoke(app, ["asset-pipeline", "preview", "--schema"])
     assert result.exit_code == 0, result.output

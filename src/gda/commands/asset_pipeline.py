@@ -770,6 +770,18 @@ def render_asset_preview(result: AssetPipelinePreviewResult) -> str:
         )
     if preview.performance is not None:
         lines.append(f"  performance: passed={preview.performance.passed}")
+    if preview.comparison is not None:
+        lines.append(f"  comparison: {preview.comparison.status}")
+        lines.extend(f"    {reason}" for reason in preview.comparison.reasons)
+        lines.extend(
+            f"    {name}: mean delta={change.mean_delta:g}, p95 delta={change.p95_delta:g}"
+            for name, change in preview.comparison.changes.items()
+        )
+    if preview.diagnostics is not None:
+        lines.append(
+            f"  diagnostics: {len(preview.diagnostics.errors)} entry(s), "
+            f"truncated={preview.diagnostics.truncated}"
+        )
     return "\n".join(lines)
 
 
@@ -795,7 +807,9 @@ def asset_pipeline_preview(
         None, "--settings", help="Optional preview settings JSON file (at most 1 MiB)."
     ),
     frames: int = typer.Option(60, "--frames", min=1, max=120),
-    timeout: float = typer.Option(25.0, "--timeout", min=0, max=50),
+    timeout: float = typer.Option(
+        25.0, "--timeout", help="Positive readiness timeout in seconds, at most 50."
+    ),
     max_nodes: int = typer.Option(256, "--max-nodes", min=1, max=4096),
     budget: Optional[Path] = typer.Option(
         None, "--budget", help="Optional performance budget JSON."
