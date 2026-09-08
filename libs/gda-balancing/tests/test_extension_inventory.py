@@ -14,6 +14,7 @@ from schema2_extension_inventory_support import (
     AuthorityToken,
     InventoryRefusal,
     read_extension_inventory,
+    source_formula_requests,
     token_bijection_from_names,
     validate_extension_inventory,
     validate_inventory_occurrences,
@@ -1673,3 +1674,241 @@ def test_protocol_roles_do_not_merge_wire_schema_and_producer_kind_identities():
         "identity_excluded_members",
         "semantic_identity_projection",
     }
+
+
+def test_typed_source_selector_publishes_only_complete_schema_addresses(witness):
+    from schema2_bootstrap_conformance_support import (
+        _consumer_b_relation_paths_are_typed,
+    )
+
+    kernel, language = mutable_authorities()
+    profile = language["language"]["resolution_profiles"][0]
+    resolution = kernel["meta_format"]["resolution_judgment"]
+    addresses = {}
+    assert _consumer_b_relation_paths_are_typed(
+        profile,
+        resolution,
+        language,
+        kernel["meta_format"]["package_release"],
+        schema_addresses=addresses,
+    )
+    ri, recipe = next(
+        (i, row)
+        for i, row in enumerate(profile["relation_recipes"])
+        if row["id"] == "modules"
+    )
+    binding = ("relation_recipes", ri, "bindings", 0, "source", "path", 0)
+    fi = next(i for i, row in enumerate(recipe["fields"]) if row["name"] == "module")
+    field = ("relation_recipes", ri, "fields", fi, "term", "path", 0)
+    assert addresses[binding] == ("properties", "modules")
+    assert addresses[field] == ("properties", "modules", "items", "properties", "id")
+    original = deepcopy(addresses)
+    malformed = deepcopy(profile)
+    malformed["relation_recipes"][ri]["bindings"][0]["source"]["path"] = ["missing"]
+    assert not _consumer_b_relation_paths_are_typed(
+        malformed,
+        resolution,
+        language,
+        kernel["meta_format"]["package_release"],
+        schema_addresses=addresses,
+    )
+    assert addresses == {}, "a refused selector must not expose stale or partial proof"
+    assert original[binding] == ("properties", "modules")
+    kernel, graph, inventory = witness
+    module_field = AuthorityToken(
+        "source-field", ("language.wire_schemas", "model-source-package"), "modules"
+    )
+    id_field = AuthorityToken(
+        "source-field",
+        ("language.wire_schemas", "model-source-package", "member", "modules", "items"),
+        "id",
+    )
+    assert {module_field, id_field} <= inventory.tokens - inventory.reserved
+    assert any(
+        o.token == module_field
+        and o.location == "key"
+        and o.pointer == "/source/modules"
+        for o in inventory.occurrences
+    )
+    assert any(
+        o.token == id_field
+        and o.location == "key"
+        and o.pointer == "/source/modules/0/id"
+        for o in inventory.occurrences
+    )
+    occurrence = next(
+        o
+        for o in inventory.occurrences
+        if o.token == id_field and o.use == "reference" and o.location == "value"
+    )
+    for candidate in (
+        replace(
+            inventory,
+            occurrences=tuple(o for o in inventory.occurrences if o != occurrence),
+        ),
+        replace(
+            inventory,
+            occurrences=tuple(
+                replace(o, token=replace(id_field, owner=module_field.owner))
+                if o == occurrence
+                else o
+                for o in inventory.occurrences
+            ),
+        ),
+    ):
+        with pytest.raises(InventoryRefusal):
+            validate_extension_inventory(kernel, graph, candidate)
+
+
+def test_dot_path_renaming_limits_only_its_actual_member_tokens(witness):
+    kernel, graph, inventory = witness
+    projected = next(o for o in inventory.occurrences if o.location == "member-path")
+    sources = sorted(inventory.tokens - inventory.reserved)
+    names = {token: f"renamed_{index}" for index, token in enumerate(sources)}
+    names[projected.token] = "cannot.encode"
+    with pytest.raises(InventoryRefusal, match="declared dot-path"):
+        validate_token_bijection(
+            inventory, token_bijection_from_names(inventory, names)
+        )
+    names[projected.token] = "encodable"
+    namespace = next(token for token in sources if token.role == "namespace")
+    names[namespace] = "still.valid.namespace"
+    with pytest.raises(InventoryRefusal, match="uncovered semantic role"):
+        validate_token_bijection(
+            inventory, token_bijection_from_names(inventory, names)
+        )
+    omitted = replace(
+        inventory, occurrences=tuple(o for o in inventory.occurrences if o != projected)
+    )
+    with pytest.raises(InventoryRefusal, match="address coverage"):
+        validate_extension_inventory(kernel, graph, omitted)
+    ordinary = next(
+        o
+        for o in inventory.occurrences
+        if o.token.name == "debug-map"
+        and o.location == "value"
+        and o.pointer.endswith("/schema_kind")
+    )
+    forged = replace(ordinary, location="member-path", projection="0")
+    with pytest.raises(InventoryRefusal, match="no declared address projection"):
+        validate_extension_inventory(
+            kernel,
+            graph,
+            replace(inventory, occurrences=(*inventory.occurrences, forged)),
+        )
+
+
+def test_inventory_consumes_the_complete_declared_source_module_mapping():
+    from gda_balancing.domain.authority.context import (
+        AdmittedAuthorityContext,
+        admit_authority_context,
+    )
+    from gda_balancing.domain.model import (
+        CheckedModel,
+        check_model_source_value,
+        compile_checked_model,
+    )
+    from schema2_bootstrap_conformance_support import _reidentify_package_release
+    from schema2_bootstrap_production_support import _reidentify_graph_root
+
+    kernel, language = mutable_authorities()
+    original, renamed = "modules", "opaque_modules"
+    for package in language["language"]["packages"]:
+        for closure in package["semantic_closure"]:
+            role = closure["authority_path"]
+            for row in closure["definitions"]:
+                if (
+                    role == "language.wire_schemas"
+                    and row.get("protocol_role") == "model-source-package"
+                ):
+                    schema = row["schema"]
+                    schema["properties"][renamed] = schema["properties"].pop(original)
+                    schema["required"] = [
+                        renamed if name == original else name
+                        for name in schema["required"]
+                    ]
+                elif role == "language.resolution_profiles":
+                    row["modules_member"] = renamed
+                    for recipe in row["relation_recipes"]:
+                        terms = [binding["source"] for binding in recipe["bindings"]]
+                        terms.extend(field["term"] for field in recipe["fields"])
+                        terms.extend(
+                            predicate[side]
+                            for predicate in recipe["predicates"]
+                            for side in ("left", "right")
+                        )
+                        for term in terms:
+                            if term["root"] == "source" and term["path"][:1] == [
+                                original
+                            ]:
+                                term["path"][0] = renamed
+                elif role == "language.model_lowerings":
+                    if row["source_selector"][:1] == [original]:
+                        row["source_selector"][0] = renamed
+                elif role == "language.model_checks":
+                    for member in ("selector", "scope_selector"):
+                        if row.get(member, [])[:1] == [original]:
+                            row[member][0] = renamed
+        _reidentify_package_release(package)
+    _reidentify_graph_root(language)
+    a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
+    assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
+    context = admit_authority_context(kernel, language)
+    assert isinstance(context, AdmittedAuthorityContext), context
+    source = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/bounded-fold/model-source.json"
+        ).read_text()
+    )
+    source[renamed] = source.pop(original)
+    checked = check_model_source_value(source, authority_context=context)
+    assert isinstance(checked, CheckedModel), checked
+    assert len(compile_checked_model(checked)) == 8
+    graph = {
+        "packages": language.package_releases,
+        "ldb_root": language.root,
+        "vector_sets": language.package_conformance_vector_sets,
+        "source": source,
+    }
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    token = AuthorityToken(
+        "source-field", ("language.wire_schemas", "model-source-package"), renamed
+    )
+    references = [o for o in inventory.occurrences if o.token == token]
+    assert len([o for o in references if o.pointer.endswith("/source_selector/0")]) == 1
+    assert (
+        len(
+            [
+                o
+                for o in references
+                if o.pointer.endswith(("/selector/0", "/scope_selector/0"))
+            ]
+        )
+        == 5
+    )
+    assert any(
+        o.pointer == "/source/opaque_modules" and o.location == "key"
+        for o in references
+    )
+    assert not any(
+        o.pointer.startswith("/source/modules/") for o in inventory.occurrences
+    )
+    formula_source = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/progression-periodic-effect/model-source.json"
+        ).read_text()
+    )
+    formula_source[renamed] = formula_source.pop(original)
+    requests = source_formula_requests(kernel, {**graph, "source": formula_source})
+    assert requests
+    assert all(pointer.startswith("/source/opaque_modules/") for pointer in requests)
+    assert all(
+        request["modules"] == formula_source[renamed] for request in requests.values()
+    )
+    assert all(
+        request["package_requirements"] == formula_source["package_requirements"]
+        for request in requests.values()
+    )

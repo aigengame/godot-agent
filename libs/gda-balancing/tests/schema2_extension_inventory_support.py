@@ -16,6 +16,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_canonical_equal,
     _consumer_b_definition_is_closed,
     _consumer_b_operation_composition_subjects,
+    _consumer_b_relation_paths_are_typed,
 )
 
 
@@ -87,6 +88,14 @@ def _occurrence_value(
         return _pointer_value(
             formula_projections[occurrence.pointer], occurrence.projection
         )
+    if occurrence.location == "member-path":
+        value = _pointer_value(graph, occurrence.pointer)
+        if not isinstance(value, str) or not occurrence.projection.isdecimal():
+            raise InventoryRefusal("invalid dot-path projection")
+        index = int(occurrence.projection)
+        if str(index) != occurrence.projection:
+            raise InventoryRefusal("noncanonical dot-path projection")
+        return value.split(".")[index]
     if occurrence.projection:
         raise InventoryRefusal("only Formula occurrences may have an AST projection")
     if occurrence.location == "value":
@@ -124,41 +133,96 @@ def _attached_language(
     return {"language": language}
 
 
+def _source_profile(
+    kernel: Mapping[str, Any], graph: Mapping[str, Any]
+) -> dict[str, Any]:
+    profiles = [
+        row
+        for _, row, _ in _authority_path_rows(
+            kernel, graph, "language_bundle.language.resolution_profiles"
+        )
+        if row.get("default") is True
+    ]
+    if len(profiles) != 1:
+        raise InventoryRefusal("Source has no unique default resolution profile")
+    return profiles[0]
+
+
+def _dotted_pointer(root: str, path: str) -> str:
+    for segment in path.split("."):
+        root = _child(root, segment)
+    return root
+
+
+def _formula_policy_rows(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    return [
+        (value, _child(pointer + "/extensions", key), profile["id"])
+        for _, profile, pointer in _authority_path_rows(
+            kernel, graph, "language_bundle.language.resolution_profiles"
+        )
+        if profile.get("default") is True
+        for key, value in profile.get("extensions", {}).items()
+        if isinstance(value, dict) and "formula_id_member" in value
+    ]
+
+
+def source_formula_requests(
+    kernel: Mapping[str, Any], graph: Mapping[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """Resolve existing Formula requests keyed by their actual expression pointer."""
+    source = graph.get("source")
+    if not source:
+        return {}
+    profile = _source_profile(kernel, graph)
+    policies = _formula_policy_rows(kernel, graph)
+    if len(policies) != 1:
+        raise InventoryRefusal("Formula policy does not have one admitted owner")
+    policy = policies[0][0]
+    requests = {}
+    modules = source[profile["modules_member"]]
+    for mi, module in enumerate(modules):
+        mp = _child(_child("/source", profile["modules_member"]), mi)
+        for fi, formula in enumerate(module.get(policy["module_formulas_member"], [])):
+            if "expression" not in formula:
+                continue
+            fp = _child(_child(mp, policy["module_formulas_member"]), fi)
+            requests[fp + "/expression"] = {
+                "schema_version": source["schema_version"],
+                "package_requirements": source[profile["requirements_member"]],
+                "module": module,
+                "modules": modules,
+                "formula": formula,
+            }
+    return requests
+
+
 def _formula_projections(
     kernel: Mapping[str, Any], graph: Mapping[str, Any]
 ) -> dict[str, Any]:
     from schema2_formula_conformance_support import parse_canonical, render_body
 
-    source = graph.get("source")
-    if not source:
-        return {}
     language = _attached_language(kernel, graph)
     projections = {}
-    for mi, module in enumerate(source["modules"]):
-        for fi, formula in enumerate(module.get("formulas", [])):
-            expression = formula.get("expression")
-            if expression is None:
-                continue
-            request = {
-                "schema_version": source["schema_version"],
-                "package_requirements": source["package_requirements"],
-                "module": module,
-                "modules": source["modules"],
-                "formula": formula,
-            }
-            try:
-                parsed = parse_canonical(
-                    expression, request, language, kernel=dict(kernel)
+    policies = _formula_policy_rows(kernel, graph)
+    for pointer, request in source_formula_requests(kernel, graph).items():
+        formula = request["formula"]
+        expression = formula["expression"]
+        try:
+            parsed = parse_canonical(expression, request, language, kernel=dict(kernel))
+            if (
+                render_body(
+                    formula[policies[0][0]["formula_body_member"]], request, language
                 )
-                if render_body(formula["body"], request, language) != expression:
-                    raise InventoryRefusal("Formula body and expression disagree")
-                if render_body(parsed, request, language) != expression:
-                    raise InventoryRefusal("Formula expression is not canonical")
-            except (KeyError, TypeError, ValueError) as error:
-                raise InventoryRefusal(
-                    "Formula expression does not close independently"
-                ) from error
-            projections[f"/source/modules/{mi}/formulas/{fi}/expression"] = parsed
+                != expression
+            ):
+                raise InventoryRefusal("Formula body and expression disagree")
+            if render_body(parsed, request, language) != expression:
+                raise InventoryRefusal("Formula expression is not canonical")
+        except (KeyError, TypeError, ValueError) as error:
+            raise InventoryRefusal(
+                "Formula expression does not close independently"
+            ) from error
+        projections[pointer] = parsed
     return projections
 
 
@@ -481,6 +545,203 @@ def _wire_protocol_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
                 "reference",
                 "/meta_format/template_admission",
             )
+
+
+def _source_address_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    """Use only addresses exposed by the independent successful typed selector."""
+    source = _protocol_schema(kernel, graph, "model-source-package")
+    schema_rows = [
+        (role, row, pointer)
+        for role in ("language.wire_schemas", "language.artifact_wire_schemas")
+        for _, row, pointer in _authority_path_rows(
+            kernel, graph, "language_bundle." + role
+        )
+        if row.get("protocol_role") == "model-source-package"
+    ]
+    if len(schema_rows) != 1:
+        raise InventoryRefusal("Source address has no unique schema owner")
+    schema_role, _, schema_pointer = schema_rows[0]
+    language = _attached_language(kernel, graph)
+    resolution = kernel["meta_format"]["resolution_judgment"]
+    law = "/meta_format/resolution_judgment/relation_recipe_format"
+
+    def pointer(root: str, path: Sequence[str | int]) -> str:
+        for member in path:
+            root = _child(root, member)
+        return root
+
+    def token(address: tuple[str | int, ...]) -> AuthorityToken:
+        if len(address) < 2 or address[-2] != "properties":
+            raise InventoryRefusal("typed selector did not select an object member")
+        owner: tuple[str, ...] = (schema_role, source["artifact_kind"])
+        index = 0
+        while index < len(address) - 2:
+            member = address[index + 1]
+            if address[index] == "properties" and isinstance(member, str):
+                owner = (*owner, "member", member)
+                index += 2
+            elif address[index] == "items":
+                owner = (*owner, "items")
+                index += 1
+            else:
+                raise InventoryRefusal(
+                    "typed selector address has an unknown structural step"
+                )
+        name = address[-1]
+        if not isinstance(name, str):
+            raise InventoryRefusal("typed selector member name is not a string")
+        return AuthorityToken("source-field", owner, name)
+
+    def source_keys(value: Any, address: Sequence[str | int], path: str):
+        if address[0] == "properties":
+            member = address[1]
+            if not isinstance(value, dict) or member not in value:
+                return
+            selected = _child(path, member)
+            if len(address) == 2:
+                yield selected
+            else:
+                yield from source_keys(value[member], address[2:], selected)
+        elif address[0] == "items" and isinstance(value, list):
+            for i, item in enumerate(value):
+                yield from source_keys(item, address[1:], _child(path, i))
+
+    for _, profile, pp in _authority_path_rows(
+        kernel, graph, "language_bundle.language.resolution_profiles"
+    ):
+        addresses: dict[tuple[str | int, ...], tuple[str | int, ...]] = {}
+        if not _consumer_b_relation_paths_are_typed(
+            profile,
+            resolution,
+            language,
+            kernel["meta_format"]["package_release"],
+            schema_addresses=addresses,
+        ):
+            raise InventoryRefusal("Source schema-address judgement did not close")
+        for term_path, address in addresses.items():
+            selected = token(address)
+            yield selected, pointer(pp, term_path), "reference", "value", "", law
+            yield (
+                selected,
+                pointer(schema_pointer + "/schema", address),
+                "declaration",
+                "key",
+                "",
+                law,
+            )
+            containing = _pointer_value(source["schema"], pointer("", address[:-2]))
+            for index, member in enumerate(containing.get("required", [])):
+                if member == selected.name:
+                    yield (
+                        selected,
+                        pointer(
+                            schema_pointer + "/schema",
+                            (*address[:-2], "required", index),
+                        ),
+                        "reference",
+                        "value",
+                        "",
+                        law,
+                    )
+            if graph.get("source"):
+                for path in source_keys(graph["source"], address, "/source"):
+                    yield selected, path, "reference", "key", "", law
+        for equivalence in resolution["routing_equivalences"]:
+            ri, recipe = next(
+                (i, row)
+                for i, row in enumerate(profile["relation_recipes"])
+                if row["id"] == equivalence["recipe"]
+            )
+            fi, field = next(
+                (i, row)
+                for i, row in enumerate(recipe["fields"])
+                if row["name"] == equivalence["subject"]
+            )
+            term_path: tuple[str | int, ...] = (
+                "relation_recipes",
+                ri,
+                "fields",
+                fi,
+                "term",
+            )
+            term = field["term"]
+            if equivalence["subject_kind"] == "field-binding-source":
+                bi, binding = next(
+                    (i, row)
+                    for i, row in enumerate(recipe["bindings"])
+                    if row["name"] == term["binding"]
+                )
+                term_path = ("relation_recipes", ri, "bindings", bi, "source")
+                term = binding["source"]
+            if equivalence["projection"] == "last-segment":
+                index = len(term["path"]) - 1
+                yield (
+                    token(addresses[(*term_path, "path", index)]),
+                    _child(pp, equivalence["profile_member"]),
+                    "reference",
+                    "value",
+                    "",
+                    law,
+                )
+            elif equivalence["projection"] == "dot-path":
+                if profile[equivalence["profile_member"]].split(".") != term["path"]:
+                    raise InventoryRefusal(
+                        "declared dot-path cannot represent its member segments"
+                    )
+                for index in range(len(term["path"])):
+                    yield (
+                        token(addresses[(*term_path, "path", index)]),
+                        _child(pp, equivalence["profile_member"]),
+                        "reference",
+                        "member-path",
+                        str(index),
+                        law,
+                    )
+            else:
+                raise InventoryRefusal("unknown Source address projection")
+
+        # The existing path-segments grammar also addresses these same Source
+        # fields from lowering and check selectors. Only prefixes already
+        # proved by the typed selector acquire a field identity here.
+        known_addresses = set(addresses.values())
+
+        def selector(parts: list[str], path: str, prefix: tuple[str, ...] = ()):
+            address = prefix
+            for index, segment in enumerate(parts):
+                if segment == "*":
+                    address = (*address, "items")
+                else:
+                    address = (*address, "properties", segment)
+                    if address in known_addresses:
+                        yield (
+                            token(address),
+                            _child(path, index),
+                            "reference",
+                            "value",
+                            "",
+                            law,
+                        )
+
+        for _, lowering, lp in _authority_path_rows(
+            kernel, graph, "language_bundle.language.model_lowerings"
+        ):
+            if lowering["resolution_profile"] == profile["id"]:
+                yield from selector(
+                    lowering["source_selector"], lp + "/source_selector"
+                )
+        for _, check, cp in _authority_path_rows(
+            kernel, graph, "language_bundle.language.model_checks"
+        ):
+            scope = check.get("scope_selector", [])
+            yield from selector(scope, cp + "/scope_selector")
+            prefix: tuple[str, ...] = ()
+            for segment in scope:
+                prefix = (
+                    (*prefix, "items")
+                    if segment == "*"
+                    else (*prefix, "properties", segment)
+                )
+            yield from selector(check["selector"], cp + "/selector", prefix)
 
 
 def _constructor_member_selectors(constructor: Mapping[str, Any]):
@@ -1453,6 +1714,12 @@ class _Reader:
                     "/meta_format/language_definitions",
                     "metadata extension roles are not yet complete",
                 )
+            if role == "language.model_checks":
+                self.gap(
+                    pointer + "/selector",
+                    "/meta_format/language_definitions/collections/model_checks",
+                    "selector addresses beyond the typed Source projection remain unclassified",
+                )
             return True
         if role == "language.reasons":
             contract = self.meta["diagnostic_reason"]
@@ -2407,62 +2674,109 @@ class _Reader:
             )
         self.formula_projections = _formula_projections(self.kernel, self.graph)
         law = "/meta_format/resolution_judgment"
-        model = source["manifest"]["id"]
+        source_profile = _source_profile(self.kernel, self.graph)
+        model = _at(source, source_profile["manifest_id_path"].split("."))
         self.occurrence(
             AuthorityToken("source-model", (), model),
-            "/source/manifest/id",
+            _dotted_pointer("/source", source_profile["manifest_id_path"]),
             "declaration",
             law,
         )
-        for i, name in enumerate(source["package_requirements"]):
-            self.namespace(name, f"/source/package_requirements/{i}", "reference", law)
-        for mi, module in enumerate(source["modules"]):
-            mp = f"/source/modules/{mi}"
-            module_scope = (model, module["id"])
+        for i, name in enumerate(source[source_profile["requirements_member"]]):
+            self.namespace(
+                name,
+                f"{_child('/source', source_profile['requirements_member'])}/{i}",
+                "reference",
+                law,
+            )
+        for mi, module in enumerate(source[source_profile["modules_member"]]):
+            mp = f"{_child('/source', source_profile['modules_member'])}/{mi}"
+            module_scope = (model, module[source_profile["module_id_member"]])
             self.occurrence(
-                AuthorityToken("source-module", (model,), module["id"]),
-                mp + "/id",
+                AuthorityToken(
+                    "source-module",
+                    (model,),
+                    module[source_profile["module_id_member"]],
+                ),
+                _child(mp, source_profile["module_id_member"]),
                 "declaration",
                 law,
             )
             aliases = {}
-            for ii, import_ in enumerate(module["imports"]):
-                ip = f"{mp}/imports/{ii}"
+            for ii, import_ in enumerate(module[source_profile["imports_member"]]):
+                ip = f"{_child(mp, source_profile['imports_member'])}/{ii}"
                 alias = AuthorityToken(
-                    "source-type-alias", module_scope, import_["alias"]
+                    "source-type-alias",
+                    module_scope,
+                    import_[source_profile["import_alias_member"]],
                 )
-                aliases[import_["alias"]] = alias
-                self.occurrence(alias, ip + "/alias", "declaration", law)
-                self.namespace(import_["package"], ip + "/package", "reference", law)
+                aliases[import_[source_profile["import_alias_member"]]] = alias
                 self.occurrence(
-                    AuthorityToken("type", (import_["package"],), import_["symbol"]),
-                    ip + "/symbol",
-                    "reference",
-                    law,
-                )
-            for si, symbol in enumerate(module["symbols"]):
-                sp = f"{mp}/symbols/{si}"
-                self.occurrence(
-                    AuthorityToken("source-symbol", module_scope, symbol["symbol"]),
-                    sp + "/symbol",
+                    alias,
+                    _child(ip, source_profile["import_alias_member"]),
                     "declaration",
                     law,
                 )
-                alias = aliases.get(symbol["type"])
+                self.namespace(
+                    import_[source_profile["import_package_member"]],
+                    _child(ip, source_profile["import_package_member"]),
+                    "reference",
+                    law,
+                )
+                self.occurrence(
+                    AuthorityToken(
+                        "type",
+                        (import_[source_profile["import_package_member"]],),
+                        import_[source_profile["import_symbol_member"]],
+                    ),
+                    _child(ip, source_profile["import_symbol_member"]),
+                    "reference",
+                    law,
+                )
+            for si, symbol in enumerate(module[source_profile["symbols_member"]]):
+                sp = f"{_child(mp, source_profile['symbols_member'])}/{si}"
+                self.occurrence(
+                    AuthorityToken(
+                        "source-symbol",
+                        module_scope,
+                        symbol[source_profile["symbol_name_member"]],
+                    ),
+                    _child(sp, source_profile["symbol_name_member"]),
+                    "declaration",
+                    law,
+                )
+                alias = aliases.get(symbol[source_profile["symbol_type_member"]])
                 if alias is None:
                     raise InventoryRefusal(f"unresolved Source Type alias at {sp}")
-                self.occurrence(alias, sp + "/type", "reference", law)
+                self.occurrence(
+                    alias,
+                    _child(sp, source_profile["symbol_type_member"]),
+                    "reference",
+                    law,
+                )
                 self.value_contract(
-                    {k: v for k, v in symbol.items() if k != "type"}, sp
+                    {
+                        k: v
+                        for k, v in symbol.items()
+                        if k != source_profile["symbol_type_member"]
+                    },
+                    sp,
                 )
                 self.source_value_policy(symbol, sp)
             if module.get("formulas"):
                 self.formulas(source, module, mp, aliases)
         self.formula_bindings(source)
         entry = AuthorityToken(
-            "source-module", (model,), source["manifest"]["entry_module"]
+            "source-module",
+            (model,),
+            _at(source, source_profile["manifest_entry_module_path"].split(".")),
         )
-        self.occurrence(entry, "/source/manifest/entry_module", "reference", law)
+        self.occurrence(
+            entry,
+            _dotted_pointer("/source", source_profile["manifest_entry_module_path"]),
+            "reference",
+            law,
+        )
         for ei, entrypoint in enumerate(source.get("entrypoints", [])):
             ep = f"/source/entrypoints/{ei}"
             self.occurrence(
@@ -2513,8 +2827,9 @@ class _Reader:
         aliases: Mapping[str, AuthorityToken],
     ) -> None:
         policy, law, _ = self.formula_policy()
-        model = source["manifest"]["id"]
-        module_scope = (model, module["id"])
+        source_profile = _source_profile(self.kernel, self.graph)
+        model = _at(source, source_profile["manifest_id_path"].split("."))
+        module_scope = (model, module[source_profile["module_id_member"]])
         for fi, formula in enumerate(module.get(policy["module_formulas_member"], [])):
             fp = f"{pointer}/{policy['module_formulas_member']}/{fi}"
             name = formula[policy["formula_id_member"]]
@@ -2752,14 +3067,7 @@ class _Reader:
             self.gap(pointer, law, "Source operand form is not yet traversed")
 
     def formula_policy(self) -> tuple[dict[str, Any], str, str]:
-        policies = [
-            (value, _child(pp + "/extensions", key), definition["id"])
-            for (_, role, _), (definition, pp) in self.definitions.items()
-            if role == "language.resolution_profiles"
-            and definition.get("default") is True
-            for key, value in definition.get("extensions", {}).items()
-            if isinstance(value, dict) and "formula_id_member" in value
-        ]
+        policies = _formula_policy_rows(self.kernel, self.graph)
         if len(policies) != 1:
             raise InventoryRefusal("Formula policy does not have one admitted owner")
         return policies[0]
@@ -2784,7 +3092,8 @@ class _Reader:
 
     def formula_bindings(self, source: dict[str, Any]) -> None:
         policy, law, _ = self.formula_policy()
-        model = source["manifest"]["id"]
+        source_profile = _source_profile(self.kernel, self.graph)
+        model = _at(source, source_profile["manifest_id_path"].split("."))
         for i, binding in enumerate(source.get(policy["bindings_member"], [])):
             bp = f"/source/{policy['bindings_member']}/{i}"
             site = binding[policy["binding_site_member"]]
@@ -2866,6 +3175,12 @@ class _Reader:
             self.occurrence(token, pointer, use, law)
             if token.role.startswith("kernel."):
                 self.reserved.add(token)
+        for token, pointer, use, location, projection, law in _source_address_links(
+            self.kernel, self.graph
+        ):
+            self.occurrence(
+                token, pointer, use, law, location=location, projection=projection
+            )
         for token, pointer, use, law in _projection_collection_links(
             self.kernel, self.graph
         ):
@@ -2955,6 +3270,10 @@ def validate_token_bijection(
     shared_positions: dict[tuple[str, str, str], set[str]] = {}
     for occurrence in inventory.occurrences:
         target = correspondence.get(occurrence.token, occurrence.token)
+        if occurrence.location == "member-path" and "." in target.name:
+            raise InventoryRefusal(
+                "renamed member cannot be represented by the declared dot-path"
+            )
         position = (occurrence.pointer, occurrence.location, occurrence.projection)
         shared_positions.setdefault(position, set()).add(target.name)
     if any(len(names) != 1 for names in shared_positions.values()):
@@ -3180,7 +3499,8 @@ def _verify_formula_coverage(
             )
         return
     projections = _formula_projections(kernel, graph)
-    model = source["manifest"]["id"]
+    source_profile = _source_profile(kernel, graph)
+    model = _at(source, source_profile["manifest_id_path"].split("."))
     for i, binding in enumerate(source.get("formula_bindings", [])):
         bp = f"/source/formula_bindings/{i}"
         formula = binding["formula"]
@@ -3249,10 +3569,10 @@ def _verify_formula_coverage(
                     ),
                     ap + "/operand/symbol",
                 )
-    for mi, module in enumerate(source["modules"]):
-        ms = (model, module["id"])
+    for mi, module in enumerate(source[source_profile["modules_member"]]):
+        ms = (model, module[source_profile["module_id_member"]])
         for fi, formula in enumerate(module.get("formulas", [])):
-            fp = f"/source/modules/{mi}/formulas/{fi}"
+            fp = f"{_child('/source', source_profile['modules_member'])}/{mi}/formulas/{fi}"
             fs = (*ms, formula["id"])
             expected.add(
                 (
@@ -3414,7 +3734,35 @@ def validate_extension_inventory(
     """
     validate_inventory_occurrences(kernel, graph, inventory)
     _verify_constructor_address_coverage(kernel, graph, inventory)
+    address_expected = {
+        (token, pointer, use, location, projection)
+        for token, pointer, use, location, projection, _ in _source_address_links(
+            kernel, graph
+        )
+    }
+    address_actual = {
+        (o.token, o.pointer, o.use, o.location, o.projection)
+        for o in inventory.occurrences
+    }
+    if not address_expected <= address_actual:
+        raise InventoryRefusal(
+            "Source field address coverage is incomplete or misowned"
+        )
+    address_positions = {row[1:] for row in address_expected}
+    if any(
+        row[1:] in address_positions and row not in address_expected
+        for row in address_actual
+    ):
+        raise InventoryRefusal("Source field address occurrence has a wrong owner")
+    if any(
+        row[3] == "member-path" and row not in address_expected
+        for row in address_actual
+    ):
+        raise InventoryRefusal(
+            "member-path occurrence has no declared address projection"
+        )
     source_format_role = _source_format_role(kernel, graph)
+    source_profile = _source_profile(kernel, graph)
     _verify_formula_coverage(kernel, graph, inventory)
     rule_required = set()
     for _, rule, pointer in _authority_path_rows(
@@ -3617,8 +3965,8 @@ def validate_extension_inventory(
         if len(selected) != 1:
             raise InventoryRefusal("Source has no unique assignment policy")
         lowering = selected[0]
-        for mi, module in enumerate(graph["source"]["modules"]):
-            for si, symbol in enumerate(module["symbols"]):
+        for mi, module in enumerate(graph["source"][source_profile["modules_member"]]):
+            for si, symbol in enumerate(module[source_profile["symbols_member"]]):
                 required.add(
                     (
                         AuthorityToken(
@@ -3630,7 +3978,7 @@ def validate_extension_inventory(
                             ),
                             symbol["value_policy"]["mode"],
                         ),
-                        f"/source/modules/{mi}/symbols/{si}/value_policy/mode",
+                        f"{_child('/source', source_profile['modules_member'])}/{mi}/{source_profile['symbols_member']}/{si}/value_policy/mode",
                         "reference",
                     )
                 )
@@ -3852,76 +4200,109 @@ def validate_extension_inventory(
                 required.add((AuthorityToken("vectors", owner, name), path, use))
     source = graph.get("source")
     if source:
-        model = source["manifest"]["id"]
+        model = _at(source, source_profile["manifest_id_path"].split("."))
         required.add(
             (
                 AuthorityToken("source-model", (), model),
-                "/source/manifest/id",
+                _dotted_pointer("/source", source_profile["manifest_id_path"]),
                 "declaration",
             )
         )
         required.add(
             (
                 AuthorityToken(
-                    "source-module", (model,), source["manifest"]["entry_module"]
+                    "source-module",
+                    (model,),
+                    _at(
+                        source, source_profile["manifest_entry_module_path"].split(".")
+                    ),
                 ),
-                "/source/manifest/entry_module",
+                _dotted_pointer(
+                    "/source", source_profile["manifest_entry_module_path"]
+                ),
                 "reference",
             )
         )
-        for i, namespace in enumerate(source["package_requirements"]):
+        for i, namespace in enumerate(source[source_profile["requirements_member"]]):
             required.add(
                 (
                     AuthorityToken("namespace", (), namespace),
-                    f"/source/package_requirements/{i}",
+                    f"{_child('/source', source_profile['requirements_member'])}/{i}",
                     "reference",
                 )
             )
-        for mi, module in enumerate(source["modules"]):
-            scope, mp = (model, module["id"]), f"/source/modules/{mi}"
+        for mi, module in enumerate(source[source_profile["modules_member"]]):
+            scope, mp = (
+                (model, module[source_profile["module_id_member"]]),
+                f"{_child('/source', source_profile['modules_member'])}/{mi}",
+            )
             required.add(
                 (
-                    AuthorityToken("source-module", (model,), module["id"]),
-                    mp + "/id",
+                    AuthorityToken(
+                        "source-module",
+                        (model,),
+                        module[source_profile["module_id_member"]],
+                    ),
+                    _child(mp, source_profile["module_id_member"]),
                     "declaration",
                 )
             )
-            for ii, row in enumerate(module["imports"]):
-                ip = f"{mp}/imports/{ii}"
+            for ii, row in enumerate(module[source_profile["imports_member"]]):
+                ip = f"{_child(mp, source_profile['imports_member'])}/{ii}"
                 required.add(
                     (
-                        AuthorityToken("source-type-alias", scope, row["alias"]),
-                        ip + "/alias",
+                        AuthorityToken(
+                            "source-type-alias",
+                            scope,
+                            row[source_profile["import_alias_member"]],
+                        ),
+                        _child(ip, source_profile["import_alias_member"]),
                         "declaration",
                     )
                 )
                 required.add(
                     (
-                        AuthorityToken("namespace", (), row["package"]),
-                        ip + "/package",
+                        AuthorityToken(
+                            "namespace",
+                            (),
+                            row[source_profile["import_package_member"]],
+                        ),
+                        _child(ip, source_profile["import_package_member"]),
                         "reference",
                     )
                 )
                 required.add(
                     (
-                        AuthorityToken("type", (row["package"],), row["symbol"]),
-                        ip + "/symbol",
+                        AuthorityToken(
+                            "type",
+                            (row[source_profile["import_package_member"]],),
+                            row[source_profile["import_symbol_member"]],
+                        ),
+                        _child(ip, source_profile["import_symbol_member"]),
                         "reference",
                     )
                 )
-            for si, row in enumerate(module["symbols"]):
-                sp = f"{mp}/symbols/{si}"
+            for si, row in enumerate(module[source_profile["symbols_member"]]):
+                sp = f"{_child(mp, source_profile['symbols_member'])}/{si}"
                 required.add(
                     (
-                        AuthorityToken("source-symbol", scope, row["symbol"]),
-                        sp + "/symbol",
+                        AuthorityToken(
+                            "source-symbol",
+                            scope,
+                            row[source_profile["symbol_name_member"]],
+                        ),
+                        _child(sp, source_profile["symbol_name_member"]),
                         "declaration",
                     )
                 )
                 required.add(
                     (
-                        AuthorityToken("source-type-alias", scope, row["type"]),
-                        sp + "/type",
+                        AuthorityToken(
+                            "source-type-alias",
+                            scope,
+                            row[source_profile["symbol_type_member"]],
+                        ),
+                        _child(sp, source_profile["symbol_type_member"]),
                         "reference",
                     )
                 )
@@ -4002,6 +4383,28 @@ def _renamed_owner(
     def name(owner_token: AuthorityToken) -> str:
         target = correspondence.get(owner_token)
         return owner_token.name if target is None else target.name
+
+    if token.role == "source-field":
+        schema_role, schema_id, *path = token.owner
+        renamed = (schema_role, name(AuthorityToken(schema_role, (), schema_id)))
+        original = (schema_role, schema_id)
+        index = 0
+        while index < len(path):
+            if path[index] == "member" and index + 1 < len(path):
+                member = path[index + 1]
+                renamed = (
+                    *renamed,
+                    "member",
+                    name(AuthorityToken("source-field", original, member)),
+                )
+                original = (*original, "member", member)
+                index += 2
+            elif path[index] == "items":
+                renamed, original = (*renamed, "items"), (*original, "items")
+                index += 1
+            else:
+                raise InventoryRefusal("Source field owner has an unknown data path")
+        return renamed
 
     if not token.owner:
         return ()

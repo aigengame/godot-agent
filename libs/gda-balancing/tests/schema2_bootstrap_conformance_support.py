@@ -3036,7 +3036,12 @@ def _consumer_b_relation_paths_are_typed(
     resolution: dict[str, Any],
     ldb: dict[str, Any],
     package_release: dict[str, Any],
+    *,
+    schema_addresses: dict[tuple[str | int, ...], tuple[str | int, ...]] | None = None,
 ) -> bool:
+    if schema_addresses is not None:
+        schema_addresses.clear()
+    derived_addresses: dict[tuple[str | int, ...], tuple[str | int, ...]] = {}
     language = ldb.get("language")
     schemas = language.get("wire_schemas") if isinstance(language, dict) else None
     source = [
@@ -3056,31 +3061,37 @@ def _consumer_b_relation_paths_are_typed(
 
     def select(
         term: dict[str, Any],
-        bindings: dict[str, tuple[str, Any, str]],
-    ) -> tuple[str, Any, str] | None:
+        bindings: dict[str, tuple[str, Any, str, tuple[str | int, ...] | None]],
+        term_path: tuple[str | int, ...],
+    ) -> tuple[str, Any, str, tuple[str | int, ...] | None] | None:
         if term["root"] == "source":
-            representation, payload, origin = "schema", source[0], "source"
+            representation, payload, origin, address = "schema", source[0], "source", ()
         elif term["root"] == "language":
             if term["path"] != ["packages"]:
                 return None
-            return ("package-list", package_release, "language")
+            return ("package-list", package_release, "language", None)
         elif term["root"] == "selected-packages":
             if term["path"]:
                 return None
-            return ("package-list", package_release, "language")
+            return ("package-list", package_release, "language", None)
         elif term["root"] == "binding" and term.get("binding") in bindings:
-            representation, payload, origin = bindings[term["binding"]]
+            representation, payload, origin, address = bindings[term["binding"]]
         else:
             return None
         if representation == "schema":
             selected = _consumer_b_schema_path(payload, term["path"])
-            return ("schema", selected, origin) if selected is not None else None
+            if selected is None or address is None:
+                return None
+            for index, segment in enumerate(term["path"]):
+                address = (*address, "properties", segment)
+                derived_addresses[(*term_path, "path", index)] = address
+            return ("schema", selected, origin, address)
         if representation == "contract":
             if not isinstance(payload, dict):
                 return None
             path = term["path"]
             if not path:
-                return ("contract", payload, origin)
+                return ("contract", payload, origin, None)
             direct = payload.get("field_types")
             nested = payload.get("nested_field_types")
             if len(path) == 1 and isinstance(direct, dict):
@@ -3096,7 +3107,9 @@ def _consumer_b_relation_paths_are_typed(
             else:
                 selected = None
             return (
-                ("contract", selected, origin) if isinstance(selected, dict) else None
+                ("contract", selected, origin, None)
+                if isinstance(selected, dict)
+                else None
             )
         if not isinstance(payload, list):
             return None
@@ -3108,10 +3121,12 @@ def _consumer_b_relation_paths_are_typed(
                     return None
                 next_values.append(value[segment])
             values = next_values
-        return ("values", values, origin)
+        return ("values", values, origin, None)
 
-    def result_kind(shape: tuple[str, Any, str]) -> str | None:
-        representation, payload, _origin = shape
+    def result_kind(
+        shape: tuple[str, Any, str, tuple[str | int, ...] | None],
+    ) -> str | None:
+        representation, payload, _origin, _address = shape
         if representation == "schema":
             return _consumer_b_kind(payload, schema=True)
         if representation == "package-list":
@@ -3130,19 +3145,31 @@ def _consumer_b_relation_paths_are_typed(
         kinds = {_consumer_b_kind(value) for value in payload}
         return kinds.pop() if len(kinds) == 1 else None
 
-    for recipe in recipes:
-        bindings: dict[str, tuple[str, Any, str]] = {}
-        for binding in recipe["bindings"]:
-            shape = select(binding["source"], bindings)
+    for recipe_index, recipe in enumerate(recipes):
+        recipe_path = ("relation_recipes", recipe_index)
+        bindings: dict[str, tuple[str, Any, str, tuple[str | int, ...] | None]] = {}
+        for binding_index, binding in enumerate(recipe["bindings"]):
+            shape = select(
+                binding["source"],
+                bindings,
+                (*recipe_path, "bindings", binding_index, "source"),
+            )
             if shape is None:
                 return False
-            representation, payload, origin = shape
+            representation, payload, origin, address = shape
             if representation == "schema":
                 if payload.get("type") != "array" or not isinstance(
                     payload.get("items"), dict
                 ):
                     return False
-                bindings[binding["name"]] = ("schema", payload["items"], origin)
+                if address is None:
+                    return False
+                bindings[binding["name"]] = (
+                    "schema",
+                    payload["items"],
+                    origin,
+                    (*address, "items"),
+                )
             elif representation in {"contract", "package-list"}:
                 if representation == "package-list":
                     item = payload
@@ -3152,7 +3179,7 @@ def _consumer_b_relation_paths_are_typed(
                     item = payload.get("items")
                 if not isinstance(item, dict):
                     return False
-                bindings[binding["name"]] = ("contract", item, origin)
+                bindings[binding["name"]] = ("contract", item, origin, None)
             else:
                 if not payload or not all(isinstance(value, list) for value in payload):
                     return False
@@ -3160,10 +3187,12 @@ def _consumer_b_relation_paths_are_typed(
                     "values",
                     [item for value in payload for item in value],
                     origin,
+                    None,
                 )
-        for predicate in recipe["predicates"]:
-            left = select(predicate["left"], bindings)
-            right = select(predicate["right"], bindings)
+        for predicate_index, predicate in enumerate(recipe["predicates"]):
+            predicate_path = (*recipe_path, "predicates", predicate_index)
+            left = select(predicate["left"], bindings, (*predicate_path, "left"))
+            right = select(predicate["right"], bindings, (*predicate_path, "right"))
             if (
                 left is None
                 or right is None
@@ -3171,8 +3200,10 @@ def _consumer_b_relation_paths_are_typed(
                 or result_kind(left) != result_kind(right)
             ):
                 return False
-        for field in recipe["fields"]:
-            shape = select(field["term"], bindings)
+        for field_index, field in enumerate(recipe["fields"]):
+            shape = select(
+                field["term"], bindings, (*recipe_path, "fields", field_index, "term")
+            )
             if (
                 shape is None
                 or result_kind(shape) != "string"
@@ -3210,6 +3241,8 @@ def _consumer_b_relation_paths_are_typed(
         )
         if profile.get(equivalence["profile_member"]) != expected:
             return False
+    if schema_addresses is not None:
+        schema_addresses.update(derived_addresses)
     return True
 
 
