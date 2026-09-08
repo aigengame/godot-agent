@@ -194,6 +194,36 @@ The integrated selected-value, inventory and CI policy suite passes (59 tests); 
 CI inventory contains 2066 unique tests and 347 maintained package vectors, with no
 missing, overlapping or uncovered tests. This is collection evidence, not a full CI run.
 
+At `c16896a3b`, the independent driver executes the real priority baseline and pass
+variant, including typed external inputs and future scheduled resolution. B produces
+all six members before A executes. A admits B's complete set and B admits A's set by
+fresh independent execution; the five semantic members agree exactly and the producer
+manifests remain truthfully distinct. The values are 7 and 0. The integrated suite
+passes 78 cases, including the existing independent fold and CI policy checks.
+The [captured checkpoint](evidence/priority-window/independent-runtime-checkpoint.json)
+records raw artifact, command and test hashes. Formula lifecycle, Scenario RNG, Runtime
+cancel instructions and terminal-audit production remain unsupported by this bounded
+independent Scenario driver; the ordinary public negative tests retain their actual scope.
+
+Consistent renaming of four LDB effect identities exposes another real defect. Both
+authority consumers admit the graph, independent compilation succeeds, and public
+Model build and Experiment check pass. A's public run then exits 4 with an internal
+`ValidationError`; B's old driver refuses the declared effects because its capability
+list contains their original spellings. At `4d229d193`, B instead derives effect labels
+from actual reachable Operations after checking every reached node's supported Kernel
+semantics. It executes both renamed variants and A admits B's six members. The 34
+integrated mutual-consumption cases pass.
+
+Production's corresponding repair lands at `231c8e717`. Effect labels are opaque
+permission-set identities projected from admitted reachable Operations; supported
+instruction semantics remain a separate capability dimension checked before dispatch.
+Wider profile permissions do not require the current program to exercise every effect.
+The same six new cases fail before repair and pass afterwards: original and renamed
+public runs, a caller's forged required effect, and an unsupported operator that must
+refuse before dispatch. The integrated producer, independent-consumer and CI policy
+suite passes 52 tests. Numeric handling is unchanged by this repair. This partial
+rename remains a defect discriminator, not exhaustive invariance evidence.
+
 The required `extension` CI partition owns the inventory, public priority and independent
 Runtime tests. The earlier composition partition took 329.641 seconds in the final #877 run;
 the new public suite alone took 83.76 seconds before integration. Separating the added
@@ -208,6 +238,16 @@ a dynamic List key with the same spelling; no second type checker is added. The
 integrated inventory, independent compiler and CI policy checks pass (40 tests).
 The inventory still reports uncovered DSL, vector and artifact surfaces and refuses
 to certify completeness. Its present token count is not a full-graph acceptance claim.
+
+At `53d524b15`, the inventory also parses actual Formula expressions through the
+existing independent parser and checks AST references and rendering in both directions.
+Its independent Formula schema lookup drops the same stale namespace filter found in
+production. Occurrence validation now requires its actual Kernel input directly; no
+compatibility mode is retained for this new internal helper. The integrated inventory
+and CI policy suite passes 45 tests. The current test collection accounts for 2092
+unique tests and 347 maintained vectors with no missing or overlapping coverage;
+Ruff checks/format (210 files) and Pyright pass. Complete semantic-token coverage and
+full CI execution are still open.
 
 The [named-stream counterexample](evidence/priority-window/named-stream-renaming.json)
 also limits the equivalence judgment. Kernel `named_rng` explicitly hashes the UTF-8
@@ -232,6 +272,20 @@ change RNG semantics or activate an authenticated Extension Invariance claim.
 
 ## Remaining proof and integration
 
+- Remove demonstrated LDB-name coupling before the final build freeze. In addition to
+  effect whitelists, the provisional Kernel directly names the LDB numeric policy,
+  typed-envelope profile, four structured constructors and four static structured
+  reasons. [Four bounded counterexamples](evidence/priority-window/authority-name-counterexamples.json)
+  preserve actual A/B admission and public build refusals after coherent renaming.
+  The numeric probe changes 621 occurrences and both consumers report the same 31
+  typing refusals; its original public build/check/run succeeds. The other three roles
+  each fail admission and public build. No renamed RIR or later execution is claimed.
+  Ownership inspection identifies these as references to LDB declarations;
+  their occurrence in Kernel text does not make them reserved identities. Reuse the
+  admitted policy definitions, unique profile role, constructor value laws and distinct
+  fault bindings. Keep missing/duplicate/unsupported semantics refusing. The pending
+  correction replaces the provisional contract and requires affected conformance and
+  authored-input revalidation; it does not claim the old Kernel passed full renaming.
 - Derive every reachable non-Kernel token and occurrence from the applicable Kernel/LDB,
   node, constructor and authored-input contracts. An ordinary JSON string walk cannot
   distinguish an identity from user data. A graph rooted at the complete LDB includes

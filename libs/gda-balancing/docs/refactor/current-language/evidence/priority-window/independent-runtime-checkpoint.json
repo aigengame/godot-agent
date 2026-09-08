@@ -1,0 +1,259 @@
+{
+  "head": "d82d2733046ff6a7cdcc6d171f380d1aff9a601d",
+  "owned_commits": [
+    "a8b01c4af",
+    "d442cf9f1",
+    "d82d27330"
+  ],
+  "prior_stage_c": {
+    "path": "/private/tmp/gda-878-reference-preparation/STAGE-C-RECEIPT.json",
+    "bytes": 30600,
+    "sha256": "3d1a37daf00a2ff485738e3d03e21aff93e273e40bd970b01c788a680006d572"
+  },
+  "status": "Original priority variants exchange all six artifacts in both directions. The bounded effect rename now also executes publicly after the production and independent repairs below. Complete token inventory and final fixed-build renaming remain open.",
+  "effect_ownership": "No effect token occurs in current Kernel. B now derives labels only from selected Operation bodies reachable from authored transition roots, after every encountered node is supported. No required-effect-list or full runtime-profile fallback. Numeric naming is unchanged pending parent adjudication.",
+  "original_public_regression": {
+    "cases": 34,
+    "passed": 34,
+    "seconds": 43.49,
+    "junit": {
+      "path": "/private/tmp/gda-878-reference-preparation/effects-green.xml",
+      "bytes": 5903,
+      "sha256": "9e830acddc600d2fa52229017071dc418078efcddc45c1f8d8273b3a6d08f7ed"
+    },
+    "log": {
+      "path": "/private/tmp/gda-878-reference-preparation/effects-green.log",
+      "bytes": 100,
+      "sha256": "3351a1139120e1749f553224fcf7a553845b041a4407fbc94fcb5248417a2e85"
+    }
+  },
+  "old_independent_fold_regression": "34 passed in stage-c-final.xml; follow-up changed only Runtime capability projection/docstring and mutual tests, not Event interpretation.",
+  "static": {
+    "ruff": "passed",
+    "format": "passed",
+    "pyright": {
+      "path": "/private/tmp/gda-878-reference-preparation/effects-pyright.log",
+      "bytes": 37,
+      "sha256": "6d88a1b220adb7a3d62092b6e38431f0b3fe8babe9864fab90e5849766260332"
+    }
+  },
+  "effect_counterexample": {
+    "head": "d442cf9f1",
+    "script": {
+      "path": "/private/tmp/gda-878-reference-preparation/effect-rename-probe.py",
+      "bytes": 2455,
+      "sha256": "66229df1ff052995d8e2f02b4ff310af53bc68a0c198040f546660fd9eeb9644"
+    },
+    "B_red": {
+      "path": "/private/tmp/gda-878-reference-preparation/effect-rename-probe.log",
+      "bytes": 253,
+      "sha256": "1d980db59a0b08a138fddc4b944d0b799742d94a414fafb10737ba59601a411c"
+    },
+    "A_public_red": {
+      "path": "/private/tmp/gda-878-reference-preparation/effect-rename-public.log",
+      "bytes": 1332,
+      "sha256": "8639b7bb07f57e2ca3c6e5f5234b93d385662f5e68762877dac1f991b326258c"
+    },
+    "A_public_receipts": {
+      "path": "/private/tmp/gda-878-reference-preparation/effect-rename-public/cli-results.json",
+      "bytes": 4846,
+      "sha256": "0a9ca5d58d60568386b063c52d854abe3b92fc986868be1468cb33fa6855ab20"
+    },
+    "A_model_build": "passed and equal to independent RIR",
+    "A_experiment_check": true,
+    "A_run": {
+      "exit_code": 4,
+      "error": "internal_error (ValidationError)"
+    },
+    "B_run_before_fix": "IndependentRuntimeUnsupported: unimplemented evaluator requirement: effects"
+  },
+  "effect_green": {
+    "script": {
+      "path": "/private/tmp/gda-878-reference-preparation/effect-rename-independent-green.py",
+      "bytes": 2580,
+      "sha256": "4d9ba4d8bba0439c593cca70b393a2a7404c64ad82cb85f6fbeb590deb7d4b23"
+    },
+    "log": {
+      "path": "/private/tmp/gda-878-reference-preparation/effect-rename-independent-green.log",
+      "bytes": 609,
+      "sha256": "16821ac37211bbf56cf4f50a0613b303987e867088a3914d5874b12f68c1556d"
+    },
+    "trials": [
+      {
+        "variant": false,
+        "observed_value": 7,
+        "B_evaluator_build_identity": "sha256:0e7d92eefada1d5f9207b77006e69598f921bec275bc6c8210f9dfbf3614abd0",
+        "effects": [
+          "renamed.effect.commit",
+          "renamed.effect.observe",
+          "renamed.effect.schedule",
+          "renamed.effect.snapshot"
+        ],
+        "members": {
+          "evaluation-run": "sha256:8e50cc25df64c568303a540abf1a6c626f2c5f926072239c9a10c0307b790419",
+          "event-trace": "sha256:752fa6fa7f0782789222f0a551e8698edb82ee3dbf0c43eaa4a14a079460779b",
+          "snapshot-series": "sha256:9c343730c2c7fd9c30d78688a986a630eabf893ea11825ba1ef7603ba617f0c5",
+          "metric-dataset": "sha256:518ea73666bb4325033cf3e63fd07093d120eaf0a1ef73d21be1005461089fc9",
+          "resolved-runtime-profile": "sha256:c6355c06e4035b466dd7a2e8b9a0004cc69965329001046b1593a94d6be327b5",
+          "evaluator-capability-manifest": "sha256:1a12599d299812bd780eb32095031004cd0bbeea05c29696773762d39453abac"
+        },
+        "A_consumes_B": true,
+        "raw": {
+          "path": "/private/tmp/gda-878-reference-preparation/effect-rename-independent-green/False-artifacts.json",
+          "bytes": 94023,
+          "sha256": "2f1b9756353ae842b33bce345086dfea2a28223e0739b1692a02a137b71d5bc3"
+        }
+      },
+      {
+        "variant": true,
+        "observed_value": 0,
+        "B_evaluator_build_identity": "sha256:0e7d92eefada1d5f9207b77006e69598f921bec275bc6c8210f9dfbf3614abd0",
+        "effects": [
+          "renamed.effect.commit",
+          "renamed.effect.observe",
+          "renamed.effect.schedule",
+          "renamed.effect.snapshot"
+        ],
+        "members": {
+          "evaluation-run": "sha256:08af883425d6eda49aa853226376d63235a78c57169bb1de9fdf031bbc988d92",
+          "event-trace": "sha256:a90ad58e76fcf713e26896dc2d372a62fe8bf011e5c5eed2a54f31a64f249416",
+          "snapshot-series": "sha256:21030d2f8ceea53aa8a8d9d3a94b8ab99d6cdb8a53c6812b6376a0c1b64a3caf",
+          "metric-dataset": "sha256:a89ce955f96fa98c8d1da3ba865f0994e88d10d9e59b130f3bfefc0660e0a50b",
+          "resolved-runtime-profile": "sha256:cf5d86b879398bf0f1db7890ad0c597ae2b002bc0353370a37a8f9337f11e60f",
+          "evaluator-capability-manifest": "sha256:1a12599d299812bd780eb32095031004cd0bbeea05c29696773762d39453abac"
+        },
+        "A_consumes_B": true,
+        "raw": {
+          "path": "/private/tmp/gda-878-reference-preparation/effect-rename-independent-green/True-artifacts.json",
+          "bytes": 78826,
+          "sha256": "a54040b42faa6da6b5ff0313057a2cb2f3b8c50e05b8bbb190e1ca7090cf6ebd"
+        }
+      }
+    ]
+  },
+  "boundaries": [
+    "No production code or authority changes in owned commits.",
+    "No new RNG/Formula/cancel/terminal-audit/whole-Scenario-general-conformance claim.",
+    "Current mutual proof emits B before A execution; ordinary six-member exact comparison excludes only the separately truthful producer manifest.",
+    "The partial four-effect rename regression is a demonstrated defect discriminator, not the final exhaustive non-Kernel token rename proof owned by the primary/inventory agents."
+  ],
+  "primary_integration": {
+    "selected_input": "33ec7b73f",
+    "priority_execution": "c16896a3b",
+    "effect_projection": "4d229d193",
+    "priority_and_fold_and_ci_policy": {
+      "passed": 78,
+      "seconds": 63.44
+    },
+    "effect_and_mutual_cases": {
+      "passed": 34,
+      "seconds": 41.96
+    },
+    "raw_receipt_sha256": "b441069b89a73cd64962835a58512cfc1b45d090f6f57b36c6b893ad46e7bca7",
+    "referenced_files_verified": 12
+  },
+  "reproduction": {
+    "permanent_test": "tests/test_runtime_mutual_consumption.py",
+    "candidate_inputs": "tests/priority_protocol_support.py",
+    "independent_producer": "tests/schema2_runtime_independent_support.py",
+    "operation_walker": "tests/schema2_operation_execution_independent_support.py",
+    "command": "PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_runtime_mutual_consumption.py tests/test_bounded_fold_independent.py tests/test_ci_policy.py -p no:cacheprovider --basetemp=<unique-directory>",
+    "history": "Run counterfactual checks in isolated checkouts of the pinned old producer commits; keep candidate content and patched test evidence separately identified. Private paths below locate captured raw evidence, not required product paths."
+  },
+  "production_effect_repair": {
+    "primary_commit": "231c8e717c004807106c9bdae0bd59fbca43eda0",
+    "worker_commit": "25cee4910aefd7d1552e6da2d0ee0d2ad196e432",
+    "raw_receipt_sha256": "c0bef1479d7d6a3ab63726be1422624c56c864a692aa938f5adce392d34b2567",
+    "decision": "Effects are opaque permission-set labels projected from admitted reachable Operations. Instruction implementation support is a separate required dimension checked before dispatch. Broader profile permissions do not constrain this projection. Numeric unchanged.",
+    "tests": [
+      {
+        "name": "red-final",
+        "tests": 6,
+        "failed": [
+          "test_public_runtime_executes_opaque_effect_labels[original]",
+          "test_required_effects_do_not_grant_evaluator_capabilities[original]",
+          "test_unsupported_operator_refuses_before_dispatch[original]",
+          "test_public_runtime_executes_opaque_effect_labels[renamed]",
+          "test_required_effects_do_not_grant_evaluator_capabilities[renamed]",
+          "test_unsupported_operator_refuses_before_dispatch[renamed]"
+        ],
+        "passed": 0
+      },
+      {
+        "name": "green",
+        "tests": 11,
+        "failed": [],
+        "passed": 11
+      }
+    ],
+    "public": [
+      {
+        "variant": "original",
+        "source_sha256": "a3f768f690cee62bd87e1ef866ea4ab1355cee4378c87eeeb46c397c88e41df5",
+        "cli_exit_codes": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "manifest_effects": [
+          "event.commit",
+          "event.schedule",
+          "metric.observe",
+          "snapshot.commit"
+        ],
+        "profile_effects": [
+          "event.cancel",
+          "event.commit",
+          "event.schedule",
+          "metric.observe",
+          "rng.named-stream",
+          "snapshot.commit"
+        ],
+        "metric_values": [
+          7
+        ],
+        "artifact_kind": "evaluation-run",
+        "outcome": "accepted"
+      },
+      {
+        "variant": "renamed",
+        "source_sha256": "a3f768f690cee62bd87e1ef866ea4ab1355cee4378c87eeeb46c397c88e41df5",
+        "cli_exit_codes": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "manifest_effects": [
+          "renamed.effect.commit",
+          "renamed.effect.observe",
+          "renamed.effect.schedule",
+          "renamed.effect.snapshot"
+        ],
+        "profile_effects": [
+          "event.cancel",
+          "renamed.effect.commit",
+          "renamed.effect.schedule",
+          "renamed.effect.observe",
+          "rng.named-stream",
+          "renamed.effect.snapshot"
+        ],
+        "metric_values": [
+          7
+        ],
+        "artifact_kind": "evaluation-run",
+        "outcome": "accepted"
+      }
+    ],
+    "integrated_cases": {
+      "passed": 52,
+      "seconds": 68.99
+    },
+    "permanent_test": "tests/test_runtime_effect_renaming.py",
+    "limits": [
+      "Independent Authority admission is exercised; this task does not extend the independent Runtime consumer.",
+      "No Kernel/LDB/example edits, no whole-suite or wheel test claim, no remote writes."
+    ]
+  }
+}
