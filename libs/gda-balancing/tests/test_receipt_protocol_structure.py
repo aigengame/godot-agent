@@ -8,7 +8,10 @@ import pytest
 
 from gda_balancing.domain.artifacts import select_protocol_artifact_contract
 from gda_balancing.domain.authority.receipt_projection import receipt_protocol_schema
-from schema2_authority_support import mutable_authorities
+from schema2_authority_support import (
+    mutable_authorities,
+    refresh_package_semantic_closures,
+)
 from schema2_bootstrap_production_support import _consumer_a
 from test_current_namespace_public import _PublicCandidate, _members
 from test_trace_protocol_structure import _authored, _graph
@@ -54,6 +57,24 @@ def _receipt_rows(authored):
         if row["schema_kind"] == schema["artifact_kind"]
     )
     return schema, contract
+
+
+def _rename_receipt(authored):
+    """Rename the two actual declarations and their explicit export references."""
+    schema, contract = _receipt_rows(authored)
+    old_schema, old_kind = schema["artifact_kind"], contract["artifact_kind"]
+    schema["artifact_kind"] = "review.receipt.schema"
+    contract["schema_kind"] = schema["artifact_kind"]
+    contract["artifact_kind"] = "review.receipt.artifact"
+    for package in authored["packages"]:
+        for collection, old, new in (
+            ("artifact_wire_schemas", old_schema, schema["artifact_kind"]),
+            ("artifact_contracts", old_kind, contract["artifact_kind"]),
+        ):
+            package["exports"][collection] = [
+                new if value == old else value
+                for value in package["exports"][collection]
+            ]
 
 
 def test_receipt_has_no_authored_schema_or_identity_exclusion_policy():
@@ -121,13 +142,14 @@ def test_authored_receipt_identity_exclusion_reentry_refuses(excluded):
     assert any(row[1] == "kernel.vector_mismatch" for row in admission["diagnostics"])
 
 
-@pytest.mark.parametrize(
-    "override", [False, True], ids=["derived", "authored-override"]
-)
-def test_public_build_uses_only_the_derived_receipt_structure(tmp_path, override):
+@pytest.mark.parametrize("mode", ["derived", "renamed", "authored-override"])
+def test_public_build_uses_only_the_derived_receipt_structure(tmp_path, mode):
     kernel, ldb = mutable_authorities()
     authored = _authored(ldb)
+    if mode == "renamed":
+        _rename_receipt(authored)
     schema, contract = _receipt_rows(authored)
+    override = mode == "authored-override"
     if override:
         schema["schema"] = deepcopy(
             receipt_protocol_schema(kernel, contract["artifact_kind"])
@@ -162,8 +184,48 @@ def test_public_build_uses_only_the_derived_receipt_structure(tmp_path, override
         assert not (public.directory / "build").exists()
     else:
         assert len(_members(result)) == 8
-        assert result["wire_schema_identity"] == _WIRE_IDENTITY
+        assert result["artifact_kind"] == contract["artifact_kind"]
+        if mode == "derived":
+            assert result["wire_schema_identity"] == _WIRE_IDENTITY
         receipt = public.directory / "receipt.json"
         receipt.write_text(json.dumps(result))
         inspected = public.cli("model", "inspect", str(receipt))
         assert inspected
+
+
+def test_fixture_refresh_does_not_erase_co_mutated_receipt_overrides():
+    kernel, ldb = mutable_authorities()
+    language = ldb["language"]
+    schema = next(
+        row
+        for row in language["artifact_wire_schemas"]
+        if row.get("protocol_role") == "artifact-set-receipt"
+    )
+    contract = next(
+        row
+        for row in language["artifact_contracts"]
+        if row["schema_kind"] == schema["artifact_kind"]
+    )
+    schema["schema"]["properties"]["transport_manifest"] = schema["schema"][
+        "properties"
+    ].pop("manifest_locator")
+    schema["schema"]["required"] = [
+        "transport_manifest" if member == "manifest_locator" else member
+        for member in schema["schema"]["required"]
+    ]
+    contract["identity_excluded_members"] = ["transport_manifest", "member_locators"]
+    refresh_package_semantic_closures(ldb, kernel)
+    authored = {
+        "packages": ldb["language"]["packages"],
+        "vector_sets": ldb.package_conformance_vector_sets,
+        "ldb_root": ldb.root,
+    }
+    stored_schema, stored_contract = _receipt_rows(authored)
+    assert stored_schema["schema"] == schema["schema"]
+    assert (
+        stored_contract["identity_excluded_members"]
+        == contract["identity_excluded_members"]
+    )
+    admission = _consumer_a(kernel, _graph(kernel, authored))
+    assert admission["admitted"] is False
+    assert any(row[1] == "kernel.vector_mismatch" for row in admission["diagnostics"])
