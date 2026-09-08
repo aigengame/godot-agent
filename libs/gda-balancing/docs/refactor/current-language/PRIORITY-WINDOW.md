@@ -755,6 +755,25 @@ whole-LDB/vector/bounded-fold-Source inventory has 1,582 tokens, 6,137 occurrenc
 54 remaining gaps, with its physical graph and Kernel unchanged. Other protocol
 structures and complete graph/Experiment/result traversal remain open.
 
+The [next owner record](evidence/priority-window/protocol-owner-followup.json) captures
+the corresponding RIR counterexample at `18e2fcfa4`: a coherent `formulas` to
+`formula_rows` Schema/projection change admits in both authority consumers, but actual
+public Model check and build fail in the unchanged semantic projector. The next slice
+deletes the independent RIR Schema and structural exclusion recipe. It also deletes
+collection output-name/shape settings, the two fixed package-output recipes and
+`lowering.output_member`. The last setting only names an already computed declaration
+list; it does not select types, rules or composition. Derivation uses actual Kernel
+source roles and the selected lowering's terminal Fact contracts. Real selection graphs,
+Source routing, rule chains, typed data and resource accounting remain.
+
+The same record distinguishes a missing Source-to-initial-Fact transport law. A Source
+property with the same spelling as a Kernel Fact field does not acquire that owner by
+text equality. The existing generic copy and symbol/type adapters need one explicit
+transport law before inventory can derive that join and close the five selector gaps.
+The observed incomplete Source rename is not a valid semantic rename; its public
+refusal does not justify a field-name exception. This follow-up remains pending after
+the serial RIR authority change.
+
 ## Remaining proof and integration
 
 - Complete the semantic-token inventory and resolve remaining demonstrated name
