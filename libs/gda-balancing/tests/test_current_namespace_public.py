@@ -130,7 +130,6 @@ def _operation(owner: str) -> dict[str, Any]:
         "numeric_policy": "exact-int64",
         "operation_kind": "event-program",
         "outcomes": [{"id": outcome, "kind": "success", "state_policy": "commit"}],
-        "owner_type": "Receipt",
         "purity": "event",
         "refusals": ["runtime.reason.step-limit", "runtime.reason.numeric-overflow"],
         "resource_bounds": {"max_steps": 2 if owner == "genre.economy" else 7},

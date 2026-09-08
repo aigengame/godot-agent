@@ -2,7 +2,7 @@
   "schema_version": "2.0.0",
   "id": "example.bounded-fold",
   "model": {
-    "rir_semantic_identity": "sha256:62533a63234a86f9c1feb1b3c9173ce85d6779175f8b18ebffdad1280a18e132"
+    "rir_semantic_identity": "sha256:ea32b36eb93a9b4286e15a5f8927fc63f6e80e7b3bcb1f40d2fa954498bc8013"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",

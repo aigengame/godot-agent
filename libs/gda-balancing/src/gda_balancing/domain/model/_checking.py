@@ -285,6 +285,19 @@ def _check_model_source_bytes(
             cast(list[dict[str, Any]], declarations),
             lock,
         )
+    except _EntrypointBindingError as err:
+        return _refusal(
+            cast(
+                str,
+                reason_by_id(ldb, cast(str, profile["structural_reason"]))[
+                    "diagnostic"
+                ],
+            ),
+            source_identity,
+            err.pointer,
+            f"Model entrypoint resolution failed: {err}",
+            ldb,
+        )
     except (KeyError, TypeError, ValueError) as err:
         message = str(err)
         formula_reason = (
@@ -320,6 +333,9 @@ def _check_model_source_bytes(
             declarations,
             admitted_lowering,
             projection_budget,
+            kernel=kernel,
+            entrypoints=source["entrypoints"],
+            formulas=resolved_formulas,
         )
         initialization_programs = _compile_initialization_programs(
             selected_semantics,

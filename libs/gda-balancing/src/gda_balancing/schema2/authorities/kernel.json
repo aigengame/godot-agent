@@ -912,7 +912,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:82c67a6d19daf616e680f25bf4b9dbda811d2bdfc9ac4d76a683b7e49af35f8a",
+  "content_identity": "sha256:c0464d8780df6ec2cdd6e40cee1e9af97aaa804d2075107b14cad8e3313e862a",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3029,9 +3029,6 @@
                 "event-fragment"
               ]
             },
-            "owner_type": {
-              "type": "non-empty-string"
-            },
             "purity": {
               "enum": [
                 "pure",
@@ -3092,7 +3089,6 @@
           "required_members": [
             "id",
             "operation_kind",
-            "owner_type",
             "inputs",
             "result",
             "kind_rules",
@@ -5627,6 +5623,26 @@
             }
           ]
         }
+      },
+      "operation_roots": {
+        "required_members": [
+          "collection"
+        ],
+        "authority_path": "language.operations",
+        "entrypoint_reference_member": "operation",
+        "formula_nodes_path": [
+          "body",
+          "nodes"
+        ],
+        "formula_node_kind_member": "node",
+        "formula_node_kind": "operation-call",
+        "formula_reference_member": "operation",
+        "coordinate_members": [
+          "package",
+          "id"
+        ],
+        "closure": "kernel-operation-reference-nodes",
+        "missing": "refuse"
       }
     },
     "runtime_program": {

@@ -139,7 +139,6 @@ def op(
 ):
     value = {
         "id": name,
-        "owner_type": "Counter",
         "rule": "structured.lower",
         "operation_kind": "pure-expression" if pure else "event-program",
         "purity": "pure" if pure else "event",

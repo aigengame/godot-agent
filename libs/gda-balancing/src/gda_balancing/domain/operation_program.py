@@ -1,6 +1,6 @@
 """Static structure and provenance projections for admitted Operations."""
 
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, TypeAlias, cast
@@ -66,6 +66,8 @@ def closed_operation_coordinates(
     selected: Collection[OperationCoordinate],
     operations: Mapping[OperationCoordinate, dict[str, Any]],
     operation_node_ids: Collection[str] | None = None,
+    *,
+    consume_instruction: Callable[[], None] | None = None,
 ) -> set[OperationCoordinate]:
     """Close exact Operation references through selected or all reference nodes."""
     closed = set(selected)
@@ -77,6 +79,8 @@ def closed_operation_coordinates(
         for instruction in operation_body_instructions(
             cast(list[dict[str, Any]], operation.get("body", []))
         ):
+            if consume_instruction is not None:
+                consume_instruction()
             reference = instruction.get("operation")
             if not isinstance(reference, dict) or (
                 operation_node_ids is not None

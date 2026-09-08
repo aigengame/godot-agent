@@ -159,8 +159,8 @@ def test_public_model_request_prepares_once_and_keeps_artifact_admission(
         "_resolved_entrypoints",
         "_resolved_call_sites",
     } <= trace.post_specialization_checks
-    # The append capacity reason and diagnostic each add one catalog-row charge.
-    assert {used for _, used, _ in trace.charges} == {508}
+    # Actual roots add instruction/seed charges and remove unrelated Type edges.
+    assert {used for _, used, _ in trace.charges} == {556}
     assert {
         name: trace.calls["source", name]
         for name in (
@@ -318,7 +318,7 @@ def _effect_copy_candidate():
     return kernel, language_bundle
 
 
-def test_specialization_does_not_bind_a_value_equal_operation_in_another_namespace():
+def test_specialization_keeps_distinct_bindings_on_value_equal_namespace_operations():
     kernel, language_bundle = _effect_copy_candidate()
     admission = admit_authorities(kernel, language_bundle)
     assert admission.admitted, admission.diagnostics
@@ -326,6 +326,42 @@ def test_specialization_does_not_bind_a_value_equal_operation_in_another_namespa
         (_EXAMPLES / "progression-periodic-effect" / "model-source.json").read_bytes()
     )
     source["package_requirements"].append("test.effectcopy")
+    unused = check_model_source_value(
+        source, kernel=kernel, language_bundle=language_bundle
+    )
+    assert isinstance(unused, CheckedModel), unused
+    unused_artifacts = compile_checked_model(unused)
+    assert not any(
+        row["package"] == "test.effectcopy"
+        for row in cast(
+            dict[str, Any],
+            unused_artifacts["rir-semantic-payload"]["selected_semantics"],
+        )["operations"]
+    )
+    # Select both owners through real entrypoints. Each required slot receives
+    # its own valid Formula identity, even though the Formula bodies are equal.
+    copied_entrypoint = deepcopy(source["entrypoints"][0])
+    copied_entrypoint["id"] = "copied-effect"
+    copied_entrypoint["operation"]["package"] = "test.effectcopy"
+    source["entrypoints"].append(copied_entrypoint)
+    copied_binding = deepcopy(source["formula_bindings"][0])
+    copied_binding["site"]["operation"]["package"] = "test.effectcopy"
+    copied_binding["formula"]["id"] = "copied-magnitude"
+    source["formula_bindings"].append(copied_binding)
+    module = next(row for row in source["modules"] if row["id"] == "effect")
+    copied_formula = deepcopy(
+        next(row for row in module["formulas"] if row["id"] == "periodic-magnitude")
+    )
+    copied_formula["id"] = "copied-magnitude"
+    module["formulas"].append(copied_formula)
+    from test_schema2_model_lowerer_conformance import (
+        _reference_check_source,
+        _reference_semantic_artifacts,
+    )
+
+    reference_model = _reference_check_source(source, kernel, language_bundle)
+    assert not isinstance(reference_model, tuple), reference_model
+    reference_artifacts = _reference_semantic_artifacts(reference_model)
     source_before = canonical_bytes(source)
     authority_before = canonical_bytes(language_bundle)
     with _observe_preparation() as trace:
@@ -334,6 +370,10 @@ def test_specialization_does_not_bind_a_value_equal_operation_in_another_namespa
         )
     assert isinstance(checked, CheckedModel), checked
     assert set(_artifact_bytes(checked)) == _ARTIFACTS
+    assert (
+        compile_checked_model(checked)["rir-semantic-payload"]
+        == reference_artifacts["rir-semantic-payload"]
+    )
     formulas, bindings, _ = trace.formula_results[0]
     reference = next(
         binding["site"]["operation"]
@@ -341,7 +381,7 @@ def test_specialization_does_not_bind_a_value_equal_operation_in_another_namespa
         if binding["site"]["kind"] == "operation-slot"
         and binding["site"]["operation"]["package"] == "game.effect"
     )
-    assert not any(
+    assert any(
         binding["site"]["kind"] == "operation-slot"
         and binding["site"]["operation"]["package"] == "test.effectcopy"
         for binding in bindings
@@ -357,8 +397,8 @@ def test_specialization_does_not_bind_a_value_equal_operation_in_another_namespa
 
     independent = trace.projections[0]
     bound = operation(independent, "game.effect")["definition"]
-    unbound = operation(independent, "test.effectcopy")["definition"]
-    assert bound == unbound and bound is not unbound
+    copied = operation(independent, "test.effectcopy")["definition"]
+    assert bound == copied and bound is not copied
     aliased = deepcopy(independent)
     operation(aliased, "test.effectcopy")["definition"] = operation(
         aliased, "game.effect"
@@ -380,9 +420,17 @@ def test_specialization_does_not_bind_a_value_equal_operation_in_another_namespa
     assert canonical_bytes(language_bundle) == authority_before
     for output in outputs:
         assert operation(output, "game.effect")["definition"] != bound
-        # The complete unbound definition, including body and provenance, must
-        # remain unchanged in both projections even if its input was aliased.
-        assert operation(output, "test.effectcopy")["definition"] == unbound
+        # Both real bindings must retain their own complete provenance even
+        # when an input object was shared across the two nominal owners.
+        assert operation(output, "test.effectcopy")["definition"] != copied
+        assert (
+            operation(output, "test.effectcopy")["definition"]
+            != operation(output, "game.effect")["definition"]
+        )
+        for owner in ("game.effect", "test.effectcopy"):
+            assert operation(output, owner) == operation(
+                reference_artifacts["rir-semantic-payload"]["selected_semantics"], owner
+            )
         closure_definition = next(
             definition
             for closure in output["package_semantic_closures"]
@@ -392,7 +440,7 @@ def test_specialization_does_not_bind_a_value_equal_operation_in_another_namespa
             for definition in entry["definitions"]
             if definition["id"] == reference["id"]
         )
-        assert closure_definition == unbound
+        assert closure_definition == operation(output, "test.effectcopy")["definition"]
     assert outputs[0] == outputs[1] == outputs[2]
     assert len({canonical_bytes(value) for value in outputs}) == 1
 
@@ -442,7 +490,7 @@ def test_checked_request_and_all_artifact_outputs_are_isolated_from_mutation():
     assert _artifact_bytes(checked) == expected
 
 
-@pytest.mark.parametrize("limit", [372, 373, 374, 375, 376])
+@pytest.mark.parametrize("limit", [317, 318, 319, 320, 321])
 def test_preparation_keeps_exact_projection_charge_and_complete_refusal(limit):
     kernel, language_bundle = mutable_authorities()
     language_bundle["resources"]["max_runtime_projection_steps"] = limit
@@ -464,7 +512,7 @@ def test_preparation_keeps_exact_projection_charge_and_complete_refusal(limit):
             artifacts = _artifact_bytes(checked)
             assert artifacts
 
-    if limit < 375:
+    if limit < 319:
         assert isinstance(checked, Schema2RefusalReport)
         assert checked.model_dump(mode="json") == {
             "stage": "static",
@@ -488,10 +536,10 @@ def test_preparation_keeps_exact_projection_charge_and_complete_refusal(limit):
     else:
         assert isinstance(checked, CheckedModel), checked
         assert trace.calls["imported-artifact", "admit_resolved_model"] == 1
-        assert ("source", 375, limit) in trace.charges
-        assert ("imported-artifact", 375, limit) in trace.charges
+        assert ("source", 319, limit) in trace.charges
+        assert ("imported-artifact", 319, limit) in trace.charges
     assert trace.charges
     assert all(
-        used == min(limit, 375) and admitted_limit == limit
+        used == min(limit, 319) and admitted_limit == limit
         for _, used, admitted_limit in trace.charges
     )

@@ -1831,6 +1831,9 @@ def _rir_semantics_are_admitted(
             cast(list[dict[str, JsonValue]], declarations),
             lowering,
             projection_budget,
+            kernel=kernel,
+            entrypoints=rir["entrypoints"],
+            formulas=rir["formulas"],
         )
         expected_initialization_programs = _compile_initialization_programs(
             expected_runtime_projection,

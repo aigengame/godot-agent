@@ -2,7 +2,7 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-periodic-effect.snapshot",
   "model": {
-    "rir_semantic_identity": "sha256:3c37289ecbc5c7c7df7a86f27749936e57186723be2725c42664ec117677962b"
+    "rir_semantic_identity": "sha256:07b658003cb92f3b297c8c73ef9ab2462978811c07084aa49308dee70be67928"
   },
   "seed": {
     "algorithm": "splitmix64-v1",

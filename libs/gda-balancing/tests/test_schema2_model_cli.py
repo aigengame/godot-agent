@@ -3022,11 +3022,37 @@ def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
     assert json.loads(stdout)["checked"] is True
 
 
-def test_model_check_refuses_an_omitted_transitive_manifest_dependency(
-    tmp_path, run_cli, monkeypatch
+@pytest.mark.parametrize(
+    "executable", [False, True], ids=["declarations-only", "reachable-operation"]
+)
+def test_model_checks_only_actual_transitive_runtime_dependencies(
+    tmp_path, run_cli, monkeypatch, executable
 ):
     source = tmp_path / "missing-transitive-dependency.json"
-    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    value = _model_source()
+    if executable:
+        value["entrypoints"] = [
+            {
+                "id": "identity",
+                "operation": {"package": "core.quantity", "id": "quantity.identity"},
+                "arguments": [
+                    {
+                        "port": "value",
+                        "operand": {
+                            "kind": "symbol",
+                            "module": "main",
+                            "symbol": "parameter_value",
+                        },
+                    }
+                ],
+                "result": {
+                    "kind": "symbol",
+                    "module": "main",
+                    "symbol": "output_value",
+                },
+            }
+        ]
+    source.write_text(json.dumps(value), encoding="utf-8")
     exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
     assert (exit_code, stderr) == (0, "")
     assert json.loads(stdout)["checked"] is True
@@ -3056,9 +3082,34 @@ def test_model_check_refuses_an_omitted_transitive_manifest_dependency(
     # A coherent graph can contain compiler authority outside the selected closure.
     assert admit_authorities(kernel, candidate_ldb).admitted is True
     _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    from test_schema2_model_lowerer_conformance import _reference_check_source
+
+    independent = _reference_check_source(value, kernel, candidate_ldb)
+    if executable:
+        assert independent == (("language.source_contract_mismatch", "/entrypoints"),)
+    else:
+        assert not isinstance(independent, tuple), independent
 
     exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
 
+    if not executable:
+        # No runtime reference uses compiler's compile.exact-int64 profile.
+        # The separate compilation profile remains fully captured in Lock.
+        assert (exit_code, stderr) == (0, "")
+        checked = model_checking_module.check_model_source_value(value)
+        assert isinstance(checked, model_module.CheckedModel), checked
+        artifacts = model_compilation_module.compile_checked_model(checked)
+        assert len(artifacts) == 8
+        from gda_balancing.domain.model import AdmittedRir, admit_rir
+
+        assert isinstance(
+            admit_rir(
+                cast(dict[str, Any], artifacts["rir-semantic-payload"]),
+                authority_context=checked.authority_context,
+            ),
+            AdmittedRir,
+        )
+        return
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
     assert error["stage"] == "static"
@@ -6966,7 +7017,25 @@ def test_symbol_assignment_semantics_follow_the_admitted_per_role_mode_contracts
 
 def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):
     source = tmp_path / "model-source.json"
-    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    value = _model_source()
+    value["entrypoints"] = [
+        {
+            "id": "identity",
+            "operation": {"package": "core.quantity", "id": "quantity.identity"},
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "parameter_value",
+                    },
+                }
+            ],
+            "result": {"kind": "symbol", "module": "main", "symbol": "output_value"},
+        }
+    ]
+    source.write_text(json.dumps(value), encoding="utf-8")
     checked = model_checking_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
     original = model_compilation_module.lower_checked_model(checked)
@@ -6991,15 +7060,7 @@ def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):
     assert original_selected != original_lock["selected_semantics"]
     assert mutated_selected != mutated_lock["selected_semantics"]
     assert [row["definition"]["id"] for row in original_selected["operations"]] == [
-        "quantity.add",
-        "quantity.floor-divide",
-        "quantity.floor-zero",
         "quantity.identity",
-        "quantity.less-than",
-        "quantity.maximum",
-        "quantity.minimum",
-        "quantity.multiply",
-        "quantity.subtract",
     ]
     assert original_selected["conversions"] == []
     original_closures = cast(
@@ -7632,7 +7693,6 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
                 "state_policy": "commit",
             }
         ],
-        "owner_type": "Quantity",
         "purity": "event",
         "refusals": [
             "runtime.reason.step-limit",

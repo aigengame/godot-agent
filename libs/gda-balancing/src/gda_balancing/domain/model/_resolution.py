@@ -407,10 +407,6 @@ def _selected_source_operation_coordinates(
         if isinstance((operation := entrypoint.get("operation")), dict)
     }
     selected.update(additional_roots or set())
-    if any(coordinate not in operations for coordinate in selected):
-        # Exact Operation-resolution diagnostics own precedence over Formula
-        # reachability when an authored root coordinate cannot resolve.
-        return set(operations)
     return closed_operation_coordinates(selected, operations, operation_node_ids)
 
 

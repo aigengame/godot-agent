@@ -1647,6 +1647,24 @@ def _resolved_formulas_and_bindings(
     list[tuple[str, str]],
 ]:
     """Normalize authoring sugar, then resolve one Formula program grammar."""
+    # Resolve authored roots before interpreting their Formula binding sites.
+    # An unknown root must not broaden selection to every installed Operation.
+    for index, entrypoint in enumerate(checked.source["entrypoints"]):
+        reference = entrypoint["operation"]
+        if not any(
+            row["package"] == reference["package"]
+            and row["definition"]["id"] == reference["id"]
+            for row in lock["operations"]
+        ):
+            member = (
+                "package"
+                if reference["package"] not in {row["id"] for row in lock["packages"]}
+                else "id"
+            )
+            raise _EntrypointBindingError(
+                f"/entrypoints/{index}/operation/{member}",
+                f"entrypoint Operation is not selected: {entrypoint['id']}",
+            )
     policy = _formula_policy(checked.language_bundle)
     profile = _resolution_profile(
         checked.language_bundle,
@@ -3959,8 +3977,12 @@ def _runtime_projection(
     declarations: list[dict[str, Any]],
     lowering: dict[str, Any],
     budget: _RuntimeProjectionBudget,
+    *,
+    kernel: dict[str, Any],
+    entrypoints: list[dict[str, Any]],
+    formulas: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Project declaration-reachable semantics directly from current owners."""
+    """Project declarations and actual Operation roots from current owners."""
     profile = cast(dict[str, Any], lowering["runtime_projection"])
     packages = _namespace_packages(selection, language_bundle)
     namespace_members = {
@@ -4024,6 +4046,52 @@ def _runtime_projection(
         catalogs[collection["id"]] = rows
 
     selected: dict[str, set[int]] = {collection_id: set() for collection_id in catalogs}
+    root_law = kernel["meta_format"]["runtime_projection"]["operation_roots"]
+    operation_collection = profile["operation_roots"]["collection"]
+    operation_rows = catalogs[operation_collection]
+    package_member, id_member = root_law["coordinate_members"]
+    operation_definitions = {
+        (row["package"], row["value"][id_member]): row["value"]
+        for row in operation_rows
+    }
+    roots: set[tuple[str, str]] = set()
+    for index, entrypoint in enumerate(entrypoints):
+        reference = entrypoint[root_law["entrypoint_reference_member"]]
+        coordinate = (reference[package_member], reference[id_member])
+        if coordinate not in operation_definitions:
+            member = (
+                package_member
+                if coordinate[0] not in {row["id"] for row in packages}
+                else id_member
+            )
+            raise _EntrypointBindingError(
+                f"/entrypoints/{index}/operation/{member}",
+                f"entrypoint Operation is not selected: {entrypoint['id']}",
+            )
+        roots.add(coordinate)
+    for formula in formulas:
+        for node in path_value(formula, root_law["formula_nodes_path"]):
+            budget.consume()  # Existing runtime-instruction charge for this scan.
+            if (
+                node[root_law["formula_node_kind_member"]]
+                == root_law["formula_node_kind"]
+            ):
+                reference = node[root_law["formula_reference_member"]]
+                roots.add((reference[package_member], reference[id_member]))
+    reachable = closed_operation_coordinates(
+        roots,
+        operation_definitions,
+        _operation_reference_node_ids(kernel),
+        consume_instruction=budget.consume,
+    )
+    if not reachable <= operation_definitions.keys():
+        raise ValueError("Operation root or dependency is outside selected namespaces")
+    for coordinate in sorted(reachable):
+        for index, row in enumerate(operation_rows):
+            budget.consume()  # Existing seed-candidate charge.
+            if (row["package"], row["value"][id_member]) == coordinate:
+                selected[operation_collection].add(index)
+
     for seed in cast(list[dict[str, Any]], profile["seeds"]):
         collection_id = cast(str, seed["collection"])
         catalog = catalogs[collection_id]

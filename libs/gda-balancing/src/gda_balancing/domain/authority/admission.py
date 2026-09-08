@@ -79,7 +79,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:82c67a6d19daf616e680f25bf4b9dbda811d2bdfc9ac4d76a683b7e49af35f8a"
+    "sha256:c0464d8780df6ec2cdd6e40cee1e9af97aaa804d2075107b14cad8e3313e862a"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1976,7 +1976,14 @@ def _runtime_projection_is_closed(
     if (
         not isinstance(profile, dict)
         or set(profile)
-        != {"outputs", "collections", "seeds", "edges", "type_reference_closure"}
+        != {
+            "outputs",
+            "collections",
+            "seeds",
+            "edges",
+            "type_reference_closure",
+            "operation_roots",
+        }
         or not isinstance(contract, dict)
         or set(contract)
         != {
@@ -1990,6 +1997,7 @@ def _runtime_projection_is_closed(
             "seed",
             "edge",
             "type_reference_closure",
+            "operation_roots",
             "path_typing",
             "output_typing",
             "resource_accounting",
@@ -2087,6 +2095,19 @@ def _runtime_projection_is_closed(
                 "closure-only": "no-output",
             },
         }
+        or contract.get("operation_roots")
+        != {
+            "required_members": ["collection"],
+            "authority_path": "language.operations",
+            "entrypoint_reference_member": "operation",
+            "formula_nodes_path": ["body", "nodes"],
+            "formula_node_kind_member": "node",
+            "formula_node_kind": "operation-call",
+            "formula_reference_member": "operation",
+            "coordinate_members": ["package", "id"],
+            "closure": "kernel-operation-reference-nodes",
+            "missing": "refuse",
+        }
         or contract.get("resource_accounting")
         != {
             "limit_member": "max_runtime_projection_steps",
@@ -2144,6 +2165,21 @@ def _runtime_projection_is_closed(
             "target_constructor_collection": "constructors",
             "target_type_collection": "types",
         }
+    ):
+        return False
+    roots = profile.get("operation_roots")
+    if not isinstance(roots, dict) or set(roots) != {"collection"}:
+        return False
+    matches = [
+        collection
+        for collection in collections
+        if isinstance(collection, dict) and collection.get("id") == roots["collection"]
+    ]
+    if (
+        len(matches) != 1
+        or not isinstance(matches[0].get("source"), dict)
+        or matches[0]["source"].get("authority_path")
+        != contract["operation_roots"]["authority_path"]
     ):
         return False
     output_members: list[str] = []

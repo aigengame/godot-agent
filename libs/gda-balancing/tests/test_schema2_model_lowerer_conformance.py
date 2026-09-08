@@ -1407,6 +1407,8 @@ def _reference_selected_operation_coordinates(
     checked: ModelSourceContext,
     lock: dict[str, Any],
     formula_roots: set[tuple[str, str]],
+    *,
+    consume_instruction: Callable[[], None] | None = None,
 ) -> set[tuple[str, str]]:
 
     operations = {
@@ -1423,8 +1425,6 @@ def _reference_selected_operation_coordinates(
         )
         for entrypoint in checked.source.get("entrypoints", [])
     } | formula_roots
-    if any(coordinate not in operations for coordinate in selected):
-        return set(operations)
     reference_nodes = {
         node["id"]
         for node in checked.kernel["meta_format"]["runtime_program"]["nodes"]
@@ -1434,6 +1434,8 @@ def _reference_selected_operation_coordinates(
     def references(body: list[dict[str, Any]]) -> set[tuple[str, str]]:
         coordinates = set()
         for instruction in body:
+            if consume_instruction is not None:
+                consume_instruction()
             if instruction["node"] in reference_nodes:
                 coordinates.add(
                     (
@@ -1462,6 +1464,21 @@ def _reference_formulas_and_bindings(
     declarations: list[dict[str, Any]],
     lock: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    available = {
+        (row["package"], row["definition"]["id"]) for row in lock["operations"]
+    }
+    for index, entrypoint in enumerate(checked.source["entrypoints"]):
+        reference = entrypoint["operation"]
+        if (reference["package"], reference["id"]) not in available:
+            member = (
+                "package"
+                if reference["package"] not in {row["id"] for row in lock["packages"]}
+                else "id"
+            )
+            raise _ReferenceEntrypointError(
+                f"/entrypoints/{index}/operation/{member}",
+                "entrypoint Operation is not selected",
+            )
     language = checked.language_bundle["language"]
     lowering = _reference_lowering(language)
     profile = next(
@@ -2628,7 +2645,7 @@ def _reference_rir(
         remaining -= 1
 
     selected_semantics = _reference_runtime_projection(
-        checked, lock, declarations, lowering, consume
+        checked, lock, declarations, lowering, consume, formulas=formulas
     )
     initialization_programs = _reference_initialization_programs(
         selected_semantics,
@@ -3740,6 +3757,8 @@ def _reference_runtime_projection(
     declarations: list[dict[str, Any]],
     lowering: dict[str, Any],
     consume: Callable[[], None],
+    *,
+    formulas: list[dict[str, Any]],
 ) -> dict[str, Any]:
     profile = lowering["runtime_projection"]
 
@@ -3787,6 +3806,30 @@ def _reference_runtime_projection(
         catalogs[specification["id"]] = rows
 
     selected = {name: set() for name in catalogs}
+    root_law = checked.kernel["meta_format"]["runtime_projection"]["operation_roots"]
+    operation_collection = profile["operation_roots"]["collection"]
+    package_member, id_member = root_law["coordinate_members"]
+    formula_roots = set()
+    for formula in formulas:
+        for node in descend(formula, root_law["formula_nodes_path"]):
+            consume()
+            if (
+                node[root_law["formula_node_kind_member"]]
+                == root_law["formula_node_kind"]
+            ):
+                reference = node[root_law["formula_reference_member"]]
+                formula_roots.add((reference[package_member], reference[id_member]))
+    reachable = _reference_selected_operation_coordinates(
+        checked, lock, formula_roots, consume_instruction=consume
+    )
+    available = {(row[0], row[2][id_member]) for row in catalogs[operation_collection]}
+    assert reachable <= available
+    for coordinate in sorted(reachable):
+        for index, row in enumerate(catalogs[operation_collection]):
+            consume()
+            if (row[0], row[2][id_member]) == coordinate:
+                selected[operation_collection].add(index)
+
     for seed in profile["seeds"]:
         for declaration in declarations:
             if seed["applicability_member"] not in declaration:
@@ -3844,6 +3887,7 @@ def _reference_runtime_projection(
                 consume()
                 source = catalogs[edge["source_collection"]][source_index]
                 expected = descend(source[2], edge["source_path"])
+                matched = False
                 for target_index, target in enumerate(
                     catalogs[edge["target_collection"]]
                 ):
@@ -3856,7 +3900,10 @@ def _reference_runtime_projection(
                         assert edge["missing_target"] == "not-applicable"
                         continue
                     if actual == expected:
+                        matched = True
                         selected[edge["target_collection"]].add(target_index)
+                if not matched and edge.get("missing_target") != "not-applicable":
+                    raise ValueError("runtime projection edge did not resolve")
         references = set()
         constructor_kinds = set()
         for source_index in sorted(selected[type_closure["source_collection"]]):
@@ -4582,9 +4629,24 @@ def test_independent_lowerer_counts_guard_body_in_nested_operation_charge():
     )
     checked = check_model_source(str(path))
     assert isinstance(checked, CheckedModel)
-    rir = cast(dict[str, Any], lower_checked_model(checked)["rir-semantic-payload"])
+    artifacts = lower_checked_model(checked)
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
     selected_semantics = cast(dict[str, Any], deepcopy(rir["selected_semantics"]))
     operation_rows = cast(list[dict[str, Any]], selected_semantics["operations"])
+    # This direct composition fixture injects a new guarded call below; select
+    # its actual admitted definition instead of depending on unrelated roots.
+    identity = deepcopy(
+        next(
+            row
+            for row in cast(
+                list[dict[str, Any]], artifacts["package-lock"]["operations"]
+            )
+            if row["package"] == "core.quantity"
+            and row["definition"]["id"] == "quantity.identity"
+        )
+    )
+    identity["definition"].pop("vectors")
+    operation_rows.append(identity)
     for row in operation_rows:
         row["definition"]["resource_bounds"]["max_steps"] += 100
     damage = next(
@@ -5356,7 +5418,21 @@ def test_lowerers_follow_renamed_ldb_rule_and_judgment_tokens_without_host_chang
     tmp_path,
 ):
     path = tmp_path / "renamed-authority.json"
-    _write_source(path, _source([_symbol("health", "state")]))
+    source = _source([_symbol("health", "state"), _symbol("result", "output")])
+    source["entrypoints"] = [
+        {
+            "id": "identity",
+            "operation": {"package": "core.quantity", "id": "quantity.identity"},
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {"kind": "symbol", "module": "main", "symbol": "health"},
+                }
+            ],
+            "result": {"kind": "symbol", "module": "main", "symbol": "result"},
+        }
+    ]
+    _write_source(path, source)
     checked = check_model_source(str(path))
     assert isinstance(checked, CheckedModel)
     candidate_ldb = deepcopy(checked.language_bundle)
@@ -5407,16 +5483,13 @@ def test_lowerers_follow_renamed_ldb_rule_and_judgment_tokens_without_host_chang
     selected_semantics = cast(dict[str, Any], production["selected_semantics"])
     operation_projections = cast(list[dict[str, Any]], selected_semantics["operations"])
     assert [row["definition"]["id"] for row in operation_projections] == [
-        "quantity.add",
-        "quantity.floor-divide",
-        "quantity.floor-zero",
         "quantity.identity",
-        "quantity.less-than",
-        "quantity.maximum",
-        "quantity.minimum",
-        "quantity.multiply",
-        "quantity.subtract",
     ]
+    assert operation_projections[0]["definition"]["rule"] == "quantity.lower.renamed"
+    assert (
+        cast(list[dict[str, Any]], production["entrypoints"])[0]["operation"]["id"]
+        == "quantity.identity"
+    )
     lock_operations = cast(
         list[dict[str, Any]], artifacts["package-lock"]["operations"]
     )
