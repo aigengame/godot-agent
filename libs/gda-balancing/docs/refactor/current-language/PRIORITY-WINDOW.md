@@ -914,6 +914,65 @@ retained. Final collection verifies 2,458 tests and 347 vectors with complete, d
 assignments. Full-package Pyright and Ruff checks pass. These results close the scoped
 protocol classification defects; they do not close the remaining extension proof.
 
+## Source-to-Fact ownership
+
+The [Source transport record](evidence/priority-window/source-fact-transport.json)
+records a real interpretation gap before the final build freeze. A coherently sealed
+Source Schema can rename a copied Quantity member from `domain` to `opaque_domain`;
+both authority consumers admit it, but its initial Facts violate the existing Fact
+contracts. Previously, language rules ran before that violation was detected and the
+public command reported a later Formula boundary.
+
+The existing Kernel Model-lowering contract now states one fixed transport law:
+unadapted Source Symbol members retain their names and values; existing Symbol-name,
+resolved-Symbol, imported-Type and nominal-export adapters own their destinations;
+collisions refuse. Both compilers check every selected initial Fact with their existing
+independent predicates before the first Model-lowering rule. Refusal uses the existing
+Source structural reason at the actual Symbol pointer. There is no per-package mapper,
+new primitive, extra execution phase or packaged-Kernel fallback.
+
+Independent DDMA review found a further distinction: the nominal-export adapter owns
+the absence of its discriminator too. A copied `value_kind` could previously make a
+non-nominal Type enter structured rules even though its Fact shape passed. The same
+candidate now refuses before any lowering rule in both implementations. Actual profile
+Symbol-name or Type inputs may still be named `value_kind`; permanent public controls
+retain all five Symbols, exactly two actual nominal markers, identical complete RIR
+and the bounded-fold results `2` and `1234`. This is role-based ownership, not a global
+ban on a spelling.
+
+The initial transport change preserves all 34 Model-vector verdicts, including
+independently equal and mutually admitted four-member outputs for the 13 positives.
+No Package or vector file is rewritten. A historical seven-Model comparison has 29
+byte-identical members among 57 compiled/schema artifacts; the other 28 differ only
+at the recorded Kernel/LDB and dependent provenance identity leaves. That comparison
+precedes the inactive-adapter correction. The follow-up separately preserves all
+4,189 initial Fact values byte-for-byte, re-runs the full vector gate and checks the
+mixed public controls. These are distinct evidence scopes; no complete Runtime
+artifact comparison across all maintained Models is claimed for this slice.
+
+The inventory joins actual Source Schema addresses to the selected initial Fact
+contracts. Copied Fact members remain Kernel-bound only at their actual Source
+addresses; profile input names retain their separate roles. Same-instance schema
+applicators and array selector steps follow their existing contracts without treating
+nested payload properties as peer Source fields. Five Model-check selector gaps are
+retired. The remaining 40 gaps and the full fixed-build non-RPG acceptance stay open.
+
+Independent Spec review found two inventory defects: a member declared only in a
+same-instance `oneOf` branch could disappear from coverage, and a legal swap of the
+profile's Symbol-name and Type input names could make the reader treat a Symbol name
+as a Type reference. The correction uses the same schema-address traversal for
+member discovery, occurrences and selector ownership, and excludes both actual
+adapter inputs from the separate value-contract traversal. The original candidates
+remain unchanged. The current Kernel permits `oneOf` in these authored wire schemas;
+other tested applicators refuse at authority admission, so this repair does not expand
+the supported Schema language.
+
+The final paired Source tests pass 28 cases; the corrected inventory scope passes 102.
+Independent review also re-runs all 34 Model-vector verdicts and existing oracles.
+The 2,511 collected tests and 347 vectors have complete, disjoint CI assignments;
+full-package Pyright and Ruff checks pass. Collection proves coverage, not execution
+of the full CI matrix. These results do not close the remaining extension proof.
+
 ## Remaining proof and integration
 
 - Complete the semantic-token inventory and resolve remaining demonstrated name

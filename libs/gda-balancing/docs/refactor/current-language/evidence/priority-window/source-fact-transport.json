@@ -1,0 +1,1235 @@
+{
+  "issue": 878,
+  "scope": "Source-to-initial-Fact ownership and the five Model-check Source selector gaps; this checkpoint does not close #878.",
+  "base": "f99bc67d136a13bd29545719501472df31a31e40",
+  "production_and_paired_tests_head": "7acce4040dd99262a45ccdf35da46dcff1795a15",
+  "implementation_head": "ddf74617e7b091ca743d9e29e60eee1d4b4087a7",
+  "authority": {
+    "kernel": "sha256:fdcd2bcd31edd1b0d9f8154644bdcf5380540ea5a6bfcef76cd5d07d65d1a059",
+    "ldb": "sha256:7449a0d53870da930acd3833c66c7506b2a1418cc8d58446c15131028ecae28b",
+    "kernel_bytes": 153706,
+    "previous_kernel_bytes": 153446,
+    "parsed_delta": {
+      "path": "/meta_format/language_definitions/collections/model_lowerings/source_fact_transport",
+      "value": {
+        "adapter_conflicts": "refuse",
+        "adapters": [
+          "profile-symbol-name",
+          "resolved-symbol-identity",
+          "imported-type-identity",
+          "nominal-export-kind"
+        ],
+        "initial_fact_admission": "before-first-language-rule",
+        "unadapted_members": "copy-name-and-value"
+      }
+    },
+    "budget_unchanged": true,
+    "LDB_lowering_fields_unchanged": true,
+    "package_and_vector_files_byte_unchanged": 26,
+    "admission": {
+      "A": {
+        "admitted": true,
+        "diagnostics": []
+      },
+      "B": {
+        "admitted": true,
+        "diagnostics": []
+      },
+      "kernel": "sha256:fdcd2bcd31edd1b0d9f8154644bdcf5380540ea5a6bfcef76cd5d07d65d1a059",
+      "ldb": "sha256:7449a0d53870da930acd3833c66c7506b2a1418cc8d58446c15131028ecae28b"
+    }
+  },
+  "execution_boundary": {
+    "A": "Actual caller Kernel required by existing Source adapter. Copy unadapted Symbol members; refuse an adapter destination already owned by copied data or another adapter. Validate all selected initial Facts with existing _fact_is_closed before invoking any language rule. Preserve existing adapters and Source location.",
+    "B": "Independent implementation reads checked.kernel, uses existing independent Fact predicate and rule engine; no production semantic resolver or expected-result import.",
+    "diagnostic": "Existing selected profile structural reason, static language.source_contract_mismatch at actual Symbol pointer; slash/tilde Source names use existing escaping."
+  },
+  "original_counterexample": {
+    "public_original_counterexample": "/private/tmp/gda-878-source-fact-transport-evidence/red/receipt.json",
+    "public_original_observation": "A/B authority admitted and Source Schema valid; three Quantity Facts not closed, two nominal Facts closed; actual CLI reports later /formula_bindings rather than initial Symbol.",
+    "baseline_test_boundary": "The permanent pre-rule sentry rejects all eight malformed/collision cases on unchanged baseline. Real public CLI control/counterexample captured separately.",
+    "permanent_RED_cases": 8,
+    "all_reach_language_rule_on_baseline": true
+  },
+  "initial_transport_validation": {
+    "A_commit": "4515a2770c1dbfbbd97583d2c4698d2d936f8934",
+    "B_commit": "011f0828297b230785c6770434b44fade5f2f93d",
+    "green": {
+      "A_cases": 11,
+      "B_cases": 11,
+      "all_pass": true,
+      "public_control": "Original and coherently renamed Symbol/Type/container profiles: actual Model check/build, Experiment check/run, selected_count=2 and ordered_value=1234.",
+      "corpus": {
+        "current_source_vectors": 34,
+        "positive_vectors": 13,
+        "positive_initial_facts": 4189,
+        "A_and_B_predicates_closed": true,
+        "full_verdict_and_artifact_gate": [
+          {
+            "id": "tests.test_schema2_model_lowerer_conformance::test_permanent_model_program_vectors_close_both_compiler_pipelines",
+            "passed": true,
+            "failure": null
+          },
+          {
+            "id": "tests.test_schema2_model_lowerer_conformance::test_model_source_routing_follows_the_selected_ldb_profile_without_host_tokens",
+            "passed": true,
+            "failure": null
+          }
+        ],
+        "positive_four_artifacts_mutually_consumed": true,
+        "original_runtime_numeric_and_identity_oracles_retained": true,
+        "oracle_updates": 0
+      }
+    },
+    "cross_build": {
+      "models": 7,
+      "compilation_and_schema_artifacts_compared": 57,
+      "raw_byte_equal": 29,
+      "equal_by_kind": {
+        "debug-map.json": 7,
+        "model-explanation.json": 7,
+        "package-lock.json": 7,
+        "rir-semantic-payload.json": 7,
+        "schema.json": 1
+      },
+      "non_equal_members": "28 artifacts differ only at actual Kernel/LDB and dependent identity leaves; exact paths/hashes in artifact-comparison.json. No arbitrary normalization.",
+      "changed_leaf_classes": [
+        "/capability_manifest_identity",
+        "/content_identity",
+        "/kernel_identity",
+        "/language_bundle_identity",
+        "/resolution_receipt_identity",
+        "/resolved_model_identity"
+      ],
+      "source_input_files_unchanged": true
+    },
+    "independent_tests": {
+      "baseline_red": {
+        "path": "/private/tmp/gda-source-fact-b-baseline-red.xml",
+        "sha256": "5ed5a88e2b81b145fd348c31d4601416449ae9ece485a13e812463d70ddf3c3f",
+        "tests": "1",
+        "failures": "1",
+        "errors": "0",
+        "time": "2.078"
+      },
+      "new_cases": {
+        "path": "/private/tmp/gda-source-fact-b-green.xml",
+        "sha256": "82452bfc29d56b9e747f40a6ba3711423d0da744a20b9a1c5fd7ea1cb9f59522",
+        "tests": "11",
+        "failures": "0",
+        "errors": "0",
+        "time": "19.661"
+      },
+      "retained": {
+        "path": "/private/tmp/gda-source-fact-b-retained-vectors.xml",
+        "sha256": "39515fb9a9daf0dc26020b33ddca425283ae6e27b6822f5eb28f2c47b72e2fb3",
+        "tests": "2",
+        "failures": "0",
+        "errors": "0",
+        "time": "20.826"
+      }
+    },
+    "scope": "The seven-Model 57-artifact comparison was captured before the inactive-adapter correction; no later rerun of that whole comparison is claimed."
+  },
+  "inactive_adapter_correction": {
+    "A_baseline": "4515a2770c1dbfbbd97583d2c4698d2d936f8934",
+    "A_fix": "80c40f078ff9d06bee8fe513bcc0d98a90207eed",
+    "B_fix": "eafe6d3ffbde50d4a361ca915349c202bbcc9342",
+    "behavior": {
+      "original_candidate_sha256": "b3442869034130999d4a2b6c2c108a34331c39b8d3997801fd5048e8897cb8fc",
+      "original": "A authority and Source Schema admitted; the corrected B pairing independently admits the identical candidate. A/B Fact predicates accept the syntactic structured-source but copied value_kind enters nominal rules for core.quantity.Quantity, whose nominal exports are empty.",
+      "correction": "The existing nominal-export adapter owns both presence and absence of its derived target before copying. Only an actual nominal export emits the marker. Existing Source adapter conflict refusal and precise Symbol location are retained.",
+      "green": "The same inactive-marker candidate invokes zero language rules. Actual public Model check/build both exit2 with static language.source_contract_mismatch at /modules/0/symbols/0.",
+      "legal_same_spelling_inputs": "Actual profile Symbol-name or Type input may coherently use value_kind. Both new public cases retain5 Symbols, exactly2 nominal markers, byte-identical complete RIR to unrenamed control, and Experiment check/run metrics selected_count2 and ordered_value1234.",
+      "original_receipt_pairing_caveat": "independent-original-receipt.json records an unpaired B pin refusal. independent-original-receipt-b.json and independent-followup-receipt.json separately establish actual B admission of the exact original candidate; the earlier pin refusal is not presented as semantic RED."
+    },
+    "tests": {
+      "red.xml": {
+        "path": "/private/tmp/gda-878-source-fact-transport-evidence/inactive-adapter/red.xml",
+        "sha256": "51aec1840c6e480ea08e5dce1d03a86e8b591d3132d06d598c4797cbfbbeba15",
+        "tests": 1,
+        "seconds": 1.423,
+        "passed_cases": 0
+      },
+      "green.xml": {
+        "path": "/private/tmp/gda-878-source-fact-transport-evidence/inactive-adapter/green.xml",
+        "sha256": "8e03c579145da2e2302ae718a637ec4b9064348f99f09fad165eeea8147a2c63",
+        "tests": 12,
+        "seconds": 52.761,
+        "passed_cases": 12
+      },
+      "independent-green.xml": {
+        "path": "/private/tmp/gda-878-source-fact-transport-evidence/inactive-adapter/independent-green.xml",
+        "sha256": "bc993ff1b64abaaabcb8fc506a30b4e0295e62ed577299f90b6d353aafb8fa6d",
+        "tests": 13,
+        "seconds": 40.442,
+        "passed_cases": 13
+      },
+      "independent-paired.xml": {
+        "path": "/private/tmp/gda-878-source-fact-transport-evidence/inactive-adapter/independent-paired.xml",
+        "sha256": "30455803199b617fc48726b83ce6188c419df80663834b8347d42048491f15e4",
+        "tests": 3,
+        "seconds": 6.389,
+        "passed_cases": 3
+      },
+      "role-isolation-green.xml": {
+        "path": "/private/tmp/gda-878-source-fact-transport-evidence/inactive-adapter/role-isolation-green.xml",
+        "sha256": "1b002a922f266f9abcf506ba860773410ccab5f2aa666059082ff5b71c020df5",
+        "tests": 3,
+        "seconds": 27.954,
+        "passed_cases": 3
+      }
+    },
+    "preservation": {
+      "positive_source_cases": 13,
+      "whole_initial_fact_byte_streams_unchanged": 4189,
+      "source_vector_gate": "The13-case independent run includes12 focused Source cases and the existing full34-vector compiler gate:13 positives/21 negatives, retained verdicts and four-artifact mutual consumption. Not34 separate pytest cases.",
+      "authority_and_all_package_vector_files_unchanged_by_followup": true,
+      "oracle_updates": 0,
+      "historical_cross_build": "The57-artifact seven-Model comparison belongs to A4515 and is retained at ../FINAL-RECEIPT.json. It was not rerun after the inactive fix. Current complete initial-Fact byte equality, full34-vector gate and mixed public controls substantiate this narrower follow-up."
+    },
+    "independent_validation": {
+      "gda-source-fact-b-inactive-red.xml": {
+        "sha256": "11ec5da37388085613b6734d3b242c1c60a941d82bc875eb80d264066251ffef",
+        "tests": 1,
+        "failures": 1,
+        "errors": 0,
+        "time": 2.153
+      },
+      "gda-source-fact-inactive-b-green.xml": {
+        "sha256": "bc993ff1b64abaaabcb8fc506a30b4e0295e62ed577299f90b6d353aafb8fa6d",
+        "tests": 13,
+        "failures": 0,
+        "errors": 0,
+        "time": 40.442
+      },
+      "gda-source-fact-inactive-b-paired.xml": {
+        "sha256": "30455803199b617fc48726b83ce6188c419df80663834b8347d42048491f15e4",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "time": 6.389
+      }
+    },
+    "independent_candidate": "b3442869034130999d4a2b6c2c108a34331c39b8d3997801fd5048e8897cb8fc",
+    "independent_same_candidate_bytes": true,
+    "legal_input_role_tests": {
+      "commit": "fa38048e258b20863bb71c605ca3e505439440ca",
+      "shared_fixture_commit": "620cce7786608fe48899d0b6081103b576c0c84c",
+      "worktree": "/private/tmp/gda-878-source-fact-independent",
+      "xml": "/private/tmp/gda-source-fact-b-input-roles.xml",
+      "xml_sha256": "874b041054a54c9b2d62f59b3a13ebb6a3856a5000ede67a8037602b5eb9b12a",
+      "cases": [
+        "test_independent_initial_facts_keep_mixed_nominal_and_quantity_compilation[original]",
+        "test_independent_initial_facts_keep_mixed_nominal_and_quantity_compilation[symbol-input-value-kind]",
+        "test_independent_initial_facts_keep_mixed_nominal_and_quantity_compilation[type-input-value-kind]"
+      ],
+      "tests": 3,
+      "time": "7.188",
+      "assertions_retained": [
+        "actual A and B authority admission",
+        "actual A and independent B Source checking",
+        "exact initial Facts match; 5 total, 2 nominal",
+        "complete package-lock, RIR semantic payload, resolved-model, debug-map equality",
+        "independent B consumes actual A semantic artifacts"
+      ],
+      "static": "Ruff check/format and Pyright pass",
+      "scope": "Only one existing B test parameterization changed. No production, authority, resource, oracle or full34 rerun. Parent admission guard used for validation then restored before local commit."
+    },
+    "DDMA_recheck": {
+      "A_head": "e8d7caf84e38b769e5ad315b45b9448c4cac6503",
+      "B_head": "eafe6d3ffbde50d4a361ca915349c202bbcc9342",
+      "rows": [
+        {
+          "case": "control",
+          "kernel_identity": "sha256:fdcd2bcd31edd1b0d9f8154644bdcf5380540ea5a6bfcef76cd5d07d65d1a059",
+          "A": {
+            "admitted": true,
+            "diagnostics": []
+          },
+          "B": {
+            "admitted": true,
+            "diagnostics": []
+          },
+          "schema_errors": [],
+          "A_model_type": "CheckedModel",
+          "B_model_type": "ModelSourceContext",
+          "A_rule_count": 10,
+          "B_rule_count": 10,
+          "closed_symbol_count": 5,
+          "nominal_marker_count": 2,
+          "build_count": 8,
+          "rir_sha256": "6d75f45a0ec3eb07e362a4189a5d6f80a29c52a6371c1c2cd79fcd4e490bafb6",
+          "public": {
+            "checked": true,
+            "kernel_identity": "sha256:fdcd2bcd31edd1b0d9f8154644bdcf5380540ea5a6bfcef76cd5d07d65d1a059",
+            "language_bundle_identity": "sha256:7449a0d53870da930acd3833c66c7506b2a1418cc8d58446c15131028ecae28b"
+          }
+        },
+        {
+          "case": "symbol-input-as-value-kind",
+          "kernel_identity": "sha256:fdcd2bcd31edd1b0d9f8154644bdcf5380540ea5a6bfcef76cd5d07d65d1a059",
+          "A": {
+            "admitted": true,
+            "diagnostics": []
+          },
+          "B": {
+            "admitted": true,
+            "diagnostics": []
+          },
+          "schema_errors": [],
+          "A_model_type": "CheckedModel",
+          "B_model_type": "ModelSourceContext",
+          "A_rule_count": 10,
+          "B_rule_count": 10,
+          "closed_symbol_count": 5,
+          "nominal_marker_count": 2,
+          "build_count": 8,
+          "rir_sha256": "6d75f45a0ec3eb07e362a4189a5d6f80a29c52a6371c1c2cd79fcd4e490bafb6",
+          "public": {
+            "checked": true,
+            "kernel_identity": "sha256:fdcd2bcd31edd1b0d9f8154644bdcf5380540ea5a6bfcef76cd5d07d65d1a059",
+            "language_bundle_identity": "sha256:dcd04250fa1fe925606fda14e50b76eb124c2ab1aae3cdb1778289a334d58612"
+          }
+        },
+        {
+          "case": "type-input-as-value-kind",
+          "kernel_identity": "sha256:fdcd2bcd31edd1b0d9f8154644bdcf5380540ea5a6bfcef76cd5d07d65d1a059",
+          "A": {
+            "admitted": true,
+            "diagnostics": []
+          },
+          "B": {
+            "admitted": true,
+            "diagnostics": []
+          },
+          "schema_errors": [],
+          "A_model_type": "CheckedModel",
+          "B_model_type": "ModelSourceContext",
+          "A_rule_count": 10,
+          "B_rule_count": 10,
+          "closed_symbol_count": 5,
+          "nominal_marker_count": 2,
+          "build_count": 8,
+          "rir_sha256": "6d75f45a0ec3eb07e362a4189a5d6f80a29c52a6371c1c2cd79fcd4e490bafb6",
+          "public": {
+            "checked": true,
+            "kernel_identity": "sha256:fdcd2bcd31edd1b0d9f8154644bdcf5380540ea5a6bfcef76cd5d07d65d1a059",
+            "language_bundle_identity": "sha256:cb140d787eb0a61673429515ca6342c1dbf3faf08b761bec5a4c5bbbe07c3f98"
+          }
+        },
+        {
+          "case": "original-inactive-forgery",
+          "kernel_identity": "sha256:fdcd2bcd31edd1b0d9f8154644bdcf5380540ea5a6bfcef76cd5d07d65d1a059",
+          "original_candidate_sha256": "b3442869034130999d4a2b6c2c108a34331c39b8d3997801fd5048e8897cb8fc",
+          "A": {
+            "admitted": true,
+            "diagnostics": []
+          },
+          "B": {
+            "admitted": true,
+            "diagnostics": []
+          },
+          "schema_errors": [],
+          "A_model_type": "Schema2RefusalReport",
+          "B_model_type": "tuple",
+          "A_rule_count": 0,
+          "B_rule_count": 0,
+          "A_refusal": "stage='static' variant=None diagnostics=(Schema2Diagnostic(code='language.source_contract_mismatch', message=\"Model Source name resolution failed: initial Fact adapter destination 'value_kind' already has an owner\", primary=ArtifactLocation(kind='artifact', content_identity='sha256:5547baf69e0b63cc9c101d56a0ff7230676a10e364dfdfad3ce4881e5040155c', pointer='/modules/0/symbols/0'), related=()),) truncated=False terminal_audit=None",
+          "B_refusal": [
+            [
+              "language.source_contract_mismatch",
+              "/modules/0/symbols/0"
+            ]
+          ],
+          "public": {
+            "error": {
+              "category": "refusal",
+              "diagnostics": [
+                {
+                  "code": "language.source_contract_mismatch",
+                  "message": "Model Source name resolution failed: initial Fact adapter destination 'value_kind' already has an owner",
+                  "primary": {
+                    "content_identity": "sha256:5547baf69e0b63cc9c101d56a0ff7230676a10e364dfdfad3ce4881e5040155c",
+                    "kind": "artifact",
+                    "pointer": "/modules/0/symbols/0"
+                  },
+                  "related": []
+                }
+              ],
+              "stage": "static",
+              "truncated": false
+            }
+          }
+        }
+      ],
+      "source_sha256": {
+        "A_lowering": {
+          "path": "/private/tmp/gda-878-ddma-source-e8d7/libs/gda-balancing/src/gda_balancing/domain/model/_lowering.py",
+          "sha256": "8ff75ee7a273c5b9b4a369f242e6985932934d30e205df2b12b734be67d961f4"
+        },
+        "A_checking": {
+          "path": "/private/tmp/gda-878-ddma-source-e8d7/libs/gda-balancing/src/gda_balancing/domain/model/_checking.py",
+          "sha256": "68e451c686e0783d719d4affb294ff0501ab1741d5c9d6122454c25d50585dcb"
+        },
+        "A_authority_admission": {
+          "path": "/private/tmp/gda-878-ddma-source-e8d7/libs/gda-balancing/src/gda_balancing/domain/authority/admission.py",
+          "sha256": "a65cb18d1e7d58674943140bd2c1db37d53bbdaf3bb82f95631760fba4e9f136"
+        },
+        "B_model": {
+          "path": "/private/tmp/gda-878-ddma-source-b-eafe/libs/gda-balancing/tests/test_schema2_model_lowerer_conformance.py",
+          "sha256": "a266d46be3dad5cbfeff18638869a88d919007e5affa5eb7ab290b0804b77f08"
+        },
+        "B_authority": {
+          "path": "/private/tmp/gda-878-ddma-source-b-eafe/libs/gda-balancing/tests/schema2_bootstrap_conformance_support.py",
+          "sha256": "b49c317b36a7a15014e155a4db97e22ed02b18f1b9a8e801e496f769f5bd722f"
+        }
+      },
+      "finding_closed": true,
+      "scope": "inactive Source nominal-export adapter ownership and profile source input role isolation only; no whole #878 claim"
+    }
+  },
+  "source_selector_inventory": {
+    "initial_commit": "3f5a7d3cecba5aeb962949035cd09901b38e0349",
+    "measurements": {
+      "kernel": "sha256:fdcd2bcd31edd1b0d9f8154644bdcf5380540ea5a6bfcef76cd5d07d65d1a059",
+      "source": "examples/schema2/bounded-fold/model-source.json",
+      "tokens": 1618,
+      "occurrences": 6606,
+      "reserved": 109,
+      "gaps": 40,
+      "unchanged_other_gaps": true,
+      "added_occurrences": 69,
+      "physical_graph_sha256_before": "36f4016e8fc27ee9a6e32b747605ec2f61deada4a64dc6a0478099072cabd4f9",
+      "physical_graph_sha256_after": "36f4016e8fc27ee9a6e32b747605ec2f61deada4a64dc6a0478099072cabd4f9",
+      "closed_gap_pointers": [
+        "/packages/0/semantic_closure/7/definitions/0/selector",
+        "/packages/0/semantic_closure/7/definitions/1/selector",
+        "/packages/0/semantic_closure/7/definitions/2/selector",
+        "/packages/0/semantic_closure/7/definitions/3/selector",
+        "/packages/0/semantic_closure/7/definitions/4/selector"
+      ]
+    },
+    "results": {
+      "first.xml": {
+        "tests": 15,
+        "failures": 2,
+        "errors": 0,
+        "skips": 0,
+        "suite_times": [
+          "10.925"
+        ]
+      },
+      "second.xml": {
+        "tests": 15,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0,
+        "suite_times": [
+          "24.344"
+        ]
+      },
+      "third.xml": {
+        "tests": 96,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "suite_times": [
+          "86.974"
+        ]
+      },
+      "old-reader-prepend-miss.xml": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "suite_times": [
+          "10.710"
+        ]
+      },
+      "old-reader-red.xml": {
+        "tests": 1,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0,
+        "suite_times": [
+          "2.258"
+        ]
+      },
+      "final-focused.xml": {
+        "tests": 19,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "suite_times": [
+          "31.478"
+        ]
+      },
+      "final-syntax.xml": {
+        "tests": 21,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "suite_times": [
+          "31.800"
+        ]
+      }
+    },
+    "interpretation": [
+      "Only the five Source field selector gaps are retired; the other 40 gaps are identical.",
+      "The 69 new copy/Schema-branch occurrences each reject one deletion and one co-mutated wrong-owner inventory.",
+      "The wildcard is fixed model_checks/model_lowerings path-segments syntax, not a renameable Source-field token; actual array/items and scoped/count endpoints are walked. No Template owner is borrowed.",
+      "The public witness rewrites only classified Source profile/container/Symbol/Type addresses. Both authority consumers admit its graph, actual CLI check/build/check/run succeeds, and all emitted Runtime members independently revalidate together.",
+      "Actual copied Source field names remain fixed while same-spelling nominal Record fields and typed value keys retain independent owners.",
+      "The first attempted old-reader pytest run used pytest prepend mode and unintentionally loaded the current reader: its passing result is preserved as an ineffective counterfactual attempt. The corrected run preloads and asserts the exact archived original reader path before pytest; the same public Model-check witness fails.",
+      "The unrelated Candidate.kind rename still encounters an explicitly uncovered vector family; its candidate and A/B refusal are preserved separately and no other family was certified.",
+      "No production, Kernel, LDB, existing test body, CI, documentation or tracker changes are in the owned commit. No whole package or complete #878 claim."
+    ],
+    "scope": "The subsequent independent Spec counterexamples and corrections are recorded separately; this initial inventory receipt is historical evidence, not the final review verdict."
+  },
+  "inventory_review_correction": {
+    "commit": "e14998179e82dd179bb13fb70d75069fdd14e343",
+    "base": "3eb19a7a96f4ce04222afb0cb0c1d638367c64e2",
+    "owned_files": [
+      "tests/schema2_extension_inventory_support.py",
+      "tests/test_source_fact_selector_inventory.py"
+    ],
+    "new_tests": 4,
+    "owned_file_test_count": 25,
+    "measurements": {
+      "source": "examples/schema2/bounded-fold/model-source.json",
+      "kernel": "sha256:fdcd2bcd31edd1b0d9f8154644bdcf5380540ea5a6bfcef76cd5d07d65d1a059",
+      "tokens": 1618,
+      "occurrences": 6606,
+      "reserved": 109,
+      "gaps": 40,
+      "remaining_40_gaps_exactly_equal_to_prior_commit": true,
+      "physical_graph_sha256_before": "36f4016e8fc27ee9a6e32b747605ec2f61deada4a64dc6a0478099072cabd4f9",
+      "physical_graph_sha256_after": "36f4016e8fc27ee9a6e32b747605ec2f61deada4a64dc6a0478099072cabd4f9"
+    },
+    "original_spec_candidate_equality": {
+      "branch-probe/candidate.json": {
+        "original_sha256": "31f9759398e0d0a4dafacf9ac4bd74d6b76fd579cf7f382b404d20ef9a9db1a4",
+        "reproduced_sha256": "31f9759398e0d0a4dafacf9ac4bd74d6b76fd579cf7f382b404d20ef9a9db1a4",
+        "same_bytes": true,
+        "same_json": true
+      },
+      "name-probe/control.json": {
+        "original_sha256": "4a511e3db43e635b800057110df682dc653c68cc278f264cee6bba624f3518f1",
+        "reproduced_sha256": "4a511e3db43e635b800057110df682dc653c68cc278f264cee6bba624f3518f1",
+        "same_bytes": true,
+        "same_json": true
+      },
+      "name-probe/swap-symbol-type.json": {
+        "original_sha256": "ce97b45a6f3620abec45ee0b6472d4156705a8e376ecc9fce28e2f87f093f056",
+        "reproduced_sha256": "ce97b45a6f3620abec45ee0b6472d4156705a8e376ecc9fce28e2f87f093f056",
+        "same_bytes": true,
+        "same_json": true
+      },
+      "name-probe/symbol-name-as-type.json": {
+        "original_sha256": "25f8894e80d9b2750dec6244e6466532315a3c664e40bee1765fb38f91c0b84b",
+        "reproduced_sha256": "25f8894e80d9b2750dec6244e6466532315a3c664e40bee1765fb38f91c0b84b",
+        "same_bytes": true,
+        "same_json": true
+      }
+    },
+    "red_green_candidate_equality": {
+      "branch-probe/candidate.json": {
+        "same_red_green_bytes": true,
+        "sha256": "31f9759398e0d0a4dafacf9ac4bd74d6b76fd579cf7f382b404d20ef9a9db1a4"
+      },
+      "name-probe/control.json": {
+        "same_red_green_bytes": true,
+        "sha256": "4a511e3db43e635b800057110df682dc653c68cc278f264cee6bba624f3518f1"
+      },
+      "name-probe/swap-symbol-type.json": {
+        "same_red_green_bytes": true,
+        "sha256": "ce97b45a6f3620abec45ee0b6472d4156705a8e376ecc9fce28e2f87f093f056"
+      },
+      "name-probe/symbol-name-as-type.json": {
+        "same_red_green_bytes": true,
+        "sha256": "25f8894e80d9b2750dec6244e6466532315a3c664e40bee1765fb38f91c0b84b"
+      }
+    },
+    "test_results": {
+      "regression-red.xml": {
+        "tests": 4,
+        "failures": 4,
+        "errors": 0,
+        "skipped": 0,
+        "duration_seconds": [
+          "14.978"
+        ]
+      },
+      "regression-green.xml": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "duration_seconds": [
+          "16.664"
+        ]
+      },
+      "inventory-green.xml": {
+        "tests": 102,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "duration_seconds": [
+          "101.704"
+        ]
+      }
+    },
+    "applicator_boundary": {
+      "machine_owner": "/meta_format/language_definitions/collections/wire_schemas/field_types/schema/allowed_keywords",
+      "current_source_applicator": "oneOf",
+      "probe_results": [
+        {
+          "keyword": "oneOf",
+          "source_schema_errors": [],
+          "consumers": {
+            "A": {
+              "admitted": true,
+              "diagnostics": []
+            },
+            "B": {
+              "admitted": true,
+              "diagnostics": []
+            }
+          },
+          "inventory": {
+            "error": "InventoryRefusal",
+            "message": "Source copy has no initial Fact field owner"
+          }
+        },
+        {
+          "keyword": "anyOf",
+          "source_schema_errors": [],
+          "consumers": {
+            "A": {
+              "admitted": false,
+              "diagnostics": [
+                [
+                  "static",
+                  "kernel.vector_mismatch",
+                  "language.definitions"
+                ]
+              ]
+            },
+            "B": {
+              "admitted": false,
+              "diagnostics": [
+                [
+                  "static",
+                  "kernel.vector_mismatch",
+                  "language.definitions"
+                ]
+              ]
+            }
+          },
+          "inventory": {
+            "error": "InventoryRefusal",
+            "message": "wire schema does not close its Kernel shape"
+          }
+        },
+        {
+          "keyword": "allOf",
+          "source_schema_errors": [],
+          "consumers": {
+            "A": {
+              "admitted": false,
+              "diagnostics": [
+                [
+                  "static",
+                  "kernel.vector_mismatch",
+                  "language.definitions"
+                ]
+              ]
+            },
+            "B": {
+              "admitted": false,
+              "diagnostics": [
+                [
+                  "static",
+                  "kernel.vector_mismatch",
+                  "language.definitions"
+                ]
+              ]
+            }
+          },
+          "inventory": {
+            "error": "InventoryRefusal",
+            "message": "wire schema does not close its Kernel shape"
+          }
+        },
+        {
+          "keyword": "if",
+          "source_schema_errors": [],
+          "consumers": {
+            "A": {
+              "admitted": false,
+              "diagnostics": [
+                [
+                  "static",
+                  "kernel.vector_mismatch",
+                  "language.definitions"
+                ]
+              ]
+            },
+            "B": {
+              "admitted": false,
+              "diagnostics": [
+                [
+                  "static",
+                  "kernel.vector_mismatch",
+                  "language.definitions"
+                ]
+              ]
+            }
+          },
+          "inventory": {
+            "error": "InventoryRefusal",
+            "message": "wire schema does not close its Kernel shape"
+          }
+        },
+        {
+          "keyword": "then",
+          "source_schema_errors": [],
+          "consumers": {
+            "A": {
+              "admitted": false,
+              "diagnostics": [
+                [
+                  "static",
+                  "kernel.vector_mismatch",
+                  "language.definitions"
+                ]
+              ]
+            },
+            "B": {
+              "admitted": false,
+              "diagnostics": [
+                [
+                  "static",
+                  "kernel.vector_mismatch",
+                  "language.definitions"
+                ]
+              ]
+            }
+          },
+          "inventory": {
+            "error": "InventoryRefusal",
+            "message": "wire schema does not close its Kernel shape"
+          }
+        },
+        {
+          "keyword": "else",
+          "source_schema_errors": [],
+          "consumers": {
+            "A": {
+              "admitted": false,
+              "diagnostics": [
+                [
+                  "static",
+                  "kernel.vector_mismatch",
+                  "language.definitions"
+                ]
+              ]
+            },
+            "B": {
+              "admitted": false,
+              "diagnostics": [
+                [
+                  "static",
+                  "kernel.vector_mismatch",
+                  "language.definitions"
+                ]
+              ]
+            }
+          },
+          "inventory": {
+            "error": "InventoryRefusal",
+            "message": "wire schema does not close its Kernel shape"
+          }
+        },
+        {
+          "keyword": "dependentSchemas",
+          "source_schema_errors": [],
+          "consumers": {
+            "A": {
+              "admitted": false,
+              "diagnostics": [
+                [
+                  "static",
+                  "kernel.vector_mismatch",
+                  "language.definitions"
+                ]
+              ]
+            },
+            "B": {
+              "admitted": false,
+              "diagnostics": [
+                [
+                  "static",
+                  "kernel.vector_mismatch",
+                  "language.definitions"
+                ]
+              ]
+            }
+          },
+          "inventory": {
+            "error": "InventoryRefusal",
+            "message": "wire schema does not close its Kernel shape"
+          }
+        }
+      ],
+      "scope": "Only oneOf is currently admitted for Source Schema. All seven probe Sources satisfy their JSON Schemas. Nested oneOf A/B admits and its unowned field refuses in inventory; anyOf, allOf, if, then, else and dependentSchemas already refuse in A/B and in inventory Schema admission. No Kernel/LDB/production grammar was expanded."
+    },
+    "notes": [
+      "Spec original candidate files are byte-identical at both RED and GREEN. Only probe output directories changed.",
+      "Same-instance Schema traversal now discovers fields as well as recording occurrences and selecting fields; properties/items children are reached only by an explicit address step.",
+      "Reader removes both actual profile adapter inputs from the copied value-contract projection. Existing reverse role judgments are independently exercised with co-mutated wrong-role occurrences.",
+      "An unknown branch-only field refuses, while a legally moved branch-only domain field retains its Source selector ownership.",
+      "Both actual legal profile name exchanges retain A/B Model and public CLI success and the control RIR semantic identity.",
+      "All 40 preexisting remaining gaps are exactly equal. No complete #878 or whole-package suite claim."
+    ],
+    "receipt": {
+      "path": "/private/tmp/gda-878-source-fact-inventory-review-evidence/receipt.json",
+      "bytes": 169401,
+      "sha256": "3fbfa3e349968f01f9b0fbe00075c7d41844cfbbe7bd67d200dc43347be56a71"
+    },
+    "raw_manifest_verification": {
+      "receipt": "/private/tmp/gda-878-source-fact-inventory-review-evidence/receipt.json",
+      "receipt_sha256": "3fbfa3e349968f01f9b0fbe00075c7d41844cfbbe7bd67d200dc43347be56a71",
+      "file_records": 985,
+      "mismatches": []
+    }
+  },
+  "primary_validation": {
+    "paired_A_B": {
+      "path": "/private/tmp/gda-878-root/source-fact-paired-final.xml",
+      "bytes": 4904,
+      "sha256": "614f6c1c0a2d32a081ebe8e17aacb734cae0076b82ac1d034d3ae3becf9185e9",
+      "tests": 28,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "suite_seconds": [
+        97.63
+      ]
+    },
+    "existing_preparation_and_alias_boundary": {
+      "path": "/private/tmp/gda-878-root/source-fact-preparation.xml",
+      "bytes": 1935,
+      "sha256": "9e02452057d8dfe0731f0aa1c3d1b91fdfc271c0fbfd8b97ee17a56cfcdba470",
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "suite_seconds": [
+        122.837
+      ]
+    },
+    "CI_policy": {
+      "path": "/private/tmp/gda-878-root/source-fact-ci-policy.xml",
+      "bytes": 1705,
+      "sha256": "1a11024dfa5d68f30d027afd15c0289daa183de0628b61b2c8db884efd6fcae0",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "suite_seconds": [
+        6.712
+      ]
+    },
+    "pyright": {
+      "record": {
+        "path": "/private/tmp/gda-878-root/source-fact-pyright.log",
+        "bytes": 37,
+        "sha256": "6d88a1b220adb7a3d62092b6e38431f0b3fe8babe9864fab90e5849766260332"
+      },
+      "output": "0 errors, 0 warnings, 0 informations"
+    },
+    "final_static_checks": {
+      "source-fact-ruff-final.log": {
+        "record": {
+          "path": "/private/tmp/gda-878-root/source-fact-ruff-final.log",
+          "bytes": 19,
+          "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+        },
+        "output": "All checks passed!"
+      },
+      "source-fact-format-final.log": {
+        "record": {
+          "path": "/private/tmp/gda-878-root/source-fact-format-final.log",
+          "bytes": 28,
+          "sha256": "68d1dc72195af503d4d0bc80908b4d51f60bb7bf57ca76a05d13667bb2905509"
+        },
+        "output": "239 files already formatted"
+      },
+      "source-fact-pyright-final.log": {
+        "record": {
+          "path": "/private/tmp/gda-878-root/source-fact-pyright-final.log",
+          "bytes": 37,
+          "sha256": "6d88a1b220adb7a3d62092b6e38431f0b3fe8babe9864fab90e5849766260332"
+        },
+        "output": "0 errors, 0 warnings, 0 informations"
+      }
+    },
+    "final_CI_collection": {
+      "baseline_package_vector_count": 84,
+      "baseline_test_count": 850,
+      "baseline_test_digest": "49e24a6ad77e1041ffecbd0d9bf3564dadbf116c7f91878df6424fef608af7aa",
+      "current_package_vector_count": 347,
+      "current_test_count": 2511,
+      "current_test_digest": "c1902f0da6b2f84ed851015c243396dcdb8aa2c6bb958fb39509330b8dc8f38d",
+      "missing_package_vectors": [],
+      "missing_tests": [],
+      "overlapping_tests": [],
+      "shards": {
+        "authority": {
+          "count": 183,
+          "digest": "3dc7f6d788b16e17b188f4b13ae63b5f953da1811ce3463a908c721af8963e0a"
+        },
+        "bounded-fold": {
+          "count": 121,
+          "digest": "72fc8e66e679476167d4062948b05455bbc0b82b1f69fbc2b5dd9f884f62cd36"
+        },
+        "composition": {
+          "count": 198,
+          "digest": "df0171981d7c9ac4115d1c5140250a26621914f618b65097a2553813e08c90e0"
+        },
+        "experiment": {
+          "count": 101,
+          "digest": "be59ed29ee28124f65b1de4f9c4119d98d33f4b53afec7af36f04e7022feaae1"
+        },
+        "experiment-continuation": {
+          "count": 91,
+          "digest": "e13abaddd4d6346d4ad5c23a5458409a3eb2d6354e9b99aaa45db8cfb64aecfc"
+        },
+        "extension": {
+          "count": 458,
+          "digest": "24e4cbd9b6456a2992ff9660411cb3452a346810e9f50caa014ecb0a8ce1847d"
+        },
+        "fast": {
+          "count": 419,
+          "digest": "61d601690e1587fb6935fdf50896cf886334e73b6aa1ab574ac5c0a4a202e795"
+        },
+        "interfaces": {
+          "count": 332,
+          "digest": "ada368bc13df30c1a91e2a04adef0e272b3fd5d277a9fed432b6b64bf4337aba"
+        },
+        "language": {
+          "count": 285,
+          "digest": "bbb8b643b34f5b672c5c340197e4836b862fd83805e3d76d0237f44251249d11"
+        },
+        "model": {
+          "count": 255,
+          "digest": "f59f0d1857ece6f1b486f59aae5bf87d2e650ca10248384083c46607fb13e674"
+        },
+        "model-admission": {
+          "count": 41,
+          "digest": "1aaecb7b55b74fe2413e9e0c0a437a0bb021c92d969523260c730ab09c4c7dfa"
+        },
+        "smoke": {
+          "count": 27,
+          "digest": "d70b23b13c8920305103d06ee6712c62ec0f890c18acf820adec2bb56e3f31a6"
+        }
+      },
+      "uncovered_tests": [],
+      "unexpected_shard_tests": []
+    },
+    "raw_manifest_verification": [
+      {
+        "manifest": "/private/tmp/gda-878-source-fact-transport-evidence/RAW-MANIFEST.json",
+        "sha256": "65c8bb8a4812eb91dca6b240c2657ef684a10999697bb6e46094c16cbe3790a5",
+        "records": 505,
+        "mismatches": []
+      },
+      {
+        "manifest": "/private/tmp/gda-878-source-fact-transport-evidence/inactive-adapter/RAW-MANIFEST.json",
+        "sha256": "71dfd4517c38baa9fafb6f4f85c44271631f6a21aad11d01b2e2335eb6d36e19",
+        "records": 119,
+        "mismatches": []
+      },
+      {
+        "scope": "current package/vector bytes versus f99 baseline",
+        "records": 26,
+        "mismatches": []
+      }
+    ]
+  },
+  "review": {
+    "Standards": {
+      "implementation_head": "3eb19a7a96f4ce04222afb0cb0c1d638367c64e2",
+      "findings": 0,
+      "independent_tests": {
+        "path": "/private/tmp/gda-878-source-fact-standards-nek19pvm/targeted.xml",
+        "bytes": 908,
+        "sha256": "fed1348cc96587af5254f520fe27773f0bf9eeab3cc844080cc9e40727e9317e",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "suite_seconds": [
+          18.232
+        ]
+      },
+      "input_role_test_delta_head": "7acce4040dd99262a45ccdf35da46dcff1795a15",
+      "input_role_test_delta_findings": 0,
+      "scope": "Production, initial inventory and paired Source role tests only. Subsequent inventory corrections require their own review below."
+    },
+    "Standards_final": {
+      "head": "ddf74617e7b091ca743d9e29e60eee1d4b4087a7",
+      "findings": [],
+      "independent_tests": {
+        "path": "/private/tmp/gda-878-source-final-standards-romg3y11/new-cases.xml",
+        "bytes": 906,
+        "sha256": "b63546911ac498e207fb5c3cb916982bce954d97c96869627c54194b89cd56a5",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "suite_seconds": [
+          17.102
+        ]
+      },
+      "evidence_review": {
+        "path": "/private/tmp/gda-878-source-final-standards-romg3y11/final-json-claims.json",
+        "bytes": 849,
+        "sha256": "d7bbf6fdd365af98daf0577d1a5d16b521904cc35a145929e09f7f13d9c3d3b9"
+      },
+      "independent_985_raw_file_verification": {
+        "path": "/private/tmp/gda-878-source-final-standards-romg3y11/final-raw-manifest-verification.json",
+        "bytes": 69,
+        "sha256": "db18ddbe8fc8319a48b1a937568bfad82317f5e54c2293875852a4a080b589d7"
+      },
+      "reviewed_evidence_sha256": "0c88a7adbc30332d43547a2a2a6d3563650e6a72ac7e87fcdc3f5cf718633ab5",
+      "scope": "Final inventory correction, four permanent cases and completed evidence claims; this final record adds only reviewer receipts to the reviewed evidence."
+    },
+    "Spec_initial": {
+      "head": "3eb19a7a96f4ce04222afb0cb0c1d638367c64e2",
+      "scope": "Independent Spec review of Source-to-initial-Fact transport and five selector inventory gaps only; no complete #878 claim",
+      "production_findings": 0,
+      "tests": {
+        "new_transport_independent_inventory": {
+          "name": "pytest",
+          "errors": "0",
+          "failures": "0",
+          "skipped": "0",
+          "tests": "45",
+          "time": "103.449",
+          "timestamp": "2026-09-08T21:20:07.406790+08:00",
+          "hostname": "LeledeMacBook-Air.local"
+        },
+        "all34_model_verdicts_and_existing_oracles": {
+          "name": "pytest",
+          "errors": "0",
+          "failures": "0",
+          "skipped": "0",
+          "tests": "1",
+          "time": "19.959",
+          "timestamp": "2026-09-08T21:23:23.059718+08:00",
+          "hostname": "LeledeMacBook-Air.local"
+        },
+        "initial_facts": "Both new corpus cases prove13 admitted Source cases and4189 Facts close; independent corpus case checks its own materialization/resolved fields, not only A output."
+      },
+      "findings": [
+        {
+          "priority": "P2",
+          "source": "tests/schema2_extension_inventory_support.py:913",
+          "requirement": "#878: Omitted token classes/members ... refuse. Proposal: unknown/colliding Source copy members must not acquire ownership.",
+          "issue": "Same-instance branch-only copied member is omitted by reader and reverse completeness.",
+          "proof": "/private/tmp/gda-878-spec-source-3eb/branch-probe/results.json",
+          "candidate": "/private/tmp/gda-878-spec-source-3eb/branch-probe/candidate.json",
+          "script": "/private/tmp/gda-878-spec-source-3eb/branch_probe.py",
+          "consequence": "Correctly resealed authority and SourceSchema accept; actual Source Fact correctly refuses. Inventory read and validate nevertheless pass with40gaps and zero occurrences of the extra actual Source key.",
+          "smallest_repair": "Derive/check copied member ownership over same-instance Schema branches and actual Source members, without descending into independently owned property payloads."
+        },
+        {
+          "priority": "P2",
+          "source": "tests/schema2_extension_inventory_support.py:3888",
+          "requirement": "#878: exhaustive bijective renaming ... succeed. Proposal: profile-adapted Source Symbol/Type addresses remain open names.",
+          "issue": "Source Symbol-name input is treated as a value-contract TypeReference when legally renamed to type.",
+          "proof": "/private/tmp/gda-878-spec-source-3eb/name-confirmation/results.json",
+          "script": "/private/tmp/gda-878-spec-source-3eb/name_confirmation.py",
+          "consequence": "Simultaneous symbol/type swap and symbol-to-type/type-to-opaque_type candidates pass A/B authority, both Model frontends and actual public check; complete RIR bytes equal control, but inventory refuses Type reference is not an object.",
+          "smallest_repair": "Exclude both actual profile-selected adapter input roles at Source-to-value-contract inventory joins, including reverse coverage; do not classify by spelling.",
+          "classification": "Existing helper join exposed by this slice ownership closure; not a new production regression."
+        }
+      ],
+      "receipt": {
+        "path": "/private/tmp/gda-878-spec-source-3eb/receipt.json",
+        "bytes": 7405,
+        "sha256": "24553337d0b41c1244e221ccfc5243d9b3bd7e30cf4a82e7c4058d7fba26e83f"
+      }
+    },
+    "Spec_final": {
+      "head": "ddf74617e7b091ca743d9e29e60eee1d4b4087a7",
+      "findings": [],
+      "closed_findings": [
+        "Same-instance branch member omission",
+        "Source Symbol-name input misclassified as Type reference"
+      ],
+      "independent_new_cases": 4,
+      "original_candidate_bytes_unchanged": 4,
+      "receipt": {
+        "path": "/private/tmp/gda-878-spec-source-ddf/receipt.json",
+        "bytes": 4921,
+        "sha256": "c17eab25ad66deeedaa8ec6535329e2219b8c04d1fc3ff25b9d3579601fc4757"
+      },
+      "scope": "The original candidates, four added tests and evidence claims; the earlier production review remains separate."
+    },
+    "DDMA": {
+      "scope": "Inactive nominal-export adapter and legal same-spelling input roles.",
+      "finding_closed": true,
+      "receipt": {
+        "path": "/private/tmp/gda-878-ddma-source-owner-recheck/receipt.json",
+        "bytes": 5993,
+        "sha256": "074e783edd41e25c86d2564c0603a926cd98f321a45d0db3340ed3ca275babfe"
+      }
+    }
+  },
+  "raw_evidence": [
+    {
+      "path": "/private/tmp/gda-878-source-fact-transport-evidence/FINAL-RECEIPT.json",
+      "bytes": 13533,
+      "sha256": "82da7a35855f42d6d79181adf56e67013ac5bd41f710dab45a05c3406f511bbe"
+    },
+    {
+      "path": "/private/tmp/gda-878-source-fact-transport-evidence/RAW-MANIFEST.json",
+      "bytes": 124701,
+      "sha256": "65c8bb8a4812eb91dca6b240c2657ef684a10999697bb6e46094c16cbe3790a5"
+    },
+    {
+      "path": "/private/tmp/gda-878-source-fact-transport-evidence/UNCHANGED-PACKAGE-VECTOR-MANIFEST.json",
+      "bytes": 5679,
+      "sha256": "af4949c78aceb5beca736622f52d611c90af37c2faedd9ea14269867f5bd5bfe"
+    },
+    {
+      "path": "/private/tmp/gda-878-source-fact-transport-evidence/inactive-adapter/FINAL-RECEIPT.json",
+      "bytes": 28370,
+      "sha256": "448aa9e702f472ec8e77755ffc86495acd4f12978707f6da939a0480d5c0a3c6"
+    },
+    {
+      "path": "/private/tmp/gda-878-source-fact-transport-evidence/inactive-adapter/RAW-MANIFEST.json",
+      "bytes": 38295,
+      "sha256": "71dfd4517c38baa9fafb6f4f85c44271631f6a21aad11d01b2e2335eb6d36e19"
+    },
+    {
+      "path": "/private/tmp/gda-source-fact-b-receipt.json",
+      "bytes": 3041,
+      "sha256": "0f09a37f6b9a2c7fbc61bb2725b76e4452134a35e0ec40c730bf11450da37f5d"
+    },
+    {
+      "path": "/private/tmp/gda-source-fact-inactive-b-receipt.json",
+      "bytes": 5617,
+      "sha256": "bcc58530abbda92a0d0268aa99e2054a53661f7ad13943cd5c97b6ee20d21c2c"
+    },
+    {
+      "path": "/private/tmp/gda-source-fact-b-input-roles-receipt.json",
+      "bytes": 1263,
+      "sha256": "29d13d13ff4a2c5d1a4ed500391d91726fd7956a06ecc067ef3102bc968b2436"
+    },
+    {
+      "path": "/private/tmp/gda-878-ddma-source-owner-recheck/receipt.json",
+      "bytes": 5993,
+      "sha256": "074e783edd41e25c86d2564c0603a926cd98f321a45d0db3340ed3ca275babfe"
+    },
+    {
+      "path": "/private/tmp/gda-878-source-fact-inventory-evidence/receipt.json",
+      "bytes": 6758,
+      "sha256": "9e09096298a35014c819313ecafef9f3734eef09661b51a95f230978ddd7c6b3"
+    },
+    {
+      "path": "/private/tmp/gda-878-source-fact-standards-nek19pvm/scope.json",
+      "bytes": 243,
+      "sha256": "0a28bd45882f1b447f87d299f8bf7cfdc7d391639efdbd6e7fd3407677d4400a"
+    },
+    {
+      "path": "/private/tmp/gda-878-source-fact-standards-nek19pvm/targeted.xml",
+      "bytes": 908,
+      "sha256": "fed1348cc96587af5254f520fe27773f0bf9eeab3cc844080cc9e40727e9317e"
+    },
+    {
+      "path": "/private/tmp/gda-878-source-final-standards-romg3y11/new-cases.xml",
+      "bytes": 906,
+      "sha256": "b63546911ac498e207fb5c3cb916982bce954d97c96869627c54194b89cd56a5"
+    },
+    {
+      "path": "/private/tmp/gda-878-source-final-standards-romg3y11/final-json-claims.json",
+      "bytes": 849,
+      "sha256": "d7bbf6fdd365af98daf0577d1a5d16b521904cc35a145929e09f7f13d9c3d3b9"
+    },
+    {
+      "path": "/private/tmp/gda-878-source-final-standards-romg3y11/final-raw-manifest-verification.json",
+      "bytes": 69,
+      "sha256": "db18ddbe8fc8319a48b1a937568bfad82317f5e54c2293875852a4a080b589d7"
+    },
+    {
+      "path": "/private/tmp/gda-878-spec-source-3eb/receipt.json",
+      "bytes": 7405,
+      "sha256": "24553337d0b41c1244e221ccfc5243d9b3bd7e30cf4a82e7c4058d7fba26e83f"
+    },
+    {
+      "path": "/private/tmp/gda-878-spec-source-3eb/branch-probe/results.json",
+      "bytes": 629,
+      "sha256": "360400787756f3161e975ff664e75b16b77031a70d00ca19aea7b6f32d608d03"
+    },
+    {
+      "path": "/private/tmp/gda-878-spec-source-3eb/name-confirmation/results.json",
+      "bytes": 3161,
+      "sha256": "ece67970b237d6a59db90bc1293e49abe6c156544f76709be649a8781456fc08"
+    },
+    {
+      "path": "/private/tmp/gda-878-spec-source-ddf/receipt.json",
+      "bytes": 4921,
+      "sha256": "c17eab25ad66deeedaa8ec6535329e2219b8c04d1fc3ff25b9d3579601fc4757"
+    },
+    {
+      "path": "/private/tmp/gda-878-source-fact-inventory-review-evidence/receipt.json",
+      "bytes": 169401,
+      "sha256": "3fbfa3e349968f01f9b0fbe00075c7d41844cfbbe7bd67d200dc43347be56a71"
+    },
+    {
+      "path": "/private/tmp/gda-878-source-fact-inventory-review-evidence/final-measurements.json",
+      "bytes": 489,
+      "sha256": "5b0c6dd8de8dbce3ca5d020ed14cf9d870f30bfffe18972bfa19670b4300d118"
+    },
+    {
+      "path": "/private/tmp/gda-878-source-fact-inventory-review-evidence/final-gaps.json",
+      "bytes": 8180,
+      "sha256": "c9adf4c5a6979b29c0fd6d6ffaeb5d8223e36cd004c636ebabbf64ee51a5b382"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/source-fact-review-manifest-verification.json",
+      "bytes": 222,
+      "sha256": "fb60d0f9fe4532564d7ed4caa88be66721f755b5f2b7b65c2cce50212eadebde"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/source-fact-ci-inventory-final.json",
+      "bytes": 2044,
+      "sha256": "8cf00952e573734e4cae1ed7d2e4721cadff092fd58a93f49cb78dd82d3dbbde"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/source-fact-manifest-verification.json",
+      "bytes": 576,
+      "sha256": "f10e3e641c2a42e68de8d7c4d5a0190218bad809935b3b5757762314cfffca69"
+    }
+  ],
+  "reproduction": {
+    "working_directory": "libs/gda-balancing",
+    "commands": [
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests .venv/bin/python -m pytest -p no:cacheprovider tests/test_source_fact_transport.py tests/test_source_fact_transport_independent.py tests/test_source_fact_selector_inventory.py -q",
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests .venv/bin/python -m pytest -p no:cacheprovider tests/test_schema2_model_lowerer_conformance.py::test_permanent_model_program_vectors_close_both_compiler_pipelines tests/test_model_preparation.py tests/test_ci_policy.py -q"
+    ],
+    "scope": "Permanent tests are tracked and run in the package environment. Historical local evidence paths record their original execution locations; they are not installed-product dependencies."
+  },
+  "limits": [
+    "No full package CI execution, wheel/HTTP parity, final frozen-build exchange or complete non-RPG acceptance is claimed.",
+    "The earlier bad Kernel seal and incorrect fixture expectations remain in raw evidence; only correctly paired and admitted candidates substantiate the reported RED behavior.",
+    "No Runtime whole-artifact byte parity across all maintained Models is inferred from compiled-artifact or initial-Fact preservation.",
+    "Five Source selector gaps are removed; the other 40 inventory gaps stay open and require their own evidence.",
+    "No host genre dispatch, new primitive, new execution phase, per-LDB transport registry or compatibility fallback is added."
+  ]
+}
