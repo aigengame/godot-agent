@@ -1052,6 +1052,57 @@ GAME_TREE_TRUNCATED_RESULT = {
     "omitted_nodes": 2,
 }
 
+# Sample ``gda game find`` results — the FLAT match list of a selector search
+# (#855). Each match carries the tree's per-node shape (name/type/path) plus the
+# attached script's ``res://`` path when the node has one, and ``count`` is the
+# list's size. The two bounding counters are ``game tree``'s, read here as what
+# the search did not REACH: a bounded search that matched nothing has not proved
+# the node absent.
+GAME_FIND_RESULT = {
+    "matches": [
+        {
+            "path": "/root/Main/HUD/Ok",
+            "name": "Ok",
+            "type": "Button",
+            "script_path": None,
+        },
+        {
+            "path": "/root/Main/HUD/Toggle",
+            "name": "Toggle",
+            "type": "CheckBox",
+            "script_path": "res://ui/card_view.gd",
+        },
+    ],
+    "count": 2,
+    "truncated": False,
+    "omitted_nodes": 0,
+}
+
+# Nothing matched, and the searched subtree was walked whole: a success with an
+# empty list, which a caller must be able to tell from the truncated shape below.
+GAME_FIND_EMPTY_RESULT = {
+    "matches": [],
+    "count": 0,
+    "truncated": False,
+    "omitted_nodes": 0,
+}
+
+# The BOUNDED counterpart: one match, and four nodes the depth bound kept the
+# search from reaching.
+GAME_FIND_TRUNCATED_RESULT = {
+    "matches": [
+        {
+            "path": "/root/Main/HUD",
+            "name": "HUD",
+            "type": "Control",
+            "script_path": None,
+        }
+    ],
+    "count": 1,
+    "truncated": True,
+    "omitted_nodes": 4,
+}
+
 # Sample ``gda game get`` / ``gda game set`` results — a running node's runtime
 # properties, addressed by the absolute runtime path (#220). Shared by the
 # game-command success/schema tests; the value projection mirrors NodeProperty,

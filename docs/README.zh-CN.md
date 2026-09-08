@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=b5201cbced637f6939b29899e07f19c05617f0dddd7d540063fc9e16732d17b9 -->
+<!-- gda-readme-i18n: source=README.md sha256=19ad6158c5b039c114900ecb852916971dc1c781ca9be7240976efecf9a54662 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -490,6 +490,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | 命令 | 作用 |
 | ------- | ------------ |
 | `game tree` | 读取正在运行的游戏的运行时场景树（在 `_ready` 之后）。 |
+| `game find` | 按引擎类、脚本、组、名称或唯一名称查找运行时节点，而不是按路径。`--type` 匹配的是引擎类（含子类），永远不匹配项目的 `class_name` —— 要匹配后者请用 `--script res://path.gd`。 |
 | `game get` | 按节点路径读取一个运行时节点的实时属性；显式命名时可读取附加脚本变量。 |
 | `game rect` | 按节点路径读取一个运行时 Control 渲染后的视口矩形。 |
 | `game set` | 在正在运行的游戏上设置运行时节点属性，或显式命名的附加脚本变量；`verified` 报告读回值是否匹配。 |

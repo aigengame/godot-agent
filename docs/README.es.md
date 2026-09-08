@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=b5201cbced637f6939b29899e07f19c05617f0dddd7d540063fc9e16732d17b9 -->
+<!-- gda-readme-i18n: source=README.md sha256=19ad6158c5b039c114900ecb852916971dc1c781ca9be7240976efecf9a54662 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -515,6 +515,7 @@ en el resultado.
 | Comando | Qué hace |
 | ------- | ------------ |
 | `game tree` | Lee el árbol de escena en runtime del juego en ejecución (después de `_ready`). |
+| `game find` | Encuentra nodos de runtime por clase de motor, script, grupo, nombre o nombre único, en lugar de por ruta. `--type` es la clase del MOTOR (incluye subclases) y nunca un `class_name` del proyecto: `--script res://path.gd` es lo que llega a eso. |
 | `game get` | Lee las propiedades en vivo de un nodo de runtime por ruta de nodo; los nombres explícitos pueden acceder a variables del script adjunto. |
 | `game rect` | Lee el rectángulo renderizado en viewport de un Control de runtime por ruta de nodo. |
 | `game set` | Define una propiedad de un nodo de runtime, o una variable del script adjunto nombrada explícitamente, en el juego en ejecución; `verified` informa si la relectura coincidió. |
