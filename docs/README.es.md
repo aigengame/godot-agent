@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e37039b783e1b1822c93cf395cf57a1bf7afdb777d15fce8c18206342b009e53 -->
+<!-- gda-readme-i18n: source=README.md sha256=bb3de349a31d49df94362315c1b48bf4365bd29bc497611c0a0c9ab536f95aef -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -497,6 +497,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | Comando | Qué hace |
 | ------- | ------------ |
 | `asset-pipeline run` | Exporta un subárbol de un archivo de Blender guardado o prepara archivos PNG/GLB; después los instala e importa y comprueba el resultado que Godot carga realmente. |
+| `asset-pipeline check` | Evalúa el modelo según los requisitos del proyecto y compara informes compatibles de Godot. Una evaluación completada devuelve el código 0; el campo verdict indica si cumple los requisitos. |
 
 Usa correspondencias explícitas entre origen y destino y define una política de sobrescritura.
 Los archivos que complete la generación de imágenes siguen el mismo flujo y pueden incluir metadatos

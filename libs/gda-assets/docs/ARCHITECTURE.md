@@ -1,8 +1,8 @@
 # Asset Pipeline architecture
 
-**Status:** accepted design; file handoff (#908) and saved Blender production (#909)
-are implemented. Other
-workflows remain planned. Accepted by the project owner
+**Status:** accepted design; file handoff (#908), saved Blender production (#909),
+and model expectation checks (#887) are implemented. Other workflows remain
+planned. Accepted by the project owner
 on 2026-09-07 after review of the Blender-to-Godot workflow and milestone #14.
 Source baseline inspected: `cfcb8658e67df418a69694840a37a22a9cd3cbe0`.
 Acceptance and delivery status are owned by
@@ -150,6 +150,8 @@ selects the local adapter only when production is requested. The host transports
 generic options and injects the same Godot import/load port; native source
 inspection and export stay inside the Blender adapter and its bundled worker.
 The [Blender guide](blender.md) owns the supported execution and measurement policy.
+The [model checks guide](checks.md) owns the implemented expectation document,
+verdict, saved-report, and baseline-comparison user contract.
 
 ## Tactical model and interfaces
 
@@ -184,7 +186,7 @@ source inspection only when used, and add runtime/package ports with their slice
 Do not mirror every gda operation into a general Godot SDK.
 
 The first handoff slice needs only a bounded engine load observation for its PNG
-and GLB fixtures. The richer `inspect_model` contract arrives with [#886](https://github.com/aigengame/godot-agent/issues/886); the first
+and GLB fixtures. The richer `inspect_model` contract is implemented by [#886](https://github.com/aigengame/godot-agent/issues/886); the first
 Blender tracer can verify its selected dimensions without waiting for the full
 structure/material/animation report.
 
@@ -324,6 +326,10 @@ establish runtime refresh or package-only acceptance. #909 adds real saved-sourc
 Blender export through that same integration path, Godot-loaded dimension checks,
 and native export/import fault cases in `test_e2e_blender_producer.py`. The native
 result is bounded per invocation; it adds no persisted run or source identity model.
+[#887](https://github.com/aigengame/godot-agent/issues/887) adds project-owned
+expectations, native or supplied-report evaluation, bounded partial verdicts, and
+compatible baseline comparison. Its user contract is documented in
+[the model checks guide](checks.md); it adds no registry or run history.
 
 ## Research basis and retained limits
 

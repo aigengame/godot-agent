@@ -3,10 +3,12 @@
 from pathlib import Path
 from typing import NoReturn
 
-from gda_assets.api import ImportOutcome, LoadObservation, PortFailure
+from gda_assets.api import ImportOutcome, LoadObservation, PortFailure, ModelFacts
 
 from gda.commands.resource import (
     ResourceImportParams,
+    ResourceInspectModelParams,
+    run_resource_inspect_model_operation,
     run_resource_import_operation,
     run_resource_load_operation,
 )
@@ -72,3 +74,22 @@ class GdaGodotAssetPort:
             scene_node_count=outcome.scene_node_count,
             engine=outcome.engine_version.model_dump(mode="json"),
         )
+
+    def inspect_model(
+        self, path: str, *, subtree: str, max_nodes: int, max_items: int
+    ) -> ModelFacts:
+        from gda.integrations.model_reports import project_model_report
+
+        outcome = run_resource_inspect_model_operation(
+            self._project,
+            ResourceInspectModelParams(
+                path=path, subtree=subtree, max_nodes=max_nodes, max_items=max_items
+            ),
+            godot=self._godot,
+        )
+        if isinstance(outcome, Failure):
+            self._raise(outcome)
+        try:
+            return project_model_report(outcome)
+        except ValueError as exc:
+            raise PortFailure("invalid_observation", str(exc)) from exc

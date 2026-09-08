@@ -53,7 +53,7 @@ def glb(path: Path) -> None:
                     "count": 3,
                     "type": "VEC3",
                     "min": [0, 0, 0],
-                    "max": [1, 1, 0],
+                    "max": [1, 1, 0.0001],
                 },
                 {"bufferView": 1, "componentType": 5123, "count": 3, "type": "SCALAR"},
             ],
@@ -135,6 +135,58 @@ def smoke(gda: Path, godot: str | None) -> None:
             observation["engine"]["major"] >= 4 for observation in first["observations"]
         )
         assert (source / "icon.png").read_bytes() == original
+        expectations = root / "model.expectations.json"
+        expectations.write_text(
+            json.dumps(
+                {
+                    "checks": [
+                        {
+                            "id": "mesh",
+                            "kind": "count",
+                            "metric": "mesh_instance_count",
+                            "min": 1,
+                            "max": 1,
+                        },
+                        {
+                            "id": "size",
+                            "kind": "dimensions",
+                            "min": [1, 1, 0],
+                            "max": [1, 1, 0.0001],
+                        },
+                    ]
+                }
+            )
+        )
+        checked = call(
+            "asset-pipeline",
+            "check",
+            "--expectations",
+            str(expectations),
+            "--path",
+            "res://art/model.glb",
+            *common,
+        )
+        assert checked["verdict"] == "pass", checked
+        report = root / "inspection.json"
+        report.write_text(
+            json.dumps(
+                call("resource", "inspect-model", "res://art/model.glb", *common)
+            )
+        )
+        offline = call(
+            "asset-pipeline",
+            "check",
+            "--expectations",
+            str(expectations),
+            "--report",
+            str(report),
+            "--baseline",
+            str(report),
+            "--json",
+        )
+        assert offline["verdict"] == "pass", offline
+        assert offline["comparison"]["changes"] == []
+        assert offline["observation_source"] == "supplied_report"
         repeat = call(
             "asset-pipeline",
             "run",
@@ -177,7 +229,7 @@ def smoke(gda: Path, godot: str | None) -> None:
         assert not (project / "not-installed.png").exists()
         assert not (project / "missing.png").exists()
     print(
-        "Installed asset pipeline smoke passed: PNG resize, GLB load, repeat, declarations, refusal, cleanup."
+        "Installed asset pipeline smoke passed: PNG resize, GLB load, model expectations, saved comparison, repeat, declarations, refusal, cleanup."
     )
 
 

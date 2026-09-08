@@ -482,6 +482,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | Command | What it does |
 | ------- | ------------ |
 | `asset-pipeline run` | Export a saved Blender subtree or stage PNG/GLB files, then install, import and check the actual Godot-loaded result. |
+| `asset-pipeline check` | Evaluate project model expectations and compare compatible Godot inspection reports. Read the content verdict; completed checks exit 0. |
 
 Use explicit source-to-target mappings and an overwrite policy. Completed
 image-generation files use the same path with optional caller-declared metadata.

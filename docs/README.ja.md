@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e37039b783e1b1822c93cf395cf57a1bf7afdb777d15fce8c18206342b009e53 -->
+<!-- gda-readme-i18n: source=README.md sha256=bb3de349a31d49df94362315c1b48bf4365bd29bc497611c0a0c9ab536f95aef -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -493,6 +493,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | コマンド | 機能 |
 | ------- | ------------ |
 | `asset-pipeline run` | 保存済みの Blender ファイルから選択したサブツリーをエクスポートするか、PNG/GLB ファイルを準備し、配置・インポート後に Godot の実際の読み込み結果を確認します。 |
+| `asset-pipeline check` | プロジェクトの条件に沿ってモデルを検証し、観測範囲が一致する Godot のレポートを比較します。検証が完了すると終了コードは 0 となり、合否は verdict に示されます。 |
 
 ソースからターゲットへのマッピングと上書きポリシーを明示してください。生成が完了した画像ファイルも
 同じ手順で処理でき、呼び出し側が指定したメタデータを任意で付加できます。[アセットパイプラインガイド](../libs/gda-assets/README.md)では、

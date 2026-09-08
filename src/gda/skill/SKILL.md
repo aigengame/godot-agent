@@ -43,6 +43,20 @@ native inspect/prepare/export facts and `observations` for actual Godot loading.
 After import failure, use the installed GLB for an explicit import retry; repeating
 `--production` runs a new export. No concept/prompt record is required.
 
+Use `gda asset-pipeline check --expectations /project/art/model.expectations.json
+--path res://art/model.glb --json` for project acceptance. The JSON document contains
+`checks`, each with a unique `id` and a `kind`: `node`, `count`, `dimensions`,
+`material`, `bone`, `skin_bind`, or `animation_target`. For example,
+`{"checks":[{"id":"left-arm","kind":"node","node":"Rig/Arm_L","type":"MeshInstance3D"}]}`.
+Use full resource-relative node paths from `resource inspect-model`.
+Replace `--path` with `--report /reports/model.json` to evaluate a saved inspection;
+`--baseline /reports/previous.json` adds a compatible comparison. Valid content
+verdicts `pass`, `fail`, and `insufficient` all exit 0: always inspect `verdict`.
+Omitted facts cannot prove acceptance or deletion; a supplied report does not
+establish current engine state. Input and workflow failures exit nonzero and
+include `error.partial_result`. See `asset-pipeline check --schema` for input bindings
+and the [expectation format](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/docs/checks.md).
+
 ## Setup
 
 - **Engine** — set `GDA_GODOT` to your Godot binary (or pass `--godot PATH`).
@@ -234,7 +248,7 @@ Every headless reply carries its floats at full binary64 precision, so a value r
 
 | Group | Commands |
 | --- | --- |
-| `asset-pipeline` | `run` (saved Blender export or PNG/GLB handoff, installation, import and actual engine load) |
+| `asset-pipeline` | `run`, `check` (production and handoff; project expectations and compatible report comparison) |
 
 ## Live operations (via the daemon; Godot 4.6+, macOS/Linux)
 

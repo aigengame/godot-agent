@@ -439,3 +439,192 @@ def asset_pipeline_run(
 
 def register(root: typer.Typer) -> None:
     root.add_typer(_app, name="asset-pipeline")
+
+
+class AssetPipelineCheckParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expectations: Path = Field(
+        description="Project-owned expectation JSON file; relative paths use the caller's working directory."
+    )
+    path: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Model resource to inspect now; select exactly one of path or report.",
+    )
+    report: Path | None = Field(
+        default=None,
+        description="Saved resource inspect-model JSON; evaluated without an engine call.",
+    )
+    baseline: Path | None = Field(
+        default=None,
+        description="Optional saved inspection report to compare with current facts.",
+    )
+    subtree: str = Field(
+        default=".",
+        description="Resource-relative inspection subtree; saved reports carry their own scope.",
+    )
+    max_nodes: int = Field(
+        default=256, ge=1, le=4096, description="Live inspection node limit."
+    )
+    max_items: int = Field(
+        default=1024, ge=1, le=16384, description="Live inspection detail limit."
+    )
+
+    @model_validator(mode="after")
+    def _one_source(self) -> "AssetPipelineCheckParams":
+        if (self.path is not None) == (self.report is not None):
+            raise ValueError("Select exactly one of path or report")
+        if self.report is not None and (
+            self.subtree != "." or self.max_nodes != 256 or self.max_items != 1024
+        ):
+            raise ValueError(
+                "subtree and inspection limits apply only to live path inspection"
+            )
+        return self
+
+
+class AssetConditionResult(BaseModel):
+    id: str
+    verdict: Literal["pass", "fail", "insufficient"]
+    location: dict[str, Any]
+    expected: Any
+    actual: Any
+    reason: str
+
+
+class AssetPipelineCheckResult(BaseModel):
+    completed: list[str]
+    resource: str | None
+    observation_source: Literal["godot", "supplied_report"] | None
+    verdict: Literal["pass", "fail", "insufficient"] | None = Field(
+        description="Content verdict. Every completed evaluation exits 0; invalid input or workflow failure exits nonzero."
+    )
+    checks: list[AssetConditionResult]
+    comparison: dict[str, Any] | None
+    failure: PipelineFailureResult | None
+
+
+def run_asset_check(
+    params: AssetPipelineCheckParams, *, project: Path | None, godot: str | None
+) -> AssetPipelineCheckResult | Failure:
+    from gda_assets.api import (
+        check_model,
+        ModelCheckResult,
+        PipelineFailure,
+        PortFailure,
+    )
+    from gda.integrations.model_reports import read_model_report
+
+    port = GdaGodotAssetPort(project, godot) if project is not None else None
+    native_failure = None
+    try:
+        if params.path is not None and port is None:
+            native_failure = invalid_project_failure(
+                "asset-pipeline check --path requires a Godot project; pass --project"
+            )
+            raise PortFailure(native_failure.error.code, native_failure.error.message)
+        report = read_model_report(params.report) if params.report else None
+        baseline = read_model_report(params.baseline) if params.baseline else None
+        result = check_model(
+            params.expectations,
+            path=params.path,
+            godot=port,
+            report=report,
+            subtree=params.subtree,
+            max_nodes=params.max_nodes,
+            max_items=params.max_items,
+            baseline=baseline,
+        )
+    except PortFailure as exc:
+        result = ModelCheckResult(
+            failure=PipelineFailure("validate", exc.code, str(exc), exc.cause)
+        )
+    typed = AssetPipelineCheckResult.model_validate(asdict(result))
+    if result.failure is None:
+        return typed
+    failure = native_failure or (port.last_failure if port else None)
+    message = (
+        f"asset pipeline failed during {result.failure.stage}: {result.failure.message}"
+    )
+    if failure is None:
+        failure = make_failure(
+            "invalid_params"
+            if result.failure.code
+            in {"invalid_expectations", "invalid_report", "invalid_check"}
+            else "operation_failed",
+            message,
+            "",
+        )
+    failure.error = failure.error.model_copy(
+        update={"message": message, "partial_result": typed.model_dump(mode="json")}
+    )
+    return failure
+
+
+def render_asset_check(result: AssetPipelineCheckResult) -> str:
+    lines = [f"asset check: {result.verdict} ({result.resource})"]
+    lines.extend(
+        f"  {item.verdict:>12}  {item.id}: {item.reason}" for item in result.checks
+    )
+    if result.comparison:
+        lines.append(f"  comparison: {result.comparison['status']}")
+    return "\n".join(lines)
+
+
+ASSET_PIPELINE_CHECK_COMMAND = HeadlessCommand(
+    operation="asset-pipeline-check",
+    input_model=AssetPipelineCheckParams,
+    output_model=AssetPipelineCheckResult,
+    render=render_asset_check,
+    kind=ExecutionKind.COMPOSITE,
+    recipe=run_asset_check,
+)
+
+
+@_app.command(name="check", cls=ASSET_PIPELINE_CHECK_COMMAND.command_class())
+def asset_pipeline_check(
+    expectations: Path = typer.Option(
+        ..., "--expectations", help="Project-owned expectation JSON file."
+    ),
+    path: Optional[str] = typer.Option(
+        None, "--path", help="Model resource to inspect through Godot."
+    ),
+    report: Optional[Path] = typer.Option(
+        None, "--report", help="Saved resource inspect-model JSON; no engine call."
+    ),
+    baseline: Optional[Path] = typer.Option(
+        None, "--baseline", help="Saved inspection report for compatible comparison."
+    ),
+    subtree: str = typer.Option(
+        ".", "--subtree", help="Full resource-relative subtree for live inspection."
+    ),
+    max_nodes: int = typer.Option(
+        256, "--max-nodes", min=1, max=4096, help="Live inspection node limit."
+    ),
+    max_items: int = typer.Option(
+        1024, "--max-items", min=1, max=16384, help="Live inspection detail limit."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = ASSET_PIPELINE_CHECK_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Evaluate project intent and compare model facts. Read verdict; pass/fail/insufficient exit 0."""
+    params = params_or_bad_parameter(
+        AssetPipelineCheckParams,
+        expectations=expectations,
+        path=path,
+        report=report,
+        baseline=baseline,
+        subtree=subtree,
+        max_nodes=max_nodes,
+        max_items=max_items,
+    )
+    dispatch_recipe(
+        ASSET_PIPELINE_CHECK_COMMAND,
+        params,
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )

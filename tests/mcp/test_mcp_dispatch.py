@@ -130,3 +130,42 @@ def test_asset_production_object_reaches_structured_dispatch_verbatim():
     assert args == ["asset-pipeline", "run", "--params-json", "-", "--json"]
     assert stdin is not None
     assert json.loads(stdin) == arguments
+
+
+def test_asset_check_content_verdict_is_relayed_as_success_with_explicit_verdict():
+    for verdict in ("pass", "fail", "insufficient"):
+        payload = {
+            "completed": ["validate", "evaluate"],
+            "resource": "res://model.glb",
+            "observation_source": "supplied_report",
+            "verdict": verdict,
+            "checks": [
+                {
+                    "id": "arm",
+                    "verdict": verdict,
+                    "location": {"resource": "res://model.glb", "node": "Arm"},
+                    "expected": {},
+                    "actual": None,
+                    "reason": "Required node",
+                }
+            ],
+            "comparison": None,
+            "failure": None,
+        }
+        runner = FakeGdaRunner(
+            schema_then(lambda args, stdin: gda_result(json.dumps(payload)))
+        )
+        result = call_tool(
+            build_server(runner),
+            "asset_pipeline_check",
+            {"expectations": "/art/checks.json", "report": "/art/report.json"},
+        )
+        assert result.is_error is False
+        assert result.structured_content == payload
+        args, stdin, _ = runner.calls[-1]
+        assert args == ["asset-pipeline", "check", "--params-json", "-", "--json"]
+        assert stdin is not None
+        assert json.loads(stdin) == {
+            "expectations": "/art/checks.json",
+            "report": "/art/report.json",
+        }
