@@ -66,6 +66,29 @@ def _runtime_projection(authored):
     )
 
 
+@pytest.mark.parametrize(
+    "excluded",
+    [
+        [],
+        ["standard.formula-notation"],
+        ["standard.formula-slots"],
+        ["standard.formula-notation", "standard.formula-slots"],
+    ],
+    ids=["empty", "notation", "slots", "notation-and-slots"],
+)
+def test_independent_packages_refuse_retired_extension_exclusion_inventory(excluded):
+    kernel, ldb = mutable_authorities()
+    authored = _authored(ldb)
+    package = next(row for row in authored["packages"] if row["id"] == "game.build")
+    package["runtime_semantic_excluded_extensions"] = excluded
+    graph = _graph(kernel, authored)
+    observations = {
+        consumer.__name__: consumer(kernel, graph)
+        for consumer in (_consumer_a, _consumer_b)
+    }
+    assert all(not result["admitted"] for result in observations.values()), observations
+
+
 def test_independent_rir_admission_derives_raw_graph_without_production_schema(
     monkeypatch,
 ):

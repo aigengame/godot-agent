@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:ffae101d7d5f1f660a80fa46f2f092ec30bc8a8a070cdb7ff4a107a35635369a"
+    "sha256:370b84ea9a5e7b14b6090fabf53d9a5347f3b6467bf5ca1b3d4b394402fcf846"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -56,17 +56,29 @@ def _identity(domain: str, artifact: dict[str, Any]) -> str:
     )
 
 
-def _reidentify_package_release(package: dict[str, Any]) -> None:
-    runtime_paths = set(package["runtime_semantic_paths"])
-    excluded = set(package["runtime_semantic_excluded_extensions"])
+def _consumer_b_package_runtime_semantic_closure(
+    package: dict[str, Any], kernel: dict[str, Any]
+) -> list[dict[str, Any]]:
+    projection = kernel["meta_format"]["package_release"][
+        "semantic_identity_projection"
+    ]
+    notation = kernel["meta_format"]["language_definitions"][
+        "wire_schema_protocol_roles"
+    ]["source_notation"]
+    if not _consumer_b_source_notation_contract_is_supported(notation):
+        raise ValueError("Source notation owner is malformed")
+    operation_source = notation["operation_source"]
+    runtime_paths = set(package[projection["path_inventory_member"]])
     runtime_closure = deepcopy(
         [
             entry
-            for entry in package["semantic_closure"]
-            if entry["authority_path"] in runtime_paths
+            for entry in package[projection["source_member"]]
+            if entry[projection["path_member"]] in runtime_paths
         ]
     )
     for entry in runtime_closure:
+        if entry[projection["path_member"]] != operation_source["authority_path"]:
+            continue
         for definition in entry["definitions"]:
             if not isinstance(definition, dict) or not isinstance(
                 definition.get("extensions"), dict
@@ -75,16 +87,26 @@ def _reidentify_package_release(package: dict[str, Any]) -> None:
             retained = {
                 key: value
                 for key, value in definition["extensions"].items()
-                if key not in excluded
+                if key != operation_source["extension_member"]
             }
             if retained:
                 definition["extensions"] = retained
             else:
                 definition.pop("extensions")
+    return runtime_closure
+
+
+def _reidentify_package_release(
+    package: dict[str, Any], kernel: dict[str, Any]
+) -> None:
+    projection = kernel["meta_format"]["package_release"][
+        "semantic_identity_projection"
+    ]
+    runtime_closure = _consumer_b_package_runtime_semantic_closure(package, kernel)
     package["semantic_identity"] = (
         "sha256:"
         + hashlib.sha256(
-            b"gda-balancing:domain-package-semantic-closure-v2:"
+            f"gda-balancing:{projection['domain']}:".encode()
             + _encoded(runtime_closure)
         ).hexdigest()
     )
@@ -98,7 +120,7 @@ def _reidentify_package_vector_set(vector_set: dict[str, Any]) -> None:
 
 
 def _bind_package_vector_set(
-    package: dict[str, Any], vector_set: dict[str, Any]
+    package: dict[str, Any], vector_set: dict[str, Any], kernel: dict[str, Any]
 ) -> None:
     _reidentify_package_vector_set(vector_set)
     package["conformance_vectors"] = {
@@ -106,7 +128,7 @@ def _bind_package_vector_set(
         "byte_size": len(_encoded(vector_set)),
         "content_identity": vector_set["content_identity"],
     }
-    _reidentify_package_release(package)
+    _reidentify_package_release(package, kernel)
 
 
 def _package_vector_set(
@@ -1926,7 +1948,7 @@ def _consumer_b_package_evidence_vector_header_is_closed(
 
 
 def _consumer_b_package_semantic_closure_is_closed(
-    package: dict[str, Any], contract: Any
+    package: dict[str, Any], contract: Any, kernel: dict[str, Any]
 ) -> bool:
     if not isinstance(contract, dict):
         return False
@@ -2003,15 +2025,12 @@ def _consumer_b_package_semantic_closure_is_closed(
         or set(semantic_projection)
         != {
             "domain",
-            "extension_inventory_member",
             "path_inventory_member",
             "source_member",
             "path_member",
         }
         or semantic_projection.get("source_member") != "semantic_closure"
         or semantic_projection.get("path_member") != "authority_path"
-        or semantic_projection.get("extension_inventory_member")
-        != "runtime_semantic_excluded_extensions"
         or not isinstance(semantic_projection.get("domain"), str)
         or not isinstance(semantic_projection.get("path_inventory_member"), str)
     ):
@@ -2026,39 +2045,10 @@ def _consumer_b_package_semantic_closure_is_closed(
         or not set(runtime_paths) <= set(closure_paths)
     ):
         return False
-    excluded_extensions = package.get(semantic_projection["extension_inventory_member"])
-    if (
-        not isinstance(excluded_extensions, list)
-        or not all(isinstance(item, str) and item for item in excluded_extensions)
-        or len(excluded_extensions) != len(set(excluded_extensions))
-    ):
-        return False
-    runtime_closure = deepcopy(
-        [entry for entry in closure if entry["authority_path"] in set(runtime_paths)]
-    )
-    found_extensions: set[str] = set()
-    excluded = set(excluded_extensions)
-    for entry in runtime_closure:
-        for definition in entry["definitions"]:
-            if not isinstance(definition, dict) or not isinstance(
-                definition.get("extensions"), dict
-            ):
-                continue
-            found_extensions.update(excluded & set(definition["extensions"]))
-            retained = {
-                key: value
-                for key, value in definition["extensions"].items()
-                if key not in excluded
-            }
-            if retained:
-                definition["extensions"] = retained
-            else:
-                definition.pop("extensions")
-    if found_extensions != excluded:
-        return False
     try:
+        runtime_closure = _consumer_b_package_runtime_semantic_closure(package, kernel)
         encoded = _encoded(runtime_closure)
-    except (TypeError, ValueError, UnicodeEncodeError):
+    except (KeyError, TypeError, ValueError, UnicodeEncodeError):
         return False
     expected = (
         "sha256:"
@@ -2700,10 +2690,16 @@ def _consumer_b_formula_resolution_is_closed(
 def _consumer_b_source_notation_contract_is_supported(value: Any) -> bool:
     return (
         isinstance(value, dict)
-        and set(value) == {"role", "required_members"}
+        and set(value) == {"role", "required_members", "operation_source"}
         and value["role"] == "model-source-package"
         and value["required_members"]
         == ["formula_grammar", "operation_notation_schema"]
+        and isinstance(value["operation_source"], dict)
+        and set(value["operation_source"]) == {"authority_path", "extension_member"}
+        and all(
+            isinstance(member, str) and member
+            for member in value["operation_source"].values()
+        )
     )
 
 
@@ -10922,7 +10918,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             ):
                 refuse("kernel.identity_mismatch", "ingress", subject)
             if not _consumer_b_package_semantic_closure_is_closed(
-                package, package_contract
+                package, package_contract, kernel
             ):
                 refuse(
                     "kernel.identity_mismatch",
