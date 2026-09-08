@@ -35,8 +35,8 @@ from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_conformance_support import (
     _consumer_b,
     _consumer_b_artifact_contract_declarations,
-    _consumer_b_project_receipt_schema,
-    _consumer_b_receipt_schema,
+    _consumer_b_project_publication_schema,
+    _consumer_b_publication_schema,
     _encoded,
     _identity,
 )
@@ -84,7 +84,9 @@ def test_receipt_independent_schema_preserves_baseline_bytes_and_opaque_inputs(
     assert all(
         "identity_excluded_members" not in row for row in language["artifact_contracts"]
     )
-    projected = _consumer_b_receipt_schema(kernel, contract["artifact_kind"])
+    projected = _consumer_b_publication_schema(
+        kernel, "artifact-set-receipt", contract["artifact_kind"]
+    )
     # Exact original wire bytes, captured before deletion of its authored copy.
     assert len(_encoded(projected)) == 950
     assert hashlib.sha256(_encoded(projected)).hexdigest() == (
@@ -103,7 +105,7 @@ def test_receipt_independent_schema_preserves_baseline_bytes_and_opaque_inputs(
         raise AssertionError("B consumed the production receipt projector")
 
     monkeypatch.setattr(
-        "gda_balancing.domain.authority.receipt_projection.receipt_protocol_schema",
+        "gda_balancing.domain.authority.publication_projection.publication_protocol_schema",
         unavailable,
     )
     observation = _consumer_b(kernel, raw)
@@ -136,8 +138,8 @@ def test_receipt_independent_admission_refuses_authored_shadow_and_exclusions(mu
                     None,
                 )
                 if target is not None and mutation in {"schema", "locator-schema"}:
-                    target["schema"] = _consumer_b_receipt_schema(
-                        kernel, binding["artifact_kind"]
+                    target["schema"] = _consumer_b_publication_schema(
+                        kernel, "artifact-set-receipt", binding["artifact_kind"]
                     )
                     if mutation == "locator-schema":
                         target["schema"]["properties"]["transport_manifest"] = target[
@@ -184,7 +186,7 @@ def test_receipt_independent_projection_requires_unique_actual_binding(mutation)
     else:
         language["artifact_contracts"].append(deepcopy(binding))
     with pytest.raises(ValueError):
-        _consumer_b_project_receipt_schema(kernel, language)
+        _consumer_b_project_publication_schema(kernel, language)
 
 
 def test_receipt_binding_hashes_and_transport_relocation_follow_actual_law():
@@ -196,7 +198,7 @@ def test_receipt_binding_hashes_and_transport_relocation_follow_actual_law():
     schema, binding = _receipt(language)
     schema["artifact_kind"] = binding["schema_kind"] = "receipt.schema.renamed"
     binding["artifact_kind"] = "receipt.artifact.renamed"
-    _consumer_b_project_receipt_schema(kernel, language)
+    _consumer_b_project_publication_schema(kernel, language)
     assert schema["schema"]["properties"]["artifact_kind"] == {
         "const": binding["artifact_kind"]
     }
@@ -221,8 +223,8 @@ def test_receipt_binding_hashes_and_transport_relocation_follow_actual_law():
     }
     artifact = selected.identify(payload)
     law = kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
-        "receipt_structure"
-    ]
+        "publication_structure"
+    ]["receipt"]
     independent_body = {
         name: value for name, value in artifact.items() if name not in law["transport"]
     }
@@ -248,7 +250,9 @@ def test_receipt_binding_hashes_and_transport_relocation_follow_actual_law():
     assert isinstance(artifact_kind, str)
     errors = list(
         Draft202012Validator(
-            _consumer_b_receipt_schema(kernel, artifact_kind)
+            _consumer_b_publication_schema(
+                kernel, "artifact-set-receipt", artifact_kind
+            )
         ).iter_errors(malformed)
     )
     assert [(list(error.path), error.validator) for error in errors] == [
@@ -302,10 +306,17 @@ def test_receipt_inventory_keeps_binding_tokens_without_authored_schema_ghosts(
 def test_receipt_renamed_public_build_and_labels_are_consumed_independently(
     tmp_path, monkeypatch, renamed
 ):
+    _publication_roundtrip(
+        tmp_path, monkeypatch, rename=_rename_receipt if renamed else None
+    )
+
+
+def _publication_roundtrip(tmp_path, monkeypatch, *, rename):
+    """Shared actual build, independent consumption and labeled publication proof."""
     kernel, ldb = mutable_authorities()
     authored = _authored(ldb)
-    if renamed:
-        _rename_receipt(authored)
+    if rename is not None:
+        rename(authored)
     graph = _graph(kernel, authored)
     for consumer in (_consumer_a, _consumer_b):
         observation = consumer(kernel, graph)
@@ -314,14 +325,16 @@ def test_receipt_renamed_public_build_and_labels_are_consumed_independently(
     context = admit_authority_context(kernel, index)
     assert isinstance(context, AdmittedAuthorityContext), context
     schema_row, binding = _receipt(_raw_language(graph))
-    schema_b = _consumer_b_receipt_schema(kernel, binding["artifact_kind"])
+    schema_b = _consumer_b_publication_schema(
+        kernel, "artifact-set-receipt", binding["artifact_kind"]
+    )
     selected = select_artifact_contract(index, binding["artifact_kind"])
     assert _encoded(schema_b) == _encoded(_receipt(index["language"])[0]["schema"])
     assert (
         _identity(binding["wire_schema_identity_domain"], schema_b)
         == selected.wire_schema_identity
     )
-    if renamed:
+    if rename is not None:
         assert schema_row["artifact_kind"] != binding["artifact_kind"]
         inventory = read_extension_inventory(kernel, authored)
         validate_extension_inventory(kernel, authored, inventory)
@@ -369,7 +382,7 @@ def test_receipt_renamed_public_build_and_labels_are_consumed_independently(
 
     transport = kernel["meta_format"]["language_definitions"][
         "wire_schema_protocol_roles"
-    ]["receipt_structure"]["transport"]
+    ]["publication_structure"]["receipt"]["transport"]
 
     def reconstructed_receipt(value):
         Draft202012Validator(schema_b).validate(value)
@@ -465,3 +478,4 @@ def test_receipt_renamed_public_build_and_labels_are_consumed_independently(
         )
         + "\n"
     )
+    return public, index

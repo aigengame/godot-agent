@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:ad78d61004e5ec1865e6c11122e3e9ea9889a8f590aec2152730dff759672a1c"
+    "sha256:c2d65129e9cf8e5dad275fd88e95197ed023a171b9b30db7c43b2de400fbcccc"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
@@ -2089,7 +2089,7 @@ def _consumer_b_package_semantic_projections_are_exact(
             for definition in entry["definitions"]
         ]
     try:
-        _consumer_b_project_receipt_schema(kernel, projected_language)
+        _consumer_b_project_publication_schema(kernel, projected_language)
         _consumer_b_project_trace_schema(kernel, projected_language)
         _consumer_b_project_rir_schema(kernel, projected_language)
     except (KeyError, TypeError, ValueError, IndexError):
@@ -2943,24 +2943,38 @@ def _consumer_b_artifact_envelope(
     return common
 
 
-def _consumer_b_receipt_schema(
-    kernel: dict[str, Any], artifact_kind: str
+def _consumer_b_publication_schema(
+    kernel: dict[str, Any], protocol_role: str, artifact_kind: str
 ) -> dict[str, Any]:
-    """Derive the receipt's fixed binding and transport records independently."""
+    """Independently derive one part of the closed publication transaction."""
     meta = kernel["meta_format"]
     protocols = meta["language_definitions"]["wire_schema_protocol_roles"]
-    law = protocols["receipt_structure"]
+    publication = protocols["publication_structure"]
+    if set(publication) != {"manifest", "receipt", "index"}:
+        raise ValueError("Publication structure has missing or unknown parts")
+    match protocol_role:
+        case "artifact-set-manifest":
+            law = publication["manifest"]
+            groups = (law["field_types"],)
+        case "artifact-set-receipt":
+            law = publication["receipt"]
+            groups = (law["bindings"], law["transport"])
+        case "publication-index":
+            law = publication["index"]
+            groups = (law["field_types"],)
+        case _:
+            raise ValueError("Artifact role is outside the publication protocol")
     common = protocols["artifact_envelope"]
     fields = {
         **common["field_types"],
         "artifact_kind": {"const": artifact_kind},
     }
-    for group in (law["bindings"], law["transport"]):
+    for group in groups:
         if set(fields) & set(group):
-            raise ValueError("Receipt fields have duplicate owners")
+            raise ValueError("Publication fields have duplicate owners")
         fields.update(group)
     if set(common["required_members"]) - set(law["required_members"]):
-        raise ValueError("Receipt omits an Artifact envelope member")
+        raise ValueError("Publication structure omits an Artifact envelope member")
     return {
         "$schema": meta["language_definitions"]["collections"]["artifact_wire_schemas"][
             "field_types"
@@ -2976,54 +2990,65 @@ def _consumer_b_receipt_schema(
     }
 
 
-def _consumer_b_receipt_binding(language: dict[str, Any]) -> dict[str, Any]:
-    schemas = [
-        row
-        for row in language["artifact_wire_schemas"]
-        if row.get("protocol_role") == "artifact-set-receipt"
-    ]
-    if len(schemas) != 1:
-        raise ValueError("Receipt protocol role is missing or ambiguous")
-    bindings = [
-        row
-        for row in language["artifact_contracts"]
-        if row["schema_kind"] == schemas[0]["artifact_kind"]
-    ]
-    if len(bindings) != 1:
-        raise ValueError("Receipt artifact kind binding is missing or ambiguous")
-    return bindings[0]
+def _consumer_b_publication_bindings(
+    language: dict[str, Any],
+) -> dict[str, tuple[dict[str, Any], dict[str, Any]]]:
+    selected = {}
+    for role in ("artifact-set-manifest", "artifact-set-receipt", "publication-index"):
+        schemas = [
+            row
+            for row in language["artifact_wire_schemas"]
+            if row.get("protocol_role") == role
+        ]
+        if len(schemas) != 1:
+            raise ValueError("Publication protocol role is missing or ambiguous")
+        bindings = [
+            row
+            for row in language["artifact_contracts"]
+            if row["schema_kind"] == schemas[0]["artifact_kind"]
+        ]
+        if len(bindings) != 1:
+            raise ValueError(
+                "Publication artifact kind binding is missing or ambiguous"
+            )
+        selected[role] = (schemas[0], bindings[0])
+    return selected
 
 
-def _consumer_b_project_receipt_schema(
+def _consumer_b_project_publication_schema(
     kernel: dict[str, Any], language: dict[str, Any]
 ) -> None:
-    binding = _consumer_b_receipt_binding(language)
-    schema = next(
-        row
-        for row in language["artifact_wire_schemas"]
-        if row.get("protocol_role") == "artifact-set-receipt"
-    )
-    if "schema" in schema or any(
+    selected = _consumer_b_publication_bindings(language)
+    if any("schema" in schema for schema, _binding in selected.values()) or any(
         "identity_excluded_members" in row for row in language["artifact_contracts"]
     ):
-        raise ValueError("Receipt identity or structure has an obsolete authored owner")
-    generated = _consumer_b_receipt_schema(kernel, binding["artifact_kind"])
+        raise ValueError(
+            "Publication identity or structure has an obsolete authored owner"
+        )
+    generated = {
+        role: _consumer_b_publication_schema(kernel, role, binding["artifact_kind"])
+        for role, (_schema, binding) in selected.items()
+    }
     transport = kernel["meta_format"]["language_definitions"][
         "wire_schema_protocol_roles"
-    ]["receipt_structure"]["transport"]
-    schema["schema"] = generated
+    ]["publication_structure"]["receipt"]["transport"]
+    receipt_binding = selected["artifact-set-receipt"][1]
+    for role, (schema, _binding) in selected.items():
+        schema["schema"] = generated[role]
     for row in language["artifact_contracts"]:
-        row["identity_excluded_members"] = list(transport) if row is binding else []
+        row["identity_excluded_members"] = (
+            list(transport) if row is receipt_binding else []
+        )
 
 
 def _consumer_b_artifact_contract_declarations(
     meta: dict[str, Any], language: dict[str, Any]
 ) -> list[dict[str, Any]]:
     """Check the generated view before applying the physical declaration grammar."""
-    binding = _consumer_b_receipt_binding(language)
+    binding = _consumer_b_publication_bindings(language)["artifact-set-receipt"][1]
     transport = meta["language_definitions"]["wire_schema_protocol_roles"][
-        "receipt_structure"
-    ]["transport"]
+        "publication_structure"
+    ]["receipt"]["transport"]
     declarations = []
     for row in language["artifact_contracts"]:
         expected = list(transport) if row is binding else []
@@ -10763,7 +10788,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     deepcopy(vector_set.get("vector_definitions", []))
                 )
             try:
-                _consumer_b_project_receipt_schema(kernel, language)
+                _consumer_b_project_publication_schema(kernel, language)
                 _consumer_b_project_trace_schema(kernel, language)
                 _consumer_b_project_rir_schema(kernel, language)
             except (KeyError, TypeError, ValueError, IndexError):
