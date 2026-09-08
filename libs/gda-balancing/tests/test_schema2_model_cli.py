@@ -6130,11 +6130,7 @@ def test_one_operation_can_resolve_at_multiple_sites_with_distinct_bindings():
             checked.kernel,
             selected,
             language_bundle=checked.language_bundle,
-            declarations=rir[
-                checked.language_bundle["language"]["model_lowerings"][0][
-                    "output_member"
-                ]
-            ],
+            declarations=rir["declarations"],
         ),
     )
     hit_sites = [
@@ -6262,11 +6258,7 @@ def test_nested_call_rejects_undeclared_child_closure_widening(
             checked.kernel,
             selected,
             language_bundle=checked.language_bundle,
-            declarations=rir[
-                checked.language_bundle["language"]["model_lowerings"][0][
-                    "output_member"
-                ]
-            ],
+            declarations=rir["declarations"],
         )
 
 

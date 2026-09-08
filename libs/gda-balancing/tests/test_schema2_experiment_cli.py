@@ -8533,12 +8533,11 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
         if argument["port"] == "mitigation"
     )
     mitigation["operand"]["port"] = "target_health"
-    lowering = checked.language_bundle["language"]["model_lowerings"][0]
     rir["call_sites"] = model_lowering_module._resolved_call_sites(
         checked.kernel,
         rir["selected_semantics"],
         language_bundle=checked.language_bundle,
-        declarations=rir[lowering["output_member"]],
+        declarations=rir["declarations"],
     )
     alias = next(
         row
@@ -8629,12 +8628,11 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
         argument for argument in spend_call["arguments"] if argument["port"] == "cost"
     )
     cost["operand"] = {"kind": "literal", "literal": 8}
-    lowering = checked.language_bundle["language"]["model_lowerings"][0]
     rir["call_sites"] = model_lowering_module._resolved_call_sites(
         checked.kernel,
         rir["selected_semantics"],
         language_bundle=checked.language_bundle,
-        declarations=rir[lowering["output_member"]],
+        declarations=rir["declarations"],
     )
     candidate = replace(checked, rir=rir)
 
@@ -8700,12 +8698,11 @@ def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_c
         "kind": "operation-result",
         "site": "apply-damage",
     }
-    lowering = checked.language_bundle["language"]["model_lowerings"][0]
     rir["call_sites"] = model_lowering_module._resolved_call_sites(
         checked.kernel,
         rir["selected_semantics"],
         language_bundle=checked.language_bundle,
-        declarations=rir[lowering["output_member"]],
+        declarations=rir["declarations"],
     )
     candidate = replace(checked, rir=rir)
 
