@@ -1,13 +1,12 @@
 """Local files for one isolated, owned model-preview project."""
 
-import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import stat
 import tempfile
 
+from gda_assets.adapters.file_copy import copy_with_sha256
 from gda_assets.adapters.files import validate_format
 from gda_assets.adapters.preview_baseline import read_preview_baseline
 from gda_assets.application.ports import PortFailure
@@ -22,39 +21,11 @@ from gda_assets.domain.preview_result import PreviewResult
 _FIXTURE = Path(__file__).with_name("preview_fixture")
 _OWNERSHIP_MARKER = ".gda-preview-owned"
 _BUDGET_LIMIT = 1024 * 1024
-_READ_SIZE = 64 * 1024
-
-
-def _identity(value: os.stat_result) -> tuple[int, int, int, int, int]:
-    return (
-        value.st_dev,
-        value.st_ino,
-        value.st_size,
-        value.st_mtime_ns,
-        value.st_ctime_ns,
-    )
 
 
 def _copy_with_sha256(source: Path, destination: Path) -> str:
-    before_path = source.stat()
-    if not stat.S_ISREG(before_path.st_mode):
-        raise OSError(f"source is not a regular file: {source}")
-    digest = hashlib.sha256()
-    with source.open("rb") as reader, destination.open("xb") as writer:
-        before = os.fstat(reader.fileno())
-        if _identity(before_path) != _identity(before):
-            raise OSError(f"source changed before copy: {source}")
-        while chunk := reader.read(_READ_SIZE):
-            writer.write(chunk)
-            digest.update(chunk)
-        writer.flush()
-        os.fsync(writer.fileno())
-        after = os.fstat(reader.fileno())
-    current = source.stat()
-    if _identity(before) != _identity(after) or _identity(after) != _identity(current):
-        destination.unlink(missing_ok=True)
-        raise OSError(f"source changed while copying: {source}")
-    return digest.hexdigest()
+    digest, _ = copy_with_sha256(source, destination)
+    return digest
 
 
 def _read_budget(path: Path) -> bytes:

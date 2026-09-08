@@ -2,6 +2,15 @@
 
 from pathlib import Path
 
+from gda_assets.application.package_ports import GodotPackagePort
+from gda_assets.domain.package import (
+    PackageCheckRequest,
+    PackageCheckResult,
+    PackageEngine,
+    PackageInspection,
+    PackagePresence,
+    PackageResource,
+)
 from gda_assets.application.preview_ports import GodotPreviewPort, PreviewHost
 from gda_assets.domain.preview import PreviewBounds, PreviewCamera, PreviewSettings
 from gda_assets.domain.preview_result import (
@@ -69,6 +78,14 @@ from gda_assets.domain.artifacts import (
 from gda_assets.domain.recipe import AssetFile, AssetRecipe, Resize
 
 __all__ = [
+    "check_package",
+    "GodotPackagePort",
+    "PackageCheckRequest",
+    "PackageCheckResult",
+    "PackageEngine",
+    "PackageInspection",
+    "PackagePresence",
+    "PackageResource",
     "preview_asset",
     "GodotPreviewPort",
     "PreviewHost",
@@ -128,6 +145,24 @@ __all__ = [
     "Resize",
     "run_pipeline",
 ]
+
+
+def check_package(
+    request: PackageCheckRequest, *, godot: GodotPackagePort
+) -> PackageCheckResult:
+    """Inspect a local PCK and apply the same project-owned model expectations."""
+    from gda_assets.adapters.expectations import read_expectations
+    from gda_assets.adapters.package_files import PackageFiles
+    from gda_assets.application.package import check_package as _check_package
+
+    try:
+        conditions = read_expectations(request.expectations)
+    except PortFailure as exc:
+        return PackageCheckResult(
+            request,
+            failure=PipelineFailure("validate", exc.code, str(exc), exc.cause),
+        )
+    return _check_package(request, conditions, godot=godot, files=PackageFiles())
 
 
 def preview_asset(request: PreviewRequest, *, host: PreviewHost) -> PreviewResult:

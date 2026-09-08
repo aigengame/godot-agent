@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=aa1dc88b353f63a40ea51234e574e9daaa6799548b16a762fdef5705f12d5ec2 -->
+<!-- gda-readme-i18n: source=README.md sha256=7589d50a4b80dcb257c9c6dff0f42968979eb4a0916286357e14308927c57176 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -500,11 +500,12 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `asset-pipeline run` | Exporta un subárbol de un archivo de Blender guardado o prepara archivos PNG/GLB; después los instala e importa y comprueba el resultado que Godot carga realmente. También puede recoger hashes de los archivos seleccionados y de su importación, o reiniciar una escena de prueba y comparar una instancia GLB en ejecución. |
 | `asset-pipeline check` | Evalúa el modelo según los requisitos del proyecto y compara informes compatibles de Godot. Una evaluación completada devuelve el código 0; el campo verdict indica si cumple los requisitos. |
 | `asset-pipeline preview` | Renderiza tres vistas fijas de un GLB en un proyecto aislado con ventana y recoge resultados acotados de inspección, captura, diagnóstico y rendimiento de la escena. |
+| `asset-pipeline check-package` | Aplica los mismos requisitos del modelo a un recurso cargado desde un PCK exportado y aislado, y comprueba las exclusiones declaradas mediante rutas exactas. |
 
 Usa correspondencias explícitas entre origen y destino y define una política de sobrescritura.
 Los archivos que complete la generación de imágenes siguen el mismo flujo y pueden incluir metadatos
 declarados por quien realiza la llamada. La [guía del flujo de assets](../libs/gda-assets/README.md)
-explica la exportación desde Blender, los archivos de entrada, las referencias, la actualización en runtime, la previsualización aislada y los fallos parciales.
+explica la exportación desde Blender, los archivos de entrada, las referencias, la actualización en runtime, la previsualización aislada, la comprobación de paquetes exportados y los fallos parciales.
 La actualización descarta el estado de runtime y exige indicar la escena y la ruta de la instancia. La [guía de contenido estático del modelo](model-content.md)
 define los dos comandos de datos subyacentes y su medición compartida. Este flujo se incluye con gda y no requiere una herramienta de assets aparte.
 

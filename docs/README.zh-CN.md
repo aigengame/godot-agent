@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=aa1dc88b353f63a40ea51234e574e9daaa6799548b16a762fdef5705f12d5ec2 -->
+<!-- gda-readme-i18n: source=README.md sha256=7589d50a4b80dcb257c9c6dff0f42968979eb4a0916286357e14308927c57176 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -476,10 +476,11 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `asset-pipeline run` | 导出已保存的 Blender 资产子树，或暂存 PNG/GLB 文件，再安装、导入并检查 Godot 实际加载的结果。还可收集所选文件与导入产物的摘要，或重启测试场景并比较一个运行中的 GLB 实例。 |
 | `asset-pipeline check` | 按项目要求验收模型，并比较范围兼容的 Godot 检查报告。完成检查后退出码为 0，是否符合要求以结果中的 verdict 为准。 |
 | `asset-pipeline preview` | 在隔离的窗口化项目中渲染 GLB 的三个固定视角，并收集范围受限的检查、截图、诊断和场景级性能结果。 |
+| `asset-pipeline check-package` | 在隔离环境中从导出的 PCK 加载资源，按同一套模型要求验收，并检查明确声明的排除路径。 |
 
 请使用明确的源文件到目标位置映射，并指定覆盖策略。图像生成完成后的文件沿用同一流程，
 也可以附带调用方声明的元数据。[资产管线指南](../libs/gda-assets/README.md)介绍了 Blender 导出、文件输入、引用、
-运行时刷新、隔离预览与部分失败。刷新会丢弃运行时状态，且必须明确指定场景和实例路径。[静态模型内容指南](model-content.md)定义了
+运行时刷新、隔离预览、导出包检查与部分失败。刷新会丢弃运行时状态，且必须明确指定场景和实例路径。[静态模型内容指南](model-content.md)定义了
 底层两条事实命令及其共用的测量方式。该工作流随 gda 一同提供，无需单独安装资产工具。
 
 ### Live 命令 — 经由 `gda-daemon`；Godot 4.6+，macOS/Linux

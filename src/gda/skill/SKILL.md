@@ -82,6 +82,16 @@ establish current engine state. Input and workflow failures exit nonzero and
 include `error.partial_result`. See `asset-pipeline check --schema` for input bindings
 and the [expectation format](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/docs/checks.md).
 
+Use `gda asset-pipeline check-package --package /build/game.pck --path
+res://art/model.glb --expectations /project/art/model.expectations.json --exclude
+res://dev/test.gd --json` to apply those same rules to the resource loaded from an
+isolated copy of an exported PCK. Always read `package_check.verdict`; load or
+workflow failures exit nonzero with `error.partial_result.package_check`. This
+editor-only path does not prove native release execution, input, or rendering. See
+the [asset pipeline guide](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/README.md#check-an-exported-package)
+for the source check, cold pack export, exact exclusions, identity and cleanup
+contract, bounds, and supported engine path.
+
 ## Setup
 
 - **Engine** — set `GDA_GODOT` to your Godot binary (or pass `--godot PATH`).
@@ -273,7 +283,7 @@ Every headless reply carries its floats at full binary64 precision, so a value r
 
 | Group | Commands |
 | --- | --- |
-| `asset-pipeline` | `run`, `check`, `preview` (production and handoff; project expectations and compatible report comparison; isolated windowed model preview) |
+| `asset-pipeline` | `run`, `check`, `preview`, `check-package` (production and handoff; project expectations and compatible report comparison; isolated windowed model preview; exported-package acceptance) |
 
 Use `gda asset-pipeline preview --path /production/model.glb --output-dir
 /reports/model-preview --settings /project/preview-settings.json --frames 60

@@ -26,6 +26,9 @@ from gda_assets.api import (
     PreviewResult,
     PreviewSettings,
     preview_asset,
+    PackageCheckRequest,
+    PackageCheckResult,
+    check_package,
 )
 
 from gda.dispatch import dispatch_recipe, params_or_bad_parameter
@@ -45,6 +48,7 @@ from gda.headless import (
 )
 from gda.integrations.asset_pipeline import GdaGodotAssetPort, validate_asset_targets
 from gda.integrations.preview import GdaPreviewHost
+from gda.integrations.package import GdaGodotPackagePort
 
 
 StrictCoordinate = Annotated[float, Field(strict=True)]
@@ -1033,4 +1037,175 @@ def asset_pipeline_check(
         json_output=json_output,
         godot=godot,
         project=project,
+    )
+
+
+class AssetPipelinePackageCheckParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    package: Path = Field(description="Local .pck file to inspect in isolation.")
+    path: str = Field(description="Exact res:// model resource inside the package.")
+    expectations: Path = Field(description="Local model expectation JSON file.")
+    exclude: list[str] = Field(
+        default_factory=list,
+        max_length=64,
+        description="Up to 64 exact res:// paths required to be absent.",
+    )
+    subtree: str = Field(default=".", description="Resource-relative model subtree.")
+    max_nodes: int = Field(
+        default=256,
+        strict=True,
+        ge=1,
+        le=4096,
+        description="Maximum nodes in the selected package model subtree.",
+    )
+    max_items: int = Field(
+        default=1024,
+        strict=True,
+        ge=1,
+        le=16384,
+        description="Maximum detail records across the package model report.",
+    )
+
+
+class AssetPipelinePackageCheckResult(BaseModel):
+    package_check: PackageCheckResult = Field(
+        description="Editor-based inspection and project-intent verdict for one PCK."
+    )
+
+
+def run_asset_package_check(
+    params: AssetPipelinePackageCheckParams,
+    *,
+    project: Path | None,
+    godot: str | None,
+) -> AssetPipelinePackageCheckResult | Failure:
+    del project
+    port = GdaGodotPackagePort(godot)
+    result = check_package(
+        PackageCheckRequest(
+            package=params.package.resolve(),
+            path=params.path,
+            expectations=params.expectations.resolve(),
+            exclude=tuple(params.exclude),
+            subtree=params.subtree,
+            max_nodes=params.max_nodes,
+            max_items=params.max_items,
+        ),
+        godot=port,
+    )
+    typed = AssetPipelinePackageCheckResult.model_validate(
+        {"package_check": asdict(result)}
+    )
+    if result.failure is None:
+        return typed
+    native = port.last_failure
+    cause = result.failure.cause or {}
+    native_matches = native is not None and (
+        cause.get("code") == native.error.code
+        or (
+            result.failure.code == native.error.code
+            and result.failure.message == native.error.message
+        )
+    )
+    failure = (
+        native
+        if native_matches
+        else make_failure(
+            "invalid_params"
+            if result.failure.stage == "validate"
+            else "operation_failed",
+            result.failure.message,
+            "",
+        )
+    )
+    assert failure is not None
+    failure.error = failure.error.model_copy(
+        update={
+            "message": f"package check failed during {result.failure.stage}: {result.failure.message}",
+            "partial_result": typed.model_dump(mode="json"),
+        }
+    )
+    return failure
+
+
+def render_asset_package_check(result: AssetPipelinePackageCheckResult) -> str:
+    checked = result.package_check
+    lines = [
+        f"package check: {checked.verdict} (editor inspection)",
+        f"  origin: {checked.origin}",
+    ]
+    if checked.package is not None:
+        lines.append(
+            f"  package: sha256={checked.package.sha256} size={checked.package.size_bytes}"
+        )
+    if checked.presence is not None:
+        lines.append(
+            f"  engine: {checked.presence.engine.version} ({checked.presence.engine.build_hash})"
+        )
+    if checked.inspection is not None:
+        lines.append(f"  inspected: {checked.inspection.model.resource}")
+    else:
+        lines.append(f"  selected: {checked.request.path}")
+    if checked.check is not None:
+        model_check = AssetPipelineCheckResult.model_validate(asdict(checked.check))
+        lines.extend(
+            "  " + line for line in render_asset_check(model_check).splitlines()
+        )
+    lines.extend(
+        f"  exclusion {item.verdict}: {item.path} present={item.present}"
+        for item in checked.exclusions
+    )
+    lines.append(f"  cleanup: staging_removed={checked.cleanup.staging_removed}")
+    return "\n".join(lines)
+
+
+ASSET_PIPELINE_PACKAGE_CHECK_COMMAND = HeadlessCommand(
+    operation="asset-pipeline-check-package",
+    input_model=AssetPipelinePackageCheckParams,
+    output_model=AssetPipelinePackageCheckResult,
+    render=render_asset_package_check,
+    kind=ExecutionKind.COMPOSITE,
+    inherits_project=False,
+    recipe=run_asset_package_check,
+)
+
+
+@_app.command(
+    name="check-package", cls=ASSET_PIPELINE_PACKAGE_CHECK_COMMAND.command_class()
+)
+def asset_pipeline_check_package(
+    package: Path = typer.Option(..., "--package", help="Local .pck file."),
+    path: str = typer.Option(..., "--path", help="Exact res:// model resource."),
+    expectations: Path = typer.Option(
+        ..., "--expectations", help="Local model expectation JSON."
+    ),
+    exclude: Optional[list[str]] = typer.Option(
+        None,
+        "--exclude",
+        help="Exact res:// path required absent; repeat up to 64 times.",
+    ),
+    subtree: str = typer.Option(".", "--subtree"),
+    max_nodes: int = typer.Option(256, "--max-nodes", min=1, max=4096),
+    max_items: int = typer.Option(1024, "--max-items", min=1, max=16384),
+    json_output: bool = json_option(),
+    schema: bool = ASSET_PIPELINE_PACKAGE_CHECK_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+) -> None:
+    """Inspect a PCK with a Godot editor binary. Read verdict; completed checks exit 0."""
+    dispatch_recipe(
+        ASSET_PIPELINE_PACKAGE_CHECK_COMMAND,
+        params_or_bad_parameter(
+            AssetPipelinePackageCheckParams,
+            package=package,
+            path=path,
+            expectations=expectations,
+            exclude=exclude or [],
+            subtree=subtree,
+            max_nodes=max_nodes,
+            max_items=max_items,
+        ),
+        json_output=json_output,
+        godot=godot,
+        project=None,
     )

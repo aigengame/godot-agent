@@ -35,6 +35,7 @@ from gda.errors import (
     containment_refusal,
     Failure,
     make_failure,
+    unresolvable_binary_failure,
 )
 from gda.execution import ExecutionKind
 from gda.headless import (
@@ -46,6 +47,7 @@ from gda.headless import (
     project_option,
 )
 from gda.model_content import ModelContent
+from gda.package_runner import PackageRunnerFactory, make_package_runner
 from gda.models import (
     CREATED_DIRS_DESC,
     EngineVersion,
@@ -434,6 +436,24 @@ class ResourceInspectModelResult(BaseModel):
     omissions: list[ModelOmission]
 
 
+class PackageResourcePresenceParams(BaseModel):
+    paths: list[NormalizedPath] = Field(
+        min_length=1,
+        max_length=64,
+        description="Exact res:// resource paths to test in the selected PCK.",
+    )
+
+
+class PackageResourcePresenceItem(BaseModel):
+    path: str
+    present: bool
+
+
+class PackageResourcePresenceResult(BaseModel):
+    engine_version: EngineVersion
+    resources: list[PackageResourcePresenceItem]
+
+
 class ResourceInspectModelContentParams(BaseModel):
     path: NormalizedPath = Field(description="An imported GLB model resource.")
     max_nodes: int = Field(
@@ -470,6 +490,16 @@ RESOURCE_INSPECT_MODEL_COMMAND: HeadlessCommand[ResourceInspectModelResult] = (
         input_model=ResourceInspectModelParams,
         output_model=ResourceInspectModelResult,
         render=render_resource_inspect_model,
+    )
+)
+
+
+PACKAGE_RESOURCE_PRESENCE_COMMAND: HeadlessCommand[PackageResourcePresenceResult] = (
+    HeadlessCommand(
+        operation="package-resource-presence",
+        input_model=PackageResourcePresenceParams,
+        output_model=PackageResourcePresenceResult,
+        render=lambda result: f"checked {len(result.resources)} package resources",
     )
 )
 
@@ -1401,6 +1431,106 @@ def run_resource_inspect_model_operation(
     return RESOURCE_INSPECT_MODEL_COMMAND.execute(
         params.model_copy(update={"path": addressed}), godot=godot, project=project
     )
+
+
+def _package_input(package: Path, paths: list[str]) -> Failure | tuple[Path, list[str]]:
+    selected = package.expanduser().absolute()
+    if selected.suffix.lower() != ".pck":
+        return make_failure(
+            "invalid_params", "package inspection supports .pck files only", ""
+        )
+    if not selected.is_file():
+        return make_failure("path_not_found", f"package not found: {selected}", "")
+    normalized: list[str] = []
+    for path in paths:
+        if (
+            not path.startswith("res://")
+            or path == "res://"
+            or "\\" in path
+            or ":" in path[6:]
+            or any(part in {"", ".", ".."} for part in path[6:].split("/"))
+        ):
+            return make_failure(
+                "invalid_path",
+                f"package resource must be an exact normalized res:// path: {path}",
+                "",
+            )
+        normalized.append(path)
+    return selected, normalized
+
+
+def run_package_inspect_model_operation(
+    package: Path,
+    params: ResourceInspectModelParams,
+    *,
+    godot: str | None = None,
+    make_runner: PackageRunnerFactory | None = None,
+) -> ResourceInspectModelResult | Failure:
+    """Inspect one PackedScene through an exported PCK's isolated res:// view."""
+    admitted = _package_input(package, [str(params.path)])
+    if isinstance(admitted, Failure):
+        return admitted
+    selected_package, paths = admitted
+    factory = make_runner or make_package_runner
+    try:
+        binary = resolve_godot_binary(godot)
+    except ValueError as exc:
+        return unresolvable_binary_failure(str(exc))
+    runner = factory(binary, selected_package)
+    if isinstance(runner, Failure):
+        return runner
+    outcome = RESOURCE_INSPECT_MODEL_COMMAND.execute(
+        params.model_copy(update={"path": paths[0]}),
+        godot=str(binary),
+        project=None,
+        make_runner=lambda _binary, _project: runner,
+    )
+    if isinstance(outcome, Failure):
+        return outcome
+    if outcome.path != paths[0] or outcome.subtree != params.subtree:
+        return make_failure(
+            "contract_violation",
+            "package inspector returned a different resource path or subtree",
+            "",
+        )
+    return outcome
+
+
+def run_package_resource_presence_operation(
+    package: Path,
+    params: PackageResourcePresenceParams,
+    *,
+    godot: str | None = None,
+    make_runner: PackageRunnerFactory | None = None,
+) -> PackageResourcePresenceResult | Failure:
+    """Return native loadability presence for exact resource paths in one PCK."""
+    admitted = _package_input(package, [str(path) for path in params.paths])
+    if isinstance(admitted, Failure):
+        return admitted
+    selected_package, paths = admitted
+    factory = make_runner or make_package_runner
+    try:
+        binary = resolve_godot_binary(godot)
+    except ValueError as exc:
+        return unresolvable_binary_failure(str(exc))
+    runner = factory(binary, selected_package)
+    if isinstance(runner, Failure):
+        return runner
+    outcome = PACKAGE_RESOURCE_PRESENCE_COMMAND.execute(
+        params.model_copy(update={"paths": paths}),
+        godot=str(binary),
+        project=None,
+        make_runner=lambda _binary, _project: runner,
+    )
+    if isinstance(outcome, Failure):
+        return outcome
+    if [item.path for item in outcome.resources] != paths:
+        return make_failure(
+            "contract_violation",
+            "package presence result does not match the requested exact paths",
+            "",
+        )
+    return outcome
 
 
 def run_resource_inspect_model_content_operation(
