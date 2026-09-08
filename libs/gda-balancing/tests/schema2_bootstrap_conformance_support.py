@@ -10715,9 +10715,9 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 _consumer_b_project_rir_schema(kernel, language)
             except (KeyError, TypeError, ValueError, IndexError):
                 refuse(
-                    "kernel.identity_mismatch",
-                    "ingress",
-                    "language-bundle.admitted-index",
+                    "kernel.vector_mismatch",
+                    "static",
+                    "language.definitions",
                 )
             language["packages"] = deepcopy(graph_releases)
             expected_index = {
