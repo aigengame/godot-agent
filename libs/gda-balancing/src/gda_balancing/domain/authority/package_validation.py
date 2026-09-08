@@ -927,6 +927,8 @@ def _diagnostic_catalog_matches_vectors(language_bundle: dict[str, Any]) -> bool
 def _package_semantic_closure_is_closed(
     package: dict[str, Any],
     contract: Any,
+    *,
+    kernel: dict[str, Any],
 ) -> bool:
     if not isinstance(contract, dict):
         return False
@@ -1003,15 +1005,12 @@ def _package_semantic_closure_is_closed(
         or set(semantic_projection)
         != {
             "domain",
-            "extension_inventory_member",
             "path_inventory_member",
             "source_member",
             "path_member",
         }
         or semantic_projection.get("source_member") != "semantic_closure"
         or semantic_projection.get("path_member") != "authority_path"
-        or semantic_projection.get("extension_inventory_member")
-        != "runtime_semantic_excluded_extensions"
         or not isinstance(semantic_projection.get("domain"), str)
         or not isinstance(semantic_projection.get("path_inventory_member"), str)
     ):
@@ -1027,7 +1026,7 @@ def _package_semantic_closure_is_closed(
     ):
         return False
     try:
-        runtime_closure = package_runtime_semantic_closure(package, semantic_projection)
+        runtime_closure = package_runtime_semantic_closure(package, kernel)
         expected = content_identity(
             semantic_projection["domain"], cast(JsonValue, runtime_closure)
         )

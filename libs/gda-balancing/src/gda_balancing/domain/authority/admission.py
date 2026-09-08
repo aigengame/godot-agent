@@ -81,7 +81,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:ffae101d7d5f1f660a80fa46f2f092ec30bc8a8a070cdb7ff4a107a35635369a"
+    "sha256:370b84ea9a5e7b14b6090fabf53d9a5347f3b6467bf5ca1b3d4b394402fcf846"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -603,10 +603,19 @@ def _formula_resolution_is_closed(
 
 
 def _source_notation_contract_is_supported(contract: Any) -> bool:
-    return contract == {
-        "role": "model-source-package",
-        "required_members": ["formula_grammar", "operation_notation_schema"],
-    }
+    return (
+        isinstance(contract, dict)
+        and set(contract) == {"role", "required_members", "operation_source"}
+        and contract["role"] == "model-source-package"
+        and contract["required_members"]
+        == ["formula_grammar", "operation_notation_schema"]
+        and isinstance(contract["operation_source"], dict)
+        and set(contract["operation_source"]) == {"authority_path", "extension_member"}
+        and all(
+            isinstance(value, str) and value
+            for value in contract["operation_source"].values()
+        )
+    )
 
 
 def _source_notation_is_closed(language_bundle: dict[str, Any], contract: Any) -> bool:
@@ -5347,7 +5356,9 @@ def admit_authorities(
                 package_release_domain, package, canonical_encoding
             ):
                 refuse("kernel.identity_mismatch", "ingress", subject)
-            if not _package_semantic_closure_is_closed(package, package_contract):
+            if not _package_semantic_closure_is_closed(
+                package, package_contract, kernel=kernel
+            ):
                 refuse(
                     "kernel.identity_mismatch",
                     "ingress",

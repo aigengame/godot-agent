@@ -83,18 +83,26 @@ def _contextual_refusal(error: ValueError) -> FormulaNotationRefusal:
 
 def _notation_authority(
     authority_context: AdmittedAuthorityContext,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     definition = wire_schema_definition_for_role(
         authority_context.language_bundle, "model-source-package"
     )
-    return definition["formula_grammar"], definition["operation_notation_schema"]
+    return (
+        definition["formula_grammar"],
+        definition["operation_notation_schema"],
+        authority_context.kernel["meta_format"]["language_definitions"][
+            "wire_schema_protocol_roles"
+        ]["source_notation"]["operation_source"],
+    )
 
 
 def formula_notation_request_identity_domain(
     authority_context: AdmittedAuthorityContext,
 ) -> str:
     """Return the authority-owned domain for conversion-request locations."""
-    grammar, _notation_schema = _notation_authority(authority_context)
+    grammar, _notation_schema, _operation_source = _notation_authority(
+        authority_context
+    )
     identity_domain = grammar.get("request_identity_domain")
     if not isinstance(identity_domain, str) or not identity_domain:
         raise ValueError("Formula notation request identity domain is malformed")
@@ -129,6 +137,7 @@ def _identifier(value: object, grammar: dict[str, Any]) -> str:
 def _operation_catalog(
     authority_context: AdmittedAuthorityContext,
 ) -> dict[tuple[str, str], dict[str, Any]]:
+    _, _, operation_source = _notation_authority(authority_context)
     catalog: dict[tuple[str, str], dict[str, Any]] = {}
     packages = cast(
         list[dict[str, Any]], authority_context.language_bundle["language"]["packages"]
@@ -136,7 +145,7 @@ def _operation_catalog(
     for package in packages:
         package_id = cast(str, package["id"])
         for closure in cast(list[dict[str, Any]], package["semantic_closure"]):
-            if closure.get("authority_path") != "language.operations":
+            if closure.get("authority_path") != operation_source["authority_path"]:
                 continue
             for operation in cast(list[dict[str, Any]], closure["definitions"]):
                 catalog[(package_id, cast(str, operation["id"]))] = operation
@@ -147,10 +156,11 @@ def _validated_operation_notation(
     operation: dict[str, Any],
     grammar: dict[str, Any],
     notation_schema: dict[str, Any],
+    operation_source: dict[str, Any],
 ) -> dict[str, Any] | None:
     extensions = operation.get("extensions")
     notation = (
-        extensions.get("standard.formula-notation")
+        extensions.get(operation_source["extension_member"])
         if isinstance(extensions, dict)
         else None
     )
@@ -197,7 +207,7 @@ def _selected_operation_notations(
     authority_context: AdmittedAuthorityContext,
     operation_coordinates: frozenset[tuple[str, str]] | None,
 ) -> tuple[_OperationNotation, ...]:
-    grammar, notation_schema = _notation_authority(authority_context)
+    grammar, notation_schema, operation_source = _notation_authority(authority_context)
     requirements = request.get("package_requirements")
     if operation_coordinates is None and not isinstance(requirements, list):
         raise ValueError("Formula context has no package requirements")
@@ -220,7 +230,9 @@ def _selected_operation_notations(
     for coordinate, operation in candidates:
         if operation.get("purity") != "pure":
             continue
-        notation = _validated_operation_notation(operation, grammar, notation_schema)
+        notation = _validated_operation_notation(
+            operation, grammar, notation_schema, operation_source
+        )
         if notation is not None:
             declarations.append(_OperationNotation(coordinate, operation, notation))
     spellings = [
@@ -645,7 +657,9 @@ class _FormulaParser:
             ]
         }
         self.locals: dict[str, dict[str, Any]] = {}
-        self.grammar, _notation_schema = _notation_authority(authority_context)
+        self.grammar, _notation_schema, _operation_source = _notation_authority(
+            authority_context
+        )
         group_delimiters = cast(list[str], self.grammar["group_delimiters"])
         if len(group_delimiters) != 2:
             raise ValueError("Formula notation group delimiters are malformed")
@@ -1340,6 +1354,7 @@ def _render_operation_call(
     catalog: dict[tuple[str, str], dict[str, Any]],
     grammar: dict[str, Any],
     notation_schema: dict[str, Any],
+    operation_source: dict[str, Any],
 ) -> str:
     coordinate = node.get("operation")
     if not isinstance(coordinate, dict):
@@ -1352,7 +1367,9 @@ def _render_operation_call(
             "model.reason.unresolved-name",
             "Formula operation call is unresolved or effectful",
         )
-    notation = _validated_operation_notation(operation, grammar, notation_schema)
+    notation = _validated_operation_notation(
+        operation, grammar, notation_schema, operation_source
+    )
     if notation is None:
         raise ValueError("Formula operation has no admitted notation declaration")
     arguments = node.get("arguments")
@@ -1425,7 +1442,7 @@ def _render_formula_body(
     authority_context: AdmittedAuthorityContext,
 ) -> str:
     """Render one structured Formula body from sealed operation notation."""
-    grammar, notation_schema = _notation_authority(authority_context)
+    grammar, notation_schema, operation_source = _notation_authority(authority_context)
     if not isinstance(body, dict):
         raise ValueError("Formula body must be an object")
     if set(body) == {"node", "parameter"} and body.get("node") == "parameter":
@@ -1445,7 +1462,9 @@ def _render_formula_body(
             raise ValueError("Formula local identities must be unique")
         seen_locals.add(local)
         if node.get("node") == "operation-call":
-            expression = _render_operation_call(node, catalog, grammar, notation_schema)
+            expression = _render_operation_call(
+                node, catalog, grammar, notation_schema, operation_source
+            )
         elif node.get("node") == "formula-call":
             expression = _render_formula_call(node, grammar)
         elif node.get("node") == "conditional":

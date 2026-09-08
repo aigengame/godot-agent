@@ -3934,9 +3934,7 @@ def _package_lock(checked: ModelSourceContext) -> dict[str, JsonValue]:
                     "semantic_identity": package["semantic_identity"],
                     "definitions": package_runtime_semantic_closure(
                         package,
-                        checked.kernel["meta_format"]["package_release"][
-                            "semantic_identity_projection"
-                        ],
+                        checked.kernel,
                     ),
                 }
                 for package in selected_packages
@@ -4012,9 +4010,7 @@ def _runtime_projection(
             "package": package["id"],
             "definitions": package_runtime_semantic_closure(
                 package,
-                kernel["meta_format"]["package_release"][
-                    "semantic_identity_projection"
-                ],
+                kernel,
             ),
         }
         for package in packages

@@ -108,7 +108,9 @@ def _render_formulas(
         raise InventoryRefusal("renamed Formula paths do not close")
     for pointer, body in bodies.items():
         request = requests[pointer]
-        request["formula"]["expression"] = render_body(body, request, language)
+        request["formula"]["expression"] = render_body(
+            body, request, language, kernel=kernel
+        )
     # Independently compare the rewritten expression with the actual authored
     # body. Copying the body into the expression would hide missed occurrences.
     _formula_projections(kernel, candidate)
@@ -149,9 +151,7 @@ def _reseal_authored_graph(kernel: dict[str, Any], graph: dict[str, Any]) -> Non
             "content_identity": vector["content_identity"],
         }
         # Sealing is authoring, not an independent semantic-consumer claim.
-        closure = package_runtime_semantic_closure(
-            package, meta["semantic_identity_projection"]
-        )
+        closure = package_runtime_semantic_closure(package, kernel)
         package["semantic_identity"] = content_identity(
             meta["semantic_closure"]["domain"], cast(JsonValue, closure)
         )

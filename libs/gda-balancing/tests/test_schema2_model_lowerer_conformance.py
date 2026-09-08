@@ -372,7 +372,9 @@ def _reference_package_runtime_closure(package, kernel):
         "semantic_identity_projection"
     ]
     runtime_paths = set(package[projection["path_inventory_member"]])
-    excluded_extensions = set(package[projection["extension_inventory_member"]])
+    notation_source = kernel["meta_format"]["language_definitions"][
+        "wire_schema_protocol_roles"
+    ]["source_notation"]["operation_source"]
     runtime_closure = deepcopy(
         [
             entry
@@ -381,6 +383,8 @@ def _reference_package_runtime_closure(package, kernel):
         ]
     )
     for entry in runtime_closure:
+        if entry[projection["path_member"]] != notation_source["authority_path"]:
+            continue
         for definition in entry["definitions"]:
             if not isinstance(definition, dict) or not isinstance(
                 definition.get("extensions"), dict
@@ -389,7 +393,7 @@ def _reference_package_runtime_closure(package, kernel):
             retained = {
                 key: value
                 for key, value in definition["extensions"].items()
-                if key not in excluded_extensions
+                if key != notation_source["extension_member"]
             }
             if retained:
                 definition["extensions"] = retained

@@ -216,22 +216,25 @@ def _operand(value: Any, grammar: dict[str, Any]) -> str:
 
 
 def _selected_notations(
-    request: dict[str, Any], language_bundle: dict[str, Any]
+    request: dict[str, Any], language_bundle: dict[str, Any], kernel: dict[str, Any]
 ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     notation_validator = jsonschema.Draft202012Validator(
         _source_definition(language_bundle)["operation_notation_schema"]
     )
+    operation_source = kernel["meta_format"]["language_definitions"][
+        "wire_schema_protocol_roles"
+    ]["source_notation"]["operation_source"]
     selected = set(request.get("package_requirements", []))
     rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for package in language_bundle["language"]["packages"]:
         if package["id"] not in selected:
             continue
         for entry in package["semantic_closure"]:
-            if entry["authority_path"] != "language.operations":
+            if entry["authority_path"] != operation_source["authority_path"]:
                 continue
             for operation in entry["definitions"]:
                 notation = operation.get("extensions", {}).get(
-                    "standard.formula-notation"
+                    operation_source["extension_member"]
                 )
                 if operation.get("purity") == "pure" and isinstance(notation, dict):
                     if not notation_validator.is_valid(notation):
@@ -243,13 +246,17 @@ def _selected_notations(
 
 
 def render_body(
-    body: dict[str, Any], request: dict[str, Any], language_bundle: dict[str, Any]
+    body: dict[str, Any],
+    request: dict[str, Any],
+    language_bundle: dict[str, Any],
+    *,
+    kernel: dict[str, Any],
 ) -> str:
     _validate_context(request, language_bundle)
     grammar, _operations = _authority(language_bundle)
     if set(body) == {"node", "parameter"} and body.get("node") == "parameter":
         return _identifier(body["parameter"], grammar)
-    notations = _selected_notations(request, language_bundle)
+    notations = _selected_notations(request, language_bundle, kernel)
     by_coordinate = {
         (
             cast(str, operation.get("package", "")),
@@ -474,6 +481,7 @@ def _notation_resource_usage(
     grammar: dict[str, Any],
     request: dict[str, Any],
     language_bundle: dict[str, Any],
+    kernel: dict[str, Any],
 ) -> tuple[int, int]:
     punctuation = {
         *cast(list[str], grammar["group_delimiters"]),
@@ -487,7 +495,9 @@ def _notation_resource_usage(
     operators = sorted(
         (
             cast(str, notation["token"])
-            for _operation, notation in _selected_notations(request, language_bundle)
+            for _operation, notation in _selected_notations(
+                request, language_bundle, kernel
+            )
             if notation.get("kind") == "infix"
         ),
         key=len,
@@ -801,7 +811,7 @@ def parse_canonical(
     if len(expression.encode("utf-8")) > grammar["max_expression_bytes"]:
         raise ValueError("independent Formula expression exceeds its byte bound")
     token_count, group_depth = _notation_resource_usage(
-        expression, grammar, request, language_bundle
+        expression, grammar, request, language_bundle, kernel
     )
     if token_count > grammar["max_tokens"]:
         raise ValueError("independent Formula expression exceeds its token bound")
@@ -809,7 +819,7 @@ def parse_canonical(
         raise ValueError("independent Formula expression exceeds its group-depth bound")
     if len(lines) - 1 > formula_policy["max_nodes_per_formula"]:
         raise ValueError("independent Formula expression exceeds its node bound")
-    notations = _selected_notations(request, language_bundle)
+    notations = _selected_notations(request, language_bundle, kernel)
     functions = {
         notation["name"]: (operation, notation)
         for operation, notation in notations
@@ -1049,7 +1059,7 @@ def admit_pair(
     body = cast(dict[str, Any], formula["body"])
     expression = cast(str, formula["expression"])
     try:
-        rendered = render_body(body, request, language_bundle)
+        rendered = render_body(body, request, language_bundle, kernel=kernel)
         parsed = parse_canonical(expression, request, language_bundle, kernel=kernel)
     except (KeyError, TypeError, ValueError):
         return False

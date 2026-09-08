@@ -93,11 +93,14 @@ def test_fixed_member_projection_preserves_execution_with_renamed_collections(
         assert "standard.formula-notation" not in definition.get("extensions", {})
     kernel, language = context.mutable_pair()
     law = kernel["meta_format"]["package_release"]["semantic_identity_projection"]
-    excluded_count = 0
+    notation_source = kernel["meta_format"]["language_definitions"][
+        "wire_schema_protocol_roles"
+    ]["source_notation"]["operation_source"]
+    notation_count = 0
     projected_operations = {}
     for package in language["language"]["packages"]:
         actual = cast(
-            list[dict[str, Any]], package_runtime_semantic_closure(package, law)
+            list[dict[str, Any]], package_runtime_semantic_closure(package, kernel)
         )
         for entry in actual:
             if entry["authority_path"] == "language.operations":
@@ -110,12 +113,17 @@ def test_fixed_member_projection_preserves_execution_with_renamed_collections(
                     }
             for definition in entry["definitions"]:
                 if isinstance(definition, dict):
-                    assert (
-                        not set(package[law["extension_inventory_member"]])
-                        & definition.get("extensions", {}).keys()
+                    assert notation_source["extension_member"] not in definition.get(
+                        "extensions", {}
                     )
-        excluded_count += len(package[law["extension_inventory_member"]])
-    assert excluded_count > 0
+        notation_count += sum(
+            notation_source["extension_member"] in definition.get("extensions", {})
+            for entry in package[law["source_member"]]
+            if entry[law["path_member"]] == notation_source["authority_path"]
+            for definition in entry["definitions"]
+            if isinstance(definition, dict)
+        )
+    assert notation_count > 0
     assert artifacts["event-trace"]["events"]
     assert all(row["within_target"] for row in artifacts["metric-dataset"]["samples"])
     for row in operation_rows:
