@@ -788,11 +788,6 @@ def _scheduled_catalog_record_is_authoritative(
     )
     if operation is None:
         return False
-    root_path = (
-        _execution_path_segment(cast(str, parent_entrypoint["id"]))
-        if isinstance(parent_entrypoint, dict)
-        else f"scheduled:{parent_event.get('schedule_call_site_identity')}"
-    )
     schedule_identity = _scheduler_contract(checked)["call_site_identity"]["schedule"]
     matching_instructions = []
     for instruction in operation_body_instructions(operation["body"]):
@@ -839,63 +834,6 @@ def _scheduled_catalog_record_is_authoritative(
     scheduled_state_reference_rows = cast(
         list[dict[str, JsonValue]], schedule["state_references"]
     )
-    traced_arguments = {
-        cast(str, row["name"]): cast(JsonValue, row["value"])
-        for row in scheduled_argument_rows
-    }
-    traced_state_references = {
-        cast(str, row["name"]): cast(dict[str, JsonValue], row["target"])
-        for row in scheduled_state_reference_rows
-    }
-    instruction_ports = {
-        cast(str, binding["port"]) for binding in instruction["arguments"]
-    }
-    if (
-        set(traced_arguments) != instruction_ports
-        or not set(traced_state_references) <= instruction_ports
-    ):
-        return False
-    parent_arguments = (
-        _event_arguments(
-            checked,
-            parent_spec,
-            event_index=cast(int, parent_event["index"]),
-            state_before=cast(list[dict[str, JsonValue]], parent_event["state_before"]),
-            snapshot_identity=cast(str, parent_event["snapshot_before_identity"]),
-            scenario_id=cast(str, record["scenario"]),
-            catalog_by_id=catalog_by_id,
-            events_by_id=events_by_id,
-        )
-        if schedule_call_path == root_path
-        else None
-    )
-    direct_arguments = parent_arguments[0] if parent_arguments is not None else {}
-    direct_state_references = (
-        parent_arguments[1] if parent_arguments is not None else {}
-    )
-    for binding in instruction["arguments"]:
-        name = cast(str, binding["port"])
-        operand = cast(dict[str, Any], binding["operand"])
-        if operand["kind"] == "port":
-            source = cast(str, operand["port"])
-            if parent_arguments is not None and (
-                source not in direct_arguments
-                or traced_arguments[name] != direct_arguments[source]
-                or traced_state_references.get(name)
-                != direct_state_references.get(source)
-            ):
-                return False
-        elif operand["kind"] == "literal":
-            if (
-                traced_arguments[name] != operand["literal"]
-                or name in traced_state_references
-            ):
-                return False
-        elif operand["kind"] == "local":
-            if name in traced_state_references:
-                return False
-        else:
-            return False
     expected_zero_time_depth = (
         cast(int, parent_spec.get("zero_time_depth", 0)) + 1
         if ordering_key["logical_time"]
