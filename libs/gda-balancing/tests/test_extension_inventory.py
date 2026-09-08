@@ -1207,6 +1207,103 @@ def test_source_value_policy_uses_its_scalar_wire_contract(witness):
         read_extension_inventory(kernel, candidate)
 
 
+def test_projection_collection_names_follow_native_roots_and_not_output_members():
+    from gda_balancing.domain.authority.context import (
+        AdmittedAuthorityContext,
+        admit_authority_context,
+    )
+    from gda_balancing.domain.model import (
+        CheckedModel,
+        check_model_source_value,
+        compile_checked_model,
+    )
+    from schema2_bootstrap_conformance_support import _reidentify_package_release
+    from schema2_bootstrap_production_support import _reidentify_graph_root
+
+    kernel, language = mutable_authorities()
+    lowering = next(
+        definition
+        for package in language["language"]["packages"]
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.model_lowerings"
+        for definition in closure["definitions"]
+    )
+    projection = lowering["runtime_projection"]
+    original = projection["operation_roots"]["collection"]
+    renamed = "opaque.operation.collection"
+    selected = next(c for c in projection["collections"] if c["id"] == original)
+    output_member = selected["output_member"]
+    selected["id"] = renamed
+    projection["operation_roots"]["collection"] = renamed
+    for seed in projection["seeds"]:
+        if seed["collection"] == original:
+            seed["collection"] = renamed
+    for edge in projection["edges"]:
+        for member in ("source_collection", "target_collection"):
+            if edge[member] == original:
+                edge[member] = renamed
+    for package in language["language"]["packages"]:
+        _reidentify_package_release(package)
+    _reidentify_graph_root(language)
+    a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
+    assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
+    context = admit_authority_context(kernel, language)
+    assert isinstance(context, AdmittedAuthorityContext), context
+    source = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/bounded-fold/model-source.json"
+        ).read_text()
+    )
+    checked = check_model_source_value(source, authority_context=context)
+    assert isinstance(checked, CheckedModel), checked
+    assert len(compile_checked_model(checked)) == 8
+    graph = {
+        "packages": language.package_releases,
+        "ldb_root": language.root,
+        "vector_sets": language.package_conformance_vector_sets,
+        "source": source,
+    }
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    names = {
+        token for token in inventory.tokens if token.role == "projection-collection"
+    }
+    assert len(names) == len(projection["collections"]) == 16
+    token = AuthorityToken("projection-collection", (lowering["id"],), renamed)
+    assert token in names - inventory.reserved
+    assert selected["output_member"] == output_member != renamed
+    root_reference = next(
+        occurrence
+        for occurrence in inventory.occurrences
+        if occurrence.token == token
+        and occurrence.pointer.endswith("/operation_roots/collection")
+    )
+    mutations = (
+        replace(
+            inventory,
+            occurrences=tuple(o for o in inventory.occurrences if o != root_reference),
+        ),
+        replace(
+            inventory,
+            tokens=inventory.tokens - names,
+            occurrences=tuple(o for o in inventory.occurrences if o.token not in names),
+        ),
+        replace(
+            inventory,
+            occurrences=tuple(
+                replace(o, token=replace(token, owner=("foreign.lowering",)))
+                if o == root_reference
+                else o
+                for o in inventory.occurrences
+            ),
+        ),
+    )
+    for incomplete in mutations:
+        with pytest.raises(InventoryRefusal):
+            validate_extension_inventory(kernel, graph, incomplete)
+
+
 @pytest.mark.parametrize("target", ["root", "resources", "descriptor"])
 def test_ldb_root_framing_has_no_unclassified_authored_members(witness, target):
     kernel, graph, inventory = witness

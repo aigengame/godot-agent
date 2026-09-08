@@ -372,6 +372,76 @@ def _constructor_member_selectors(constructor: Mapping[str, Any]):
             yield selector, name, area
 
 
+def _projection_collection_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    """Interpret collection bindings in the declared Runtime projection DSL."""
+    contract = kernel["meta_format"]["runtime_projection"]
+    for _, lowering, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.model_lowerings"
+    ):
+        scope = (lowering["id"],)
+        projection = lowering["runtime_projection"]
+        pp = pointer + "/runtime_projection"
+        names = [row["id"] for row in projection["collections"]]
+        if len(names) != len(set(names)) or not all(
+            isinstance(name, str) and name for name in names
+        ):
+            raise InventoryRefusal("projection collection declarations are not unique")
+        for i, row in enumerate(projection["collections"]):
+            required = set(contract["collection"]["required_members"])
+            if (
+                not required
+                <= set(row)
+                <= required | set(contract["collection"]["optional_members"])
+            ):
+                raise InventoryRefusal("projection collection has unknown members")
+            yield (
+                AuthorityToken("projection-collection", scope, row["id"]),
+                f"{pp}/collections/{i}/id",
+                "declaration",
+                "/meta_format/runtime_projection/collection",
+            )
+        groups = (
+            ("seeds", "seed", ("collection",)),
+            ("edges", "edge", ("source_collection", "target_collection")),
+            (
+                "type_reference_closure",
+                "type_reference_closure",
+                (
+                    "source_collection",
+                    "target_type_collection",
+                    "target_constructor_collection",
+                ),
+            ),
+            ("operation_roots", "operation_roots", ("collection",)),
+        )
+        for member, grammar, references in groups:
+            shape = contract[grammar]
+            required = set(shape["required_members"])
+            if not set(references) <= required:
+                raise InventoryRefusal("projection collection role is not declared")
+            value = projection[member]
+            rows = enumerate(value) if isinstance(value, list) else ((None, value),)
+            for i, row in rows:
+                rp = pp + "/" + member + ("" if i is None else "/" + str(i))
+                if (
+                    not required
+                    <= set(row)
+                    <= required | set(shape.get("optional_members", []))
+                ):
+                    raise InventoryRefusal("projection clause has unknown members")
+                for field in references:
+                    if row[field] not in names:
+                        raise InventoryRefusal(
+                            "projection collection reference is unresolved"
+                        )
+                    yield (
+                        AuthorityToken("projection-collection", scope, row[field]),
+                        rp + "/" + field,
+                        "reference",
+                        "/meta_format/runtime_projection/" + grammar,
+                    )
+
+
 class _Reader:
     def __init__(self, kernel: Mapping[str, Any], graph: Mapping[str, Any]):
         self.kernel = kernel
@@ -2435,6 +2505,10 @@ class _Reader:
         self.index()
         self.operation_operand_projection()
         self.metadata_links()
+        for token, pointer, use, law in _projection_collection_links(
+            self.kernel, self.graph
+        ):
+            self.occurrence(token, pointer, use, law)
         self.packages()
         self.rule_chain_links()
         self.assignment_policies()
@@ -3073,6 +3147,10 @@ def validate_extension_inventory(
         if o.location == "value"
     }
     required: set[tuple[AuthorityToken, str, str]] = set()
+    required.update(
+        (token, pointer, use)
+        for token, pointer, use, _ in _projection_collection_links(kernel, graph)
+    )
     lowering_rows = list(
         _authority_path_rows(kernel, graph, "language_bundle.language.model_lowerings")
     )
@@ -3524,7 +3602,7 @@ def _renamed_owner(
         return (
             name(AuthorityToken("language.resolution_profiles", (), token.owner[0])),
         )
-    if token.role == "assignment-policy":
+    if token.role in {"assignment-policy", "projection-collection"}:
         return (name(AuthorityToken("language.model_lowerings", (), token.owner[0])),)
     if token.role == "assignment-mode":
         return (
