@@ -90,6 +90,136 @@ def test_current_machine_owners_and_nested_lexical_scopes_are_preserved(witness)
     assert AuthorityToken("type", ("kernel",), "Boolean") in inventory.reserved
 
 
+def test_evidence_inventory_closes_actual_claim_local_vectors(witness):
+    kernel, graph, inventory = witness
+    validate_extension_inventory(kernel, graph, inventory)
+    vectors = {token for token in inventory.tokens if token.role == "claim-vector"}
+    assert {token.name for token in vectors} == {
+        "evaluable.success",
+        "evaluable.verdict",
+        "evaluable.runtime-refusal",
+        "evaluable.pre-dispatch",
+    }
+    assert {token.owner for token in vectors} == {("evaluable",)}
+    assert not vectors & inventory.reserved
+    assert not any("evidence_claim_kinds" in gap.reason for gap in inventory.uncovered)
+    assert inventory.uncovered  # Other families are still explicitly incomplete.
+
+
+@pytest.mark.parametrize(
+    "mutation", ["class", "member", "owner", "role", "occurrence", "law", "reserved"]
+)
+def test_evidence_inventory_refuses_missing_or_forged_nested_roles(witness, mutation):
+    kernel, graph, inventory = witness
+    token = next(token for token in inventory.tokens if token.role == "claim-vector")
+    if mutation in {"class", "member"}:
+        removed = (
+            {row for row in inventory.tokens if row.role == "claim-vector"}
+            if mutation == "class"
+            else {token}
+        )
+        changed = replace(
+            inventory,
+            tokens=inventory.tokens - removed,
+            occurrences=tuple(
+                o for o in inventory.occurrences if o.token not in removed
+            ),
+        )
+    elif mutation in {"owner", "role"}:
+        replacement = (
+            replace(token, owner=("another-claim",))
+            if mutation == "owner"
+            else replace(token, role="vectors")
+        )
+        changed = replace(
+            inventory,
+            tokens=(inventory.tokens - {token}) | {replacement},
+            occurrences=tuple(
+                replace(o, token=replacement) if o.token == token else o
+                for o in inventory.occurrences
+            ),
+        )
+    elif mutation == "reserved":
+        marker = next(
+            row for row in inventory.reserved if row.role == "kernel.evidence-value"
+        )
+        changed = replace(inventory, reserved=inventory.reserved - {marker})
+    else:
+        occurrence = next(o for o in inventory.occurrences if o.token == token)
+        changed = replace(
+            inventory,
+            occurrences=tuple(
+                replace(o, law="/unrelated-law")
+                if mutation == "law" and o == occurrence
+                else o
+                for o in inventory.occurrences
+                if mutation != "occurrence" or o != occurrence
+            ),
+        )
+    with pytest.raises(InventoryRefusal):
+        validate_extension_inventory(kernel, graph, changed)
+
+
+def test_evidence_label_renaming_transports_owner_without_renaming_protocol_values(
+    witness,
+):
+    from test_trace_protocol_structure import _graph
+
+    kernel, graph, inventory = witness
+    candidate = deepcopy(graph)
+    claim_token = AuthorityToken("language.evidence_claim_kinds", (), "evaluable")
+    local_tokens = sorted(
+        token for token in inventory.tokens if token.role == "claim-vector"
+    )
+    names = {claim_token: "success"}
+    names.update({token: f"local_vector_{i}" for i, token in enumerate(local_tokens)})
+    pairs = dict(token_bijection_from_names(inventory, names))
+    assert pairs[local_tokens[0]].owner == ("success",)
+    markers = [
+        o for o in inventory.occurrences if o.token.role == "kernel.evidence-value"
+    ]
+    for occurrence in inventory.occurrences:
+        if occurrence.token not in names:
+            continue
+        assert occurrence.location == "value"
+        segments = occurrence.pointer.split("/")[1:]
+        selected = candidate
+        for part in segments[:-1]:
+            key = part.replace("~1", "/").replace("~0", "~")
+            selected = (
+                selected[int(key)] if isinstance(selected, list) else selected[key]
+            )
+        last = segments[-1].replace("~1", "/").replace("~0", "~")
+        key = int(last) if isinstance(selected, list) else last
+        selected[key] = names[occurrence.token]
+    sealed = _graph(kernel, candidate)
+    for consumer in (_consumer_a, _consumer_b):
+        observation = consumer(kernel, sealed)
+        assert observation["admitted"], observation
+    renamed = read_extension_inventory(kernel, candidate)
+    validate_extension_inventory(kernel, candidate, renamed)
+    assert set(markers) <= set(renamed.occurrences)
+    assert renamed.uncovered == inventory.uncovered
+    assert pairs[claim_token] in renamed.tokens - renamed.reserved
+    assert all(
+        pairs[token] in renamed.tokens - renamed.reserved for token in local_tokens
+    )
+    # A complete rename still waits for unrelated inventory gaps. Its owner
+    # consistency check must reject a malformed local scope before that boundary.
+    all_names = {
+        token: f"renamed_{i}"
+        for i, token in enumerate(sorted(inventory.tokens - inventory.reserved))
+    }
+    all_pairs = list(token_bijection_from_names(inventory, all_names))
+    index = next(
+        i for i, (source, _) in enumerate(all_pairs) if source == local_tokens[0]
+    )
+    source, target = all_pairs[index]
+    all_pairs[index] = source, replace(target, owner=("untransported-owner",))
+    with pytest.raises(InventoryRefusal, match="owner changed"):
+        validate_token_bijection(inventory, all_pairs)
+
+
 @pytest.mark.parametrize("mutation", ["class", "member", "role", "owner", "occurrence"])
 def test_independent_coverage_refuses_removed_or_misowned_inventory(witness, mutation):
     kernel, graph, inventory = witness

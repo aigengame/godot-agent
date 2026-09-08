@@ -16,6 +16,7 @@ import jsonschema
 from schema2_bootstrap_conformance_support import (
     _consumer_b_canonical_equal,
     _consumer_b_definition_is_closed,
+    _consumer_b_evidence_claim_kinds_are_closed,
     _consumer_b_evaluate_structured_value_vector,
     _consumer_b_value_program_instruction_is_closed,
     _consumer_b_operation_composition_subjects,
@@ -517,6 +518,81 @@ def _replay_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
             yield TokenOccurrence(
                 token, f"{pointer}/expect/checks/{i}/key", "reference", law
             )
+
+
+def _evidence_claim_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    """Interpret the existing claim-local labels and closed eligibility grammar."""
+    law = "/meta_format/language_definitions/collections/evidence_claim_kinds"
+    contract = kernel["meta_format"]["language_definitions"]["collections"][
+        "evidence_claim_kinds"
+    ]
+    language = _attached_language(kernel, graph)
+    if not _consumer_b_evidence_claim_kinds_are_closed(language):
+        raise InventoryRefusal("Evidence claim eligibility vectors do not close")
+    vector_contract = contract["field_types"]["vectors"]["items"]
+    input_contract = vector_contract["field_types"]["input"]
+
+    def marker(value, field, pointer, field_law):
+        if not (
+            ("const" in field and _consumer_b_canonical_equal(value, field["const"]))
+            or ("enum" in field and value in field["enum"])
+        ):
+            raise InventoryRefusal("Evidence marker has no actual Kernel enum or const")
+        return TokenOccurrence(
+            AuthorityToken("kernel.evidence-value", (field_law,), value),
+            pointer,
+            "reference",
+            field_law,
+        )
+
+    for _, claim, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.evidence_claim_kinds"
+    ):
+        if set(claim) != {"id", "eligibility", "vectors"} or not (
+            _consumer_b_definition_is_closed(claim, contract, language)
+        ):
+            raise InventoryRefusal("Evidence claim has unclassified members")
+        for member, value in claim["eligibility"].items():
+            if member == "producing_outcomes":
+                field = input_contract["field_types"]["producing_outcome"]
+                field_law = (
+                    law
+                    + "/field_types/vectors/items/field_types/input/field_types/producing_outcome"
+                )
+                for i, outcome in enumerate(value):
+                    yield marker(
+                        outcome, field, f"{pointer}/eligibility/{member}/{i}", field_law
+                    )
+            else:
+                field = contract["field_types"]["eligibility"]["field_types"][member]
+                yield marker(
+                    value,
+                    field,
+                    f"{pointer}/eligibility/{member}",
+                    f"{law}/field_types/eligibility/field_types/{member}",
+                )
+        for i, vector in enumerate(claim["vectors"]):
+            vp = f"{pointer}/vectors/{i}"
+            yield TokenOccurrence(
+                AuthorityToken("claim-vector", (claim["id"],), vector["id"]),
+                vp + "/id",
+                "declaration",
+                law + "/field_types/vectors/items/field_types/id",
+            )
+            for member in ("kind", "expect"):
+                yield marker(
+                    vector[member],
+                    vector_contract["field_types"][member],
+                    f"{vp}/{member}",
+                    f"{law}/field_types/vectors/items/field_types/{member}",
+                )
+            for member, value in vector["input"].items():
+                yield marker(
+                    value,
+                    input_contract["field_types"][member],
+                    f"{vp}/input/{member}",
+                    f"{law}/field_types/vectors/items/field_types/input/field_types/{member}",
+                )
 
 
 def _source_format_role(kernel: Mapping[str, Any], graph: Mapping[str, Any]) -> str:
@@ -2687,6 +2763,10 @@ class _Reader:
             # The independent observation-member pass closes the complete
             # policy shape and every actual check reference before this pass.
             return True
+        if role == "language.evidence_claim_kinds":
+            # The claim pass validates its complete current shape and actual
+            # eligibility; local vector names have their claim as lexical owner.
+            return True
         if role == "language.artifact_wire_schemas" and value.get("protocol_role") in {
             "event-trace",
             "rir-semantic-payload",
@@ -4345,6 +4425,15 @@ class _Reader:
 
     def finish(self) -> ExtensionInventory:
         self.index()
+        for occurrence in _evidence_claim_links(self.kernel, self.graph):
+            self.occurrence(
+                occurrence.token,
+                occurrence.pointer,
+                occurrence.use,
+                occurrence.law,
+            )
+            if occurrence.token.role.startswith("kernel."):
+                self.reserved.add(occurrence.token)
         for occurrence in _replay_links(self.kernel, self.graph):
             self.occurrence(
                 occurrence.token,
@@ -4977,6 +5066,33 @@ def validate_extension_inventory(
     is implemented; require_complete still refuses that inventory.
     """
     validate_inventory_occurrences(kernel, graph, inventory)
+    evidence_expected = set(_evidence_claim_links(kernel, graph))
+    evidence_roots = [
+        pointer
+        for _, _, pointer in _authority_path_rows(
+            kernel, graph, "language_bundle.language.evidence_claim_kinds"
+        )
+    ]
+    evidence_actual = {
+        row
+        for row in inventory.occurrences
+        if any(
+            row.pointer.startswith(root + "/") and row.pointer != root + "/id"
+            for root in evidence_roots
+        )
+    }
+    if (
+        evidence_actual != evidence_expected
+        or not {
+            row.token
+            for row in evidence_expected
+            if row.token.role.startswith("kernel.")
+        }
+        <= inventory.reserved
+    ):
+        raise InventoryRefusal(
+            "Evidence claim occurrence coverage is incomplete or misowned"
+        )
     replay_expected = set(_replay_links(kernel, graph))
     replay_positions = {o.pointer for o in replay_expected}
     if {
@@ -5773,6 +5889,10 @@ def _renamed_owner(
         return transported
     if token.role in {"vector-local", "vector-site"}:
         return (name(AuthorityToken("vectors", (), token.owner[0])),)
+    if token.role == "claim-vector":
+        return (
+            name(AuthorityToken("language.evidence_claim_kinds", (), token.owner[0])),
+        )
     if token.role == "rule-variable":
         return (name(AuthorityToken("language.rules", (), token.owner[0])),)
     if token.role == "constructor-member":
