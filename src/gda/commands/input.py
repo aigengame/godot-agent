@@ -459,6 +459,23 @@ def _phases_routed(data: object, kind: str, *, as_event: bool = False) -> object
     }
 
 
+def _phases_published(data: dict[str, object]) -> bool:
+    """Whether every phase of a payload already names its route (#854).
+
+    A harness reply never does — the route is gda's to derive, folded in by
+    :func:`_phases_routed` — so phases that all carry one are a PUBLISHED result
+    coming back through validation (its own dump), not a reply to normalize.
+    """
+    phases = data.get("phases")
+    return (
+        isinstance(phases, list)
+        and bool(phases)
+        and all(
+            isinstance(phase, dict) and "injection_route" in phase for phase in phases
+        )
+    )
+
+
 class InputMouseClickResult(BaseModel):
     """The result of ``gda input mouse-click``: the complete click gesture injected (#652).
 
@@ -631,7 +648,17 @@ class InputActionResult(BaseModel):
         # is read STRICTLY (`echoed_event_mode`) rather than for truthiness, so a
         # drifted `"false"` cannot publish the event route. The declared default
         # stays the state route, which is what a reply naming no mode meant.
+        #
+        # A payload that carries NO echo but already names its route is not a
+        # harness reply: it is a published result validated again — its own dump.
+        # The echo that decided that route was consumed on the way in (it is no
+        # field, by design), so re-deriving here would turn truthful event-route
+        # evidence back into the state route at every serialize/revalidate
+        # boundary. The published route is kept instead; the field's own
+        # vocabulary check still runs on it (#854 review round 4).
         if not isinstance(data, dict):
+            return data
+        if "as_event" not in data and "injection_route" in data:
             return data
         return {
             **data,
@@ -865,13 +892,21 @@ class InputTapResult(BaseModel):
         if not isinstance(data, dict):
             return data
         action = data.get("action")
-        if action is None and "as_event" in data:
-            raise ValueError("a key tap result cannot echo the event mode.")
-        return _phases_routed(
-            data,
-            "action" if action is not None else "key",
-            as_event=action is not None and echoed_event_mode(data),
-        )
+        if action is None:
+            if "as_event" in data:
+                raise ValueError("a key tap result cannot echo the event mode.")
+            # A key tap's route is fixed by its target, so this fold is the same
+            # value on every pass: a reply and its dump validate alike.
+            return _phases_routed(data, "key")
+        if "as_event" not in data and _phases_published(data):
+            # An action tap is the one target whose route is NOT a function of the
+            # public fields: the echo decides it, and the echo is consumed here. So
+            # a payload that names its routes without echoing a mode is a published
+            # result validated again (its own dump), and the routes it carries are
+            # kept — re-deriving would read the missing echo as the state route
+            # and change the meaning of truthful evidence (#854 review round 4).
+            return data
+        return _phases_routed(data, "action", as_event=echoed_event_mode(data))
 
     @model_validator(mode="after")
     def _check_tap_evidence(self) -> "InputTapResult":

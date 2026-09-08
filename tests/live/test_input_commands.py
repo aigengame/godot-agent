@@ -3239,6 +3239,71 @@ def test_a_tap_reply_echoing_a_non_boolean_mode_is_a_contract_violation(
     assert "'as_event' echo is not a boolean" in error["message"]
 
 
+# A published result must survive a serialize/revalidate boundary with its meaning
+# intact: `injection_route` is the mode's whole public disclosure, and the echo that
+# decided it is consumed on the way in. Re-deriving the route from a dump — which
+# carries no echo — would silently turn `viewport_event` back into `action_state`
+# (review round 4).
+
+
+def test_an_event_mode_action_result_survives_a_serialize_revalidate_boundary():
+    from gda.commands.input import InputActionResult
+
+    published = InputActionResult.model_validate(
+        {**INPUT_ACTION_RESULT, "as_event": True}
+    )
+    assert published.injection_route == "viewport_event"
+
+    again = InputActionResult.model_validate(published.model_dump())
+    from_json = InputActionResult.model_validate_json(published.model_dump_json())
+
+    assert again == published
+    assert from_json == published
+    assert again.injection_route == "viewport_event"
+
+
+def test_an_event_mode_action_tap_result_survives_a_serialize_revalidate_boundary():
+    from gda.commands.input import InputTapResult
+
+    published = InputTapResult.model_validate(
+        {**INPUT_TAP_ACTION_RESULT, "as_event": True}
+    )
+    assert [phase.injection_route for phase in published.phases] == [
+        "viewport_event",
+        "viewport_event",
+    ]
+
+    again = InputTapResult.model_validate(published.model_dump())
+    from_json = InputTapResult.model_validate_json(published.model_dump_json())
+
+    assert again == published
+    assert from_json == published
+    assert [phase.injection_route for phase in again.phases] == [
+        "viewport_event",
+        "viewport_event",
+    ]
+
+
+def test_a_state_route_result_survives_the_same_boundary_as_the_state_route():
+    # The other half of the same rule: keeping a published route must not promote
+    # a state injection either, on the head field or on the phases.
+    from gda.commands.input import InputActionResult, InputTapResult
+
+    action = InputActionResult.model_validate(
+        {**INPUT_ACTION_RESULT, "as_event": False}
+    )
+    tap = InputTapResult.model_validate(INPUT_TAP_ACTION_RESULT)
+
+    assert (
+        InputActionResult.model_validate(action.model_dump()).injection_route
+        == "action_state"
+    )
+    assert [
+        phase.injection_route
+        for phase in InputTapResult.model_validate(tap.model_dump()).phases
+    ] == ["action_state", "action_state"]
+
+
 def _sequence_gate_error(monkeypatch, tmp_path, payload, events) -> dict:
     """Run one opted-in `gda input sequence` over a faked reply; return the error."""
     inject_live_runner(
