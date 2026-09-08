@@ -4,6 +4,19 @@ status: accepted
 
 # Make Formula notation a canonical reversible projection of structured bodies
 
+> **Grammar ownership correction (#878, 2026-09-08):** The Source Wire Schema Definition
+> selected by the Kernel's `model-source-package` protocol role now owns explicit
+> `formula_grammar` and `operation_notation_schema` fields. The Kernel requires both fields
+> on that role and rejects them on other definitions. This keeps generic notation in
+> `standard.schema` while separating its authority from the Source JSON Schema itself.
+> The unused `$defs` metadata containers and grammar `version` label are deleted, along
+> with their readers and equality guard. Missing fields and the old placement refuse;
+> there is no compatibility fallback. Contextual compiler resolution retains its owner.
+> Grammar-only changes reidentify the owning Package and LDB; they do not change the
+> Source Schema identity or an otherwise unchanged Package Lock. Actual expression bytes
+> retain the RIR content/semantic distinction below. This is implemented branch behavior,
+> not completion of the #878 fixed-build extension proof.
+
 > **Execution-binding supersession (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#execution-identity-implementation-875-2026-09-07)):**
 > The whole-LDB Resolved Model wrapper below remains exact Build provenance, not permanent
 > execution identity. #875 independently admits explicit RIR and binds its existing semantic identity;

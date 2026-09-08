@@ -554,6 +554,53 @@ suite passes 111 tests. The [integration record](evidence/priority-window/replay
 preserves exact authority differences and checked raw evidence. Other inventory gaps
 and the final fixed-build experiment remain open.
 
+## Explicit Formula grammar authority
+
+The old Source JSON Schema stored two unreferenced `$defs` entries as Formula metadata.
+Both authority consumers admitted coherently renamed metadata keys, but the actual public
+renderer failed with an internal error. These entries were a host lookup convention with
+no Schema-reference role. `9d3dcd611` deletes the containers and their readers, the unused
+`version: 1.1.0` label and equality guard, and the otherwise unused `$defs` dialect keyword.
+
+The Source Wire Schema Definition now carries `formula_grammar` and
+`operation_notation_schema`. The Kernel's fixed Source-notation contract requires both
+on the `model-source-package` role and forbids them on other definitions. The same
+`standard.schema` owner retains grammar; contextual resolution remains compiler-owned.
+Neither a metadata-key alias nor a fallback survives. Independent parsing and rendering
+also use the declared binding keyword instead of a literal `let`.
+
+A real `let` to `bind` grammar change passes both pair consumers and public
+render/parse/check/build. Package/LDB identities and actual RIR expression content change;
+Source Schema identity, Package Lock and RIR semantic identity remain stable. All seven
+maintained Models preserve both RIR identities, and nine Experiments admit without
+authored changes. Integration with Source routing and Replay passes 127 focused tests.
+The [integration record](evidence/priority-window/formula-wire-integration.json) records
+the exact scopes and authority merge. Other Formula punctuation and the complete
+non-Kernel rename proof remain outside this result.
+
+## Finite value vector identities
+
+`560a8cf85` extends inventory through all 24 value-program vectors and ten admitted,
+nominally owned structured-value vectors. Program operands, local targets and result
+references share lexical ownership; evaluation-site references retain their vector
+owner. Typed Enum and Record values follow their actual constructor and nominal Type.
+Numeric observations, exact charges and Ref instance keys remain data.
+
+The structured pass reuses the same Type/value traversal as ordinary declarations.
+It checks actual independent observations before certifying roles and retains gaps for
+the other fourteen structured vectors, including anonymous definitions and negative
+payload/diagnostic paths. The larger gap count in its scoped receipt reflects finer
+unresolved obligations; it is not a complete inventory. Legal changed graphs retain
+their own original observations under both actual consumers. A newly authored isolated
+Enum witness exercises a structured rename without claiming the existing Operation
+vector family has already been completely renamed.
+
+The combined inventory/renaming/Replay/Formula/CI-policy suite passes 119 tests at
+`560a8cf85`. The [integration record](evidence/priority-window/value-vector-integration.json)
+pins its 1575 tokens, 6110 occurrences and 84 explicit gaps to one graph containing
+the full current LDB, all referenced packages/vector sets and the bounded-fold Source.
+Experiment and artifact/result graphs have not yet been added to that proof scope.
+
 ## Remaining proof and integration
 
 - Complete the semantic-token inventory and resolve remaining demonstrated name

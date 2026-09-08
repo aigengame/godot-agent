@@ -1,0 +1,183 @@
+{
+  "scope": "Formula grammar authority deletion and focused integration; no complete Extension Invariance claim.",
+  "worker_head": "ea363e0cca64e725d478be117cd80c385781f1df",
+  "integration_head": "9d3dcd61138f8241a75f7ec6f836400f0357b6cb",
+  "decision": {
+    "source_notation": {
+      "role": "model-source-package",
+      "required_members": [
+        "formula_grammar",
+        "operation_notation_schema"
+      ]
+    },
+    "owner": "unique Source Wire Schema Definition selected by its admitted protocol role",
+    "removed": [
+      "formulaNotationGrammar metadata container",
+      "formulaOperationNotation metadata container",
+      "grammar.version and 1.1.0 equality guard",
+      "$defs from Source schema dialect"
+    ],
+    "preserved": "standard.compiler contextual policy and Lock owner unchanged; no aliases/fallback"
+  },
+  "baseline_counterexample": {
+    "head": "b2df9a1bf83c1b03efab65bb6d53c56cc24545de",
+    "authority_A": true,
+    "authority_B": true,
+    "command": [
+      "formula",
+      "render",
+      "/private/tmp/gda-878-formula-wire-evidence/baseline-public/formula.json"
+    ],
+    "returncode": 4,
+    "stdout": "",
+    "stderr": "{\"error\": {\"category\": \"internal\", \"code\": \"internal_error\", \"message\": \"the toolkit failed unexpectedly (ValueError)\"}}\n"
+  },
+  "checks": {
+    "green.xml": {
+      "tests": 81,
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0
+    },
+    "final-authority.xml": {
+      "tests": 110,
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0
+    },
+    "primary_formula_wire_integration": {
+      "tests": 127,
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0
+    }
+  },
+  "authority_merge": {
+    "kernel": "sha256:b13ab5a5e3a6741bfca0ccd70b8e033bdeea0d11bf076aef54d021ae59c0e582",
+    "ldb": "sha256:b2117315054db3054b0d7d0814179fb1761900546d60f19a0b865c96108c5b96",
+    "changed_package_descriptors": [
+      "standard.schema"
+    ],
+    "standard.experiment_preserved": true,
+    "method": "Keep integrated Replay root; rebuild ordinary descriptors from current packages and Kernel; --check passed."
+  },
+  "maintained_models": [
+    {
+      "source": "examples/schema2/bounded-fold/model-source.json",
+      "rir_semantic_identity": "sha256:ea32b36eb93a9b4286e15a5f8927fc63f6e80e7b3bcb1f40d2fa954498bc8013",
+      "rir_content_identity": "sha256:6567affc0d23ab68bfd31355277be5c6998fa3fc0e0ea2b82b540c88461f1a52"
+    },
+    {
+      "source": "examples/schema2/progression-periodic-effect/model-source.json",
+      "rir_semantic_identity": "sha256:5b67e07cc8d559ab285015d59b2d6a88602f5e5731453a5acd4dd7ffe4331ae0",
+      "rir_content_identity": "sha256:548da77b8694cb4022df932a0300d574b57dda10c0b02264240da81e03f68521"
+    },
+    {
+      "source": "examples/schema2/roguelike-reward-build/model-source.json",
+      "rir_semantic_identity": "sha256:ef0b9c7c084f3c4932d7a211f1f66d04776267767c081cae744697150248f359",
+      "rir_content_identity": "sha256:3ccf8a66f86d54d23c42f43d3e4358ce25b508d88e384f0ed842795833d01543"
+    },
+    {
+      "source": "examples/schema2/rpg-combat-cast/model-source.json",
+      "rir_semantic_identity": "sha256:58f77ca141165c5085246e4d72b5919161f3911e7b30b34b2b6e7484b2410656",
+      "rir_content_identity": "sha256:5da7ec0e70061d19f1a944e7fb80b84ae5c63c7510e87884975a474ae02493f8"
+    },
+    {
+      "source": "examples/schema2/rpg-periodic-effect/model-source.json",
+      "rir_semantic_identity": "sha256:07b658003cb92f3b297c8c73ef9ab2462978811c07084aa49308dee70be67928",
+      "rir_content_identity": "sha256:f9f8980d2d93ab8515dcab6f02a528ac05d233500ba7b958cfa3db4af171d03e"
+    },
+    {
+      "source": "examples/schema2/rpg-stat-composition/model-source.json",
+      "rir_semantic_identity": "sha256:7980b01b829e42bfd0254946f5cef9f9a7490987b7c646d5dc39d22752de6e07",
+      "rir_content_identity": "sha256:3bb64f25ea6a0c2efb3ce30d61b0b86d4f36ed6311e0a5fabb31fca126a9d66e"
+    },
+    {
+      "source": "examples/schema2/structured-selection/model-source.json",
+      "rir_semantic_identity": "sha256:3858fa0b51e55075b105b808fa88153d494973ab33e37fc3b6c461c91d679205",
+      "rir_content_identity": "sha256:e0c2cfbc8e509699c0c8fa3d8c25743526fa2612814d67084c44a618aac96381"
+    }
+  ],
+  "maintained_experiments": {
+    "admitted_experiments": [
+      "examples/schema2/bounded-fold/experiment.json",
+      "examples/schema2/progression-periodic-effect/experiment.json",
+      "examples/schema2/roguelike-reward-build/experiment.json",
+      "examples/schema2/rpg-combat-cast/experiment.json",
+      "examples/schema2/rpg-combat-cast/multi-time-experiment.json",
+      "examples/schema2/rpg-periodic-effect/experiment.json",
+      "examples/schema2/rpg-periodic-effect/same-time-experiment.json",
+      "examples/schema2/rpg-stat-composition/experiment.json",
+      "examples/schema2/structured-selection/experiment.json"
+    ],
+    "kernel_identity": "sha256:b13ab5a5e3a6741bfca0ccd70b8e033bdeea0d11bf076aef54d021ae59c0e582"
+  },
+  "grammar_mutation": "Permanent test changes actual binding keyword let to bind, admits A/B pairs, and runs public render/parse/check/build. Source Schema and Lock match; RIR content differs and semantic identity matches.",
+  "raw_evidence": [
+    {
+      "path": "/private/tmp/gda-878-formula-wire-evidence/receipt.json",
+      "bytes": 2238,
+      "sha256": "d0031203c99faaa45dc576e841460d8f67225ad74a5bd27a17c820137b52891f"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-wire-evidence/baseline-public-control.json",
+      "bytes": 1572,
+      "sha256": "3a329d38f80e15f6b35ff7b78d710df9114d4e4c2303887dc6aeda001f24c564"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-wire-evidence/baseline-public-receipt.json",
+      "bytes": 417,
+      "sha256": "4313ad8c45aaedef816fde6edac94d872a8f0bf62d9b6f6a4086c1fce6e07393"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-wire-evidence/baseline-public.py",
+      "bytes": 1783,
+      "sha256": "175e68f8de0e3781d4773287fe35b85ccc7f5b298dd7ce6824622e18b9c9809b"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-wire-evidence/check-maintained.py",
+      "bytes": 813,
+      "sha256": "9e9a38005fe183e3aef818b3459c13c02fece71354df8761431938dff3524ef3"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-wire-evidence/baseline-models.json",
+      "bytes": 2014,
+      "sha256": "4c6ff396d0ecc098cc2df7785d5ddfa67a103e84d701771568f6ae7670ff38fe"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-wire-evidence/final-models.json",
+      "bytes": 2014,
+      "sha256": "4c6ff396d0ecc098cc2df7785d5ddfa67a103e84d701771568f6ae7670ff38fe"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-wire-evidence/final-experiments.json",
+      "bytes": 690,
+      "sha256": "4715855b70e9ea9dd34a48b7654c420c8f07a1175795f2207f8c0e2e9907d545"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-wire-evidence/identity-comparison.json",
+      "bytes": 69,
+      "sha256": "5c2c0040f07486527faae9ba41849d0dd1a47a35e5aa67a835fedeed9919c9de"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-wire-evidence/green.xml",
+      "bytes": 12431,
+      "sha256": "8e46a53bc5cdbe867a4769a28f42b43b223d8da2a824df44523f9ead21882c03"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-wire-evidence/final-authority.xml",
+      "bytes": 17733,
+      "sha256": "ea4da1ddaa950fad9d1f9a017c722e8604489e785291e270fdb7611b7fba648a"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/formula-wire-integration.xml",
+      "bytes": 18952,
+      "sha256": "f09f7e6fbd90ede1b1019b9ba7930e6a6005b73e6d2ac9fc471ed1b9f1e73ac1"
+    }
+  ],
+  "limits": [
+    "Worker maintained checks are pinned to its commit; primary 127 tests verify integration at 9d3dcd611 with tools/ci.py registration.",
+    "Worker raw files remain scoped local evidence; committed permanent tests reproduce the changed contract.",
+    "Other Formula punctuation paths, complete semantic inventory and final fixed-build proof remain open."
+  ]
+}

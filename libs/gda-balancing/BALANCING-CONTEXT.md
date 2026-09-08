@@ -485,7 +485,10 @@ The canonical human-readable mathematical `expression` paired with a Formula's s
 It preserves the body's ordered `let` bindings, local identities, sharing, and final result while
 using package-owned conventional Operation spelling. The body remains the pair's authoritative
 source member; the expression is a contextual, reversible projection under the exact Kernel/LDB.
-`standard.schema` owns the lexical patterns and grouping/token bounds; the selected
+The Source Wire Schema Definition in `standard.schema` owns lexical patterns and
+grouping/token bounds in `formula_grammar`, plus `operation_notation_schema`. The Kernel
+requires these fields on the Source protocol role; neither lives in JSON Schema metadata
+or carries an unused grammar version. The selected
 `standard.compiler` Resolution profile owns contextual contract matching, local-result transfer
 rules, and infix normalization. Package Release content identity binds notation, while the
 Kernel-declared runtime-semantic projection excludes each release's explicitly inventoried

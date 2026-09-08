@@ -1,0 +1,53 @@
+{
+  "scope": "Finite value vector identity roles; partial inventory only.",
+  "worker_commit": "54fcd4ad46a9d83ec432c079a0244cee4a1f00ec",
+  "integrated_commit": "560a8cf85454f1a93f97df20747054a98f8ba5a9",
+  "closed_vector_counts": {
+    "structured-value": 10,
+    "value-program": 24
+  },
+  "current_graph": {
+    "head": "560a8cf85",
+    "kernel": "sha256:b13ab5a5e3a6741bfca0ccd70b8e033bdeea0d11bf076aef54d021ae59c0e582",
+    "ldb": "sha256:b2117315054db3054b0d7d0814179fb1761900546d60f19a0b865c96108c5b96",
+    "tokens": 1575,
+    "occurrences": 6110
+  },
+  "uncovered_count": 84,
+  "integration_checks": {
+    "tests": 119,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "static_checks": {
+    "ruff": "pass",
+    "format_files": 223,
+    "pyright": "zero errors/warnings",
+    "authority_rebuild_check": "pass"
+  },
+  "raw_evidence": [
+    {
+      "path": "/private/tmp/gda-878-value-inventory-scope.json",
+      "bytes": 14702,
+      "sha256": "b6444c08b41c439e687e35f023fd7e8f6d9d0f681bbe049439781518c05749c6"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/current-inventory-gaps-560.json",
+      "bytes": 18848,
+      "sha256": "e82270e3946e678c06ba8e27784006f55780c3e6f3ffd85f77bd7629b8020631"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/value-vector-integration.xml",
+      "bytes": 17683,
+      "sha256": "46e680ca5e586ea165de6b8cdcc3e2d180da4abf909a7fcb0adc592a1eea8bae"
+    }
+  ],
+  "limits": [
+    "Replay roles and value roles both survive the integration conflict resolution.",
+    "Three anonymous and eleven negative structured vectors retain explicit uncovered roles.",
+    "Program numeric observations and exact charges retain authored expectations; structured rename witness adds one legal isolated Enum and preserves all original vectors.",
+    "Experiment/artifact/result traversal, remaining DSL/vector families, complete rename and final build freeze remain open.",
+    "Independent review is still in progress."
+  ]
+}

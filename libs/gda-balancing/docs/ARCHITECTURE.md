@@ -837,6 +837,14 @@ do not become host dispatch authority; extension schemas may omit a core role
 equivalence selects a defined output field, follows its binding reference, and checks
 the actual source path; it does not fix the local binder's spelling.
 
+The Source Wire Schema Definition also owns `formula_grammar` and
+`operation_notation_schema`. The Kernel requires both on its Source protocol role;
+generic notation remains in `standard.schema`, independently of contextual compiler
+resolution. These are explicit authority fields, outside the Source JSON Schema.
+Their old `$defs` metadata placement and unused grammar-version gate are deleted
+(#878, bADR-0024). Grammar changes retain exact Package/LDB integrity without changing
+the identity of an unchanged Source Schema.
+
 The pure-expression judgment is closed to literals, typed reads, pure calls, value selection, local
 bindings, statically bounded aggregation, and lookup. Named-stream sampling is a separate judgment
 with a statically declared random-stream effect; it is never reclassified as pure. Recursion and
