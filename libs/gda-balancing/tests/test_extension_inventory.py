@@ -1880,9 +1880,13 @@ def test_protocol_roles_do_not_merge_wire_schema_and_producer_kind_identities():
     contract_gaps = [
         gap for gap in inventory.uncovered if "artifact_contracts" in gap.law
     ]
-    assert {gap.pointer.rsplit("/", 1)[-1] for gap in contract_gaps} == {
-        "identity_excluded_members",
-    }
+    assert not contract_gaps
+    schema_declaration = next(
+        o.pointer.rsplit("/", 1)[0]
+        for o in inventory.occurrences
+        if o.token == schema and o.use == "declaration"
+    )
+    assert any(gap.pointer == schema_declaration for gap in inventory.uncovered)
 
 
 def test_typed_source_selector_publishes_only_complete_schema_addresses(witness):

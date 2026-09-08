@@ -21,6 +21,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_value_program_instruction_is_closed,
     _consumer_b_operation_composition_subjects,
     _consumer_b_operation_relation_is_satisfied,
+    _consumer_b_project_receipt_schema,
     _consumer_b_project_rir_schema,
     _consumer_b_project_trace_schema,
     _consumer_b_replay_comparison_vector_is_closed,
@@ -167,6 +168,7 @@ def _attached_language(
     for collection in ("artifact_wire_schemas", "artifact_contracts"):
         language[collection] = [dict(row) for row in language[collection]]
     try:
+        _consumer_b_project_receipt_schema(dict(kernel), language)
         _consumer_b_project_trace_schema(dict(kernel), language)
         _consumer_b_project_rir_schema(dict(kernel), language)
     except (KeyError, TypeError, ValueError, IndexError) as error:
@@ -2770,6 +2772,7 @@ class _Reader:
         if role == "language.artifact_wire_schemas" and value.get("protocol_role") in {
             "event-trace",
             "rir-semantic-payload",
+            "artifact-set-receipt",
         }:
             # The protocol pass checks the physical declaration and producer
             # binding. The Kernel supplies structure; no authored field names
@@ -2780,12 +2783,6 @@ class _Reader:
             # schema binding. Domain separators are direct hashing inputs, not
             # identifiers resolved against another declaration inventory.
             # Member projections still need their addressed wire-field roles.
-            if value["identity_excluded_members"]:
-                self.gap(
-                    pointer + "/identity_excluded_members",
-                    "/meta_format/language_definitions/collections/artifact_contracts",
-                    "identity projection member-address roles are not yet complete",
-                )
             if "semantic_identity_projection" in value:
                 self.gap(
                     pointer + "/semantic_identity_projection",
