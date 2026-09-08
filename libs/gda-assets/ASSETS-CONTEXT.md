@@ -33,6 +33,8 @@ text/template and inputs, resolved prompt, selected reference inputs, and reques
 producer options. Output files and reported details can be associated afterward.
 It supports inspect, explicit revision, and reuse; it is not a content receipt,
 provider-execution proof, or guarantee of reproducible output.
+Its record directory is the local locator. Preparation and inspection return saved
+inputs for an external generator; explicit revision writes another directory.
 
 **Concept reference**: An explicitly selected image-gen result used to guide new
 model or sprite authoring. Its role differs from a finished runtime asset. Project

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=7589d50a4b80dcb257c9c6dff0f42968979eb4a0916286357e14308927c57176 -->
+<!-- gda-readme-i18n: source=README.md sha256=40e478a5d338ee83ba3ba811623d831ed075bd1af73499a68310544b2bb8e50e -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -501,6 +501,10 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `asset-pipeline check` | Evalúa el modelo según los requisitos del proyecto y compara informes compatibles de Godot. Una evaluación completada devuelve el código 0; el campo verdict indica si cumple los requisitos. |
 | `asset-pipeline preview` | Renderiza tres vistas fijas de un GLB en un proyecto aislado con ventana y recoge resultados acotados de inspección, captura, diagnóstico y rendimiento de la escena. |
 | `asset-pipeline check-package` | Aplica los mismos requisitos del modelo a un recurso cargado desde un PCK exportado y aislado, y comprueba las exclusiones declaradas mediante rutas exactas. |
+| `asset-pipeline prompt-prepare` / `prompt-inspect` | Guarda o reutiliza el prompt y las referencias PNG de un intento antes de la generación externa. |
+| `asset-pipeline prompt-revise` / `prompt-register-output` | Crea un intento revisado por separado o conserva un PNG local junto con los datos declarados y los comunicados por el proveedor. |
+
+Los [comandos de prompts](../libs/gda-assets/docs/prompts.md) funcionan localmente, sin Godot ni conexión con un proveedor. La preparación devuelve las entradas para la herramienta externa; no genera una imagen.
 
 Usa correspondencias explícitas entre origen y destino y define una política de sobrescritura.
 Los archivos que complete la generación de imágenes siguen el mismo flujo y pueden incluir metadatos

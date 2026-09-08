@@ -3,7 +3,7 @@
 import json
 from dataclasses import asdict
 from pathlib import Path
-from typing import Annotated, Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional, get_args
 
 import typer
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -29,6 +29,20 @@ from gda_assets.api import (
     PackageCheckRequest,
     PackageCheckResult,
     check_package,
+    JsonScalar,
+    PromptOutputRequest,
+    PromptPreparation,
+    PromptPrepareRequest,
+    PromptRecord,
+    PromptRevision,
+    PromptRevisionRequest,
+    prepare_prompt,
+    inspect_prompt,
+    register_prompt_output,
+    revise_prompt,
+    PortFailure,
+    PromptDeclarationKey,
+    PromptOptionKey,
 )
 
 from gda.dispatch import dispatch_recipe, params_or_bad_parameter
@@ -1207,5 +1221,492 @@ def asset_pipeline_check_package(
         ),
         json_output=json_output,
         godot=godot,
+        project=None,
+    )
+
+
+REQUESTED_OPTION_HELP = f"Supported keys: {', '.join(get_args(PromptOptionKey))}."
+DECLARATION_HELP = f"Supported keys: {', '.join(get_args(PromptDeclarationKey))}."
+PromptVariableKey = Annotated[str, Field(max_length=128)]
+PromptVariableValue = Annotated[str, Field(max_length=4096)]
+
+
+class PromptPrepareParams(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        allow_inf_nan=False,
+        json_schema_extra={
+            "oneOf": [
+                {
+                    "required": ["text"],
+                    "properties": {
+                        "text": {"type": "string"},
+                        "template": {"type": "null"},
+                    },
+                },
+                {
+                    "required": ["template"],
+                    "properties": {
+                        "template": {"type": "string"},
+                        "text": {"type": "null"},
+                    },
+                },
+            ]
+        },
+    )
+    record: Path = Field(description="New caller-visible prompt record directory.")
+    text: str | None = Field(
+        default=None,
+        description="Literal prompt text; select exactly one source. Resolved UTF-8 text is limited to 1 MiB.",
+    )
+    template: Path | None = Field(
+        default=None,
+        description="Template text file using $name or ${name}; select exactly one source.",
+    )
+    style: Path | None = Field(
+        default=None, description="Optional style text prepended before one blank line."
+    )
+    variables: dict[PromptVariableKey, PromptVariableValue] = Field(
+        default_factory=dict,
+        max_length=64,
+        description="At most 64 exact placeholders; keys at most 128 and values at most 4096 characters.",
+    )
+    references: tuple[Path, ...] = Field(
+        default=(),
+        max_length=16,
+        description="Up to 16 local reference files copied into the record.",
+    )
+    producer: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+        description="Optional caller-selected external producer name.",
+    )
+    requested_options: dict[PromptOptionKey, JsonScalar] = Field(
+        default_factory=dict, description=REQUESTED_OPTION_HELP
+    )
+
+    @model_validator(mode="after")
+    def _one_prompt_source(self) -> "PromptPrepareParams":
+        if (self.text is None) == (self.template is None):
+            raise ValueError("Select exactly one of text or template")
+        return self
+
+
+class PromptInspectParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    record: Path = Field(description="Existing prompt record directory.")
+
+
+class PromptReviseParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    source_record: Path = Field(
+        description="Existing record whose saved snapshots are reused."
+    )
+    record: Path = Field(description="New caller-visible revision record directory.")
+    text: str | None = Field(
+        default=None, description="Optional replacement literal prompt text."
+    )
+    template: Path | None = Field(
+        default=None, description="Optional replacement template file."
+    )
+    style: Path | None = Field(
+        default=None, description="Optional replacement style file."
+    )
+    remove_style: bool = Field(
+        default=False,
+        strict=True,
+        description="Explicitly remove the saved style snapshot.",
+    )
+    variables: dict[PromptVariableKey, PromptVariableValue] | None = Field(
+        default=None,
+        max_length=64,
+        description="Optional replacement of at most 64 bounded template variables.",
+    )
+    references: tuple[Path, ...] | None = Field(
+        default=None,
+        max_length=16,
+        description="Optional replacement set of up to 16 references.",
+    )
+    producer: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+        description="Optional replacement producer declaration.",
+    )
+    requested_options: dict[PromptOptionKey, JsonScalar] | None = Field(
+        default=None, description=REQUESTED_OPTION_HELP
+    )
+
+
+class PromptRegisterOutputParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    record: Path = Field(description="Existing prompt record directory.")
+    output: Path = Field(description="Existing completed local PNG file.")
+    name: str = Field(
+        min_length=1,
+        max_length=255,
+        description="Caller-chosen safe PNG filename for this record.",
+    )
+    submitted_prompt: str | None = Field(
+        default=None, description="Actual submitted prompt when explicitly known."
+    )
+    caller_declarations: dict[PromptDeclarationKey, JsonScalar] = Field(
+        default_factory=dict,
+        description=DECLARATION_HELP,
+        json_schema_extra={
+            "properties": {
+                "generation_completed": {
+                    "anyOf": [{"type": "boolean"}, {"type": "null"}]
+                }
+            }
+        },
+    )
+    reported_provider: str | None = Field(
+        default=None,
+        description="Provider identity reported after generation, if available.",
+    )
+    reported_model: str | None = Field(
+        default=None,
+        description="Model identity reported after generation, if available.",
+    )
+    reported_options: dict[PromptOptionKey, JsonScalar] = Field(
+        default_factory=dict, description=REQUESTED_OPTION_HELP
+    )
+
+
+class PromptPreparationResult(BaseModel):
+    preparation: PromptPreparation
+
+
+class PromptRevisionResult(BaseModel):
+    revision: PromptRevision
+
+
+class PromptRecordResult(BaseModel):
+    prompt_record: PromptRecord
+
+
+def _prompt_failure(exc: PortFailure) -> Failure:
+    code = {
+        "destination_conflict": "already_exists",
+        "prompt_stage_failed": "operation_failed",
+    }.get(exc.code, "invalid_params")
+    return make_failure(code, str(exc), "")
+
+
+def run_prompt_prepare(
+    params: PromptPrepareParams, *, project: Path | None, godot: str | None
+) -> PromptPreparationResult | Failure:
+    del project, godot
+    try:
+        prepared = prepare_prompt(
+            PromptPrepareRequest(
+                params.record.resolve(),
+                params.text,
+                params.template.resolve() if params.template else None,
+                params.style.resolve() if params.style else None,
+                params.variables,
+                tuple(path.resolve() for path in params.references),
+                params.producer,
+                params.requested_options,
+            )
+        )
+        return PromptPreparationResult(preparation=prepared)
+    except PortFailure as exc:
+        return _prompt_failure(exc)
+
+
+def run_prompt_inspect(
+    params: PromptInspectParams, *, project: Path | None, godot: str | None
+) -> PromptPreparationResult | Failure:
+    del project, godot
+    try:
+        return PromptPreparationResult(
+            preparation=inspect_prompt(params.record.resolve())
+        )
+    except PortFailure as exc:
+        return _prompt_failure(exc)
+
+
+def run_prompt_revise(
+    params: PromptReviseParams, *, project: Path | None, godot: str | None
+) -> PromptRevisionResult | Failure:
+    del project, godot
+    try:
+        revised = revise_prompt(
+            PromptRevisionRequest(
+                source_record=params.source_record.resolve(),
+                record=params.record.resolve(),
+                text=params.text,
+                template=params.template.resolve() if params.template else None,
+                style=params.style.resolve() if params.style else None,
+                remove_style=params.remove_style,
+                variables=params.variables,
+                references=tuple(path.resolve() for path in params.references)
+                if params.references is not None
+                else None,
+                producer=params.producer,
+                requested_options=(
+                    params.requested_options
+                    if params.requested_options is not None
+                    else None
+                ),
+            )
+        )
+        return PromptRevisionResult(revision=revised)
+    except PortFailure as exc:
+        return _prompt_failure(exc)
+
+
+def run_prompt_register_output(
+    params: PromptRegisterOutputParams, *, project: Path | None, godot: str | None
+) -> PromptRecordResult | Failure:
+    del project, godot
+    try:
+        record = register_prompt_output(
+            PromptOutputRequest(
+                params.record.resolve(),
+                params.output.resolve(),
+                params.name,
+                params.submitted_prompt,
+                params.caller_declarations,
+                params.reported_provider,
+                params.reported_model,
+                params.reported_options,
+            )
+        )
+        return PromptRecordResult(prompt_record=record)
+    except PortFailure as exc:
+        return _prompt_failure(exc)
+
+
+def render_prompt_preparation(result: PromptPreparationResult) -> str:
+    record, handoff = result.preparation.record, result.preparation.handoff
+    return (
+        f"prompt saved: {record.record}\n  mode: {record.mode}; generation: {record.generation_status}"
+        f"\n  inputs: {record.resolved_path}; {len(record.references)} reference(s)"
+        f"\n  handoff: {handoff.action}; register with {handoff.registration_operation}"
+        f"\n  outputs: {', '.join(item.name for item in record.outputs) or 'none'}"
+    )
+
+
+def render_prompt_revision(result: PromptRevisionResult) -> str:
+    prepared = PromptPreparationResult(preparation=result.revision.preparation)
+    return (
+        render_prompt_preparation(prepared)
+        + f"\n  changed: {', '.join(result.revision.changed_fields) or 'none'}"
+    )
+
+
+def render_prompt_record(result: PromptRecordResult) -> str:
+    record = result.prompt_record
+    return (
+        f"prompt record: {record.record}\n  generation: {record.generation_status}"
+        f"; registered outputs: {', '.join(item.name for item in record.outputs) or 'none'}"
+    )
+
+
+def _prompt_command(
+    operation, input_model, output_model, render, recipe
+) -> HeadlessCommand:
+    return HeadlessCommand(
+        operation=operation,
+        input_model=input_model,
+        output_model=output_model,
+        render=render,
+        kind=ExecutionKind.COMPOSITE,
+        recipe=recipe,
+        inherits_project=False,
+    )
+
+
+PROMPT_PREPARE_COMMAND = _prompt_command(
+    "asset-pipeline-prompt-prepare",
+    PromptPrepareParams,
+    PromptPreparationResult,
+    render_prompt_preparation,
+    run_prompt_prepare,
+)
+PROMPT_INSPECT_COMMAND = _prompt_command(
+    "asset-pipeline-prompt-inspect",
+    PromptInspectParams,
+    PromptPreparationResult,
+    render_prompt_preparation,
+    run_prompt_inspect,
+)
+PROMPT_REVISE_COMMAND = _prompt_command(
+    "asset-pipeline-prompt-revise",
+    PromptReviseParams,
+    PromptRevisionResult,
+    render_prompt_revision,
+    run_prompt_revise,
+)
+PROMPT_REGISTER_OUTPUT_COMMAND = _prompt_command(
+    "asset-pipeline-prompt-register-output",
+    PromptRegisterOutputParams,
+    PromptRecordResult,
+    render_prompt_record,
+    run_prompt_register_output,
+)
+
+
+def _json_map(value: str | None, label: str) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise typer.BadParameter(f"invalid {label} JSON: {exc.msg}") from exc
+    if not isinstance(decoded, dict):
+        raise typer.BadParameter(f"{label} must be a JSON object")
+    return decoded
+
+
+@_app.command(name="prompt-prepare", cls=PROMPT_PREPARE_COMMAND.command_class())
+def prompt_prepare(
+    record: Path = typer.Option(..., "--record", help="New prompt record directory."),
+    text: Optional[str] = typer.Option(None, "--text", help="Literal prompt text."),
+    template: Optional[Path] = typer.Option(
+        None, "--template", help="Template file using $name placeholders."
+    ),
+    style: Optional[Path] = typer.Option(
+        None, "--style", help="Optional prepended style text file."
+    ),
+    variables: str = typer.Option(
+        "{}", "--variables", help="JSON object of exact string template variables."
+    ),
+    references: Optional[list[Path]] = typer.Option(
+        None, "--reference", help="Local reference file; repeat up to 16."
+    ),
+    producer: Optional[str] = typer.Option(
+        None, "--producer", help="Caller-selected external producer."
+    ),
+    requested_options: str = typer.Option(
+        "{}", "--requested-options", help=REQUESTED_OPTION_HELP
+    ),
+    json_output: bool = json_option(),
+    schema: bool = PROMPT_PREPARE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+) -> None:
+    """Save prepared prompt inputs and return an external handoff."""
+    dispatch_recipe(
+        PROMPT_PREPARE_COMMAND,
+        params_or_bad_parameter(
+            PromptPrepareParams,
+            record=record,
+            text=text,
+            template=template,
+            style=style,
+            variables=_json_map(variables, "variables"),
+            references=references or (),
+            producer=producer,
+            requested_options=_json_map(requested_options, "requested-options"),
+        ),
+        json_output=json_output,
+        godot=None,
+        project=None,
+    )
+
+
+@_app.command(name="prompt-inspect", cls=PROMPT_INSPECT_COMMAND.command_class())
+def prompt_inspect(
+    record: Path = typer.Option(
+        ..., "--record", help="Existing prompt record directory."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = PROMPT_INSPECT_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+) -> None:
+    """Inspect saved prompt inputs, outputs, and external handoff."""
+    dispatch_recipe(
+        PROMPT_INSPECT_COMMAND,
+        PromptInspectParams(record=record),
+        json_output=json_output,
+        godot=None,
+        project=None,
+    )
+
+
+@_app.command(name="prompt-revise", cls=PROMPT_REVISE_COMMAND.command_class())
+def prompt_revise(
+    source_record: Path = typer.Option(..., "--source-record"),
+    record: Path = typer.Option(..., "--record"),
+    text: Optional[str] = typer.Option(None, "--text"),
+    template: Optional[Path] = typer.Option(None, "--template"),
+    style: Optional[Path] = typer.Option(None, "--style"),
+    remove_style: bool = typer.Option(False, "--remove-style"),
+    variables: Optional[str] = typer.Option(
+        None, "--variables", help="Replacement JSON string map."
+    ),
+    references: Optional[list[Path]] = typer.Option(
+        None, "--reference", help="Replacement reference set; repeat."
+    ),
+    producer: Optional[str] = typer.Option(None, "--producer"),
+    requested_options: Optional[str] = typer.Option(
+        None, "--requested-options", help=REQUESTED_OPTION_HELP
+    ),
+    json_output: bool = json_option(),
+    schema: bool = PROMPT_REVISE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+) -> None:
+    """Create a separate prompt record with explicit changes."""
+    dispatch_recipe(
+        PROMPT_REVISE_COMMAND,
+        params_or_bad_parameter(
+            PromptReviseParams,
+            source_record=source_record,
+            record=record,
+            text=text,
+            template=template,
+            style=style,
+            remove_style=remove_style,
+            variables=_json_map(variables, "variables"),
+            references=references,
+            producer=producer,
+            requested_options=_json_map(requested_options, "requested-options"),
+        ),
+        json_output=json_output,
+        godot=None,
+        project=None,
+    )
+
+
+@_app.command(
+    name="prompt-register-output", cls=PROMPT_REGISTER_OUTPUT_COMMAND.command_class()
+)
+def prompt_register_output(
+    record: Path = typer.Option(..., "--record"),
+    output: Path = typer.Option(..., "--output"),
+    name: str = typer.Option(..., "--name", help="Caller-chosen safe PNG filename."),
+    submitted_prompt: Optional[str] = typer.Option(None, "--submitted-prompt"),
+    caller_declarations: str = typer.Option(
+        "{}", "--caller-declarations", help=DECLARATION_HELP
+    ),
+    reported_provider: Optional[str] = typer.Option(None, "--reported-provider"),
+    reported_model: Optional[str] = typer.Option(None, "--reported-model"),
+    reported_options: str = typer.Option(
+        "{}", "--reported-options", help=REQUESTED_OPTION_HELP
+    ),
+    json_output: bool = json_option(),
+    schema: bool = PROMPT_REGISTER_OUTPUT_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+) -> None:
+    """Register an existing completed PNG without invoking a producer."""
+    dispatch_recipe(
+        PROMPT_REGISTER_OUTPUT_COMMAND,
+        params_or_bad_parameter(
+            PromptRegisterOutputParams,
+            record=record,
+            output=output,
+            name=name,
+            submitted_prompt=submitted_prompt,
+            caller_declarations=_json_map(caller_declarations, "caller-declarations"),
+            reported_provider=reported_provider,
+            reported_model=reported_model,
+            reported_options=_json_map(reported_options, "reported-options"),
+        ),
+        json_output=json_output,
+        godot=None,
         project=None,
     )

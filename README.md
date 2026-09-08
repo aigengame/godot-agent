@@ -486,6 +486,12 @@ names the file, and only `preflight` catches a first-frame failure.
 | `asset-pipeline check` | Evaluate project model expectations and compare compatible Godot inspection reports. Read the content verdict; completed checks exit 0. |
 | `asset-pipeline preview` | Render three fixed views of a GLB in an isolated windowed project and collect bounded inspection, capture, diagnostic and scene-level performance results. |
 | `asset-pipeline check-package` | Apply the same model expectations to a resource loaded from an isolated exported PCK and check exact declared exclusions. |
+| `asset-pipeline prompt-prepare` / `prompt-inspect` | Save or reuse one attempt's prompt and PNG reference inputs before external generation. |
+| `asset-pipeline prompt-revise` / `prompt-register-output` | Create a separate revised attempt or preserve a completed local PNG with its declared/reported details. |
+
+The [prompt commands](libs/gda-assets/docs/prompts.md) work locally without Godot
+or a provider connection. Preparation returns an external handoff; it does not
+generate an image.
 
 Use explicit source-to-target mappings and an overwrite policy. Completed
 image-generation files use the same path with optional caller-declared metadata.
