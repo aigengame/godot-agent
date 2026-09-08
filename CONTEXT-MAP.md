@@ -5,7 +5,7 @@ domain names its own (see `docs/agents/domain.md`). Each non-root domain's layou
 override rules are declared in its own `AGENTS.md`.
 
 - [gda](CONTEXT.md) — the agent-facing Godot toolchain: `gda`, `gda-mcp`, `gda-daemon`.
-- [Panda Adventure](examples/platformer/panda-adventure/GAME-CONTEXT.md) — the 2D-platformer game demo.
+- [Panda Adventure](examples/platformer/panda-adventure/GAME-CONTEXT.md) — the archived, unmaintained 2D-platformer game demo.
 - [gda-balancing](libs/gda-balancing/BALANCING-CONTEXT.md) — the standalone numeric design & balancing toolkit.
 - [Asset Pipeline](libs/gda-assets/ASSETS-CONTEXT.md) — the internal supporting
   context, physically carried by `libs/gda-assets` and exposed through
@@ -26,8 +26,10 @@ their outbound adapters and anti-corruption layers. Its application also owns
 prompt preparation and concept-reference handoff. Project recipes, prompts,
 selected concepts, art direction, and gameplay expectations are project-owned
 inputs. Panda Adventure is a one-time scaffold source for this work; it is not a
-runtime dependency or a migration target.
-Its planned archival does not mean that it has already been archived.
+runtime dependency or a migration target. The project owner has confirmed that
+Panda is archived and receives no further maintenance. Its unchanged historical
+examples may support one-time compatibility diagnosis; they are not maintained
+regression targets or acceptance gates for Asset Pipeline.
 
 The gda-side integration contract is owned by
 [ADR-0042](docs/adr/0042-asset-pipeline-supporting-context-integration.md);
