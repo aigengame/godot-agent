@@ -1825,93 +1825,19 @@ def test_frames_summary_render_is_one_aggregate_line(monkeypatch, tmp_path):
     assert "frame_0000.png\n" not in result.stdout  # no per-frame rows
 
 
-# --- the atomic form's event-mode capability gate (#854) -----------------------
-#
-# `--await-events` forwards `input sequence`'s event union into the harness's
-# predicate window, so it inherits that op's gate: a running session whose harness
-# predates the mode ignores `as_event`, applies the opted-in actions on the STATE
-# route, and reports a perfectly ordinary capture. The reply's count of what it put
-# through the event door is correlated with the request, by the very function
-# `input sequence` uses, before any file is written.
-
-_OPTED_IN_EVENTS = json.dumps(
-    [
-        {"type": "action", "action": "jump", "as_event": True, "frame": 1},
-        {"type": "key", "key": "Right", "frame": 2},
-    ]
-)
-
-
-def _gated_reply():
+def test_await_events_reuses_action_event_mode_without_capability_metadata(
+    monkeypatch, tmp_path
+):
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
     reply["predicate"] = _predicate_report()
     _align_receipt(reply)
-    return reply
-
-
-def test_opted_in_await_events_without_the_count_is_contract_violation(
-    monkeypatch, tmp_path
-):
-    result, out = _await_capture(
-        monkeypatch, tmp_path, _gated_reply(), "--await-events", _OPTED_IN_EVENTS
-    )
-
-    _assert_contract_violation(result, out, "no 'event_mode_actions' count")
-    assert "predates harness v21" in json.loads(result.stdout)["error"]["message"]
-
-
-def test_await_events_count_disagreeing_with_the_request_is_contract_violation(
-    monkeypatch, tmp_path
-):
-    reply = _gated_reply()
-    reply["event_mode_actions"] = 2
+    events = [
+        {"type": "action", "action": "jump", "as_event": True, "frame": 1},
+        {"type": "key", "key": "Right", "frame": 2},
+    ]
 
     result, out = _await_capture(
-        monkeypatch, tmp_path, reply, "--await-events", _OPTED_IN_EVENTS
-    )
-
-    _assert_contract_violation(result, out, "applied 2 event-mode action events")
-
-
-def test_await_events_with_a_non_integer_count_is_contract_violation(
-    monkeypatch, tmp_path
-):
-    reply = _gated_reply()
-    reply["event_mode_actions"] = "1"
-
-    result, out = _await_capture(
-        monkeypatch, tmp_path, reply, "--await-events", _OPTED_IN_EVENTS
-    )
-
-    _assert_contract_violation(
-        result, out, "'event_mode_actions' count is not an integer"
-    )
-
-
-def test_opted_in_await_events_with_the_matching_count_captures(monkeypatch, tmp_path):
-    reply = _gated_reply()
-    reply["event_mode_actions"] = 1
-
-    result, out = _await_capture(
-        monkeypatch, tmp_path, reply, "--await-events", _OPTED_IN_EVENTS
-    )
-
-    assert result.exit_code == 0, result.stdout + result.stderr
-    assert out.exists()
-
-
-def test_await_events_that_asked_for_nothing_new_tolerate_a_missing_count(
-    monkeypatch, tmp_path
-):
-    # A session predating the mode still answers such a request honestly, so the
-    # atomic form keeps working against it — the count is refused only once the
-    # request has asked for something that session cannot do.
-    result, out = _await_capture(
-        monkeypatch,
-        tmp_path,
-        _gated_reply(),
-        "--await-events",
-        '[{"type": "key", "key": "Right", "frame": 1}]',
+        monkeypatch, tmp_path, reply, "--await-events", json.dumps(events)
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr

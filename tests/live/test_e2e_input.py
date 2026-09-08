@@ -995,6 +995,59 @@ def test_input_key_without_a_daemon_reports_daemon_not_running(tmp_path):
 
 
 @pytest.mark.e2e
+def test_capture_await_events_applies_action_event_mode_and_drains_the_release(
+    tmp_path, daemon_runtime_dir
+):
+    # Capture reuses the input union and event application path. An early match
+    # must not prevent the scheduled release from reaching the handlers.
+    (tmp_path / "project.godot").write_text(MATRIX_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MATRIX_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "ui.gd").write_text(MATRIX_UI_GD, encoding="utf-8")
+    gda = Gda(tmp_path, json_output=True)
+    node = "/root/Main"
+    out = tmp_path / "action-event.png"
+    events = [
+        {"type": "action", "action": "move_right", "as_event": True, "frame": 1},
+        {
+            "type": "action",
+            "action": "move_right",
+            "as_event": True,
+            "release": True,
+            "frame": 4,
+        },
+    ]
+    try:
+        assert_windowed_ok(gda("daemon", "start", "--windowed"))
+        capture = assert_windowed_ok(
+            gda(
+                "screen",
+                "capture",
+                "--output",
+                str(out),
+                "--await-node",
+                node,
+                "--await-property",
+                "input_hits",
+                "--await-value",
+                "1",
+                "--await-frames",
+                "30",
+                "--await-events",
+                json.dumps(events),
+            )
+        )
+        doc = json.loads(capture.stdout)
+        assert doc["predicate"]["observed"] == 1
+        assert doc["receipt"]["observed"] == 1
+        assert out.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+        assert _property_value(gda, node, "input_hits") == 1
+        assert _property_value(gda, node, "input_release_hits") == 1
+        assert _property_value(gda, node, "polled_frames") == 0
+    finally:
+        gda("daemon", "stop")
+
+
+@pytest.mark.e2e
 def test_action_event_mode_conformance_matrix_against_a_live_session(
     tmp_path, daemon_runtime_dir
 ):

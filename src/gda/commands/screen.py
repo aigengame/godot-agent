@@ -27,11 +27,7 @@ import typer
 from pydantic import BaseModel, Field, model_validator
 
 from gda import dispatch
-from gda.commands.input import (
-    InputSequenceEvent,
-    count_correlation_error,
-    requested_event_modes,
-)
+from gda.commands.input import InputSequenceEvent
 from gda.dispatch import dispatch_recipe, params_or_bad_parameter
 from gda.errors import Failure, classify_live, make_failure
 from gda.execution import ExecutionKind
@@ -635,12 +631,6 @@ class _CaptureReply(BaseModel):
     # Required (#660): a capture reply without the receipt is an old or drifted
     # harness, surfaced as the typed contract_violation by classify_live.
     receipt: "_ReceiptReply"
-    # The count of `--await-events` action events the harness delivered through the
-    # event door (#854), carried UNEXAMINED: `count_correlation_error` owns the
-    # rule, and it is the same object `input sequence` hands it, so the two
-    # channels that forward this event union refuse the same drift the same way.
-    # Wire-only, like every field here — the public result publishes none of it.
-    event_mode_actions: object = None
 
 
 class _FrameReply(BaseModel):
@@ -834,17 +824,9 @@ def run_screen_capture_operation(
     reply = classify_live(result, None, _CaptureReply)
     if isinstance(reply, Failure):
         return reply
-    correlation = (
-        _predicate_correlation_error(params, reply.predicate)
-        or _receipt_correlation_error(reply.predicate, reply.receipt)
-        # The atomic form forwards `input sequence`'s event union into the same
-        # window, so it inherits that op's event-mode capability gate (#854): a
-        # session whose harness ignores `as_event` would apply the opted-in
-        # actions on the STATE route and report a perfectly ordinary capture.
-        or count_correlation_error(
-            reply.event_mode_actions, requested_event_modes(params.await_events or [])
-        )
-    )
+    correlation = _predicate_correlation_error(
+        params, reply.predicate
+    ) or _receipt_correlation_error(reply.predicate, reply.receipt)
     if correlation is not None:
         return make_failure("contract_violation", correlation, result.stdout)
     output = Path(params.output)

@@ -104,6 +104,10 @@ The opt-in changes which door an action takes, never the disjointness — which 
 why it is `push_input` and not `Input.parse_input_event`, whose state update would
 put one injection on both routes at once. The default stays the state route:
 changing it would silently alter what every existing call means.
+The route reports the injection mechanism, not proof that a particular handler ran
+or a UI action succeeded. Normal event propagation and consumption still apply.
+Action/tap routes are projected from decoded harness replies; sequence phases are
+derived from the accepted request after its event count is confirmed (ADR-0023).
 _Avoid_: input mode, injection method, path
 
 **Headless launch**:

@@ -1504,13 +1504,17 @@ re-derives every verdict from a running engine.
   not its only door: `input action --as-event`, `input tap --action --as-event` and
   a sequence `action` event with `"as_event": true` deliver the action as an
   `InputEventAction` pushed through the same root viewport (#854), so handlers
-  matching it DO receive the event while `Input.is_action_pressed` stays untouched —
+  matching it can receive the event while `Input.is_action_pressed` stays untouched —
   those results report `viewport_event`, per phase on the phased ops. The opt-in is
   explicit because changing the default would silently alter what every existing
   call means, and the delivery is `Viewport.push_input` rather than
   `Input.parse_input_event`, which would drive both routes at once and leave the
   reported route with nothing to distinguish. `--as-event` rides an action: a key
   tap already pushes an event and refuses it model-side.
+  Normal event propagation and consumption rules still apply: the route is not
+  proof that a specific handler ran or a UI action succeeded. Use the current
+  bundled harness; after updating gda, stop/start an existing daemon session so
+  the game loads it. Mixed-version sessions are not supported (ADR-0018).
   For mouse ops and sequence mouse events, the reliable injected coordinate is
   `InputEventMouseButton.position` / `InputEventMouseMotion.position`; Godot may
   leave `Viewport.get_mouse_position()` and `Node2D.get_global_mouse_position()`

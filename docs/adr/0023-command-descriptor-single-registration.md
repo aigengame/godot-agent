@@ -94,6 +94,27 @@ renderer and resolves to exactly one channel (`recipe` xor `kind`-runner), and t
 no renderer is orphaned. The "command wired without a renderer" failure
 (`render()`'s `KeyError`) moves from first-invocation to test time.
 
+## Reply decoding and public results (#854, 2026-09-08)
+
+The descriptor's `output_model` describes the public result, not necessarily the
+harness wire reply. When those shapes differ, the group-local `classify` function
+uses `classify_live` with a private reply adapter and returns the public result.
+Wire validation and projection finish inside this boundary. A public result must
+retain its meaning and value equality after serialization and revalidation; it
+must not carry hidden wire-presence flags or infer its source from field shape.
+
+The existing `recipe` seam remains appropriate for checks that need the request,
+such as comparing an action's applied route with its requested route, and for
+completing a sequence's request-derived phases after its event count is confirmed.
+It consumes public results, not private attributes left by a validator. This needs
+no new descriptor field, transport hook, registry, or cross-command adapter layer.
+
+For #854, the input group owns the action/tap reply adapters and the route
+projection. Sequence phases describe the accepted request, not independent
+handler-delivery telemetry. Live conformance tests establish engine behavior.
+Per-feature capability echoes and event-mode counters are not required to support
+old harness sessions; the current-version policy is recorded in ADR-0018.
+
 ## Considered options
 
 - **Per-command-group modules** (`gda/commands/scene/` holding that group's models +

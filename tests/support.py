@@ -1334,6 +1334,7 @@ INPUT_TAP_KEY_RESULT = {
 
 INPUT_TAP_ACTION_RESULT = {
     "kind": "tap",
+    "as_event": False,
     "action": "jump",
     "strength": 1.0,
     "hold_frames": 2,
@@ -1356,6 +1357,7 @@ INPUT_MOUSE_MOVE_RESULT = {
 
 INPUT_ACTION_RESULT = {
     "kind": "action",
+    "as_event": False,
     "action": "jump",
     "pressed": True,
     "strength": 1.0,

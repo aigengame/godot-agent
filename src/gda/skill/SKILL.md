@@ -278,6 +278,12 @@ Reach for it when a Control, a modal or another event-driven handler must react 
 an ACTION rather than to the key it is bound to — otherwise a key or mouse event is
 the plainer tool.
 
+The matrix describes eligible delivery under Godot's normal propagation and
+consumption rules, not proof that every handler ran or a UI action succeeded.
+Use the current harness bundled with gda. After updating gda, stop/start an existing
+daemon session before using live commands; syncing the installed file does not
+reload code in the running game. Mixed-version sessions are not supported.
+
 For a UI activation, use the gesture commands, not a lone event. Godot activates a
 `Button` on the RELEASE, so a bare press never emits `pressed`; and a focused UI
 does not advance when the press and the release land on the same process frame.

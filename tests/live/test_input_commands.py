@@ -2837,7 +2837,7 @@ def test_input_sequence_action_event_mode_names_the_event_route_per_phase(
         tmp_path,
         # One of the three events opted in, and the reply says so: the count is
         # the harness's own statement of what it put through the event door.
-        {**INPUT_SEQUENCE_RESULT, "events": 3, "frames": 3, "event_mode_actions": 1},
+        {**INPUT_SEQUENCE_RESULT, "events": 3, "frames": 3},
         "sequence",
         "--events",
         json.dumps(events),
@@ -2859,7 +2859,6 @@ def test_input_sequence_action_event_mode_relays_the_flag(monkeypatch, tmp_path)
                     **INPUT_SEQUENCE_RESULT,
                     "events": 1,
                     "frames": 1,
-                    "event_mode_actions": 1,
                 }
             ),
             stderr="",
@@ -3133,249 +3132,30 @@ def test_the_conformance_matrix_is_carried_by_help_schema_and_the_skill():
     assert rows == {}, rows
 
 
-# --- the event mode's capability gate (#854) -----------------------------------
-#
-# The mode is served by harness v21, and a running engine session can be OLDER than
-# the harness on disk: `gda daemon start` syncs the file without retiring the
-# session it already launched (src/gda/commands/daemon.py). Such a session ignores
-# `as_event`, echoes nothing, and injects the state route — which, without a gate,
-# reads as a plain success: exit 0, and for a sequence a `viewport_event` phase gda
-# derived from the REQUEST. So every opted-in request is correlated with the
-# authoritative applied-mode evidence in the reply, and a disagreement is a
-# contract_violation naming the cause.
+# --- current wire decoding and public value boundaries (#854) -----------------
 
 
-def _gate_error(monkeypatch, tmp_path, payload, *argv) -> dict:
-    """Run one `gda input` command over a faked live seam; return its error object."""
-    inject_live_runner(
-        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
-    )
-    result = CliRunner().invoke(
-        app,
-        ["input", *argv, "--project", str(minimal_project(tmp_path)), "--json"],
-    )
-    assert result.exit_code == EXIT_PARSE, result.stdout + result.stderr
-    error = json.loads(result.stdout)["error"]
-    assert error["code"] == "contract_violation", error
-    return error
-
-
-def test_an_opted_in_action_reply_that_echoes_no_mode_is_a_contract_violation(
-    monkeypatch, tmp_path
+@pytest.mark.parametrize(
+    ("argv", "wire"),
+    [
+        (["action", "jump"], INPUT_ACTION_RESULT),
+        (["tap", "--action", "jump"], INPUT_TAP_ACTION_RESULT),
+    ],
+)
+@pytest.mark.parametrize("as_event", [False, True])
+@pytest.mark.parametrize("bad_mode", ["missing", None, "false", 0, 1])
+def test_action_wire_requires_a_boolean_mode(
+    monkeypatch, tmp_path, argv, wire, as_event, bad_mode
 ):
-    # The exact stale-session shape: the reply is a well-formed state injection and
-    # the request asked for the event door. Only the correlation can see it.
-    error = _gate_error(
-        monkeypatch, tmp_path, INPUT_ACTION_RESULT, "action", "jump", "--as-event"
-    )
-
-    assert "action_state route for a request that asked for" in error["message"]
-    assert "viewport_event" in error["message"]
-    assert "predates harness v21" in error["message"]
-    assert "gda daemon stop" in error["message"]
-
-
-def test_an_opted_in_action_reply_cannot_substitute_a_public_route_for_the_echo(
-    monkeypatch, tmp_path
-):
-    # The result model also validates its own public dump. A raw harness reply must
-    # not impersonate that shape to bypass the authoritative private echo: the
-    # recipe still has to know that this session applied the opt-in mode.
-    error = _gate_error(
-        monkeypatch,
-        tmp_path,
-        {**INPUT_ACTION_RESULT, "injection_route": "viewport_event"},
-        "action",
-        "jump",
-        "--as-event",
-    )
-
-    assert "no 'as_event' echo" in error["message"]
-    assert "predates harness v21" in error["message"]
-
-
-def test_an_action_reply_echoing_a_non_boolean_mode_is_a_contract_violation(
-    monkeypatch, tmp_path
-):
-    # A truthiness test would read `"false"` as True and publish `viewport_event`
-    # for an injection that changed the polled state. The echo is a JSON boolean or
-    # it is drift — and that holds whether or not the request opted in.
-    for payload in (
-        {**INPUT_ACTION_RESULT, "as_event": "false"},
-        {**INPUT_ACTION_RESULT, "as_event": 1},
-    ):
-        error = _gate_error(monkeypatch, tmp_path, payload, "action", "jump")
-        assert "'as_event' echo is not a boolean" in error["message"], payload
-
-
-def test_an_action_reply_claiming_a_mode_nobody_asked_for_is_a_contract_violation(
-    monkeypatch, tmp_path
-):
-    # The correlation runs in BOTH directions: a session that injected an event for
-    # a plain state request is drift too, and it carries no stale-harness diagnosis
-    # — an older harness cannot produce this reply.
-    error = _gate_error(
-        monkeypatch,
-        tmp_path,
-        {**INPUT_ACTION_RESULT, "as_event": True},
-        "action",
-        "jump",
-    )
-
-    assert "viewport_event route for a request that asked for" in error["message"]
-    assert "predates harness v21" not in error["message"]
-
-
-def test_an_opted_in_tap_reply_that_echoes_no_mode_is_a_contract_violation(
-    monkeypatch, tmp_path
-):
-    error = _gate_error(
-        monkeypatch,
-        tmp_path,
-        INPUT_TAP_ACTION_RESULT,
-        "tap",
-        "--action",
-        "jump",
-        "--as-event",
-    )
-
-    assert "action_state route for a request that asked for" in error["message"]
-    assert "predates harness v21" in error["message"]
-
-
-def test_an_opted_in_tap_reply_cannot_substitute_public_routes_for_the_echo(
-    monkeypatch, tmp_path
-):
-    error = _gate_error(
-        monkeypatch,
-        tmp_path,
-        {
-            **INPUT_TAP_ACTION_RESULT,
-            "phases": [
-                {**phase, "injection_route": "viewport_event"}
-                for phase in INPUT_TAP_ACTION_RESULT["phases"]
-            ],
-        },
-        "tap",
-        "--action",
-        "jump",
-        "--as-event",
-    )
-
-    assert "no 'as_event' echo" in error["message"]
-    assert "predates harness v21" in error["message"]
-
-
-def test_an_action_tap_reply_cannot_publish_two_different_routes(monkeypatch, tmp_path):
-    error = _gate_error(
-        monkeypatch,
-        tmp_path,
-        {
-            **INPUT_TAP_ACTION_RESULT,
-            "phases": [
-                {
-                    **INPUT_TAP_ACTION_RESULT["phases"][0],
-                    "injection_route": "viewport_event",
-                },
-                {
-                    **INPUT_TAP_ACTION_RESULT["phases"][1],
-                    "injection_route": "action_state",
-                },
-            ],
-        },
-        "tap",
-        "--action",
-        "jump",
-        "--as-event",
-    )
-
-    assert "one injection route across both phases" in error["message"]
-
-
-def test_a_tap_reply_echoing_a_non_boolean_mode_is_a_contract_violation(
-    monkeypatch, tmp_path
-):
-    error = _gate_error(
-        monkeypatch,
-        tmp_path,
-        {**INPUT_TAP_ACTION_RESULT, "as_event": "false"},
-        "tap",
-        "--action",
-        "jump",
-    )
-
-    assert "'as_event' echo is not a boolean" in error["message"]
-
-
-# A published result must survive a serialize/revalidate boundary with its meaning
-# intact: `injection_route` is the mode's whole public disclosure, and the echo that
-# decided it is consumed on the way in. Re-deriving the route from a dump — which
-# carries no echo — would silently turn `viewport_event` back into `action_state`
-# (review round 4).
-
-
-def test_an_event_mode_action_result_survives_a_serialize_revalidate_boundary():
-    from gda.commands.input import InputActionResult
-
-    published = InputActionResult.model_validate(
-        {**INPUT_ACTION_RESULT, "as_event": True}
-    )
-    assert published.injection_route == "viewport_event"
-
-    again = InputActionResult.model_validate(published.model_dump())
-    from_json = InputActionResult.model_validate_json(published.model_dump_json())
-
-    # The private echo-presence evidence belongs to the command recipe, not the
-    # public value contract. Compare the public dumps across the boundary.
-    assert again.model_dump() == published.model_dump()
-    assert from_json.model_dump() == published.model_dump()
-    assert again.injection_route == "viewport_event"
-
-
-def test_an_event_mode_action_tap_result_survives_a_serialize_revalidate_boundary():
-    from gda.commands.input import InputTapResult
-
-    published = InputTapResult.model_validate(
-        {**INPUT_TAP_ACTION_RESULT, "as_event": True}
-    )
-    assert [phase.injection_route for phase in published.phases] == [
-        "viewport_event",
-        "viewport_event",
-    ]
-
-    again = InputTapResult.model_validate(published.model_dump())
-    from_json = InputTapResult.model_validate_json(published.model_dump_json())
-
-    assert again.model_dump() == published.model_dump()
-    assert from_json.model_dump() == published.model_dump()
-    assert [phase.injection_route for phase in again.phases] == [
-        "viewport_event",
-        "viewport_event",
-    ]
-
-
-def test_a_state_route_result_survives_the_same_boundary_as_the_state_route():
-    # The other half of the same rule: keeping a published route must not promote
-    # a state injection either, on the head field or on the phases.
-    from gda.commands.input import InputActionResult, InputTapResult
-
-    action = InputActionResult.model_validate(
-        {**INPUT_ACTION_RESULT, "as_event": False}
-    )
-    tap = InputTapResult.model_validate(INPUT_TAP_ACTION_RESULT)
-
-    assert (
-        InputActionResult.model_validate(action.model_dump()).injection_route
-        == "action_state"
-    )
-    assert [
-        phase.injection_route
-        for phase in InputTapResult.model_validate(tap.model_dump()).phases
-    ] == ["action_state", "action_state"]
-
-
-def _sequence_gate_error(monkeypatch, tmp_path, payload, events) -> dict:
-    """Run one opted-in `gda input sequence` over a faked reply; return the error."""
+    payload = {**wire, "as_event": bad_mode}
+    if bad_mode == "missing":
+        del payload["as_event"]
+    # Public-looking fields cannot bypass the wire decoder.
+    payload["injection_route"] = "viewport_event"
+    if "phases" in payload:
+        payload["phases"] = [
+            {**p, "injection_route": "viewport_event"} for p in payload["phases"]
+        ]
     inject_live_runner(
         monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
     )
@@ -3383,9 +3163,8 @@ def _sequence_gate_error(monkeypatch, tmp_path, payload, events) -> dict:
         app,
         [
             "input",
-            "sequence",
-            "--events",
-            json.dumps(events),
+            *argv,
+            *(["--as-event"] if as_event else []),
             "--project",
             str(minimal_project(tmp_path)),
             "--json",
@@ -3393,85 +3172,111 @@ def _sequence_gate_error(monkeypatch, tmp_path, payload, events) -> dict:
     )
     assert result.exit_code == EXIT_PARSE, result.stdout + result.stderr
     error = json.loads(result.stdout)["error"]
-    assert error["code"] == "contract_violation", error
-    return error
+    assert error["code"] == "contract_violation"
+    assert "requires a boolean 'as_event'" in error["message"]
+    assert "predates" not in error["message"]
 
 
-_OPTED_IN_SEQUENCE = [
-    {"type": "action", "action": "jump", "frame": 0},
-    {"type": "action", "action": "jump", "as_event": True, "frame": 1},
-]
-
-
-def test_an_opted_in_sequence_reply_without_the_count_is_a_contract_violation(
-    monkeypatch, tmp_path
+@pytest.mark.parametrize(
+    ("argv", "wire"),
+    [
+        (["action", "jump"], INPUT_ACTION_RESULT),
+        (["tap", "--action", "jump"], INPUT_TAP_ACTION_RESULT),
+    ],
+)
+@pytest.mark.parametrize("requested", [False, True])
+def test_applied_action_route_must_match_the_request(
+    monkeypatch, tmp_path, argv, wire, requested
 ):
-    # A sequence cannot correlate a per-event echo — the reply COUNTS the events it
-    # applied — so the harness states how many went through the event door instead.
-    # Silence for a request that asked for one is the stale session.
-    error = _sequence_gate_error(
+    inject_live_runner(
         monkeypatch,
-        tmp_path,
-        {**INPUT_SEQUENCE_RESULT, "events": 2, "frames": 2},
-        _OPTED_IN_SEQUENCE,
+        RunResult(
+            stdout=sentinel({**wire, "as_event": not requested}), stderr="", exit_code=0
+        ),
     )
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            *argv,
+            *(["--as-event"] if requested else []),
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+    assert result.exit_code == EXIT_PARSE, result.stdout + result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "contract_violation"
+    assert "route for a request that asked for" in error["message"]
 
-    assert "no 'event_mode_actions' count" in error["message"]
-    assert "predates harness v21" in error["message"]
 
-
-def test_a_sequence_reply_counting_a_different_number_is_a_contract_violation(
-    monkeypatch, tmp_path
+@pytest.mark.parametrize("as_event", [False, True])
+def test_decoded_action_results_are_plain_round_trippable_public_values(
+    as_event, tmp_path
 ):
-    error = _sequence_gate_error(
-        monkeypatch,
-        tmp_path,
-        {
-            **INPUT_SEQUENCE_RESULT,
-            "events": 2,
-            "frames": 2,
-            "event_mode_actions": 2,
-        },
-        _OPTED_IN_SEQUENCE,
-    )
+    from gda.commands.input import INPUT_ACTION_COMMAND, INPUT_TAP_COMMAND
 
-    assert "applied 2 event-mode action events" in error["message"]
-    assert "asked for 1" in error["message"]
-
-
-def test_a_sequence_reply_counting_a_non_integer_is_a_contract_violation(
-    monkeypatch, tmp_path
-):
-    error = _sequence_gate_error(
-        monkeypatch,
-        tmp_path,
-        {
-            **INPUT_SEQUENCE_RESULT,
-            "events": 2,
-            "frames": 2,
-            "event_mode_actions": "1",
-        },
-        _OPTED_IN_SEQUENCE,
-    )
-
-    assert "'event_mode_actions' count is not an integer" in error["message"]
+    route = "viewport_event" if as_event else "action_state"
+    for command, wire in (
+        (INPUT_ACTION_COMMAND, INPUT_ACTION_RESULT),
+        (INPUT_TAP_COMMAND, INPUT_TAP_ACTION_RESULT),
+    ):
+        # Wire route fields are not authoritative. Only the decoder consumes the
+        # mode, then emits one public route. Public models need no source guessing.
+        payload = {**wire, "as_event": as_event, "injection_route": "wrong"}
+        if "phases" in payload:
+            payload["phases"] = [
+                {**p, "injection_route": "wrong"} for p in payload["phases"]
+            ]
+        assert command.classify is not None
+        public = command.classify(
+            RunResult(stdout=sentinel(payload), stderr="", exit_code=0), tmp_path
+        )
+        model = command.output_model
+        assert isinstance(public, model)
+        dumped = public.model_dump()
+        if "phases" in dumped:
+            assert [p["injection_route"] for p in dumped["phases"]] == [route, route]
+        else:
+            assert dumped["injection_route"] == route
+        assert "as_event" not in dumped
+        assert "as_event" not in model.model_json_schema()["properties"]
+        assert not model.__private_attributes__
+        assert model.model_validate(dumped) == public
+        assert model.model_validate_json(public.model_dump_json()) == public
 
 
-def test_a_sequence_that_asked_for_nothing_new_tolerates_a_missing_count(
-    monkeypatch, tmp_path
-):
-    # The other half of the rule, and the reason the count is not simply REQUIRED: a
-    # session predating the mode still answers a request that asked for nothing new
-    # honestly, so `gda input sequence` keeps working against it.
-    data = _input_json(
-        monkeypatch,
-        tmp_path,
-        {**INPUT_SEQUENCE_RESULT, "events": 1, "frames": 1},
-        "sequence",
-        "--events",
-        json.dumps([{"type": "action", "action": "jump", "frame": 0}]),
-    )
+def test_public_tap_values_validate_routes_without_wire_metadata():
+    from pydantic import ValidationError
 
-    assert data["phases"] == [
-        {"frame": 0, "phase": "press", "injection_route": "action_state"}
-    ]
+    from gda.commands.input import InputTapResult
+
+    valid = {
+        **INPUT_TAP_ACTION_RESULT,
+        "phases": [
+            {**p, "injection_route": "viewport_event"}
+            for p in INPUT_TAP_ACTION_RESULT["phases"]
+        ],
+    }
+    del valid["as_event"]
+    public = InputTapResult.model_validate(valid)
+    assert InputTapResult.model_validate_json(public.model_dump_json()) == public
+    invalid = {
+        **valid,
+        "phases": [
+            valid["phases"][0],
+            {**valid["phases"][1], "injection_route": "action_state"},
+        ],
+    }
+    with pytest.raises(ValidationError, match="one injection route"):
+        InputTapResult.model_validate(invalid)
+    invalid_key = {
+        **INPUT_TAP_KEY_RESULT,
+        "phases": [
+            {**p, "injection_route": "action_state"}
+            for p in INPUT_TAP_KEY_RESULT["phases"]
+        ],
+    }
+    with pytest.raises(ValidationError, match="key tap uses the viewport_event"):
+        InputTapResult.model_validate(invalid_key)
