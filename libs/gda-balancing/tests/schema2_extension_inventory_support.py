@@ -24,6 +24,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_project_trace_schema,
     _consumer_b_replay_comparison_vector_is_closed,
     _consumer_b_relation_paths_are_typed,
+    _consumer_b_source_fact_transport_is_supported,
 )
 
 from schema2_value_program_reference_support import (
@@ -680,8 +681,13 @@ def _wire_protocol_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
             )
 
 
-def _source_address_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
-    """Use only addresses exposed by the independent successful typed selector."""
+def _source_address_links(
+    kernel: Mapping[str, Any],
+    graph: Mapping[str, Any],
+    *,
+    copied_fields: set[AuthorityToken],
+):
+    """Join typed Source addresses to the selected initial Fact's transport law."""
     source = _protocol_schema(kernel, graph, "model-source-package")
     schema_rows = [
         (role, row, pointer)
@@ -739,6 +745,54 @@ def _source_address_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
             for i, item in enumerate(value):
                 yield from source_keys(item, address[1:], _child(path, i))
 
+    def schema_links(address: tuple[str | int, ...], selected_law: str):
+        selected = token(address)
+        parent = address[:-2]
+
+        def same_object(value: Any, path: tuple[str | int, ...]):
+            # These applicators keep the instance location. In particular, do
+            # not walk properties' values: their payload has a different owner.
+            if not isinstance(value, dict):
+                return
+            if selected.name in value.get("properties", {}):
+                yield (
+                    selected,
+                    pointer(
+                        schema_pointer + "/schema", (*path, "properties", selected.name)
+                    ),
+                    "declaration",
+                    "key",
+                    "",
+                    selected_law,
+                )
+            for index, member in enumerate(value.get("required", [])):
+                if member == selected.name:
+                    yield (
+                        selected,
+                        pointer(schema_pointer + "/schema", (*path, "required", index)),
+                        "reference",
+                        "value",
+                        "",
+                        selected_law,
+                    )
+            for applicator in ("oneOf", "anyOf", "allOf"):
+                for index, branch in enumerate(value.get(applicator, [])):
+                    yield from same_object(branch, (*path, applicator, index))
+
+        yield from same_object(
+            _pointer_value(source["schema"], pointer("", parent)), parent
+        )
+        if graph.get("source"):
+            for path in source_keys(graph["source"], address, "/source"):
+                yield selected, path, "reference", "key", "", selected_law
+
+    transport_law = "/meta_format/language_definitions/collections/model_lowerings/source_fact_transport"
+    transport = kernel["meta_format"]["language_definitions"]["collections"][
+        "model_lowerings"
+    ].get("source_fact_transport")
+    if not _consumer_b_source_fact_transport_is_supported(transport):
+        raise InventoryRefusal("Source address transport law is unsupported")
+
     for _, profile, pp in _authority_path_rows(
         kernel, graph, "language_bundle.language.resolution_profiles"
     ):
@@ -754,31 +808,8 @@ def _source_address_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
         for term_path, address in addresses.items():
             selected = token(address)
             yield selected, pointer(pp, term_path), "reference", "value", "", law
-            yield (
-                selected,
-                pointer(schema_pointer + "/schema", address),
-                "declaration",
-                "key",
-                "",
-                law,
-            )
-            containing = _pointer_value(source["schema"], pointer("", address[:-2]))
-            for index, member in enumerate(containing.get("required", [])):
-                if member == selected.name:
-                    yield (
-                        selected,
-                        pointer(
-                            schema_pointer + "/schema",
-                            (*address[:-2], "required", index),
-                        ),
-                        "reference",
-                        "value",
-                        "",
-                        law,
-                    )
-            if graph.get("source"):
-                for path in source_keys(graph["source"], address, "/source"):
-                    yield selected, path, "reference", "key", "", law
+            yield from schema_links(address, law)
+        profile_addresses: dict[str, tuple[str | int, ...]] = {}
         for equivalence in resolution["routing_equivalences"]:
             ri, recipe = next(
                 (i, row)
@@ -808,6 +839,9 @@ def _source_address_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
                 term = binding["source"]
             if equivalence["projection"] == "last-segment":
                 index = len(term["path"]) - 1
+                profile_addresses[equivalence["profile_member"]] = addresses[
+                    (*term_path, "path", index)
+                ]
                 yield (
                     token(addresses[(*term_path, "path", index)]),
                     _child(pp, equivalence["profile_member"]),
@@ -833,47 +867,115 @@ def _source_address_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
             else:
                 raise InventoryRefusal("unknown Source address projection")
 
-        # The existing path-segments grammar also addresses these same Source
-        # fields from lowering and check selectors. Only prefixes already
-        # proved by the typed selector acquire a field identity here.
         known_addresses = set(addresses.values())
+        symbol_address = profile_addresses["symbol_name_member"]
+        type_address = profile_addresses["symbol_type_member"]
+        symbol_object = symbol_address[:-2]
+        if type_address[:-2] != symbol_object or type_address == symbol_address:
+            raise InventoryRefusal(
+                "Source adapter fields do not have distinct Symbol owners"
+            )
+        symbol_schema = _pointer_value(source["schema"], pointer("", symbol_object))
+        lowerings = [
+            (lowering, lp)
+            for _, lowering, lp in _authority_path_rows(
+                kernel, graph, "language_bundle.language.model_lowerings"
+            )
+            if lowering["resolution_profile"] == profile["id"]
+        ]
+        if not lowerings:
+            continue
+        fact = kernel["meta_format"]["fact"]
+        copied_addresses = set()
+        for lowering, _ in lowerings:
+            fact_fields = set()
+            for kind in (
+                lowering["initial_fact_kind"],
+                lowering["structured_initial_fact_kind"],
+            ):
+                schemas = [row for row in fact["schemas"] if row["kind"] == kind]
+                if len(schemas) != 1:
+                    raise InventoryRefusal(
+                        "Source transport has no unique initial Fact contract"
+                    )
+                fact_fields.update(
+                    fact["field_contracts"][schemas[0]["field_contract"]]
+                )
+            # These are the existing fixed adapters' Fact destinations, not a
+            # list of permitted Source spellings. All other names come from
+            # the actual Symbol Schema and its selected initial Fact contracts.
+            destinations = {
+                profile["symbol_fact_member"],
+                "resolved_symbol",
+                "type_identity",
+                "value_kind",
+            }
+            for member in symbol_schema["properties"]:
+                address = (*symbol_object, "properties", member)
+                if address in (symbol_address, type_address):
+                    continue
+                if member in destinations:
+                    raise InventoryRefusal(
+                        "Source copy collides with an initial Fact adapter"
+                    )
+                if member not in fact_fields:
+                    raise InventoryRefusal(
+                        "Source copy has no initial Fact field owner"
+                    )
+                copied_addresses.add(address)
+                copied_fields.add(token(address))
+                yield from schema_links(address, transport_law)
 
-        def selector(parts: list[str], path: str, prefix: tuple[str, ...] = ()):
+        def selector(parts: list[str], path: str, prefix: tuple[str | int, ...] = ()):
+            # model_checks/model_lowerings field_types declare path-segments:
+            # '*' selects array items; it is syntax, not a free Source field.
             address = prefix
             for index, segment in enumerate(parts):
+                current = _pointer_value(source["schema"], pointer("", address))
                 if segment == "*":
+                    if current.get("type") != "array" or not isinstance(
+                        current.get("items"), dict
+                    ):
+                        raise InventoryRefusal(
+                            "Source selector wildcard has no array item owner"
+                        )
                     address = (*address, "items")
                 else:
-                    address = (*address, "properties", segment)
-                    if address in known_addresses:
-                        yield (
-                            token(address),
-                            _child(path, index),
-                            "reference",
-                            "value",
-                            "",
-                            law,
+                    if current.get("type") != "object" or segment not in current.get(
+                        "properties", {}
+                    ):
+                        raise InventoryRefusal(
+                            "Source selector has an unknown Schema member"
                         )
+                    address = (*address, "properties", segment)
+                    if address not in known_addresses | copied_addresses:
+                        raise InventoryRefusal(
+                            "Source selector member has no interpreted owner"
+                        )
+                    yield (
+                        token(address),
+                        _child(path, index),
+                        "reference",
+                        "value",
+                        "",
+                        transport_law if address in copied_addresses else law,
+                    )
+            return address
 
-        for _, lowering, lp in _authority_path_rows(
-            kernel, graph, "language_bundle.language.model_lowerings"
-        ):
-            if lowering["resolution_profile"] == profile["id"]:
-                yield from selector(
-                    lowering["source_selector"], lp + "/source_selector"
+        for lowering, lp in lowerings:
+            endpoint = yield from selector(
+                lowering["source_selector"], lp + "/source_selector"
+            )
+            if endpoint != symbol_object:
+                raise InventoryRefusal(
+                    "Source lowering selector does not select its profile's Symbols"
                 )
         for _, check, cp in _authority_path_rows(
             kernel, graph, "language_bundle.language.model_checks"
         ):
-            scope = check.get("scope_selector", [])
-            yield from selector(scope, cp + "/scope_selector")
-            prefix: tuple[str, ...] = ()
-            for segment in scope:
-                prefix = (
-                    (*prefix, "items")
-                    if segment == "*"
-                    else (*prefix, "properties", segment)
-                )
+            prefix = yield from selector(
+                check.get("scope_selector", []), cp + "/scope_selector"
+            )
             yield from selector(check["selector"], cp + "/selector", prefix)
 
 
@@ -2732,12 +2834,6 @@ class _Reader:
                     "/meta_format/language_definitions",
                     "metadata extension roles are not yet complete",
                 )
-            if role == "language.model_checks":
-                self.gap(
-                    pointer + "/selector",
-                    "/meta_format/language_definitions/collections/model_checks",
-                    "selector addresses beyond the typed Source projection remain unclassified",
-                )
             return True
         if role == "language.reasons":
             contract = self.meta["diagnostic_reason"]
@@ -4221,7 +4317,7 @@ class _Reader:
             if token.role.startswith("kernel."):
                 self.reserved.add(token)
         for token, pointer, use, location, projection, law in _source_address_links(
-            self.kernel, self.graph
+            self.kernel, self.graph, copied_fields=self.reserved
         ):
             self.occurrence(
                 token, pointer, use, law, location=location, projection=projection
@@ -4885,10 +4981,11 @@ def validate_extension_inventory(
         for row in vector_actual
     ):
         raise InventoryRefusal("value vector occurrence has the wrong role or owner")
+    copied_fields: set[AuthorityToken] = set()
     address_expected = {
         (token, pointer, use, location, projection)
         for token, pointer, use, location, projection, _ in _source_address_links(
-            kernel, graph
+            kernel, graph, copied_fields=copied_fields
         )
     }
     address_actual = {
@@ -4899,6 +4996,9 @@ def validate_extension_inventory(
         raise InventoryRefusal(
             "Source field address coverage is incomplete or misowned"
         )
+    source_fields = {row[0] for row in address_expected}
+    if inventory.reserved & source_fields != copied_fields:
+        raise InventoryRefusal("Source copied/adapted field ownership is misclassified")
     address_positions = {row[1:] for row in address_expected}
     if any(
         row[1:] in address_positions and row not in address_expected
@@ -5153,6 +5253,10 @@ def validate_extension_inventory(
             raise InventoryRefusal("Source has no unique assignment policy")
         lowering = selected[0]
         for mi, module in enumerate(graph["source"][source_profile["modules_member"]]):
+            module_pointer = (
+                f"{_child('/source', source_profile['modules_member'])}/{mi}"
+            )
+            symbols_pointer = _child(module_pointer, source_profile["symbols_member"])
             for si, symbol in enumerate(module[source_profile["symbols_member"]]):
                 required.add(
                     (
@@ -5165,7 +5269,7 @@ def validate_extension_inventory(
                             ),
                             symbol["value_policy"]["mode"],
                         ),
-                        f"{_child('/source', source_profile['modules_member'])}/{mi}/{source_profile['symbols_member']}/{si}/value_policy/mode",
+                        f"{symbols_pointer}/{si}/value_policy/mode",
                         "reference",
                     )
                 )
