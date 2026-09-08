@@ -88,12 +88,14 @@ def refresh_package_semantic_closures(
                             )
                         continue
                 projected = deepcopy(definition)
-                if (
-                    path == "language.artifact_wire_schemas"
-                    and projected.get("protocol_role") == "event-trace"
-                ):
+                if path == "language.artifact_wire_schemas" and projected.get(
+                    "protocol_role"
+                ) in {"event-trace", "rir-semantic-payload"}:
                     from gda_balancing.domain.authority.trace_projection import (
                         trace_protocol_schema,
+                    )
+                    from gda_balancing.domain.authority.rir_projection import (
+                        rir_protocol_schema,
                     )
 
                     contracts = [
@@ -101,12 +103,32 @@ def refresh_package_semantic_closures(
                         for row in language_bundle["language"]["artifact_contracts"]
                         if row["schema_kind"] == projected["artifact_kind"]
                     ]
-                    if len(contracts) == 1 and canonical_bytes(
-                        projected.get("schema")
-                    ) == canonical_bytes(
-                        trace_protocol_schema(kernel, contracts[0]["artifact_kind"])
-                    ):
-                        del projected["schema"]
+                    if len(contracts) == 1:
+                        expected_schema = (
+                            trace_protocol_schema(kernel, contracts[0]["artifact_kind"])
+                            if projected["protocol_role"] == "event-trace"
+                            else rir_protocol_schema(
+                                kernel, language_bundle, contracts[0]["artifact_kind"]
+                            )
+                        )
+                        if canonical_bytes(projected.get("schema")) == canonical_bytes(
+                            expected_schema
+                        ):
+                            del projected["schema"]
+                if path == "language.artifact_contracts":
+                    schemas = [
+                        row
+                        for row in language_bundle["language"]["artifact_wire_schemas"]
+                        if row["artifact_kind"] == projected["schema_kind"]
+                        and row.get("protocol_role") == "rir-semantic-payload"
+                    ]
+                    semantic_projection = kernel["meta_format"]["language_definitions"][
+                        "wire_schema_protocol_roles"
+                    ]["rir_structure"]["semantic_projection"]
+                    if len(schemas) == 1 and canonical_bytes(
+                        projected.get("semantic_identity_projection")
+                    ) == canonical_bytes(semantic_projection):
+                        del projected["semantic_identity_projection"]
                 selected.append(projected)
             updates.append((entry, selected))
     for entry, definitions in updates:

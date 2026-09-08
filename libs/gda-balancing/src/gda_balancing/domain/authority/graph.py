@@ -10,6 +10,19 @@ from types import MappingProxyType
 from typing import Any
 
 
+def project_artifact_protocols(
+    kernel: dict[str, Any], language: dict[str, Any]
+) -> None:
+    """Expand the two compiled protocol owners in an otherwise authored index."""
+    from gda_balancing.domain.authority.trace_projection import project_trace_schema
+    from gda_balancing.domain.authority.rir_projection import project_rir_schema
+
+    project_trace_schema(kernel, language)
+    project_rir_schema(kernel, language)
+    if any("schema" not in row for row in language["artifact_wire_schemas"]):
+        raise ValueError("an authored artifact schema is missing")
+
+
 def canonical_graph_members(
     root: dict[str, Any],
     package_releases: list[dict[str, Any]],
@@ -229,9 +242,7 @@ def derive_language_index(
         if isinstance(vector_definitions, list):
             vectors.extend(deepcopy(vector_definitions))
 
-    from gda_balancing.domain.authority.trace_projection import project_trace_schema
-
-    project_trace_schema(kernel, language)
+    project_artifact_protocols(kernel, language)
     language["packages"] = deepcopy(package_releases)
     projection = {
         "artifact_kind": root.get("artifact_kind"),

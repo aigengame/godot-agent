@@ -15,6 +15,7 @@ from types import MappingProxyType
 from typing import Any, cast
 
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.domain.authority.rir_projection import rir_collection_output
 from gda_balancing.domain.authority.graph import (
     LanguageBundleGraph,
     LanguageBundleIndex,
@@ -80,7 +81,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:b27ab67f832e27cba28b1214001e8280f3a496b520b4ae86650d53408f138abc"
+    "sha256:e01262748043b1c7ccdaebe67c3d65c4c68a8ee5e515355042dfc69037fa8c2b"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1978,91 +1979,6 @@ def _definition_contract_at_path(
     return selected
 
 
-def _contract_assignable_to_schema(contract: dict[str, Any], schema: Any) -> bool:
-    if not isinstance(schema, dict):
-        return False
-    if "const" in contract:
-        value = contract["const"]
-        if "const" in schema and schema["const"] != value:
-            return False
-        if isinstance(schema.get("enum"), list) and value not in schema["enum"]:
-            return False
-        expected = _canonical_value_kind(value)
-        actual = schema.get("type")
-        return actual is None or actual == expected
-    if isinstance(contract.get("enum"), list) and contract["enum"]:
-        values = contract["enum"]
-        kinds = {_canonical_value_kind(value) for value in values}
-        return (
-            len(kinds) == 1
-            and schema.get("type") in {None, next(iter(kinds))}
-            and (
-                not isinstance(schema.get("enum"), list)
-                or set(values) <= set(schema["enum"])
-            )
-        )
-    value_type = contract.get("type")
-    if value_type in {"inventory-member", "non-empty-string", "string"}:
-        return schema.get("type") == "string"
-    if value_type in {"positive-signed-int64", "signed-int64"}:
-        return schema.get("type") == "integer"
-    if value_type == "boolean":
-        return schema.get("type") == "boolean"
-    if value_type == "string-list":
-        return (
-            schema.get("type") == "array"
-            and isinstance(schema.get("items"), dict)
-            and schema["items"].get("type") == "string"
-        )
-    if value_type == "canonical-value":
-        # The closed wire schema remains the structural authority for the
-        # canonical value. The Kernel contract establishes only that the
-        # language definition is canonically encodable.
-        return True
-    if value_type == "closed-discriminated-object":
-        return schema == {}
-    if value_type == "list-of":
-        item = contract.get("items")
-        return (
-            schema.get("type") == "array"
-            and isinstance(item, dict)
-            and _contract_assignable_to_schema(item, schema.get("items"))
-        )
-    is_object = value_type == "closed-object" or (
-        value_type is None
-        and isinstance(contract.get("required_members"), list)
-        and isinstance(contract.get("field_types"), dict)
-    )
-    if is_object:
-        required = contract.get("required_members")
-        optional = contract.get("optional_members", [])
-        fields = contract.get("field_types")
-        properties = schema.get("properties")
-        schema_required = schema.get("required")
-        return (
-            schema.get("type") == "object"
-            and isinstance(required, list)
-            and isinstance(optional, list)
-            and isinstance(fields, dict)
-            and isinstance(properties, dict)
-            and isinstance(schema_required, list)
-            and not set(required) & set(optional)
-            and set(required) | set(optional) == set(fields)
-            and set(fields) == set(properties)
-            and set(schema_required) == set(required)
-            and schema.get("unevaluatedProperties") is False
-            and all(
-                _contract_assignable_to_schema(fields[name], properties[name])
-                for name in fields
-            )
-        )
-    return False
-
-
-def _schema_items_match(source: Any, target: Any) -> bool:
-    return isinstance(source, dict) and isinstance(target, dict) and source == target
-
-
 def _execution_projection_is_closed(
     contract: Any,
     meta_format: dict[str, Any],
@@ -2260,7 +2176,6 @@ def _runtime_projection_is_closed(
         not isinstance(profile, dict)
         or set(profile)
         != {
-            "outputs",
             "collections",
             "seeds",
             "edges",
@@ -2272,17 +2187,14 @@ def _runtime_projection_is_closed(
         != {
             "closed",
             "collection_source_kinds",
-            "output_shapes",
             "seed_operators",
             "edge_operators",
-            "output_kinds",
             "collection",
             "seed",
             "edge",
             "type_reference_closure",
             "operation_roots",
             "path_typing",
-            "output_typing",
             "resource_accounting",
             "execution_closure",
         }
@@ -2290,24 +2202,15 @@ def _runtime_projection_is_closed(
     ):
         return False
     source_kinds = set(cast(list[Any], contract.get("collection_source_kinds", [])))
-    output_shapes = set(cast(list[Any], contract.get("output_shapes", [])))
     seed_operators = set(cast(list[Any], contract.get("seed_operators", [])))
     edge_operators = set(cast(list[Any], contract.get("edge_operators", [])))
-    output_kinds = set(cast(list[Any], contract.get("output_kinds", [])))
     if (
         source_kinds != {"namespace-member", "semantic-closure"}
-        or output_shapes
-        != {"as-is", "package-definition", "definition", "closure-only"}
         or seed_operators != {"declaration-field"}
         or edge_operators != {"equal"}
-        or output_kinds
-        != {
-            "selected-packages",
-            "selected-semantic-closures",
-        }
         or contract.get("collection")
         != {
-            "required_members": ["id", "source", "output_member", "output_shape"],
+            "required_members": ["id", "source"],
             "optional_members": ["excluded_extension_members", "excluded_members"],
             "namespace_source_members": ["kind", "member", "package_path"],
             "closure_source_members": ["kind", "authority_path"],
@@ -2367,17 +2270,6 @@ def _runtime_projection_is_closed(
             "semantic_closure": "kernel-language-definition-contract",
             "empty_path": "identity",
         }
-        or contract.get("output_typing")
-        != {
-            "source": "collection-element-contract",
-            "target": "rir-selected-semantics-member-schema",
-            "shape_transforms": {
-                "as-is": "identity",
-                "definition": "identity",
-                "package-definition": "package-and-definition-object",
-                "closure-only": "no-output",
-            },
-        }
         or contract.get("operation_roots")
         != {
             "required_members": ["collection"],
@@ -2428,14 +2320,12 @@ def _runtime_projection_is_closed(
             and all(isinstance(segment, str) and segment for segment in path)
         )
 
-    outputs = profile.get("outputs")
     collections = profile.get("collections")
     seeds = profile.get("seeds")
     edges = profile.get("edges")
     type_reference_closure = profile.get("type_reference_closure")
     if (
-        not isinstance(outputs, list)
-        or not isinstance(collections, list)
+        not isinstance(collections, list)
         or not isinstance(seeds, list)
         or not isinstance(edges, list)
         or not isinstance(type_reference_closure, dict)
@@ -2482,49 +2372,10 @@ def _runtime_projection_is_closed(
         != contract["operation_roots"]["authority_path"]
     ):
         return False
-    output_members: list[str] = []
-    for output in outputs:
-        if not isinstance(output, dict) or output.get("kind") not in output_kinds:
-            return False
-        kind = output["kind"]
-        expected = {
-            "kind",
-            "source_member",
-            "output_member",
-            "package_member",
-        }
-        if kind == "selected-packages":
-            expected.add("members")
-        elif kind == "selected-semantic-closures":
-            expected.update(
-                {
-                    "entries_member",
-                    "authority_path_member",
-                    "definitions_member",
-                }
-            )
-        if (
-            set(output) != expected
-            or any(
-                not isinstance(output.get(member), str) or not output[member]
-                for member in expected - {"kind", "members"}
-            )
-            or (
-                "members" in output
-                and (
-                    not isinstance(output["members"], list)
-                    or not output["members"]
-                    or not all(
-                        isinstance(member, str) and member
-                        for member in output["members"]
-                    )
-                    or len(output["members"]) != len(set(output["members"]))
-                )
-            )
-        ):
-            return False
-        output_members.append(output["output_member"])
-
+    rir_law = meta_format["language_definitions"]["wire_schema_protocol_roles"][
+        "rir_structure"
+    ]
+    output_members = list(rir_law["namespace_outputs"])
     collection_ids: list[str] = []
     authority_paths: set[str] = set()
     for collection in collections:
@@ -2533,8 +2384,6 @@ def _runtime_projection_is_closed(
         expected_collection_members = {
             "id",
             "source",
-            "output_member",
-            "output_shape",
         }
         expected_collection_members.update(
             member
@@ -2546,18 +2395,6 @@ def _runtime_projection_is_closed(
             or not isinstance(collection.get("id"), str)
             or not collection["id"]
             or not isinstance(collection.get("source"), dict)
-            or collection.get("output_shape") not in output_shapes
-            or (
-                collection["output_shape"] == "closure-only"
-                and collection.get("output_member") is not None
-            )
-            or (
-                collection["output_shape"] != "closure-only"
-                and (
-                    not isinstance(collection.get("output_member"), str)
-                    or not collection["output_member"]
-                )
-            )
             or any(
                 member in collection
                 and (
@@ -2593,8 +2430,9 @@ def _runtime_projection_is_closed(
         else:
             return False
         collection_ids.append(collection["id"])
-        if collection["output_member"] is not None:
-            output_members.append(collection["output_member"])
+        output_role = rir_collection_output({"meta_format": meta_format}, source)
+        if output_role is not None:
+            output_members.append(output_role[0])
     if len(collection_ids) != len(set(collection_ids)):
         return False
     collection_names = set(collection_ids)
@@ -2824,136 +2662,6 @@ def _runtime_projection_is_closed(
                 not isinstance(fields, dict)
                 or not isinstance(required, list)
                 or not excluded_members <= set(fields)
-            ):
-                return False
-            payload = {
-                **payload,
-                field_member: {
-                    name: value
-                    for name, value in fields.items()
-                    if name not in excluded_members
-                },
-                required_member: [
-                    name for name in required if name not in excluded_members
-                ],
-            }
-            if "optional_members" in payload:
-                payload["optional_members"] = [
-                    name
-                    for name in payload["optional_members"]
-                    if name not in excluded_members
-                ]
-        output_member = collection["output_member"]
-        if output_member is None:
-            continue
-        target = selected_properties.get(output_member)
-        if (
-            not isinstance(target, dict)
-            or target.get("type") != "array"
-            or not isinstance(target.get("items"), dict)
-        ):
-            return False
-        shape = collection["output_shape"]
-        if representation == "schema":
-            if shape != "as-is" or not _schema_items_match(payload, target["items"]):
-                return False
-        elif shape == "definition":
-            if not _contract_assignable_to_schema(payload, target["items"]):
-                return False
-        elif shape == "package-definition":
-            target_item = target["items"]
-            properties = target_item.get("properties")
-            if not (
-                target_item.get("type") == "object"
-                and isinstance(properties, dict)
-                and set(properties) == {"package", "definition"}
-                and set(target_item.get("required", [])) == {"package", "definition"}
-                and target_item.get("unevaluatedProperties") is False
-                and properties["package"].get("type") == "string"
-                and _contract_assignable_to_schema(payload, properties["definition"])
-            ):
-                return False
-        else:
-            return False
-    for output in outputs:
-        source_schema = selected_properties.get(output["source_member"])
-        target_schema = selected_properties.get(output["output_member"])
-        if (
-            not isinstance(source_schema, dict)
-            or source_schema.get("type") != "array"
-            or not isinstance(source_schema.get("items"), dict)
-            or not isinstance(target_schema, dict)
-            or target_schema.get("type") != "array"
-            or not isinstance(target_schema.get("items"), dict)
-            or _schema_value_kind(
-                _json_schema_path(
-                    source_schema["items"],
-                    [output["package_member"]],
-                )
-            )
-            != "string"
-        ):
-            return False
-        if output["kind"] == "selected-packages" and any(
-            _json_schema_path(source_schema["items"], [member]) is None
-            for member in output["members"]
-        ):
-            return False
-        if output["kind"] == "selected-packages":
-            source_properties = source_schema["items"].get("properties")
-            target_item = target_schema["items"]
-            target_properties = target_item.get("properties")
-            members = set(output["members"])
-            if not (
-                isinstance(source_properties, dict)
-                and isinstance(target_properties, dict)
-                and set(target_properties) == members
-                and set(target_item.get("required", [])) == members
-                and target_item.get("unevaluatedProperties") is False
-                and all(
-                    source_properties[member] == target_properties[member]
-                    for member in members
-                )
-            ):
-                return False
-        if output["kind"] == "selected-semantic-closures":
-            entries = _json_schema_path(
-                source_schema["items"],
-                [output["entries_member"]],
-            )
-            if (
-                not isinstance(entries, dict)
-                or entries.get("type") != "array"
-                or not isinstance(entries.get("items"), dict)
-                or _schema_value_kind(
-                    _json_schema_path(
-                        entries["items"],
-                        [output["authority_path_member"]],
-                    )
-                )
-                != "string"
-                or _json_schema_path(
-                    entries["items"],
-                    [output["definitions_member"]],
-                )
-                is None
-            ):
-                return False
-            source_item = source_schema["items"]
-            source_properties = source_item.get("properties")
-            target_item = target_schema["items"]
-            target_properties = target_item.get("properties")
-            projected = {output["package_member"], output["entries_member"]}
-            if not (
-                isinstance(source_properties, dict)
-                and isinstance(target_properties, dict)
-                and set(target_properties) == projected
-                and set(target_item.get("required", [])) == projected
-                and target_item.get("unevaluatedProperties") is False
-                and all(
-                    source_properties[member] == target_properties[member]
-                    for member in projected
-                )
             ):
                 return False
     return True

@@ -1051,6 +1051,7 @@ def _package_semantic_projections_are_exact(
     projections = closure_contract.get("projections")
     if not isinstance(projections, list):
         return False
+    protocol_projection: dict[str, Any] | None = None
     for index, projection in enumerate(projections):
         if not isinstance(projection, dict):
             return False
@@ -1075,20 +1076,29 @@ def _package_semantic_projections_are_exact(
                 return False
             embedded.extend(entry["definitions"])
 
-        if authority_path == "language.artifact_wire_schemas":
-            from gda_balancing.domain.authority.trace_projection import (
-                project_trace_schema,
-            )
+        if authority_path in {
+            "language.artifact_wire_schemas",
+            "language.artifact_contracts",
+        }:
+            from gda_balancing.domain.authority.graph import project_artifact_protocols
 
-            projected = {
-                "artifact_wire_schemas": deepcopy(embedded),
-                "artifact_contracts": language_bundle["language"]["artifact_contracts"],
-            }
-            try:
-                project_trace_schema(kernel, projected)
-            except ValueError:
-                return False
-            embedded = projected["artifact_wire_schemas"]
+            if protocol_projection is None:
+                protocol_projection = cast(
+                    dict[str, Any], deepcopy(language_bundle["language"])
+                )
+                for collection in ("artifact_wire_schemas", "artifact_contracts"):
+                    protocol_projection[collection] = [
+                        deepcopy(value)
+                        for package in packages
+                        for entry in package["semantic_closure"]
+                        if entry["authority_path"] == "language." + collection
+                        for value in entry["definitions"]
+                    ]
+                try:
+                    project_artifact_protocols(kernel, protocol_projection)
+                except (KeyError, TypeError, ValueError):
+                    return False
+            embedded = protocol_projection[authority_path.removeprefix("language.")]
 
         def definition_value(value: Any) -> bytes | None:
             if key_member is not None and (

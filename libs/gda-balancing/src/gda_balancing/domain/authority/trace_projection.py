@@ -6,6 +6,8 @@ from typing import Any
 from gda_balancing.domain.authority.contract_projection import (
     _contract_schema,
     _candidate_hex_pattern,
+    artifact_envelope_contract,
+    ordered_protocol_schema,
 )
 from gda_balancing.domain.canonical import canonical_bytes
 
@@ -98,6 +100,16 @@ def trace_protocol_schema(kernel: dict[str, Any], artifact_kind: str) -> dict[st
     supply(schedules["field_types"]["state_references"]["items"], {"target": target})
     supply(schedules, {"ordering_key": ordering_key})
     supply(schedules["field_types"]["arguments"]["items"], {"value": runtime_value})
+    supply(
+        fields["formula_evaluations"]["items"],
+        {
+            "formula": deepcopy(
+                meta["language_definitions"]["wire_schema_protocol_roles"][
+                    "formula_reference"
+                ]
+            )
+        },
+    )
     formula_context = fields["formula_evaluations"]["items"]["field_types"]["context"]
     supply(
         formula_context,
@@ -117,7 +129,6 @@ def trace_protocol_schema(kernel: dict[str, Any], artifact_kind: str) -> dict[st
     supply(
         envelope,
         {
-            "artifact_kind": {"const": artifact_kind},
             "events": {"type": "list-of", "items": event},
             "root_event_map": {
                 "type": "list-of",
@@ -126,14 +137,22 @@ def trace_protocol_schema(kernel: dict[str, Any], artifact_kind: str) -> dict[st
             "terminal_statuses": {"type": "list-of", "items": terminal},
         },
     )
+    common = artifact_envelope_contract(kernel, artifact_kind)
+    if set(common["required_members"]) & set(envelope["required_members"]):
+        raise ValueError("Trace payload duplicates a common Artifact envelope field")
+    supply(envelope, common["field_types"])
+    envelope["required_members"] = (
+        common["required_members"] + envelope["required_members"]
+    )
     schema = _contract_schema(envelope)
-    return deepcopy(
+    return ordered_protocol_schema(
+        kernel,
         {
             "$schema": meta["language_definitions"]["collections"][
                 "artifact_wire_schemas"
             ]["field_types"]["schema"]["dialect"],
             **schema,
-        }
+        },
     )
 
 
@@ -142,8 +161,6 @@ def project_trace_schema(kernel: dict[str, Any], language: dict[str, Any]) -> No
     try:
         for row in language["artifact_wire_schemas"]:
             if row.get("protocol_role") != "event-trace":
-                if "schema" not in row:
-                    raise ValueError("an authored artifact schema is missing")
                 continue
             if "schema" in row:
                 raise ValueError("Event Trace structure cannot be authored by an LDB")

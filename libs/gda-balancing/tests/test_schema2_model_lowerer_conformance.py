@@ -2670,7 +2670,7 @@ def _reference_rir(
         formula_bindings,
     )
     payload = {
-        lowering["output_member"]: declarations,
+        "declarations": declarations,
         "formulas": formulas,
         "formula_bindings": formula_bindings,
         "initialization_programs": initialization_programs,
@@ -3981,57 +3981,57 @@ def _reference_runtime_projection(
                 selected_closure_values.setdefault(
                     (package, authority_path), []
                 ).append(value)
-        member = specification["output_member"]
-        if member is None:
+        roles = checked.kernel["meta_format"]["language_definitions"][
+            "wire_schema_protocol_roles"
+        ]["rir_structure"]["selected_collections"]
+        matches = [
+            (name, role["shape"])
+            for name, role in roles.items()
+            if all(
+                _reference_encoded(specification["source"].get(key))
+                == _reference_encoded(value)
+                for key, value in role["source"].items()
+            )
+        ]
+        assert len(matches) <= 1
+        if not matches:
             continue
-        if specification["output_shape"] == "as-is":
-            projection[member] = [row[2] for row in rows]
-        elif specification["output_shape"] == "package-definition":
+        member, shape = matches[0]
+        if shape == "package-definition":
             projection[member] = [
                 {"package": row[0], "definition": row[2]} for row in rows
             ]
         else:
+            assert shape in {"as-is", "definition"}
             projection[member] = [row[2] for row in rows]
 
-    for output in profile["outputs"]:
-        source_rows = lock[output["source_member"]]
-        if output["kind"] == "selected-packages":
-            values = []
-            for row in source_rows:
-                consume()
-                if row[output["package_member"]] in selected_packages:
-                    values.append({member: row[member] for member in output["members"]})
-        elif output["kind"] == "selected-semantic-closures":
-            values = []
-            for closure in source_rows:
-                consume()
-                package = closure[output["package_member"]]
-                if package not in selected_packages:
-                    continue
-                entries = []
-                for entry in closure[output["entries_member"]]:
-                    authority_path = entry[output["authority_path_member"]]
-                    definitions = selected_closure_values.get((package, authority_path))
-                    if definitions:
-                        entries.append(
-                            {
-                                output["authority_path_member"]: authority_path,
-                                output["definitions_member"]: definitions,
-                            }
-                        )
-                if entries:
-                    values.append(
-                        {
-                            output["package_member"]: package,
-                            output["entries_member"]: entries,
-                        }
-                    )
-        else:
-            raise AssertionError(
-                f"reference consumer observed unknown projection output: "
-                f"{output['kind']}"
+    selected_package_rows = []
+    for package in lock["packages"]:
+        consume()
+        if package["id"] in selected_packages:
+            selected_package_rows.append({"id": package["id"]})
+    projection["packages"] = selected_package_rows
+    selected_closures = []
+    for closure in lock["package_semantic_closures"]:
+        consume()
+        package = closure["package"]
+        if package not in selected_packages:
+            continue
+        values = []
+        for entry in closure["definitions"]:
+            definitions = selected_closure_values.get(
+                (package, entry["authority_path"])
             )
-        projection[output["output_member"]] = values
+            if definitions:
+                values.append(
+                    {
+                        "authority_path": entry["authority_path"],
+                        "definitions": definitions,
+                    }
+                )
+        if values:
+            selected_closures.append({"package": package, "definitions": values})
+    projection["package_semantic_closures"] = selected_closures
     return projection
 
 
@@ -4065,7 +4065,7 @@ def _reference_debug_map(
         for module_index, module in enumerate(checked.source[modules_member])
         for symbol_index, symbol in enumerate(module[symbols_member])
     }
-    declarations = rir[lowering["output_member"]]
+    declarations = rir["declarations"]
     formula_pointers = {
         (module[module_id_member], formula["id"]): [
             modules_member,
@@ -4078,7 +4078,7 @@ def _reference_debug_map(
     }
     declaration_entries = [
         {
-            "rir_pointer": _reference_pointer([lowering["output_member"], index]),
+            "rir_pointer": _reference_pointer(["declarations", index]),
             "source_pointer": _reference_pointer(
                 pointers[
                     (
@@ -4278,7 +4278,7 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
     diagnostic_stages = {
         item["code"]: item["stage"] for item in language_bundle["diagnostics"]
     }
-    output_member = _reference_lowering(language_bundle["language"])["output_member"]
+    output_member = "declarations"
     for index, vector in enumerate(vectors):
         source = _materialize_vector_source(vector, language_bundle)
         reference_source = _reference_materialize_vector_source(vector, language_bundle)
@@ -5353,38 +5353,6 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
     declaration = declarations[0]
     assert declaration["symbol"] == "health"
     assert "name" not in declaration
-
-
-def test_rir_output_member_follows_the_ldb_lowering_and_wire_schema(tmp_path):
-    path = tmp_path / "renamed-rir-output.json"
-    source = _source([_symbol("health", "state")])
-    _write_source(path, source)
-    kernel, candidate_ldb = mutable_authorities()
-    language = candidate_ldb["language"]
-    lowering = _reference_lowering(language)
-    lowering["output_member"] = "items"
-    rir_schema = next(
-        item["schema"]
-        for item in language["artifact_wire_schemas"]
-        if item.get("protocol_role") == "rir-semantic-payload"
-    )
-    rir_schema["properties"]["items"] = rir_schema["properties"].pop("declarations")
-    rir_schema["required"] = [
-        "items" if item == "declarations" else item for item in rir_schema["required"]
-    ]
-    _reidentify_language_bundle(candidate_ldb)
-    assert admit_authorities(kernel, candidate_ldb).admitted
-    checked = check_model_source_value(
-        source, kernel=kernel, language_bundle=candidate_ldb
-    )
-    assert isinstance(checked, CheckedModel)
-
-    production = lower_checked_model(checked)["rir-semantic-payload"]
-    reference = _reference_rir(checked)
-
-    assert production == reference
-    assert "items" in production
-    assert "declarations" not in production
 
 
 def test_schema_error_mapping_uses_the_complete_ldb_selector_path():

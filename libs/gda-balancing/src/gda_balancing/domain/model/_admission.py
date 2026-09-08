@@ -1792,12 +1792,9 @@ def _model_explanation_pairs_are_admitted(
     lock: dict[str, Any],
     authority_context: AdmittedAuthorityContext,
 ) -> bool:
-    output_member = _model_lowering(authority_context.language_bundle).get(
-        "output_member"
-    )
     return _formula_pairs_are_admitted(
         explanation.get("formula_explanations"),
-        rir.get(output_member) if isinstance(output_member, str) else None,
+        rir.get("declarations"),
         lock.get("root_requirements"),
         authority_context,
     )
@@ -1814,7 +1811,7 @@ def _rir_semantics_are_admitted(
     kernel = context.kernel
     ldb = context.language_bundle
     lowering = _model_lowering(ldb)
-    declarations = rir.get(cast(str, lowering["output_member"]))
+    declarations = rir.get("declarations")
     if not isinstance(declarations, list):
         return False
     try:
@@ -2003,8 +2000,7 @@ def admit_resolved_model(
     if not all(_verify_artifact(item, ldb) for item in (lock, rir, resolved)):
         return ResolvedModelAdmission(False, diagnostic)
     root_requirements = lock.get("root_requirements")
-    output_member = cast(str, lowering["output_member"])
-    declarations = rir.get(output_member)
+    declarations = rir.get("declarations")
     if not isinstance(root_requirements, list) or not isinstance(declarations, list):
         return ResolvedModelAdmission(False, diagnostic)
     profile = _resolution_profile(ldb, cast(str, lowering["resolution_profile"]))

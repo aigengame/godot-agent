@@ -1,6 +1,7 @@
 """Pure projections of Kernel closed value contracts into JSON Schema."""
 
 import re
+from copy import deepcopy
 from typing import Any, cast
 
 
@@ -28,7 +29,7 @@ def _contract_schema(contract: dict[str, Any]) -> dict[str, object]:
             "type": value_type,
             **{
                 key: contract[key]
-                for key in ("pattern", "maxLength")
+                for key in ("pattern", "minLength", "maxLength", "minimum", "maximum")
                 if key in contract
             },
         }
@@ -125,3 +126,63 @@ def _candidate_hex_pattern(candidate_encoding: Any) -> str:
         raise ValueError("Kernel RNG candidate encoding is incomplete")
     candidate_width = candidate_encoding["width_bits"] // 4
     return f"^[{re.escape(candidate_encoding['alphabet'])}]{{{candidate_width}}}$"
+
+
+def artifact_envelope_contract(
+    kernel: dict[str, Any], artifact_kind: str
+) -> dict[str, Any]:
+    """Bind the actual kind to the single common compiled Artifact envelope."""
+    contract = deepcopy(
+        kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
+            "artifact_envelope"
+        ]
+    )
+    fields = contract["field_types"]
+    if "artifact_kind" in fields:
+        raise ValueError("Artifact envelope duplicates the actual Contract kind")
+    fields["artifact_kind"] = {"const": artifact_kind}
+    # This checks the complete required/optional membership before payloads merge.
+    _closed_contract_schema(contract)
+    return contract
+
+
+def ordered_protocol_schema(
+    kernel: dict[str, Any], schema: dict[str, Any]
+) -> dict[str, Any]:
+    """Canonicalize only generated Schema sets, preserving every ordered payload."""
+    from gda_balancing.domain.canonical import canonical_bytes
+
+    law = kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
+        "derived_schema_order"
+    ]
+    if law != {
+        "required": "unicode-lexicographic",
+        "alternatives": "canonical-bytes",
+        "enum_values": "opaque-canonical-bytes",
+        "duplicates": "preserve",
+        "const": "opaque",
+    }:
+        raise ValueError("unsupported derived protocol Schema ordering")
+
+    def visit(value: dict[str, Any]) -> dict[str, Any]:
+        result = deepcopy(value)
+        if "required" in result:
+            result["required"] = sorted(result["required"])
+        if "properties" in result:
+            result["properties"] = {
+                name: visit(child) for name, child in result["properties"].items()
+            }
+        if "items" in result:
+            result["items"] = visit(result["items"])
+        for keyword in ("oneOf", "anyOf"):
+            if keyword in result:
+                result[keyword] = sorted(
+                    (visit(child) for child in result[keyword]), key=canonical_bytes
+                )
+        if "enum" in result:
+            # Values are canonical JSON data, not Schema. In particular a nested
+            # Operation body or array under an enum value keeps its exact order.
+            result["enum"] = sorted(result["enum"], key=canonical_bytes)
+        return result
+
+    return visit(schema)

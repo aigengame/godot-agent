@@ -45,6 +45,8 @@ from gda_balancing.domain.structured_values import (
     structured_fault_reason,
 )
 
+from gda_balancing.domain.authority.rir_projection import rir_collection_output
+
 from gda_balancing.domain.model._resolution import (
     CheckedModel,
     ModelSourceContext,
@@ -4335,10 +4337,10 @@ def _runtime_projection(
                 closure_values.setdefault(
                     (cast(str, row["package"]), authority_path), []
                 ).append(row["value"])
-        output_member = collection["output_member"]
-        if output_member is None:
+        output_role = rir_collection_output(kernel, collection["source"])
+        if output_role is None:
             continue
-        shape = collection["output_shape"]
+        output_member, shape = output_role
         if shape == "as-is":
             projected_values: list[Any] = [row["value"] for row in rows]
         elif shape == "package-definition":
@@ -4355,55 +4357,30 @@ def _runtime_projection(
             raise ValueError("unknown admitted runtime projection output shape")
         projection[cast(str, output_member)] = projected_values
 
-    for output in cast(list[dict[str, Any]], profile["outputs"]):
-        source_rows = {
-            "packages": packages,
-            "package_semantic_closures": runtime_closures,
-        }[output["source_member"]]
-        kind = output["kind"]
-        if kind == "selected-packages":
-            output_values: list[Any] = [
-                {
-                    member: cast(dict[str, Any], row)[member]
-                    for member in cast(list[str], output["members"])
-                }
-                for row in source_rows
-                if (
-                    budget.consume() is None
-                    and cast(dict[str, Any], row)[output["package_member"]]
-                    in selected_packages
+    # These two results are fixed compiled namespace evidence. The authored
+    # projection still selects definitions; it no longer configures their wire keys.
+    projection["packages"] = [
+        {"id": row["id"]}
+        for row in packages
+        if budget.consume() is None and row["id"] in selected_packages
+    ]
+    projected_closures: list[Any] = []
+    for closure in runtime_closures:
+        budget.consume()
+        package = closure["package"]
+        if package not in selected_packages:
+            continue
+        entries = []
+        for entry in closure["definitions"]:
+            authority_path = entry["authority_path"]
+            definitions = closure_values.get((package, authority_path))
+            if definitions:
+                entries.append(
+                    {"authority_path": authority_path, "definitions": definitions}
                 )
-            ]
-        elif kind == "selected-semantic-closures":
-            output_values = []
-            for closure in cast(list[dict[str, Any]], source_rows):
-                budget.consume()
-                package = cast(str, closure[output["package_member"]])
-                if package not in selected_packages:
-                    continue
-                entries = []
-                for entry in cast(
-                    list[dict[str, Any]], closure[output["entries_member"]]
-                ):
-                    authority_path = cast(str, entry[output["authority_path_member"]])
-                    definitions = closure_values.get((package, authority_path))
-                    if definitions:
-                        entries.append(
-                            {
-                                output["authority_path_member"]: authority_path,
-                                output["definitions_member"]: definitions,
-                            }
-                        )
-                if entries:
-                    output_values.append(
-                        {
-                            output["package_member"]: package,
-                            output["entries_member"]: entries,
-                        }
-                    )
-        else:
-            raise ValueError("unknown admitted runtime projection output kind")
-        projection[cast(str, output["output_member"])] = output_values
+        if entries:
+            projected_closures.append({"package": package, "definitions": entries})
+    projection["package_semantic_closures"] = projected_closures
     return projection
 
 
