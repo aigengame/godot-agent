@@ -39,11 +39,13 @@ from gda.errors import (
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
+    RunnerFactory,
     godot_option,
     json_option,
     params_json_option,
     project_option,
 )
+from gda.model_content import ModelContent
 from gda.models import (
     CREATED_DIRS_DESC,
     EngineVersion,
@@ -432,6 +434,24 @@ class ResourceInspectModelResult(BaseModel):
     omissions: list[ModelOmission]
 
 
+class ResourceInspectModelContentParams(BaseModel):
+    path: NormalizedPath = Field(description="An imported GLB model resource.")
+    max_nodes: int = Field(
+        default=256, ge=1, le=1024, description="Maximum nodes to sample."
+    )
+    max_vertices: int = Field(
+        default=200000,
+        ge=1,
+        le=1000000,
+        description="Maximum ArrayMesh vertices to sample.",
+    )
+
+
+class ResourceInspectModelContentResult(BaseModel):
+    path: str
+    content: ModelContent
+
+
 def render_resource_inspect_model(result: ResourceInspectModelResult) -> str:
     summary = result.summary
     text = (
@@ -451,6 +471,23 @@ RESOURCE_INSPECT_MODEL_COMMAND: HeadlessCommand[ResourceInspectModelResult] = (
         output_model=ResourceInspectModelResult,
         render=render_resource_inspect_model,
     )
+)
+
+
+def render_resource_inspect_model_content(
+    result: ResourceInspectModelContentResult,
+) -> str:
+    digest = result.content.digest or "unavailable"
+    return f"{result.path}: {result.content.nodes} nodes, digest {digest}"
+
+
+RESOURCE_INSPECT_MODEL_CONTENT_COMMAND: HeadlessCommand[
+    ResourceInspectModelContentResult
+] = HeadlessCommand(
+    operation="resource-inspect-model-content",
+    input_model=ResourceInspectModelContentParams,
+    output_model=ResourceInspectModelContentResult,
+    render=render_resource_inspect_model_content,
 )
 
 
@@ -777,6 +814,32 @@ def inspect_model(
         RESOURCE_INSPECT_MODEL_COMMAND,
         ResourceInspectModelParams(
             path=path, subtree=subtree, max_nodes=max_nodes, max_items=max_items
+        ),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(
+    name="inspect-model-content",
+    cls=RESOURCE_INSPECT_MODEL_CONTENT_COMMAND.command_class(),
+)
+def inspect_model_content(
+    path: str = typer.Option(..., "--path", help="Imported GLB model resource."),
+    max_nodes: int = typer.Option(256, min=1, max=1024),
+    max_vertices: int = typer.Option(200000, min=1, max=1000000),
+    json_output: bool = json_option(),
+    schema: bool = RESOURCE_INSPECT_MODEL_CONTENT_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Digest bounded static content from an imported GLB through Godot."""
+    dispatch_domain(
+        RESOURCE_INSPECT_MODEL_CONTENT_COMMAND,
+        ResourceInspectModelContentParams(
+            path=path, max_nodes=max_nodes, max_vertices=max_vertices
         ),
         json_output=json_output,
         godot=godot,
@@ -1337,6 +1400,31 @@ def run_resource_inspect_model_operation(
         return addressed
     return RESOURCE_INSPECT_MODEL_COMMAND.execute(
         params.model_copy(update={"path": addressed}), godot=godot, project=project
+    )
+
+
+def run_resource_inspect_model_content_operation(
+    project: Path,
+    params: ResourceInspectModelContentParams,
+    *,
+    godot: str | None = None,
+    make_runner: RunnerFactory | None = None,
+) -> ResourceInspectModelContentResult | Failure:
+    """Return bounded GLB content facts without emitting or exiting."""
+    addressed = _asset_res_path(project, params.path)
+    if isinstance(addressed, Failure):
+        return addressed
+    if Path(addressed).suffix.lower() != ".glb":
+        return make_failure(
+            "invalid_params", "inspect-model-content supports GLB resources only", ""
+        )
+    selected = params.model_copy(update={"path": addressed})
+    if make_runner is None:
+        return RESOURCE_INSPECT_MODEL_CONTENT_COMMAND.execute(
+            selected, godot=godot, project=project
+        )
+    return RESOURCE_INSPECT_MODEL_CONTENT_COMMAND.execute(
+        selected, godot=godot, project=project, make_runner=make_runner
     )
 
 

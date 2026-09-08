@@ -80,6 +80,13 @@ file/configuration/artifact hashes and their observation limits. Producer
 declarations remain labelled. It does not prove runtime instance freshness or full
 reproducibility. No core operation requires a receipt.
 
+**Controlled refresh**: An optional workflow step after successful import and load
+that stops the previous daemon, launches an explicit test scene, waits for readiness,
+and compares the selected instance with the imported model. It loses runtime state.
+The workflow compares complete, compatible gda content samples; it does not define
+the engine sampler or infer instance content from a file hash. Its session and frame
+values are observations for this invocation, not persistent asset identities.
+
 **Preview recipe**: Project-local scene/settings plus a workflow that fixes the
 camera, lighting, renderer, pose, and observation conditions. It uses existing gda
 capture/diagnostic/performance operations. It is not a new renderer or profiler.

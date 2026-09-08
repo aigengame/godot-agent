@@ -17,6 +17,7 @@ against the engine session it holds, reading the runtime ``SceneTree`` after
 """
 
 import json
+from pathlib import Path
 from typing import Any, Optional
 
 import typer
@@ -25,13 +26,17 @@ from pydantic import (
     ConfigDict,
     Field,
     SerializerFunctionWrapHandler,
+    field_validator,
     model_serializer,
 )
 
+from gda import dispatch
 from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.execution import ExecutionKind
+from gda.errors import Failure
 from gda.headless import (
     HeadlessCommand,
+    RunnerFactory,
     godot_option,
     json_option,
     params_json_option,
@@ -45,6 +50,7 @@ from gda.models import (
     RUNTIME_NODE_DESC,
     projected_value_schema_extra,
 )
+from gda.model_content import ModelContent
 from gda.render import format_value, render_node_tree, render_property_lines
 
 # The live set-echo variant of the shared value-projection description
@@ -224,6 +230,35 @@ class GameGetResult(BaseModel):
             + LIVE_ENGINE_PRECISION
         )
     )
+
+
+class GameInspectModelContentParams(RelayedLiveParams):
+    node: str = Field(description=RUNTIME_NODE_DESC)
+    max_nodes: int = Field(
+        default=256, ge=1, le=1024, description="Maximum nodes to sample."
+    )
+    max_vertices: int = Field(
+        default=200000,
+        ge=1,
+        le=1000000,
+        description="Maximum ArrayMesh vertices to sample.",
+    )
+
+    @field_validator("node")
+    @classmethod
+    def _absolute_runtime_node(cls, value: str) -> str:
+        if value != "/root" and not value.startswith("/root/"):
+            raise ValueError("node must be an absolute runtime path under /root")
+        return value
+
+
+class GameInspectModelContentResult(BaseModel):
+    node: str
+    instance_id: int = Field(gt=0)
+    scene_file_path: str
+    session_id: str = Field(min_length=1)
+    engine_frame: int = Field(ge=0)
+    content: ModelContent
 
 
 class GameRectParams(RelayedLiveParams):
@@ -537,6 +572,13 @@ def render_game_call(called: "GameCallResult") -> str:
     return f"call {called.path}.{called.method}() -> {format_value(called.value)}"
 
 
+def render_game_inspect_model_content(
+    result: GameInspectModelContentResult,
+) -> str:
+    digest = result.content.digest or "unavailable"
+    return f"{result.node}: {result.content.nodes} nodes, digest {digest}"
+
+
 GAME_TREE_COMMAND: HeadlessCommand[GameTreeResult] = HeadlessCommand(
     operation="game-tree",
     input_model=GameTreeParams,
@@ -579,6 +621,31 @@ GAME_CALL_COMMAND: HeadlessCommand[GameCallResult] = HeadlessCommand(
     render=render_game_call,
     kind=ExecutionKind.LIVE,
 )
+
+GAME_INSPECT_MODEL_CONTENT_COMMAND: HeadlessCommand[GameInspectModelContentResult] = (
+    HeadlessCommand(
+        operation="game-inspect-model-content",
+        input_model=GameInspectModelContentParams,
+        output_model=GameInspectModelContentResult,
+        render=render_game_inspect_model_content,
+        kind=ExecutionKind.LIVE,
+    )
+)
+
+
+def run_game_inspect_model_content_operation(
+    project: Optional[Path],
+    params: GameInspectModelContentParams,
+    *,
+    make_runner: RunnerFactory | None = None,
+) -> GameInspectModelContentResult | Failure:
+    """Return live static-model content facts without emitting or exiting."""
+    return GAME_INSPECT_MODEL_CONTENT_COMMAND.execute(
+        params,
+        godot=None,
+        project=project,
+        make_runner=make_runner or dispatch.make_live_runner,
+    )
 
 
 # The game command group (Phase 2, ADR-0019): the RUNNING game's runtime scene
@@ -703,6 +770,37 @@ def game_get(
     dispatch_domain(
         GAME_GET_COMMAND,
         GameGetParams(node=node, property=property, texture_digest=texture_digest),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(
+    name="inspect-model-content",
+    cls=GAME_INSPECT_MODEL_CONTENT_COMMAND.command_class(),
+)
+def game_inspect_model_content(
+    node: str = typer.Option(
+        ..., "--node", help="Absolute runtime node path under /root."
+    ),
+    max_nodes: int = typer.Option(256, min=1, max=1024),
+    max_vertices: int = typer.Option(200000, min=1, max=1000000),
+    json_output: bool = json_option(),
+    schema: bool = GAME_INSPECT_MODEL_CONTENT_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Digest bounded static content below a node in the running game."""
+    dispatch_domain(
+        GAME_INSPECT_MODEL_CONTENT_COMMAND,
+        params_or_bad_parameter(
+            GameInspectModelContentParams,
+            node=node,
+            max_nodes=max_nodes,
+            max_vertices=max_vertices,
+        ),
         json_output=json_output,
         godot=godot,
         project=project,

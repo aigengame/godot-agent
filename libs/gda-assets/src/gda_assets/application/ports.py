@@ -8,6 +8,12 @@ from typing import Any
 from gda_assets.domain.artifacts import ImportOutcome, InstalledFile, LoadObservation
 from gda_assets.domain.recipe import AssetFile, AssetRecipe
 from gda_assets.domain.model import ModelFacts
+from gda_assets.domain.refresh import (
+    ImportedContent,
+    InstanceContent,
+    SessionState,
+    CaptureObservation,
+)
 from gda_assets.domain.observations import (
     FileDigest,
     ImportAssetFacts,
@@ -97,3 +103,23 @@ class ModelInspectionPort(Protocol):
     def inspect_model(
         self, path: str, *, subtree: str, max_nodes: int, max_items: int
     ) -> "ModelFacts": ...
+
+
+class GodotRefreshPort(Protocol):
+    def inspect_content(
+        self, path: str, *, max_nodes: int, max_vertices: int
+    ) -> ImportedContent: ...
+
+    def status(self) -> SessionState: ...
+
+    def stop(self) -> dict[str, Any]: ...
+
+    def start(self, scene: str, *, windowed: bool) -> dict[str, Any]: ...
+
+    def wait_ready(self, timeout: float) -> dict[str, Any]: ...
+
+    def observe_content(
+        self, node: str, *, max_nodes: int, max_vertices: int
+    ) -> InstanceContent: ...
+
+    def capture(self, output: Path) -> CaptureObservation: ...

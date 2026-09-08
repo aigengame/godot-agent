@@ -333,6 +333,8 @@ func _initialize() -> void:
 			_op_resource_load(params)
 		"resource-inspect-model":
 			_op_resource_inspect_model(params)
+		"resource-inspect-model-content":
+			_op_resource_inspect_model_content(params)
 		"resource-import-options":
 			_op_resource_import_options(params)
 		"resource-import-config-patch":
@@ -3436,6 +3438,273 @@ func _op_resource_inspect_model(params: Dictionary) -> void:
 		"truncated": not budget["omissions"].is_empty(),
 		"omissions": budget["omissions"],
 	}
+	root.free()
+	_succeed(result)
+
+
+# --- BEGIN shared static model content sampling (#890) ---
+# This block is duplicated byte-for-byte in the live harness: imported and live
+# facts must be produced by one algorithm even though neither script can preload
+# the other. Keep the surface deliberately narrow; this is not Resource identity.
+const MODEL_CONTENT_MEASUREMENT := "godot-static-model-content-v1"
+const MODEL_CONTENT_MAX_BYTES := 67108864
+const MODEL_CONTENT_MAX_STORED_BYTES := 33554432
+const MODEL_CONTENT_MAX_SURFACES := 4096
+
+
+func _model_content_note(items: Array, note: String) -> void:
+	if not note in items:
+		items.append(note)
+
+
+func _model_content_hash(state: Dictionary, value: Variant, location: String) -> bool:
+	var bytes := var_to_bytes(value)
+	if int(state["bytes"]) + bytes.size() > MODEL_CONTENT_MAX_BYTES:
+		_model_content_note(state["omitted"], "byte limit exceeded at " + location)
+		return false
+	state["bytes"] = int(state["bytes"]) + bytes.size()
+	(state["hash"] as HashingContext).update(bytes)
+	return true
+
+
+func _model_content_material(instance: MeshInstance3D, surface: int,
+		state: Dictionary, location: String) -> void:
+	var material: Material = instance.get_active_material(surface)
+	_model_content_hash(state, "material", location)
+	if material == null:
+		_model_content_hash(state, null, location)
+		return
+	if material.get_class() != "StandardMaterial3D" or material.get_script() != null:
+		_model_content_note(state["unsupported"], location + ": material type "
+				+ material.get_class() + " is unsupported")
+		return
+	_model_content_hash(state, "StandardMaterial3D", location)
+	var properties: Array = []
+	for property in material.get_property_list():
+		var name := String(property.get("name", ""))
+		var usage := int(property.get("usage", 0))
+		if (usage & PROPERTY_USAGE_STORAGE) == 0 or name in [
+				"resource_local_to_scene", "resource_name", "resource_path", "script"]:
+			continue
+		properties.append(property)
+	properties.sort_custom(func(a, b): return String(a.get("name", "")) < String(b.get("name", "")))
+	for property in properties:
+		var name := String(property.get("name", ""))
+		var type := int(property.get("type", TYPE_NIL))
+		var value: Variant = material.get(name)
+		if type in [TYPE_NIL, TYPE_BOOL, TYPE_INT, TYPE_FLOAT, TYPE_STRING,
+				TYPE_STRING_NAME, TYPE_VECTOR2, TYPE_VECTOR3, TYPE_VECTOR4, TYPE_COLOR]:
+			if not _model_content_hash(state, name, location):
+				return
+			if not _model_content_hash(state, value, location):
+				return
+		elif type == TYPE_OBJECT and value == null:
+			if not _model_content_hash(state, name, location):
+				return
+			if not _model_content_hash(state, null, location):
+				return
+		elif type == TYPE_OBJECT:
+			_model_content_note(state["unsupported"], location + ": material resource property "
+					+ name + " is unsupported")
+		else:
+			_model_content_note(state["unsupported"], location + ": material property "
+					+ name + " has unsupported type " + type_string(type))
+
+
+func _model_content_array_bytes(arrays: Array) -> int:
+	var total := 0
+	for value in arrays:
+		match typeof(value):
+			TYPE_NIL:
+				pass
+			TYPE_PACKED_BYTE_ARRAY:
+				total += value.size()
+			TYPE_PACKED_INT32_ARRAY, TYPE_PACKED_FLOAT32_ARRAY:
+				total += value.size() * 4
+			TYPE_PACKED_INT64_ARRAY, TYPE_PACKED_FLOAT64_ARRAY, TYPE_PACKED_VECTOR2_ARRAY:
+				total += value.size() * 8
+			TYPE_PACKED_VECTOR3_ARRAY:
+				total += value.size() * 12
+			TYPE_PACKED_VECTOR4_ARRAY, TYPE_PACKED_COLOR_ARRAY:
+				total += value.size() * 16
+			_:
+				return -1
+	return total
+
+
+func _model_content_surface_stored_bytes(surface: Dictionary) -> int:
+	var total := 0
+	for key in ["vertex_data", "attribute_data", "skin_data", "index_data"]:
+		var value: Variant = surface.get(key, PackedByteArray())
+		if not value is PackedByteArray:
+			return -1
+		total += value.size()
+	return total
+
+
+func _model_content_surface_lod_status(surface: Dictionary) -> int:
+	# Godot 4.6 omits `lods` when absent and stores a nonempty one as the native
+	# [edge_length, index_bytes, ...] Array. Any other present shape is unknown.
+	# Source: godotengine/godot 4.6.3-stable scene/resources/mesh.cpp:1536-1543.
+	if not surface.has("lods"):
+		return 0
+	var lods: Variant = surface["lods"]
+	if not lods is Array:
+		return -1
+	return 1 if not lods.is_empty() else 0
+
+
+func _model_static_content(root: Node, max_nodes: int, max_vertices: int) -> Dictionary:
+	var hashing := HashingContext.new()
+	hashing.start(HashingContext.HASH_SHA256)
+	var state := {"hash": hashing, "bytes": 0, "stored_bytes": 0, "unsupported": [], "omitted": []}
+	var engine := Engine.get_version_info()
+	if int(engine.get("major", 0)) != 4 or int(engine.get("minor", 0)) != 6:
+		_model_content_note(state["unsupported"], "native ArrayMesh storage shape is validated only for Godot 4.6")
+	var stack: Array[Node] = [root]
+	var node_count := 0
+	var surface_count := 0
+	var vertex_count := 0
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		if node_count >= max_nodes:
+			_model_content_note(state["omitted"], "node limit exceeded")
+			break
+		node_count += 1
+		var locator := String(root.get_path_to(node))
+		_model_content_hash(state, "node", locator)
+		_model_content_hash(state, locator, locator)
+		_model_content_hash(state, node.get_class(), locator)
+		# The selected root's placement belongs to its consumer. Descendant local
+		# transforms are authored model content and therefore participate.
+		if node != root and node is Node3D:
+			_model_content_hash(state, node.transform, locator)
+		if node.get_script() != null:
+			_model_content_note(state["unsupported"], locator + ": scripted node is unsupported")
+		if node is Skeleton3D:
+			_model_content_note(state["unsupported"], locator + ": skeleton is unsupported")
+		if node is AnimationPlayer:
+			_model_content_note(state["unsupported"], locator + ": animation is unsupported")
+		if (node is VisualInstance3D and not node is MeshInstance3D) or node is Camera3D:
+			_model_content_note(state["unsupported"], locator + ": visual node type "
+					+ node.get_class() + " is unsupported")
+		if node is MeshInstance3D and node.mesh != null:
+			var instance: MeshInstance3D = node
+			if instance.material_overlay != null:
+				_model_content_note(state["unsupported"], locator + ": material overlay is unsupported")
+			if instance.skin != null or not instance.skeleton.is_empty():
+				_model_content_note(state["unsupported"], locator + ": skin is unsupported")
+			if not instance.mesh is ArrayMesh:
+				_model_content_note(state["unsupported"], locator + ": mesh type "
+						+ instance.mesh.get_class() + " is unsupported")
+			else:
+				var mesh: ArrayMesh = instance.mesh
+				var stored_surfaces: Variant = mesh.get("_surfaces")
+				if not stored_surfaces is Array or stored_surfaces.size() < mesh.get_surface_count():
+					_model_content_note(state["unsupported"], locator + ": native mesh surface metadata is unavailable")
+					stored_surfaces = []
+				if mesh.get_blend_shape_count() > 0:
+					_model_content_note(state["unsupported"], locator + ": blend shapes are unsupported")
+				for surface in mesh.get_surface_count():
+					if surface_count >= MODEL_CONTENT_MAX_SURFACES:
+						_model_content_note(state["omitted"], "surface limit exceeded")
+						break
+					surface_count += 1
+					var surface_location := locator + ":surface:" + str(surface)
+					var vertices := mesh.surface_get_array_len(surface)
+					var indices := mesh.surface_get_array_index_len(surface)
+					if vertex_count + vertices > max_vertices:
+						_model_content_note(state["omitted"], "vertex limit exceeded at " + surface_location)
+						continue
+					if indices * 4 > MODEL_CONTENT_MAX_STORED_BYTES - int(state["stored_bytes"]):
+						_model_content_note(state["omitted"], "index byte limit exceeded at " + surface_location)
+						continue
+					vertex_count += vertices
+					if surface >= stored_surfaces.size() or not stored_surfaces[surface] is Dictionary:
+						_model_content_note(state["unsupported"], surface_location + ": native mesh surface metadata is unavailable")
+						continue
+					var stored_surface: Dictionary = stored_surfaces[surface]
+					var lod_status := _model_content_surface_lod_status(stored_surface)
+					if lod_status < 0:
+						_model_content_note(state["unsupported"], surface_location + ": native LOD metadata shape is unsupported")
+					elif lod_status > 0:
+						_model_content_note(state["unsupported"], surface_location + ": LODs are unsupported")
+					var stored_bytes := _model_content_surface_stored_bytes(stored_surface)
+					if stored_bytes < 0:
+						_model_content_note(state["unsupported"], surface_location + ": native mesh buffer size is unavailable")
+						continue
+					if int(state["stored_bytes"]) + stored_bytes > MODEL_CONTENT_MAX_STORED_BYTES:
+						_model_content_note(state["omitted"], "stored mesh byte limit exceeded at " + surface_location)
+						continue
+					state["stored_bytes"] = int(state["stored_bytes"]) + stored_bytes
+					_model_content_hash(state, "surface", surface_location)
+					_model_content_hash(state, surface, surface_location)
+					var arrays := mesh.surface_get_arrays(surface)
+					var array_bytes := _model_content_array_bytes(arrays)
+					if array_bytes < 0:
+						_model_content_note(state["unsupported"], surface_location + ": mesh array type is unsupported")
+						continue
+					if array_bytes > MODEL_CONTENT_MAX_BYTES:
+						_model_content_note(state["omitted"], "byte limit exceeded at " + surface_location)
+						continue
+					_model_content_hash(state, mesh.surface_get_primitive_type(surface), surface_location)
+					_model_content_hash(state, mesh.surface_get_format(surface), surface_location)
+					_model_content_hash(state, arrays, surface_location)
+					_model_content_material(instance, surface, state, surface_location)
+		# Push only the bounded prefix, in reverse, so a pathologically wide node
+		# cannot allocate an unbounded traversal stack.
+		var available := maxi(0, max_nodes - node_count - stack.size())
+		var taken := mini(node.get_child_count(), available)
+		if taken < node.get_child_count():
+			_model_content_note(state["omitted"], "node limit exceeded below " + locator)
+		for index in range(taken - 1, -1, -1):
+			stack.append(node.get_child(index))
+	if surface_count == 0 or vertex_count == 0:
+		_model_content_note(state["unsupported"], "selected subtree has no sampled static mesh geometry")
+	state["unsupported"].sort()
+	state["omitted"].sort()
+	var complete: bool = state["unsupported"].is_empty() and state["omitted"].is_empty()
+	return {
+		"measurement": MODEL_CONTENT_MEASUREMENT,
+		"engine_version": Engine.get_version_info(),
+		"complete": complete,
+		"digest": hashing.finish().hex_encode() if complete else null,
+		"nodes": node_count,
+		"surfaces": surface_count,
+		"vertices": vertex_count,
+		"unsupported": state["unsupported"],
+		"omitted": state["omitted"],
+	}
+# --- END shared static model content sampling ---
+
+
+func _op_resource_inspect_model_content(params: Dictionary) -> void:
+	_diag("running operation: resource-inspect-model-content")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if path.get_extension().to_lower() != "glb":
+		_fail(OP_ERROR_INVALID_PARAMS, "static model content sampling requires a .glb path")
+		return
+	if not FileAccess.file_exists(path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "resource not found: " + path)
+		return
+	var max_nodes := _int_param(params, "max_nodes") if params.has("max_nodes") else 256
+	var max_vertices := _int_param(params, "max_vertices") if params.has("max_vertices") else 200000
+	if max_nodes < 1 or max_nodes > 1024 or max_vertices < 1 or max_vertices > 1000000:
+		_fail(OP_ERROR_INVALID_PARAMS,
+				"max_nodes must be in 1..1024 and max_vertices in 1..1000000")
+		return
+	var resource: Resource = ResourceLoader.load(path)
+	if not resource is PackedScene:
+		_fail(OP_ERROR_NOT_A_SCENE, "resource could not be loaded as PackedScene: " + path)
+		return
+	var root: Node = resource.instantiate()
+	if root == null:
+		_fail(OP_ERROR_NOT_A_SCENE, "PackedScene has no instantiable root: " + path)
+		return
+	var result := {"path": path, "content": _model_static_content(root, max_nodes, max_vertices)}
 	root.free()
 	_succeed(result)
 

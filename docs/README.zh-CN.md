@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=6324aeff733992b590137cfa9277e8e40be99d85639956efb945a03be592688d -->
+<!-- gda-readme-i18n: source=README.md sha256=303f1d9a3b2d58189af4ca8431b3fefb6ddc813221ac385e21b2f292fff0db28 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -445,6 +445,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `resource delete` | 删除一个 `.tres` 资源文件并报告删除了什么。 |
 | `resource uid` | 在资源 UID 与其 `res://` 路径之间双向解析。 |
 | `resource import` | 确保资产已导入项目缓存（干净工作树加载）。 |
+| `resource inspect-model-content` | 为了与运行时实例比较，对已导入 GLB 中受支持且范围受限的静态内容计算摘要。 |
 
 **`export`** — 导出预设与产物
 
@@ -472,12 +473,13 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `asset-pipeline run` | 导出已保存的 Blender 资产子树，或暂存 PNG/GLB 文件，再安装、导入并检查 Godot 实际加载的结果。可选收集所选文件与导入产物的摘要，并说明覆盖范围。 |
+| `asset-pipeline run` | 导出已保存的 Blender 资产子树，或暂存 PNG/GLB 文件，再安装、导入并检查 Godot 实际加载的结果。还可收集所选文件与导入产物的摘要，或重启测试场景并比较一个运行中的 GLB 实例。 |
 | `asset-pipeline check` | 按项目要求验收模型，并比较范围兼容的 Godot 检查报告。完成检查后退出码为 0，是否符合要求以结果中的 verdict 为准。 |
 
 请使用明确的源文件到目标位置映射，并指定覆盖策略。图像生成完成后的文件沿用同一流程，
-也可以附带调用方声明的元数据。[资产管线指南](../libs/gda-assets/README.md)介绍了 Blender 导出、文件输入、引用与
-部分失败的处理方式。该工作流随 gda 一同提供，无需单独安装资产工具。
+也可以附带调用方声明的元数据。[资产管线指南](../libs/gda-assets/README.md)介绍了 Blender 导出、文件输入、引用、
+运行时刷新与部分失败。刷新会丢弃运行时状态，且必须明确指定场景和实例路径。[静态模型内容指南](model-content.md)定义了
+底层两条事实命令及其共用的测量方式。该工作流随 gda 一同提供，无需单独安装资产工具。
 
 ### Live 命令 — 经由 `gda-daemon`；Godot 4.6+，macOS/Linux
 
@@ -498,6 +500,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | ------- | ------------ |
 | `game tree` | 读取正在运行的游戏的运行时场景树（在 `_ready` 之后）。 |
 | `game get` | 按节点路径读取一个运行时节点的实时属性；显式命名时可读取附加脚本变量。 |
+| `game inspect-model-content` | 对所选运行时模型实例下受支持且范围受限的静态内容计算摘要。 |
 | `game rect` | 按节点路径读取一个运行时 Control 渲染后的视口矩形。 |
 | `game set` | 在正在运行的游戏上设置运行时节点属性，或显式命名的附加脚本变量；`verified` 报告读回值是否匹配。 |
 | `game call` | 调用节点脚本在 `GDA_CALLABLE` 中声明的一个方法，并以结构化数据形式返回结果。项目自己承诺该方法是只读的，gda 无法验证；未声明的方法绝不会被调用。 |
@@ -582,7 +585,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 - **autoload** 在每个会启动引擎的 `--project` 操作中运行，只读操作也不例外（缓存完好的
   `resource import` 不启动任何东西）。
 - **场景脚本的 `_init`** 在场景被实例化的地方运行：每个改动状态的 `node` 命令、`node get`，
-  `resource inspect-model`、`asset-pipeline check --path`，
+  `resource inspect-model`、`resource inspect-model-content`、`asset-pipeline check --path`，
   以及 `asset-pipeline run` 中的 GLB 加载检查；`scene get` / `scene list` / `node list` 只读取、不实例化。
 - **`script run`** 会执行指定脚本的全部内容；**`scene preflight`** 启动场景并运行其 `_ready`。
 - **`resource import`** 在缓存缺失时运行引擎的导入器（以及项目的导入插件），不运行 autoload。

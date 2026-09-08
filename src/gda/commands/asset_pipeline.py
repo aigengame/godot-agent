@@ -19,6 +19,8 @@ from gda_assets.api import (
     ProductionOutput,
     CollectionRequest,
     ContentObservations,
+    RefreshRequest,
+    RefreshResult,
 )
 
 from gda.dispatch import dispatch_recipe, params_or_bad_parameter
@@ -105,6 +107,49 @@ class ProductionInput(BaseModel):
     )
 
 
+class AssetRefreshInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str = Field(
+        description="Selected GLB output whose imported root is compared with the runtime instance."
+    )
+    scene: str = Field(
+        description="Explicit res:// test scene to relaunch; runtime state is lost."
+    )
+    node: str = Field(
+        description="Absolute /root/... path of that model instance in the new session."
+    )
+    windowed: bool = Field(
+        default=False,
+        strict=True,
+        description="Launch a rendered window; required for capture_output.",
+    )
+    timeout: float = Field(
+        default=25.0,
+        gt=0,
+        le=50,
+        allow_inf_nan=False,
+        description="Existing daemon readiness timeout in seconds.",
+    )
+    max_nodes: int = Field(
+        default=256,
+        strict=True,
+        ge=1,
+        le=1024,
+        description="Maximum nodes in the content sample.",
+    )
+    max_vertices: int = Field(
+        default=200000,
+        strict=True,
+        ge=1,
+        le=1000000,
+        description="Maximum vertices in the content sample.",
+    )
+    capture_output: Path | None = Field(
+        default=None,
+        description="Optional PNG filesystem output for a subsequent capture in the same session.",
+    )
+
+
 class AssetPipelineRunParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
     files: list[AssetFileInput] = Field(
@@ -145,6 +190,10 @@ class AssetPipelineRunParams(BaseModel):
     declared_output_sha256: dict[str, str] = Field(
         default_factory=dict,
         description="Optional caller-declared SHA-256 per installed res:// output; checked only with collect_observations.",
+    )
+    refresh: AssetRefreshInput | None = Field(
+        default=None,
+        description="After successful import/load, reset an explicit scene and compare its selected model instance. Independent of collect_observations.",
     )
 
     @model_validator(mode="after")
@@ -203,6 +252,7 @@ class PipelineRunResult(BaseModel):
     cleanup: dict[str, bool] | None = None
     caller_declared_provenance: dict[str, Any] | None = None
     content_observations: ContentObservations | None = None
+    refresh: RefreshResult | None = None
 
 
 class AssetPipelineRunResult(BaseModel):
@@ -329,6 +379,10 @@ def run_asset_pipeline(
         if params.collect_observations
         else None,
         import_observer=port if params.collect_observations else None,
+        refresh=RefreshRequest(**params.refresh.model_dump())
+        if params.refresh
+        else None,
+        runtime=port if params.refresh else None,
     )
     typed_result = _pipeline_result(pipeline)
     serialized = typed_result.model_dump(mode="json")
@@ -388,6 +442,18 @@ def render_asset_pipeline(result: AssetPipelineRunResult) -> str:
         )
         if content["saved_to"]:
             lines.append(f"  saved observations: {content['saved_to']}")
+    if pipeline["refresh"] is not None:
+        refresh = pipeline["refresh"]
+        lines.append(
+            f"  runtime content: {refresh['status']}; runtime state is not preserved"
+        )
+        if refresh["instance"] is not None:
+            observed = refresh["instance"]
+            lines.append(
+                f"  observed {observed['node']} in session {observed['session_id']} at frame {observed['engine_frame']}"
+            )
+        if refresh["capture"] is not None:
+            lines.append(f"  subsequent capture: {refresh['capture']['path']}")
     return "\n".join(lines)
 
 
@@ -456,6 +522,11 @@ def asset_pipeline_run(
         "--declared-output-sha256",
         help="JSON res:// output-to-SHA-256 declarations; requires collection.",
     ),
+    refresh: Optional[str] = typer.Option(
+        None,
+        "--refresh",
+        help="JSON request to reset an explicit scene and compare a selected model instance after import. Runtime state is lost.",
+    ),
     json_output: bool = json_option(),
     schema: bool = ASSET_PIPELINE_RUN_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
@@ -468,6 +539,7 @@ def asset_pipeline_run(
         decoded_production = json.loads(production) if production is not None else None
         decoded_provenance = json.loads(provenance) if provenance is not None else None
         decoded_hashes = json.loads(declared_output_sha256)
+        decoded_refresh = json.loads(refresh) if refresh is not None else None
     except json.JSONDecodeError as exc:
         raise typer.BadParameter(f"invalid JSON: {exc.msg}") from exc
     params = params_or_bad_parameter(
@@ -481,6 +553,7 @@ def asset_pipeline_run(
         collect_observations=collect_observations,
         observations_output=observations_output,
         declared_output_sha256=decoded_hashes,
+        refresh=decoded_refresh,
     )
     dispatch_recipe(
         ASSET_PIPELINE_RUN_COMMAND,

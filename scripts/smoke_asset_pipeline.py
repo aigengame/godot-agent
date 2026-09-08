@@ -8,6 +8,7 @@ import argparse
 import hashlib
 from importlib.resources import files
 import json
+import os
 from pathlib import Path
 import struct
 import subprocess
@@ -79,8 +80,14 @@ def smoke(gda: Path, godot: str | None) -> None:
         assert files("gda").joinpath(resource).is_file(), resource
     for resource in ("adapters/blender.py", "adapters/_blender_worker.py"):
         assert files("gda_assets").joinpath(resource).is_file(), resource
-    with tempfile.TemporaryDirectory(prefix="gda-assets-smoke-") as directory:
+    with (
+        tempfile.TemporaryDirectory(prefix="gda-assets-smoke-") as directory,
+        tempfile.TemporaryDirectory(
+            prefix="gda-asset-runtime-", dir="/tmp"
+        ) as runtime_directory,
+    ):
         root = Path(directory)
+        runtime = Path(runtime_directory)
         source, project = root / "source", root / "consumer"
         source.mkdir()
         project.mkdir()
@@ -95,8 +102,18 @@ def smoke(gda: Path, godot: str | None) -> None:
 
         def call(*args: str, success: bool = True) -> dict:
             command = [str(gda), *args]
+            environment = {
+                **os.environ,
+                "XDG_RUNTIME_DIR": str(runtime),
+                "GDA_USER_DATA_ROOT": str(root / "user-data"),
+            }
             process = subprocess.run(
-                command, cwd=root, text=True, capture_output=True, timeout=120
+                command,
+                cwd=root,
+                text=True,
+                capture_output=True,
+                timeout=120,
+                env=environment,
             )
             assert (process.returncode == 0) == success, (
                 command,
@@ -260,6 +277,53 @@ def smoke(gda: Path, godot: str | None) -> None:
         }
         assert repeat["observations"] == first["observations"]
 
+        (project / "preview.tscn").write_text(
+            "[gd_scene load_steps=2 format=3]\n\n"
+            '[ext_resource type="PackedScene" path="res://art/model.glb" id="1"]\n\n'
+            '[node name="Preview" type="Node3D"]\n'
+            '[node name="Model" parent="." instance=ExtResource("1")]\n'
+        )
+        try:
+            refreshed = call(
+                "asset-pipeline",
+                "run",
+                "--files",
+                json.dumps(mapping),
+                "--source-root",
+                str(source),
+                "--refresh",
+                json.dumps(
+                    {
+                        "path": "res://art/model.glb",
+                        "scene": "res://preview.tscn",
+                        "node": "/root/Preview/Model",
+                        "windowed": False,
+                    }
+                ),
+                *common,
+            )["pipeline"]
+            refresh = refreshed["refresh"]
+            assert refresh["status"] == "verified", refresh
+            assert refresh["runtime_state_preserved"] is False
+            assert refresh["imported"]["content"]["complete"] is True
+            assert refresh["instance"]["content"]["complete"] is True
+            assert refresh["imported"]["content"]["digest"]
+            assert (
+                refresh["imported"]["content"]["digest"]
+                == refresh["instance"]["content"]["digest"]
+            )
+            assert refresh["ready_session"]["session_id"]
+            assert (
+                refresh["ready_session"]["session_id"]
+                == refresh["instance"]["session_id"]
+                == refresh["after"]["session_id"]
+            )
+            assert refreshed["content_observations"] is None
+        finally:
+            # Stop through the installed CLI before either owned temporary tree
+            # disappears. The daemon does not need a Godot override to stop.
+            call("daemon", "stop", "--project", str(project), "--json")
+
         missing = call(
             "asset-pipeline",
             "run",
@@ -279,7 +343,7 @@ def smoke(gda: Path, godot: str | None) -> None:
         assert not (project / "not-installed.png").exists()
         assert not (project / "missing.png").exists()
     print(
-        "Installed asset pipeline smoke passed: PNG resize, GLB load, selected disk/import observations, saved observation JSON, model expectations, saved comparison, repeat, declarations, refusal, cleanup."
+        "Installed asset pipeline smoke passed: PNG resize, GLB load, selected disk/import observations, saved observation JSON, model expectations, saved comparison, repeat, headless runtime refresh, declarations, refusal, cleanup."
     )
 
 

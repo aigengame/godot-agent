@@ -12,7 +12,10 @@ from gda_assets.application.ports import (
     ProductionRequest,
     GodotImportObservationPort,
     ObservationFilesPort,
+    GodotRefreshPort,
 )
+from gda_assets.application.refresh import refresh_pipeline
+from gda_assets.domain.refresh import RefreshRequest, validate_refresh
 from gda_assets.application.observe import observe_before, finish_collection
 from gda_assets.domain.observations import (
     CollectionRequest,
@@ -35,6 +38,8 @@ def run_pipeline(
     collection: CollectionRequest | None = None,
     import_observer: GodotImportObservationPort | None = None,
     observation_files: ObservationFilesPort | None = None,
+    refresh: RefreshRequest | None = None,
+    runtime: GodotRefreshPort | None = None,
 ) -> PipelineResult:
     result = PipelineResult(
         source_mode=recipe.source_mode, caller_declared_provenance=recipe.provenance
@@ -43,6 +48,19 @@ def run_pipeline(
     workspace = None
     import_attempted = False
     try:
+        if refresh is not None:
+            if runtime is None:
+                raise PortFailure("invalid_refresh", "Refresh requires a runtime port")
+            try:
+                validate_refresh(
+                    refresh,
+                    [
+                        item.target
+                        for item in (production.outputs if production else recipe.files)
+                    ],
+                )
+            except ValueError as exc:
+                raise PortFailure("invalid_refresh", str(exc)) from exc
         if collection is not None:
             if import_observer is None or observation_files is None:
                 raise PortFailure(
@@ -139,4 +157,6 @@ def run_pipeline(
             )
         if production is not None and workspace is not None:
             result.cleanup = {"workspace_removed": not Path(workspace).exists()}
+    if result.failure is None and refresh is not None and runtime is not None:
+        refresh_pipeline(result, refresh, runtime)
     return result
