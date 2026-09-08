@@ -132,12 +132,23 @@ def _fixture(mutation=None, *, renamed=False):
             "resolved-conflict": "resolved_symbol",
             "type-conflict": "type_identity",
             "nominal-conflict": "value_kind",
+            "inactive-nominal-conflict": "value_kind",
         }[mutation]
         symbol_schema["properties"][member] = {"type": "string"}
         for branch in symbol_schema["oneOf"]:
             branch["properties"][member] = {}
-        for row in nominal if mutation == "nominal-conflict" else quantity:
-            row[member] = "authored-value-must-not-be-overwritten"
+        if mutation == "inactive-nominal-conflict":
+            # A non-nominal import cannot acquire the derived discriminator from
+            # copied authoring data, even when its constructed Fact would fit.
+            nominal[0][profile["symbol_type_member"]] = "quantity"
+            nominal[0][member] = "nominal-structured"
+            package = next(
+                row for row in authored["packages"] if row["id"] == "core.quantity"
+            )
+            assert package["exports"]["nominal_types"] == []
+        else:
+            for row in nominal if mutation == "nominal-conflict" else quantity:
+                row[member] = "authored-value-must-not-be-overwritten"
     vector_bytes = canonical_bytes(authored["vector_sets"])
     graph = _graph(kernel, authored)
     assert canonical_bytes(authored["vector_sets"]) == vector_bytes
@@ -159,6 +170,7 @@ def _fixture(mutation=None, *, renamed=False):
         "resolved-conflict",
         "type-conflict",
         "nominal-conflict",
+        "inactive-nominal-conflict",
     ],
 )
 def test_schema_valid_source_refuses_at_its_initial_fact_before_any_rule(
@@ -178,7 +190,7 @@ def test_schema_valid_source_refuses_at_its_initial_fact_before_any_rule(
     assert isinstance(result, Schema2RefusalReport), result
     index = (
         0
-        if mutation == "nominal-conflict"
+        if mutation in {"nominal-conflict", "inactive-nominal-conflict"}
         else 2
         if mutation in {"symbol-conflict", "resolved-conflict", "type-conflict"}
         else 4

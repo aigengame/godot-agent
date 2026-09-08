@@ -353,15 +353,18 @@ def _resolved_source_symbols(
             nominal_exports = packages[imported[package_member]]["exports"][
                 "nominal_types"
             ]
-            if imported[import_symbol_member] in nominal_exports:
-                adapters.append(("value_kind", "nominal-structured"))
+            nominal = imported[import_symbol_member] in nominal_exports
+            adapters.append(("value_kind", "nominal-structured"))
+            owned_destinations = set(fields)
             for destination, value in adapters:
-                if destination in fields:
+                if destination in owned_destinations:
                     raise _SourceFactError(
                         _pointer(source_pointer),
                         f"initial Fact adapter destination {destination!r} already has an owner",
                     )
-                fields[destination] = value
+                owned_destinations.add(destination)
+                if destination != "value_kind" or nominal:
+                    fields[destination] = value
             rows.append(
                 (
                     fields,
