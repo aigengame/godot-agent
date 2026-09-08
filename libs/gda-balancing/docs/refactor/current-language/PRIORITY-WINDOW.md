@@ -529,6 +529,31 @@ preserves scoped results, the incomplete-probe adjudication and the build audit.
 The reader still reports 56 explicit gaps; these corrections do not establish a
 complete inventory or a final #878 pass.
 
+## Direct Replay observation members
+
+Replay check keys were redundant hyphenated aliases of the Kernel's fixed observation
+members. Both admission consumers translated the same four names, and Comparison
+contained the translation table twice. `f62e0135d` deletes this translation: the policy
+and comparison keys now directly name the actual observation members. `1985faeb8`
+removes the final CLI conformance projection alias. There is no legacy fallback.
+The policy still has its own authored ID, owner and canonical comparator; complete
+ordering, semantic-profile equality and publication authentication remain required.
+
+Only the owning policy, two vector key lists and their ordinary derived identities
+change in three authority files. The Kernel, numeric expectations and all 34 Model
+vector artifact expectations remain unchanged. Actual public build/check/run/Replay
+passes with the existing bounded-fold observations. A controlled post-evaluation
+observation change produces a `metric_dataset_identity` mismatch; this is a refusal
+path test, not evidence of naturally nondeterministic execution.
+
+The inventory follows these policy and vector references through their real Kernel
+comparison law. The policy ID remains renameable; a coherently renamed Package and
+its two vectors pass both authority consumers. Missing, misowned, unreserved and
+false-law observation references refuse. The integrated Replay/inventory/authoring/CI
+suite passes 111 tests. The [integration record](evidence/priority-window/replay-member-integration.json)
+preserves exact authority differences and checked raw evidence. Other inventory gaps
+and the final fixed-build experiment remain open.
+
 ## Remaining proof and integration
 
 - Complete the semantic-token inventory and resolve remaining demonstrated name

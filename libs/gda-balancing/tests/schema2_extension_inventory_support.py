@@ -16,6 +16,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_canonical_equal,
     _consumer_b_definition_is_closed,
     _consumer_b_operation_composition_subjects,
+    _consumer_b_replay_comparison_vector_is_closed,
     _consumer_b_relation_paths_are_typed,
 )
 
@@ -398,6 +399,81 @@ def _declared_metadata_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]
                     target,
                     f"/admission/laws/{li}/arguments/equalities/{ei}",
                 )
+
+
+def _replay_vector_rows(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    contract = kernel["meta_format"]["package_vector"]
+    kind = next(row for row in contract["kinds"] if row["id"] == "replay-comparison")
+    packages = {row["id"]: row for row in graph["packages"]}
+    for vi, vector_set in enumerate(graph.get("vector_sets", [])):
+        for di, vector in enumerate(vector_set["vector_definitions"]):
+            if vector.get("kind") != kind["id"]:
+                continue
+            if (
+                set(vector) != set(kind["required_members"])
+                or vector["category"] not in contract["categories"]
+                or not _consumer_b_replay_comparison_vector_is_closed(
+                    packages[vector_set["package_id"]], vector, kind
+                )
+            ):
+                raise InventoryRefusal(
+                    "Replay vector does not close its actual comparison"
+                )
+            yield vector, f"/vector_sets/{vi}/vector_definitions/{di}"
+
+
+def _replay_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    kinds = kernel["meta_format"]["package_vector"]["kinds"]
+    selected = [
+        (i, row) for i, row in enumerate(kinds) if row["id"] == "replay-comparison"
+    ]
+    if len(selected) != 1:
+        raise InventoryRefusal("Replay policy has no unique Kernel observation")
+    index, kind = selected[0]
+    members = kind["observation_members"]
+    contract = kernel["meta_format"]["language_definitions"]["collections"][
+        "replay_comparison_policies"
+    ]
+    language = _attached_language(kernel, graph)
+    for _, policy, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.replay_comparison_policies"
+    ):
+        if (
+            not _consumer_b_definition_is_closed(policy, contract, language)
+            or policy["checks"] != members
+        ):
+            raise InventoryRefusal(
+                "Replay policy does not close its Kernel observation"
+            )
+        for i, member in enumerate(members):
+            yield TokenOccurrence(
+                AuthorityToken("kernel.replay-observation-member", (), member),
+                f"{pointer}/checks/{i}",
+                "reference",
+                f"/meta_format/package_vector/kinds/{index}/observation_members/{i}",
+            )
+
+    for vector, pointer in _replay_vector_rows(kernel, graph):
+        yield TokenOccurrence(
+            AuthorityToken("language.replay_comparison_policies", (), vector["policy"]),
+            pointer + "/policy",
+            "reference",
+            f"/meta_format/package_vector/kinds/{index}",
+        )
+        for i, member in enumerate(members):
+            token = AuthorityToken("kernel.replay-observation-member", (), member)
+            law = f"/meta_format/package_vector/kinds/{index}/observation_members/{i}"
+            for side in kind["input_members"]:
+                yield TokenOccurrence(
+                    token,
+                    _child(f"{pointer}/input/{side}", member),
+                    "reference",
+                    law,
+                    location="key",
+                )
+            yield TokenOccurrence(
+                token, f"{pointer}/expect/checks/{i}/key", "reference", law
+            )
 
 
 def _source_format_role(kernel: Mapping[str, Any], graph: Mapping[str, Any]) -> str:
@@ -1636,6 +1712,10 @@ class _Reader:
         self, role: str, value: dict[str, Any], pointer: str
     ) -> bool:
         """Close simple declared contracts; unknown nested DSLs remain explicit."""
+        if role == "language.replay_comparison_policies":
+            # The independent observation-member pass closes the complete
+            # policy shape and every actual check reference before this pass.
+            return True
         if role == "language.artifact_contracts":
             # _wire_protocol_links has closed this definition's shape and its
             # schema binding. Domain separators are direct hashing inputs, not
@@ -2236,6 +2316,9 @@ class _Reader:
         handled = {
             pointer for _, _, pointer in _reason_vector_rows(self.kernel, self.graph)
         }
+        handled.update(
+            pointer for _, pointer in _replay_vector_rows(self.kernel, self.graph)
+        )
         for source, target, vector, operation in _contract_vector_projections(
             self.kernel, self.graph
         ):
@@ -3272,6 +3355,16 @@ class _Reader:
 
     def finish(self) -> ExtensionInventory:
         self.index()
+        for occurrence in _replay_links(self.kernel, self.graph):
+            self.occurrence(
+                occurrence.token,
+                occurrence.pointer,
+                occurrence.use,
+                occurrence.law,
+                location=occurrence.location,
+            )
+            if occurrence.token.role.startswith("kernel."):
+                self.reserved.add(occurrence.token)
         self.operation_operand_projection()
         self.metadata_links()
         for token, pointer, use, law in _wire_protocol_links(self.kernel, self.graph):
@@ -3856,6 +3949,16 @@ def validate_extension_inventory(
     is implemented; require_complete still refuses that inventory.
     """
     validate_inventory_occurrences(kernel, graph, inventory)
+    replay_expected = set(_replay_links(kernel, graph))
+    replay_positions = {o.pointer for o in replay_expected}
+    if {
+        o for o in inventory.occurrences if o.pointer in replay_positions
+    } != replay_expected or not {
+        o.token for o in replay_expected if o.token.role.startswith("kernel.")
+    } <= inventory.reserved:
+        raise InventoryRefusal(
+            "Replay observation reference coverage is incomplete or misowned"
+        )
     _verify_constructor_address_coverage(kernel, graph, inventory)
     address_expected = {
         (token, pointer, use, location, projection)

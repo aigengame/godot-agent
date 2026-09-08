@@ -1428,7 +1428,8 @@ evaluator identity is embedded in the semantic run (bADR-0018/0028).
 _Avoid_: simulation result, run log, benchmark
 
 **Replay comparison policy**:
-A closed LDB policy that defines the ordered check keys and one policy-wide comparator
+A closed LDB policy whose ordered checks directly reference the Kernel Replay observation
+members, with one policy-wide comparator
 for an exact Replay comparison. `standard.experiment` owns `exact-replay-v1` at
 `language.replay_comparison_policies`. The admitted policy index is a read-only projection of that
 Package Release, not a host registry or peer authority. Replay detaches the complete owned policy,

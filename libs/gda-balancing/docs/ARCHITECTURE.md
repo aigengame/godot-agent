@@ -1599,15 +1599,16 @@ difference alone no longer forces a different semantic profile or forbids exact 
 
 `standard.experiment` owns `exact-replay-v1` under the Kernel-admitted
 `language.replay_comparison_policies` collection. The native definition has `id`, one policy-wide
-`comparator`, and an ordered `checks` list of stable keys, with no own-version label. The initial
-policy uses `canonical-equal` for these four keys:
+`comparator`, and an ordered `checks` list that directly references the Kernel Replay vector's
+`observation_members`, with no own-version label or spelling aliases. The initial policy uses
+`canonical-equal` for these four members:
 
 | Check key |
 | --- |
-| `evaluation-outcome-status` |
-| `event-trace-identity` |
-| `snapshot-series-identity` |
-| `metric-dataset-identity` |
+| `evaluation_outcome_status` |
+| `event_trace_identity` |
+| `snapshot_series_identity` |
+| `metric_dataset_identity` |
 
 The exact Replay contract requires pure Runtime-profile identity equality before dispatch.
 This is a fixed precondition, not a policy field or caller-selectable mode. Event-trace identity
