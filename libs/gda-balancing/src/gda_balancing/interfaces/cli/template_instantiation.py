@@ -9,7 +9,7 @@ from gda_balancing.interfaces.cli.descriptors import (
     CommandDescriptor,
     ConformanceFixtures,
 )
-from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.artifact_set import ProtocolArtifactSetMemberSpec
 from gda_balancing.domain.template import TemplateProvider, minimal_release
 from gda_balancing.domain.authority.context import (
     AuthorityContextProvider,
@@ -51,13 +51,11 @@ class TemplateInstantiateResult(BaseModel):
 
 
 _TEMPLATE_INSTANTIATE_ARTIFACT_SET = (
-    ArtifactSetMemberSpec(
-        "model-source-package",
+    ProtocolArtifactSetMemberSpec(
         "model-source-package",
         role="primary",
     ),
-    ArtifactSetMemberSpec(
-        "template-instantiation-receipt",
+    ProtocolArtifactSetMemberSpec(
         "template-instantiation-receipt",
     ),
 )

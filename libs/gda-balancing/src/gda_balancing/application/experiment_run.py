@@ -3,7 +3,12 @@
 from dataclasses import dataclass
 from typing import Any
 
-from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.artifact_set import (
+    ArtifactSetPlan,
+    resolve_artifact_set,
+    label_artifacts,
+)
+from gda_balancing.domain.artifacts import artifacts_by_protocol_role
 from gda_balancing.domain.experiment_artifacts import (
     validate_experiment_artifact_set,
     validate_experiment_member,
@@ -51,9 +56,9 @@ def run_experiment(
     out: str,
     invocation_key: str,
     descriptor_identity: str,
-    success_artifact_set: tuple[ArtifactSetMemberSpec, ...],
-    verdict_artifact_set: tuple[ArtifactSetMemberSpec, ...],
-    runtime_refusal_artifact_set: tuple[ArtifactSetMemberSpec, ...],
+    success_artifact_set: ArtifactSetPlan,
+    verdict_artifact_set: ArtifactSetPlan,
+    runtime_refusal_artifact_set: ArtifactSetPlan,
     *,
     rir: str,
     publication_fault: str | None = None,
@@ -63,6 +68,15 @@ def run_experiment(
     if isinstance(checked, Schema2RefusalReport):
         return checked
     assert isinstance(checked, CheckedExperiment)
+    success_artifact_set = resolve_artifact_set(
+        checked.language_bundle, success_artifact_set
+    )
+    verdict_artifact_set = resolve_artifact_set(
+        checked.language_bundle, verdict_artifact_set
+    )
+    runtime_refusal_artifact_set = resolve_artifact_set(
+        checked.language_bundle, runtime_refusal_artifact_set
+    )
     input_identity = experiment_input_identity(checked.value)
     authentication_key = publication_authentication_key()
     publication_contracts = select_publication_contracts(checked.language_bundle)
@@ -86,15 +100,18 @@ def run_experiment(
         authentication_key=authentication_key,
     )
     if recovered is not None:
+        recovered_artifacts = artifacts_by_protocol_role(
+            checked.language_bundle, recovered.artifacts
+        )
         if recovered.artifact_set == success_artifact_set:
             return ExperimentRunPublication(receipt=recovered.receipt)
         if recovered.artifact_set == verdict_artifact_set:
-            verdict = recovered.artifacts["experiment-verdict"]
+            verdict = recovered_artifacts["experiment-verdict"]
             return ExperimentVerdictPublication(
                 failed_metrics=tuple(verdict["failed_metrics"]),
                 receipt=recovered.receipt,
             )
-        audit = recovered.artifacts["runtime-terminal-audit"]
+        audit = recovered_artifacts["runtime-terminal-audit"]
         diagnostic = audit["diagnostic"]
         return Schema2RefusalReport(
             stage="runtime",
@@ -113,7 +130,11 @@ def run_experiment(
         if not execution.members:
             return execution.report
         receipt = publish_artifact_set(
-            execution.members,
+            label_artifacts(
+                execution.members,
+                runtime_refusal_artifact_set,
+                lambda member: member.artifact_kind,
+            ),
             out,
             invocation_key,
             descriptor_identity,
@@ -137,7 +158,9 @@ def run_experiment(
         else verdict_artifact_set
     )
     receipt = publish_artifact_set(
-        execution.members,
+        label_artifacts(
+            execution.members, artifact_set, lambda member: member.artifact_kind
+        ),
         out,
         invocation_key,
         descriptor_identity,

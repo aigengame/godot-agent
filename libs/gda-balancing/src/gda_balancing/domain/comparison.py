@@ -4,7 +4,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
-from gda_balancing.domain.artifacts import ArtifactContract, select_artifact_contract
+from gda_balancing.domain.artifacts import (
+    ArtifactContract,
+    select_protocol_artifact_contract,
+)
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     _deep_freeze,
@@ -63,7 +66,7 @@ def select_exact_replay_contract(
     return ExactReplayContract(
         policy_binding=binding,
         reasons=reasons,
-        artifact=select_artifact_contract(
+        artifact=select_protocol_artifact_contract(
             authority_context.language_bundle, "replay-comparison"
         ),
     )
@@ -187,13 +190,19 @@ def _member_value(
     logical_name: str,
     output_contracts: Mapping[str, ArtifactContract],
 ) -> dict[str, Any]:
-    member = members.get(logical_name)
     contract = output_contracts.get(logical_name)
+    selected = [
+        member
+        for member in members.values()
+        if contract is not None
+        and member.artifact_kind == contract.definition["artifact_kind"]
+    ]
+    member = selected[0] if len(selected) == 1 else None
     if (
         member is None
         or contract is None
-        or member.artifact_kind != logical_name
-        or member.value.get("artifact_kind") != logical_name
+        or member.artifact_kind != contract.definition["artifact_kind"]
+        or member.value.get("artifact_kind") != contract.definition["artifact_kind"]
         or member.value.get("content_identity") != member.content_identity
         or not contract.verify(member.value)
     ):

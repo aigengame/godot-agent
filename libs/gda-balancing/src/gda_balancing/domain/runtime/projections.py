@@ -107,7 +107,7 @@ def artifact(
     value = contract.identify(payload)
     return PublicationMember(
         value=value,
-        artifact_kind=artifact_kind,
+        artifact_kind=contract.definition["artifact_kind"],
         wire_schema_identity=contract.wire_schema_identity,
         content_identity=cast(str, value["content_identity"]),
     )

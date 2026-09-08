@@ -19,7 +19,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.artifact_set import ArtifactSetPlan
 from gda_balancing.interfaces.cli.envelope import USAGE_CODES
 from gda_balancing.domain.authority.admission import SCHEMA2_REFUSAL_STAGES
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
@@ -132,7 +132,7 @@ class RefusalArtifactSetSpec:
     """One stage-owned artifact set published before a typed refusal."""
 
     stage: Literal["runtime"]
-    members: tuple[ArtifactSetMemberSpec, ...]
+    members: ArtifactSetPlan
     variant: str | None = None
 
     def __post_init__(self) -> None:
@@ -200,8 +200,8 @@ class CommandDescriptor:
     # the descriptor's exact output model; the runner returns only after shutdown.
     foreground_runner: Callable[..., int] | None = field(default=None)
     # Current multi-artifact producers own publication in their handlers.
-    artifact_set: tuple[ArtifactSetMemberSpec, ...] = field(default=())
-    verdict_artifact_set: tuple[ArtifactSetMemberSpec, ...] = field(default=())
+    artifact_set: ArtifactSetPlan = field(default=())
+    verdict_artifact_set: ArtifactSetPlan = field(default=())
     # Receipt fields and accepted member sets are derived from their producer
     # descriptors. A consumer cannot maintain a parallel artifact-role list.
     input_artifact_sets: tuple[ArtifactSetInputSpec, ...] = field(default=())
@@ -404,7 +404,7 @@ class CommandDescriptor:
 
 def artifact_sets_for_input(
     item: ArtifactSetInputSpec,
-) -> tuple[tuple[ArtifactSetMemberSpec, ...], ...]:
+) -> tuple[ArtifactSetPlan, ...]:
     """Derive every accepted member set from one producer descriptor."""
     producer = item.producer
     return tuple(

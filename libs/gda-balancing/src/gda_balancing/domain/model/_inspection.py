@@ -2,8 +2,9 @@
 
 from typing import Any, cast
 
-from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.artifact_set import ArtifactSetPlan
 from gda_balancing.domain.authority.context import packaged_authority_context
+from gda_balancing.domain.artifacts import artifacts_by_protocol_role
 from gda_balancing.domain.canonical import JsonValue
 from gda_balancing.domain.model._compilation import validate_compiled_artifacts
 from gda_balancing.domain.model._inspection_types import ModelInspectAdmissionError
@@ -15,7 +16,7 @@ from gda_balancing.domain.publication_types import PublicationAdmissionError
 def read_model_explanation(
     receipt_path: str,
     expected_descriptor_identity: str,
-    artifact_set: tuple[ArtifactSetMemberSpec, ...],
+    artifact_set: ArtifactSetPlan,
 ) -> dict[str, JsonValue]:
     """Retrieve and authenticate one explanation from a committed Model build."""
     try:
@@ -27,7 +28,9 @@ def read_model_explanation(
         )
     except PublicationAdmissionError as err:
         raise ModelInspectAdmissionError(err.code, err.subject, err.message) from err
-    artifacts = publication.artifacts
+    artifacts = artifacts_by_protocol_role(
+        publication.authority_context.language_bundle, publication.artifacts
+    )
     build_receipt = artifacts["build-receipt"]
     source_identity = build_receipt.get("source_identity")
     if not isinstance(source_identity, str):

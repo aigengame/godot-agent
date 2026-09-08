@@ -7,7 +7,7 @@ from typing import Any, cast
 
 
 from gda_balancing.domain.artifacts import (
-    _artifact_contract,
+    artifact_contract_for_role as _artifact_contract,
     _identified_artifact,
 )
 from gda_balancing.domain.artifact_semantics import artifact_semantic_projection

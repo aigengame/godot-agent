@@ -6,6 +6,7 @@ from typing import Any, cast
 import jsonschema
 
 from gda_balancing.domain.artifacts import (
+    artifact_contract_for_role,
     _identified_artifact,
     _verify_artifact,
 )
@@ -1956,9 +1957,9 @@ def _standalone_rir_is_admitted(
 ) -> bool:
     """Admit exact RIR bytes without any producing Model wrapper."""
     try:
-        if rir.get("artifact_kind") != "rir-semantic-payload" or not _verify_artifact(
-            rir, context.language_bundle
-        ):
+        if rir.get("artifact_kind") != artifact_contract_for_role(
+            context.language_bundle, "rir-semantic-payload"
+        )["artifact_kind"] or not _verify_artifact(rir, context.language_bundle):
             return False
         namespaces = [row["id"] for row in rir["selected_semantics"]["packages"]]
         selection = resolve_current_namespaces(

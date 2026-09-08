@@ -912,7 +912,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:c0464d8780df6ec2cdd6e40cee1e9af97aaa804d2075107b14cad8e3313e862a",
+  "content_identity": "sha256:956bdd5170763d1bef071cdd7ad03ee4b1e35e6fddb6ce70c53cd66f55b67748",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2420,6 +2420,9 @@
             },
             "wire_schema_identity_domain": {
               "type": "non-empty-string"
+            },
+            "protocol_role": {
+              "type": "non-empty-string"
             }
           },
           "required_members": [
@@ -2427,7 +2430,8 @@
             "schema"
           ],
           "optional_members": [
-            "wire_schema_identity_domain"
+            "wire_schema_identity_domain",
+            "protocol_role"
           ]
         },
         "capabilities": {
@@ -3388,7 +3392,7 @@
         "wire_schemas": {
           "field_types": {
             "artifact_kind": {
-              "const": "model-source-package"
+              "type": "non-empty-string"
             },
             "schema": {
               "allowed_keywords": [
@@ -3439,6 +3443,9 @@
             },
             "wire_schema_identity_domain": {
               "type": "non-empty-string"
+            },
+            "protocol_role": {
+              "type": "non-empty-string"
             }
           },
           "required_members": [
@@ -3446,7 +3453,8 @@
             "schema"
           ],
           "optional_members": [
-            "wire_schema_identity_domain"
+            "wire_schema_identity_domain",
+            "protocol_role"
           ]
         },
         "literal_typing_profiles": {
@@ -3876,6 +3884,38 @@
           "representations",
           "symbol_roles",
           "units"
+        ]
+      },
+      "wire_schema_protocol_roles": {
+        "identified_artifacts": [
+          "artifact-set-manifest",
+          "artifact-set-receipt",
+          "build-receipt",
+          "capability-manifest",
+          "debug-map",
+          "evaluation-run",
+          "evaluator-capability-manifest",
+          "event-trace",
+          "experiment-verdict",
+          "metric-dataset",
+          "model-build-command-input",
+          "model-explanation",
+          "package-lock",
+          "publication-index",
+          "replay-comparison",
+          "resolution-receipt",
+          "resolved-model",
+          "resolved-runtime-profile",
+          "rir-semantic-payload",
+          "runtime-terminal-audit",
+          "snapshot-series",
+          "template-instantiate-command-input",
+          "template-instantiation-receipt",
+          "template-release"
+        ],
+        "standalone_inputs": [
+          "experiment-specification",
+          "model-source-package"
         ]
       }
     },

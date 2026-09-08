@@ -3,6 +3,8 @@
 from copy import deepcopy
 from typing import Any, cast
 
+from gda_balancing.domain.artifact_set import resolve_artifact_set
+from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.canonical import JsonValue, content_identity
 from gda_balancing.interfaces.cli.descriptors import (
     CommandDescriptor,
@@ -244,7 +246,9 @@ def _artifact_membership(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
                 "artifact_kind": member.artifact_kind,
                 "role": member.role,
             }
-            for member in artifact_set
+            for member in resolve_artifact_set(
+                packaged_authority_context().language_bundle, artifact_set
+            )
         ]
 
     return cast(

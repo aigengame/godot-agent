@@ -18,8 +18,14 @@ from gda_balancing.domain.artifacts import (
     ArtifactContract,
     _verify_artifact,
     select_artifact_contract,
+    select_protocol_artifact_contract,
 )
-from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.artifact_set import (
+    ArtifactSetMemberSpec,
+    ArtifactSetPlan,
+    ProtocolArtifactSetMemberSpec,
+    resolve_artifact_set,
+)
 from gda_balancing.domain.authority.admission import BootstrapAdmission
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
@@ -85,9 +91,13 @@ def select_publication_contracts(
 ) -> PublicationContracts:
     """Detach publication framing from an already admitted language authority."""
     return PublicationContracts(
-        manifest=select_artifact_contract(language_bundle, "artifact-set-manifest"),
-        receipt=select_artifact_contract(language_bundle, "artifact-set-receipt"),
-        index=select_artifact_contract(language_bundle, "publication-index"),
+        manifest=select_protocol_artifact_contract(
+            language_bundle, "artifact-set-manifest"
+        ),
+        receipt=select_protocol_artifact_contract(
+            language_bundle, "artifact-set-receipt"
+        ),
+        index=select_protocol_artifact_contract(language_bundle, "publication-index"),
     )
 
 
@@ -373,7 +383,7 @@ def _inspect_committed_artifact(
 def read_authenticated_artifact_set(
     receipt_path: str,
     expected_descriptor_identity: str,
-    artifact_set: tuple[ArtifactSetMemberSpec, ...],
+    artifact_set: ArtifactSetPlan,
     *,
     authority_context: AdmittedAuthorityContext,
 ) -> AuthenticatedArtifactSet:
@@ -394,7 +404,7 @@ def read_authenticated_artifact_set(
 
 def read_authenticated_declared_artifact_set(
     receipt_path: str,
-    artifact_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
+    artifact_sets: tuple[ArtifactSetPlan, ...],
     *,
     authority_context: AdmittedAuthorityContext,
 ) -> AuthenticatedArtifactSet:
@@ -412,22 +422,26 @@ def read_authenticated_declared_artifact_set(
 
 def _read_authenticated_artifact_set(
     receipt_path: str,
-    artifact_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
+    artifact_sets: tuple[ArtifactSetPlan, ...],
     *,
     authority_context: AdmittedAuthorityContext,
 ) -> AuthenticatedArtifactSet:
     path = _normalized_absolute_path(receipt_path)
     receipt = _read_receipt_input(path)
     contracts = select_publication_contracts(authority_context.language_bundle)
+    resolved_sets = tuple(
+        resolve_artifact_set(authority_context.language_bundle, members)
+        for members in artifact_sets
+    )
     member_contracts = {
         kind: select_artifact_contract(authority_context.language_bundle, kind)
         for kind in sorted(
-            {member.artifact_kind for members in artifact_sets for member in members}
+            {member.artifact_kind for members in resolved_sets for member in members}
         )
     }
     if (
         not contracts.receipt.verify(receipt)
-        or receipt.get("artifact_kind") != "artifact-set-receipt"
+        or receipt.get("artifact_kind") != contracts.receipt.definition["artifact_kind"]
     ):
         raise PublicationAdmissionError(
             "kernel.identity_mismatch",
@@ -522,13 +536,44 @@ def _read_authenticated_artifact_set(
             "manifest.members",
             "Artifact-set publication has no closed member map",
         )
-    actual_names = [row.get("logical_name") for row in members if isinstance(row, dict)]
-    matching_sets = tuple(
-        artifact_set
-        for artifact_set in artifact_sets
-        if len(members) == len(artifact_set)
-        and actual_names == [member.logical_name for member in artifact_set]
-    )
+    matching_sets = []
+    for plan, resolved in zip(artifact_sets, resolved_sets, strict=True):
+        if len(members) != len(plan):
+            continue
+        matched = []
+        used = set()
+        for row in members:
+            if not isinstance(row, dict) or not isinstance(
+                row.get("logical_name"), str
+            ):
+                break
+            candidates = [
+                index
+                for index, (authored, expected) in enumerate(
+                    zip(plan, resolved, strict=True)
+                )
+                if index not in used
+                and expected.artifact_kind == row.get("artifact_kind")
+                and (
+                    isinstance(authored, ProtocolArtifactSetMemberSpec)
+                    or expected.logical_name == row["logical_name"]
+                )
+            ]
+            if len(candidates) != 1:
+                break
+            index = candidates[0]
+            used.add(index)
+            matched.append(
+                ArtifactSetMemberSpec(
+                    row["logical_name"],
+                    resolved[index].artifact_kind,
+                    resolved[index].role,
+                )
+            )
+        if len(matched) == len(plan) and len(
+            {member.logical_name for member in matched}
+        ) == len(plan):
+            matching_sets.append(tuple(matched))
     if len(matching_sets) != 1:
         raise PublicationAdmissionError(
             "kernel.member_set_mismatch",
@@ -872,7 +917,7 @@ def _recover_publication(
         invocation_path,
         descriptor_identity,
         invocation_key,
-        select_artifact_contract(language_bundle, "publication-index"),
+        select_protocol_artifact_contract(language_bundle, "publication-index"),
         authentication_key,
     )
     _require_matching_command_input(index, command_input_identity)

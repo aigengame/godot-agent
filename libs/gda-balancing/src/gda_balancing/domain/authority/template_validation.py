@@ -447,7 +447,15 @@ def _template_admission_profiles_are_closed(
         row["role"]
         for row in role_rows
         if isinstance(row, dict)
-        and row.get("member_kind") == "model-source-package"
+        and row.get("member_kind")
+        == next(
+            (
+                schema["artifact_kind"]
+                for schema in language["wire_schemas"]
+                if schema.get("protocol_role") == "model-source-package"
+            ),
+            None,
+        )
         and isinstance(row.get("role"), str)
     }
     resolution_profiles = language.get("resolution_profiles")

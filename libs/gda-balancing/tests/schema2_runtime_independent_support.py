@@ -41,7 +41,7 @@ def _schema(context, name):
     return next(
         row["schema"]
         for row in context.language_bundle["language"]["artifact_wire_schemas"]
-        if row["artifact_kind"] == name
+        if row.get("protocol_role") == name
     )
 
 
@@ -867,6 +867,16 @@ def reference_admits_runtime_artifacts(context, rir, specification, artifacts):
     """Check supplied members against fresh independent execution and wire identity."""
     try:
         expected = reference_runtime_artifacts(context, rir, specification)
+        roles_by_kind = {
+            value["artifact_kind"]: role for role, value in expected.items()
+        }
+        actual_by_role = {}
+        for value in artifacts.values():
+            role = roles_by_kind.get(value.get("artifact_kind"))
+            if role is None or role in actual_by_role:
+                return False
+            actual_by_role[role] = value
+        artifacts = actual_by_role
         if set(expected) != set(artifacts):
             return False
         for name, actual in artifacts.items():

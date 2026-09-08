@@ -137,7 +137,12 @@ def _reference_rir_semantic_projection(
     contract = next(
         item
         for item in language_bundle["language"]["artifact_contracts"]
-        if item["artifact_kind"] == "rir-semantic-payload"
+        if item["schema_kind"]
+        == next(
+            row["artifact_kind"]
+            for row in language_bundle["language"]["artifact_wire_schemas"]
+            if row.get("protocol_role") == "rir-semantic-payload"
+        )
     )
     projection = contract["semantic_identity_projection"]
     result = {
@@ -529,7 +534,7 @@ def _reference_check_source(
     source_schema = next(
         item["schema"]
         for item in language["wire_schemas"]
-        if item["artifact_kind"] == "model-source-package"
+        if item.get("protocol_role") == "model-source-package"
     )
     lowering = _reference_lowering(language)
     profile = next(
@@ -1123,7 +1128,12 @@ def _reference_artifact(
     contract = next(
         item
         for item in language["artifact_contracts"]
-        if item["artifact_kind"] == artifact_kind
+        if item["schema_kind"]
+        == next(
+            row["artifact_kind"]
+            for row in language["artifact_wire_schemas"]
+            if row.get("protocol_role") == artifact_kind
+        )
     )
     schema = next(
         item["schema"]
@@ -1135,7 +1145,7 @@ def _reference_artifact(
         {key: value for key, value in schema.items() if key != "$id"},
     )
     body = {
-        "artifact_kind": artifact_kind,
+        "artifact_kind": contract["artifact_kind"],
         "artifact_version": "2.0.0",
         "wire_schema_identity": wire_identity,
         **payload,
@@ -5220,7 +5230,7 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
     source_schema = next(
         item["schema"]
         for item in language["wire_schemas"]
-        if item["artifact_kind"] == "model-source-package"
+        if item.get("protocol_role") == "model-source-package"
     )
     source_schema["properties"]["header"] = source_schema["properties"].pop("manifest")
     source_schema["required"] = [
@@ -5355,7 +5365,7 @@ def test_rir_output_member_follows_the_ldb_lowering_and_wire_schema(tmp_path):
     rir_schema = next(
         item["schema"]
         for item in language["artifact_wire_schemas"]
-        if item["artifact_kind"] == "rir-semantic-payload"
+        if item.get("protocol_role") == "rir-semantic-payload"
     )
     rir_schema["properties"]["items"] = rir_schema["properties"].pop("declarations")
     rir_schema["required"] = [

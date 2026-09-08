@@ -10,7 +10,7 @@ from gda_balancing.application.experiment_execution import (
     execute_prepared_experiment,
     prepare_checked_experiment,
 )
-from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.artifact_set import ArtifactSetPlan, resolve_artifact_set
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.comparison import (
     compare_exact_replay,
@@ -74,10 +74,10 @@ def replay_experiment(
     out: str,
     invocation_key: str,
     descriptor_identity: str,
-    original_artifact_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
-    success_artifact_set: tuple[ArtifactSetMemberSpec, ...],
-    verdict_artifact_set: tuple[ArtifactSetMemberSpec, ...],
-    runtime_refusal_artifact_set: tuple[ArtifactSetMemberSpec, ...],
+    original_artifact_sets: tuple[ArtifactSetPlan, ...],
+    success_artifact_set: ArtifactSetPlan,
+    verdict_artifact_set: ArtifactSetPlan,
+    runtime_refusal_artifact_set: ArtifactSetPlan,
     *,
     rir: str,
     publication_fault: str | None = None,
@@ -88,6 +88,15 @@ def replay_experiment(
 ):
     """Authenticate one original run and publish an exact Replay comparison."""
     authority_context = packaged_authority_context()
+    success_artifact_set = resolve_artifact_set(
+        authority_context.language_bundle, success_artifact_set
+    )
+    verdict_artifact_set = resolve_artifact_set(
+        authority_context.language_bundle, verdict_artifact_set
+    )
+    runtime_refusal_artifact_set = resolve_artifact_set(
+        authority_context.language_bundle, runtime_refusal_artifact_set
+    )
     try:
         original = read_authenticated_declared_artifact_set(
             original_receipt,

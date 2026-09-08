@@ -1010,8 +1010,14 @@ def validate_experiment_member(
 ) -> bool:
     """Re-admit one prepared output against its selected exact contract."""
     del logical_name
-    kind = value.get("artifact_kind")
-    contract = checked.output_contracts.get(kind) if isinstance(kind, str) else None
+    matches = [
+        (role, contract)
+        for role, contract in checked.output_contracts.items()
+        if contract.definition["artifact_kind"] == value.get("artifact_kind")
+    ]
+    if len(matches) != 1:
+        return False
+    kind, contract = matches[0]
     if contract is None or not contract.verify(value):
         return False
     if kind == "event-trace":
@@ -2262,6 +2268,17 @@ def validate_experiment_artifact_set(
 ) -> bool:
     """Revalidate exact semantic bindings across one Experiment artifact set."""
     try:
+        roles_by_kind = {
+            contract.definition["artifact_kind"]: role
+            for role, contract in checked.output_contracts.items()
+        }
+        by_role = {}
+        for value in artifacts.values():
+            role = roles_by_kind.get(value.get("artifact_kind"))
+            if role is None or role in by_role:
+                return False
+            by_role[role] = value
+        artifacts = by_role
         if not all(
             validate_experiment_member(checked, name, value)
             for name, value in artifacts.items()

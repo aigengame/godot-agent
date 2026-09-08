@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:c0464d8780df6ec2cdd6e40cee1e9af97aaa804d2075107b14cad8e3313e862a"
+    "sha256:956bdd5170763d1bef071cdd7ad03ee4b1e35e6fddb6ce70c53cd66f55b67748"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -2436,6 +2436,7 @@ def _consumer_b_meta_validate_schema(
 
 def _consumer_b_wire_schema_identity_domains_are_closed(
     ldb: dict[str, Any],
+    protocol_roles: dict[str, list[str]],
 ) -> bool:
     language = ldb.get("language")
     if not isinstance(language, dict):
@@ -2461,6 +2462,7 @@ def _consumer_b_wire_schema_identity_domains_are_closed(
         raw_contracts
     ):
         return False
+    roles: dict[str, str] = {}
     seen: set[str] = set()
     inline_kinds: set[str] = set()
     for collection in ("wire_schemas", "artifact_wire_schemas"):
@@ -2483,10 +2485,24 @@ def _consumer_b_wire_schema_identity_domains_are_closed(
                 )
             ):
                 return False
+            role = item.get("protocol_role")
+            if role is not None:
+                if not isinstance(role, str) or role in roles:
+                    return False
+                roles[role] = kind
+                expected_roles = (
+                    protocol_roles["standalone_inputs"]
+                    if inline_domain is not None
+                    else protocol_roles["identified_artifacts"]
+                )
+                if role not in expected_roles:
+                    return False
             seen.add(kind)
             if inline_domain is not None:
                 inline_kinds.add(kind)
-    return artifact_kinds.isdisjoint(inline_kinds)
+    return artifact_kinds.isdisjoint(inline_kinds) and set(roles) == set(
+        protocol_roles["identified_artifacts"] + protocol_roles["standalone_inputs"]
+    )
 
 
 def _consumer_b_value_matches(value: Any, contract: Any, ldb: dict[str, Any]) -> bool:
@@ -3027,7 +3043,7 @@ def _consumer_b_relation_paths_are_typed(
         item.get("schema")
         for item in schemas or []
         if isinstance(item, dict)
-        and item.get("artifact_kind") == "model-source-package"
+        and item.get("protocol_role") == "model-source-package"
     ]
     if (
         not isinstance(language, dict)
@@ -4046,7 +4062,7 @@ def _consumer_b_runtime_projection_is_closed(
         item["schema"]
         for item in schemas
         if isinstance(item, dict)
-        and item.get("artifact_kind") == "rir-semantic-payload"
+        and item.get("protocol_role") == "rir-semantic-payload"
     ]
     if len(rir) != 1:
         return False
@@ -4722,7 +4738,15 @@ def _consumer_b_template_admission_is_closed(
         row["role"]
         for row in roles
         if isinstance(row, dict)
-        and row.get("member_kind") == "model-source-package"
+        and row.get("member_kind")
+        == next(
+            (
+                schema["artifact_kind"]
+                for schema in language["wire_schemas"]
+                if schema.get("protocol_role") == "model-source-package"
+            ),
+            None,
+        )
         and isinstance(row.get("role"), str)
     }
     resolution_profiles = language.get("resolution_profiles")
@@ -5613,7 +5637,7 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
         row["schema"]
         for row in schemas
         if isinstance(row, dict)
-        and row.get("artifact_kind") == "model-source-package"
+        and row.get("protocol_role") == "model-source-package"
         and isinstance(row.get("schema"), dict)
     ]
     if len(model_schemas) != 1:
@@ -9790,7 +9814,9 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         )
     if not _consumer_b_runtime_authority_is_closed(kernel, ldb):
         refuse("kernel.vector_mismatch", "static", "language.runtime")
-    if not _consumer_b_wire_schema_identity_domains_are_closed(ldb):
+    if not _consumer_b_wire_schema_identity_domains_are_closed(
+        ldb, kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"]
+    ):
         refuse(
             "kernel.vector_mismatch",
             "static",

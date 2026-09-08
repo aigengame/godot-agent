@@ -192,7 +192,7 @@ def _check_model_source_bytes(
     source_schema = next(
         item["schema"]
         for item in cast(list[dict[str, Any]], language["wire_schemas"])
-        if item["artifact_kind"] == "model-source-package"
+        if item.get("protocol_role") == "model-source-package"
     )
     errors = sorted(
         jsonschema.Draft202012Validator(source_schema).iter_errors(source),

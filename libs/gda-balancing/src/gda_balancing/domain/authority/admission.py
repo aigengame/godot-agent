@@ -79,7 +79,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:c0464d8780df6ec2cdd6e40cee1e9af97aaa804d2075107b14cad8e3313e862a"
+    "sha256:956bdd5170763d1bef071cdd7ad03ee4b1e35e6fddb6ce70c53cd66f55b67748"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -402,6 +402,7 @@ def _language_bundle_is_closed(
 
 def _wire_schema_identity_domains_are_closed(
     language_bundle: dict[str, Any],
+    protocol_roles: dict[str, list[str]],
 ) -> bool:
     language = language_bundle.get("language")
     if not isinstance(language, dict):
@@ -427,6 +428,7 @@ def _wire_schema_identity_domains_are_closed(
         raw_contracts
     ):
         return False
+    roles: dict[str, str] = {}
     seen: set[str] = set()
     inline_kinds: set[str] = set()
     for collection in ("wire_schemas", "artifact_wire_schemas"):
@@ -449,10 +451,24 @@ def _wire_schema_identity_domains_are_closed(
                 )
             ):
                 return False
+            role = item.get("protocol_role")
+            if role is not None:
+                if not isinstance(role, str) or role in roles:
+                    return False
+                roles[role] = kind
+                expected_roles = (
+                    protocol_roles["standalone_inputs"]
+                    if inline_domain is not None
+                    else protocol_roles["identified_artifacts"]
+                )
+                if role not in expected_roles:
+                    return False
             seen.add(kind)
             if inline_domain is not None:
                 inline_kinds.add(kind)
-    return artifact_kinds.isdisjoint(inline_kinds)
+    return artifact_kinds.isdisjoint(inline_kinds) and set(roles) == set(
+        protocol_roles["identified_artifacts"] + protocol_roles["standalone_inputs"]
+    )
 
 
 def _profiled_equality_values(
@@ -1352,7 +1368,7 @@ def _relation_recipe_paths_are_typed(
         item.get("schema")
         for item in wire_schemas
         if isinstance(item, dict)
-        and item.get("artifact_kind") == "model-source-package"
+        and item.get("protocol_role") == "model-source-package"
     ]
     if len(source_schemas) != 1 or not isinstance(source_schemas[0], dict):
         return False
@@ -2392,7 +2408,7 @@ def _runtime_projection_is_closed(
         item.get("schema")
         for item in wire_schemas
         if isinstance(item, dict)
-        and item.get("artifact_kind") == "rir-semantic-payload"
+        and item.get("protocol_role") == "rir-semantic-payload"
     ]
     if len(rir_schemas) != 1 or not isinstance(rir_schemas[0], dict):
         return False
@@ -3329,7 +3345,7 @@ def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
         item["schema"]
         for item in wire_schemas
         if isinstance(item, dict)
-        and item.get("artifact_kind") == "model-source-package"
+        and item.get("protocol_role") == "model-source-package"
         and isinstance(item.get("schema"), dict)
     ]
     if len(model_source_schemas) != 1:
@@ -5540,7 +5556,10 @@ def admit_authorities(
         )
     if not _runtime_authority_is_closed(kernel, language_bundle):
         refuse("kernel.vector_mismatch", "static", "language.runtime")
-    if not _wire_schema_identity_domains_are_closed(language_bundle):
+    if not _wire_schema_identity_domains_are_closed(
+        language_bundle,
+        kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"],
+    ):
         refuse(
             "kernel.vector_mismatch",
             "static",

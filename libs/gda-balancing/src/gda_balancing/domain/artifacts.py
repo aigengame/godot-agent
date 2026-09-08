@@ -6,9 +6,12 @@ from typing import Any, cast
 
 import jsonschema
 
-from gda_balancing.domain.authority.context import _deep_freeze
 from gda_balancing.domain.canonical import JsonValue, content_identity
-from gda_balancing.domain.wire_schema import wire_schema_identity_for_kind
+from gda_balancing.domain.wire_schema import (
+    wire_schema_identity_for_kind,
+    wire_schema_definition_for_role,
+    _wire_schema_definition,
+)
 
 
 def _language(language_bundle: dict[str, Any]) -> dict[str, Any]:
@@ -28,6 +31,55 @@ def _artifact_contract(
     if len(matches) != 1:
         raise ValueError(f"artifact contract is not unique: {artifact_kind}")
     return matches[0]
+
+
+def artifact_contract_for_role(
+    language_bundle: dict[str, Any], protocol_role: str
+) -> dict[str, Any]:
+    schema_kind = wire_schema_definition_for_role(language_bundle, protocol_role)[
+        "artifact_kind"
+    ]
+    matches = [
+        row
+        for row in _language(language_bundle)["artifact_contracts"]
+        if row["schema_kind"] == schema_kind
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"artifact protocol role is not unique: {protocol_role}")
+    return matches[0]
+
+
+def select_protocol_artifact_contract(
+    language_bundle: dict[str, Any], protocol_role: str
+) -> "ArtifactContract":
+    return select_artifact_contract(
+        language_bundle,
+        artifact_contract_for_role(language_bundle, protocol_role)["artifact_kind"],
+    )
+
+
+def artifact_protocol_role(language_bundle: dict[str, Any], artifact_kind: str) -> str:
+    """Read a core artifact's role from its admitted Wire Schema Definition."""
+    contract = _artifact_contract(language_bundle, artifact_kind)
+    role = _wire_schema_definition(language_bundle, contract["schema_kind"]).get(
+        "protocol_role"
+    )
+    if not isinstance(role, str):
+        raise ValueError(f"artifact has no core protocol role: {artifact_kind}")
+    return role
+
+
+def artifacts_by_protocol_role(
+    language_bundle: dict[str, Any], artifacts: dict[str, dict[str, Any]]
+) -> dict[str, dict[str, Any]]:
+    """Index core semantic members independently of publication labels."""
+    result = {}
+    for value in artifacts.values():
+        role = artifact_protocol_role(language_bundle, value["artifact_kind"])
+        if role in result:
+            raise ValueError(f"duplicate artifact protocol role: {role}")
+        result[role] = value
+    return result
 
 
 def _artifact_schema(
@@ -66,6 +118,8 @@ class ArtifactContract:
     wire_schema_identity: str
 
     def __post_init__(self) -> None:
+        from gda_balancing.domain.authority.context import _deep_freeze
+
         object.__setattr__(self, "definition", _deep_freeze(self.definition))
         object.__setattr__(self, "schema", _deep_freeze(self.schema))
 
@@ -133,7 +187,9 @@ def _identified_artifact(
     artifact_kind: str,
     payload: dict[str, JsonValue],
 ) -> dict[str, JsonValue]:
-    return select_artifact_contract(language_bundle, artifact_kind).identify(payload)
+    return select_protocol_artifact_contract(language_bundle, artifact_kind).identify(
+        payload
+    )
 
 
 def _verify_artifact(value: dict[str, Any], language_bundle: dict[str, Any]) -> bool:
@@ -153,7 +209,7 @@ def identified_artifact(
     payload: dict[str, JsonValue],
 ) -> dict[str, JsonValue]:
     """Construct and schema-admit one LDB-owned content-addressed artifact."""
-    return _identified_artifact(language_bundle, artifact_kind, payload)
+    return select_artifact_contract(language_bundle, artifact_kind).identify(payload)
 
 
 def verify_artifact(value: dict[str, Any], language_bundle: dict[str, Any]) -> bool:

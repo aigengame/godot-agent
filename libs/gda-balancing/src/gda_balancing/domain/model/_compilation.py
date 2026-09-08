@@ -3,7 +3,10 @@
 from copy import deepcopy
 from typing import Any, cast
 
-from gda_balancing.domain.artifacts import _identified_artifact
+from gda_balancing.domain.artifacts import (
+    _identified_artifact,
+    artifacts_by_protocol_role,
+)
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
 )
@@ -73,6 +76,7 @@ def validate_compiled_artifacts(
     """Require one compiled Model set to match its exact authority and source."""
     kernel = authority_context.kernel
     language_bundle = authority_context.language_bundle
+    artifacts = artifacts_by_protocol_role(language_bundle, artifacts)
     semantic_artifacts = {
         name: cast(dict[str, Any], artifacts[name])
         for name in ("package-lock", "rir-semantic-payload", "resolved-model")

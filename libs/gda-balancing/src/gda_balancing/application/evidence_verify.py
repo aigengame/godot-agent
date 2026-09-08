@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from typing import cast
 
 from gda_balancing.application.experiment_inputs import check_experiment_inputs
-from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.artifact_set import ArtifactSetPlan
+from gda_balancing.domain.artifacts import artifacts_by_protocol_role
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.diagnostics import Schema2RefusalReport, ingress_refusal
 from gda_balancing.domain.experiment_artifacts import validate_experiment_artifact_set
@@ -37,7 +38,7 @@ class EvidenceVerifyInput:
 def verify_evidence(
     inp: EvidenceVerifyInput,
     *,
-    experiment_run_artifact_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
+    experiment_run_artifact_sets: tuple[ArtifactSetPlan, ...],
 ) -> EvidenceCandidate | Schema2RefusalReport:
     """Re-admit exact publications and derive one candidate/open judgment."""
     context = packaged_authority_context()
@@ -71,7 +72,9 @@ def verify_evidence(
             experiment_run_artifact_set_receipt_identity=cast(
                 str, outcome_publication.receipt["content_identity"]
             ),
-            outcome_artifacts=outcome_publication.artifacts,
+            outcome_artifacts=artifacts_by_protocol_role(
+                context.language_bundle, outcome_publication.artifacts
+            ),
         ),
     )
     identities = {subject.role: subject.identity for subject in graph.subjects}

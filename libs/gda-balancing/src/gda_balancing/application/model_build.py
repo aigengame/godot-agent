@@ -3,7 +3,12 @@
 from dataclasses import dataclass
 from typing import Any
 
-from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.artifact_set import (
+    ArtifactSetPlan,
+    ProtocolArtifactSetMemberSpec,
+    resolve_artifact_set,
+    label_artifacts,
+)
 from gda_balancing.domain.model import (
     authority_context_for_checked,
     check_model_source,
@@ -19,14 +24,28 @@ from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 
 MODEL_BUILD_ARTIFACT_SET = (
-    ArtifactSetMemberSpec("build-receipt", "build-receipt"),
-    ArtifactSetMemberSpec("capability-manifest", "capability-manifest"),
-    ArtifactSetMemberSpec("debug-map", "debug-map"),
-    ArtifactSetMemberSpec("model-explanation", "model-explanation"),
-    ArtifactSetMemberSpec("package-lock", "package-lock"),
-    ArtifactSetMemberSpec("resolution-receipt", "resolution-receipt"),
-    ArtifactSetMemberSpec("resolved-model", "resolved-model", role="primary"),
-    ArtifactSetMemberSpec("rir-semantic-payload", "rir-semantic-payload"),
+    ProtocolArtifactSetMemberSpec(
+        "build-receipt",
+    ),
+    ProtocolArtifactSetMemberSpec(
+        "capability-manifest",
+    ),
+    ProtocolArtifactSetMemberSpec(
+        "debug-map",
+    ),
+    ProtocolArtifactSetMemberSpec(
+        "model-explanation",
+    ),
+    ProtocolArtifactSetMemberSpec(
+        "package-lock",
+    ),
+    ProtocolArtifactSetMemberSpec(
+        "resolution-receipt",
+    ),
+    ProtocolArtifactSetMemberSpec("resolved-model", role="primary"),
+    ProtocolArtifactSetMemberSpec(
+        "rir-semantic-payload",
+    ),
 )
 
 
@@ -42,7 +61,7 @@ def build_model(
     out: str,
     invocation_key: str,
     descriptor_identity: str,
-    artifact_set: tuple[ArtifactSetMemberSpec, ...],
+    artifact_set: ArtifactSetPlan,
     publication_fault: str | None = None,
 ) -> ModelBuildReceipt | Schema2RefusalReport:
     """Check, lazily compile, and publish one Model Source Package."""
@@ -50,6 +69,9 @@ def build_model(
     checked = check_model_source(source)
     if isinstance(checked, Schema2RefusalReport):
         return checked
+    artifact_set = resolve_artifact_set(
+        authority_context_for_checked(checked).language_bundle, artifact_set
+    )
     receipt = publish_lazy_artifact_set(
         authority_context_for_checked(checked),
         checked.source_identity,
@@ -58,7 +80,11 @@ def build_model(
         descriptor_identity,
         model_build_command_input_identity(checked),
         artifact_set,
-        lambda: compile_checked_model(checked),
+        lambda: label_artifacts(
+            compile_checked_model(checked),
+            artifact_set,
+            lambda value: str(value["artifact_kind"]),
+        ),
         validate_compiled_artifacts,
         publication_fault,
         authentication_key=authentication_key,

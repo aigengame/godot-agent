@@ -20,7 +20,10 @@ from gda_balancing.domain.artifact_set import (
     EXPERIMENT_SUCCESS_ARTIFACT_SET,
     EXPERIMENT_VERDICT_ARTIFACT_SET,
 )
-from gda_balancing.domain.artifacts import ArtifactContract, select_artifact_contract
+from gda_balancing.domain.artifacts import (
+    ArtifactContract,
+    select_protocol_artifact_contract as select_artifact_contract,
+)
 from gda_balancing.domain.canonical import (
     JsonValue,
     canonical_bytes,
@@ -109,7 +112,7 @@ class CheckedExperiment:
                     self, member.name, _deep_freeze(getattr(self, member.name))
                 )
         output_kinds = {
-            member.artifact_kind
+            member.protocol_role
             for members in (
                 EXPERIMENT_SUCCESS_ARTIFACT_SET,
                 EXPERIMENT_VERDICT_ARTIFACT_SET,
@@ -170,7 +173,7 @@ def _experiment_schema(language_bundle: dict[str, Any]) -> dict[str, Any]:
     matches = [
         item["schema"]
         for item in language_bundle["language"]["artifact_wire_schemas"]
-        if item["artifact_kind"] == "experiment-specification"
+        if item.get("protocol_role") == "experiment-specification"
     ]
     if len(matches) != 1:
         raise ValueError("Experiment Specification schema is not unique")
