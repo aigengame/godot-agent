@@ -329,9 +329,13 @@ windowed session stops. Read `preview.completed`, `views` and their capture rece
 budgets. Optional `--baseline previous.json` expects an explicitly saved
 `{"preview":...}` result; `comparison` is `non_comparable` unless actual camera,
 view, light, viewport, Engine, platform, renderer, static pose, monitor set, and
-sample window match, otherwise it reports scene-level mean/p95 deltas. Performance
-sampling begins after the final view without a stabilization period, so it is not a
-benchmark-equilibrium claim. The static imported pose has no overlays. Preview does
+sample window and requested warmup match, otherwise it reports scene-level mean/p95
+deltas. Optional `--warmup-seconds` accepts finite seconds in 0..10 (default 0), waits
+after the final view, and records the value in `preview.request.warmup_seconds`.
+FPS is a sampled counter affected by startup; several frame samples can read the
+same update. Keep low values. Comparable setup and a wait do not establish stable
+performance. See the [sampling investigation and procedure](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/docs/preview-performance.md).
+The static imported pose has no overlays. Preview does
 not compare model-content digests, infer per-mesh GPU cost, map every Godot node back
 to a Blender source object, or promise repeatable pixels or performance. On failure,
 read `error.partial_result.preview`; source files and user projects are not modified.

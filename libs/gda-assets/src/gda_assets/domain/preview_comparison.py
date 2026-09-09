@@ -2,7 +2,7 @@
 
 import math
 
-from gda_assets.domain.preview import VIEW_NAMES, cameras_match
+from gda_assets.domain.preview import VIEW_NAMES, cameras_match, validate_warmup
 from gda_assets.domain.preview_result import (
     PreviewComparison,
     PreviewMetricChange,
@@ -78,6 +78,13 @@ def _validate_result(label: str, result: PreviewResult, reasons: list[str]) -> N
         "performance",
         *(f"view.{name}" for name in VIEW_NAMES),
     }
+    try:
+        validate_warmup(result.request.warmup_seconds)
+    except ValueError:
+        _add(reasons, f"{label}:warmup_invalid")
+    else:
+        if result.request.warmup_seconds > 0:
+            expected_stages.add("warmup")
     if not expected_stages.issubset(result.completed):
         _add(reasons, f"{label}:preview_incomplete")
     if result.inspection is None or not result.inspection.engine:
@@ -173,6 +180,8 @@ def _compatible_setup(
             for left, right in zip(old_light, new_light)
         ):
             _add(reasons, "preview_setup_mismatch")
+    if baseline.request.warmup_seconds != current.request.warmup_seconds:
+        _add(reasons, "warmup_mismatch")
     assert baseline.performance is not None and current.performance is not None
     if set(baseline.performance.stats) != set(current.performance.stats):
         _add(reasons, "performance_monitors_mismatch")

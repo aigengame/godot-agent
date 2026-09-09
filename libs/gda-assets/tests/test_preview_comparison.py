@@ -267,3 +267,30 @@ def test_different_budget_verdicts_are_retained_without_gating_comparison():
     assert comparison.changes["fps"].after_budget is not None
     assert comparison.changes["fps"].before_budget.passed is True
     assert comparison.changes["fps"].after_budget.passed is False
+
+
+def test_warmup_difference_is_not_comparable_and_low_fps_is_preserved():
+    before, after = _result(), _result()
+    for result in (before, after):
+        result.request = replace(result.request, warmup_seconds=2.5)
+        result.completed.append("warmup")
+        assert result.performance is not None
+        result.performance = replace(
+            result.performance,
+            stats={"fps": PreviewStats(3, 1, 1, 1, 1, 1)},
+            samples=tuple(
+                PreviewSample(i, 100 + i * 16, {"fps": 1.0}) for i in range(3)
+            ),
+        )
+    same = compare_previews(before, after)
+    assert same.status == "comparable"
+    assert same.changes["fps"].after.mean == 1
+    assert any("startup" in text.lower() for text in same.limitations)
+    after.request = replace(after.request, warmup_seconds=1.25)
+    different = compare_previews(before, after)
+    assert (
+        different.status == "non_comparable" and "warmup_mismatch" in different.reasons
+    )
+    after.request = replace(after.request, warmup_seconds=2.5)
+    after.completed.remove("warmup")
+    assert "current:preview_incomplete" in compare_previews(before, after).reasons

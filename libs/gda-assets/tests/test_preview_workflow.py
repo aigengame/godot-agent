@@ -128,6 +128,9 @@ class Runtime:
             (-45, -35, 0),
         )
 
+    def warmup(self, seconds) -> None:
+        raise AssertionError("default zero wait must not call warmup")
+
     def performance(self, frames, *, budget):
         assert self.index == 2 and frames == 2 and budget is False
         return PreviewPerformance(
@@ -416,3 +419,69 @@ def test_invalid_window_is_refused_before_files_or_host(tmp_path, frames):
     )
     assert result.failure is not None and result.failure.stage == "validate"
     assert not files.prepared
+
+
+def test_preview_waits_at_final_view_before_sampling_and_records_warmup(tmp_path):
+    files = Files(tmp_path / "isolated")
+    runtime = Runtime(files)
+    calls = []
+    original = runtime.performance
+
+    def warmup(seconds):
+        assert runtime.index == 2 and runtime.running
+        calls.append(("warmup", seconds))
+
+    def performance(frames, *, budget):
+        calls.append(("sample", frames))
+        return original(frames, budget=budget)
+
+    runtime.warmup = warmup
+    runtime.performance = performance
+    request = PreviewRequest(
+        tmp_path / "model.glb", tmp_path / "views", frames=2, warmup_seconds=2.5
+    )
+    result = preview_asset(request, host=lambda _: runtime, files=files)
+    assert result.failure is None
+    assert calls == [("warmup", 2.5), ("sample", 2)]
+    assert result.request.warmup_seconds == 2.5
+    assert (
+        result.completed.index("view.three_quarter")
+        < result.completed.index("warmup")
+        < result.completed.index("performance")
+    )
+    assert result.cleanup.session_stopped and result.cleanup.project_removed
+
+
+@pytest.mark.parametrize("seconds", [-0.1, 10.1, float("nan"), float("inf"), True])
+def test_invalid_warmup_is_refused_before_preparation(tmp_path, seconds):
+    files = Files(tmp_path / "isolated")
+    request = PreviewRequest(
+        tmp_path / "model.glb", tmp_path / "views", warmup_seconds=seconds
+    )
+    result = preview_asset(request, host=lambda _: Runtime(files), files=files)
+    assert result.failure is not None and result.failure.stage == "validate"
+    assert not files.prepared
+
+
+@pytest.mark.parametrize(
+    "error", [PortFailure("warmup_failed", "interrupted"), KeyboardInterrupt()]
+)
+def test_warmup_failure_or_cancellation_preserves_cleanup(tmp_path, error):
+    files = Files(tmp_path / "isolated")
+    runtime = Runtime(files)
+
+    def warmup(seconds):
+        raise error
+
+    runtime.warmup = warmup
+    request = PreviewRequest(
+        tmp_path / "model.glb", tmp_path / "views", frames=2, warmup_seconds=1.0
+    )
+    if isinstance(error, KeyboardInterrupt):
+        with pytest.raises(KeyboardInterrupt):
+            preview_asset(request, host=lambda _: runtime, files=files)
+    else:
+        result = preview_asset(request, host=lambda _: runtime, files=files)
+        assert result.failure is not None and result.failure.stage == "warmup"
+        assert result.performance is None and "warmup" not in result.completed
+    assert not runtime.running and files.removed

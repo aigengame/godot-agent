@@ -24,6 +24,7 @@ class PreviewRequest:
     max_nodes: int = 256
     budget: Path | None = None
     baseline: Path | None = None
+    warmup_seconds: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -134,12 +135,19 @@ class PreviewMetricChange:
     after_budget: PreviewBudget | None = None
 
 
+_PERFORMANCE_LIMITATIONS = (
+    "FPS is a sampled scene-level counter affected by startup and measurement conditions; repeated per-frame samples can read the same counter update.",
+    "Comparable setup, including the optional wait, does not establish stabilized performance or per-mesh cost; low FPS values are retained.",
+)
+
+
 @dataclass(frozen=True)
 class PreviewComparison:
     status: Literal["comparable", "non_comparable"]
     reasons: tuple[str, ...]
     changes: dict[str, PreviewMetricChange] = field(default_factory=dict)
     baseline_origin: Literal["supplied_preview_result"] = "supplied_preview_result"
+    limitations: tuple[str, ...] = _PERFORMANCE_LIMITATIONS
 
 
 @dataclass
@@ -168,6 +176,7 @@ class PreviewResult:
         "Static imported pose and mesh bounds do not establish animated-pose or collision bounds.",
         "View names use Godot axes; resource-relative node names do not guarantee a Blender source-object mapping.",
         "Performance samples are scene-level observations at the final view, not per-mesh GPU cost.",
-        "The performance window starts after the final view without a stabilization period.",
+        "The performance window starts after the final view and optional bounded wait.",
+        *_PERFORMANCE_LIMITATIONS,
         "A repeated setup does not promise identical pixels or performance across runs.",
     )

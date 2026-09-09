@@ -690,7 +690,15 @@ class AssetPipelinePreviewParams(_AssetCommandModel):
         strict=True,
         ge=1,
         le=120,
-        description="Performance sample frames at the final view, without stabilization.",
+        description="Performance sample frames after the final view and optional wait.",
+    )
+    warmup_seconds: float = Field(
+        default=0.0,
+        strict=True,
+        ge=0,
+        le=10,
+        allow_inf_nan=False,
+        description="Optional seconds to wait after the final view before sampling (0..10); no stability guarantee.",
     )
     timeout: float = Field(
         default=25.0,
@@ -789,6 +797,7 @@ def run_asset_preview(
             ),
         ),
         frames=params.frames,
+        warmup_seconds=params.warmup_seconds,
         timeout=params.timeout,
         max_nodes=params.max_nodes,
         budget=params.budget.resolve() if params.budget is not None else None,
@@ -849,6 +858,7 @@ def render_asset_preview(result: AssetPipelinePreviewResult) -> str:
         lines.append(f"  performance: passed={preview.performance.passed}")
     if preview.comparison is not None:
         lines.append(f"  comparison: {preview.comparison.status}")
+        lines.extend(f"    {text}" for text in preview.comparison.limitations)
         lines.extend(f"    {reason}" for reason in preview.comparison.reasons)
         lines.extend(
             f"    {name}: mean delta={change.mean_delta:g}, p95 delta={change.p95_delta:g}"
@@ -884,6 +894,11 @@ def asset_pipeline_preview(
         None, "--settings", help="Optional preview settings JSON file (at most 1 MiB)."
     ),
     frames: int = typer.Option(60, "--frames", min=1, max=120),
+    warmup_seconds: float = typer.Option(
+        0.0,
+        "--warmup-seconds",
+        help="Optional wait before sampling, finite seconds in 0..10; no stability guarantee.",
+    ),
     timeout: float = typer.Option(
         25.0, "--timeout", help="Positive readiness timeout in seconds, at most 50."
     ),
@@ -909,6 +924,7 @@ def asset_pipeline_preview(
             output_dir=output_dir,
             settings=settings,
             frames=frames,
+            warmup_seconds=warmup_seconds,
             timeout=timeout,
             max_nodes=max_nodes,
             budget=budget,
