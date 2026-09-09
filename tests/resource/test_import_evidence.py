@@ -459,3 +459,18 @@ def test_the_states_the_engine_would_act_on_carry_no_reason(tmp_path):
     stale = asset_state(project, "res://icon.png")
     assert stale.status == "stale"
     assert stale.reason is None and stale.detail is None
+
+
+def test_an_invalid_verdict_without_a_reason_is_refused_at_construction():
+    # PR #937 review round 2 [P3]: an internal invariant of gda's own
+    # dataclass, not input validation. Every `invalid` branch above names the
+    # check that decided it; a branch that forgot would publish exactly the
+    # unexplained verdict #853 exists to end, and no caller could tell.
+    import pytest
+
+    from gda.import_evidence import AssetEvidence
+
+    with pytest.raises(ValueError):
+        AssetEvidence(status="invalid", sidecar="res://icon.png.import")
+    # Every other state is reasonless by construction and stays constructible.
+    assert AssetEvidence(status="stale").reason is None

@@ -646,41 +646,104 @@ def test_an_invalid_reason_survives_the_settlement_unchanged(monkeypatch, tmp_pa
     assert real["engine_output_truncated"] is False
 
 
-def test_a_skipped_invalid_asset_takes_no_lines_from_a_siblings_pass(
-    monkeypatch, tmp_path
-):
-    # PR #937 review round 1 [P2]: the pass runs for the MISSING sibling, and
-    # the engine deliberately skips the invalid one — so a stderr line naming
-    # the skipped asset belongs to the run, not to it. Attaching the pass's
-    # output to every settled `failed` contradicted the field's own
-    # description, and no test noticed.
+def test_each_asset_takes_only_the_passs_lines_that_name_it(monkeypatch, tmp_path):
+    # PR #937 review round 2: `engine_output` follows the PASS, never the
+    # reason. Round 1 gated it on a settlement-decided reason, assuming the
+    # engine says nothing about an asset it skips — false on 4.6.3, where an
+    # unparsable sidecar draws two `ResourceFormatImporter::load` errors naming
+    # it before the skip. The stderr below is that real shape (reproduced
+    # against the engine), and the rule is the literal one: each asset takes
+    # the lines that NAME it, and only those.
     project = icon_project(tmp_path)
     (project / "bad.png").write_bytes(b"\x89PNG bad")
-    sidecar(project, "bad.png", None, valid=False)
+    (project / "bad.png.import").write_text(
+        '[remap]\n\nimporter="texture"\nuid="uid://test"\n\n[deps]\n\n'
+        'source_file="res://bad.png"\ndest_files=[oops]\n',
+        encoding="utf-8",
+    )
+    bad_lines = [
+        "ERROR: ResourceFormatImporter::load - 'res://bad.png.import:8' error "
+        "'Unexpected identifier 'oops''.",
+        "ERROR: ResourceFormatImporter::load - 'res://bad.png.import:8' error "
+        "'Unexpected identifier 'oops''.",
+    ]
     stderr = (
-        "ERROR: Error importing 'res://bad.png'.\n"
-        "ERROR: Error importing 'res://icon.png'.\n"
+        f"{bad_lines[0]}\n"
+        "   at: _test_for_reimport (editor/file_system/editor_file_system.cpp:620)\n"
+        f"{bad_lines[1]}\n"
+        "   at: _get_import_dest_paths (editor/file_system/editor_file_system.cpp:772)\n"
+        "ERROR: Error importing 'res://fresh.png'.\n"
+        "   at: _reimport_file (editor/file_system/editor_file_system.cpp:3065)\n"
     )
 
     def fake_launch(binary, args, *, cwd, timeout, timeout_label="Godot", watch=None):
-        sidecar(project, "icon.png", ".godot/imported/never-written.ctex")
+        sidecar(project, "fresh.png", ".godot/imported/never-written.ctex")
         return RunResult(stdout="", stderr=stderr, exit_code=0)
 
+    (project / "fresh.png").write_bytes(b"\x89PNG fresh")
     monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
 
-    data = json.loads(_run(project, "res://icon.png", "res://bad.png").stdout)
+    data = json.loads(_run(project, "res://bad.png", "res://fresh.png").stdout)
     by_path = {a["path"]: a for a in data["assets"]}
 
-    # The skipped one keeps its pre-pass check and takes none of the output.
+    # The asset the engine SKIPPED still keeps its pre-pass reason AND the
+    # engine's two lines about it. The `at:` continuations name a source file,
+    # not the asset, so they stay out.
     assert by_path["res://bad.png"]["status"] == "failed"
-    assert by_path["res://bad.png"]["reason"] == "sidecar_marked_invalid"
-    assert by_path["res://bad.png"]["engine_output"] == []
+    assert by_path["res://bad.png"]["reason"] == "sidecar_unparsable"
+    assert by_path["res://bad.png"]["engine_output"] == bad_lines
     assert by_path["res://bad.png"]["engine_output_truncated"] is False
-    # The asset the pass DID run over still gets its own line.
-    assert by_path["res://icon.png"]["reason"] == "dest_missing_after_pass"
-    assert by_path["res://icon.png"]["engine_output"] == [
-        "ERROR: Error importing 'res://icon.png'."
+    # The sibling that spent the pass takes its own line, and only its own.
+    assert by_path["res://fresh.png"]["reason"] == "dest_missing_after_pass"
+    assert by_path["res://fresh.png"]["engine_output"] == [
+        "ERROR: Error importing 'res://fresh.png'."
     ]
+
+    # And with no pass to attribute anything to, both are empty: `bad.png`
+    # alone is invalid, so nothing runs.
+    calls, no_pass = _fake_pass(project, lambda p: None)
+    monkeypatch.setattr("gda.commands.resource.launch", no_pass)
+    alone = json.loads(_run(project, "res://bad.png").stdout)["assets"][0]
+    assert calls == []
+    assert alone["status"] == "failed"
+    assert alone["reason"] == "sidecar_unparsable"
+    assert alone["engine_output"] == []
+
+
+def test_the_remedy_footnote_follows_the_artifact_reason_into_a_real_run(
+    monkeypatch, tmp_path
+):
+    # PR #937 review round 2 [P3]: the "delete the .import sidecar" hint was
+    # keyed on the `invalid` STATE, which a real run settles away — so the run
+    # that most needs the remedy printed none. It follows the artifact reason
+    # now, and `dest_missing_after_pass` still gets no sidecar advice.
+    project = icon_project(tmp_path)
+    sidecar(project, "icon.png", None, valid=False)
+
+    calls, fake_launch = _fake_pass(project, lambda p: None)
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+    settled = runner_cli.invoke(
+        app, ["resource", "import", "res://icon.png", "--project", str(project)]
+    )
+
+    assert settled.exit_code == 0, settled.stdout + settled.stderr
+    assert "failed" in settled.stdout
+    assert "delete the asset's .import sidecar" in settled.stdout
+
+    # A pass-decided failure is not a sidecar-syntax problem; no such advice.
+    project2 = icon_project(tmp_path / "second")
+
+    def effects(p):
+        sidecar(p, "icon.png", ".godot/imported/never-written.ctex")
+
+    _, leaves_dest = _fake_pass(project2, effects)
+    monkeypatch.setattr("gda.commands.resource.launch", leaves_dest)
+    passed = runner_cli.invoke(
+        app, ["resource", "import", "res://icon.png", "--project", str(project2)]
+    )
+
+    assert "dest_missing_after_pass" in passed.stdout
+    assert "delete the asset's .import sidecar" not in passed.stdout
 
 
 def test_a_pass_that_leaves_the_asset_uncached_reports_the_settlement_reason(

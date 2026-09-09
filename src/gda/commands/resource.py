@@ -18,7 +18,7 @@ lives with its single consumer in the ``project`` group (ADR-0040 §5).
 
 import os
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, get_args
 
 import typer
 from pydantic import BaseModel, Field, model_validator
@@ -42,6 +42,7 @@ from gda.headless import (
 from gda.import_evidence import (
     CACHE_ROOT_REL,
     CreatedFileClass,
+    EvidenceReason,
     asset_state,
     classify_created_file,
     project_import_gaps,
@@ -574,9 +575,11 @@ class ResourceImportAsset(BaseModel):
     would not.
 
     An ``invalid`` or ``failed`` verdict also says WHY (#853): ``reason`` names
-    the check that decided it, ``detail`` the offending line or path when there
-    is one, and ``engine_output`` carries the pass's own stderr lines for the
-    asset. Every other status leaves the three empty.
+    the check that decided it and ``detail`` the offending line or path when
+    there is one, both read BEFORE any pass. ``engine_output`` is the other
+    half and answers to nothing but the pass: the stderr lines that name this
+    asset, whenever this request ran one. Every other status leaves the three
+    empty.
     """
 
     path: str = Field(description="The asset's res:// path.")
@@ -621,9 +624,11 @@ class ResourceImportAsset(BaseModel):
         max_length=ENGINE_OUTPUT_LINE_CAP,
         description=(
             "The import pass's stderr lines that name this asset's res:// "
-            "path, verbatim and in order, for a `failed` asset the pass ran "
-            f"over; at most {ENGINE_OUTPUT_LINE_CAP}. Empty on every other "
-            "status, and on a `failed` no pass was spent on."
+            "path, verbatim and in order, for a `failed` asset when this "
+            f"request ran a pass; at most {ENGINE_OUTPUT_LINE_CAP}. Empty on "
+            "every other status, and when no pass ran. Independent of "
+            "`reason`: that is gda's pre-pass evidence, this is what the "
+            "engine said, and the engine also names an asset it then skips."
         ),
     )
     engine_output_truncated: bool = Field(
@@ -918,8 +923,9 @@ def _engine_output(stderr: "str | None", res_path: str) -> "tuple[list[str], boo
     """The pass's stderr lines that NAME one asset, bounded (#853).
 
     The match is the asset's ``res://`` path as a substring, which is how the
-    engine spells an asset in ``Error importing 'res://x.png'`` and in the
-    loader errors above it. Deliberately literal: a broader needle (the
+    engine spells an asset in ``Error importing 'res://x.png'``, in the loader
+    errors above it, and in the ``ResourceFormatImporter::load`` errors it
+    prints for a sidecar it is about to SKIP (``res://x.png.import:8``). Deliberately literal: a broader needle (the
     filename, the filesystem path) would attribute a neighbour's error to this
     asset, and evidence that over-claims is worse than evidence that is short.
     The engine's ``at:`` continuation lines name a source file, not the asset,
@@ -1066,9 +1072,20 @@ def run_resource_import_operation(
     # #853 asks the settlement to preserve: an artifact check refused this
     # asset before the pass, the pass never retried it, so that check is still
     # the answer. Where no check refused it, the settlement decides the reason
-    # itself, and only then is the pass's output this asset's evidence — the
-    # pass SKIPS a refused one, so a line naming it belongs to the sibling
-    # request that spent the pass, never to it (PR #937 review round 1).
+    # itself.
+    #
+    # `engine_output` does NOT follow the reason, and the two must not be made
+    # to gate each other: `reason` is gda's PRE-PASS evidence, `engine_output`
+    # is what the ENGINE said about this asset during this request's pass. PR
+    # #937 round 1 gated the lines on a settlement-decided reason, on the
+    # assumption that the engine says nothing about an asset it skips; round 2
+    # disproved that on 4.6.3 — an unparsable sidecar draws two
+    # `ResourceFormatImporter::load - 'res://x.png.import:8'` errors naming the
+    # asset BEFORE the skip (observed from `_test_for_reimport` and
+    # `_get_import_dest_paths`, `editor/file_system/editor_file_system.cpp`),
+    # and a receipt outside gda's narrower subset is re-imported by the engine
+    # and prints its own failure. So the rule is the literal one #853 states:
+    # the pass's lines that name the asset, whenever this request ran a pass.
     settled: list[ResourceImportAsset] = []
     for asset in assets:
         if asset.status == "cached":
@@ -1081,17 +1098,18 @@ def run_resource_import_operation(
         if now.sidecar is None:
             settled.append(now.model_copy(update={"status": "not_importable"}))
             continue
-        if asset.reason is None:
-            lines, truncated = _engine_output(pass_stderr, asset.path)
-            failure: dict[str, Any] = {
-                "reason": "dest_missing_after_pass",
-                "detail": None,
-                "engine_output": lines,
-                "engine_output_truncated": truncated,
-            }
-        else:
-            failure = {"reason": asset.reason, "detail": asset.detail}
-        settled.append(now.model_copy(update={"status": "failed", **failure}))
+        lines, truncated = _engine_output(pass_stderr, asset.path)
+        settled.append(
+            now.model_copy(
+                update={
+                    "status": "failed",
+                    "reason": asset.reason or "dest_missing_after_pass",
+                    "detail": asset.detail,
+                    "engine_output": lines,
+                    "engine_output_truncated": truncated,
+                }
+            )
+        )
     assets = settled
 
     return ResourceImportResult(
@@ -1106,6 +1124,13 @@ def run_resource_import_operation(
 
 def _resource_import_recipe(params, *, project, godot):
     return run_resource_import_operation(project, params, godot=godot)
+
+
+# The reasons an ARTIFACT check decides, as the wire spells them: the same set
+# `gda.import_evidence.EvidenceReason` names, and the one the sidecar-deleting
+# remedy answers. `dest_missing_after_pass` is not one — no sidecar edit helps
+# an import the engine attempted and failed.
+_ARTIFACT_REASONS = frozenset(get_args(EvidenceReason))
 
 
 def _reason_suffix(asset: ResourceImportAsset) -> str:
@@ -1136,7 +1161,10 @@ def render_resource_import(outcome: "ResourceImportResult") -> str:
         f"  {asset.status:>14}  {asset.path}{_reason_suffix(asset)}"
         for asset in outcome.assets
     ]
-    if any(asset.status == "invalid" for asset in outcome.assets):
+    if any(asset.reason in _ARTIFACT_REASONS for asset in outcome.assets):
+        # The remedy belongs to the artifact CHECK, not to the `invalid` state:
+        # a real run settles that state to `failed` and carries the check with
+        # it, so the hint had to follow (PR #937 review round 2).
         lines.append(
             "  invalid: no pass runs for a failed import, a parse error, or "
             "unsupported receipt syntax; delete the asset's .import sidecar "

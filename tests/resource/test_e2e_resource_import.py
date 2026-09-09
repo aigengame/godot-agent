@@ -451,3 +451,42 @@ def test_a_failed_asset_names_its_reason_and_the_engines_own_lines(tmp_path):
     assert second["assets"][0]["status"] == "failed"
     assert second["assets"][0]["reason"] == "sidecar_marked_invalid"
     assert second["assets"][0]["engine_output"] == []
+
+
+@pytest.mark.e2e
+def test_the_engine_names_a_sidecar_it_skips_and_those_lines_ride_along(tmp_path):
+    # PR #937 review round 2, the assumption round 1 got wrong, pinned against
+    # the real engine: gda's verdict for an unparsable sidecar is a SKIP the
+    # pass never retries — and the engine still prints
+    # `ResourceFormatImporter::load - 'res://bad.png.import:8'` twice while
+    # deciding that, once from `_test_for_reimport` and once from
+    # `_get_import_dest_paths`. So `engine_output` follows the PASS, not the
+    # reason: a request that spent one carries the engine's words about every
+    # asset it names, this one included.
+    project = _project(tmp_path)
+    gda = Gda(project, json_output=True, timeout=180)
+    _png(project / "bad.png", (0, 0, 255))
+    (project / "bad.png.import").write_text(
+        '[remap]\n\nimporter="texture"\nuid="uid://gda853probe"\n\n[deps]\n\n'
+        'source_file="res://bad.png"\ndest_files=[oops]\n',
+        encoding="utf-8",
+    )
+
+    # icon.png has no sidecar, so THIS request spends a pass.
+    result = gda("resource", "import", "res://bad.png", "res://icon.png")
+    assert result.returncode == 0, result.stdout + result.stderr
+    doc = json.loads(result.stdout)
+    assert doc["engine_pass"] is True
+    by_path = {a["path"]: a for a in doc["assets"]}
+
+    skipped = by_path["res://bad.png"]
+    assert skipped["status"] == "failed"
+    assert skipped["reason"] == "sidecar_unparsable"
+    assert skipped["detail"] == "dest_files=[oops]"
+    assert skipped["engine_output"], doc
+    assert all("res://bad.png" in line for line in skipped["engine_output"])
+    assert any(".import:" in line for line in skipped["engine_output"])
+    assert skipped["engine_output_truncated"] is False
+    # The sibling imported normally and has nothing to explain.
+    assert by_path["res://icon.png"]["status"] == "imported"
+    assert by_path["res://icon.png"]["engine_output"] == []

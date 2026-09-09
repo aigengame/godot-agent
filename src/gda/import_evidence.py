@@ -104,7 +104,8 @@ class AssetEvidence:
     malformed ``dest_files=`` / ``files=`` line, or the derived ``.md5``
     receipt's ``res://`` path, which appears nowhere else. Bytes that do not
     decode and the engine's own ``valid=false`` name no detail — the sidecar
-    path is already here.
+    path is already here. An ``invalid`` verdict without a ``reason`` is a bug
+    in this module and is refused at construction.
     """
 
     status: EvidenceStatus
@@ -112,6 +113,14 @@ class AssetEvidence:
     dest_files: list[str] = field(default_factory=list)
     reason: EvidenceReason | None = None
     detail: str | None = None
+
+    def __post_init__(self) -> None:
+        # gda's own dataclass, so this is an internal invariant, not input
+        # validation: every `invalid` branch names the check that decided it,
+        # and a branch that forgets would publish an unexplained verdict — the
+        # very gap #853 closes (PR #937 review round 2).
+        if self.status == "invalid" and self.reason is None:
+            raise ValueError("an invalid verdict must name the check that decided it.")
 
 
 def classify_created_file(rel: str) -> CreatedFileClass:

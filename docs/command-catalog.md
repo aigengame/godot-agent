@@ -1212,12 +1212,19 @@ knows one the record does not already carry (the malformed `dest_files=`/`files=
 the derived `.md5` receipt). The three artifact reasons are decided in the evidence
 adapter and SURVIVE the settlement, so a real run's `failed` still names the pre-pass
 check that refused it; `dest_missing_after_pass` is the one only the command can decide
-— no check refused the asset, the pass ran, and it is still not cached. For a `failed`
-the pass ran over, `engine_output` carries that pass's stderr lines naming the asset's
-`res://` path, verbatim and in order, bounded to 20 with `engine_output_truncated` when
-more matched (#665's rule without its spill file; the engine's `at:` continuation lines
-name a source file, not the asset, so they stay out). PIPE-DF-191 is the caller who got
-the bare `failed` and had to prove the outcome from unchanged resource bytes.
+— no check refused the asset, the pass ran, and it is still not cached. For a `failed`,
+`engine_output` carries the pass's stderr lines naming the asset's `res://` path,
+verbatim and in order, whenever THIS request ran a pass — empty when none ran — bounded
+to 20 with `engine_output_truncated` when more matched (#665's rule without its spill
+file; the engine's `at:` continuation lines name a source file, not the asset, so they
+stay out). It is independent of `reason`, deliberately: `reason` is gda's pre-pass
+evidence and `engine_output` is the engine's own words, and the engine NAMES an asset it
+then skips (an unparsable sidecar draws two `ResourceFormatImporter::load` errors before
+the skip; a receipt outside gda's narrower subset is re-imported and fails in the open).
+Those lines are the ones naming the asset, which for some importers is the verdict
+without its cause — pass the global `--user-data-root DIR` to keep the whole engine
+stream at `DIR/logs/godot.log`. PIPE-DF-191 is the caller who got the bare `failed` and
+had to prove the outcome from unchanged resource bytes.
 `--dry-run` writes nothing and reports the decidable inventory: the per-asset
 states, the requested assets' sidecars-to-be, and `pass_will_also_import` — the OTHER
 stale assets the project-wide pass will re-import (invalid ones excluded; assets under a
