@@ -615,12 +615,22 @@ def test_an_invalid_reason_survives_the_settlement_unchanged(monkeypatch, tmp_pa
     # evidence state WITH the check that decided it, and a real run — which
     # spends no pass on an invalid request — settles to `failed` still naming
     # that same check. PIPE-DF-191 got the settlement with nothing on it.
+    #
+    # The fixture is the reason spelling that also carries a DETAIL (PR #937
+    # review round 1): a sidecar that decodes but whose `dest_files=` list does
+    # not parse, so the offending line has to survive the settlement beside the
+    # reason. With undecodable bytes there was no detail to lose.
     project = icon_project(tmp_path)
-    (project / "icon.png.import").write_bytes(b'importer="texture"\n\xff\xfe\n')
+    (project / "icon.png.import").write_text(
+        '[remap]\n\nimporter="texture"\nuid="uid://test"\n\n[deps]\n\n'
+        'source_file="res://icon.png"\ndest_files=[oops]\n',
+        encoding="utf-8",
+    )
 
     dry = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)["assets"][0]
     assert dry["status"] == "invalid"
     assert dry["reason"] == "sidecar_unparsable"
+    assert dry["detail"] == "dest_files=[oops]"
     assert dry["sidecar"] == "res://icon.png.import"
 
     calls, fake_launch = _fake_pass(project, lambda p: None)
@@ -630,9 +640,47 @@ def test_an_invalid_reason_survives_the_settlement_unchanged(monkeypatch, tmp_pa
     assert calls == []
     assert real["status"] == "failed"
     assert real["reason"] == "sidecar_unparsable"
+    assert real["detail"] == "dest_files=[oops]"
     # No pass ran, so there is no engine output to attribute to it.
     assert real["engine_output"] == []
     assert real["engine_output_truncated"] is False
+
+
+def test_a_skipped_invalid_asset_takes_no_lines_from_a_siblings_pass(
+    monkeypatch, tmp_path
+):
+    # PR #937 review round 1 [P2]: the pass runs for the MISSING sibling, and
+    # the engine deliberately skips the invalid one — so a stderr line naming
+    # the skipped asset belongs to the run, not to it. Attaching the pass's
+    # output to every settled `failed` contradicted the field's own
+    # description, and no test noticed.
+    project = icon_project(tmp_path)
+    (project / "bad.png").write_bytes(b"\x89PNG bad")
+    sidecar(project, "bad.png", None, valid=False)
+    stderr = (
+        "ERROR: Error importing 'res://bad.png'.\n"
+        "ERROR: Error importing 'res://icon.png'.\n"
+    )
+
+    def fake_launch(binary, args, *, cwd, timeout, timeout_label="Godot", watch=None):
+        sidecar(project, "icon.png", ".godot/imported/never-written.ctex")
+        return RunResult(stdout="", stderr=stderr, exit_code=0)
+
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+
+    data = json.loads(_run(project, "res://icon.png", "res://bad.png").stdout)
+    by_path = {a["path"]: a for a in data["assets"]}
+
+    # The skipped one keeps its pre-pass check and takes none of the output.
+    assert by_path["res://bad.png"]["status"] == "failed"
+    assert by_path["res://bad.png"]["reason"] == "sidecar_marked_invalid"
+    assert by_path["res://bad.png"]["engine_output"] == []
+    assert by_path["res://bad.png"]["engine_output_truncated"] is False
+    # The asset the pass DID run over still gets its own line.
+    assert by_path["res://icon.png"]["reason"] == "dest_missing_after_pass"
+    assert by_path["res://icon.png"]["engine_output"] == [
+        "ERROR: Error importing 'res://icon.png'."
+    ]
 
 
 def test_a_pass_that_leaves_the_asset_uncached_reports_the_settlement_reason(

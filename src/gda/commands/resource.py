@@ -534,9 +534,9 @@ ENGINE_OUTPUT_LINE_CAP = 20
 
 #665's bounded-stream rule, without its spill file: an asset's verdict must not
 become an unbounded payload when a pass floods the log. Past the cap the record
-says so (``engine_output_truncated``) and the whole stream stays where it always
-was — the engine's log, and the ``operation_failed`` diagnostics of a pass that
-exited non-zero.
+says so (``engine_output_truncated``) and the whole stream stays where it
+already was — the engine's log when ``--user-data-root`` keeps it, and the
+``operation_failed`` diagnostics of a pass that exited non-zero.
 """
 
 
@@ -597,7 +597,7 @@ class ResourceImportAsset(BaseModel):
             "empty when there is no sidecar or it declares none (importer=keep)."
         ),
     )
-    reason: Optional[AssetReason] = Field(
+    reason: AssetReason | None = Field(
         default=None,
         description=(
             "Which check decided an `invalid` or `failed` verdict; null on "
@@ -608,7 +608,7 @@ class ResourceImportAsset(BaseModel):
             "cached (read `engine_output` for what the engine said)."
         ),
     )
-    detail: Optional[str] = Field(
+    detail: str | None = Field(
         default=None,
         description=(
             "The offending line or path behind `reason`, when the check knows "
@@ -622,8 +622,8 @@ class ResourceImportAsset(BaseModel):
         description=(
             "The import pass's stderr lines that name this asset's res:// "
             "path, verbatim and in order, for a `failed` asset the pass ran "
-            "over; at most 20. Empty on every other status, and on a `failed` "
-            "no pass was spent on."
+            f"over; at most {ENGINE_OUTPUT_LINE_CAP}. Empty on every other "
+            "status, and on a `failed` no pass was spent on."
         ),
     )
     engine_output_truncated: bool = Field(
@@ -756,7 +756,10 @@ class ResourceImportResult(BaseModel):
                 for asset in self.assets
             ):
                 raise ValueError("a dry run reports evidence states, not settlements.")
-            if any(asset.engine_output for asset in self.assets):
+            if any(
+                asset.engine_output or asset.engine_output_truncated
+                for asset in self.assets
+            ):
                 raise ValueError("a dry run runs no pass, so it captures no output.")
         else:
             if self.predicted_source_adjacent or self.pass_will_also_import:
@@ -1063,7 +1066,9 @@ def run_resource_import_operation(
     # #853 asks the settlement to preserve: an artifact check refused this
     # asset before the pass, the pass never retried it, so that check is still
     # the answer. Where no check refused it, the settlement decides the reason
-    # itself, and only for a failure it can attribute to the pass.
+    # itself, and only then is the pass's output this asset's evidence — the
+    # pass SKIPS a refused one, so a line naming it belongs to the sibling
+    # request that spent the pass, never to it (PR #937 review round 1).
     settled: list[ResourceImportAsset] = []
     for asset in assets:
         if asset.status == "cached":
@@ -1071,35 +1076,22 @@ def run_resource_import_operation(
             continue
         now = _asset_record(project, asset.path)
         if now.status == "cached":
-            settled.append(
-                now.model_copy(
-                    update={"status": "imported", "reason": None, "detail": None}
-                )
-            )
+            settled.append(now.model_copy(update={"status": "imported"}))
             continue
         if now.sidecar is None:
-            settled.append(
-                now.model_copy(
-                    update={
-                        "status": "not_importable",
-                        "reason": None,
-                        "detail": None,
-                    }
-                )
-            )
+            settled.append(now.model_copy(update={"status": "not_importable"}))
             continue
-        lines, truncated = _engine_output(pass_stderr, asset.path)
-        settled.append(
-            now.model_copy(
-                update={
-                    "status": "failed",
-                    "reason": asset.reason or "dest_missing_after_pass",
-                    "detail": asset.detail,
-                    "engine_output": lines,
-                    "engine_output_truncated": truncated,
-                }
-            )
-        )
+        if asset.reason is None:
+            lines, truncated = _engine_output(pass_stderr, asset.path)
+            failure: dict[str, Any] = {
+                "reason": "dest_missing_after_pass",
+                "detail": None,
+                "engine_output": lines,
+                "engine_output_truncated": truncated,
+            }
+        else:
+            failure = {"reason": asset.reason, "detail": asset.detail}
+        settled.append(now.model_copy(update={"status": "failed", **failure}))
     assets = settled
 
     return ResourceImportResult(
