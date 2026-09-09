@@ -771,7 +771,7 @@ def get(
 ) -> None:
     """Read storage properties and Node3D local position, rotation and scale.
 
-    Vector3 values are [x, y, z]. Local components use parent space; rotation
+    Vector3 values are \\[x, y, z]. Local components use parent space; rotation
     uses Euler radians under the node's rotation_order. This read does not save.
     """
     dispatch_domain(

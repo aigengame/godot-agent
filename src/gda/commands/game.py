@@ -786,7 +786,7 @@ def game_get(
     script is addressable explicitly after storage properties are checked; unfiltered
     reads keep the storage-property listing and do not dump script variables.
     Node3D position, rotation and scale are explicitly addressable local components;
-    rotation is in radians and Vector3 values read as [x, y, z].
+    rotation is in radians and Vector3 values read as \\[x, y, z].
     A path-less Texture2D value projects as a TextureProjection ({type, width,
     height, object_string, digest}, ADR-0035 amendment #666); `--texture-digest`
     opts into its content digest.
