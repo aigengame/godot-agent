@@ -17,7 +17,7 @@ against the engine session it holds, reading the runtime ``SceneTree`` after
 """
 
 import json
-from typing import Any, Optional
+from typing import Any, NotRequired, Optional, TypedDict
 
 import typer
 from pydantic import (
@@ -88,17 +88,9 @@ class GameNode(BaseModel):
     # The presence rule above is a SERIALIZATION rule, so it lives on the writer
     # rather than on every caller: the field stays a plain int with a 0 default
     # (a consumer reads a number, never None), and the key is dropped from the
-    # emitted JSON when nothing was omitted. `mode="wrap"` runs pydantic's own
-    # serializer first, so nested children are serialized — and pruned — by this
-    # same rule at every depth.
-    @model_serializer(mode="wrap")
-    def _omit_absent_omission_count(
-        self, handler: SerializerFunctionWrapHandler
-    ) -> dict[str, Any]:
-        rendered = handler(self)
-        if not rendered.get("children_omitted"):
-            rendered.pop("children_omitted", None)
-        return rendered
+    # emitted JSON when nothing was omitted. The writer is ONE serializer on
+    # :class:`GameTreeResult`, not one per node — see it for why; a node dumped
+    # on its own therefore keeps the key, which no gda path does.
 
 
 class GameTreeParams(RelayedLiveParams):
@@ -139,6 +131,31 @@ class GameTreeParams(RelayedLiveParams):
     )
 
 
+# The shape ``game tree`` EMITS, as opposed to the shape it holds: identical to
+# :class:`GameNode` / :class:`GameTreeResult` except that `children_omitted` is
+# optional, which is the one difference the prune below makes. Declared because a
+# `model_serializer`'s return annotation is what pydantic builds the writer from
+# — see the method for why a bare mapping is not enough here. Not published: the
+# `--schema` document is generated from the models in validation mode, where a
+# serializer's return type does not appear.
+class EmittedGameNode(TypedDict):
+    """One node of the emitted runtime tree (#929)."""
+
+    name: str
+    type: str
+    path: str
+    children: list["EmittedGameNode"]
+    children_omitted: NotRequired[int]
+
+
+class EmittedGameTree(TypedDict):
+    """The emitted ``game tree`` result (#929)."""
+
+    root: EmittedGameNode
+    truncated: bool
+    omitted_nodes: int
+
+
 class GameTreeResult(BaseModel):
     """The result of ``gda game tree``: the running game's runtime scene tree (#849).
 
@@ -163,6 +180,58 @@ class GameTreeResult(BaseModel):
             "missing from this result."
         )
     )
+
+    # The ONE writer of :class:`GameNode`'s `children_omitted` presence rule
+    # (#929). It sits here, on the whole tree, because the obvious home — a
+    # `model_serializer` on the node itself — is a Python callback at EVERY
+    # level, and pydantic stops calling those at about 128 nested levels: a
+    # chain the model happily VALIDATED then raised an uncaught
+    # `PydanticSerializationError`, so the CLI exited 1 with a bare traceback
+    # and no `Error envelope` at all, while `scene get`'s plain nested model
+    # refused the same depth typed. One callback at the top runs pydantic's own
+    # serializer over the whole tree first and then walks the dumped
+    # dictionaries with an explicit stack — never recursion, which would only
+    # move the ceiling into Python. The emitted JSON is unchanged and every tree
+    # the model accepts now also serializes; past that the refusal stays the
+    # typed `tree_too_deep` (issue #37) that `game tree --help` states.
+    #
+    # The return type is spelled out rather than left as a bare mapping BECAUSE
+    # of the depth: pydantic serializes a callback's result through the schema
+    # the annotation gives it, and an unannotated one falls back to the inferred
+    # writer, whose own JSON guard stops at the same ~128 levels this method
+    # exists to clear. The annotation is what makes the tree schema-driven again.
+    @model_serializer(mode="wrap")
+    def _omit_absent_omission_counts(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> "EmittedGameTree":
+        rendered = handler(self)
+        # Both reads are defensive because `exclude` / `include` /
+        # `exclude_defaults` let a caller drop either key: the prune must then
+        # find nothing to do, not raise a KeyError the caller reads as a
+        # serialization failure.
+        pending: list[Any] = [rendered["root"]] if "root" in rendered else []
+        while pending:
+            node = pending.pop()
+            if not node.get("children_omitted"):
+                node.pop("children_omitted", None)
+            pending.extend(node.get("children", ()))
+        return rendered
+
+    @model_validator(mode="after")
+    def _check_omission_counters(self) -> "GameTreeResult":
+        # The two counters ARE the partial-read contract (#929): a caller that
+        # reads `truncated` false stops looking, so a reply carrying it beside a
+        # non-zero `omitted_nodes` presents an incomplete tree as a complete one
+        # — and the reverse claims an omission the read never made. A stale or
+        # drifted harness must fail output validation and classify as
+        # contract_violation, never pass as a success. Same rule, same reason as
+        # the `input` gesture evidence (``InputTapResult``, #652).
+        if self.truncated != (self.omitted_nodes > 0):
+            raise ValueError(
+                "a tree result reports truncated true exactly when "
+                "omitted_nodes is above 0."
+            )
+        return self
 
 
 # The selectors `gda game find` ANDs together, in the order the params model
@@ -376,6 +445,24 @@ class GameFindResult(BaseModel):
             "is the size of what was never tested against the selectors."
         )
     )
+
+    @model_validator(mode="after")
+    def _check_result_counters(self) -> "GameFindResult":
+        # `count` is published so a caller can branch on the number WITHOUT
+        # walking the list, which makes a count that disagrees with the list
+        # worse than no count at all. The bounding pair carries
+        # :class:`GameTreeResult`'s rule for the same reason it does there: a
+        # search that under-reports its omission reads as proven absence. Both
+        # are harness drift, so both fail output validation and classify as
+        # contract_violation (#929).
+        if self.count != len(self.matches):
+            raise ValueError("a find result's count is the length of matches.")
+        if self.truncated != (self.omitted_nodes > 0):
+            raise ValueError(
+                "a find result reports truncated true exactly when "
+                "omitted_nodes is above 0."
+            )
+        return self
 
 
 class GameGetParams(RelayedLiveParams):
@@ -880,7 +967,10 @@ def game_tree(
     selected subtree is counted, never silently dropped: the result carries
     `truncated` and `omitted_nodes`, and each node whose children were not walked
     carries `children_omitted`. Read bounded first, then address the nodes you
-    want by their exact path (`game get`, `game rect`, `game set`).
+    want by their exact path (`game get`, `game rect`, `game set`). A tree
+    nesting deeper than about 250 levels is refused (`tree_too_deep`; past about
+    500 the engine's own JSON writer cuts the reply short and the refusal is
+    `contract_violation`): bound such a read with `--root` and `--max-depth`.
     """
     dispatch_domain(
         GAME_TREE_COMMAND,

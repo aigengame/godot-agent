@@ -14,8 +14,15 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.commands.game import GameFindParams, GameTreeParams
-from gda.exit_codes import EXIT_LIVE
+from gda.commands.game import (
+    EmittedGameNode,
+    EmittedGameTree,
+    GameFindParams,
+    GameNode,
+    GameTreeParams,
+    GameTreeResult,
+)
+from gda.exit_codes import EXIT_LIVE, EXIT_PARSE
 from gda.runner import RunResult
 from tests.support import (
     GAME_CALL_RESULT,
@@ -129,6 +136,121 @@ def test_game_tree_reports_the_omitted_counts_of_a_bounded_read(monkeypatch, tmp
     assert "children_omitted" not in children[2]
 
 
+# The zero-`children_omitted` prune is a SERIALIZATION rule, and #929 moved the
+# serializer that carries it from every node to the result. These cases pin what
+# the rule EMITS, so the move is provable without them naming the mechanism: the
+# key is absent wherever the count is 0, present where it is not, and a tree the
+# model accepts reaches the caller whole.
+def _chain_reply(levels: int) -> dict:
+    """A `game tree` reply whose root is a single chain `levels` nodes deep."""
+    node = {"name": "leaf", "type": "Node", "path": "/root/Main", "children": []}
+    for index in range(levels - 1):
+        node = {
+            "name": str(index),
+            "type": "Node",
+            "path": "/root/Main",
+            "children": [node],
+        }
+    return {"root": node, "truncated": False, "omitted_nodes": 0}
+
+
+def test_game_tree_json_keeps_only_the_omission_counts_above_zero(
+    monkeypatch, tmp_path
+):
+    # The bounded fixture carries both cases on one tree, so the emitted JSON
+    # must equal it exactly: `children_omitted` on the one node whose children
+    # the read left out, and nowhere else.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_TREE_TRUNCATED_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app, ["game", "tree", "--project", str(minimal_project(tmp_path)), "--json"]
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout) == GAME_TREE_TRUNCATED_RESULT
+
+
+def test_both_dump_paths_prune_the_zero_omission_counts():
+    # The CLI emits through `model_dump_json`, but the object model is a public
+    # surface too, so the rule must hold on both paths rather than on the one
+    # the CLI happens to take.
+    model = GameTreeResult.model_validate(GAME_TREE_TRUNCATED_RESULT)
+
+    assert model.model_dump() == GAME_TREE_TRUNCATED_RESULT
+    assert json.loads(model.model_dump_json()) == GAME_TREE_TRUNCATED_RESULT
+
+
+def test_the_emitted_shape_names_every_field_the_models_hold():
+    # The emitted TypedDicts are what pydantic builds the tree writer from, so
+    # they decide what reaches the caller — a field added to a model but not to
+    # them is dropped from the JSON silently, while `--schema` keeps publishing
+    # it. The models stay the single authority for WHICH fields exist; these
+    # declarations only restate `children_omitted`'s optionality, so the field
+    # NAMES must agree.
+    assert set(EmittedGameNode.__annotations__) == set(GameNode.model_fields)
+    assert set(EmittedGameTree.__annotations__) == set(GameTreeResult.model_fields)
+
+
+def test_the_prune_leaves_an_excluded_tree_alone():
+    # `exclude` / `include` / `exclude_defaults` let a caller drop `root` or
+    # `children` from the dump. The prune must find nothing to do then, rather
+    # than raise a KeyError the caller reads as a serialization failure.
+    model = GameTreeResult.model_validate(GAME_TREE_TRUNCATED_RESULT)
+
+    assert model.model_dump(exclude={"root"}) == {"truncated": True, "omitted_nodes": 2}
+    assert json.loads(model.model_dump_json(exclude={"root"})) == {
+        "truncated": True,
+        "omitted_nodes": 2,
+    }
+
+
+def test_game_tree_emits_a_deep_tree_the_model_accepts(monkeypatch, tmp_path):
+    # #929: a 200-level chain is well inside the model's own recursion limit,
+    # yet the read used to exit 1 with a bare traceback and NO error envelope —
+    # a per-node prune serializer is a Python callback at every level, and
+    # pydantic stops calling those far below the depth it validates. The tree
+    # the model accepts must reach the caller instead.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(_chain_reply(200)), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app, ["game", "tree", "--project", str(minimal_project(tmp_path)), "--json"]
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    node, levels = json.loads(result.stdout)["root"], 1
+    while node["children"]:
+        node = node["children"][0]
+        levels += 1
+    assert levels == 200
+    # And the prune still reaches every depth of it.
+    assert "children_omitted" not in result.stdout
+
+
+def test_game_tree_refuses_a_reply_past_the_result_model_limit(monkeypatch, tmp_path):
+    # The mirror of the case above, and the guard for the ceiling `game tree
+    # --help` states: the deep-emit case catches the limit FALLING, this one
+    # catches it RISING. A dependency that lifted the recursion limit past 300
+    # would turn this documented refusal into a success and make the help
+    # sentence wrong, with only the nightly engine tier to say so.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(_chain_reply(300)), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app, ["game", "tree", "--project", str(minimal_project(tmp_path)), "--json"]
+    )
+
+    assert result.exit_code == EXIT_PARSE, result.stdout + result.stderr
+    assert json.loads(result.stdout)["error"]["code"] == "tree_too_deep"
+
+
 def test_game_tree_renders_the_omission_for_a_human(monkeypatch, tmp_path):
     # Without --json the outline must not read as a complete tree: the total
     # rides one trailing line, so a truncated read is visible on both channels.
@@ -152,6 +274,40 @@ def test_game_tree_renders_the_omission_for_a_human(monkeypatch, tmp_path):
     assert result.exit_code == 0, result.stdout + result.stderr
     assert "HUD (Control)" in result.stdout
     assert "truncated: 2 nodes omitted" in result.stdout
+
+
+# The two counters a `game tree` reply carries are an invariant, not a pair of
+# independent numbers (#929): `truncated` is true exactly when `omitted_nodes` is
+# above 0. A reply that breaks it in either direction is a stale or drifted
+# harness, and must fail output validation rather than publish an incomplete tree
+# as a complete one. Built from the shared fixture so the ONLY difference is the
+# contradiction under test.
+_CONTRADICTORY_TREE_REPLIES = [
+    # An omission the read reports nowhere: `truncated` says complete.
+    {**GAME_TREE_TRUNCATED_RESULT, "truncated": False},
+    # And the reverse: a truncation claimed with nothing left out.
+    {**GAME_TREE_RESULT, "truncated": True},
+]
+
+
+def test_a_tree_reply_whose_counters_disagree_is_a_contract_violation(
+    monkeypatch, tmp_path
+):
+    for payload in _CONTRADICTORY_TREE_REPLIES:
+        inject_live_runner(
+            monkeypatch,
+            RunResult(stdout=sentinel(payload), stderr="", exit_code=0),
+        )
+
+        result = CliRunner().invoke(
+            app,
+            ["game", "tree", "--project", str(minimal_project(tmp_path)), "--json"],
+        )
+
+        assert result.exit_code == EXIT_PARSE, (payload, result.stdout)
+        assert json.loads(result.stdout)["error"]["code"] == "contract_violation", (
+            payload
+        )
 
 
 def test_game_tree_refuses_a_negative_max_depth(monkeypatch, tmp_path):
@@ -359,6 +515,33 @@ def test_game_find_counts_what_a_bound_kept_it_from_searching(monkeypatch, tmp_p
     assert data["truncated"] is True
     assert data["omitted_nodes"] == 4
     assert data["count"] == 1
+
+
+# A `game find` reply carries `game tree`'s counter invariant AND one of its own
+# (#929): `count` is the length of `matches`. It is published so a caller can
+# branch on the number without walking the list, which is exactly why a count
+# that disagrees with the list must not reach that caller.
+_CONTRADICTORY_FIND_REPLIES = [
+    # A count that overstates the list a caller would walk.
+    {**GAME_FIND_RESULT, "count": 5},
+    # An unsearched remainder the reply calls a complete search: an empty list
+    # would then read as proven absence.
+    {**GAME_FIND_TRUNCATED_RESULT, "truncated": False},
+    # And the reverse: a truncation claimed with nothing left unsearched.
+    {**GAME_FIND_RESULT, "truncated": True},
+]
+
+
+def test_a_find_reply_whose_counters_disagree_is_a_contract_violation(
+    monkeypatch, tmp_path
+):
+    for payload in _CONTRADICTORY_FIND_REPLIES:
+        _, result = _find(monkeypatch, tmp_path, payload, "--type", "Control")
+
+        assert result.exit_code == EXIT_PARSE, (payload, result.stdout)
+        assert json.loads(result.stdout)["error"]["code"] == "contract_violation", (
+            payload
+        )
 
 
 def test_game_find_renders_the_matches_and_the_bound_for_a_human(monkeypatch, tmp_path):
