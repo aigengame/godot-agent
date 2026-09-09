@@ -89,7 +89,8 @@ class GameNode(BaseModel):
     # rather than on every caller: the field stays a plain int with a 0 default
     # (a consumer reads a number, never None), and the key is dropped from the
     # emitted JSON when nothing was omitted. The writer is ONE serializer on
-    # :class:`GameTreeResult`, not one per node — see it for why.
+    # :class:`GameTreeResult`, not one per node — see it for why; a node dumped
+    # on its own therefore keeps the key, which no gda path does.
 
 
 class GameTreeParams(RelayedLiveParams):

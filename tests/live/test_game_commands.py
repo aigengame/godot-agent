@@ -232,6 +232,25 @@ def test_game_tree_emits_a_deep_tree_the_model_accepts(monkeypatch, tmp_path):
     assert "children_omitted" not in result.stdout
 
 
+def test_game_tree_refuses_a_reply_past_the_result_model_limit(monkeypatch, tmp_path):
+    # The mirror of the case above, and the guard for the ceiling `game tree
+    # --help` states: the deep-emit case catches the limit FALLING, this one
+    # catches it RISING. A dependency that lifted the recursion limit past 300
+    # would turn this documented refusal into a success and make the help
+    # sentence wrong, with only the nightly engine tier to say so.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(_chain_reply(300)), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app, ["game", "tree", "--project", str(minimal_project(tmp_path)), "--json"]
+    )
+
+    assert result.exit_code == EXIT_PARSE, result.stdout + result.stderr
+    assert json.loads(result.stdout)["error"]["code"] == "tree_too_deep"
+
+
 def test_game_tree_renders_the_omission_for_a_human(monkeypatch, tmp_path):
     # Without --json the outline must not read as a complete tree: the total
     # rides one trailing line, so a truncated read is visible on both channels.
