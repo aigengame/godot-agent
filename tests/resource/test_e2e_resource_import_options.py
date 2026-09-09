@@ -39,6 +39,27 @@ def imported_options_model(godot_project, monkeypatch):
     return godot_project
 
 
+@pytest.fixture
+def imported_lod_models(godot_project, monkeypatch):
+    monkeypatch.setenv(
+        "GDA_USER_DATA_ROOT", str(godot_project.with_name(godot_project.name + "-data"))
+    )
+    generator = Path(__file__).parent / "fixtures" / "lod_reimport.gd"
+    (godot_project / "generate.gd").write_bytes(generator.read_bytes())
+    run = Gda(godot_project, json_output=True)
+    assert (
+        run.json("script", "run", "res://generate.gd", "--strict")["exit_status"] == 0
+    )
+    run.json(
+        "resource",
+        "import",
+        "res://lod_model.glb",
+        "res://zero_lod_model.glb",
+        "res://surface_budget_model.glb",
+    )
+    return godot_project
+
+
 def test_query_reports_configured_options_without_target_project_execution(
     imported_options_model,
 ):
@@ -66,7 +87,8 @@ def test_query_reports_configured_options_without_target_project_execution(
             "value_type": "float",
             "minimum": 0.001,
             "maximum": 1000.0,
-        }
+        },
+        {"name": "meshes/generate_lods", "value_type": "bool"},
     ]
     assert {
         p.relative_to(project): p.read_bytes()
@@ -306,3 +328,231 @@ def test_subtolerance_scale_change_cannot_report_adoption(imported_options_model
     )
     assert "tolerance" in error["message"]
     assert sidecar.read_bytes() == original
+
+
+def test_lod_generation_edits_prove_both_transitions_on_the_same_source(
+    imported_lod_models, monkeypatch
+):
+    project = imported_lod_models
+    run = Gda(project, json_output=True)
+    source = (project / "lod_model.glb").read_bytes()
+    initial = run.json("resource", "import-options", "res://lod_model.glb")
+    initial_options = {item["name"]: item for item in initial["configured_options"]}
+    assert initial_options["meshes/generate_lods"] == {
+        "name": "meshes/generate_lods",
+        "value": True,
+        "value_type": "bool",
+        "value_unavailable_reason": None,
+    }
+
+    def no_scale_measurement(*args, **kwargs):
+        raise AssertionError("LOD edits must not measure root-scale bounds")
+
+    monkeypatch.setattr(resource, "_reimport_bounds", no_scale_measurement)
+    response = CliRunner().invoke(
+        app,
+        [
+            "resource",
+            "reimport",
+            "res://lod_model.glb",
+            "--updates-json",
+            '{"meshes/generate_lods":false}',
+            "--project",
+            str(project),
+            "--json",
+        ],
+    )
+    assert response.exit_code == 0, response.stdout + response.stderr
+    disabled = json.loads(response.stdout)
+    assert disabled["status"] == "applied"
+    assert disabled["changes"] == [
+        {"name": "meshes/generate_lods", "before": True, "requested": False}
+    ]
+    disabled_verification = disabled["verification"]
+    assert disabled_verification["measurement"] == "array_mesh_surface_lods"
+    assert disabled_verification["matched"] is True
+    assert disabled_verification["effective_generate_lods"] is False
+    assert disabled_verification["before"]["complete"] is True
+    assert disabled_verification["before"]["lods"] > 0
+    assert disabled_verification["after"]["lods"] == 0
+    assert disabled_verification["before"]["observations"][0]["vertices"] == 594
+
+    enabled = run.json(
+        "resource",
+        "reimport",
+        "res://lod_model.glb",
+        "--updates-json",
+        '{"meshes/generate_lods":true}',
+    )
+    assert enabled["status"] == "applied"
+    enabled_verification = enabled["verification"]
+    assert enabled_verification["matched"] is True
+    assert enabled_verification["effective_generate_lods"] is True
+    assert enabled_verification["before"]["lods"] == 0
+    assert enabled_verification["after"]["lods"] > 0
+    human = resource.render_resource_reimport(
+        resource.ResourceReimportResult.model_validate(enabled)
+    )
+    assert "loaded LOD transition verified: 0 ->" in human
+    assert (project / "lod_model.glb").read_bytes() == source
+    final = run.json("resource", "import-options", "res://lod_model.glb")
+    final_options = {item["name"]: item for item in final["configured_options"]}
+    assert {
+        key: value
+        for key, value in initial_options.items()
+        if key != "meshes/generate_lods"
+    } == {
+        key: value
+        for key, value in final_options.items()
+        if key != "meshes/generate_lods"
+    }
+
+
+def test_lod_state_surface_budget_counts_surfaces_rejected_by_vertex_budget(
+    imported_lod_models,
+):
+    observed = resource._RESOURCE_LOD_STATE.execute(
+        resource._LodStateParams(
+            path="res://surface_budget_model.glb",
+            max_surfaces=2,
+            max_vertices=1,
+        ),
+        project=imported_lod_models,
+        godot=None,
+    )
+    assert isinstance(observed, resource.LodStateObservation)
+    assert observed.complete is False
+    # Public surfaces/vertices count only observations that reached native
+    # surface inspection; the private traversal budget still consumes both.
+    assert observed.surfaces == 0
+    assert observed.vertices == 0
+    assert observed.omissions == [
+        "surface limit exceeded",
+        "vertex limit exceeded at mesh 0 surface 0",
+        "vertex limit exceeded at mesh 0 surface 1",
+    ]
+
+
+def test_lod_dry_run_noop_and_invalid_values_do_not_mutate(imported_lod_models):
+    project = imported_lod_models
+    before = {
+        path.relative_to(project): path.read_bytes()
+        for path in project.rglob("*")
+        if path.is_file()
+    }
+    run = Gda(project, json_output=True)
+    dry = run.json(
+        "resource",
+        "reimport",
+        "res://lod_model.glb",
+        "--updates-json",
+        '{"meshes/generate_lods":false}',
+        "--dry-run",
+    )
+    assert dry["status"] == "checked"
+    assert dry["verification"] is None
+    noop = run.json(
+        "resource",
+        "reimport",
+        "res://lod_model.glb",
+        "--updates-json",
+        '{"meshes/generate_lods":true}',
+    )
+    assert noop["status"] == "unchanged"
+    assert noop["engine_pass_attempted"] is False
+    assert noop["verification"] is None
+    for invalid_update in (
+        {"meshes/generate_lods": 0},
+        {"meshes/generate_lods": 1},
+        {"meshes/generate_lods": "true"},
+        {"meshes/generate_lods": None},
+        {"meshes/generate_lods": False, "nodes/root_scale": 2},
+    ):
+        response = run(
+            "resource",
+            "reimport",
+            "--params-json",
+            json.dumps(
+                {
+                    "path": "res://lod_model.glb",
+                    "updates": invalid_update,
+                    "dry_run": True,
+                }
+            ),
+        )
+        assert response.returncode != 0
+        assert json.loads(response.stdout)["error"]["code"] == "invalid_params"
+    assert {
+        path.relative_to(project): path.read_bytes()
+        for path in project.rglob("*")
+        if path.is_file()
+    } == before
+
+
+def test_enabled_zero_lods_is_retained_but_does_not_prove_adoption(
+    imported_lod_models,
+):
+    project = imported_lod_models
+    sidecar = project / "zero_lod_model.glb.import"
+    sidecar.write_text(
+        sidecar.read_text().replace(
+            "meshes/generate_lods=true", "meshes/generate_lods=false"
+        )
+    )
+    Gda(project, json_output=True).json(
+        "resource", "import", "res://zero_lod_model.glb"
+    )
+    error = Gda(project, json_output=True).error(
+        "resource",
+        "reimport",
+        "res://zero_lod_model.glb",
+        "--updates-json",
+        '{"meshes/generate_lods":true}',
+        code="operation_failed",
+    )
+    assert "do not verify" in error["message"]
+    partial = error["partial_result"]
+    assert partial["import_result"]["summary"]["failed"] == 0
+    assert partial["verification"]["before"]["lods"] == 0
+    assert partial["verification"]["after"]["lods"] == 0
+    assert partial["verification"]["matched"] is False
+    assert partial["verification"]["effective_generate_lods"] is None
+    assert "meshes/generate_lods=true" in sidecar.read_text()
+
+
+def test_rejected_lod_reimport_reports_stale_loaded_lods_and_diagnostics(
+    imported_lod_models,
+):
+    project = imported_lod_models
+    diagnostic = "res://lod_model.glb: deliberate LOD import rejection"
+    (project / "reject.gd").write_text(
+        "@tool\nextends EditorScenePostImport\n"
+        "func _post_import(scene):\n"
+        f'\tpush_error("{diagnostic}")\n'
+        "\tscene.free()\n\treturn null\n"
+    )
+    sidecar = project / "lod_model.glb.import"
+    sidecar.write_text(
+        sidecar.read_text().replace(
+            'import_script/path=""', 'import_script/path="res://reject.gd"'
+        )
+    )
+    source = (project / "lod_model.glb").read_bytes()
+    error = Gda(project, json_output=True).error(
+        "resource",
+        "reimport",
+        "res://lod_model.glb",
+        "--updates-json",
+        '{"meshes/generate_lods":false}',
+        code="operation_failed",
+    )
+    assert diagnostic in error["diagnostics"]
+    assert "does not prove adoption" in error["message"]
+    assert "no rollback was attempted" in error["message"]
+    partial = error["partial_result"]
+    assert partial["import_result"]["summary"]["failed"] == 0
+    assert partial["verification"]["before"]["lods"] > 0
+    assert partial["verification"]["after"]["lods"] > 0
+    assert partial["verification"]["matched"] is False
+    assert (project / "lod_model.glb").read_bytes() == source
+    assert "meshes/generate_lods=false" in sidecar.read_text()

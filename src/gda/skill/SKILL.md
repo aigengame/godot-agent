@@ -306,14 +306,17 @@ it does not play or re-save the scene.
 `resource import-options res://model.glb --json` reads configured importer values
 without running target code or importing; defaults, explicit authorship and effective
 engine values are unavailable. `resource reimport res://model.glb --updates-json
-'{"nodes/root_scale":2}' --dry-run` checks the supported patch without target writes.
-Omit `--dry-run` to update root scale, run project-wide import and verify changed
-static dimensions on unchanged GLB bytes. Start from an imported baseline; no-op
-does not verify adoption. Read `verification` as well as `import_result`, because
+'{"nodes/root_scale":2}' --dry-run` checks one supported patch without target writes.
+Use `--updates-json '{"meshes/generate_lods":false}'` or an explicit `true` to
+change LOD generation. Omit `--dry-run` to update the selected option, run
+project-wide import and verify changed static dimensions or a loaded LOD-count
+transition on unchanged GLB bytes. Start from an imported baseline; no-op and an
+enabled model that still has zero LOD levels do not verify adoption. Read
+`verification` as well as `import_result`, because
 old cache artifacts can survive an import failure. On failure, `error.partial_result`
 reports completed effects; configuration is not automatically rolled back. An
 `imported` count describes the pass and cache reread, not adoption of the requested
-options. A dimension-verification failure carries bounded project-wide import
+options. A loaded-effect verification failure carries bounded project-wide import
 stderr when available and states when none was captured; it does not infer a
 per-asset cause from those lines. See the
 command schema and catalog for measurement bounds and unavailable metadata.

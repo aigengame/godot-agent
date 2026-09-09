@@ -343,6 +343,8 @@ func _initialize() -> void:
 			_op_resource_import_config_patch(params)
 		"resource-import-config-check":
 			_op_resource_import_config_check(params)
+		"resource-lod-state":
+			_op_resource_lod_state(params)
 		"resource-set":
 			_op_resource_set(params)
 		"resource-delete":
@@ -3306,13 +3308,28 @@ func _op_resource_import_config_patch(params: Dictionary) -> void:
 	if error != OK:
 		_fail(OP_ERROR_INVALID_PATH, "cannot read import configuration: " + error_string(error))
 		return
-	var scale := float(params["root_scale"])
-	config.set_value("params", "nodes/root_scale", scale)
+	var selected := _string_param(params, "selected_option")
+	var selected_value: Variant
+	if selected == "nodes/root_scale":
+		selected_value = params.get("root_scale")
+		if not selected_value is float:
+			_fail(OP_ERROR_INVALID_PARAMS, "root_scale must be a float")
+			return
+	elif selected == "meshes/generate_lods":
+		selected_value = params.get("generate_lods")
+		if not selected_value is bool:
+			_fail(OP_ERROR_INVALID_PARAMS, "generate_lods must be a bool")
+			return
+	else:
+		_fail(OP_ERROR_INVALID_PARAMS, "unsupported selected import option: " + selected)
+		return
+	config.set_value("params", selected, selected_value)
 	error = config.save(sidecar)
 	if error != OK:
 		_fail(OP_ERROR_SAVE_FAILED, "cannot save import configuration: " + error_string(error))
 		return
-	_succeed({"root_scale": scale})
+	_succeed({"selected_option": selected, "root_scale": selected_value if selected == "nodes/root_scale" else null,
+		"generate_lods": selected_value if selected == "meshes/generate_lods" else null})
 
 
 func _op_resource_import_config_check(params: Dictionary) -> void:
@@ -3326,17 +3343,149 @@ func _op_resource_import_config_check(params: Dictionary) -> void:
 		if not key in keys:
 			keys.append(key)
 	var changed: Array = []
+	var selected := _string_param(params, "selected_option")
+	if selected not in ["nodes/root_scale", "meshes/generate_lods"]:
+		_fail(OP_ERROR_INVALID_PARAMS, "unsupported selected import option: " + selected)
+		return
 	for key in keys:
-		if key == "nodes/root_scale":
+		if key == selected:
 			continue
 		if not config.has_section_key("params", key) or not original.has_section_key("params", key) or config.get_value("params", key) != original.get_value("params", key):
 			if changed.size() < 128:
 				changed.append(key)
-	var scale: Variant = config.get_value("params", "nodes/root_scale", null)
-	if not scale is float:
-		_fail(OP_ERROR_INVALID_PARAMS, "root_scale is unavailable after reimport")
+	var selected_value: Variant = config.get_value("params", selected, null)
+	if (selected == "nodes/root_scale" and not selected_value is float) or (selected == "meshes/generate_lods" and not selected_value is bool):
+		_fail(OP_ERROR_INVALID_PARAMS, selected + " is unavailable after reimport")
 		return
-	_succeed({"root_scale": scale, "changed_unselected_options": changed})
+	_succeed({"selected_option": selected,
+		"root_scale": selected_value if selected == "nodes/root_scale" else null,
+		"generate_lods": selected_value if selected == "meshes/generate_lods" else null,
+		"changed_unselected_options": changed})
+
+
+func _lod_state_note(notes: Array[String], text: String) -> void:
+	if notes.size() < 128 and text not in notes:
+		notes.append(text)
+
+
+func _op_resource_lod_state(params: Dictionary) -> void:
+	_diag("running operation: resource-lod-state")
+	var path := _string_param(params, "path")
+	if not ResourceLoader.exists(path, "PackedScene"):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "resource not found: " + path)
+		return
+	var packed := ResourceLoader.load(path, "PackedScene") as PackedScene
+	if packed == null:
+		_fail(OP_ERROR_NOT_A_SCENE, "resource could not be loaded as PackedScene: " + path)
+		return
+	var root := packed.instantiate()
+	if root == null:
+		_fail(OP_ERROR_NOT_A_SCENE, "resource could not be instantiated: " + path)
+		return
+	var max_nodes := int(params.get("max_nodes", 4096))
+	var max_surfaces := int(params.get("max_surfaces", 4096))
+	var max_vertices := int(params.get("max_vertices", 1000000))
+	var max_lods_per_surface := int(params.get("max_lods_per_surface", 256))
+	var max_lod_index_bytes := int(params.get("max_lod_index_bytes", 67108864))
+	var engine := Engine.get_version_info()
+	var unsupported: Array[String] = []
+	var omissions: Array[String] = []
+	if int(engine.get("major", 0)) != 4 or int(engine.get("minor", 0)) != 6:
+		_lod_state_note(unsupported, "RenderingServer mesh surface LOD shape is validated only for Godot 4.6")
+	var stack: Array[Node] = [root]
+	var seen_meshes := {}
+	var observations: Array = []
+	var node_count := 0
+	var mesh_count := 0
+	var visited_surfaces := 0
+	var surface_count := 0
+	var vertex_count := 0
+	var lod_count := 0
+	var lod_index_bytes := 0
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		if node_count >= max_nodes:
+			_lod_state_note(omissions, "node limit exceeded")
+			break
+		node_count += 1
+		if node is MeshInstance3D and node.mesh != null:
+			var mesh_resource: Mesh = node.mesh
+			if not mesh_resource is ArrayMesh:
+				_lod_state_note(unsupported, String(root.get_path_to(node)) + ": mesh is not ArrayMesh")
+			else:
+				var mesh_id: int = mesh_resource.get_instance_id()
+				if not seen_meshes.has(mesh_id):
+					seen_meshes[mesh_id] = true
+					var mesh_index: int = mesh_count
+					mesh_count += 1
+					for surface_index in mesh_resource.get_surface_count():
+						if visited_surfaces >= max_surfaces:
+							_lod_state_note(omissions, "surface limit exceeded")
+							break
+						visited_surfaces += 1
+						var vertices: int = mesh_resource.surface_get_array_len(surface_index)
+						if vertex_count + vertices > max_vertices:
+							_lod_state_note(omissions, "vertex limit exceeded at mesh %d surface %d" % [mesh_index, surface_index])
+							continue
+						vertex_count += vertices
+						surface_count += 1
+						# mesh_get_surface returns native buffers before this operation can
+						# apply its reporting byte cap; the cap bounds processing/output only.
+						var surface_data: Dictionary = RenderingServer.mesh_get_surface(mesh_resource.get_rid(), surface_index)
+						var surface_lods: int = 0
+						var surface_lod_bytes: int = 0
+						var valid_surface_shape := surface_data.get("primitive") is int \
+							and surface_data.get("format") is int \
+							and surface_data.get("vertex_data") is PackedByteArray \
+							and surface_data.get("vertex_count") is int \
+							and int(surface_data["vertex_count"]) == vertices
+						if not valid_surface_shape:
+							_lod_state_note(unsupported, "mesh %d surface %d: native surface metadata shape is unsupported" % [mesh_index, surface_index])
+						else:
+							var lods: Variant = surface_data.get("lods", [])
+							if not lods is Array:
+								_lod_state_note(unsupported, "mesh %d surface %d: native LOD metadata is not an Array" % [mesh_index, surface_index])
+								lods = []
+							for lod_index in lods.size():
+								if lod_index >= max_lods_per_surface:
+									_lod_state_note(omissions, "LOD entry limit exceeded at mesh %d surface %d" % [mesh_index, surface_index])
+									break
+								var lod_value: Variant = lods[lod_index]
+								if not lod_value is Dictionary:
+									_lod_state_note(unsupported, "mesh %d surface %d: native LOD entry shape is unsupported" % [mesh_index, surface_index])
+									continue
+								var lod: Dictionary = lod_value
+								var edge_length: Variant = lod.get("edge_length")
+								var index_value: Variant = lod.get("index_data")
+								if not edge_length is float or not is_finite(edge_length) or edge_length <= 0.0 \
+										or not index_value is PackedByteArray or index_value.is_empty():
+									_lod_state_note(unsupported, "mesh %d surface %d: native LOD entry shape is unsupported" % [mesh_index, surface_index])
+									continue
+								var index_data: PackedByteArray = index_value
+								var bytes: int = index_data.size()
+								if lod_index_bytes + bytes > max_lod_index_bytes:
+									_lod_state_note(omissions, "LOD index byte limit exceeded at mesh %d surface %d" % [mesh_index, surface_index])
+									break
+								surface_lods += 1
+								surface_lod_bytes += bytes
+								lod_count += 1
+								lod_index_bytes += bytes
+						observations.append({"mesh": mesh_index, "surface": surface_index,
+							"vertices": vertices, "lod_count": surface_lods,
+							"lod_index_bytes": surface_lod_bytes})
+		var available := maxi(0, max_nodes - node_count - stack.size())
+		var taken := mini(node.get_child_count(), available)
+		if taken < node.get_child_count():
+			_lod_state_note(omissions, "node limit exceeded below " + String(root.get_path_to(node)))
+		for child_index in range(taken - 1, -1, -1):
+			stack.append(node.get_child(child_index))
+	root.free()
+	unsupported.sort()
+	omissions.sort()
+	_succeed({"engine_version": engine, "complete": unsupported.is_empty() and omissions.is_empty(),
+		"nodes": node_count, "meshes": mesh_count, "surfaces": surface_count,
+		"vertices": vertex_count, "lods": lod_count, "lod_index_bytes": lod_index_bytes,
+		"observations": observations, "unsupported": unsupported, "omissions": omissions})
 
 
 func _op_resource_inspect_model(params: Dictionary) -> void:
