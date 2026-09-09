@@ -16,7 +16,7 @@ import json
 import pytest
 
 from gda.commands.project import INPUT_EVENT_DEVICE_MAX
-from tests.support import Gda, panel_text
+from tests.support import Gda
 
 from tests.conftest import project_godot
 
@@ -861,7 +861,11 @@ def test_project_add_input_action_with_no_binding_is_a_usage_error(godot_project
     bad = Gda(godot_project)("project", "add-input-action", "jump", "--json")
 
     assert bad.returncode == 2, bad.stdout + bad.stderr
-    assert "at least one binding" in panel_text(bad.stderr)
+    assert bad.stderr == ""
+    error = json.loads(bad.stdout)["error"]
+    assert error["category"] == "usage"
+    assert error["code"] == "invalid_argument"
+    assert "at least one binding" in error["message"]
     assert (
         not (godot_project / "project.godot")
         .read_text(encoding="utf-8")

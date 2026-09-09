@@ -1,6 +1,11 @@
 # Asset Pipeline architecture
 
-**Status:** accepted design, implementation pending. Accepted by the project owner
+**Status:** accepted design; file handoff (#908), saved Blender production (#909),
+model expectation checks (#887), optional content observations (#889), controlled
+runtime refresh (#890), preview (#891), package acceptance (#892), and local prompt
+records (#912) are implemented. Concept selection and authoring consumers (#913)
+have real external-generation, Blender, and sprite observations; final independent
+review, CI, and delivery status remain issue-owned. Accepted by the project owner
 on 2026-09-07 after review of the Blender-to-Godot workflow and milestone #14.
 Source baseline inspected: `cfcb8658e67df418a69694840a37a22a9cd3cbe0`.
 Acceptance and delivery status are owned by
@@ -113,25 +118,30 @@ libs/gda-assets/
   ASSETS-CONTEXT.md
   docs/ARCHITECTURE.md
   docs/adr/
-  pyproject.toml                      # added with installable first slice
   src/gda_assets/
     api.py                            # deliberately supported cross-package API
     domain/
       recipe.py
       artifacts.py
       expectations.py
-      preparation.py                 # prompt/reference values when needed
+      prompt.py                       # prompt inputs, values, and composition rules
+      concept.py                      # brief, selection, and authoring values
     application/
       ports.py
       integrate.py
       produce.py
-      prepare.py                     # save inputs, register outputs, select references
-      preview.py                      # when preview slice lands
-      package_check.py                # when package slice lands
-    adapters/outbound/
+      prompt.py                       # prepare, inspect, revise, register outputs
+      prompt_ports.py                 # required local file persistence
+      concept.py                      # prepare, select, and author workflows
+      concept_ports.py                # local handoff and bounded consumer ports
+      preview.py                      # isolated model preview orchestration
+      package.py                      # isolated package acceptance orchestration
+    adapters/
       blender/
       imagegen/
       files.py
+      prompt_files.py                 # ordinary prompt snapshots and PNG copies
+      concept_files.py                # movable selected-reference handoffs
       raster.py
     bootstrap.py                      # producer composition, lazy setup
   tests/
@@ -140,6 +150,23 @@ libs/gda-assets/
 The tree is a placement guide, not a requirement for one class per file. The
 package API exports only supported service inputs/results and required ports;
 it is not a wholesale re-export of internal modules. There is no second CLI.
+Root `pyproject.toml` packages both source roots in one gda distribution; this
+support context has no separate package manifest or release lifecycle. The
+[asset pipeline guide](../README.md) documents file handoff and saved Blender
+production. The latter adds the Application-owned `ProductionRequest`,
+`ProductionOutput`, `ProducedFiles` and `AssetProducer` contracts. API composition
+selects the local adapter only when production is requested. The host transports
+generic options and injects the same Godot import/load port; native source
+inspection and export stay inside the Blender adapter and its bundled worker.
+The [Blender guide](blender.md) owns the supported execution and measurement policy.
+The [model checks guide](checks.md) owns the implemented expectation document,
+verdict, saved-report, and baseline-comparison user contract.
+The [prompt guide](prompts.md) owns local preparation, explicit reuse/revision,
+and completed-file registration. These use no Godot port or provider connection.
+The [runtime refresh guide](runtime-refresh.md) owns the implemented controlled
+restart, selected-instance comparison, and capture-association user contract.
+The root [static model content guide](../../../docs/model-content.md) owns the two
+gda fact commands and their shared native measurement scope.
 
 ## Tactical model and interfaces
 
@@ -156,8 +183,8 @@ Preparation precedes `AssetProducer.produce` and can finish with an explicit ext
 handoff. A missing candidate is not a successful produced-file result. Do not enlarge
 every producer into a prompt manager or general authoring interface.
 
-The intended contract shape is small; these are design signatures, not a shipped
-Python API or frozen serialization schema:
+The contract shape remains small; these signatures summarize the current package
+ports and results rather than freezing their serialized command schema:
 
 ```python
 run_pipeline(request, *, producer, godot, files) -> PipelineResult
@@ -165,6 +192,9 @@ AssetProducer.produce(request, workspace) -> ProducedFiles
 GodotAssetPort.import_assets(request) -> ImportOutcome
 GodotAssetPort.check_load(request) -> LoadObservation
 GodotAssetPort.inspect_model(request) -> ModelFacts
+GodotRefreshPort.inspect_content(request) -> ImportedContent
+GodotRefreshPort.observe_content(request) -> InstanceContent
+GodotRefreshPort.status/stop/start/wait_ready/capture(request) -> lifecycle facts
 ```
 
 Application owns these required contracts. A producer returns files with roles,
@@ -174,7 +204,7 @@ source inspection only when used, and add runtime/package ports with their slice
 Do not mirror every gda operation into a general Godot SDK.
 
 The first handoff slice needs only a bounded engine load observation for its PNG
-and GLB fixtures. The richer `inspect_model` contract arrives with [#886](https://github.com/aigengame/godot-agent/issues/886); the first
+and GLB fixtures. The richer `inspect_model` contract is implemented by [#886](https://github.com/aigengame/godot-agent/issues/886); the first
 Blender tracer can verify its selected dimensions without waiting for the full
 structure/material/animation report.
 
@@ -225,11 +255,13 @@ outside the Python command. A callable provider adapter can later automate that
 step without changing the host integration; no invented background tool access or
 automatic retry after an unknown provider outcome is assumed.
 
-The concept-reference slice extends that handoff with saved prompts, candidates,
-selection, and real authoring examples. It must prove usable reference delivery to
-Blender and a small sprite-sheet workflow. It does not make the saved-source export
-adapter a model generator or add full Aseprite support. Concept images have their
-own role and are not installed as runtime assets without explicit mapping.
+The concept-reference slice extends that handoff with saved briefs, registered PNG
+candidates, explicit selection, and two bounded authoring examples. Blender consumes
+one selected image before geometry and records pixel-derived material influence; the
+sprite example consumes one before deriving and checking a fixed sheet. These are
+observable reference-use examples, not general authoring, image-similarity or quality
+claims. They do not make the saved-source exporter a model generator or add Aseprite
+support. Concept images are not installed as runtime assets without explicit mapping.
 
 ## Existing seams and required additions
 
@@ -245,7 +277,7 @@ own role and are not installed as runtime assets without explicit mapping.
 | Producer ports, local ACLs, workflow API, Godot host ports | New narrow seams in this design |
 | Prompt preparation and concept-reference handoff | Extend the local workflow API and file/producer adapters through #912/#913; no new Godot port or core prompt model |
 | Optional content receipt / runtime content sampling | Add only scoped facts required by [#889](https://github.com/aigengame/godot-agent/issues/889)/[#890](https://github.com/aigengame/godot-agent/issues/890), with independent core operation use |
-| Preview and package acceptance | Compose existing capabilities plus the missing bounded probes; no generic renderer/export verifier |
+| Preview and package acceptance | Compose existing operations in isolated owned fixtures. Package checks reuse the model evaluator over editor-observed PCK facts and exact exclusions; no generic renderer/export verifier |
 
 ## Milestone delivery
 
@@ -256,7 +288,7 @@ The following is a delivery map, not a second editable acceptance checklist.
 | --- | --- | --- |
 | [#908](https://github.com/aigengame/godot-agent/issues/908) | Unified entry: existing files / generated-image handoff through processing, installation, real Godot import/load; installable internal library | None |
 | [#912](https://github.com/aigengame/godot-agent/issues/912) | Save, inspect, revise, and reuse project prompts before generation; register associated outputs | [#908](https://github.com/aigengame/godot-agent/issues/908) |
-| [#913](https://github.com/aigengame/godot-agent/issues/913) | Generate/select concept references and demonstrate their use before Blender and sprite authoring | [#912](https://github.com/aigengame/godot-agent/issues/912) |
+| [#913](https://github.com/aigengame/godot-agent/issues/913) | Preserve a concept brief, select registered PNG references, and demonstrate one-reference Blender blockout and sprite-sheet use | [#912](https://github.com/aigengame/godot-agent/issues/912) |
 | [#909](https://github.com/aigengame/godot-agent/issues/909) | Saved Blender source, bounded source inspection, export-only scale preparation, same integration path, and Godot load/dimension check | [#908](https://github.com/aigengame/godot-agent/issues/908) |
 | [#885](https://github.com/aigengame/godot-agent/issues/885) | gda: structured Vector3 and Node3D local transform operations | None |
 | [#886](https://github.com/aigengame/godot-agent/issues/886) | gda: bounded imported model facts | None |
@@ -264,8 +296,8 @@ The following is a delivery map, not a second editable acceptance checklist.
 | [#888](https://github.com/aigengame/godot-agent/issues/888) | gda: supported importer options and effective reimport | None; coordinate [#741](https://github.com/aigengame/godot-agent/issues/741)/[#853](https://github.com/aigengame/godot-agent/issues/853) |
 | [#889](https://github.com/aigengame/godot-agent/issues/889) | Asset Pipeline: optional selected content receipt, using gda import facts | [#908](https://github.com/aigengame/godot-agent/issues/908) |
 | [#890](https://github.com/aigengame/godot-agent/issues/890) | gda runtime facts plus Asset Pipeline controlled restart and content comparison | [#886](https://github.com/aigengame/godot-agent/issues/886), [#908](https://github.com/aigengame/godot-agent/issues/908); [#889](https://github.com/aigengame/godot-agent/issues/889) is optional enrichment |
-| [#891](https://github.com/aigengame/godot-agent/issues/891) | Asset Pipeline preview fixture/flow, existing gda observations | [#886](https://github.com/aigengame/godot-agent/issues/886), [#908](https://github.com/aigengame/godot-agent/issues/908) |
-| [#892](https://github.com/aigengame/godot-agent/issues/892) | Asset Pipeline package-only checks using the same evaluator | [#887](https://github.com/aigengame/godot-agent/issues/887) |
+| [#891](https://github.com/aigengame/godot-agent/issues/891) | Asset Pipeline: isolated three-view static preview with inspection, capture, diagnostics, scene-level performance, comparison, and cleanup | [#886](https://github.com/aigengame/godot-agent/issues/886), [#908](https://github.com/aigengame/godot-agent/issues/908) |
+| [#892](https://github.com/aigengame/godot-agent/issues/892) | Asset Pipeline: isolated editor inspection of one bounded PCK, exact exclusion presence, package identity, and reused model expectations | [#887](https://github.com/aigengame/godot-agent/issues/887) |
 
 All implementation slices are AFK under the accepted direction. The umbrella is
 tracking/architecture, not one giant implementation task. Blocking edges express
@@ -282,15 +314,19 @@ Panda extraction is part of the first applicable vertical slice: reuse acquisiti
 boundaries, selected raster transforms, deterministic emitters, and isolation test
 ideas. Its raster-shaped orchestration and game manifest policy are redesigned in
 the new home. The equal-frame packer/SpriteFrames emitter is not complete Aseprite
-support for trimmed regions, frame timing, or richer metadata. Do not change the
-original Panda codebase or mark it archived as part of this work.
+support for trimmed regions, frame timing, or richer metadata. Panda is archived
+and unmaintained. Its unchanged historical scenarios may be run for one-time
+compatibility diagnosis; a failure creates no Panda maintenance or migration
+obligation. Do not make those scenarios routine acceptance gates for the new
+pipeline. Maintained validation belongs to gda and Asset Pipeline.
 
 ## Evidence limits and validation gates
 
 [aADR-0002](adr/0002-minimum-results-and-optional-content-checks.md) owns the minimum
 result policy. The following stable claims are implementation validation items,
-not a product evidence/profile framework. All remain **open** at the target scope.
-The architecture was accepted; the mechanisms have not passed production tests.
+not a product evidence/profile framework. Evidence is recorded per slice in its
+owning tests and validation reports. Review, CI, and delivery status remain in the
+linked issues.
 
 | Claim | Driver, owner, and available evidence | Disconfirming case and required validation |
 | --- | --- | --- |
@@ -299,14 +335,63 @@ The architecture was accepted; the mechanisms have not passed production tests.
 | AP-03 | Reliable option-only reimport; gda [#888](https://github.com/aigengame/godot-agent/issues/888). Current import fast path and engine docs inspected | Unchanged GLB plus changed root scale returns cached success with old dimensions. Real engine option-only, no-op, invalid, and failed cases |
 | AP-04 | Honest runtime freshness; [#890](https://github.com/aigengame/godot-agent/issues/890). Current session/capture semantics inspected | A/B share path, names, counts, bounds, material refs but differ in supported content and compare equal. Test selected-instance content, stale/wrong instance, runtime replacement, session and capture scope |
 | AP-05 | Minimum machinery with usable recovery; aADR-0002. Existing scripts offer reusable stages, no generic resume proof | Import failure or unknown producer outcome triggers regeneration or false completion. Inject stage failures, retain outputs, and explicitly retry remaining steps without production replay |
-| AP-06 | Prompt preservation and usable concept references; aADR-0003, #912/#913. Panda prompt composition and post-acquisition manifest recording inspected; implementation evidence remains open | Editing style/reference inputs changes an earlier attempt, reuse regenerates silently, or an authoring consumer loads an unselected candidate. Test separate attempts, explicit reuse/revision, failure ordering, real image generation, and selected-reference consumption in Blender and sprite examples |
+| AP-06 | Prompt preservation and usable concept references; aADR-0003, #912/#913. One saved prompt produced a registered agent-native PNG; without another provider call, its selected bytes were consumed first by Blender 5.2.1 to write a one-cube material-influenced `.blend`/GLB and separately to write a checked four-frame sprite sheet. Final tests and independent review remain issue-owned | Editing style/reference inputs changes an earlier attempt, reuse regenerates silently, or an authoring consumer loads an unselected candidate. Retain separate-attempt, explicit reuse/reselection, failure-ordering, and selected-versus-unselected regressions |
+| AP-07 | Package-only acceptance; [#892](https://github.com/aigengame/godot-agent/issues/892) and aADR-0002. Real cold-export tests apply the same mesh, material, and animation rules to source and PCK facts, detect omitted models and included exclusions, and verify isolation, package hash, and cleanup | A warm source project masks an omitted packaged model, an exclusion scans outside selected exact paths, or an editor probe is reported as native release behavior. Unsupported-editor gating has separate runner tests; native executable behavior is outside this check |
 
 The design's boundary review covers known owners and source cycles, but does not
 prove runtime conformance. Each slice must test its complete public path and real
 external boundary where relevant. Fakes can isolate local rules; they cannot be
 the sole evidence for Blender, Godot import, a runtime instance, or an exported
-package. No Godot/Blender runtime or new package-install tests were run for this
-documentation-only change.
+package. The original design-only change ran no Godot/Blender or package-install
+checks. #908 adds file-handoff evidence in `tests/asset_pipeline`, bounded resource
+load tests in `tests/resource`, and `scripts/smoke_asset_pipeline.py` for a clean
+built-distribution consumer. These cover PNG/GLB import and loading, declarations,
+resize, no-op repeat, admission failures and partial file effects. They do not
+establish runtime refresh or package-only acceptance. #909 adds real saved-source
+Blender export through that same integration path, Godot-loaded dimension checks,
+and native export/import fault cases in `test_e2e_blender_producer.py`. The native
+result is bounded per invocation; it adds no persisted run or source identity model.
+[#887](https://github.com/aigengame/godot-agent/issues/887) adds project-owned
+expectations, native or supplied-report evaluation, bounded partial verdicts, and
+compatible baseline comparison. Its user contract is documented in
+[the model checks guide](checks.md); it adds no registry or run history.
+[#890](https://github.com/aigengame/godot-agent/issues/890) adds imported and live
+static-content fact operations plus controlled stop/start/readiness composition and
+selected-instance comparison. Its user contract is documented in
+[the runtime refresh guide](runtime-refresh.md). Native conformance cases in
+`tests/asset_pipeline/test_e2e_runtime_refresh.py` cover stale content, same-path
+replacement, independent geometry/material changes, and capture correlation;
+`tests/resource/test_e2e_model_content_lods.py` guards the LOD refusal. Delivery
+and CI status remain owned by #890.
+[#892](https://github.com/aigengame/godot-agent/issues/892) adds returning package
+inspection through gda's existing process and report seams. Asset Pipeline stages
+one PCK, applies the same evaluator, and cleans its own staging. The public cold
+export cases in `tests/asset_pipeline/test_e2e_package_check.py` and native package
+operations in `tests/test_e2e_package_operations.py` cover both inclusion and direct
+resource omission. They do not claim transitive-dependency corruption coverage or
+native release execution. See [the package guide](../README.md#check-an-exported-package).
+
+[#948](https://github.com/aigengame/godot-agent/issues/948) reproduced one failed
+Godot 4.6.3 pack export: `export_failed` with `Must select at least one file to
+export` left a 112-byte V3 `GDPC` header with file base 112 and directory offset
+zero. Before the narrow admission check, the empty-cwd `--main-pack` package
+presence launch reached its 60-second bound at 60.019 seconds with empty captured
+streams; public staging cleanup still completed. During this investigation, a legal
+zero-file PCK made by `PCKPacker` had directory offset 128 and file count zero; a
+minimal export and the maintained GLB package had nonzero offsets and 4 and 7 files.
+Those controls completed package presence in 0.835, 0.409, and 0.421 seconds during
+the investigation; these observations are discriminators, not performance
+guarantees. The V3 writer initializes the offset to zero and returns before the
+directory on failed resource export, then backfills it only on success
+([header](https://github.com/godotengine/godot/blob/4.6.3-stable/editor/export/editor_export_platform.cpp#L1966-L1993),
+[write path](https://github.com/godotengine/godot/blob/4.6.3-stable/editor/export/editor_export_platform.cpp#L2068-L2157));
+the loader otherwise seeks offset zero and reads `GDPC` as the file count
+([load path](https://github.com/godotengine/godot/blob/4.6.3-stable/core/io/file_access_pack.cpp#L286-L348)).
+A legal empty pack writes a nonzero directory offset and then a zero count
+([PCKPacker flush](https://github.com/godotengine/godot/blob/4.6.3-stable/core/io/pck_packer.cpp#L204-L219)).
+The check therefore recognizes only that V3 zero-offset state in gda's package
+runner admission. Other invalid packages remain engine-owned and can still reach
+the existing 60-second bound; this is not a general PCK parser or validator.
 
 ## Research basis and retained limits
 

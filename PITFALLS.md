@@ -182,3 +182,20 @@ another environment can have different capabilities._
   at its timeout or readiness deadline. For a `uid://`, run `gda resource import <any
   existing res:// asset>` (or open the project in the editor) before starting again.
 - **Last verified:** 2026-09-04, Godot 4.6.3 on macOS; `gda`'s refusal scope is #829's (PR #831).
+
+## Blender background startup can fail in Metal under a managed macOS sandbox
+
+- **Applies when:** A managed macOS environment crashes Blender before a background
+  Python script starts, including with factory startup and automatic execution disabled.
+- **Symptom:** The process exits with signal 11/139; the crash trace enters
+  `supports_barycentric_whitelist` and Metal GPU backend detection before Python.
+- **Cause:** In the verified environment, the restricted process could not complete
+  native Metal startup. The same minimal background print probe passed when run
+  with the authorized native-process permission scope.
+- **Prevention:** Check a minimal background startup before diagnosing the asset
+  worker. Background mode alone does not eliminate native GPU initialization.
+- **Recovery:** When the task authorizes native asset execution, rerun the isolated
+  probe/test with the required permission scope. Do not change product rendering or
+  export defaults to mask this environment failure. Another environment may not
+  need this adjustment.
+- **Last verified:** 2026-09-08, Blender 5.2.1 LTS in a managed Codex macOS environment.

@@ -79,6 +79,16 @@ def usage_error_text(result) -> str:
     return panel_text(result.stderr)
 
 
+def structured_argv_error_message(result) -> str:
+    """Return the safe message from an explicit-JSON argv usage refusal (#947)."""
+    assert result.exit_code == 2, result.stdout + result.stderr
+    assert result.stderr == "", result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["category"] == "usage", error
+    assert error["code"] == "invalid_argument", error
+    return error["message"]
+
+
 # The exact fragments a pydantic ``ValidationError`` rendered with its own
 # ``str()`` adds around the checks' real sentences: the ``[type=...,
 # input_value=..., input_type=...]`` tag per error — whose ``input_value``

@@ -270,8 +270,8 @@ _Avoid_: script error code, raw engine error
 **Classifier error code**:
 A `Gda error code` assigned by `gda` itself rather than reported by an operation —
 after classifying a runner, parser, version, crash, or fallback operation failure,
-or before any operation is identified at all, when the invocation names no command
-or option gda has (#670).
+or before any operation runs, when the invocation names no command or option gda has
+or its argv fails the identified command's contract (#670, #947).
 _Avoid_: wrapper error code, Python error code
 
 **Error envelope**:
@@ -280,11 +280,14 @@ successful result. It is what `--json` emits; without that flag the same failure
 is RENDERED for a human instead — the code and its category on a head line, the
 message, each optional typed key as a labelled line, then `diagnostics` verbatim
 as real lines. Two renderings of ONE outcome, at one exit code, from one renderer
-that keys on no `Gda error code` — the `usage` refusals included, since they answer
-through this channel rather than through the parser's own error (#685). One case falls
-outside it, by that channel's own rule: where gda has no correction to add AND no JSON
-was asked for, it says nothing and the parser's message stands — silence rather than a
-second gda layout.
+that keys on no `Gda error code` — the `usage` refusals included. A missing required
+parameter or invalid supplied argv value keeps the parser's readable stderr panel for
+a human, while explicit `--json` reports `invalid_argument` through this channel
+before an operation runs (#947). Other Click syntax errors, such as an option token
+with no following value, may retain Click's text on `stderr`. One other case falls
+outside it, by that channel's own rule: where gda has no correction to add AND no
+JSON was asked for, it says nothing and the parser's message stands — silence rather
+than a second gda layout.
 _Avoid_: error blob, failure JSON
 
 **Failure evidence**:
@@ -353,6 +356,21 @@ a missing or stale cache runs the **engine import pass** — importer code (and
 any import plugins the project registers) over project content, WITHOUT the
 autoloads: the pass boots the editor importer path, not the game's scene
 stack.
+`gda resource inspect-model` (#886) loads and instantiates a selected PackedScene
+off-tree: resource/node initializers and custom property metadata can run, but
+the inspected scene is not added to the active tree or played. Its bounded
+report is an engine observation, not a project acceptance verdict.
+`resource inspect-model-content` (#890) uses the same off-tree load boundary to
+produce a bounded static-content digest for a project-owned imported GLB;
+`game inspect-model-content` applies the same sampler to an existing live node
+without reloading it from disk. [Static model content sampling](docs/model-content.md)
+owns their admitted content, limits, incomplete-result, and identity semantics.
+`gda resource import-options` (#888) uses an isolated empty project to parse a
+sidecar with ConfigFile; it starts no target code or import pass. `resource reimport`
+composes that query, source-adjacent configuration edits, the existing project-wide
+import pass, and before/after `inspect-model` observations. Its dry-run and no-op
+paths do not load the target. A changed request has the import and instantiation
+effects described above, without adding a trust axis or requiring an asset workflow.
 `gda scene validate` (#664) is a point too, and a narrow one: it compiles
 every script the scene binds — which runs their static initializers — while
 instantiating nothing, so none of the scene's own nodes reach `_init` or

@@ -27,6 +27,7 @@ from tests.support import (
     perf_sample_reply_all_monitors,
     plain_text,
     sentinel,
+    structured_argv_error_message,
     minimal_project,
 )
 
@@ -611,7 +612,7 @@ def test_perf_monitors_selection_and_budget_require_frames(monkeypatch, tmp_path
     )
 
     assert monitor_only.exit_code == 2, monitor_only.stdout + monitor_only.stderr
-    assert "frames" in plain_text(monitor_only.stderr)
+    assert "frames" in structured_argv_error_message(monitor_only)
     assert budget_only.exit_code == 2, budget_only.stdout + budget_only.stderr
     assert json.loads(params_json.stdout)["error"]["code"] == "invalid_params"
     assert fake.calls == []
@@ -863,7 +864,7 @@ def test_perf_monitors_window_frames_over_ceiling_is_a_usage_error(
     result = _window(tmp_path, "--frames", str(MAX_WINDOW_FRAMES + 1))
 
     assert result.exit_code == 2, result.stdout + result.stderr
-    assert "--frames" in plain_text(result.stderr)
+    assert "--frames" in structured_argv_error_message(result)
     assert fake.calls == []
 
 

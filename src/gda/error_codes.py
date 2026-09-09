@@ -114,14 +114,15 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "so the launch was refused.",
     ),
     # The USAGE category (#670): gda could not resolve WHAT was asked for, so no
-    # operation was ever identified — the stage before every other code here. Both
-    # rows are classifier-source (the CLI decides them; no GDScript operation can
-    # report one, so neither is mirrored) and both exit 2, the code every CLI parser
+    # operation was ever run — the stage before every other code here. All rows are
+    # classifier-source (the CLI decides them; no GDScript operation can report one,
+    # so none is mirrored) and all exit 2, the code every CLI parser
     # already uses for a usage error: gda's structured refusal is that same failure
     # reported better, not a different one, so the exit an agent already keys on is
     # unchanged. They are kept apart from each other because the remedy differs — an
     # unknown COMMAND sends the caller to `gda schema` / `gda --help`, an unknown
-    # OPTION to that command's own `--help` / `--schema`.
+    # OPTION to that command's own `--help` / `--schema`; an invalid argument
+    # keeps the parser's safe validation sentence.
     ErrorCodeSpec(
         "unknown_command",
         ErrorCategory.USAGE,
@@ -139,6 +140,15 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "The command exists but has no such option; read its options with "
         "`--help` or its input contract with `--schema`. A recognized near miss "
         "also carries the supported invocation in the envelope's `hint`.",
+    ),
+    ErrorCodeSpec(
+        "invalid_argument",
+        ErrorCategory.USAGE,
+        EXIT_USAGE,
+        ErrorCodeSource.CLASSIFIER,
+        "A required command-line parameter is missing or a supplied argument or "
+        "option value does not match the command's argv contract; with --json, gda "
+        "reports that validation as a structured envelope before any operation runs.",
     ),
     ErrorCodeSpec(
         "unsupported_version",

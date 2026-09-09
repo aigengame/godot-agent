@@ -17,6 +17,7 @@ against the engine session it holds, reading the runtime ``SceneTree`` after
 """
 
 import json
+from pathlib import Path
 from typing import Any, Optional
 
 import typer
@@ -25,13 +26,17 @@ from pydantic import (
     ConfigDict,
     Field,
     SerializerFunctionWrapHandler,
+    field_validator,
     model_serializer,
 )
 
+from gda import dispatch
 from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.execution import ExecutionKind
+from gda.errors import Failure
 from gda.headless import (
     HeadlessCommand,
+    RunnerFactory,
     godot_option,
     json_option,
     params_json_option,
@@ -39,11 +44,13 @@ from gda.headless import (
 )
 from gda.live_numbers import LIVE_ENGINE_PRECISION, MAX_EXACT_JSON_INT
 from gda.models import (
+    NODE3D_LOCAL_TRANSFORM_DESC,
     RelayedLiveParams,
     NodeProperty,
     RUNTIME_NODE_DESC,
     projected_value_schema_extra,
 )
+from gda.model_content import ModelContent
 from gda.render import format_value, render_node_tree, render_property_lines
 
 # The live set-echo variant of the shared value-projection description
@@ -168,7 +175,7 @@ class GameGetParams(RelayedLiveParams):
     (absolute) node path rather than a ``.tscn`` file + root-relative node path:
     there is no file, only the live SceneTree of the engine session. ``property``
     optionally narrows the read to one property. When explicitly named, a plain
-    attached-script variable is addressable after storage properties are checked;
+    Node3D local component or attached-script variable is also addressable;
     unfiltered reads still list only the storage-property surface.
     """
 
@@ -177,8 +184,9 @@ class GameGetParams(RelayedLiveParams):
         default=None,
         description=(
             "If set, read only this one property. Explicit names first match the "
-            "storage surface, then attached-script variables; unset keeps the "
-            "default storage-property listing."
+            "storage surface and Node3D local components, then attached-script "
+            "variables; unset keeps the default storage-property listing. "
+            + NODE3D_LOCAL_TRANSFORM_DESC
         ),
     )
     texture_digest: bool = Field(
@@ -200,7 +208,7 @@ class GameGetResult(BaseModel):
     The live counterpart of :class:`NodeGetResult` (no ``scene_path`` — there is
     no file): echoes the addressed node (runtime ``path``/``name``/``type``) and
     its storage properties, each a typed :class:`NodeProperty`; an explicitly named
-    plain attached-script variable can also appear as the single returned property.
+    Node3D local component or plain attached-script variable can also appear alone.
     Each value goes through the same recursive value projection the headless reads
     use (ADR-0035): compound values arrive structured; a ``res://``-pathed Resource
     is a :class:`ReferenceProjection`, a path-less ``Texture2D`` a
@@ -222,6 +230,35 @@ class GameGetResult(BaseModel):
             + LIVE_ENGINE_PRECISION
         )
     )
+
+
+class GameInspectModelContentParams(RelayedLiveParams):
+    node: str = Field(description=RUNTIME_NODE_DESC)
+    max_nodes: int = Field(
+        default=256, ge=1, le=1024, description="Maximum nodes to sample."
+    )
+    max_vertices: int = Field(
+        default=200000,
+        ge=1,
+        le=1000000,
+        description="Maximum ArrayMesh vertices to sample.",
+    )
+
+    @field_validator("node")
+    @classmethod
+    def _absolute_runtime_node(cls, value: str) -> str:
+        if value != "/root" and not value.startswith("/root/"):
+            raise ValueError("node must be an absolute runtime path under /root")
+        return value
+
+
+class GameInspectModelContentResult(BaseModel):
+    node: str
+    instance_id: int = Field(gt=0)
+    scene_file_path: str
+    session_id: str = Field(min_length=1)
+    engine_frame: int = Field(ge=0)
+    content: ModelContent
 
 
 class GameRectParams(RelayedLiveParams):
@@ -269,7 +306,7 @@ class GameSetParams(RelayedLiveParams):
     string value, coerced to the property's declared or inferred target Godot type
     by the gda harness (the SAME coercion table headless ``node set`` uses) and
     applied at a frame boundary (ADR-0020). Explicit names first target storage
-    properties, then plain attached-script variables; script-variable mutations
+    properties and Node3D local components, then plain attached-script variables; mutations
     are bound to the session, not persisted.
     """
 
@@ -277,7 +314,8 @@ class GameSetParams(RelayedLiveParams):
     property: str = Field(
         description=(
             "The property to set (e.g. position, visible). Explicit names first "
-            "target storage properties, then attached-script variables."
+            "target storage properties and Node3D local components, then "
+            "attached-script variables. " + NODE3D_LOCAL_TRANSFORM_DESC
         )
     )
     value: str = Field(
@@ -534,6 +572,13 @@ def render_game_call(called: "GameCallResult") -> str:
     return f"call {called.path}.{called.method}() -> {format_value(called.value)}"
 
 
+def render_game_inspect_model_content(
+    result: GameInspectModelContentResult,
+) -> str:
+    digest = result.content.digest or "unavailable"
+    return f"{result.node}: {result.content.nodes} nodes, digest {digest}"
+
+
 GAME_TREE_COMMAND: HeadlessCommand[GameTreeResult] = HeadlessCommand(
     operation="game-tree",
     input_model=GameTreeParams,
@@ -576,6 +621,61 @@ GAME_CALL_COMMAND: HeadlessCommand[GameCallResult] = HeadlessCommand(
     render=render_game_call,
     kind=ExecutionKind.LIVE,
 )
+
+GAME_INSPECT_MODEL_CONTENT_COMMAND: HeadlessCommand[GameInspectModelContentResult] = (
+    HeadlessCommand(
+        operation="game-inspect-model-content",
+        input_model=GameInspectModelContentParams,
+        output_model=GameInspectModelContentResult,
+        render=render_game_inspect_model_content,
+        kind=ExecutionKind.LIVE,
+    )
+)
+
+
+def run_game_get_operation(
+    project: Optional[Path],
+    params: GameGetParams,
+    *,
+    make_runner: RunnerFactory | None = None,
+) -> GameGetResult | Failure:
+    """Return runtime property facts without emitting or exiting."""
+    return GAME_GET_COMMAND.execute(
+        params,
+        godot=None,
+        project=project,
+        make_runner=make_runner or dispatch.make_live_runner,
+    )
+
+
+def run_game_set_operation(
+    project: Optional[Path],
+    params: GameSetParams,
+    *,
+    make_runner: RunnerFactory | None = None,
+) -> GameSetResult | Failure:
+    """Set and return one runtime property without emitting or exiting."""
+    return GAME_SET_COMMAND.execute(
+        params,
+        godot=None,
+        project=project,
+        make_runner=make_runner or dispatch.make_live_runner,
+    )
+
+
+def run_game_inspect_model_content_operation(
+    project: Optional[Path],
+    params: GameInspectModelContentParams,
+    *,
+    make_runner: RunnerFactory | None = None,
+) -> GameInspectModelContentResult | Failure:
+    """Return live static-model content facts without emitting or exiting."""
+    return GAME_INSPECT_MODEL_CONTENT_COMMAND.execute(
+        params,
+        godot=None,
+        project=project,
+        make_runner=make_runner or dispatch.make_live_runner,
+    )
 
 
 # The game command group (Phase 2, ADR-0019): the RUNNING game's runtime scene
@@ -655,8 +755,9 @@ def game_get(
         None,
         "--property",
         help=(
-            "If set, read only this property: storage first, then an attached "
-            "script variable. Without it, list only the storage surface."
+            "If set, read only this property: storage and Node3D local components "
+            "first, then an attached script variable. Without it, list only the "
+            "storage surface."
         ),
     ),
     texture_digest: bool = typer.Option(
@@ -684,6 +785,8 @@ def game_get(
     `live_unknown_property`. A named plain script variable on the node's attached
     script is addressable explicitly after storage properties are checked; unfiltered
     reads keep the storage-property listing and do not dump script variables.
+    Node3D position, rotation and scale are explicitly addressable local components;
+    rotation is in radians and Vector3 values read as \\[x, y, z].
     A path-less Texture2D value projects as a TextureProjection ({type, width,
     height, object_string, digest}, ADR-0035 amendment #666); `--texture-digest`
     opts into its content digest.
@@ -697,6 +800,37 @@ def game_get(
     dispatch_domain(
         GAME_GET_COMMAND,
         GameGetParams(node=node, property=property, texture_digest=texture_digest),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(
+    name="inspect-model-content",
+    cls=GAME_INSPECT_MODEL_CONTENT_COMMAND.command_class(),
+)
+def game_inspect_model_content(
+    node: str = typer.Option(
+        ..., "--node", help="Absolute runtime node path under /root."
+    ),
+    max_nodes: int = typer.Option(256, min=1, max=1024),
+    max_vertices: int = typer.Option(200000, min=1, max=1000000),
+    json_output: bool = json_option(),
+    schema: bool = GAME_INSPECT_MODEL_CONTENT_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Digest bounded static content below a node in the running game."""
+    dispatch_domain(
+        GAME_INSPECT_MODEL_CONTENT_COMMAND,
+        params_or_bad_parameter(
+            GameInspectModelContentParams,
+            node=node,
+            max_nodes=max_nodes,
+            max_vertices=max_vertices,
+        ),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -749,8 +883,8 @@ def game_set(
         ...,
         "--property",
         help=(
-            "The property to set (e.g. position, visible): storage first, then an "
-            "attached script variable."
+            "The property to set (e.g. position, visible): storage and Node3D local "
+            "components first, then an attached script variable."
         ),
     ),
     value: str = typer.Option(
@@ -776,6 +910,8 @@ def game_set(
     The gda harness coerces `--value` to the property's declared or inferred target
     Godot type — the SAME coercion table `node set` uses — and applies it at a frame
     boundary (ADR-0020); the mutation is bound to the session, not persisted to disk.
+    Node3D position, rotation and scale use local parent space; rotation uses radians.
+    Vector3 input is three comma-separated numbers, such as `--value 1,2,3`.
     A named plain script variable on the node's attached script is settable explicitly
     after storage properties are checked. The success result includes `verified`:
     true when the observed read-back value equals the coerced requested value,

@@ -70,11 +70,13 @@ from gda.harness.install import (
 )
 from gda.headless import (
     HeadlessCommand,
+    RunnerFactory,
     godot_option,
     json_option,
     params_json_option,
     project_option,
 )
+from gda.live_runner import make_daemon_runner
 from gda.project import main_scene_unrunnable
 
 
@@ -1227,6 +1229,27 @@ DAEMON_WAIT_READY_COMMAND: HeadlessCommand[DaemonWaitReadyResult] = HeadlessComm
     render=render_daemon_wait_ready,
     kind=ExecutionKind.LIVE,
 )
+
+
+def _default_wait_ready_runner(_binary: Path, project: Optional[Path]):
+    """Build the daemon runner while matching the descriptor's factory shape."""
+    return make_daemon_runner(project)
+
+
+def run_daemon_wait_ready_operation(
+    project: Optional[Path],
+    *,
+    timeout: float = CONNECT_TIMEOUT,
+    make_runner: Optional[RunnerFactory] = None,
+) -> "DaemonWaitReadyResult | Failure":
+    """Wait for the daemon's engine session and return the registered outcome."""
+    return DAEMON_WAIT_READY_COMMAND.execute(
+        DaemonWaitReadyParams(timeout=timeout),
+        godot=None,
+        project=project,
+        make_runner=make_runner or _default_wait_ready_runner,
+    )
+
 
 DAEMON_INSTALL_COMMAND: HeadlessCommand[DaemonInstallResult] = HeadlessCommand(
     operation="daemon-install",

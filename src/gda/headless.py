@@ -143,34 +143,36 @@ def remember_argv(ctx: ClickContext, args: list[str]) -> None:
     ctx.meta.setdefault(RAW_ARGV_META_KEY, list(args))
 
 
-def json_in_effect(ctx: ClickContext) -> bool:
-    """Whether this invocation asked for JSON, in three ordered readings.
+def parsed_json_in_effect(ctx: ClickContext) -> bool:
+    """Whether this command or an already-parsed ancestor selected JSON.
 
-    1. The command's OWN resolved flag, when the question is asked after its parse —
-       the case for a dispatched command and for ``gda help <unknown>``. It already
-       carries an inherited ancestor ``--json`` (:func:`_inherit_ancestor_json`), so
-       it answers for every spelling wherever it exists.
-    2. The ancestor ``--json``, recorded when the root callback (#671) or a group's
-       (#683) bound it — the reading available at parse time, before any command's
-       params exist.
-    3. The literal token in the recorded argv. A ``--json`` written AFTER an
-       offending token never parses, because the command or option it would have
-       belonged to does not exist, so the token itself is the only evidence of the
-       intent — and it is read as exactly that. The Skill teaches the trailing
-       spelling, so leaving this reading out would answer most agents in prose.
+    Known-command parameter validation asks this narrower question: eager JSON
+    options have already been processed before ordinary values, so parsed state can
+    distinguish a real flag from the same token used as positional data or an option
+    value. Raw argv cannot make that distinction.
+    """
+    return bool(ctx.params.get("json_output")) or ancestor_json(ctx)
+
+
+def json_in_effect(ctx: ClickContext) -> bool:
+    """Whether this invocation asked for JSON, in parsed state or raw fallback.
+
+    First use :func:`parsed_json_in_effect`. For an unresolved command or option, a
+    trailing ``--json`` may never parse because the earlier unknown token stops that
+    parser. The literal token in the recorded argv is then the only evidence of intent,
+    so those pre-parse callers retain the original raw fallback. Known-command
+    parameter validation must use the parsed-only helper instead.
 
     It lives HERE, beside :func:`ancestor_json` and the option that inherits it,
     rather than with the near-miss refusal that introduced it (``gda.hints``, #670).
     :func:`emit_failure` does NOT ask it — it takes ``json_output`` as a required
-    keyword and never reads a context; the askers in this module are the two
-    ``--params-json`` refusals in ``_SchemaCommand.invoke``, which hold a click
-    context and no flag. What settles the direction is the import: ``gda.hints``
-    already depends on this module for the failure channel, so a channel question
-    owned by ``hints`` would need that import to run backwards (#685).
+    keyword and never reads a context. The raw fallback's only callers are the
+    unknown-command and unknown-option refusals in ``gda.hints``. What settles the
+    direction is the import: ``gda.hints`` already depends on this module for the
+    failure channel, so a channel question owned by ``hints`` would need that import
+    to run backwards (#685).
     """
-    if bool(ctx.params.get("json_output")):
-        return True
-    if ancestor_json(ctx):
+    if parsed_json_in_effect(ctx):
         return True
     return "--json" in ctx.meta.get(RAW_ARGV_META_KEY, ())
 
@@ -203,7 +205,9 @@ def json_option() -> bool:
         False,
         "--json",
         callback=_inherit_ancestor_json,
-        help="Emit the result as a single JSON object.",
+        is_eager=True,
+        help="Emit the command's structured result or gda error envelope as one "
+        "JSON object. Some syntax errors remain text.",
     )
 
 
@@ -231,8 +235,10 @@ def _group_json(
         False,
         "--json",
         callback=_record_group_json,
-        help="Emit the invoked command's result as JSON — the same as passing "
-        "--json after the command.",
+        is_eager=True,
+        help="Emit the invoked command's structured result or gda error envelope "
+        "as JSON — the same as passing --json after the command. Some syntax "
+        "errors remain text.",
     ),
 ) -> None:
     """The callback every command group is given, so ``--json`` parses there too.
@@ -415,7 +421,8 @@ def command_argv_bindings(
     Click is duck-typed through ``getattr``, as the surface walker does: it is a
     transitive dependency through Typer, not a direct one.
     """
-    properties = input_model.model_json_schema().get("properties", {})
+    input_schema = input_model.model_json_schema()
+    properties = input_schema.get("properties", {})
     bindings: list[ArgvBinding] = []
     position = 0
     for param in getattr(command, "params", []):
@@ -444,7 +451,9 @@ def command_argv_bindings(
                 required=bool(getattr(param, "required", False)),
                 flag=bool(getattr(param, "is_flag", False)),
                 multiple=multiple,
-                json_value=_takes_a_json_value(bound, properties, multiple),
+                json_value=_takes_a_json_value(
+                    bound, properties, multiple, input_schema.get("$defs", {})
+                ),
             )
         )
         if is_argument:
@@ -466,7 +475,10 @@ def _bound_property(
 
 
 def _takes_a_json_value(
-    bound: Optional[str], properties: "dict[str, Any]", multiple: bool
+    bound: Optional[str],
+    properties: "dict[str, Any]",
+    multiple: bool,
+    definitions: "dict[str, Any]",
 ) -> bool:
     """Whether the parameter's one token is the property's JSON encoding (#669).
 
@@ -482,16 +494,21 @@ def _takes_a_json_value(
     spec = properties.get(bound or "")
     if not isinstance(spec, dict) or multiple:
         return False
-    return _is_compound_spec(spec)
+    return _is_compound_spec(spec, definitions)
 
 
-def _is_compound_spec(spec: "dict[str, Any]") -> bool:
-    """Whether a property schema is an array/object, INCLUDING behind an anyOf."""
+def _is_compound_spec(spec: "dict[str, Any]", definitions: "dict[str, Any]") -> bool:
+    """Recognize compound types, including local model refs in nullable unions."""
+    reference = spec.get("$ref", "")
+    if reference.startswith("#/$defs/"):
+        spec = definitions.get(reference.removeprefix("#/$defs/"), spec)
     if spec.get("type") in ("array", "object"):
         return True
     branches = spec.get("anyOf") or spec.get("oneOf") or []
     return any(
-        _is_compound_spec(branch) for branch in branches if isinstance(branch, dict)
+        _is_compound_spec(branch, definitions)
+        for branch in branches
+        if isinstance(branch, dict)
     )
 
 
@@ -539,7 +556,13 @@ def schema_command_class(
                     param.required = required
 
         def parse_args(self, ctx: typer.Context, args: list[str]) -> list[str]:
-            if "--schema" in args:
+            # Bind tokens with the command's own parser before deciding whether
+            # required arguments can be relaxed. This phase runs no callbacks or
+            # value validation; the normal/relaxed parse below owns those once.
+            # Raw membership mistakes consumed values for flags and misses the
+            # --params-json=<value> spelling (#971).
+            options, _, _ = self.make_parser(ctx).parse_args(list(args))
+            if options.get("schema"):
                 self._parse_relaxed(ctx, args)
                 # Carry the command's static execution channel (ADR-0017) from
                 # the one source of truth — the backing ``HeadlessCommand.kind``
@@ -570,7 +593,7 @@ def schema_command_class(
                     ).model_dump_json()
                 )
                 raise typer.Exit()
-            if command is not None and "--params-json" in args:
+            if command is not None and options.get("params_json") is not None:
                 # The individual operation args are absent — supplied by the JSON
                 # object instead; ``invoke`` builds the model and dispatches.
                 return self._parse_relaxed(ctx, args)
@@ -587,7 +610,7 @@ def schema_command_class(
                 ):
                     emit_failure(
                         conflicting_params_input_failure(),
-                        json_output=json_in_effect(ctx),
+                        json_output=parsed_json_in_effect(ctx),
                     )
                 raw = ctx.params["params_json"]
                 # ``-`` reads the object from stdin so large payloads avoid OS
@@ -606,7 +629,7 @@ def schema_command_class(
                     # into the structured envelope's message.
                     emit_failure(
                         invalid_params_json_failure(validation_error_message(exc)),
-                        json_output=json_in_effect(ctx),
+                        json_output=parsed_json_in_effect(ctx),
                     )
                 if _params_json_dispatch is None:  # pragma: no cover - misconfig
                     raise RuntimeError(
@@ -644,8 +667,8 @@ def emit_failure(failure: Failure, *, json_output: bool) -> NoReturn:
     entirely when a failure has none, rather than emitting them as ``null``. So
     adding such a key leaves every failure that does not set it byte-identical —
     the property that makes the optional-context axis additive for existing
-    consumers. Three keys ride it now, one per ADR-0004 amendment: ``probe``
-    (#667), ``hint`` (#670) and ``evidence`` (#687). The required keys
+    consumers. The ADR-0004 amendments add ``probe`` (#667), ``hint`` (#670),
+    ``evidence`` (#687), and ``partial_result`` (#908). The required keys
     (``category`` / ``code`` / ``message`` / ``diagnostics``) are never ``None``,
     so none of them can be dropped by this.
 

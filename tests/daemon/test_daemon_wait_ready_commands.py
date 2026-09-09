@@ -9,13 +9,22 @@ regression is the e2e.
 
 import json
 
+import pytest
+from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from gda.cli import app
+from gda.commands.daemon import (
+    DaemonWaitReadyResult,
+    run_daemon_wait_ready_operation,
+)
+from gda.errors import Failure
 from gda.exit_codes import EXIT_LIVE
 from gda.runner import RunResult
 from tests.support import (
     assert_operation_error,
+    error_sentinel,
+    FakeRunner,
     inject_live_runner,
     minimal_project,
     sentinel,
@@ -23,6 +32,74 @@ from tests.support import (
 
 
 READY = {"pid": 4242, "launched": True}
+
+
+def _returning_runner(result: RunResult):
+    fake = FakeRunner(result)
+
+    def make_runner(binary, project):
+        assert binary is None
+        return fake
+
+    return fake, make_runner
+
+
+def test_returning_wait_ready_reports_typed_ready_and_forwards_timeout(tmp_path):
+    project = minimal_project(tmp_path)
+    fake, make_runner = _returning_runner(
+        RunResult(stdout=sentinel(READY), stderr="", exit_code=0)
+    )
+
+    outcome = run_daemon_wait_ready_operation(
+        project, timeout=10.0, make_runner=make_runner
+    )
+
+    assert isinstance(outcome, DaemonWaitReadyResult)
+    assert outcome == DaemonWaitReadyResult(pid=4242, launched=True)
+    assert fake.calls == [("daemon-wait-ready", {"timeout": 10.0})]
+
+
+def test_returning_wait_ready_with_no_daemon_returns_live_failure(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+
+    outcome = run_daemon_wait_ready_operation(minimal_project(tmp_path))
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.category == "live"
+    assert outcome.error.code == "daemon_not_running"
+
+
+def test_returning_wait_ready_forwards_daemon_failure_and_stderr(tmp_path):
+    fake, make_runner = _returning_runner(
+        RunResult(
+            stdout=error_sentinel(
+                "engine_session_not_running", "engine did not become ready"
+            ),
+            stderr="launch diagnostics\n",
+            exit_code=1,
+        )
+    )
+
+    outcome = run_daemon_wait_ready_operation(
+        minimal_project(tmp_path), make_runner=make_runner
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.category == "live"
+    assert outcome.error.code == "engine_session_not_running"
+    assert outcome.error.message == "engine did not become ready"
+    assert outcome.child_stderr == "launch diagnostics\n"
+    assert fake.calls == [("daemon-wait-ready", {"timeout": 25.0})]
+
+
+@pytest.mark.parametrize("timeout", [0.0, 51.0, float("inf"), float("nan")])
+def test_returning_wait_ready_keeps_the_registered_timeout_constraints(
+    tmp_path, timeout
+):
+    with pytest.raises(ValidationError):
+        run_daemon_wait_ready_operation(minimal_project(tmp_path), timeout=timeout)
 
 
 def test_wait_ready_reports_the_established_session_as_json(monkeypatch, tmp_path):

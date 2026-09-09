@@ -7,7 +7,8 @@ description: Drive the Godot game engine from the command line with `gda`, an ag
 with structured JSON output, so you build and inspect a game without opening the
 editor. Two kinds of operation: **headless** (a one-shot `godot --headless` per
 call — scenes, scripts, exports) and **live** (against a running game via the
-`gda-daemon`).
+`gda-daemon`). The `asset-pipeline` workflow composes saved Blender export, file processing, installation,
+import, and engine loading through the same entry.
 
 ## Grammar
 
@@ -19,6 +20,106 @@ Exactly one JSON result is printed to **stdout**; all engine noise (warnings,
 progress, the engine banner) goes to **stderr**. Read stdout, ignore stderr unless
 debugging. `info` / `version` / `help` / `schema` / `skill` are top-level meta
 commands (no group).
+
+For existing PNG/GLB outputs, use `gda asset-pipeline run --schema` to discover
+the file mapping input. `--files` is a JSON array of `source` and `target`
+(`res://`) mappings; `--source-root` fixes the base for relative source files.
+Optional PNG `resize` specifies `width`, `height`, and `resampling`. Existing
+different target content requires `--overwrite`. Declare GLB external image
+references as selected target members and preserve their relative placement.
+Completed generated images use `--source-mode imagegen`; any `--provenance` is
+caller-declared. This command does not generate or retry images. Read actual
+Godot observations on success, or `error.partial_result` for completed stages,
+file effects and the failed step on a nonzero result. An installed file alone
+does not prove that Godot loaded it.
+
+For saved Blender sources, replace `--files` with `--production` containing
+`{"kind":"blender_saved","outputs":[{"role":"model","target":"res://art/model.glb"}],"options":{"source":"/production/model.blend","scene":"AssetScene","root":"AssetRoot","uniform_scale":2}}`.
+Set `GDA_BLENDER` or `options.executable`; the source must be saved and scene/root
+names explicit. Relative sources require `--source-root`. Scaling and export run
+in a separate background process without saving or accessing the active session.
+Non-unit scaling of animated/driven roots is unsupported. Read `production` for
+native inspect/prepare/export facts and `observations` for actual Godot loading.
+After import failure, use the installed GLB for an explicit import retry; repeating
+`--production` runs a new export. No concept/prompt record is required.
+
+Add `--collect-observations` to `asset-pipeline run` for selected installed
+source, configuration-file and import-artifact SHA-256 values. Optional
+`--declared-output-sha256 '{"res://art/model.glb":"<64 hex characters>"}'`
+checks caller declarations before import; `--observations-output /reports/new.json`
+saves to a new file without overwriting one. Read `content_observations` and its
+coverage limitations; `stable` means no change detected in the covered disk reads,
+not runtime proof or full reproducibility. Changed or unavailable required file
+facts fail with retained partial observations. If install, import, and load completed
+but observation failed on changed configuration bytes, reuse the installed output in
+a new existing-file `--files` invocation with `--overwrite`,
+`--collect-observations`, and its retained `source_after.sha256` supplied through
+`--declared-output-sha256`; omit `--production`. The repeat checks current inputs,
+can fail again, and does not establish who changed the sidecar or whether its content
+is semantically equivalent. See the
+[observation guide](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/docs/observations.md).
+
+Add `--refresh '{"path":"res://art/model.glb","scene":"res://test.tscn","node":"/root/Test/Model"}'`
+to reset that explicit scene after a successful install/import/load and compare the
+selected running GLB instance with the imported result. Refresh is independent of
+`--collect-observations` and discards runtime state. Add `"windowed":true` when a
+PNG `capture_output` is requested. Read `refresh.status`, its separate `completed`
+stages, `before`/`ready_session`/`after`, and the imported, instance and comparison
+facts. Only `verified` establishes a complete match; unsupported or truncated model
+content is `incomplete`, while comparable different content is `mismatch`. The two
+samples require matching reported engine versions and measurement. Read the shared native fact
+scope and limits in the
+[static model content guide](https://github.com/aigengame/godot-agent/blob/main/docs/model-content.md).
+A later capture shares the new session and follows the observation, but does not
+prove the selected instance's content at the capture frame. See the
+[runtime refresh guide](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/docs/runtime-refresh.md).
+
+Use `gda asset-pipeline check --expectations /project/art/model.expectations.json
+--path res://art/model.glb --json` for project acceptance. The JSON document contains
+`checks`, each with a unique `id` and a `kind`: `node`, `count`, `dimensions`,
+`material`, `bone`, `skin_bind`, or `animation_target`. For example,
+`{"checks":[{"id":"left-arm","kind":"node","node":"Rig/Arm_L","type":"MeshInstance3D"}]}`.
+Use full resource-relative node paths from `resource inspect-model`.
+Replace `--path` with `--report /reports/model.json` to evaluate a saved inspection;
+`--baseline /reports/previous.json` adds a compatible comparison. Valid content
+verdicts `pass`, `fail`, and `insufficient` all exit 0: always inspect `verdict`.
+Omitted facts cannot prove acceptance or deletion; a supplied report does not
+establish current engine state. Input and workflow failures exit nonzero and
+include `error.partial_result`. See `asset-pipeline check --schema` for input bindings
+and the [expectation format](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/docs/checks.md).
+
+Use `gda asset-pipeline check-package --package /build/game.pck --path
+res://art/model.glb --expectations /project/art/model.expectations.json --exclude
+res://dev/test.gd --json` to apply those same rules to the resource loaded from an
+isolated copy of an exported PCK. Always read `package_check.verdict`; load or
+workflow failures exit nonzero with `error.partial_result.package_check`. This
+editor-only path does not prove native release execution, input, or rendering. See
+the [asset pipeline guide](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/README.md#check-an-exported-package)
+for the source check, cold pack export, exact exclusions, identity and cleanup
+contract, bounds, and supported engine path.
+
+Before external image generation, use `gda asset-pipeline prompt-prepare --record
+/project/art/attempt-a --text 'Project prompt' --json`. Use the returned saved
+prompt and reference paths for the external tool call. Preparation is an external
+handoff, not generated success. `prompt-inspect --record` reuses saved inputs;
+`prompt-revise --source-record OLD --record NEW` preserves a separate attempt.
+After generation, `prompt-register-output --record OLD --output /generated/image.png
+--name image.png` preserves a local PNG without invoking or retrying a producer.
+Requested options, caller declarations, reported facts, and actually submitted
+text stay separate; unavailable execution facts remain unknown. These local
+commands need no Godot project or engine. See each command's `--schema` and the
+[prompt guide](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/docs/prompts.md).
+
+For new model or sprite authoring, use `concept-prepare` with a brief file and new
+record, complete generation externally, and register each local PNG with
+`prompt-register-output`. Then use `concept-select` to create a new handoff from
+explicit record/output pairs and `concept-author` with either
+`blender-reference-blockout` or `sprite-sheet-reference`. These bounded examples
+each consume one selected PNG and report its digest and observable influence; they
+do not prove provider execution, general authoring, similarity, or production
+quality, and they do not install output into Godot. See the
+[concept reference guide](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/docs/concepts.md)
+for runnable JSON and commands, reuse and failure behavior.
 
 ## Setup
 
@@ -74,7 +175,7 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 | Exit | Meaning |
 | ---- | ------- |
 | `0`   | success |
-| `2`   | gda could not resolve what you asked for: `unknown_command`, `unknown_option` |
+| `2`   | argv usage failure: `unknown_command`, `unknown_option`, `invalid_argument` |
 | `127` | environment unusable: `binary_not_found`, `user_data_unwritable`, `live_unsupported_platform`, `live_windowed_unavailable`, `live_windowed_permission_denied`, `harness_install_permission_denied` |
 | `124` | engine timed out: `launch_timeout` — gda ended a run that had not returned (read it as below) |
 | `3`   | engine version too old |
@@ -95,6 +196,14 @@ the mistake the envelope carries a `hint` naming the invocation to run instead
 (`{"error": {"code": "unknown_command", "hint": "gda scene get", …}}`). Re-issue the
 `hint`; when there is none, `gda schema` lists every command and
 `gda help <command>` describes one.
+
+A missing required parameter or argument that does not match the command's argv
+contract is `invalid_argument` at exit `2`. With `--json`, malformed option JSON,
+wrong types, unknown object keys, and shared command-model refusals use the same error
+envelope before any engine operation runs. Other Click syntax errors, such as an
+option token with no following value, may retain Click's text on `stderr` even under
+`--json`. The equivalent invalid `--params-json` object remains `invalid_params` at
+exit `4` because it is the structured parameter contract.
 
 A failure that computed evidence also carries it as DATA, under the envelope's
 optional `evidence` key — omitted, never null, on the failures that computed none.
@@ -179,12 +288,68 @@ JSON — use `gda help <command> --json` for a structured payload), and the flag
 | `node` | `add`, `get`, `list`, `set`, `remove`, `duplicate`, `move`, `connect-signal`, `disconnect-signal` (nodes within a scene) |
 | `script` | `create`, `get`, `list`, `set`, `delete`, `attach`, `validate`, `run` (`.gd` files; `validate` takes SEVERAL paths at once — one engine launch for the whole batch, one aggregate `valid` plus a per-file entry under `scripts` — or `--all` for every script in the project; `run` executes a project script one-shot (address it project-relative or as `res://` — the two portable forms, which `script validate` takes too; `run` alone refuses absolute paths) and passes its `exit_status`/`stdout`/`stderr` through — `stdout` above 64 KiB is truncated to its leading bytes with the COMPLETE stream spilled to the file named in `stdout_file` (`stdout_bytes`/`stdout_truncated` disclose it; a spill gda cannot write is the typed `stdout_spill_failed`, never an unbounded result), and a non-zero `quit()` is still success, so read `exit_status`, or pass `--strict` to get a `script_failed` failure (exit 4) whose `diagnostics` carries the script's own stdout and stderr; a script that never ran — missing, or a failed parse/compile — always fails; `--timeout <s>` sets the ceiling (default 120) and a run that reaches it fails with `launch_timeout` carrying the captured partial output, the elapsed seconds and a termination phase; add `--completion-marker <line>` naming a line your script prints when its work is done — a caller-declared liveness contract, not a death detector: gda ends the run once it observes a recognized error attributable to the entry script, no marker line yet, and then silence on both streams — `script_aborted` (exit 4) with the captured error, in seconds rather than at the ceiling; declaring the marker asserts the script keeps printing until that line, so have it print progress during quiet stretches longer than ~3s, or omit the marker; a script that writes `user://` belongs under `gda --user-data-root DIR script run …` (see Setup) — the result then names `user_data_root` and `log_file` beside the always-present `engine_data_path`) |
 | `project` | `info`, `get`, `set`, `list`, `add-autoload`, `remove-autoload`, `add-input-action`, `remove-input-action`, `find-references`, `dependencies`, `find-unused-resources`, `statistics` |
-| `resource` | `create`, `get`, `set`, `delete`, `uid`, `import` (`.tres` files and project assets; `import` ensures importable assets — PNGs and other files the engine imports — are in the project cache: clean-worktree loading; a script needs no import and reports `not_importable`) |
+| `resource` | `create`, `get`, `set`, `delete`, `uid`, `import`, `import-options`, `reimport`, `inspect-model`, `inspect-model-content` (`.tres` files and project assets; `import` ensures importable assets — PNGs and other files the engine imports — are in the project cache: clean-worktree loading; a script needs no import and reports `not_importable`) |
 | `export` | `list`, `get`, `run` (export a preset by name; `--mode` release/debug/pack) |
 | `shader` | `create`, `get`, `set` (`.gdshader` files) |
 | `theme` | `create` (a loadable `.tres` Theme) |
 
+`gda resource inspect-model res://model.glb --subtree Asset --json` reports the
+Godot-loaded PackedScene's root-inclusive structure, static mesh bounds, effective
+materials/textures, skeleton/skin binds and animation target paths. Import a cold
+source explicitly first. Read `measurement`, `truncated`, `omissions` and unavailable
+reasons before drawing conclusions; `--max-nodes` and `--max-items` bound the report,
+not the engine's initial resource load. Bounds do not sample skin deformation or
+animation, and a located track target does not prove playback. No asset recipe is
+required. The command instantiates off-tree under the Trusted project assumption;
+it does not play or re-save the scene.
+
+`resource import-options res://model.glb --json` reads configured importer values
+without running target code or importing; defaults, explicit authorship and effective
+engine values are unavailable. `resource reimport res://model.glb --updates-json
+'{"nodes/root_scale":2}' --dry-run` checks one supported patch without target writes.
+Use `--updates-json '{"meshes/generate_lods":false}'` or an explicit `true` to
+change LOD generation. Omit `--dry-run` to update the selected option, run
+project-wide import and verify changed static dimensions or a loaded LOD-count
+transition on unchanged GLB bytes. Start from an imported baseline; no-op and an
+enabled model that still has zero LOD levels do not verify adoption. Read
+`verification` as well as `import_result`, because
+old cache artifacts can survive an import failure. On failure, `error.partial_result`
+reports completed effects; configuration is not automatically rolled back. An
+`imported` count describes the pass and cache reread, not adoption of the requested
+options. A loaded-effect verification failure carries bounded project-wide import
+stderr when available and states when none was captured; it does not infer a
+per-asset cause from those lines. See the
+command schema and catalog for measurement bounds and unavailable metadata.
+
 Every headless reply carries its floats at full binary64 precision, so a value read back through `node get`, `scene get-exports`, `project get`/`project list`, `resource get`, or the echo of a `set` is the exact number the project holds — `1e-300` reads back as `1e-300`, not `0.0`; the one residual belongs to the ENGINE's writer — a negative zero reads back as `0.0` (#771). The `--value` string you send IN is coerced by the engine's own parser, and gda refuses what that parser would destroy: a literal it reads as `0.0` when you did not write zero, or as `NaN` at all, fails with `uncoercible_value` (exit 4, target untouched) instead of writing a number you never sent — `2.2250738585072014e-308` and `5e-324`, and also `0.000000000000000001`, whose 18 leading zeros fill the parser's whole mantissa window (`1e-18` is exact). The rule follows the LITERAL, not the property type, so a number inside a Dictionary or Array `--value` is refused the same way and names the offending literal: `--value '{"a": 1e-320}'` fails, `--value '{"a": 1e-18}'` stores exactly. Only real JSON numbers are read — a numeric-looking STRING value (`{"a": "1e-320"}`) and a numeric-looking KEY (`{"1e-320": 1.0}`) are stored unchanged (#805). So spell a small or many-digit value in SCIENTIFIC notation carrying only the digits it needs: that also avoids the low-digit loss the parser inflicts on a full-precision literal between `1e-4` and `1e-2`, which is disclosed rather than refused (#772). Read the `set` echo when the exact bits matter.
+
+## Asset workflow (Godot 4.4+, all platforms)
+
+| Group | Commands |
+| --- | --- |
+| `asset-pipeline` | `run`, `check`, `preview`, `check-package`, `prompt-prepare`, `prompt-inspect`, `prompt-revise`, `prompt-register-output`, `concept-prepare`, `concept-select`, `concept-author` (production and handoff; project expectations; model preview; package acceptance; prompt and concept-reference workflows) |
+
+Use `gda asset-pipeline preview --path /production/model.glb --output-dir
+/reports/model-preview --settings /project/preview-settings.json --frames 60
+--timeout 25 --max-nodes 256 --json` to render the fixed `front`, `side`, and
+`three_quarter` views in an owned temporary Godot project. The output directory
+must be new and retains the PNGs; the temporary project is removed after the owned
+windowed session stops. Read `preview.completed`, `views` and their capture receipts,
+`inspection`, actual view state, scene-level `performance`, bounded `diagnostics`,
+`failure`, and `cleanup`. Optional `--budget budget.json` applies existing monitor
+budgets. Optional `--baseline previous.json` expects an explicitly saved
+`{"preview":...}` result; `comparison` is `non_comparable` unless actual camera,
+view, light, viewport, Engine, platform, renderer, static pose, monitor set, and
+sample window and requested warmup match, otherwise it reports scene-level mean/p95
+deltas. Optional `--warmup-seconds` accepts finite seconds in 0..10 (default 0), waits
+after the final view, and records the value in `preview.request.warmup_seconds`.
+FPS is a sampled counter affected by startup; several frame samples can read the
+same update. Keep low values. Comparable setup and a wait do not establish stable
+performance. See the [sampling investigation and procedure](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/docs/preview-performance.md).
+The static imported pose has no overlays. Preview does
+not compare model-content digests, infer per-mesh GPU cost, map every Godot node back
+to a Blender source object, or promise repeatable pixels or performance. On failure,
+read `error.partial_result.preview`; source files and user projects are not modified.
 
 ## Live operations (via the daemon; Godot 4.6+, macOS/Linux)
 
@@ -239,7 +404,7 @@ already-running daemon's lazy Engine-session launch; only the outer
 | Group | Commands |
 | ----- | -------- |
 | `daemon` | `start`, `wait-ready`, `stop`, `status`, `install`, `uninstall` (lifecycle; `start` installs the in-game harness itself, so `install` is only for doing that step deliberately — e.g. to review or commit the `project.godot` change — and `uninstall` reverses it; `wait-ready` establishes the lazily-launched engine session, with `--timeout` shared by its waits and new-work decisions, so a first `diag errors` serves instead of reporting `engine_session_not_running`; `status` reports the last successfully established engine session's `session_id` — the identity a `screen capture` receipt correlates with, minted anew per established session and retained across a failed replacement launch) |
-| `game` | `tree`, `get`, `rect`, `set`, `call` (the running game's runtime scene graph; `tree --root <runtime path> --max-depth N` bounds the read — see "Find a node before you address it" below; `get --texture-digest` opts a read into content digests for path-less `Texture2D` values. `call --method NAME [--args JSON]` invokes a method named by the `GDA_CALLABLE` declaration resolved from the node's attached script along its base chain — use it for a debug/state contract exposed as a method rather than a property. gda calls nothing undeclared, so an undeclared-but-present method is `live_method_not_allowlisted` and its message names the declared set; a missing one is `live_unknown_method`, and arguments the declared parameters cannot take (wrong count, a type the engine would not convert, a typed `Array[int]` parameter) are `live_invalid_call_args`, refused before the call. The live parser materializes every JSON number as float. `NaN`/`Infinity` are refused; RFC JSON excludes them, although some in-memory schema validators accept them as numbers. Finite floats do not inherit the integer bound, but a float whose wire literal Godot's parser reads as `0.0` is refused too — `DBL_MIN`, any subnormal, and many-digit values such as `1.2345678901234567e-300`, none of which any decimal spelling can deliver; a float it does read arrives changed in its low-order bits — 1 ULP at ordinary magnitudes, and tens of doubles for a full-precision literal between `1e-4` and `1e-2`, where the parser truncates past 18 mantissa digits (#752). JSON integer values beyond ±(2^53−1) are refused CLI-side because the wire can change them. Standard JSON Schema cannot distinguish an exponent-form float from the equal integer, so the params model enforces the integer-token limit at execution. LIMIT: gda CANNOT verify a declared method has no side effects — the constant records the project's own read-only assertion, and what gda guarantees is only that no undeclared method is called. GDScript forbids redeclaring a base class's constant, so an opted-in inheritance chain has at most one declaration owner; a base owner covers its subclasses and need not define every method it names) |
+| `game` | `tree`, `get`, `inspect-model-content`, `rect`, `set`, `call` (the running game's runtime scene graph; `tree --root <runtime path> --max-depth N` bounds the read — see "Find a node before you address it" below; `get --texture-digest` opts a read into content digests for path-less `Texture2D` values. `call --method NAME [--args JSON]` invokes a method named by the `GDA_CALLABLE` declaration resolved from the node's attached script along its base chain — use it for a debug/state contract exposed as a method rather than a property. gda calls nothing undeclared, so an undeclared-but-present method is `live_method_not_allowlisted` and its message names the declared set; a missing one is `live_unknown_method`, and arguments the declared parameters cannot take (wrong count, a type the engine would not convert, a typed `Array[int]` parameter) are `live_invalid_call_args`, refused before the call. The live parser materializes every JSON number as float. `NaN`/`Infinity` are refused; RFC JSON excludes them, although some in-memory schema validators accept them as numbers. Finite floats do not inherit the integer bound, but a float whose wire literal Godot's parser reads as `0.0` is refused too — `DBL_MIN`, any subnormal, and many-digit values such as `1.2345678901234567e-300`, none of which any decimal spelling can deliver; a float it does read arrives changed in its low-order bits — 1 ULP at ordinary magnitudes, and tens of doubles for a full-precision literal between `1e-4` and `1e-2`, where the parser truncates past 18 mantissa digits (#752). JSON integer values beyond ±(2^53−1) are refused CLI-side because the wire can change them. Standard JSON Schema cannot distinguish an exponent-form float from the equal integer, so the params model enforces the integer-token limit at execution. LIMIT: gda CANNOT verify a declared method has no side effects — the constant records the project's own read-only assertion, and what gda guarantees is only that no undeclared method is called. GDScript forbids redeclaring a base class's constant, so an opted-in inheritance chain has at most one declaration owner; a base owner covers its subclasses and need not define every method it names) |
 | `diag` | `errors` (structured runtime errors with callstacks; survive a crash) |
 | `logger` | `tail` (the running game's structured log stream; `--raw` for verbatim lines, `--level <min>` to filter by severity, `--limit N`) |
 | `perf` | `monitors`, `monitor` (counters: a one-frame snapshot, or with `--frames` a bounded window with statistics and optional `--budget` verdicts / a per-node timeline) |
@@ -457,6 +622,8 @@ forms — several of which are not obvious from `--help`:
   (`"Vector2(48,72)"`) is **rejected** (`uncoercible_value`).
 - `Color` — `#rrggbb` / `#rrggbbaa`, or 3–4 **comma-separated** floats in 0..1:
   `--value "0.2,0.6,1,1"`.
+- `Vector3` — three **comma-separated** numbers: `--value "1,2,3"`; reads return
+  `[x, y, z]`. This also reaches nested Vector3 values through the shared projection.
 - `Dictionary` — a JSON object string: `--value '{"wine":2}'`. In Dictionary/Array
   JSON values, JSON integer literals stay int and JSON float literals stay float;
   typed containers assign entries through their declared container type. A JSON number
@@ -467,13 +634,22 @@ forms — several of which are not obvious from `--help`:
 - An **Object-typed** (Resource) property — a `res://….tres` path, as above.
 
 Whitespace is trimmed for the numeric forms — `bool`, `int` / `float`, the
-`Vector2` / `Vector2i` components, and `Color` (hex or list) — but **not** for
+`Vector2` / `Vector2i` / `Vector3` components, and `Color` (hex or list) — but **not** for
 `String` / `StringName` (taken verbatim) or the `res://` path (matched literally, so a
 leading space fails as `expected_resource_path`). The value-typed forms are shared by
 `node set`, `resource set`, `project set`, and live `game set`; the `res://` Resource
 assignment is headless-only (`node set` / `resource set`). For live `game get` /
 `game set`, an explicitly named attached-script variable is addressable after storage
-properties are checked; unfiltered `game get` still lists only storage properties.
+properties and Node3D local components are checked; unfiltered `game get` still lists
+only storage properties.
+
+For Node3D, `node get` includes local `position`, `rotation` and `scale`. Both
+`node set` and `game set` can edit them; live reads name the component explicitly
+(`game get /root/Main/Model --property position`). These are local to the parent,
+with Euler rotation in radians under the node's `rotation_order`. Headless changes
+are saved, while live changes stay in the session and return observed `value` and
+`verified`. Vector components use native engine precision; the scene reload can
+normalize transform representations. See the command catalog's Node3D contract.
 Inspect live `game set --json` results' `verified` field: `true` means the observed
 read-back value equals the coerced requested value, while `false` means the set
 completed but the value read back differently. Treat `verified:false` as a diagnostic

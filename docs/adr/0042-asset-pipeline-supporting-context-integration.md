@@ -7,7 +7,8 @@ status: accepted
 Accepted by the project owner on 2026-09-07. Requirements and delivery status:
 [#907](https://github.com/aigengame/godot-agent/issues/907),
 [gda-blender milestone](https://github.com/aigengame/godot-agent/milestone/14).
-This records an accepted target, not implemented commands or validated runtime behavior.
+This records the accepted target. #908 supplies the first file-handoff integration;
+later producer, acceptance, runtime, and package workflows remain separately tracked.
 
 ## Context
 
@@ -78,7 +79,8 @@ does not acquire live-session requirements from an optional preview step.
 Canonical spelling is `asset-pipeline`, with planned `run`, `check`, and `preview`
 verbs introduced by their own slices. Each implemented verb must reach help,
 structured params, schema, generated MCP, human output, and shipped skill guidance
-together. This document does not advertise those commands as available today.
+together. #908 implements `run` for explicit PNG/GLB file handoff; it does not
+advertise `check`, `preview`, or producer generation as available.
 
 ## Packaging and lifecycle
 
@@ -89,6 +91,33 @@ path dependency is insufficient. Coordinate package compatibility and release
 ordering with the existing release authority before shipping that slice.
 ADR-0038's independent sibling-product release model does not automatically apply
 to this internal supporting library.
+
+### First-slice packaging and execution decision (#908)
+
+Root `pyproject.toml` builds `src/gda` and `libs/gda-assets/src/gda_assets` into
+one gda distribution. Hatchling provides both wheel roots and the sdist through
+the existing `uv build` PEP 517 path. The previous uv_build backend supports
+multiple names under one source root, which does not fit these two owned roots.
+The sdist selects those same two source trees and the root build metadata,
+README and license. This preserves the previous distribution scope while adding
+the support library; it does not package other monorepo contexts or local files.
+No workspace-only dependency, separate version, release train, or assets extra
+is introduced. PNG processing makes Pillow a normal runtime dependency; its
+import stays local to PNG admission/processing. This uses the documented
+[uv module-root model](https://docs.astral.sh/uv/concepts/build-backend/#modules)
+and [Hatch package selection](https://hatch.pypa.io/latest/config/build/#packages).
+
+The descriptor uses `ExecutionKind.COMPOSITE` as truthful self-description.
+`dispatch_recipe` calls the workflow; there is no additional runner-selection
+branch. The injected Godot adapter reuses returning resource import and bounded
+resource-load operations. The latter obtains actual engine type/version and
+texture dimensions or instantiated scene node count, without introducing a
+second public resource command or a full model-inspection contract.
+
+Workflow failures use the optional generic `error.partial_result` extension in
+[ADR-0004](0004-schema-flag-self-description.md). The host maps the supporting
+context's stage/file outcomes into it; core errors contain no asset-domain type.
+Ordinary operations omit it and need no workflow records.
 
 Importing the public API, listing schema, and displaying help/version must not
 initialize vendor SDKs, discover/connect to Blender, read credentials, or contact a
@@ -112,7 +141,9 @@ this integration contract instead of redefining gda's core semantics.
 
 ## Verification still required
 
-The design review supports the placement; real integration is not yet proven.
-AP-01 in the local architecture tracks clean-install discovery, one-way imports,
-public CLI/MCP parity, and an end-to-end file-to-import path. Engine-facing slices
-must retain their real-Godot cases. This documentation change does not satisfy them.
+The #908 tests exercise CLI/structured/MCP discovery, host injection and real
+PNG/GLB loading. `scripts/smoke_asset_pipeline.py` also exercises a built gda
+distribution in an isolated consumer project. AP-01 in the local architecture
+tracks this integration evidence; the broader producer, runtime and package
+claims still require their own real-system cases. A passing file handoff does
+not establish those later workflows.

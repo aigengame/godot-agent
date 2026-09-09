@@ -19,6 +19,7 @@ from typing import Optional
 import typer
 
 from gda.commands import (
+    asset_pipeline as asset_pipeline_commands,
     daemon as daemon_commands,
     diag as diag_commands,
     export as export_commands,
@@ -57,6 +58,8 @@ node_commands.register(app)
 script_commands.register(app)
 
 resource_commands.register(app)
+
+asset_pipeline_commands.register(app)
 
 export_commands.register(app)
 
@@ -136,9 +139,10 @@ def main(
         # `--version`, whose callback reads it. (A SUBCOMMAND is unaffected either
         # way: this callback body runs before click parses one.)
         is_eager=True,
-        help="Emit the invoked command's result as JSON — the same as passing "
-        "--json after the command; with --version it emits structured install "
-        "provenance (`--help` stays text).",
+        help="Emit the invoked command's structured result or gda error envelope "
+        "as JSON — the same as passing --json after the command. Some syntax "
+        "errors remain text. With --version it emits structured install provenance "
+        "(`--help` stays text).",
     ),
     user_data_root: Optional[str] = typer.Option(
         None,

@@ -8,7 +8,8 @@ status: accepted
 > [ADR-0042](0042-asset-pipeline-supporting-context-integration.md) accepts
 > `gda asset-pipeline` as the entry to an internal supporting context. This is a
 > workflow group, distinct from Godot object operations. It adds no synonymous
-> `asset` or `assets` CRUD group. The extension is designed, not yet implemented.
+> `asset` or `assets` CRUD group. #908 implements its first `run` file-handoff path;
+> the remaining verbs arrive through their own slices.
 
 `gda` will grow to many commands. We need a command structure that stays navigable
 at that scale, is intuitive to anyone who knows Godot, and maps cleanly onto
@@ -131,4 +132,3 @@ Two binding rules:
 2. **A verb's meaning is constant across groups** — `get` always returns one entity's
    data, `list` always enumerates. Synonyms are avoided: `read` (use `get`), `update`
    / `edit` as a property verb (use `set`).
-

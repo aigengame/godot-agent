@@ -37,6 +37,9 @@ class ExecutionKind(str, enum.Enum):
       (ADR-0023): self-description only, no runner-selection branch — but the
       published ``kind`` must not claim the ``operations.gd`` sentinel pipeline
       it never uses.
+    - ``COMPOSITE`` — a bounded host-side workflow assembled from supported
+      operations, optionally with a supporting-context service. It is self-description only:
+      the descriptor's ``recipe`` selects execution, with no composite runner.
     """
 
     HEADLESS = "headless"
@@ -44,6 +47,7 @@ class ExecutionKind(str, enum.Enum):
     LIVE = "live"
     SCRIPT_RUN = "script_run"
     IMPORT = "import"
+    COMPOSITE = "composite"
 
 
 # Phase-2 live requires Godot 4.6+ (the UDS transport landed in 4.6; ADR-0021).

@@ -330,7 +330,8 @@ out-of-range indexes fail with `invalid_child_index` (exit 4), leaving the file 
 
 **Property reporting and value coercion** (established by #55): `gda node get` instantiates the
 scene and reports the addressed node's **storage** properties (the ones that serialize into the
-`.tscn`) as typed JSON — each a `{name, type, value}` triple where `type` is the property's
+`.tscn`), plus Node3D's local `position`, `rotation` and `scale`, as typed JSON — each a
+`{name, type, value}` triple where `type` is the property's
 declared Godot type name and `value` is its JSON projection. `gda node set` takes the property's
 declared type as the coercion target and converts the CLI `--value` **string** to it; the value
 the node ends up holding is reported back in the same JSON projection `node get` uses, so a `set`
@@ -353,6 +354,7 @@ mutation integrity boundary above. The supported target types and the string for
 | `Array` | a JSON array string (e.g. `["wine","key"]`) | a JSON array |
 | `Vector2` | two comma-separated floats: `x,y` (e.g. `10,20`) | `[x, y]` |
 | `Vector2i` | two comma-separated integers: `x,y` | `[x, y]` |
+| `Vector3` | three comma-separated floats: `x,y,z` (e.g. `1,2,3`) | `[x, y, z]` |
 | `Color` | `#rrggbb` / `#rrggbbaa`, or 3–4 comma-separated floats in 0..1 (`r,g,b[,a]`) | `[r, g, b, a]` |
 
 For `Dictionary` / `Array` JSON values, JSON integer literals stay Godot `int` and JSON float
@@ -369,6 +371,25 @@ reported by `node get` — compound values arrive structured through the shared 
 projection or the `str()` fallback (see [`project`](#project)) — but `node set` cannot coerce to
 those remaining types yet and refuses with `uncoercible_value` unless a separate assignment contract
 below applies.
+
+**Node3D local transforms** (#885): `position`, `rotation` and `scale` are explicitly
+settable through `node set` and live `game set`. They use the node's local transform,
+relative to its parent; `rotation` uses Euler angles in **radians** and the node's
+`rotation_order`. For example, `node set res://main.tscn --node Model --property position
+--value 1,2,3` places the model at local `[1, 2, 3]`. The same `value` string is used in
+`--params-json` and generated MCP inputs; a JSON array or constructor literal is not
+the Vector3 write form. `node get` includes all three components; `game get` reads each
+when named with `--property`. The live unfiltered storage listing stays unchanged.
+
+Godot's setters update the selected component and preserve the other local components
+within engine precision. Headless writes save the resulting transform; live writes
+report the observed value and `verified` without saving. Vector3 uses the engine build's
+component precision (normally 32-bit), followed by gda's full-precision JSON transport.
+Godot can normalize Euler or scale representations when it reconstructs a basis;
+use nonzero, same-sign scale components for a stable decomposition, as described in
+the [Node3D scale contract](https://docs.godotengine.org/en/stable/classes/class_node3d.html#class-node3d-property-scale).
+Global-transform editing, Quaternion, Basis and Transform3D assignment are outside this
+slice. Shared Vector3 projection also applies inside containers and PackedVector3Array.
 
 **`Control.position` convenience assignment** (#464): `Control.position` is layout-derived from
 offsets rather than a normal serialized storage field, but it is a common authoring target. For a
@@ -410,7 +431,7 @@ as `node set` round-trips through `node get`; here `unknown_property` names a pr
 **resource** rather than a node. The live `gda game set` (#220) applies the same coercion table to a
 **running** node's runtime property (the gda harness carries a verbatim copy of the coercion helpers,
 kept in sync by a drift test). When a `game get` / `game set` property name is explicit, the harness
-checks storage properties first, then attached-script variables; unfiltered `game get` keeps the
+checks storage properties and Node3D local components first, then attached-script variables; unfiltered `game get` keeps the
 storage-property listing and does not dump plain script variables. Live set success results keep
 `value` as the observed read-back value and add `verified`: `true` when that read-back equals the
 coerced requested value, `false` when the set completed but the read-back differs. The harness does
@@ -764,8 +785,9 @@ script as **raw text** — it never compiles or loads the script, so editing one
 project code (the read trust boundary of #30). It edits only a script that exists; a missing
 target is `path_not_found`, never a silent create. Exactly one of three mutually-exclusive
 modes must be selected — derived once by the params model, identically on argv and
-`--params-json` (ADR-0015, #713); a missing or mixed mode is a usage error, exit 2, on argv,
-and structured `invalid_params` on `--params-json`:
+`--params-json` (ADR-0015, #713); a missing or mixed mode is a usage error, exit 2,
+on argv (`invalid_argument` when `--json` selects the envelope), and structured
+`invalid_params` on `--params-json`:
 
 - **search-replace** — `--search <old> --replace <new>`: replace **every** literal (not regex)
   occurrence of `<old>` with `<new>`. A search string the source does not contain is refused
@@ -1103,9 +1125,146 @@ a missing action is `unknown_setting`, mirroring `remove-autoload`. A failed sav
 | `gda resource create` | Create a `.tres` resource file |
 | `gda resource delete` | Delete a resource file |
 | `gda resource get` | Load and inspect a resource |
+| `gda resource inspect-model` | Inspect a Godot-loaded PackedScene: structure, static bounds, materials, skin and animation targets |
 | `gda resource set` | Edit a resource file |
 | `gda resource uid` | Resolve UID ↔ resource path (both directions) |
 | `gda resource import` | Ensure assets are imported into the project cache (clean-worktree loading) |
+| `gda resource import-options` | Read configured GLB importer values and the supported update scope |
+| `gda resource reimport` | Change root scale or LOD generation, run project-wide import, and verify the loaded effect |
+
+`gda resource import-options res://model.glb --json` reads the existing `.import`
+sidecar with Godot's ConfigFile parser in an isolated empty project. It does not
+start target-project autoloads or an import pass, or write target-project files.
+Temporary engine files and normal engine user-data writes remain possible. Import
+a source explicitly first if it has no sidecar. The current scope is GLB with a
+recorded `scene` / `PackedScene` importer. This declaration does not establish
+that the importer is currently registered or available.
+
+`configured_options` contains observed scalar values and Variant types, not an
+importer capability table. At most 128 sorted options are returned; complex
+values and strings above 4096 characters have an unavailable reason. Godot writes
+defaults and edits into the same sidecar, so explicit authorship, importer defaults,
+declared types/hints and effective engine values are unavailable from this query.
+`supported_updates` describes gda's bounded update contract: numeric
+`nodes/root_scale`, from `0.001` to `1000`, and boolean
+`meshes/generate_lods`. One request selects exactly one option. It does not
+discover plugin options.
+
+```sh
+gda resource reimport res://model.glb --updates-json '{"nodes/root_scale":2}' --dry-run
+gda resource reimport --params-json '{"path":"res://model.glb","updates":{"nodes/root_scale":2}}'
+gda resource reimport res://model.glb --updates-json '{"meshes/generate_lods":false}'
+gda resource reimport res://model.glb --updates-json '{"meshes/generate_lods":true}'
+```
+
+Dry-run validates the selected patch and recorded configuration without target mutation,
+target loading, or an import pass. It does not predict geometry or prove engine
+adoption. Unknown keys, multiple selected keys, nonnumeric root scales (including
+booleans), nonboolean LOD values, out-of-range scales and unavailable selected
+configuration are refused. On argv, malformed `--updates-json` and model refusals
+are `invalid_argument`/exit 2 under `--json`; the equivalent structured object
+remains `invalid_params`/exit 4 under `--params-json`. Both are decided before any
+engine operation or file change. A no-op returns `unchanged`
+with no configuration write, import pass or dimension verification; this does not
+prove that a previously edited sidecar was adopted. Invalid cache evidence needs
+explicit repair; this command does not delete sidecars or caches to repair it.
+
+A changed request needs an already imported baseline. A root-scale request reads
+complete static mesh bounds through `inspect-model` (up to 4096 nodes). An LOD
+request instead reads actual LOD levels per loaded ArrayMesh surface; it does not
+require measurable dimensions or apply scale tolerances. The operation edits only
+the selected option through ConfigFile and invokes the existing project-wide import
+primitive even when GLB bytes are unchanged. Godot may normalize sidecar formatting; unselected
+`[params]` values are compared semantically, including nested values omitted from
+the query. gda does not edit authored scenes or material overrides. Import scripts
+still run under the Trusted project assumption and can cause their own effects.
+
+Success requires unchanged source bytes, the requested configured value, preserved
+unselected parameters and a matching loaded observation. Root-scale adoption needs
+changed dimensions matching the scale ratio.
+The comparison uses static resource-space mesh AABB **sizes**, including the root
+transform; both baked and root-transform scale modes are supported. It compares
+axes whose prior size exceeds `0.0001`, with relative tolerance `0.00001` and absolute
+tolerance `0.0001`. No geometry, incomplete bounds, or a change too small to distinguish
+from unchanged geometry is refused before editing the configuration. This is a
+bounded dimension check, not animation, runtime-instance, or artistic acceptance.
+
+LOD adoption needs an observable transition on the same unchanged source: disabling
+changes a nonzero loaded LOD count to zero, and enabling changes zero to nonzero.
+An enabled option with zero resulting LODs is valid importer behavior for geometry
+such as a triangle, but it cannot prove that an enable request was adopted. A no-op
+also provides no new adoption evidence. The result reports per-surface counts and
+whether the bounded observation was complete. This native surface shape is admitted
+for Godot 4.6 and tested with Godot 4.6.3. `RenderingServer.mesh_get_surface` returns
+native buffers before gda can apply its traversal, vertex, surface, and 64 MiB LOD
+index reporting bounds. At most 256 LOD entries per surface are processed. Those
+limits bound processing and output, not the engine's
+initial resource load or native allocation. The operation does not inspect texture
+quality and never disables LOD generation automatically.
+
+`import_result` retains the existing cache-evidence and created-file report;
+`verification` supplies the independent loaded observation. An import script
+can fail while old artifacts still satisfy the static import checks, so that
+summary alone never establishes adoption. `imported` means that a pass ran and
+the subsequent cache reread passed the static checks; it does not verify the
+requested options. An unchanged cache hash alone is not failure evidence either:
+a successful cached import or no-op edit can leave those bytes unchanged.
+When a loaded observation rejects adoption, the failure explains this distinction and
+carries the last 16 KiB (UTF-8 bytes) of available project-wide import stderr in
+`diagnostics`. The message states when none was captured. These lines are context
+from the whole pass, not an inferred per-asset cause or a new import classification.
+Failed verification or an interrupted import returns `error.partial_result`, including whether the sidecar changed,
+whether an engine pass was attempted, and available import/verification results.
+There is no automatic rollback. `--timeout` bounds the import pass (default 300s);
+each sentinel query/load retains the normal headless-operation timeout.
+
+`resource inspect-model PATH [--subtree PATH] [--max-nodes 256] [--max-items 1024]`
+loads and instantiates a PackedScene off-tree. It accepts an imported GLB or an
+authored PackedScene; import a cold source explicitly first. It never starts an
+import pass, saves the resource, or plays the selected scene. Loading still uses
+the Trusted project execution surface: autoload constructors, resource/node
+initializers and custom property metadata can run. The engine can create its
+usual logs/user-data/cache files; this is not a zero-filesystem-effects promise.
+
+The JSON result identifies the source, engine version and selected root-inclusive
+subtree. All node paths remain relative to the resource root. Transforms contain
+origin and three basis **columns**. Resource-space static bounds merge each visited
+MeshInstance3D's transformed mesh AABB, including the resource root's local
+transform; plain Node parents and `top_level` cut spatial inheritance as in Godot.
+No geometry means `bounds: null`. Mesh instances and unique loaded Mesh resources
+are counted separately; identical bytes do not imply shared resource identity.
+These bounds do not sample animation, skin deformation, blend shapes or visibility.
+
+Surfaces report effective materials (instance override, surface override, then
+mesh material) and BaseMaterial3D texture roles from the running engine. An absent
+material is null; pathless resources and unsupported material classes have explicit
+unavailable reasons. Texture references do not prove active shader use. Primitive
+type and compact vertex/index counts require ArrayMesh; other meshes retain their
+surface/material/bounds facts with unavailable count reasons. Triangle counts use
+index slots, or vertex slots for unindexed surfaces; triangle strips use `N - 2`,
+including degenerate slots. Other topology has no triangle count.
+
+Skeleton bones contain parent indices and parent-relative rest transforms.
+Explicit Skin binds resolve by bone name or index against the instance's selected
+Skeleton3D. Runtime-generated skins are not observed. AnimationPlayer reports
+duration, loop mode and track paths without keys or playback. Transform tracks
+locate nodes/bones; value/bezier tracks can locate a declared top-level property.
+Missing targets are `unresolved`; nested property evaluation and other track
+semantics are `unavailable`, with the located node retained when possible. A
+`resolved` target proves identity at its stated scope, not playback or writability.
+
+Node traversal stops at `max_nodes` (1–4096); one shared `max_items` budget
+(1–16384) covers surfaces, textures, bones, binds, animations and tracks. The
+`omissions` identify node/section and limit; `truncated` prevents interpreting an
+empty partial list as absence. Summary counts and bounds cover visited nodes only.
+These are report/traversal limits, not byte or engine-load memory limits: Godot
+loads and instantiates the resource first. Human output is a summary; use `--json`
+for the complete bounded facts. Missing files and absent subtrees use
+`path_not_found` and `node_not_found`. A loaded resource of the wrong type and a
+failed load both use the existing `not_a_scene` code, with distinct messages and
+engine diagnostics. A failed load may require explicit import; its cause is not
+assumed to be a missing dependency. Project expectations and
+cross-version comparisons belong to Asset Pipeline; this command gives facts.
 
 **Scoped import surface** (shipped, #668, per the issue's revised contract): a clean
 worktree carries the sources and their committed `.import` sidecars but not the gitignored
@@ -1368,7 +1527,7 @@ re-derives every verdict from a running engine.
   properties — the live counterparts of headless `node get` / `node set`, applying the
   **same** value-coercion table and returning the observed read-back value plus
   `verified` to distinguish a matched read-back from a completed set whose value did not
-  stick. When a property is explicitly named, storage properties are preferred and plain
+  stick. When a property is explicitly named, storage properties and Node3D local components are preferred and plain
   attached-script variables are addressable as a fallback; unfiltered `game get` keeps the
   storage-property listing. `game get --texture-digest` (shipped, #666) opts a read into
   the content digest of each PATH-LESS `Texture2D` value's **texture projection**
@@ -1512,8 +1671,9 @@ re-derives every verdict from a running engine.
   sequence's selected-clock window (`max(frame)+1` or `max(physics_frame)+1` ≤ the
   per-window ceiling, the same bound `perf monitor` enforces, #223) are bounded
   **model-side** (ADR-0015), so an
-  out-of-contract request is a structured `invalid_params` (or argv usage error)
-  before it reaches the harness. The two failures that need the live engine
+  out-of-contract request is structured `invalid_params` on `--params-json`, or
+  `invalid_argument`/exit 2 on argv under `--json`, before it reaches the harness.
+  The two failures that need the live engine
   to decide are deferred to the harness: a key name the engine cannot resolve to a
   keycode is `live_invalid_key`, an action absent from the running `InputMap` is
   `live_unknown_action`; a sequence event whose type the harness does not recognize

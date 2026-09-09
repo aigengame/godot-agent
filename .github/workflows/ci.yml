@@ -149,9 +149,6 @@ jobs:
 
     steps:
       - name: Checkout repository
-        # lfs: true materializes any Git-LFS-tracked assets (gADR-0015) so the Panda
-        # Adventure size gate and asset loads see real bytes. A no-op until wave-3
-        # commits its first >= T asset; provisioned now so a large file is born in LFS.
         uses: actions/checkout@v6
         with:
           lfs: true
@@ -176,14 +173,6 @@ jobs:
         # Four workers (the runner has four vCPUs); `loadgroup` keeps the
         # `xdist_group`-marked tests together and load-balances the rest (#818).
         run: uv run --frozen pytest -m "not e2e" -n 4 --dist loadgroup
-
-      # The root testpaths excludes the example game; run its PURE-Python tier here
-      # (no Godot). The "engine" and "e2e" tiers need a real engine and run in the
-      # godot-e2e job; the "acquire_live" tier needs a live network / image-gen API
-      # (asset pipeline, gADR-0014) and is run on demand, never in CI. Explicit
-      # path keeps the game and gda suites separate.
-      - name: Run Panda Adventure pure-Python tests
-        run: uv run --frozen pytest examples/platformer/panda-adventure/tests -m "not e2e and not engine and not acquire_live"
 
       - name: Build distributions
         run: uv build
@@ -458,8 +447,6 @@ jobs:
 
     steps:
       - name: Checkout repository
-        # lfs: true so the engine/e2e asset loads and the export path see real
-        # LFS-tracked bytes, not pointer files (gADR-0015). A no-op until wave-3.
         uses: actions/checkout@v6
         with:
           lfs: true
@@ -467,7 +454,7 @@ jobs:
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
         with:
-          # Engine-backed tiers are gda's and the example game's only; the
+          # Engine-backed tiers belong to gda and Asset Pipeline; the
           # member ships no engine-facing code (ADR-0038).
           sync: root
           save-cache: false
@@ -478,6 +465,13 @@ jobs:
       - name: Install Godot
         uses: ./.github/actions/install-godot
 
+      - name: Install Blender for saved-source asset tests
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --yes blender python3-numpy
+          blender --background --factory-startup --python-exit-code 1 \
+            --python-expr 'import numpy; import bpy; print(bpy.app.version_string, numpy.__version__)'
+
       - name: Run Godot e2e tests
         # -rs surfaces skip reasons in the log (e.g. absent export templates, or no
         # DisplayServer for windowed capture), so a silently-skipped e2e is visible
@@ -487,16 +481,10 @@ jobs:
         # grouped on one worker (#818).
         run: uv run --frozen pytest -m e2e -rs -n 4 --dist loadgroup
 
-      # The example game's engine-backed tiers: the data round-trip + logic seam
-      # (engine marker) and the live daemon loop (e2e). install-godot exported
-      # GDA_GODOT, so these resolve the engine. -rs surfaces any skips.
-      - name: Run Panda Adventure engine and e2e tests
-        run: uv run --frozen pytest examples/platformer/panda-adventure/tests -m "engine or e2e" -rs
-
-      # Portable export guard: `export get` validates the macOS preset is found and
-      # parses (no templates or platform tooling needed), so it is safe on a Linux
-      # runner. `export run --mode pack` works on macOS (verified) but a macOS preset
-      # on a Linux runner is unverified here, so we keep `get`. The REAL .app export
-      # is reproduced by scripts/export_macos.sh and smoke-tested on macOS (see PR).
-      - name: Guard Panda Adventure export preset wiring
-        run: uv run --frozen gda export get --preset macOS --project examples/platformer/panda-adventure --json
+      - name: Verify installed asset workflow
+        run: |
+          uv build --out-dir dist-asset-smoke
+          uv venv /tmp/gda-assets-consumer --python 3.13
+          uv pip install --python /tmp/gda-assets-consumer/bin/python dist-asset-smoke/gda-*.whl
+          /tmp/gda-assets-consumer/bin/python scripts/smoke_asset_pipeline.py \
+            --gda /tmp/gda-assets-consumer/bin/gda --godot "$GDA_GODOT"

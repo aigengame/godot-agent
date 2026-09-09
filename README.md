@@ -454,6 +454,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | `resource delete` | Delete a `.tres` resource file and report what was removed. |
 | `resource uid` | Resolve a resource UID ↔ its `res://` path in both directions. |
 | `resource import` | Ensure assets are imported into the project cache (clean-worktree loading). |
+| `resource inspect-model-content` | Digest bounded, supported static content from an imported GLB for comparison with a running instance. |
 
 **`export`** — export presets and artifacts
 
@@ -477,6 +478,30 @@ names the file, and only `preflight` catches a first-frame failure.
 | ------- | ------------ |
 | `theme create` | Create a new, loadable `.tres` Theme resource (no-clobber). |
 
+### Asset workflow — Godot 4.4+, all platforms
+
+| Command | What it does |
+| ------- | ------------ |
+| `asset-pipeline run` | Export a saved Blender subtree or stage PNG/GLB files, then install, import and check the actual Godot-loaded result. Optionally collect selected disk/import hashes or reset a test scene and compare one running GLB instance. |
+| `asset-pipeline check` | Evaluate project model expectations and compare compatible Godot inspection reports. Read the content verdict; completed checks exit 0. |
+| `asset-pipeline preview` | Render three fixed views of a GLB in an isolated windowed project and collect bounded inspection, capture, diagnostic and scene-level performance results. |
+| `asset-pipeline check-package` | Apply the same model expectations to a resource loaded from an isolated exported PCK and check exact declared exclusions. |
+| `asset-pipeline prompt-prepare` / `prompt-inspect` | Save or reuse one attempt's prompt and PNG reference inputs before external generation. |
+| `asset-pipeline prompt-revise` / `prompt-register-output` | Create a separate revised attempt or preserve a completed local PNG with its declared/reported details. |
+| `asset-pipeline concept-prepare` / `concept-select` / `concept-author` | Preserve a model or sprite brief, select registered PNG references, and run a bounded reference-use example. |
+
+The [prompt commands](libs/gda-assets/docs/prompts.md) work locally without Godot
+or a provider connection. Preparation returns an external handoff; it does not
+generate an image. The [concept workflow](libs/gda-assets/docs/concepts.md) likewise
+uses explicit external generation and does not install references into Godot.
+
+Use explicit source-to-target mappings and an overwrite policy. Completed
+image-generation files use the same path with optional caller-declared metadata.
+The [asset pipeline guide](libs/gda-assets/README.md) covers Blender production, file inputs, references,
+runtime refresh, isolated preview, exported-package checks and partial failures. A refresh discards runtime state and requires an explicit scene and
+instance path. The [static model content guide](docs/model-content.md) defines the two underlying fact commands
+and their shared measurement. The workflow ships with gda; it needs no separate asset tool.
+
 ### Live commands — via `gda-daemon`; Godot 4.6+, macOS/Linux
 
 **`daemon`** — the live runtime lifecycle
@@ -496,6 +521,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | ------- | ------------ |
 | `game tree` | Read the running game's runtime scene tree (after `_ready`). |
 | `game get` | Read a runtime node's live properties by node path; explicit names can address attached-script variables. |
+| `game inspect-model-content` | Digest bounded, supported static content below a selected runtime model instance. |
 | `game rect` | Read a runtime Control's rendered viewport rect by node path. |
 | `game set` | Set a runtime node property, or an explicitly named attached-script variable, on the running game; `verified` reports whether the read-back matched. |
 | `game call` | Invoke one method the node's script declares in `GDA_CALLABLE` — the project's own read-only promise, which gda cannot verify — and project what it returns; nothing undeclared is ever called. |
@@ -579,7 +605,9 @@ project is trusted ([ADR-0009](docs/adr/0009-trust-boundary-trusted-project.md))
 - **Autoloads** start on every `--project` operation that boots the engine, read-only ones
   included (a cached `resource import` boots nothing).
 - **Scene scripts' `_init`** runs wherever a scene is instantiated: every mutating `node`
-  command and `node get`; `scene get` / `scene list` / `node list` read without instantiating.
+  command, `node get`, `resource inspect-model`, `resource inspect-model-content`, `asset-pipeline check --path`,
+  and the GLB load check in `asset-pipeline run`;
+  `scene get` / `scene list` / `node list` read without instantiating.
 - **`script run`** executes the named script in full; **`scene preflight`** boots the scene
   and runs its `_ready`.
 - **`resource import`** runs the engine's importers (and the project's import plugins) on a

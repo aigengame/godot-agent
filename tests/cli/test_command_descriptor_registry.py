@@ -72,7 +72,7 @@ def test_every_group_module_is_registered_on_the_root_app():
         )
         if info.name == _META_MODULE:
             continue
-        group = mounted.get(info.name)
+        group = mounted.get(info.name.replace("_", "-"))
         assert group is not None, (
             f"group module '{info.name}' is not mounted — "
             f"add {info.name}.register(app) to gda/cli.py"
@@ -161,6 +161,17 @@ def test_no_renderer_is_orphaned():
 # `_SCREEN_COMMANDS` identity frozensets + the export `kind` special-case: now it is
 # an asserted INVARIANT over the descriptors, not a dispatch mechanism.
 _RECIPE_OPERATIONS = {
+    "asset-pipeline-run",
+    "asset-pipeline-check",
+    "asset-pipeline-preview",
+    "asset-pipeline-check-package",
+    "asset-pipeline-prompt-prepare",
+    "asset-pipeline-prompt-inspect",
+    "asset-pipeline-prompt-revise",
+    "asset-pipeline-prompt-register-output",
+    "asset-pipeline-concept-prepare",
+    "asset-pipeline-concept-select",
+    "asset-pipeline-concept-author",
     "export-run",
     # `script run` is the third execution shape (ADR-0031): a user-script passthrough
     # run, fulfilled by a CLI-side recipe (it emits no ADR-0002 sentinel) like export
@@ -209,6 +220,10 @@ _RECIPE_OPERATIONS = {
     # calls the shared launch primitive with the engine's project-wide
     # `--import` argv — not a sentinel op, like `export run`'s native channel.
     "resource-import",
+    # ConfigFile queries isolate target execution; reimport composes the query,
+    # native project-wide pass and model-inspection sentinel operations (#888).
+    "resource-import-options",
+    "resource-reimport",
     # `input sequence` (#838) names the injection route of each phase it applied,
     # and the harness reply counts the events without enumerating them: only the
     # request holds the per-event kinds, so the recipe completes the sentinel op's

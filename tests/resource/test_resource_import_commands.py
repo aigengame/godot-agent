@@ -17,6 +17,8 @@ import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
+from gda.commands.resource import ResourceImportParams, run_resource_import_operation
+from gda.errors import Failure
 from gda.runner import LaunchFailure, RunResult, TimeoutBound
 from tests.support import minimal_project
 
@@ -114,6 +116,8 @@ def test_dry_run_reports_missing_and_predictions_and_writes_nothing(tmp_path):
             "status": "missing",
             "sidecar": None,
             "dest_files": [],
+            "declared_importer": None,
+            "declared_source_file": None,
         }
     ]
     assert data["predicted_source_adjacent"] == ["res://icon.png.import"]
@@ -135,8 +139,26 @@ def test_dry_run_cached_when_sidecar_dest_files_exist(tmp_path):
     assert data["assets"][0]["status"] == "cached"
     assert data["assets"][0]["sidecar"] == "res://icon.png.import"
     assert data["assets"][0]["dest_files"] == [f"res://{dest}"]
+    assert data["assets"][0]["declared_importer"] == "texture"
+    assert data["assets"][0]["declared_source_file"] == "res://icon.png"
     assert data["engine_pass"] is False
     assert data["predicted_source_adjacent"] == []
+
+
+def test_returning_operation_publishes_declared_import_facts(tmp_path):
+    project = _project(tmp_path)
+    dest = ".godot/imported/icon.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ctex"
+    _cached_asset(project, "icon.png", dest)
+
+    result = run_resource_import_operation(
+        project,
+        ResourceImportParams(assets=["res://icon.png"], dry_run=True),
+    )
+
+    assert not isinstance(result, Failure)
+    asset = result.assets[0]
+    assert asset.declared_importer == "texture"
+    assert asset.declared_source_file == "res://icon.png"
 
 
 def test_dry_run_stale_when_a_dest_file_is_absent(tmp_path):
@@ -153,6 +175,34 @@ def test_dry_run_stale_when_a_dest_file_is_absent(tmp_path):
     # It HAS a sidecar, so no sidecar-creation prediction for it.
     assert data["predicted_source_adjacent"] == []
     assert data["engine_pass"] is True
+
+
+def test_dry_run_preserves_declared_sidecar_facts_on_a_copied_stale_asset(tmp_path):
+    project = _project(tmp_path)
+    _sidecar(
+        project,
+        "icon.png",
+        ".godot/imported/icon.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ctex",
+        importer="texture",
+        source_file="res://original.png",
+    )
+
+    data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["status"] == "stale"
+    assert data["assets"][0]["declared_importer"] == "texture"
+    assert data["assets"][0]["declared_source_file"] == "res://original.png"
+
+
+def test_dry_run_preserves_readable_declarations_on_marked_invalid_sidecar(tmp_path):
+    project = _project(tmp_path)
+    _sidecar(project, "icon.png", None, valid=False, importer="texture")
+
+    data = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)
+
+    assert data["assets"][0]["status"] == "invalid"
+    assert data["assets"][0]["declared_importer"] == "texture"
+    assert data["assets"][0]["declared_source_file"] == "res://icon.png"
 
 
 def test_dry_run_keep_importer_sidecar_counts_as_cached(tmp_path):
@@ -913,9 +963,9 @@ def test_no_assets_is_a_usage_error(tmp_path):
     result = _run(project)
 
     assert result.exit_code == 2, result.stdout + result.stderr
-    from tests.support import plain_text
+    from tests.support import structured_argv_error_message
 
-    assert "ASSETS" in plain_text(result.stderr)
+    assert "ASSETS" in structured_argv_error_message(result)
 
 
 def test_schema_is_self_describing():

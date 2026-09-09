@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e225ed00bc75daf0ba46f85f056196e35987afe39341d354b4ec0454b64733a2 -->
+<!-- gda-readme-i18n: source=README.md sha256=d5809235a582579160cb9b6183987697a7703eeaf5280f3e074a124989b2b95b -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -469,6 +469,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `resource delete` | Elimina un archivo de recurso `.tres` e informa qué se eliminó. |
 | `resource uid` | Resuelve un UID de recurso ↔ su ruta `res://` en ambas direcciones. |
 | `resource import` | Garantiza que los assets estén importados en la caché del proyecto (carga en un worktree limpio). |
+| `resource inspect-model-content` | Calcula un resumen del contenido estático compatible y acotado de un GLB importado para compararlo con una instancia en ejecución. |
 
 **`export`** — presets de exportación y artefactos
 
@@ -492,6 +493,27 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | ------- | ------------ |
 | `theme create` | Crea un recurso Theme `.tres` nuevo y cargable (sin sobrescribir). |
 
+### Flujo de trabajo de assets — Godot 4.4+, todas las plataformas
+
+| Comando | Qué hace |
+| ------- | ------------ |
+| `asset-pipeline run` | Exporta un subárbol de un archivo de Blender guardado o prepara archivos PNG/GLB; después los instala e importa y comprueba el resultado que Godot carga realmente. También puede recoger hashes de los archivos seleccionados y de su importación, o reiniciar una escena de prueba y comparar una instancia GLB en ejecución. |
+| `asset-pipeline check` | Evalúa el modelo según los requisitos del proyecto y compara informes compatibles de Godot. Una evaluación completada devuelve el código 0; el campo verdict indica si cumple los requisitos. |
+| `asset-pipeline preview` | Renderiza tres vistas fijas de un GLB en un proyecto aislado con ventana y recoge resultados acotados de inspección, captura, diagnóstico y rendimiento de la escena. |
+| `asset-pipeline check-package` | Aplica los mismos requisitos del modelo a un recurso cargado desde un PCK exportado y aislado, y comprueba las exclusiones declaradas mediante rutas exactas. |
+| `asset-pipeline prompt-prepare` / `prompt-inspect` | Guarda o reutiliza el prompt y las referencias PNG de un intento antes de la generación externa. |
+| `asset-pipeline prompt-revise` / `prompt-register-output` | Crea un intento revisado por separado o conserva un PNG local junto con los datos declarados y los comunicados por el proveedor. |
+| `asset-pipeline concept-prepare` / `concept-select` / `concept-author` | Conserva el brief de un modelo o sprite, selecciona referencias PNG registradas y ejecuta un ejemplo acotado de uso de esas referencias. |
+
+Los [comandos de prompts](../libs/gda-assets/docs/prompts.md) funcionan localmente, sin Godot ni conexión con un proveedor. La preparación devuelve las entradas para la herramienta externa; no genera una imagen. El [flujo de referencias conceptuales](../libs/gda-assets/docs/concepts.md) también deja la generación en manos de una herramienta externa y no instala las referencias en Godot.
+
+Usa correspondencias explícitas entre origen y destino y define una política de sobrescritura.
+Los archivos que complete la generación de imágenes siguen el mismo flujo y pueden incluir metadatos
+declarados por quien realiza la llamada. La [guía del flujo de assets](../libs/gda-assets/README.md)
+explica la exportación desde Blender, los archivos de entrada, las referencias, la actualización en runtime, la previsualización aislada, la comprobación de paquetes exportados y los fallos parciales.
+La actualización descarta el estado de runtime y exige indicar la escena y la ruta de la instancia. La [guía de contenido estático del modelo](model-content.md)
+define los dos comandos de datos subyacentes y su medición compartida. Este flujo se incluye con gda y no requiere una herramienta de assets aparte.
+
 ### Comandos live — vía `gda-daemon`; Godot 4.6+, macOS/Linux
 
 **`daemon`** — el ciclo de vida del runtime live
@@ -511,6 +533,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | ------- | ------------ |
 | `game tree` | Lee el árbol de escena en runtime del juego en ejecución (después de `_ready`). |
 | `game get` | Lee las propiedades en vivo de un nodo de runtime por ruta de nodo; los nombres explícitos pueden acceder a variables del script adjunto. |
+| `game inspect-model-content` | Calcula un resumen del contenido estático compatible y acotado bajo una instancia de modelo seleccionada en runtime. |
 | `game rect` | Lee el rectángulo renderizado en viewport de un Control de runtime por ruta de nodo. |
 | `game set` | Define una propiedad de un nodo de runtime, o una variable del script adjunto nombrada explícitamente, en el juego en ejecución; `verified` informa si la relectura coincidió. |
 | `game call` | Invoca un método que el script del nodo declara en `GDA_CALLABLE` y devuelve su valor como datos estructurados. El propio proyecto declara que el método es de solo lectura, algo que gda no puede comprobar; nunca se invocan métodos no declarados. |
@@ -595,7 +618,9 @@ proyecto es de confianza ([ADR-0009](adr/0009-trust-boundary-trusted-project.md)
 - **Los autoloads** arrancan en cada operación `--project` que inicia el motor, incluidas las de solo
   lectura (un `resource import` con la caché íntegra no arranca nada).
 - **El `_init` de los scripts de la escena** se ejecuta allí donde se instancia una escena: todo comando
-  `node` que modifica la escena y `node get`; `scene get` / `scene list` / `node list` leen sin instanciar.
+  `node` que modifica la escena, `node get`, `resource inspect-model`, `resource inspect-model-content`,
+  `asset-pipeline check --path` y la comprobación de carga de GLB de `asset-pipeline run`;
+  `scene get` / `scene list` / `node list` leen sin instanciar.
 - **`script run`** ejecuta íntegramente el script indicado; **`scene preflight`** arranca la escena y
   ejecuta su `_ready`.
 - **`resource import`** ejecuta los importadores del motor (y los plugins de importación del proyecto)

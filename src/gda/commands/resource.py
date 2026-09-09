@@ -7,8 +7,8 @@ through :func:`register`. It imports the shared machinery downward — the
 dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
 the cross-command contract core (``gda.models``, for the shared
 :class:`~gda.models.NodeProperty` shape) and the shared render helpers
-(``gda.render``) — and is imported by nothing but the composition root
-(``gda.cli``).
+(``gda.render``). The composition root (``gda.cli``) mounts the group;
+the asset integration consumes its returning Godot operations (ADR-0042).
 
 :class:`~gda.commands.project.ResourceReference` is NOT this group's model
 despite its name: it is the ``project find-references`` result shape, so it
@@ -17,32 +17,41 @@ lives with its single consumer in the ``project`` group (ADR-0040 §5).
 
 import hashlib
 import json
+import math
 import os
 import re
+from contextlib import contextmanager
+from tempfile import TemporaryDirectory
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Callable, Literal, Optional
 
 import typer
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gda.binary import resolve_godot_binary
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import (
+    captured_output_tail,
     classify_launch_or_crash,
     containment_refusal,
     Failure,
     make_failure,
+    unresolvable_binary_failure,
 )
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
+    RunnerFactory,
     godot_option,
     json_option,
     params_json_option,
     project_option,
 )
+from gda.model_content import ModelContent
+from gda.package_runner import PackageRunnerFactory, make_package_runner
 from gda.models import (
     CREATED_DIRS_DESC,
+    EngineVersion,
     NodeProperty,
     NormalizedPath,
     OBJECT_SET_ECHO_DESC,
@@ -56,7 +65,7 @@ from gda.project import (
     project_anchored,
 )
 from gda.render import render_property_lines, render_set_echo
-from gda.runner import launch
+from gda.runner import RunResult, launch
 
 
 class ResourceCreateParams(BaseModel):
@@ -120,6 +129,440 @@ class ResourceGetResult(BaseModel):
     path: str
     type: str = Field(description="The resource's engine class (e.g. Gradient).")
     properties: list[NodeProperty]
+
+
+class ResourceLoadParams(BaseModel):
+    """The internal engine-load observation request used by asset workflows (#908)."""
+
+    path: NormalizedPath = Field(
+        description="An imported project resource to load through Godot."
+    )
+
+
+ROOT_SCALE_MIN = 0.001
+ROOT_SCALE_MAX = 1000.0
+
+
+class ResourceImportOptionsParams(BaseModel):
+    path: NormalizedPath = Field(
+        description="An existing GLB source with a Godot .import sidecar."
+    )
+
+
+class ConfiguredImportOption(BaseModel):
+    name: str
+    value: Any
+    value_type: str = Field(
+        description="Observed Godot Variant type, not importer-declared metadata."
+    )
+    value_unavailable_reason: str | None
+
+
+class RootScaleSupportedImportUpdate(BaseModel):
+    name: Literal["nodes/root_scale"] = "nodes/root_scale"
+    value_type: Literal["float"] = "float"
+    minimum: float = ROOT_SCALE_MIN
+    maximum: float = ROOT_SCALE_MAX
+
+
+class LodGenerationSupportedImportUpdate(BaseModel):
+    name: Literal["meshes/generate_lods"] = "meshes/generate_lods"
+    value_type: Literal["bool"] = "bool"
+
+
+SupportedImportUpdate = Annotated[
+    RootScaleSupportedImportUpdate | LodGenerationSupportedImportUpdate,
+    Field(discriminator="name"),
+]
+
+
+class ResourceImportOptionsResult(BaseModel):
+    path: str
+    sidecar: str
+    engine_version: EngineVersion
+    importer: str
+    resource_type: str
+    configured_options: list[ConfiguredImportOption]
+    configured_options_truncated: bool
+    default_metadata_available: Literal[False] = False
+    metadata_limitations: list[str] = Field(
+        default_factory=lambda: [
+            "The importer name is recorded in the sidecar, not proof of an active registered importer.",
+            "Configured values are not an importer capability list or proof of explicit authorship.",
+            "Importer defaults, declared types, hints and plugin capabilities are not exposed by this operation.",
+            "Effective engine values require reimport/load verification; sidecar values alone do not prove adoption.",
+            "At most 128 options are reported; complex values and strings above 4096 characters are omitted.",
+        ]
+    )
+    supported_updates: list[SupportedImportUpdate] = Field(
+        default_factory=lambda: [
+            RootScaleSupportedImportUpdate(),
+            LodGenerationSupportedImportUpdate(),
+        ],
+        description="The gda built-in scene-importer update contract, not dynamically discovered plugin metadata.",
+    )
+
+
+def render_resource_import_options(result: ResourceImportOptionsResult) -> str:
+    return (
+        f"{result.path}: {result.importer} importer, "
+        f"{len(result.configured_options)} configured options; "
+        "importer defaults unavailable (use --json for values and limitations)"
+    )
+
+
+@contextmanager
+def _import_config_project():
+    """Use Godot's Variant parser without executing the target project."""
+    with TemporaryDirectory(prefix="gda-import-options-") as directory:
+        scratch = Path(directory)
+        (scratch / "project.godot").write_text(
+            'config_version=5\n[application]\nconfig/name="gda import options"\n'
+        )
+        yield scratch
+
+
+def run_resource_import_options_operation(
+    project: Path, params: ResourceImportOptionsParams, *, godot: str | None = None
+) -> ResourceImportOptionsResult | Failure:
+    """Read native ConfigFile values without starting the target project's code."""
+    addressed = _asset_res_path(project, params.path)
+    if isinstance(addressed, Failure):
+        return addressed
+    if Path(addressed).suffix.lower() != ".glb":
+        return make_failure(
+            "invalid_params", "import-options currently supports GLB sources only", ""
+        )
+    source = project_absolute(project) / addressed[len(RES_PREFIX) :]
+    if not source.is_file():
+        return make_failure("path_not_found", f"asset not found: {addressed}", "")
+    # ConfigFile owns Variant parsing. An empty project prevents metadata reads
+    # from running target autoloads or performing a target-project import scan.
+    with _import_config_project() as scratch:
+        result = RESOURCE_IMPORT_OPTIONS_COMMAND.execute(
+            ResourceImportOptionsParams(path=str(source)), project=scratch, godot=godot
+        )
+    if isinstance(result, Failure):
+        return result
+    return result.model_copy(
+        update={"path": addressed, "sidecar": addressed + ".import"}
+    )
+
+
+def _resource_import_options_recipe(params, *, project, godot):
+    return run_resource_import_options_operation(project, params, godot=godot)
+
+
+RESOURCE_IMPORT_OPTIONS_COMMAND: HeadlessCommand[ResourceImportOptionsResult] = (
+    HeadlessCommand(
+        operation="resource-import-options",
+        input_model=ResourceImportOptionsParams,
+        output_model=ResourceImportOptionsResult,
+        render=render_resource_import_options,
+        recipe=_resource_import_options_recipe,
+    )
+)
+
+
+ModelVector3 = tuple[float, float, float]
+
+
+class ModelTransform(BaseModel):
+    """A transform with basis columns and origin in the declared coordinate space."""
+
+    origin: ModelVector3
+    basis: tuple[ModelVector3, ModelVector3, ModelVector3]
+
+
+class ModelBounds(BaseModel):
+    position: ModelVector3
+    size: ModelVector3
+
+
+class ModelResource(BaseModel):
+    type: str
+    name: str
+    path: str | None
+    unavailable_reason: str | None
+
+
+class ModelTexture(BaseModel):
+    role: str
+    resource: ModelResource
+
+
+class ModelMaterial(BaseModel):
+    resource: ModelResource
+    source: Literal["material_override", "surface_override", "mesh_surface"]
+    textures: list[ModelTexture]
+    textures_unavailable_reason: str | None
+
+
+class ModelSurface(BaseModel):
+    index: int
+    primitive: str | None
+    vertex_count: int | None
+    index_count: int | None
+    triangle_count: int | None
+    triangle_count_basis: Literal["index_slots", "vertex_slots"] | None
+    counts_unavailable_reason: str | None = Field(
+        description="Why primitive and compact counts are unavailable; no vertex arrays are read."
+    )
+    material: ModelMaterial | None
+
+
+class ModelBone(BaseModel):
+    index: int
+    name: str
+    parent: int
+    rest: ModelTransform = Field(
+        description="Rest transform relative to the parent bone."
+    )
+
+
+class ModelSkeleton(BaseModel):
+    bone_count: int
+    bones: list[ModelBone]
+
+
+class ModelSkinBind(BaseModel):
+    index: int
+    bone_index: int
+    name: str
+    pose: ModelTransform
+    resolved_bone_index: int | None
+    unresolved_reason: str | None
+
+
+class ModelSkin(BaseModel):
+    resource: ModelResource
+    skeleton_path: str
+    resolved_skeleton_path: str | None
+    unresolved_reason: str | None
+    bind_count: int
+    binds: list[ModelSkinBind]
+
+
+class ModelMesh(BaseModel):
+    resource: ModelResource
+    surface_count: int
+    surfaces: list[ModelSurface]
+    skin: ModelSkin | None
+    skin_unavailable_reason: str | None
+
+
+class ModelAnimationTrack(BaseModel):
+    index: int
+    type: str
+    path: str
+    enabled: bool
+    target_node_path: str | None
+    bone_name: str | None
+    status: Literal["resolved", "unresolved", "unavailable"]
+    resolution_scope: Literal["node", "bone", "declared_property"] | None = Field(
+        description="Located static identity only, not successful playback or property writability."
+    )
+    reason: str | None
+
+
+class ModelAnimation(BaseModel):
+    name: str
+    length: float
+    loop_mode: int = Field(
+        description="Godot Animation.LoopMode: 0 none, 1 linear, 2 ping-pong."
+    )
+    track_count: int
+    tracks: list[ModelAnimationTrack]
+
+
+class ModelAnimationPlayer(BaseModel):
+    root_path: str
+    resolved_root_path: str | None
+    unresolved_reason: str | None
+    animation_count: int
+    animations: list[ModelAnimation]
+
+
+class ModelNode(BaseModel):
+    path: str = Field(
+        description="Full node path relative to the loaded resource root."
+    )
+    type: str
+    local_transform: ModelTransform | None
+    resource_transform: ModelTransform | None
+    mesh: ModelMesh | None
+    skeleton: ModelSkeleton | None
+    animation_player: ModelAnimationPlayer | None
+
+
+class ModelOmission(BaseModel):
+    node_path: str
+    section: str
+    reason: Literal["node_limit", "detail_limit"]
+
+
+class ModelMeasurement(BaseModel):
+    coordinate_space: Literal["resource"]
+    geometry: Literal["static_mesh_aabb"]
+    limitations: list[str]
+
+
+class ModelSummary(BaseModel):
+    node_count: int
+    mesh_instance_count: int
+    unique_mesh_count: int
+
+
+class ResourceInspectModelParams(BaseModel):
+    path: NormalizedPath = Field(
+        description="An imported PackedScene resource to inspect."
+    )
+    subtree: str = Field(
+        default=".",
+        description="Selected root-inclusive subtree, relative to the resource root.",
+    )
+    max_nodes: int = Field(
+        default=256,
+        ge=1,
+        le=4096,
+        description="Maximum reported nodes; counts and bounds cover only those visited.",
+    )
+    max_items: int = Field(
+        default=1024,
+        ge=1,
+        le=16384,
+        description="Global limit for surface, texture, bone, bind, animation and track records.",
+    )
+
+
+class ResourceInspectModelResult(BaseModel):
+    path: str
+    subtree: str
+    engine_version: EngineVersion
+    measurement: ModelMeasurement
+    nodes: list[ModelNode]
+    summary: ModelSummary
+    bounds: ModelBounds | None = Field(
+        description="Merged static mesh bounds; null when the visited nodes have no mesh geometry."
+    )
+    truncated: bool = Field(
+        description="True when node or detail records were omitted by a report limit."
+    )
+    omissions: list[ModelOmission]
+
+
+class PackageResourcePresenceParams(BaseModel):
+    paths: list[NormalizedPath] = Field(
+        min_length=1,
+        max_length=64,
+        description="Exact res:// resource paths to test in the selected PCK.",
+    )
+
+
+class PackageResourcePresenceItem(BaseModel):
+    path: str
+    present: bool
+
+
+class PackageResourcePresenceResult(BaseModel):
+    engine_version: EngineVersion
+    resources: list[PackageResourcePresenceItem]
+
+
+class ResourceInspectModelContentParams(BaseModel):
+    path: NormalizedPath = Field(description="An imported GLB model resource.")
+    max_nodes: int = Field(
+        default=256, ge=1, le=1024, description="Maximum nodes to sample."
+    )
+    max_vertices: int = Field(
+        default=200000,
+        ge=1,
+        le=1000000,
+        description="Maximum ArrayMesh vertices to sample.",
+    )
+
+
+class ResourceInspectModelContentResult(BaseModel):
+    path: str
+    content: ModelContent
+
+
+def render_resource_inspect_model(result: ResourceInspectModelResult) -> str:
+    summary = result.summary
+    text = (
+        f"{result.path} [{result.subtree}]: {summary.node_count} nodes, "
+        f"{summary.mesh_instance_count} mesh instances, "
+        f"{summary.unique_mesh_count} unique meshes"
+    )
+    if result.truncated:
+        text += " (partial report)"
+    return text
+
+
+RESOURCE_INSPECT_MODEL_COMMAND: HeadlessCommand[ResourceInspectModelResult] = (
+    HeadlessCommand(
+        operation="resource-inspect-model",
+        input_model=ResourceInspectModelParams,
+        output_model=ResourceInspectModelResult,
+        render=render_resource_inspect_model,
+    )
+)
+
+
+PACKAGE_RESOURCE_PRESENCE_COMMAND: HeadlessCommand[PackageResourcePresenceResult] = (
+    HeadlessCommand(
+        operation="package-resource-presence",
+        input_model=PackageResourcePresenceParams,
+        output_model=PackageResourcePresenceResult,
+        render=lambda result: f"checked {len(result.resources)} package resources",
+    )
+)
+
+
+def render_resource_inspect_model_content(
+    result: ResourceInspectModelContentResult,
+) -> str:
+    digest = result.content.digest or "unavailable"
+    return f"{result.path}: {result.content.nodes} nodes, digest {digest}"
+
+
+RESOURCE_INSPECT_MODEL_CONTENT_COMMAND: HeadlessCommand[
+    ResourceInspectModelContentResult
+] = HeadlessCommand(
+    operation="resource-inspect-model-content",
+    input_model=ResourceInspectModelContentParams,
+    output_model=ResourceInspectModelContentResult,
+    render=render_resource_inspect_model_content,
+)
+
+
+class ResourceLoadResult(BaseModel):
+    """A bounded observation of one resource loaded by the real engine (#908)."""
+
+    path: str
+    resource_type: str
+    engine_version: EngineVersion
+    texture_size: list[int] | None = Field(default=None, min_length=2, max_length=2)
+    scene_node_count: int | None = Field(default=None, ge=1)
+
+
+def _render_resource_load(outcome: "ResourceLoadResult") -> str:
+    """Internal-only renderer required by the command descriptor contract."""
+    return f"loaded {outcome.path} as {outcome.resource_type}"
+
+
+RESOURCE_LOAD_COMMAND: HeadlessCommand[ResourceLoadResult] = HeadlessCommand(
+    operation="resource-load",
+    input_model=ResourceLoadParams,
+    output_model=ResourceLoadResult,
+    render=_render_resource_load,
+)
+
+
+def _execute_resource_load(
+    params: ResourceLoadParams, *, godot: str | None, project: Path
+) -> ResourceLoadResult | Failure:
+    return RESOURCE_LOAD_COMMAND.execute(params, godot=godot, project=project)
 
 
 class ResourceSetParams(BaseModel):
@@ -362,6 +805,93 @@ def get_resource(
     )
 
 
+@_app.command(
+    name="import-options", cls=RESOURCE_IMPORT_OPTIONS_COMMAND.command_class()
+)
+def import_options(
+    path: str = typer.Argument(
+        ..., help="An existing GLB source with an import sidecar."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = RESOURCE_IMPORT_OPTIONS_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Read configured import values and the supported update scope without reimporting.
+
+    A sidecar does not disclose explicit authorship, importer defaults or whether
+    cached engine results adopted its values. Metadata limitations are explicit.
+    """
+    dispatch_recipe(
+        RESOURCE_IMPORT_OPTIONS_COMMAND,
+        ResourceImportOptionsParams(path=path),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(name="inspect-model", cls=RESOURCE_INSPECT_MODEL_COMMAND.command_class())
+def inspect_model(
+    path: str = typer.Argument(
+        ..., help="An imported PackedScene resource to inspect."
+    ),
+    subtree: str = typer.Option(
+        ".", help="Root-inclusive subtree relative to the resource root."
+    ),
+    max_nodes: int = typer.Option(256, min=1, max=4096, help="Maximum reported nodes."),
+    max_items: int = typer.Option(
+        1024, min=1, max=16384, help="Maximum detail records across the whole report."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = RESOURCE_INSPECT_MODEL_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Inspect the selected Godot-loaded model without importing or running gameplay.
+
+    Bounds cover static mesh AABBs in resource space, including the selected root.
+    Loading and instantiation use the existing trusted-project execution surface.
+    """
+    dispatch_domain(
+        RESOURCE_INSPECT_MODEL_COMMAND,
+        ResourceInspectModelParams(
+            path=path, subtree=subtree, max_nodes=max_nodes, max_items=max_items
+        ),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(
+    name="inspect-model-content",
+    cls=RESOURCE_INSPECT_MODEL_CONTENT_COMMAND.command_class(),
+)
+def inspect_model_content(
+    path: str = typer.Option(..., "--path", help="Imported GLB model resource."),
+    max_nodes: int = typer.Option(256, min=1, max=1024),
+    max_vertices: int = typer.Option(200000, min=1, max=1000000),
+    json_output: bool = json_option(),
+    schema: bool = RESOURCE_INSPECT_MODEL_CONTENT_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Digest bounded static content from an imported GLB through Godot."""
+    dispatch_domain(
+        RESOURCE_INSPECT_MODEL_CONTENT_COMMAND,
+        ResourceInspectModelContentParams(
+            path=path, max_nodes=max_nodes, max_vertices=max_vertices
+        ),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
 @_app.command(name="set", cls=RESOURCE_SET_COMMAND.command_class())
 def set_resource(
     path: str = typer.Argument(..., help="The .tres resource file to mutate."),
@@ -560,6 +1090,20 @@ class ResourceImportAsset(BaseModel):
             "empty when there is no sidecar or it declares none (importer=keep)."
         ),
     )
+    declared_importer: str | None = Field(
+        default=None,
+        description=(
+            "The importer name declared by the observed sidecar; null when "
+            "unavailable. This does not prove that the importer is registered "
+            "or active."
+        ),
+    )
+    declared_source_file: str | None = Field(
+        default=None,
+        description=(
+            "The source path declared by the observed sidecar; null when unavailable."
+        ),
+    )
 
 
 class ImportCreatedFile(BaseModel):
@@ -604,7 +1148,9 @@ class ResourceImportSummary(BaseModel):
             "dry run; the pass does not retry these)."
         )
     )
-    imported: int = Field(description="Assets the pass imported.")
+    imported: int = Field(
+        description="Assets with cached artifact evidence after the pass; not proof that requested options were adopted."
+    )
     not_importable: int = Field(description="Assets the pass decided need no import.")
     failed: int = Field(description="Assets still without an intact cache.")
     created_cache_owned: int = Field(
@@ -873,6 +1419,162 @@ def _asset_res_path(project: Path, raw: str) -> "str | Failure":
     return canonical_res_path(RES_PREFIX + rel_fs.as_posix())
 
 
+def run_resource_load_operation(
+    project: Path, path: str | Path, *, godot: str | None = None
+) -> ResourceLoadResult | Failure:
+    """Ask Godot to load one project asset and return a bounded observation.
+
+    This is the returning host-operation seam for composite workflows. It keeps
+    project ownership and containment in gda, then uses the ordinary sentinel
+    runner and classifier without emitting a CLI envelope or exiting.
+    """
+    addressed = _asset_res_path(project, str(path))
+    if isinstance(addressed, Failure):
+        return addressed
+    return _execute_resource_load(
+        ResourceLoadParams(path=addressed),
+        godot=godot,
+        project=project,
+    )
+
+
+def run_resource_inspect_model_operation(
+    project: Path, params: ResourceInspectModelParams, *, godot: str | None = None
+) -> ResourceInspectModelResult | Failure:
+    """Return the same model facts for a composite consumer, without CLI emission."""
+    addressed = _asset_res_path(project, params.path)
+    if isinstance(addressed, Failure):
+        return addressed
+    return RESOURCE_INSPECT_MODEL_COMMAND.execute(
+        params.model_copy(update={"path": addressed}), godot=godot, project=project
+    )
+
+
+def _package_input(package: Path, paths: list[str]) -> Failure | tuple[Path, list[str]]:
+    selected = package.expanduser().absolute()
+    if selected.suffix.lower() != ".pck":
+        return make_failure(
+            "invalid_params", "package inspection supports .pck files only", ""
+        )
+    if not selected.is_file():
+        return make_failure("path_not_found", f"package not found: {selected}", "")
+    normalized: list[str] = []
+    for path in paths:
+        if (
+            not path.startswith("res://")
+            or path == "res://"
+            or "\\" in path
+            or ":" in path[6:]
+            or any(part in {"", ".", ".."} for part in path[6:].split("/"))
+        ):
+            return make_failure(
+                "invalid_path",
+                f"package resource must be an exact normalized res:// path: {path}",
+                "",
+            )
+        normalized.append(path)
+    return selected, normalized
+
+
+def run_package_inspect_model_operation(
+    package: Path,
+    params: ResourceInspectModelParams,
+    *,
+    godot: str | None = None,
+    make_runner: PackageRunnerFactory | None = None,
+) -> ResourceInspectModelResult | Failure:
+    """Inspect one PackedScene through an exported PCK's isolated res:// view."""
+    admitted = _package_input(package, [str(params.path)])
+    if isinstance(admitted, Failure):
+        return admitted
+    selected_package, paths = admitted
+    factory = make_runner or make_package_runner
+    try:
+        binary = resolve_godot_binary(godot)
+    except ValueError as exc:
+        return unresolvable_binary_failure(str(exc))
+    runner = factory(binary, selected_package)
+    if isinstance(runner, Failure):
+        return runner
+    outcome = RESOURCE_INSPECT_MODEL_COMMAND.execute(
+        params.model_copy(update={"path": paths[0]}),
+        godot=str(binary),
+        project=None,
+        make_runner=lambda _binary, _project: runner,
+    )
+    if isinstance(outcome, Failure):
+        return outcome
+    if outcome.path != paths[0] or outcome.subtree != params.subtree:
+        return make_failure(
+            "contract_violation",
+            "package inspector returned a different resource path or subtree",
+            "",
+        )
+    return outcome
+
+
+def run_package_resource_presence_operation(
+    package: Path,
+    params: PackageResourcePresenceParams,
+    *,
+    godot: str | None = None,
+    make_runner: PackageRunnerFactory | None = None,
+) -> PackageResourcePresenceResult | Failure:
+    """Return native loadability presence for exact resource paths in one PCK."""
+    admitted = _package_input(package, [str(path) for path in params.paths])
+    if isinstance(admitted, Failure):
+        return admitted
+    selected_package, paths = admitted
+    factory = make_runner or make_package_runner
+    try:
+        binary = resolve_godot_binary(godot)
+    except ValueError as exc:
+        return unresolvable_binary_failure(str(exc))
+    runner = factory(binary, selected_package)
+    if isinstance(runner, Failure):
+        return runner
+    outcome = PACKAGE_RESOURCE_PRESENCE_COMMAND.execute(
+        params.model_copy(update={"paths": paths}),
+        godot=str(binary),
+        project=None,
+        make_runner=lambda _binary, _project: runner,
+    )
+    if isinstance(outcome, Failure):
+        return outcome
+    if [item.path for item in outcome.resources] != paths:
+        return make_failure(
+            "contract_violation",
+            "package presence result does not match the requested exact paths",
+            "",
+        )
+    return outcome
+
+
+def run_resource_inspect_model_content_operation(
+    project: Path,
+    params: ResourceInspectModelContentParams,
+    *,
+    godot: str | None = None,
+    make_runner: RunnerFactory | None = None,
+) -> ResourceInspectModelContentResult | Failure:
+    """Return bounded GLB content facts without emitting or exiting."""
+    addressed = _asset_res_path(project, params.path)
+    if isinstance(addressed, Failure):
+        return addressed
+    if Path(addressed).suffix.lower() != ".glb":
+        return make_failure(
+            "invalid_params", "inspect-model-content supports GLB resources only", ""
+        )
+    selected = params.model_copy(update={"path": addressed})
+    if make_runner is None:
+        return RESOURCE_INSPECT_MODEL_CONTENT_COMMAND.execute(
+            selected, godot=godot, project=project
+        )
+    return RESOURCE_INSPECT_MODEL_CONTENT_COMMAND.execute(
+        selected, godot=godot, project=project, make_runner=make_runner
+    )
+
+
 def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
     """One asset's evidence state, read as the engine's own reimport test reads it.
 
@@ -912,6 +1614,8 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
     if not sidecar_fs.is_file():
         return ResourceImportAsset(path=res_path, status="missing")
     sidecar_res = res_path + ".import"
+    declared_importer: str | None = None
+    declared_source_file: str | None = None
 
     def state(
         status: AssetStatus, dests: "list[str] | None" = None
@@ -921,6 +1625,8 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
             status=status,
             sidecar=sidecar_res,
             dest_files=dests or [],
+            declared_importer=declared_importer,
+            declared_source_file=declared_source_file,
         )
 
     try:
@@ -928,16 +1634,21 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
     except UnicodeDecodeError:
         # The engine's parse-error branch: skip, never auto-reimport.
         return state("invalid")
+    importer_match = _IMPORTER_LINE.search(text)
+    source_file_match = _SOURCE_FILE_LINE.search(text)
+    declared_importer = importer_match.group(1) if importer_match is not None else None
+    declared_source_file = (
+        source_file_match.group(1) if source_file_match is not None else None
+    )
     if _INVALID_LINE.search(text):
         return state("invalid")
-    importer = _IMPORTER_LINE.search(text)
-    if importer is None:
+    if declared_importer is None:
         # No importer DECLARED: nothing proves this sidecar's cache.
         # Conservatively stale (#738 re-review 2). Whether a declared name
         # still RESOLVES is engine state (an open registry) — part of the
         # declared remainder, not decidable here.
         return state("stale")
-    if importer.group(1) in ("keep", "skip"):
+    if declared_importer in ("keep", "skip"):
         return state("cached")
     dest_match = _DEST_FILES_LINE.search(text)
     dests: list[str] = []
@@ -961,8 +1672,7 @@ def _asset_state(project: Path, res_path: str) -> ResourceImportAsset:
     for ref in to_check:
         if ref.startswith("res://") and not (project / ref[len("res://") :]).is_file():
             return state("stale", dests)
-    source_file = _SOURCE_FILE_LINE.search(text)
-    if source_file is not None and source_file.group(1) != res_path:
+    if declared_source_file is not None and declared_source_file != res_path:
         return state("stale", dests)  # a copied sidecar names another source
     # The engine's one .md5 receipt per asset, at the path-derived import
     # base — read whether or not destinations are declared, exactly as
@@ -1144,6 +1854,8 @@ def run_resource_import_operation(
     params: ResourceImportParams,
     *,
     godot: Optional[str] = None,
+    options_changed: bool = False,
+    _observe_pass: Callable[[RunResult], None] | None = None,
 ) -> "ResourceImportResult | Failure":
     """Decide per asset, run the engine pass only when needed, account for it all.
 
@@ -1151,7 +1863,12 @@ def run_resource_import_operation(
     verdicts, and — unless everything is cached or this is a dry run — run the
     engine's project-wide ``--import`` pass through the shared launch primitive,
     then re-verdict the assets and classify every created file against the
-    cache root.
+    cache root. ``options_changed`` is the reimport caller's known configuration
+    change: cached artifact evidence then also requests a pass, since it does
+    not check importer options. This does not bypass invalid evidence or add
+    a per-file engine primitive; ordinary resource import leaves it false.
+    The internal pass observer lets reimport retain diagnostics for a later
+    adoption failure without adding fields to the public import result.
     """
     assert project is not None  # a project-using recipe; dispatch resolved it
     res_paths: list[str] = []
@@ -1177,7 +1894,11 @@ def run_resource_import_operation(
     # failed import and an unparseable artifact (delete the sidecar to
     # retry) — so it settles to failed
     # without spending a pass.
-    needs_pass = any(asset.status in ("missing", "stale") for asset in assets)
+    needs_pass = any(
+        asset.status in ("missing", "stale")
+        or (options_changed and asset.status == "cached")
+        for asset in assets
+    )
 
     if params.dry_run:
         predicted = [
@@ -1210,6 +1931,8 @@ def run_resource_import_operation(
             timeout=params.timeout,
             timeout_label="Godot import",
         )
+        if _observe_pass is not None:
+            _observe_pass(raw)
         prefix = classify_launch_or_crash(raw, binary)
         if prefix is not None:
             return prefix
@@ -1238,7 +1961,7 @@ def run_resource_import_operation(
     # is failed.
     settled: list[ResourceImportAsset] = []
     for asset in assets:
-        if asset.status == "cached":
+        if asset.status == "cached" and not options_changed:
             settled.append(asset)
             continue
         now = _asset_state(project, asset.path)
@@ -1265,6 +1988,561 @@ def run_resource_import_operation(
         assets=assets,
         created=created,
         summary=_summarize(assets, created),
+    )
+
+
+class RootScaleUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    root_scale: float = Field(
+        alias="nodes/root_scale",
+        strict=True,
+        allow_inf_nan=False,
+        ge=ROOT_SCALE_MIN,
+        le=ROOT_SCALE_MAX,
+        description="Positive uniform scale for the built-in scene importer.",
+    )
+
+
+class LodGenerationUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    generate_lods: bool = Field(
+        alias="meshes/generate_lods",
+        strict=True,
+        description="Whether the built-in scene importer generates mesh LODs.",
+    )
+
+
+ImportOptionUpdate = RootScaleUpdate | LodGenerationUpdate
+
+
+class ResourceReimportParams(BaseModel):
+    path: NormalizedPath = Field(
+        description="An already imported GLB source in the project."
+    )
+    updates: ImportOptionUpdate = Field(
+        description="Exactly one supported built-in scene-importer option edit."
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="Check the patch without target writes, loading, or an import pass.",
+    )
+    timeout: float = Field(
+        default=300.0,
+        gt=0,
+        allow_inf_nan=False,
+        description="Seconds to allow the project-wide import pass; sentinel queries retain their normal timeout.",
+    )
+
+
+class RootScaleChange(BaseModel):
+    name: Literal["nodes/root_scale"] = "nodes/root_scale"
+    before: float
+    requested: float
+
+
+class LodGenerationChange(BaseModel):
+    name: Literal["meshes/generate_lods"] = "meshes/generate_lods"
+    before: bool
+    requested: bool
+
+
+ImportOptionChange = Annotated[
+    RootScaleChange | LodGenerationChange, Field(discriminator="name")
+]
+
+
+_SCALE_REL_TOLERANCE = 0.00001
+_SCALE_ABS_TOLERANCE = 0.0001
+
+
+class RootScaleVerification(BaseModel):
+    before: ModelBounds
+    after: ModelBounds
+    scale_ratio: float
+    effective_root_scale: float | None = Field(
+        description="Configured scale supported by this size comparison; null when verification fails."
+    )
+    matched: bool
+    compared_axes: list[int] = Field(
+        description="Size axes above 0.0001 before scaling; 0=x, 1=y, 2=z."
+    )
+    measurement: Literal["static_mesh_aabb_size"] = "static_mesh_aabb_size"
+    relative_tolerance: float = _SCALE_REL_TOLERANCE
+    absolute_tolerance: float = _SCALE_ABS_TOLERANCE
+
+
+class LodSurfaceObservation(BaseModel):
+    mesh: int = Field(description="Zero-based ArrayMesh traversal index.")
+    surface: int
+    vertices: int
+    lod_count: int
+    lod_index_bytes: int
+
+
+class LodStateObservation(BaseModel):
+    engine_version: EngineVersion
+    complete: bool
+    nodes: int
+    meshes: int
+    surfaces: int
+    vertices: int
+    lods: int
+    lod_index_bytes: int
+    observations: list[LodSurfaceObservation]
+    unsupported: list[str]
+    omissions: list[str]
+    measurement: Literal["array_mesh_surface_lods"] = "array_mesh_surface_lods"
+
+
+class LodGenerationVerification(BaseModel):
+    before: LodStateObservation
+    after: LodStateObservation
+    requested: bool
+    effective_generate_lods: bool | None = Field(
+        description="Requested setting supported by an observed LOD transition; null when unverified."
+    )
+    matched: bool
+    measurement: Literal["array_mesh_surface_lods"] = "array_mesh_surface_lods"
+
+
+class ResourceReimportResult(BaseModel):
+    path: str
+    dry_run: bool
+    status: Literal["checked", "unchanged", "applied", "failed"]
+    changes: list[ImportOptionChange]
+    sidecar_changed: bool = False
+    import_result: ResourceImportResult | None = None
+    engine_pass_attempted: bool = False
+    verification: RootScaleVerification | LodGenerationVerification | None = Field(
+        default=None, discriminator="measurement"
+    )
+    mutation_scope: str = "Selected source-adjacent .import options; actual import work is project-wide. Verification loads trusted project code."
+
+
+class _ImportConfigEditParams(BaseModel):
+    sidecar: str
+    original: str
+    selected_option: Literal["nodes/root_scale", "meshes/generate_lods"]
+    root_scale: float | None = None
+    generate_lods: bool | None = None
+
+    @model_validator(mode="after")
+    def selected_value_is_present(self):
+        if self.selected_option == "nodes/root_scale":
+            if self.root_scale is None or self.generate_lods is not None:
+                raise ValueError("root_scale must be the only selected value")
+        elif self.generate_lods is None or self.root_scale is not None:
+            raise ValueError("generate_lods must be the only selected value")
+        return self
+
+
+class _ImportConfigEditResult(BaseModel):
+    selected_option: Literal["nodes/root_scale", "meshes/generate_lods"]
+    root_scale: float | None = None
+    generate_lods: bool | None = None
+    changed_unselected_options: list[str] = Field(default_factory=list)
+
+
+_IMPORT_CONFIG_PATCH = HeadlessCommand(
+    operation="resource-import-config-patch",
+    input_model=_ImportConfigEditParams,
+    output_model=_ImportConfigEditResult,
+    render=lambda result: result.selected_option,
+)
+_IMPORT_CONFIG_CHECK = HeadlessCommand(
+    operation="resource-import-config-check",
+    input_model=_ImportConfigEditParams,
+    output_model=_ImportConfigEditResult,
+    render=lambda result: result.selected_option,
+)
+
+
+class _LodStateParams(BaseModel):
+    path: str
+    max_nodes: int = Field(default=4096, ge=1, le=4096)
+    max_surfaces: int = Field(default=4096, ge=1, le=4096)
+    max_vertices: int = Field(default=1_000_000, ge=1, le=1_000_000)
+    max_lods_per_surface: int = Field(default=256, ge=1, le=256)
+    max_lod_index_bytes: int = Field(
+        default=64 * 1024 * 1024, ge=1, le=64 * 1024 * 1024
+    )
+
+
+_RESOURCE_LOD_STATE = HeadlessCommand(
+    operation="resource-lod-state",
+    input_model=_LodStateParams,
+    output_model=LodStateObservation,
+    render=lambda result: f"{result.lods} LOD level(s)",
+)
+
+
+def _reimport_lod_state(
+    project: Path, path: str, godot: str | None
+) -> LodStateObservation | Failure:
+    return _RESOURCE_LOD_STATE.execute(
+        _LodStateParams(path=path), project=project, godot=godot
+    )
+
+
+def _reimport_bounds(
+    project: Path, path: str, godot: str | None
+) -> ModelBounds | Failure:
+    inspected = run_resource_inspect_model_operation(
+        project,
+        ResourceInspectModelParams(path=path, max_nodes=4096, max_items=1),
+        godot=godot,
+    )
+    if isinstance(inspected, Failure):
+        return inspected
+    if inspected.bounds is None or any(
+        item.reason == "node_limit" for item in inspected.omissions
+    ):
+        return make_failure(
+            "invalid_params",
+            "root-scale verification needs complete static mesh bounds within 4096 nodes",
+            "",
+        )
+    return inspected.bounds
+
+
+def _reimport_failure(failure: Failure, result: ResourceReimportResult) -> Failure:
+    result.status = "failed"
+    failure.error = failure.error.model_copy(
+        update={"partial_result": result.model_dump(mode="json")}
+    )
+    return failure
+
+
+def _sizes_match(
+    before: ModelBounds, after: ModelBounds, ratio: float, axes: list[int]
+) -> bool:
+    return all(
+        math.isclose(
+            after.size[i],
+            before.size[i] * ratio,
+            rel_tol=_SCALE_REL_TOLERANCE,
+            abs_tol=_SCALE_ABS_TOLERANCE,
+        )
+        for i in axes
+    )
+
+
+def _adoption_failure_context(imported: ResourceImportResult, stderr: str) -> str:
+    import_explanation = (
+        " The project-wide import pass completed and its cache reread reported "
+        f"{imported.summary.imported} imported asset(s); that count does not prove adoption. "
+        "Existing cache artifacts can remain loadable after a rejected import. "
+    )
+    diagnostic_explanation = (
+        "Diagnostics contain the last 16 KiB of project-wide import stderr; "
+        "these lines alone do not establish this asset's cause."
+        if stderr
+        else "No stderr was captured from the import pass; a native cause was not established."
+    )
+    return import_explanation + diagnostic_explanation
+
+
+def run_resource_reimport_operation(
+    project: Path, params: ResourceReimportParams, *, godot: str | None = None
+) -> ResourceReimportResult | Failure:
+    options = run_resource_import_options_operation(
+        project, ResourceImportOptionsParams(path=params.path), godot=godot
+    )
+    if isinstance(options, Failure):
+        return options
+    current = {option.name: option for option in options.configured_options}
+    update = params.updates
+    scale_request = isinstance(update, RootScaleUpdate)
+    selected_name = "nodes/root_scale" if scale_request else "meshes/generate_lods"
+    selected = current.get(selected_name)
+    if scale_request:
+        assert isinstance(update, RootScaleUpdate)
+        apply_scale = current.get("nodes/apply_root_scale")
+        if (
+            selected is None
+            or selected.value_type != "float"
+            or isinstance(selected.value, bool)
+            or not isinstance(selected.value, (int, float))
+            or not ROOT_SCALE_MIN <= selected.value <= ROOT_SCALE_MAX
+            or apply_scale is None
+            or apply_scale.value_type != "bool"
+        ):
+            return make_failure(
+                "invalid_params",
+                "supported scene root-scale configuration is unavailable",
+                "",
+            )
+        requested: float | bool = update.root_scale
+        change: ImportOptionChange = RootScaleChange(
+            before=selected.value, requested=requested
+        )
+    else:
+        assert isinstance(update, LodGenerationUpdate)
+        if (
+            selected is None
+            or selected.value_type != "bool"
+            or not isinstance(selected.value, bool)
+        ):
+            return make_failure(
+                "invalid_params",
+                "supported scene LOD-generation configuration is unavailable",
+                "",
+            )
+        requested = update.generate_lods
+        change = LodGenerationChange(before=selected.value, requested=requested)
+    evidence = _asset_state(project_absolute(project), options.path)
+    if evidence.status == "invalid":
+        return make_failure(
+            "invalid_params",
+            "import evidence is invalid; inspect resource import --dry-run and repair it explicitly before changing options",
+            "",
+        )
+    changes = [] if selected.value == requested else [change]
+    result = ResourceReimportResult(
+        path=options.path,
+        dry_run=params.dry_run,
+        status="checked" if params.dry_run else "unchanged",
+        changes=changes,
+    )
+    if params.dry_run or not changes:
+        return result
+    if evidence.status != "cached":
+        return make_failure(
+            "invalid_params",
+            "import the source explicitly before changing a supported import option",
+            "",
+        )
+    source = project_absolute(project) / options.path[len(RES_PREFIX) :]
+    sidecar = source.with_name(source.name + ".import")
+    original = sidecar.read_bytes()
+    with source.open("rb") as stream:
+        source_digest = hashlib.file_digest(stream, "sha256").digest()
+    before = (
+        _reimport_bounds(project, options.path, godot)
+        if scale_request
+        else _reimport_lod_state(project, options.path, godot)
+    )
+    if isinstance(before, Failure):
+        return before
+    axes: list[int] = []
+    ratio = 1.0
+    if scale_request:
+        assert isinstance(before, ModelBounds)
+        axes = [
+            i for i, extent in enumerate(before.size) if extent > _SCALE_ABS_TOLERANCE
+        ]
+        if not axes:
+            return make_failure(
+                "invalid_params", "model has no measurable size axis above 0.0001", ""
+            )
+        ratio = float(requested) / selected.value
+        if _sizes_match(before, before, ratio, axes):
+            return make_failure(
+                "invalid_params",
+                "requested size change is below verification tolerance; unchanged geometry could pass",
+                "",
+            )
+    else:
+        assert isinstance(before, LodStateObservation)
+        if not before.complete:
+            return make_failure(
+                "invalid_params",
+                "LOD adoption needs a complete Godot 4.6 ArrayMesh surface observation before editing",
+                "; ".join(before.unsupported + before.omissions),
+            )
+    import_stderr = ""
+
+    def retain_import_stderr(raw: RunResult) -> None:
+        nonlocal import_stderr
+        import_stderr = captured_output_tail(raw.stderr)
+
+    with _import_config_project() as scratch:
+        reference = scratch / "original.import"
+        reference.write_bytes(original)
+        edit = _ImportConfigEditParams(
+            sidecar=str(sidecar),
+            original=str(reference),
+            selected_option=selected_name,
+            root_scale=float(requested) if scale_request else None,
+            generate_lods=bool(requested) if not scale_request else None,
+        )
+        patched = _IMPORT_CONFIG_PATCH.execute(edit, project=scratch, godot=godot)
+        # A timeout or save failure may still have changed the file.
+        result.sidecar_changed = (
+            not sidecar.is_file() or sidecar.read_bytes() != original
+        )
+        if isinstance(patched, Failure):
+            return _reimport_failure(patched, result)
+        result.engine_pass_attempted = True
+        imported = run_resource_import_operation(
+            project,
+            ResourceImportParams(assets=[options.path], timeout=params.timeout),
+            godot=godot,
+            options_changed=True,
+            _observe_pass=retain_import_stderr,
+        )
+        if isinstance(imported, Failure):
+            return _reimport_failure(imported, result)
+        result.import_result = imported
+        if imported.summary.failed or not imported.engine_pass:
+            return _reimport_failure(
+                make_failure(
+                    "operation_failed",
+                    "updated options remain on disk, but import did not succeed",
+                    "",
+                ),
+                result,
+            )
+        checked = _IMPORT_CONFIG_CHECK.execute(edit, project=scratch, godot=godot)
+        if isinstance(checked, Failure):
+            return _reimport_failure(checked, result)
+        retained = (
+            checked.root_scale == requested
+            if scale_request
+            else checked.generate_lods is requested
+        )
+        if not retained or checked.changed_unselected_options:
+            return _reimport_failure(
+                make_failure(
+                    "operation_failed",
+                    "engine changed unselected import options or did not retain "
+                    + selected_name
+                    + ": "
+                    + ", ".join(checked.changed_unselected_options),
+                    "",
+                ),
+                result,
+            )
+    after = (
+        _reimport_bounds(project, options.path, godot)
+        if scale_request
+        else _reimport_lod_state(project, options.path, godot)
+    )
+    if isinstance(after, Failure):
+        return _reimport_failure(after, result)
+    if scale_request:
+        assert isinstance(before, ModelBounds) and isinstance(after, ModelBounds)
+        result.verification = RootScaleVerification(
+            before=before,
+            after=after,
+            scale_ratio=ratio,
+            effective_root_scale=None,
+            compared_axes=axes,
+            matched=_sizes_match(before, after, ratio, axes)
+            and not _sizes_match(before, after, 1.0, axes),
+        )
+    else:
+        assert isinstance(before, LodStateObservation) and isinstance(
+            after, LodStateObservation
+        )
+        transition = (
+            before.lods == 0 and after.lods > 0
+            if requested
+            else before.lods > 0 and after.lods == 0
+        )
+        result.verification = LodGenerationVerification(
+            before=before,
+            after=after,
+            requested=bool(requested),
+            effective_generate_lods=None,
+            matched=before.complete and after.complete and transition,
+        )
+    with source.open("rb") as stream:
+        source_unchanged = (
+            hashlib.file_digest(stream, "sha256").digest() == source_digest
+        )
+    if not source_unchanged or not result.verification.matched:
+        subject = (
+            "loaded dimensions do not verify the requested scale"
+            if scale_request
+            else "loaded ArrayMesh LODs do not verify the requested generate_lods transition"
+        )
+        return _reimport_failure(
+            make_failure(
+                "operation_failed",
+                subject + " on unchanged source bytes; "
+                "updated options remain on disk and no rollback was attempted."
+                + _adoption_failure_context(imported, import_stderr),
+                import_stderr,
+            ),
+            result,
+        )
+    if isinstance(result.verification, RootScaleVerification):
+        result.verification.effective_root_scale = float(requested)
+    else:
+        result.verification.effective_generate_lods = bool(requested)
+    result.status = "applied"
+    return result
+
+
+def _resource_reimport_recipe(params, *, project, godot):
+    return run_resource_reimport_operation(project, params, godot=godot)
+
+
+def render_resource_reimport(result: ResourceReimportResult) -> str:
+    text = f"{result.path}: {result.status}, {len(result.changes)} option change(s)"
+    if result.import_result is not None:
+        text += "\n" + render_resource_import(result.import_result)
+    if isinstance(result.verification, RootScaleVerification):
+        text += f"\n  loaded size scale verified: {result.verification.scale_ratio:g}x"
+    elif isinstance(result.verification, LodGenerationVerification):
+        text += (
+            "\n  loaded LOD transition verified: "
+            f"{result.verification.before.lods} -> {result.verification.after.lods} level(s)"
+        )
+    return text
+
+
+RESOURCE_REIMPORT_COMMAND: HeadlessCommand[ResourceReimportResult] = HeadlessCommand(
+    operation="resource-reimport",
+    input_model=ResourceReimportParams,
+    output_model=ResourceReimportResult,
+    render=render_resource_reimport,
+    kind=ExecutionKind.COMPOSITE,
+    recipe=_resource_reimport_recipe,
+)
+
+
+@_app.command(name="reimport", cls=RESOURCE_REIMPORT_COMMAND.command_class())
+def resource_reimport(
+    path: str = typer.Argument(..., help="The imported GLB to update."),
+    updates: str = typer.Option(
+        ..., "--updates-json", help="JSON object of supported import-option edits."
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Validate without changing target files or running an import pass.",
+    ),
+    timeout: float = typer.Option(
+        300.0, min=0.001, help="Seconds to allow the project-wide import pass."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = RESOURCE_REIMPORT_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Validate a supported option edit, reimport and verify the loaded model."""
+    try:
+        parsed_updates = json.loads(updates)
+    except ValueError as exc:
+        raise typer.BadParameter("updates-json must be a JSON object") from exc
+    params = params_or_bad_parameter(
+        ResourceReimportParams,
+        path=path,
+        updates=parsed_updates,
+        dry_run=dry_run,
+        timeout=timeout,
+    )
+    dispatch_recipe(
+        RESOURCE_REIMPORT_COMMAND,
+        params,
+        json_output=json_output,
+        godot=godot,
+        project=project,
     )
 
 

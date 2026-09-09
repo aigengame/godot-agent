@@ -42,8 +42,8 @@ class ErrorCategory(str, Enum):
     LIVE is a Phase-2 live operation failing against ``gda-daemon`` / the engine
     session — no running daemon, a lost session, or a live timeout (ADR-0017,
     ADR-0021). USAGE is the one bucket that precedes all of them: gda could not
-    resolve WHAT was asked for — an unrecognized command or option — so no
-    operation was ever identified, let alone run (#670).
+    resolve WHAT was asked for, or an argv parameter did not satisfy the identified
+    command's contract, so no operation was run (#670, #947).
     """
 
     ENVIRONMENT = "environment"
@@ -241,7 +241,8 @@ class GdaError(BaseModel):
     probing the host (ADR-0004 amendment, #667); ``hint`` is the supported
     invocation to use instead, on the refusals gda recognizes as a near miss
     (#670); ``evidence`` is the typed evidence behind the verdict, on the failures
-    that compute any (#687). All three optional keys are OMITTED when unset, never
+    that compute any (#687); ``partial_result`` carries bounded completed work for
+    a composite failure (#908). All four optional keys are OMITTED when unset, never
     null, and so are ``evidence``'s own fields. The rule stops there: a model
     NESTED inside one of them keeps its full published key set, so a record reads
     the same on both halves of the contract (see
@@ -288,6 +289,13 @@ class GdaError(BaseModel):
             "Typed evidence behind this verdict (clocks, the child's exit status, "
             "recognized script errors); the key is omitted (never null) on failures "
             "that have none."
+        ),
+    )
+    partial_result: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "The bounded workflow result produced before this failure; omitted "
+            "when the operation has no partial result."
         ),
     )
 
@@ -755,7 +763,7 @@ class RelayedLiveParams(BaseModel):
 VALUE_PROJECTION_DESC = (
     "Rendered through the one recursive read-side value projection "
     "(ADR-0035): a scalar for a scalar type; a flat number list for a "
-    "fixed-shape type (Vector2 → [x, y], Color → [r, g, b, a]); a JSON "
+    "fixed-shape type (Vector2 → [x, y], Vector3 → [x, y, z], Color → [r, g, b, a]); a JSON "
     "object for a Dictionary (keys stringified); a JSON array for an Array "
     "or packed array (elements re-projected). An Object value renders as a "
     "ReferenceProjection ({type, resource_path}) for a Resource with a "
@@ -764,7 +772,15 @@ VALUE_PROJECTION_DESC = (
     "({type, …storage properties}) for a whitelisted path-less value Object "
     "(InputEvent subclasses), or its str() form for any other Object — "
     "branch on the presence of resource_path (reference) or object_string "
-    "(texture)."
+    "(texture). Vector components retain the engine build's native precision."
+)
+
+# Both authored and runtime node commands expose the same local components.
+NODE3D_LOCAL_TRANSFORM_DESC = (
+    "Node3D position, rotation and scale address local transform components "
+    "in parent space. Rotation uses Euler angles in radians and the node's "
+    "rotation_order. Vector3 input is three comma-separated numbers: x,y,z; "
+    "output is [x, y, z] at engine precision."
 )
 
 # The set-echo variant: the set commands echo the value they set through the

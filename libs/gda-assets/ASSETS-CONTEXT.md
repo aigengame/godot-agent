@@ -33,6 +33,8 @@ text/template and inputs, resolved prompt, selected reference inputs, and reques
 producer options. Output files and reported details can be associated afterward.
 It supports inspect, explicit revision, and reuse; it is not a content receipt,
 provider-execution proof, or guarantee of reproducible output.
+Its record directory is the local locator. Preparation and inspection return saved
+inputs for an external generator; explicit revision writes another directory.
 
 **Concept reference**: An explicitly selected image-gen result used to guide new
 model or sprite authoring. Its role differs from a finished runtime asset. Project
@@ -40,7 +42,10 @@ art direction determines suitable views, poses, and style.
 
 **Authoring handoff**: Selected usable concept files, their prompt-record links,
 intended use, and project instructions delivered to a tool or agent before authoring.
-It is a small prepared input, not a persisted workflow aggregate.
+It is a small prepared input, not a persisted workflow aggregate. The initial
+examples each consume exactly one selected PNG: a Blender reference blockout records
+pixel-derived material influence, and a sprite example records reference-derived
+frames. They do not claim general authoring, similarity, or production quality.
 
 **Producer**: A boundary that supplies asset files from a native source or generation
 request. Its adapter owns vendor options and failure translation. A producer need
@@ -80,13 +85,27 @@ file/configuration/artifact hashes and their observation limits. Producer
 declarations remain labelled. It does not prove runtime instance freshness or full
 reproducibility. No core operation requires a receipt.
 
-**Preview recipe**: Project-local scene/settings plus a workflow that fixes the
-camera, lighting, renderer, pose, and observation conditions. It uses existing gda
-capture/diagnostic/performance operations. It is not a new renderer or profiler.
+**Controlled refresh**: An optional workflow step after successful import and load
+that stops the previous daemon, launches an explicit test scene, waits for readiness,
+and compares the selected instance with the imported model. It loses runtime state.
+The workflow compares complete, compatible gda content samples; it does not define
+the engine sampler or infer instance content from a file hash. Its session and frame
+values are observations for this invocation, not persistent asset identities.
 
-**Package acceptance**: Evaluate the same expectations against facts obtained from
-the actual exported package in isolation. Package inspection and native executable
-render/input testing are separate results.
+**Preview recipe**: An isolated, owned fixture plus settings that fix three camera
+views, lighting, viewport, renderer, static pose, monitors, and sample window. The
+workflow uses existing gda inspection, capture, diagnostic, and performance
+operations and returns one compact invocation result. Baselines compare only
+matching observed setups and report scene-level mean/p95 deltas; they do not prove
+content equality, repeatable pixels or timing, or per-mesh cost. The current fixture
+has no overlays, and Godot node names provide only limited source-object mapping.
+
+**Package acceptance**: Copy one bounded standalone PCK into owned staging, inspect
+selected resources through a desktop editor in the package namespace, and apply the
+same model expectations. Exact declared exclusions are presence checks, not globs or
+package inventory. The result preserves package identity, inspecting engine, fact
+scope, verdict, partial failure and cleanup. Editor inspection and native executable
+render/input behavior remain separate observations.
 
 ## Naming and authority
 

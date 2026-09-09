@@ -329,6 +329,22 @@ func _initialize() -> void:
 			_op_resource_create(params)
 		"resource-get":
 			_op_resource_get(params)
+		"resource-load":
+			_op_resource_load(params)
+		"resource-inspect-model":
+			_op_resource_inspect_model(params)
+		"package-resource-presence":
+			_op_package_resource_presence(params)
+		"resource-inspect-model-content":
+			_op_resource_inspect_model_content(params)
+		"resource-import-options":
+			_op_resource_import_options(params)
+		"resource-import-config-patch":
+			_op_resource_import_config_patch(params)
+		"resource-import-config-check":
+			_op_resource_import_config_check(params)
+		"resource-lod-state":
+			_op_resource_lod_state(params)
 		"resource-set":
 			_op_resource_set(params)
 		"resource-delete":
@@ -1782,9 +1798,9 @@ func _op_node_get(params: Dictionary) -> void:
 
 	var properties: Array = []
 	for prop in node.get_property_list():
-		if not _is_storage_property(prop):
-			continue
 		var prop_name := String(prop.get("name", ""))
+		if not _is_storage_property(prop) and not _is_node3d_local_transform(node, prop_name):
+			continue
 		properties.append({
 			"name": prop_name,
 			"type": _type_name(int(prop.get("type", TYPE_NIL))),
@@ -2991,6 +3007,1048 @@ func _op_resource_get(params: Dictionary) -> void:
 		"type": resource.get_class(),
 		"properties": properties,
 	})
+
+
+# resource-load: the narrow engine observation needed by the asset-pipeline
+# adapter (#908). It proves the selected imported asset is loadable by Godot and
+# reports only workflow-relevant facts. Loading project resources carries the
+# existing Trusted project assumption (ADR-0009).
+func _op_resource_load(params: Dictionary) -> void:
+	_diag("running operation: resource-load")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if not FileAccess.file_exists(path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "resource not found: " + path)
+		return
+
+	var resource: Resource = ResourceLoader.load(path)
+	if resource == null:
+		_fail(OP_ERROR_INVALID_PATH, "file could not be loaded as a Resource: " + path)
+		return
+
+	var result := {
+		"path": path,
+		"resource_type": resource.get_class(),
+		"engine_version": Engine.get_version_info(),
+	}
+	if resource is Texture2D:
+		result["texture_size"] = [resource.get_width(), resource.get_height()]
+	elif resource is PackedScene:
+		var root: Node = resource.instantiate()
+		if root == null:
+			_fail(OP_ERROR_NOT_A_SCENE, "PackedScene has no instantiable root: " + path)
+			return
+		result["scene_node_count"] = 1 + root.find_children("*", "", true, false).size()
+		root.free()
+	else:
+		_fail(OP_ERROR_INVALID_PATH,
+				"resource is not a supported Texture2D or PackedScene: " + path)
+		return
+	_succeed(result)
+
+
+# Inspect an instantiated resource without adding it to the active SceneTree.
+# Native global_transform cannot be read off-tree, so compose only the spatial
+# inheritance Godot actually uses: a plain Node parent or top_level cuts it.
+func _model_resource_transform(node: Node) -> Transform3D:
+	if not node is Node3D:
+		return Transform3D.IDENTITY
+	var spatial: Node3D = node
+	var result := spatial.transform
+	while not spatial.top_level and spatial.get_parent() is Node3D:
+		spatial = spatial.get_parent() as Node3D
+		result = spatial.transform * result
+	return result
+
+
+func _model_transform_value(value: Transform3D) -> Dictionary:
+	return {"origin": _jsonify(value.origin), "basis": [
+		_jsonify(value.basis.x), _jsonify(value.basis.y), _jsonify(value.basis.z)]}
+
+
+func _model_resource(value: Resource) -> Dictionary:
+	return {"type": value.get_class(), "name": value.resource_name,
+		"path": value.resource_path if not value.resource_path.is_empty() else null,
+		"unavailable_reason": "resource has no stored path" if value.resource_path.is_empty() else null}
+
+
+func _model_take_detail(budget: Dictionary, node_path: String, section: String) -> bool:
+	if budget["remaining"] > 0:
+		budget["remaining"] -= 1
+		return true
+	var omission := {"node_path": node_path, "section": section, "reason": "detail_limit"}
+	if not budget["omissions"].has(omission):
+		budget["omissions"].append(omission)
+	return false
+
+
+func _model_material(instance: MeshInstance3D, surface: int, budget: Dictionary, node_path: String) -> Variant:
+	var material: Material = instance.get_active_material(surface)
+	if material == null:
+		return null
+	var source := "mesh_surface"
+	if instance.material_override != null:
+		source = "material_override"
+	elif instance.get_surface_override_material(surface) != null:
+		source = "surface_override"
+	var result := {"resource": _model_resource(material), "source": source,
+		"textures": [], "textures_unavailable_reason": null}
+	if not material is BaseMaterial3D:
+		result["textures_unavailable_reason"] = "texture roles are only inspected for BaseMaterial3D"
+		return result
+	# Ask the running engine for named slots: enum positions change when Godot
+	# introduces textures (e.g. bent normals). No version-specific ordinal table.
+	for constant in ClassDB.class_get_enum_constants("BaseMaterial3D", "TextureParam"):
+		if constant == "TEXTURE_MAX":
+			continue
+		var slot := ClassDB.class_get_integer_constant("BaseMaterial3D", constant)
+		var texture: Texture2D = material.get_texture(slot)
+		if texture == null:
+			continue
+		if not _model_take_detail(budget, node_path, "textures"):
+			break
+		result["textures"].append({"role": constant.trim_prefix("TEXTURE_").to_lower(), "resource": _model_resource(texture)})
+	return result
+
+
+func _model_skeleton(skeleton: Skeleton3D, budget: Dictionary, node_path: String) -> Dictionary:
+	var result := {"bone_count": skeleton.get_bone_count(), "bones": []}
+	for index in skeleton.get_bone_count():
+		if not _model_take_detail(budget, node_path, "bones"):
+			break
+		result["bones"].append({"index": index, "name": skeleton.get_bone_name(index),
+			"parent": skeleton.get_bone_parent(index), "rest": _model_transform_value(skeleton.get_bone_rest(index))})
+	return result
+
+
+func _model_skin(instance: MeshInstance3D, root: Node, budget: Dictionary, node_path: String) -> Dictionary:
+	var skin := instance.skin
+	var target: Node = instance.get_node_or_null(instance.skeleton) if not instance.skeleton.is_empty() else null
+	var skeleton := target as Skeleton3D
+	var result := {"resource": _model_resource(skin), "skeleton_path": String(instance.skeleton),
+		"resolved_skeleton_path": String(root.get_path_to(skeleton)) if skeleton != null else null,
+		"unresolved_reason": "skeleton target is missing or not Skeleton3D" if skeleton == null else null,
+		"bind_count": skin.get_bind_count(), "binds": []}
+	for index in skin.get_bind_count():
+		if not _model_take_detail(budget, node_path, "skin_binds"):
+			break
+		var name := String(skin.get_bind_name(index))
+		var bone := skin.get_bind_bone(index)
+		var resolved := -1
+		if skeleton != null:
+			resolved = skeleton.find_bone(name) if not name.is_empty() else bone
+			if resolved >= skeleton.get_bone_count():
+				resolved = -1
+		result["binds"].append({"index": index, "name": name, "bone_index": bone,
+			"pose": _model_transform_value(skin.get_bind_pose(index)),
+			"resolved_bone_index": resolved if resolved >= 0 else null,
+			"unresolved_reason": ("skeleton target is missing or not Skeleton3D" if skeleton == null else "bone not found") if resolved < 0 else null})
+	return result
+
+
+func _model_mesh(instance: MeshInstance3D, root: Node, budget: Dictionary, node_path: String) -> Dictionary:
+	var mesh: Mesh = instance.mesh
+	var result := {"resource": _model_resource(mesh), "surface_count": mesh.get_surface_count(), "surfaces": [],
+		"skin": null, "skin_unavailable_reason": null}
+	var primitives := ["points", "lines", "line_strip", "triangles", "triangle_strip"]
+	for index in mesh.get_surface_count():
+		if not _model_take_detail(budget, node_path, "surfaces"):
+			break
+		var surface := {"index": index, "primitive": null,
+			"vertex_count": null, "index_count": null, "triangle_count": null,
+			"triangle_count_basis": null, "counts_unavailable_reason": null}
+		if mesh is ArrayMesh:
+			var primitive: int = mesh.surface_get_primitive_type(index)
+			surface["primitive"] = primitives[primitive]
+			var vertices: int = mesh.surface_get_array_len(index)
+			var indices: int = mesh.surface_get_array_index_len(index)
+			surface["vertex_count"] = vertices
+			surface["index_count"] = indices
+			var slots := indices if indices > 0 else vertices
+			if primitive == Mesh.PRIMITIVE_TRIANGLES or primitive == Mesh.PRIMITIVE_TRIANGLE_STRIP:
+				surface["triangle_count_basis"] = "index_slots" if indices > 0 else "vertex_slots"
+				surface["triangle_count"] = int(slots / 3) if primitive == Mesh.PRIMITIVE_TRIANGLES else maxi(0, slots - 2)
+		else:
+			surface["counts_unavailable_reason"] = "primitive and length-only counts require ArrayMesh; vertex arrays were not read"
+		surface["material"] = _model_material(instance, index, budget, node_path)
+		result["surfaces"].append(surface)
+	if instance.skin != null:
+		result["skin"] = _model_skin(instance, root, budget, node_path)
+	else:
+		result["skin_unavailable_reason"] = "no explicit Skin resource; runtime-generated bindings are not observed"
+	return result
+
+
+func _model_animation_track(animation: Animation, index: int, base: Node, root: Node) -> Dictionary:
+	var path := animation.track_get_path(index)
+	var type := animation.track_get_type(index)
+	var type_name := str(type)
+	for constant in ClassDB.class_get_enum_constants("Animation", "TrackType"):
+		if ClassDB.class_get_integer_constant("Animation", constant) == type:
+			type_name = constant.trim_prefix("TYPE_").to_lower()
+			break
+	var names := path.get_concatenated_names()
+	var target: Node = base.get_node_or_null(NodePath(names)) if base != null and not names.is_empty() and not path.is_absolute() else null
+	var result := {"index": index, "type": type_name, "path": String(path),
+		"enabled": animation.track_is_enabled(index),
+		"target_node_path": String(root.get_path_to(target)) if target != null else null,
+		"bone_name": null, "status": "unresolved", "resolution_scope": null, "reason": null}
+	if base == null:
+		result["reason"] = "animation root not found"
+	elif path.is_absolute():
+		result["status"] = "unavailable"
+		result["reason"] = "absolute target requires a runtime scene tree"
+	elif target == null:
+		result["reason"] = "target node not found"
+	elif type == Animation.TYPE_POSITION_3D or type == Animation.TYPE_ROTATION_3D or type == Animation.TYPE_SCALE_3D:
+		if target is Skeleton3D and path.get_subname_count() == 1:
+			var bone := String(path.get_subname(0))
+			result["bone_name"] = bone
+			if target.find_bone(bone) >= 0:
+				result["status"] = "resolved"
+				result["resolution_scope"] = "bone"
+			else:
+				result["reason"] = "bone not found"
+		elif target is Node3D and path.get_subname_count() == 0:
+			result["status"] = "resolved"
+			result["resolution_scope"] = "node"
+		else:
+			result["reason"] = "transform target is not Node3D or has unexpected subnames"
+	elif type == Animation.TYPE_VALUE or type == Animation.TYPE_BEZIER:
+		if path.get_subname_count() == 0:
+			result["reason"] = "property missing from target path"
+		else:
+			var declared := false
+			for property in target.get_property_list():
+				if property["name"] == path.get_subname(0):
+					declared = true
+					break
+			if not declared:
+				result["reason"] = "property not declared"
+			elif path.get_subname_count() == 1:
+				result["status"] = "resolved"
+				result["resolution_scope"] = "declared_property"
+			else:
+				result["status"] = "unavailable"
+				result["reason"] = "nested property not evaluated"
+	else:
+		result["status"] = "unavailable"
+		result["reason"] = "track semantics not inspected; only target node located"
+	return result
+
+
+func _model_animation_player(player: AnimationPlayer, root: Node, budget: Dictionary, node_path: String) -> Dictionary:
+	var base := player.get_node_or_null(player.root_node)
+	var names := player.get_animation_list()
+	var result := {"root_path": String(player.root_node),
+		"resolved_root_path": String(root.get_path_to(base)) if base != null else null,
+		"unresolved_reason": "animation root not found" if base == null else null,
+		"animation_count": names.size(), "animations": []}
+	for name in names:
+		if not _model_take_detail(budget, node_path, "animations"):
+			break
+		var animation := player.get_animation(name)
+		var record := {"name": name, "length": animation.length, "loop_mode": animation.loop_mode,
+			"track_count": animation.get_track_count(), "tracks": []}
+		for index in animation.get_track_count():
+			if not _model_take_detail(budget, node_path, "animation_tracks"):
+				break
+			record["tracks"].append(_model_animation_track(animation, index, base, root))
+		result["animations"].append(record)
+	return result
+
+
+func _op_resource_import_options(params: Dictionary) -> void:
+	_diag("running operation: resource-import-options")
+	var path := _string_param(params, "path")
+	var sidecar := path + ".import"
+	if not FileAccess.file_exists(sidecar):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "import sidecar not found: " + sidecar + "; import the source explicitly first")
+		return
+	var config := ConfigFile.new()
+	var error := config.load(sidecar)
+	if error != OK:
+		_fail(OP_ERROR_INVALID_PATH, "cannot read import configuration: " + sidecar + " (" + error_string(error) + ")")
+		return
+	var importer := str(config.get_value("remap", "importer", ""))
+	var resource_type := str(config.get_value("remap", "type", ""))
+	if importer != "scene" or resource_type != "PackedScene":
+		_fail(OP_ERROR_INVALID_PARAMS, "unsupported importer: " + importer + "; expected scene / PackedScene")
+		return
+	var options: Array = []
+	var keys := config.get_section_keys("params") if config.has_section("params") else PackedStringArray()
+	keys.sort()
+	for key in keys:
+		if options.size() >= 128:
+			break
+		var value: Variant = config.get_value("params", key)
+		var unavailable: Variant = null
+		if typeof(value) not in [TYPE_NIL, TYPE_BOOL, TYPE_INT, TYPE_FLOAT, TYPE_STRING]:
+			unavailable = "complex value omitted"
+		elif value is String and value.length() > 4096:
+			unavailable = "string exceeds 4096 characters"
+		options.append({"name": key, "value_type": _type_name(typeof(value)),
+			"value": _jsonify(value) if unavailable == null else null,
+			"value_unavailable_reason": unavailable})
+	_succeed({"path": path, "sidecar": sidecar, "engine_version": Engine.get_version_info(),
+		"importer": importer, "resource_type": resource_type,
+		"configured_options": options, "configured_options_truncated": keys.size() > options.size()})
+
+
+func _op_resource_import_config_patch(params: Dictionary) -> void:
+	var sidecar := _string_param(params, "sidecar")
+	var original := _string_param(params, "original")
+	if not FileAccess.file_exists(sidecar) or FileAccess.get_file_as_bytes(sidecar) != FileAccess.get_file_as_bytes(original):
+		_fail(OP_ERROR_FILE_CHANGED_EXTERNALLY, "import configuration changed before patch: " + sidecar)
+		return
+	var config := ConfigFile.new()
+	var error := config.load(sidecar)
+	if error != OK:
+		_fail(OP_ERROR_INVALID_PATH, "cannot read import configuration: " + error_string(error))
+		return
+	var selected := _string_param(params, "selected_option")
+	var selected_value: Variant
+	if selected == "nodes/root_scale":
+		selected_value = params.get("root_scale")
+		if not selected_value is float:
+			_fail(OP_ERROR_INVALID_PARAMS, "root_scale must be a float")
+			return
+	elif selected == "meshes/generate_lods":
+		selected_value = params.get("generate_lods")
+		if not selected_value is bool:
+			_fail(OP_ERROR_INVALID_PARAMS, "generate_lods must be a bool")
+			return
+	else:
+		_fail(OP_ERROR_INVALID_PARAMS, "unsupported selected import option: " + selected)
+		return
+	config.set_value("params", selected, selected_value)
+	error = config.save(sidecar)
+	if error != OK:
+		_fail(OP_ERROR_SAVE_FAILED, "cannot save import configuration: " + error_string(error))
+		return
+	_succeed({"selected_option": selected, "root_scale": selected_value if selected == "nodes/root_scale" else null,
+		"generate_lods": selected_value if selected == "meshes/generate_lods" else null})
+
+
+func _op_resource_import_config_check(params: Dictionary) -> void:
+	var config := ConfigFile.new()
+	var original := ConfigFile.new()
+	if config.load(_string_param(params, "sidecar")) != OK or original.load(_string_param(params, "original")) != OK:
+		_fail(OP_ERROR_INVALID_PATH, "cannot compare import configuration after reimport")
+		return
+	var keys := original.get_section_keys("params")
+	for key in config.get_section_keys("params"):
+		if not key in keys:
+			keys.append(key)
+	var changed: Array = []
+	var selected := _string_param(params, "selected_option")
+	if selected not in ["nodes/root_scale", "meshes/generate_lods"]:
+		_fail(OP_ERROR_INVALID_PARAMS, "unsupported selected import option: " + selected)
+		return
+	for key in keys:
+		if key == selected:
+			continue
+		if not config.has_section_key("params", key) or not original.has_section_key("params", key) or config.get_value("params", key) != original.get_value("params", key):
+			if changed.size() < 128:
+				changed.append(key)
+	var selected_value: Variant = config.get_value("params", selected, null)
+	if (selected == "nodes/root_scale" and not selected_value is float) or (selected == "meshes/generate_lods" and not selected_value is bool):
+		_fail(OP_ERROR_INVALID_PARAMS, selected + " is unavailable after reimport")
+		return
+	_succeed({"selected_option": selected,
+		"root_scale": selected_value if selected == "nodes/root_scale" else null,
+		"generate_lods": selected_value if selected == "meshes/generate_lods" else null,
+		"changed_unselected_options": changed})
+
+
+func _lod_state_note(notes: Array[String], text: String) -> void:
+	if notes.size() < 128 and text not in notes:
+		notes.append(text)
+
+
+func _op_resource_lod_state(params: Dictionary) -> void:
+	_diag("running operation: resource-lod-state")
+	var path := _string_param(params, "path")
+	if not ResourceLoader.exists(path, "PackedScene"):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "resource not found: " + path)
+		return
+	var packed := ResourceLoader.load(path, "PackedScene") as PackedScene
+	if packed == null:
+		_fail(OP_ERROR_NOT_A_SCENE, "resource could not be loaded as PackedScene: " + path)
+		return
+	var root := packed.instantiate()
+	if root == null:
+		_fail(OP_ERROR_NOT_A_SCENE, "resource could not be instantiated: " + path)
+		return
+	var max_nodes := int(params.get("max_nodes", 4096))
+	var max_surfaces := int(params.get("max_surfaces", 4096))
+	var max_vertices := int(params.get("max_vertices", 1000000))
+	var max_lods_per_surface := int(params.get("max_lods_per_surface", 256))
+	var max_lod_index_bytes := int(params.get("max_lod_index_bytes", 67108864))
+	var engine := Engine.get_version_info()
+	var unsupported: Array[String] = []
+	var omissions: Array[String] = []
+	if int(engine.get("major", 0)) != 4 or int(engine.get("minor", 0)) != 6:
+		_lod_state_note(unsupported, "RenderingServer mesh surface LOD shape is validated only for Godot 4.6")
+	var stack: Array[Node] = [root]
+	var seen_meshes := {}
+	var observations: Array = []
+	var node_count := 0
+	var mesh_count := 0
+	var visited_surfaces := 0
+	var surface_count := 0
+	var vertex_count := 0
+	var lod_count := 0
+	var lod_index_bytes := 0
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		if node_count >= max_nodes:
+			_lod_state_note(omissions, "node limit exceeded")
+			break
+		node_count += 1
+		if node is MeshInstance3D and node.mesh != null:
+			var mesh_resource: Mesh = node.mesh
+			if not mesh_resource is ArrayMesh:
+				_lod_state_note(unsupported, String(root.get_path_to(node)) + ": mesh is not ArrayMesh")
+			else:
+				var mesh_id: int = mesh_resource.get_instance_id()
+				if not seen_meshes.has(mesh_id):
+					seen_meshes[mesh_id] = true
+					var mesh_index: int = mesh_count
+					mesh_count += 1
+					for surface_index in mesh_resource.get_surface_count():
+						if visited_surfaces >= max_surfaces:
+							_lod_state_note(omissions, "surface limit exceeded")
+							break
+						visited_surfaces += 1
+						var vertices: int = mesh_resource.surface_get_array_len(surface_index)
+						if vertex_count + vertices > max_vertices:
+							_lod_state_note(omissions, "vertex limit exceeded at mesh %d surface %d" % [mesh_index, surface_index])
+							continue
+						vertex_count += vertices
+						surface_count += 1
+						# mesh_get_surface returns native buffers before this operation can
+						# apply its reporting byte cap; the cap bounds processing/output only.
+						var surface_data: Dictionary = RenderingServer.mesh_get_surface(mesh_resource.get_rid(), surface_index)
+						var surface_lods: int = 0
+						var surface_lod_bytes: int = 0
+						var valid_surface_shape := surface_data.get("primitive") is int \
+							and surface_data.get("format") is int \
+							and surface_data.get("vertex_data") is PackedByteArray \
+							and surface_data.get("vertex_count") is int \
+							and int(surface_data["vertex_count"]) == vertices
+						if not valid_surface_shape:
+							_lod_state_note(unsupported, "mesh %d surface %d: native surface metadata shape is unsupported" % [mesh_index, surface_index])
+						else:
+							var lods: Variant = surface_data.get("lods", [])
+							if not lods is Array:
+								_lod_state_note(unsupported, "mesh %d surface %d: native LOD metadata is not an Array" % [mesh_index, surface_index])
+								lods = []
+							for lod_index in lods.size():
+								if lod_index >= max_lods_per_surface:
+									_lod_state_note(omissions, "LOD entry limit exceeded at mesh %d surface %d" % [mesh_index, surface_index])
+									break
+								var lod_value: Variant = lods[lod_index]
+								if not lod_value is Dictionary:
+									_lod_state_note(unsupported, "mesh %d surface %d: native LOD entry shape is unsupported" % [mesh_index, surface_index])
+									continue
+								var lod: Dictionary = lod_value
+								var edge_length: Variant = lod.get("edge_length")
+								var index_value: Variant = lod.get("index_data")
+								if not edge_length is float or not is_finite(edge_length) or edge_length <= 0.0 \
+										or not index_value is PackedByteArray or index_value.is_empty():
+									_lod_state_note(unsupported, "mesh %d surface %d: native LOD entry shape is unsupported" % [mesh_index, surface_index])
+									continue
+								var index_data: PackedByteArray = index_value
+								var bytes: int = index_data.size()
+								if lod_index_bytes + bytes > max_lod_index_bytes:
+									_lod_state_note(omissions, "LOD index byte limit exceeded at mesh %d surface %d" % [mesh_index, surface_index])
+									break
+								surface_lods += 1
+								surface_lod_bytes += bytes
+								lod_count += 1
+								lod_index_bytes += bytes
+						observations.append({"mesh": mesh_index, "surface": surface_index,
+							"vertices": vertices, "lod_count": surface_lods,
+							"lod_index_bytes": surface_lod_bytes})
+		var available := maxi(0, max_nodes - node_count - stack.size())
+		var taken := mini(node.get_child_count(), available)
+		if taken < node.get_child_count():
+			_lod_state_note(omissions, "node limit exceeded below " + String(root.get_path_to(node)))
+		for child_index in range(taken - 1, -1, -1):
+			stack.append(node.get_child(child_index))
+	root.free()
+	unsupported.sort()
+	omissions.sort()
+	_succeed({"engine_version": engine, "complete": unsupported.is_empty() and omissions.is_empty(),
+		"nodes": node_count, "meshes": mesh_count, "surfaces": surface_count,
+		"vertices": vertex_count, "lods": lod_count, "lod_index_bytes": lod_index_bytes,
+		"observations": observations, "unsupported": unsupported, "omissions": omissions})
+
+
+func _op_resource_inspect_model(params: Dictionary) -> void:
+	_diag("running operation: resource-inspect-model")
+	var path := _string_param(params, "path")
+	if not (FileAccess.file_exists(path) or ResourceLoader.exists(path, "PackedScene")):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "resource not found: " + path)
+		return
+	var resource: Resource = ResourceLoader.load(path)
+	if resource == null:
+		_fail(OP_ERROR_NOT_A_SCENE, "resource could not be loaded as PackedScene: " + path
+				+ "; inspect engine diagnostics; imported sources may need resource import")
+		return
+	if not resource is PackedScene:
+		_fail(OP_ERROR_NOT_A_SCENE, "resource is " + resource.get_class() + ", not PackedScene: " + path)
+		return
+	var root: Node = resource.instantiate()
+	if root == null:
+		_fail(OP_ERROR_NOT_A_SCENE, "PackedScene has no instantiable root: " + path)
+		return
+	var subtree := _string_param(params, "subtree")
+	if subtree.is_empty():
+		subtree = "."
+	if NodePath(subtree).is_absolute() or NodePath(subtree).get_subname_count() > 0:
+		root.free()
+		_fail(OP_ERROR_INVALID_PARAMS, "subtree must be relative to the resource root")
+		return
+	var selected: Node = root.get_node_or_null(NodePath(subtree))
+	if selected == null:
+		root.free()
+		_fail(OP_ERROR_NODE_NOT_FOUND, "subtree not found in resource: " + subtree)
+		return
+	var max_nodes := _int_param(params, "max_nodes")
+	var max_items := _int_param(params, "max_items")
+	if max_nodes < 1 or max_nodes > 4096 or max_items < 1 or max_items > 16384:
+		root.free()
+		_fail(OP_ERROR_INVALID_PARAMS, "max_nodes must be in 1..4096 and max_items in 1..16384")
+		return
+	var budget := {"remaining": max_items, "omissions": []}
+	var nodes: Array = []
+	var stack: Array = [[selected, _model_resource_transform(selected), -1]]
+	var unique_meshes := {}
+	var mesh_instances := 0
+	var has_bounds := false
+	var merged_bounds := AABB()
+	while not stack.is_empty():
+		var entry: Array = stack[-1]
+		var node: Node = entry[0]
+		var transform: Transform3D = entry[1]
+		if entry[2] == -1:
+			if nodes.size() >= max_nodes:
+				break
+			var node_path := String(root.get_path_to(node))
+			nodes.append({
+				"path": node_path, "type": node.get_class(),
+				"local_transform": _model_transform_value(node.transform) if node is Node3D else null,
+				"resource_transform": _model_transform_value(transform) if node is Node3D else null,
+				"mesh": _model_mesh(node, root, budget, node_path) if node is MeshInstance3D and node.mesh != null else null,
+				"skeleton": _model_skeleton(node, budget, node_path) if node is Skeleton3D else null,
+				"animation_player": _model_animation_player(node, root, budget, node_path) if node is AnimationPlayer else null,
+			})
+			if node is MeshInstance3D and node.mesh != null:
+				var mesh: Mesh = node.mesh
+				mesh_instances += 1
+				unique_meshes[mesh.get_instance_id()] = true
+				if mesh.get_surface_count() > 0:
+					var bounds: AABB = transform * mesh.get_aabb()
+					merged_bounds = merged_bounds.merge(bounds) if has_bounds else bounds
+					has_bounds = true
+			entry[2] = 0
+		# Retain only the ancestor stack, not every sibling of a wide scene.
+		if entry[2] < node.get_child_count():
+			var child := node.get_child(entry[2])
+			entry[2] += 1
+			var child_transform := Transform3D.IDENTITY
+			if child is Node3D:
+				child_transform = child.transform
+				if node is Node3D and not child.top_level:
+					child_transform = transform * child_transform
+			stack.append([child, child_transform, -1])
+		else:
+			stack.pop_back()
+	var truncated := not stack.is_empty()
+	if truncated:
+		budget["omissions"].append({"node_path": String(root.get_path_to(selected)), "section": "nodes", "reason": "node_limit"})
+	var result := {
+		"path": path, "subtree": String(root.get_path_to(selected)),
+		"engine_version": Engine.get_version_info(),
+		"measurement": {
+			"coordinate_space": "resource", "geometry": "static_mesh_aabb",
+			"limitations": ["selected root included; counts and bounds cover visited nodes only",
+				"root local transform included; plain Node parents and top_level cut spatial inheritance",
+				"surface counts use ArrayMesh lengths; triangle counts include degenerate slots; texture references do not prove shader use",
+				"bindings locate static node/bone/declared-property targets only; no key values, nested property reads, playback or writability checks",
+				"no animation sampling, skin deformation, blend shapes, visibility or runtime state"],
+		},
+		"nodes": nodes,
+		"summary": {"node_count": nodes.size(), "mesh_instance_count": mesh_instances,
+			"unique_mesh_count": unique_meshes.size()},
+		"bounds": {"position": _jsonify(merged_bounds.position), "size": _jsonify(merged_bounds.size)} if has_bounds else null,
+		"truncated": not budget["omissions"].is_empty(),
+		"omissions": budget["omissions"],
+	}
+	root.free()
+	_succeed(result)
+
+
+func _op_package_resource_presence(params: Dictionary) -> void:
+	_diag("running operation: package-resource-presence")
+	var paths: Variant = params.get("paths")
+	if not paths is Array or paths.is_empty() or paths.size() > 64:
+		_fail(OP_ERROR_INVALID_PARAMS, "paths must contain 1..64 exact res:// resource paths")
+		return
+	var resources: Array = []
+	for value: Variant in paths:
+		if not value is String or not value.begins_with("res://") or value == "res://":
+			_fail(OP_ERROR_INVALID_PATH, "package resources must use exact res:// paths")
+			return
+		var relative: String = value.substr(6)
+		if "\\" in relative or ":" in relative:
+			_fail(OP_ERROR_INVALID_PATH, "package resources must use exact res:// paths")
+			return
+		for part: String in relative.split("/"):
+			if part.is_empty() or part == "." or part == "..":
+				_fail(OP_ERROR_INVALID_PATH, "package resources must use exact res:// paths")
+				return
+		resources.append({
+			"path": value,
+			"present": ResourceLoader.exists(value) or FileAccess.file_exists(value),
+		})
+	_succeed({"engine_version": Engine.get_version_info(), "resources": resources})
+
+
+# --- BEGIN shared static model content sampling (#890) ---
+# This block is duplicated byte-for-byte in the live harness: imported and live
+# facts must be produced by one algorithm even though neither script can preload
+# the other. Keep the surface deliberately narrow; this is not Resource identity.
+const MODEL_CONTENT_MEASUREMENT := "godot-static-model-content-v3"
+const MODEL_CONTENT_MAX_BYTES := 67108864
+const MODEL_CONTENT_MAX_STORED_BYTES := 33554432
+const MODEL_CONTENT_MAX_LOD_BYTES := 8388608
+const MODEL_CONTENT_MAX_LODS := 1024
+const MODEL_CONTENT_MAX_SURFACES := 4096
+const MODEL_CONTENT_MAX_ALBEDO_PIXELS := 16777216
+
+
+func _model_content_note(items: Array, note: String) -> void:
+	if not note in items:
+		items.append(note)
+
+
+func _model_content_hash(state: Dictionary, value: Variant, location: String) -> bool:
+	var bytes := var_to_bytes(value)
+	if int(state["bytes"]) + bytes.size() > MODEL_CONTENT_MAX_BYTES:
+		_model_content_note(state["omitted"], "byte limit exceeded at " + location)
+		return false
+	state["bytes"] = int(state["bytes"]) + bytes.size()
+	(state["hash"] as HashingContext).update(bytes)
+	return true
+
+
+func _model_content_albedo(value: Variant, state: Dictionary, location: String) -> void:
+	if not value is Texture2D or value.get_script() != null \
+			or not value.get_class() in ["ImageTexture", "CompressedTexture2D"]:
+		_model_content_note(state["unsupported"], location + ": albedo texture type is unsupported")
+		return
+	var texture: Texture2D = value
+	var width := texture.get_width()
+	var height := texture.get_height()
+	if width <= 0 or height <= 0:
+		_model_content_note(state["unsupported"], location + ": albedo dimensions are unavailable")
+		return
+	var pixels := width * height
+	if pixels > MODEL_CONTENT_MAX_ALBEDO_PIXELS - int(state["albedo_pixels"]):
+		_model_content_note(state["omitted"], "albedo pixel limit exceeded at " + location)
+		return
+	# Charge every attempted read, including repeated references and failed reads.
+	state["albedo_pixels"] = int(state["albedo_pixels"]) + pixels
+	# Native readback may allocate/copy before the returned-size checks below.
+	var image: Image = texture.get_image()
+	if image == null or image.is_empty():
+		_model_content_note(state["unsupported"], location + ": albedo image data is unavailable")
+		return
+	if image.get_width() != width or image.get_height() != height:
+		_model_content_note(state["unsupported"], location + ": albedo image dimensions are inconsistent")
+		return
+	var format := image.get_format()
+	if image.is_compressed() or not format in [Image.FORMAT_RGB8, Image.FORMAT_RGBA8]:
+		_model_content_note(state["unsupported"], location + ": albedo image format is unsupported")
+		return
+	var size := image.get_data_size()
+	if size <= 0:
+		_model_content_note(state["unsupported"], location + ": albedo image data is unavailable")
+		return
+	if size > MODEL_CONTENT_MAX_BYTES - int(state["bytes"]):
+		_model_content_note(state["omitted"], "albedo byte limit exceeded at " + location)
+		return
+	var data := image.get_data()
+	if data.size() != size:
+		_model_content_note(state["unsupported"], location + ": albedo image data is incomplete")
+		return
+	_model_content_hash(state, "albedo_image", location)
+	_model_content_hash(state, [width, height, format, image.has_mipmaps(), image.get_mipmap_count()], location)
+	_model_content_hash(state, data, location)
+
+
+func _model_content_material(instance: MeshInstance3D, surface: int,
+		state: Dictionary, location: String) -> void:
+	var material: Material = instance.get_active_material(surface)
+	_model_content_hash(state, "material", location)
+	if material == null:
+		_model_content_hash(state, null, location)
+		return
+	if material.get_class() != "StandardMaterial3D" or material.get_script() != null:
+		_model_content_note(state["unsupported"], location + ": material type "
+				+ material.get_class() + " is unsupported")
+		return
+	_model_content_hash(state, "StandardMaterial3D", location)
+	var properties: Array = []
+	for property in material.get_property_list():
+		var name := String(property.get("name", ""))
+		var usage := int(property.get("usage", 0))
+		if (usage & PROPERTY_USAGE_STORAGE) == 0 or name in [
+				"resource_local_to_scene", "resource_name", "resource_path", "script"]:
+			continue
+		properties.append(property)
+	properties.sort_custom(func(a, b): return String(a.get("name", "")) < String(b.get("name", "")))
+	for property in properties:
+		var name := String(property.get("name", ""))
+		var type := int(property.get("type", TYPE_NIL))
+		var value: Variant = material.get(name)
+		if type in [TYPE_NIL, TYPE_BOOL, TYPE_INT, TYPE_FLOAT, TYPE_STRING,
+				TYPE_STRING_NAME, TYPE_VECTOR2, TYPE_VECTOR3, TYPE_VECTOR4, TYPE_COLOR]:
+			if not _model_content_hash(state, name, location):
+				return
+			if not _model_content_hash(state, value, location):
+				return
+		elif type == TYPE_OBJECT and value == null:
+			if not _model_content_hash(state, name, location):
+				return
+			if not _model_content_hash(state, null, location):
+				return
+		elif type == TYPE_OBJECT and name == "albedo_texture":
+			if not _model_content_hash(state, name, location):
+				return
+			_model_content_albedo(value, state, location + ":albedo_texture")
+		elif type == TYPE_OBJECT:
+			_model_content_note(state["unsupported"], location + ": material resource property "
+					+ name + " is unsupported")
+		else:
+			_model_content_note(state["unsupported"], location + ": material property "
+					+ name + " has unsupported type " + type_string(type))
+
+
+func _model_content_array_bytes(arrays: Array) -> int:
+	var total := 0
+	for value in arrays:
+		match typeof(value):
+			TYPE_NIL:
+				pass
+			TYPE_PACKED_BYTE_ARRAY:
+				total += value.size()
+			TYPE_PACKED_INT32_ARRAY, TYPE_PACKED_FLOAT32_ARRAY:
+				total += value.size() * 4
+			TYPE_PACKED_INT64_ARRAY, TYPE_PACKED_FLOAT64_ARRAY, TYPE_PACKED_VECTOR2_ARRAY:
+				total += value.size() * 8
+			TYPE_PACKED_VECTOR3_ARRAY:
+				total += value.size() * 12
+			TYPE_PACKED_VECTOR4_ARRAY, TYPE_PACKED_COLOR_ARRAY:
+				total += value.size() * 16
+			_:
+				return -1
+	return total
+
+
+func _model_content_surface_stored_bytes(surface: Dictionary) -> int:
+	var total := 0
+	for key in ["vertex_data", "attribute_data", "skin_data", "index_data"]:
+		var value: Variant = surface.get(key, PackedByteArray())
+		if not value is PackedByteArray:
+			return -1
+		total += value.size()
+	return total
+
+
+func _model_content_public_surface_valid(surface: Dictionary, vertices: int,
+		indices: int, primitive: int, format: int, location: String,
+		state: Dictionary) -> bool:
+	# This is the public Godot 4.6 RenderingServer shape. Valid no-LOD surfaces
+	# omit `lods`; an empty or partial Dictionary is never evidence of no LODs.
+	var required := {
+		"primitive": TYPE_INT,
+		"format": TYPE_INT,
+		"vertex_data": TYPE_PACKED_BYTE_ARRAY,
+		"vertex_count": TYPE_INT,
+		"aabb": TYPE_AABB,
+		"uv_scale": TYPE_VECTOR4,
+	}
+	var allowed := required.keys() + ["attribute_data", "skin_data", "index_data",
+			"index_count", "lods", "bone_aabbs", "blend_shape_data", "material"]
+	for key in surface:
+		if not key in allowed:
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer mesh surface shape is unsupported")
+			return false
+	for key in required:
+		if not surface.has(key) or typeof(surface[key]) != int(required[key]):
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer mesh surface shape is unsupported")
+			return false
+	if (int(surface["vertex_count"]) != vertices
+			or int(surface["primitive"]) != primitive
+			or int(surface["format"]) != format):
+		_model_content_note(state["unsupported"], location
+				+ ": RenderingServer mesh surface facts are inconsistent")
+		return false
+	for key in ["attribute_data", "skin_data"]:
+		if surface.has(key) and not surface[key] is PackedByteArray:
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer mesh buffer shape is unsupported")
+			return false
+	var optional := {
+		"bone_aabbs": TYPE_ARRAY,
+		"blend_shape_data": TYPE_PACKED_BYTE_ARRAY,
+		"material": TYPE_RID,
+	}
+	for key in optional:
+		if surface.has(key) and typeof(surface[key]) != int(optional[key]):
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer mesh surface shape is unsupported")
+			return false
+	if indices > 0:
+		if (not surface.has("index_data") or not surface["index_data"] is PackedByteArray
+				or not surface.has("index_count") or typeof(surface["index_count"]) != TYPE_INT
+				or int(surface["index_count"]) != indices):
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer index buffer shape is unsupported")
+			return false
+		var index_width := 2 if vertices <= 65536 else 4
+		if (surface["index_data"] as PackedByteArray).size() != indices * index_width:
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer index representation is unsupported")
+			return false
+	elif surface.has("index_data") or surface.has("index_count"):
+		_model_content_note(state["unsupported"], location
+				+ ": RenderingServer index buffer shape is unsupported")
+		return false
+	return true
+
+
+func _model_content_lods(surface: Dictionary, vertices: int, indices: int,
+		location: String, state: Dictionary) -> void:
+	if not surface.has("lods"):
+		return
+	var lods: Variant = surface["lods"]
+	if not lods is Array or lods.is_empty():
+		_model_content_note(state["unsupported"], location
+				+ ": RenderingServer LOD shape is unsupported")
+		return
+	if int(state["lods"]) + lods.size() > MODEL_CONTENT_MAX_LODS:
+		_model_content_note(state["omitted"], "LOD count limit exceeded at " + location)
+		return
+	# Count every entry whose shape we are about to inspect. A malformed or
+	# over-byte surface must not reset the global processing budget.
+	state["lods"] = int(state["lods"]) + lods.size()
+	var index_width := 2 if vertices <= 65536 else 4
+	var lod_bytes := 0
+	var previous_edge_length := 0.0
+	for lod_index in lods.size():
+		var value: Variant = lods[lod_index]
+		if not value is Dictionary:
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer LOD shape is unsupported")
+			return
+		var lod: Dictionary = value
+		if (lod.size() != 2 or not lod.has("edge_length") or not lod.has("index_data")
+				or typeof(lod["edge_length"]) != TYPE_FLOAT
+				or not lod["index_data"] is PackedByteArray):
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer LOD shape is unsupported")
+			return
+		var edge_length := float(lod["edge_length"])
+		var index_data: PackedByteArray = lod["index_data"]
+		var lod_indices := index_data.size() / index_width
+		if (not is_finite(edge_length) or edge_length <= previous_edge_length
+				or index_data.is_empty() or index_data.size() % index_width != 0
+				or lod_indices >= indices):
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer LOD representation is unsupported")
+			return
+		previous_edge_length = edge_length
+		lod_bytes += index_data.size()
+	if int(state["lod_bytes"]) + lod_bytes > MODEL_CONTENT_MAX_LOD_BYTES:
+		_model_content_note(state["omitted"], "LOD index byte limit exceeded at " + location)
+		return
+	if int(state["stored_bytes"]) + lod_bytes > MODEL_CONTENT_MAX_STORED_BYTES:
+		_model_content_note(state["omitted"], "stored mesh byte limit exceeded at " + location)
+		return
+	state["lod_bytes"] = int(state["lod_bytes"]) + lod_bytes
+	state["stored_bytes"] = int(state["stored_bytes"]) + lod_bytes
+	_model_content_hash(state, "lods", location)
+	_model_content_hash(state, lods.size(), location)
+	for value in lods:
+		var lod: Dictionary = value
+		_model_content_hash(state, float(lod["edge_length"]), location)
+		_model_content_hash(state, lod["index_data"], location)
+
+
+func _model_static_content(root: Node, max_nodes: int, max_vertices: int) -> Dictionary:
+	var hashing := HashingContext.new()
+	hashing.start(HashingContext.HASH_SHA256)
+	var state := {"hash": hashing, "bytes": 0, "stored_bytes": 0,
+			"lod_bytes": 0, "lods": 0, "albedo_pixels": 0,
+			"unsupported": [], "omitted": []}
+	var engine := Engine.get_version_info()
+	if int(engine.get("major", 0)) != 4 or int(engine.get("minor", 0)) != 6:
+		_model_content_note(state["unsupported"], "RenderingServer mesh surface shape is validated only for Godot 4.6")
+	var stack: Array[Node] = [root]
+	var node_count := 0
+	var surface_count := 0
+	var vertex_count := 0
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		if node_count >= max_nodes:
+			_model_content_note(state["omitted"], "node limit exceeded")
+			break
+		node_count += 1
+		var locator := String(root.get_path_to(node))
+		_model_content_hash(state, "node", locator)
+		_model_content_hash(state, locator, locator)
+		_model_content_hash(state, node.get_class(), locator)
+		# The selected root's placement belongs to its consumer. Descendant local
+		# transforms are authored model content and therefore participate.
+		if node != root and node is Node3D:
+			_model_content_hash(state, node.transform, locator)
+		if node.get_script() != null:
+			_model_content_note(state["unsupported"], locator + ": scripted node is unsupported")
+		if node is Skeleton3D:
+			_model_content_note(state["unsupported"], locator + ": skeleton is unsupported")
+		if node is AnimationPlayer:
+			_model_content_note(state["unsupported"], locator + ": animation is unsupported")
+		if (node is VisualInstance3D and not node is MeshInstance3D) or node is Camera3D:
+			_model_content_note(state["unsupported"], locator + ": visual node type "
+					+ node.get_class() + " is unsupported")
+		if node is MeshInstance3D and node.mesh != null:
+			var instance: MeshInstance3D = node
+			if instance.material_overlay != null:
+				_model_content_note(state["unsupported"], locator + ": material overlay is unsupported")
+			if instance.skin != null or not instance.skeleton.is_empty():
+				_model_content_note(state["unsupported"], locator + ": skin is unsupported")
+			if not instance.mesh is ArrayMesh:
+				_model_content_note(state["unsupported"], locator + ": mesh type "
+						+ instance.mesh.get_class() + " is unsupported")
+			else:
+				var mesh: ArrayMesh = instance.mesh
+				if mesh.get_blend_shape_count() > 0:
+					_model_content_note(state["unsupported"], locator + ": blend shapes are unsupported")
+				for surface in mesh.get_surface_count():
+					if surface_count >= MODEL_CONTENT_MAX_SURFACES:
+						_model_content_note(state["omitted"], "surface limit exceeded")
+						break
+					surface_count += 1
+					var surface_location := locator + ":surface:" + str(surface)
+					var vertices := mesh.surface_get_array_len(surface)
+					var indices := mesh.surface_get_array_index_len(surface)
+					if vertex_count + vertices > max_vertices:
+						_model_content_note(state["omitted"], "vertex limit exceeded at " + surface_location)
+						continue
+					var index_width := 2 if vertices <= 65536 else 4
+					if indices * index_width > MODEL_CONTENT_MAX_STORED_BYTES - int(state["stored_bytes"]):
+						_model_content_note(state["omitted"], "index byte limit exceeded at " + surface_location)
+						continue
+					vertex_count += vertices
+					var public_surface: Variant = RenderingServer.mesh_get_surface(mesh.get_rid(), surface)
+					if not public_surface is Dictionary or public_surface.is_empty():
+						_model_content_note(state["unsupported"], surface_location
+								+ ": RenderingServer mesh surface data is unavailable")
+						continue
+					var primitive := mesh.surface_get_primitive_type(surface)
+					var format := mesh.surface_get_format(surface)
+					if not _model_content_public_surface_valid(public_surface, vertices, indices,
+							primitive, format, surface_location, state):
+						continue
+					var stored_bytes := _model_content_surface_stored_bytes(public_surface)
+					if stored_bytes < 0:
+						_model_content_note(state["unsupported"], surface_location
+								+ ": RenderingServer mesh buffer size is unavailable")
+						continue
+					if int(state["stored_bytes"]) + stored_bytes > MODEL_CONTENT_MAX_STORED_BYTES:
+						_model_content_note(state["omitted"], "stored mesh byte limit exceeded at " + surface_location)
+						continue
+					state["stored_bytes"] = int(state["stored_bytes"]) + stored_bytes
+					_model_content_lods(public_surface, vertices, indices, surface_location, state)
+					_model_content_hash(state, "surface", surface_location)
+					_model_content_hash(state, surface, surface_location)
+					var arrays := mesh.surface_get_arrays(surface)
+					var array_bytes := _model_content_array_bytes(arrays)
+					if array_bytes < 0:
+						_model_content_note(state["unsupported"], surface_location + ": mesh array type is unsupported")
+						continue
+					if array_bytes > MODEL_CONTENT_MAX_BYTES:
+						_model_content_note(state["omitted"], "byte limit exceeded at " + surface_location)
+						continue
+					_model_content_hash(state, primitive, surface_location)
+					_model_content_hash(state, format, surface_location)
+					_model_content_hash(state, arrays, surface_location)
+					_model_content_material(instance, surface, state, surface_location)
+		# Push only the bounded prefix, in reverse, so a pathologically wide node
+		# cannot allocate an unbounded traversal stack.
+		var available := maxi(0, max_nodes - node_count - stack.size())
+		var taken := mini(node.get_child_count(), available)
+		if taken < node.get_child_count():
+			_model_content_note(state["omitted"], "node limit exceeded below " + locator)
+		for index in range(taken - 1, -1, -1):
+			stack.append(node.get_child(index))
+	if surface_count == 0 or vertex_count == 0:
+		_model_content_note(state["unsupported"], "selected subtree has no sampled static mesh geometry")
+	state["unsupported"].sort()
+	state["omitted"].sort()
+	var complete: bool = state["unsupported"].is_empty() and state["omitted"].is_empty()
+	return {
+		"measurement": MODEL_CONTENT_MEASUREMENT,
+		"engine_version": Engine.get_version_info(),
+		"complete": complete,
+		"digest": hashing.finish().hex_encode() if complete else null,
+		"nodes": node_count,
+		"surfaces": surface_count,
+		"vertices": vertex_count,
+		"unsupported": state["unsupported"],
+		"omitted": state["omitted"],
+	}
+# --- END shared static model content sampling ---
+
+
+func _op_resource_inspect_model_content(params: Dictionary) -> void:
+	_diag("running operation: resource-inspect-model-content")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if path.get_extension().to_lower() != "glb":
+		_fail(OP_ERROR_INVALID_PARAMS, "static model content sampling requires a .glb path")
+		return
+	if not FileAccess.file_exists(path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "resource not found: " + path)
+		return
+	var max_nodes := _int_param(params, "max_nodes") if params.has("max_nodes") else 256
+	var max_vertices := _int_param(params, "max_vertices") if params.has("max_vertices") else 200000
+	if max_nodes < 1 or max_nodes > 1024 or max_vertices < 1 or max_vertices > 1000000:
+		_fail(OP_ERROR_INVALID_PARAMS,
+				"max_nodes must be in 1..1024 and max_vertices in 1..1000000")
+		return
+	var resource: Resource = ResourceLoader.load(path)
+	if not resource is PackedScene:
+		_fail(OP_ERROR_NOT_A_SCENE, "resource could not be loaded as PackedScene: " + path)
+		return
+	var root: Node = resource.instantiate()
+	if root == null:
+		_fail(OP_ERROR_NOT_A_SCENE, "PackedScene has no instantiable root: " + path)
+		return
+	var result := {"path": path, "content": _model_static_content(root, max_nodes, max_vertices)}
+	root.free()
+	_succeed(result)
 
 
 # resource-set: load a .tres, coerce a CLI string value to a property's declared
@@ -6554,24 +7612,32 @@ func _int_param(params: Dictionary, key: String) -> int:
 # one file. tests/harness/test_harness_coercion_mirror.py asserts the two blocks are
 # byte-identical (modulo leading tabs), so an edit here must be mirrored there.
 # Whether a property-list entry is a STORAGE property — the ones node get
-# reports and node set targets: the properties that serialize into the .tscn,
-# excluding the engine's category headers, group separators, and editor-only
+# ordinarily reports and node set targets: the properties that serialize into
+# the .tscn, excluding the engine's category headers, group separators, and editor-only
 # (non-storage) entries. This is the same usage flag the scene serializer keys
-# on, so node get reports exactly the surface a saved scene can carry.
+# on. Node3D local components have a separate, narrow exception below (#885).
 func _is_storage_property(prop: Dictionary) -> bool:
 	var usage := int(prop.get("usage", 0))
 	return (usage & PROPERTY_USAGE_STORAGE) != 0
 
 
 # The declared Godot type of a settable property on the node, or TYPE_NIL if the
-# node has no storage property by that name. node set keys coercion off this:
+# node has no supported property by that name. node set keys coercion off this:
 # the value's target type comes from the property the node actually declares,
 # never from guessing.
 func _property_type(node: Node, prop_name: String) -> int:
 	for prop in node.get_property_list():
-		if String(prop.get("name", "")) == prop_name and _is_storage_property(prop):
+		if String(prop.get("name", "")) == prop_name \
+				and (_is_storage_property(prop) or _is_node3d_local_transform(node, prop_name)):
 			return int(prop.get("type", TYPE_NIL))
 	return TYPE_NIL
+
+
+# Node3D serializes one Transform3D, but these three derived Vector3 properties
+# are the editable local components (#885). Keep the exception node-specific;
+# neither other non-storage properties nor global transform editing is admitted.
+func _is_node3d_local_transform(node: Node, prop_name: String) -> bool:
+	return node is Node3D and prop_name in ["position", "rotation", "scale"]
 
 
 # Read a string param defensively: a non-string value (the params arrive as
@@ -6613,8 +7679,8 @@ const JSONIFY_BOOKKEEPING_PROPS: Array[String] = [
 # The read-side Value projection (ADR-0035, grown from issue #55): render a
 # Godot Variant into the structured JSON a result's value field carries.
 # Scalars pass through; the fixed-shape value types node set supports become
-# flat number arrays so node get's output is exactly the projection node set
-# accepts back: Vector2 → [x, y], Vector2i likewise, Color → [r, g, b, a].
+# flat number arrays: Vector2 → [x, y], Vector2i likewise, Vector3 → [x, y, z],
+# Color → [r, g, b, a]. The write form uses comma-separated components.
 # A Dictionary projects to a JSON object (keys stringified), an Array and the
 # packed-array family to a JSON array, each value re-entering the projection;
 # an Object renders as a reference projection, an inline value projection, or
@@ -6630,6 +7696,8 @@ func _jsonify(value: Variant, depth: int = 0, texture_digest: bool = false) -> V
 			return [value.x, value.y]
 		TYPE_VECTOR2I:
 			return [value.x, value.y]
+		TYPE_VECTOR3:
+			return [value.x, value.y, value.z]
 		TYPE_COLOR:
 			return [value.r, value.g, value.b, value.a]
 		TYPE_DICTIONARY:
@@ -6653,8 +7721,8 @@ func _jsonify(value: Variant, depth: int = 0, texture_digest: bool = false) -> V
 				return str(value)
 			var items := []
 			# Element-wise re-entry: a PackedVector2Array element projects as
-			# [x, y]; an element type with no structured arm of its own (e.g.
-			# Vector3) stays str(), per the fixed-shape list above.
+			# [x, y], a PackedVector3Array element as [x, y, z]; types without
+			# their own structured arm keep the string fallback.
 			for element in value:
 				items.append(_jsonify(element, depth + 1, texture_digest))
 			return items
@@ -6760,6 +7828,9 @@ func _coerce_value(raw: String, type: int, current: Variant = null) -> Variant:
 		TYPE_VECTOR2I:
 			var parts: Variant = _coerce_int_list(raw, 2)
 			return Vector2i(parts[0], parts[1]) if parts != null else null
+		TYPE_VECTOR3:
+			var parts: Variant = _coerce_float_list(raw, 3)
+			return Vector3(parts[0], parts[1], parts[2]) if parts != null else null
 		TYPE_COLOR:
 			return _coerce_color(raw)
 		_:
@@ -6787,8 +7858,8 @@ func _coerce_int(raw: String) -> Variant:
 # --- Float fidelity: the WRITE side of the engine's number domain (#772, #805) ---
 #
 # The rule below is about a LITERAL, not about a property type, so it reaches every
-# float a write can spell: the scalar `--value` and the components of a Vector2 or a
-# Color, which `_coerce_float` parses one at a time, and the JSON numbers inside a
+# float a write can spell: the scalar `--value` and the components of a Vector2,
+# Vector3 or Color, which `_coerce_float` parses one at a time, and the JSON numbers inside a
 # Dictionary or an Array value, which no per-element step parses at all and which
 # `_destroyed_json_number` therefore reads from the raw text (#805). Until that was
 # added the container was the one path where a destroyed float still landed
@@ -6932,8 +8003,8 @@ func _destroyed_json_number(raw: String) -> String:
 # The literal whose destruction ACTUALLY refused this coercion, or "" when the
 # refusal was anything else. A note must never explain a failure it did not
 # diagnose, so this walks exactly what `_coerce_value` walks for `type`, in the
-# same order and behind the same gates: only TYPE_FLOAT, TYPE_VECTOR2, TYPE_COLOR
-# (through `_coerce_float`) and TYPE_DICTIONARY / TYPE_ARRAY (through the raw-text
+# same order and behind the same gates: TYPE_FLOAT, TYPE_VECTOR2, TYPE_VECTOR3,
+# TYPE_COLOR (through `_coerce_float`) and TYPE_DICTIONARY / TYPE_ARRAY (through the raw-text
 # scan) refuse on a destroyed literal at all — TYPE_INT, TYPE_VECTOR2I and the rest
 # refuse for reasons of their own and no float spelling would help them; a wrong
 # component count refuses on ARITY before a component is parsed; a Color in hex
@@ -6956,6 +8027,10 @@ func _destroyed_float_literal(raw: String, type: int) -> String:
 		TYPE_VECTOR2:
 			components = raw.split(",")
 			if components.size() != 2:
+				return ""
+		TYPE_VECTOR3:
+			components = raw.split(",")
+			if components.size() != 3:
 				return ""
 		TYPE_COLOR:
 			var trimmed := raw.strip_edges()

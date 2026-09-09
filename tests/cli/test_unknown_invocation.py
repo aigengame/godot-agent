@@ -293,8 +293,10 @@ def test_the_adoption_reaches_a_nested_sub_group():
     assert isinstance(built.commands["middle"].commands["inner"], GdaGroup)
 
 
-def test_both_refusal_codes_are_registered_at_the_usage_exit():
-    for code in (UNKNOWN_COMMAND, UNKNOWN_OPTION):
+def test_cli_refusal_codes_are_registered_at_the_usage_exit():
+    from gda.hints import INVALID_ARGUMENT
+
+    for code in (UNKNOWN_COMMAND, UNKNOWN_OPTION, INVALID_ARGUMENT):
         spec = ERROR_CODE_BY_CODE[code]
         assert spec.exit_code == EXIT_USAGE
         assert spec.category.value == "usage"

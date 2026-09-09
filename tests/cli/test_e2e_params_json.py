@@ -17,11 +17,13 @@ gda = Gda()
 
 
 @pytest.mark.e2e
-def test_scene_create_via_params_json_creates_the_scene(godot_project):
+@pytest.mark.parametrize("equal_form", [False, True], ids=["space", "equals"])
+def test_scene_create_via_params_json_creates_the_scene(godot_project, equal_form):
     scene_path = godot_project / "main.tscn"
     params = json.dumps({"path": str(scene_path), "root_type": "Node2D"})
 
-    created = gda("scene", "create", "--params-json", params, "--json")
+    args = [f"--params-json={params}"] if equal_form else ["--params-json", params]
+    created = gda("scene", "create", *args, "--json")
 
     assert created.returncode == 0, created.stdout + created.stderr
     data = json.loads(created.stdout)
