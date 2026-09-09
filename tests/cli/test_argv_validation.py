@@ -14,7 +14,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.commands.resource import ResourceReimportResult
-from gda.exit_codes import EXIT_USAGE
+from gda.exit_codes import EXIT_OPERATION, EXIT_USAGE
 from tests.support import GDA_CMD, minimal_project, panel_text
 
 
@@ -293,6 +293,53 @@ def test_real_cli_known_parameter_failures_use_only_parsed_json_flags(
     else:
         assert done.stdout == ""
         assert panel_text(done.stderr)
+
+
+@pytest.mark.parametrize(
+    ("individual_argv", "expected_code"),
+    [
+        pytest.param([], "invalid_params", id="invalid-params-object"),
+        pytest.param(
+            ["res://individual-model.glb"],
+            "usage_error",
+            id="conflicting-individual-argv",
+        ),
+    ],
+)
+def test_real_cli_params_json_failures_use_only_parsed_json_flags(
+    individual_argv, expected_code
+):
+    common = [
+        "resource",
+        "reimport",
+        *individual_argv,
+        "--params-json",
+        "--json",
+    ]
+    human = subprocess.run(
+        [*GDA_CMD, *common],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    structured = subprocess.run(
+        [*GDA_CMD, *common, "--json"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert human.returncode == EXIT_OPERATION, human.stdout + human.stderr
+    assert human.stderr == ""
+    assert not human.stdout.lstrip().startswith("{")
+    assert expected_code in panel_text(human.stdout)
+    assert structured.returncode == EXIT_OPERATION, (
+        structured.stdout + structured.stderr
+    )
+    assert structured.stderr == ""
+    error = json.loads(structured.stdout)["error"]
+    assert error["category"] == "operation"
+    assert error["code"] == expected_code
 
 
 def _snapshot_files(root: Path) -> dict[str, bytes]:
