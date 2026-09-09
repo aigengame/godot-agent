@@ -173,6 +173,16 @@ nonzero with `error.partial_result.package_check`; cleanup issues remain explici
 This initial path requires a desktop editor-capable Godot binary. It does not run a
 release executable or prove native input, rendering, or gameplay behavior.
 
+Treat a failed `export run` as final even if it left an output file. Before loading a
+package, gda narrowly refuses the Godot V3 `GDPC` header state whose directory
+offset is still zero and reports it as an incomplete PCK; rebuild and check only the
+output of a successful export. This is one known incomplete writer state, not
+general PCK validation: opaque, short, other-version, and other malformed packages
+remain engine-owned and can still reach the package inspection's 60-second timeout
+with limited diagnostics. The
+[architecture evidence](docs/ARCHITECTURE.md#evidence-limits-and-validation-gates)
+records the native controls and Godot source basis for this boundary.
+
 ## Preview a model
 
 Write captures to a new output directory:
