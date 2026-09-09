@@ -1771,9 +1771,21 @@ re-derives every verdict from a running engine.
   for waiting and for committing to new work rather than a hard wall clock — no phase gets a
   fresh grace, every timed wait uses what remains, and once it is spent nothing further is
   launched — but a synchronous step already in flight (a filesystem write, the spawn itself)
-  can delay when that expiry is observed. Success (`{pid, launched}`) means subsequent
-  live reads serve, and a repeat while the session is alive is idempotent (`launched:
-  false`, nothing relaunched). A session stops serving when its harness channel breaks OR
+  can delay when that expiry is observed. Success (`{pid, launched, startup_diagnostics,
+  clean_start}`) means subsequent live reads serve, and a repeat while the session is alive
+  is idempotent (`launched: false`, nothing relaunched). Success also carries the STARTUP
+  VERDICT of the session it established (#848): `startup_diagnostics` — the `ScriptError[]`
+  that `script run` and `scene preflight` publish, read from the daemon-owned `Session log`
+  at the moment the harness handshake completed — and `clean_start`, the one boolean saying
+  nothing was recognized against that start. It answers what readiness never did: a harness
+  that connected is not a scene that started cleanly, because a script that fails to
+  compile leaves its node script-less and the session serves anyway (GDA-DF-047). A
+  disclosure on SUCCESS, never a refusal — a broken scene is exactly when `diag errors`,
+  `game tree` and a capture are wanted. The verdict is bounded to the log's pre-handshake
+  prefix and is read ONCE, at the readiness boundary; the full-log read stays `gda diag
+  errors` (ADR-0022), so the two are projections of one daemon-owned file rather than
+  competing authorities. An idempotent repeat reports the establishing launch's verdict,
+  not a fresh read. A session stops serving when its harness channel breaks OR
   when a relay hits `live_timeout` — the one-op-at-a-time RPC carries no request id, so a
   late reply can no longer be attributed — and the next operation that requires a session
   relaunches it, losing runtime state (ADR-0017 amendment, ADR-0020). `daemon status`
@@ -1783,9 +1795,13 @@ re-derives every verdict from a running engine.
   retained across a failed replacement launch (nothing replaced the session it names)
   until a new session is established. It is the value a `screen capture` receipt's
   `session_id` correlates with; null before the first established session this daemon
-  lifetime. With no `--scene` selector, `daemon start` checks the project files for an empty
-  `application/run/main_scene` — `live_main_scene_undefined` (LIVE, exit 6) — or a `uid://`
-  main scene with no cache under the configured project data directory —
+  lifetime. `daemon status` reports that session's `startup_diagnostics` / `clean_start`
+  too, so a caller arriving after the launch reads the verdict without relaunching the
+  game; both are null exactly when no session was established this daemon lifetime — null
+  and an empty list are different facts, the second saying a session started and nothing
+  was recognized against it. With no `--scene` selector, `daemon start` checks the project
+  files for an empty `application/run/main_scene` — `live_main_scene_undefined` (LIVE, exit
+  6) — or a `uid://` main scene with no cache under the configured project data directory —
   `live_main_scene_unresolved`, remedy: run the import pass once. Refusal precedes daemon
   or session launch (the engine version probe is allowed), and the daemon repeats the
   check at its launch boundary. A determinate main-scene refusal precedes the

@@ -30,6 +30,14 @@ from gda.daemon.session import (
 from gda.display import WindowedUnavailable, windowed_unavailable
 from gda.project import main_scene_unrunnable
 
+# The daemon is the FIRST consumer of the shared script-error parser under
+# ``gda.daemon`` (#848). The readiness boundary asks the same module ``script
+# run`` and ``scene preflight`` ask — what does this engine stderr say about a
+# script — so the answer is one recognizer's, not a second daemon-side copy.
+# What it recognizes is that module's own rule, read there and never restated
+# here: a paraphrase would be a second authority over a closed set that widens.
+from gda.script_errors import ScriptError, parse_script_errors
+
 # Control ops on the CLI socket — daemon lifetime, not project domain ops.
 STATUS_OP = "__status__"
 STOP_OP = "__stop__"
@@ -168,6 +176,13 @@ class DaemonServer:
         # nothing replaced. Written only when a launch succeeds, at the same
         # place `_session` is assigned.
         self._last_session_id: str | None = None
+        # What the last SUCCESSFULLY ESTABLISHED session's startup printed (#848),
+        # read ONCE at the readiness boundary and remembered beside the identity
+        # above — the same read model, written at the same place, so the two
+        # cannot disagree about which session they describe. ``None`` means no
+        # session was established this daemon lifetime, which is NOT the same fact
+        # as an empty list (a start with nothing recognized against it).
+        self._startup_diagnostics: list[ScriptError] | None = None
         self._pidfile_handle = None
 
     def serve(self) -> None:
@@ -255,11 +270,16 @@ class DaemonServer:
             # the identity either (PR #746 review ARC-746-001) — hence the read
             # model, not the (already-retired) session object. Null before the
             # first successful launch this daemon lifetime.
+            # The startup verdict of that same session (#848) travels with it, so
+            # a caller that arrives after the launch reads what the readiness
+            # boundary saw without relaunching the game to see it again. Null —
+            # like `session_id` — when no session was established this lifetime.
             return {
                 "ok": True,
                 "pid": os.getpid(),
                 "windowed": self.windowed,
                 "session_id": self._last_session_id,
+                **self._startup_verdict(),
             }
         if op == STOP_OP:
             self._stopping = True
@@ -307,6 +327,12 @@ class DaemonServer:
         ``launched`` is reported by the launch owner (``_ensure_session``), not
         inferred here — a pre-sampled ``alive()`` raced the launch decision and
         could report ``false`` for a call that did launch (#725 review).
+
+        Success carries the establishing launch's startup verdict (#848). It is a
+        DISCLOSURE, never a refusal: a scene whose script did not compile boots
+        script-less and still serves, and that is precisely when ``diag errors``,
+        ``game tree`` and a capture are wanted. An idempotent repeat reports the
+        verdict of the session it found, which is the one the launch recorded.
         """
         raw = params.get("timeout")
         timeout: float | None = None
@@ -330,7 +356,13 @@ class DaemonServer:
         outcome = self._session_or_refusal(timeout=timeout)
         if isinstance(outcome, dict):
             return outcome
-        return result_reply({"pid": os.getpid(), "launched": outcome.launched})
+        return result_reply(
+            {
+                "pid": os.getpid(),
+                "launched": outcome.launched,
+                **self._startup_verdict(),
+            }
+        )
 
     def _session_or_refusal(
         self, timeout: float | None = None
@@ -539,6 +571,12 @@ class DaemonServer:
         if self._session is None:
             return None
         self._last_session_id = session_id
+        # The startup verdict is read HERE, at the launch boundary (#848), so
+        # every path that establishes a session records it — `wait-ready` and the
+        # lazy launch a first live op triggers alike, since both come through
+        # here. Read once, right after the handshake the launch just completed,
+        # which is what bounds it to the log's pre-handshake prefix.
+        self._startup_diagnostics = self._read_startup_diagnostics()
         return _Established(self._session, launched=True)
 
     def _launch_failure_diagnostics(self, child_diagnostics: list[str]) -> str:
@@ -558,6 +596,47 @@ class DaemonServer:
         if tail:
             parts.append(f"session log tail:\n{tail}")
         return "\n".join(parts)
+
+    def _startup_verdict(self) -> dict:
+        """The two startup keys both disclosing replies carry (#848).
+
+        One projection for both, so ``daemon wait-ready`` and ``__status__``
+        cannot spell the same fact differently. ``clean_start`` is what the list
+        MEANS at this boundary — no recognized script error was read — carried so
+        a caller branches on one boolean instead of on a list's emptiness. Both
+        are null together when no session was established this daemon lifetime:
+        an empty list there would assert a clean start no launch backed.
+        """
+        recognized = self._startup_diagnostics
+        if recognized is None:
+            return {"startup_diagnostics": None, "clean_start": None}
+        # ``mode="json"`` because this dict is a WIRE frame: the reply is JSON-
+        # encoded for the CLI, so the kind must leave here as its string value
+        # rather than as an enum member that only encodes correctly by accident
+        # of ``ScriptErrorKind`` subclassing ``str``.
+        return {
+            "startup_diagnostics": [
+                error.model_dump(mode="json") for error in recognized
+            ],
+            "clean_start": not recognized,
+        }
+
+    def _read_startup_diagnostics(self) -> list[ScriptError]:
+        """Recognized script errors from the Session log, read at the handshake (#848).
+
+        A SECOND projection of the daemon-owned file ``diag errors`` reads, never a
+        competing authority over it (ADR-0022): this one is bounded to what the log
+        held when the launch's handshake completed, and is a convenience AT the
+        readiness boundary; the full-log read stays ``diag errors``. Best-effort
+        like every read of that file — the engine flushes an error as it writes it,
+        but a log gda cannot read yields no diagnostics rather than a failure, and
+        this must not turn a serving session into a refusal.
+        """
+        try:
+            data = self.paths.session_log.read_bytes()
+        except OSError:
+            return []
+        return parse_script_errors(data.decode("utf-8", "replace"))
 
     def _read_session_log_tail(self, max_bytes: int = 2000) -> str:
         """The trailing bytes of the daemon-owned Session log, or "" if unreadable."""

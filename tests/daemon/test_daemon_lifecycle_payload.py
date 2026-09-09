@@ -887,6 +887,115 @@ def test_status_session_identity_is_null_before_a_launch_or_on_drift(
         assert status.session_id is None
 
 
+# --- status carries the readiness boundary's startup verdict (#848) ------------
+# The daemon read the Session log once, where the launch handshake completed, and
+# remembers what the shared script-error parser recognized. `daemon status` relays
+# it so a later caller reads the verdict of the serving session without a relaunch.
+
+
+def test_status_reports_the_startup_verdict_from_the_control_op(
+    tmp_path, short_runtime, monkeypatch
+):
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    monkeypatch.setattr(
+        daemon_ops,
+        "_control",
+        lambda sock, op, **kw: {
+            "ok": True,
+            "windowed": False,
+            "session_id": "a1b2c3d4e5f60718",
+            "clean_start": False,
+            "startup_diagnostics": [
+                {
+                    "kind": "parse_error",
+                    "message": "Parse Error: bad",
+                    "path": "res://main.gd",
+                    "line": 5,
+                }
+            ],
+        },
+    )
+
+    status = daemon_ops.run_daemon_status_operation(project)
+
+    assert isinstance(status, DaemonStatusResult), status
+    assert status.clean_start is False
+    assert status.startup_diagnostics is not None
+    assert [(d.kind.value, d.path, d.line) for d in status.startup_diagnostics] == [
+        ("parse_error", "res://main.gd", 5)
+    ]
+
+
+def test_status_startup_verdict_is_null_before_a_launch_or_on_drift(
+    tmp_path, short_runtime, monkeypatch
+):
+    # No session this daemon lifetime -> both keys null: an empty list would read
+    # as "the start was clean", which is a claim no launch backed. A drifted reply
+    # degrades to null too, rather than crashing the read.
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    for diagnostics, clean in ((None, None), ("nonsense", 7), ([{"kind": "?"}], True)):
+        monkeypatch.setattr(
+            daemon_ops,
+            "_control",
+            lambda sock, op, _d=diagnostics, _c=clean, **kw: {
+                "ok": True,
+                "windowed": False,
+                "startup_diagnostics": _d,
+                "clean_start": _c,
+            },
+        )
+        status = daemon_ops.run_daemon_status_operation(project)
+        assert isinstance(status, DaemonStatusResult)
+        assert status.startup_diagnostics is None
+        assert status.clean_start is None
+
+
+def test_status_schema_publishes_the_startup_verdict_as_required_but_nullable():
+    # Same promise `session_id` makes (#746 review): the keys are ALWAYS carried,
+    # null when no session was established, so a Draft 2020-12 consumer sees them
+    # required with a null branch.
+    result = CliRunner().invoke(app, ["daemon", "status", "--schema"])
+    assert result.exit_code == 0, result.stdout
+    output = json.loads(result.stdout)["output"]
+    for key in ("startup_diagnostics", "clean_start"):
+        assert key in output["required"]
+        assert {"type": "null"} in output["properties"][key]["anyOf"]
+
+
+def test_status_renders_a_degraded_start_for_humans(
+    tmp_path, short_runtime, monkeypatch
+):
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    monkeypatch.setattr(
+        daemon_ops,
+        "_control",
+        lambda sock, op, **kw: {
+            "ok": True,
+            "windowed": False,
+            "session_id": "a1b2c3d4e5f60718",
+            "clean_start": False,
+            "startup_diagnostics": [
+                {
+                    "kind": "parse_error",
+                    "message": "Parse Error: bad",
+                    "path": "res://main.gd",
+                    "line": 5,
+                }
+            ],
+        },
+    )
+
+    status = daemon_ops.run_daemon_status_operation(project)
+
+    assert isinstance(status, DaemonStatusResult)
+    rendered = daemon_ops.render_daemon_status(status)
+    assert "startup not clean" in rendered
+    assert "parse_error: res://main.gd:5: Parse Error: bad" in rendered
+
+
 # --- uninstall recipe (#225, D2) ----------------------------------------------
 
 

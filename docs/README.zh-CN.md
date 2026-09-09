@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=8c2f2dce0229e2a816eb45186888fd06c25af9cabfaf1b84f18cd1a254163f00 -->
+<!-- gda-readme-i18n: source=README.md sha256=e6d52d18b9707a5cc5eeb31a0cedb84d20a9c71c796bc6c9301deb90c384a6be -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -463,9 +463,9 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | 命令 | 作用 |
 | ------- | ------------ |
 | `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话按需启动，只有操作需要时才会拉起（`screen` 截图需加 `--windowed`）。项目必须定义 `application/run/main_scene`，或传 `--scene`。 |
-| `daemon wait-ready` | 立即启动引擎会话并等待它就绪；`--timeout` 是 daemon 为这次启动分配的预算，不是这次调用的硬性上限。只读的 `diag` / `logger` 读取从不启动会话，所以当这类读取是你的第一个 Live 命令时，先跑这一步。 |
+| `daemon wait-ready` | 立即启动引擎会话并等待它就绪；`--timeout` 是 daemon 为这次启动分配的预算，不是这次调用的硬性上限。只读的 `diag` / `logger` 读取从不启动会话，所以当这类读取是你的第一个 Live 命令时，先跑这一步。会话就绪不等于场景干净启动：把游戏当作证据来读之前，先读 `clean_start`。 |
 | `daemon stop` | 停止项目的 daemon 以及任何正在运行的引擎会话。 |
-| `daemon status` | 报告 daemon 的状态（是否运行、窗口模式、会话）。 |
+| `daemon status` | 报告 daemon 的状态（是否运行、窗口模式、会话，以及该会话的启动结论）。 |
 | `daemon install` | 在不启动 daemon 的情况下安装游戏内 harness，并报告写入了什么。幂等；`daemon start` 自己就会做这一步，因此只在想单独审阅或提交那次 `project.godot` 改动时使用。 |
 | `daemon uninstall` | 移除游戏内 harness——autoload 条目、harness 文件、`.uid` 附属文件——还原 `project.godot`，并报告移除了什么。仅用于开发工具卸载：`gda export run` 已经会自动从导出产物中剥离 harness。 |
 

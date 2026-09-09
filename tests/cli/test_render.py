@@ -65,6 +65,7 @@ from gda.models import EngineVersion, NodeProperty
 from gda.commands.meta import render_engine_version
 from gda.commands.script import ScriptMetadata
 from gda.render import format_value, render_node_tree
+from gda.script_errors import ScriptError, ScriptErrorKind
 
 # The five script result types the metadata renderer used to read as a union.
 SCRIPT_METADATA_MODELS = [
@@ -314,7 +315,13 @@ def test_render_daemon_status_notes_the_windowed_session(tmp_path):
     # #251: `daemon status` surfaces the running daemon's display mode. Like
     # `daemon start`, the marker shows only when windowed (headless is the default).
     windowed = DaemonStatusResult(
-        running=True, pid=42, socket_path="/tmp/x.sock", windowed=True, session_id=None
+        running=True,
+        pid=42,
+        socket_path="/tmp/x.sock",
+        windowed=True,
+        session_id=None,
+        startup_diagnostics=None,
+        clean_start=None,
     )
     assert (
         render_daemon_status(windowed)
@@ -333,9 +340,40 @@ def test_render_daemon_status_notes_the_windowed_session(tmp_path):
     assert render_daemon_status(identified).endswith(" session a1b2c3d4e5f60718")
 
     stopped = DaemonStatusResult(
-        running=False, socket_path="/tmp/x.sock", session_id=None
+        running=False,
+        socket_path="/tmp/x.sock",
+        session_id=None,
+        startup_diagnostics=None,
+        clean_start=None,
     )
     assert render_daemon_status(stopped) == "daemon not running"
+
+    # #848: a session that started clean adds nothing to the line; a degraded one
+    # adds the block, so a reader who only ever looks at stdout still sees it.
+    clean = windowed.model_copy(update={"startup_diagnostics": [], "clean_start": True})
+    assert (
+        render_daemon_status(clean)
+        == "daemon running: pid 42 on /tmp/x.sock [windowed]"
+    )
+
+    degraded = windowed.model_copy(
+        update={
+            "startup_diagnostics": [
+                ScriptError(
+                    kind=ScriptErrorKind.PARSE_ERROR,
+                    message="Parse Error: bad",
+                    path="res://main.gd",
+                    line=5,
+                )
+            ],
+            "clean_start": False,
+        }
+    )
+    assert render_daemon_status(degraded) == (
+        "daemon running: pid 42 on /tmp/x.sock [windowed]\n"
+        "  startup not clean:\n"
+        "    parse_error: res://main.gd:5: Parse Error: bad"
+    )
 
 
 def test_render_daemon_uninstall_reports_removal(tmp_path):

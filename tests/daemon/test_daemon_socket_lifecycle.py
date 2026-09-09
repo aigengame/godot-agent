@@ -240,8 +240,12 @@ def test_serve_binds_both_sockets_and_answers_status(
             "ok": True,
             "pid": os.getpid(),
             "windowed": False,
-            # No session launched this lifetime -> nothing to correlate (#660).
+            # No session launched this lifetime -> nothing to correlate (#660),
+            # and no startup to report on (#848). The verdict is null rather
+            # than an empty list, which would claim a clean start nothing backs.
             "session_id": None,
+            "startup_diagnostics": None,
+            "clean_start": None,
         }
 
 
@@ -509,7 +513,14 @@ def test_wait_ready_launches_once_and_reports_the_bounded_wait(
 
     assert first is not None
     verdict = parse_result(first["stdout"])
-    assert verdict == {"pid": os.getpid(), "launched": True}
+    # The startup verdict rides success (#848); this fake launch writes no
+    # Session log, so nothing is recognized against the start it reports.
+    assert verdict == {
+        "pid": os.getpid(),
+        "launched": True,
+        "startup_diagnostics": [],
+        "clean_start": True,
+    }
     assert again is not None
     assert parse_result(again["stdout"])["launched"] is False
     # One launch, and what reaches the launcher is the caller's own DEADLINE —
