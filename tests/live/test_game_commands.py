@@ -815,7 +815,83 @@ def test_game_rect_emits_rendered_control_rect_through_the_live_channel(
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
     assert data == GAME_RECT_RESULT
+    # The whole layout read reaches the caller, not the global rect alone (#852):
+    # the same rectangle in the parent's space, and the two minimum sizes.
+    assert data["local_position"] == [0.0, 0.0]
+    assert data["local_size"] == [160.0, 48.0]
+    assert data["minimum_size"] == [23.0, 26.0]
+    assert data["combined_minimum_size"] == [160.0, 48.0]
     assert fake.calls == [("game-rect", {"node": "/root/Main/HUD/Stats"})]
+
+
+@pytest.mark.parametrize(
+    "missing",
+    ["local_position", "local_size", "minimum_size", "combined_minimum_size"],
+)
+def test_game_rect_reply_without_a_geometry_field_is_a_contract_violation(
+    monkeypatch, tmp_path, missing
+):
+    # Every field #852 adds is REQUIRED, so a harness that does not report one
+    # (a stale installed copy) is a typed contract failure, never a partial rect
+    # the caller could read as complete.
+    reply = {key: value for key, value in GAME_RECT_RESULT.items() if key != missing}
+    inject_live_runner(
+        monkeypatch, RunResult(stdout=sentinel(reply), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "rect",
+            "/root/Main/HUD/Stats",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code != 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
+
+
+def test_game_get_relays_the_controls_layout_refusal_unchanged(monkeypatch, tmp_path):
+    # The message is the harness's (the four Control layout spellings, #852); the
+    # CLI adds nothing to it and takes nothing away, so what an agent reads is
+    # what the running game said. What the harness must SAY is guarded against the
+    # harness source in tests/live/test_live_contract_guards.py, and observed on a
+    # real engine in tests/daemon/test_e2e_daemon.py.
+    message = (
+        "node /root/Main/HUD/Stats has no runtime, storage, or script property: "
+        "size. Read it with `gda game rect /root/Main/HUD/Stats`."
+    )
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel("live_unknown_property", message),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "get",
+            "/root/Main/HUD/Stats",
+            "--property",
+            "size",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "live_unknown_property"
+    assert error["message"] == message
 
 
 def test_game_rect_non_control_reports_live_not_control(monkeypatch, tmp_path):

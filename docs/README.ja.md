@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=8c2f2dce0229e2a816eb45186888fd06c25af9cabfaf1b84f18cd1a254163f00 -->
+<!-- gda-readme-i18n: source=README.md sha256=f828321713ebe36e45915a5f3c0d2afce7c748b3fba5908e7faa6702a61d0a7c -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -496,12 +496,13 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `game tree` | 実行中ゲームのランタイムシーンツリーを読み取ります(`_ready` の後)。 |
 | `game find` | ランタイムノードをパスではなく、エンジンクラス・スクリプト・グループ・名前・ユニーク名で検索します。`--type` はエンジンクラス(サブクラスを含む)であり、プロジェクトの `class_name` には決して一致しません。それに届くのは `--script res://path.gd` です。 |
 | `game get` | ランタイムノードのライブプロパティをノードパスで読み取ります。明示名ならアタッチ済みスクリプト変数も対象にできます。 |
-| `game rect` | ランタイム Control のレンダリング済みビューポート矩形をノードパスで読み取ります。 |
+| `game rect` | ランタイム Control のレイアウト出力をノードパスで読み取ります：レンダリング済みビューポート矩形、親空間での同じ矩形、固有の最小サイズと合成後の最小サイズです。 |
 | `game set` | 実行中ゲームのランタイムノードプロパティ、または明示名のアタッチ済みスクリプト変数を設定します。`verified` は読み戻し値が一致したかを報告します。 |
 | `game call` | ノードのスクリプトが `GDA_CALLABLE` で宣言したメソッドを 1 つ呼び出し、その戻り値を構造化データとして返します。この宣言はプロジェクト自身による「読み取り専用」の約束であり、gda は検証できません。宣言されていないメソッドは呼び出しません。 |
 
 `game call` は `game get` では読めないもの、つまりプロジェクトがメソッドとして公開する状態を読みます。
 `game set --property position` は `node set` と同じ `Control` ルールに従います。
+`game get` は Control の `position`、`size`、`global_position`、`global_rect` を拒否します。これらを読むのは `game rect` です。
 
 **`diag`** — ランタイム診断
 

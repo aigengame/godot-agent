@@ -587,6 +587,14 @@ func _match_payload(node: Node) -> Dictionary:
 	}
 
 
+# The reads a caller reaches for when a Control looks wrong on screen (#852,
+# GDA-DF-071), none of which game get can serve: position and size carry editor
+# usage only, global_position carries no usage flags, and global_rect is a
+# method — so none of them is in the storage set this handler reads. They are
+# layout OUTPUT, which game rect reports.
+const CONTROL_LAYOUT_READS := ["position", "size", "global_position", "global_rect"]
+
+
 # game get: resolve a node by its ABSOLUTE runtime path (as game tree reports it,
 # e.g. /root/Main/Player) and report its storage properties as typed JSON — the
 # runtime counterpart of headless node get. An optional `property` param filters
@@ -621,6 +629,9 @@ func _handle_game_get(params: Dictionary) -> String:
 		if not script_property.is_empty():
 			properties.append(script_property)
 	if has_filter and properties.is_empty():
+		if node is Control and CONTROL_LAYOUT_READS.has(wanted):
+			return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
+					_control_layout_read_message(path, wanted))
 		return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
 				_unknown_runtime_property_message(path, wanted))
 
@@ -651,9 +662,33 @@ func _explicit_script_variable_property(
 	return {}
 
 
+# The refusal for a CONTROL_LAYOUT_READS spelling on a Control: the generic
+# message says the read failed but not where the answer is, which left the
+# dogfooding caller stranded on exactly the reads game rect serves. So it names
+# that command and every field it reports, then the layout INPUTS — the storage
+# properties game get and game set do serve. Any other node keeps the generic
+# message: it has no layout output to redirect to.
+func _control_layout_read_message(path: String, prop_name: String) -> String:
+	return _unknown_runtime_property_message(path, prop_name) \
+			+ ". On a Control, position, size, global_position and global_rect are" \
+			+ " layout output, not storage properties: read them with `gda game rect " \
+			+ path + "`, which reports position, size, local_position, local_size," \
+			+ " minimum_size and combined_minimum_size. The layout inputs are the" \
+			+ " storage properties offset_left, offset_top, offset_right," \
+			+ " offset_bottom and anchor_left, anchor_top, anchor_right," \
+			+ " anchor_bottom"
+
+
 # game rect: resolve a node by its ABSOLUTE runtime path, require it to be a
-# Control, and report its rendered viewport-space rect. This reads layout output
-# via Control.get_global_rect(), not a storage property surface.
+# Control, and report what the layout PRODUCED for it — no storage property
+# carries that. The rendered viewport-space rect comes from
+# Control.get_global_rect() and the parent-space one from Control.get_rect();
+# the two differ by the ancestors' offsets, and their sizes differ only where an
+# ancestor applies a scale. The two minimum sizes are the layout's own inputs and
+# are DIFFERENT reads (#852): get_minimum_size() is the class's intrinsic minimum
+# and excludes the authored custom_minimum_size, while
+# get_combined_minimum_size() is the per-axis maximum of the two — what a parent
+# Container honors.
 func _handle_game_rect(params: Dictionary) -> String:
 	var path := _string_param(params, "node")
 	var node := _resolve_runtime_node(path)
@@ -666,12 +701,17 @@ func _handle_game_rect(params: Dictionary) -> String:
 
 	var control: Control = node as Control
 	var rect := control.get_global_rect()
+	var local_rect := control.get_rect()
 	return _ok({
 		"path": path,
 		"name": String(control.name),
 		"type": control.get_class(),
 		"position": _jsonify(rect.position),
 		"size": _jsonify(rect.size),
+		"local_position": _jsonify(local_rect.position),
+		"local_size": _jsonify(local_rect.size),
+		"minimum_size": _jsonify(control.get_minimum_size()),
+		"combined_minimum_size": _jsonify(control.get_combined_minimum_size()),
 	})
 
 

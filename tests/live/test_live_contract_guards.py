@@ -926,6 +926,122 @@ def test_relayed_live_ops_mirror_the_harness_op_table():
     )
 
 
+# --- The Control layout contract: what `game rect` reports, and what `game get`
+# --- says about the reads it does not serve (#852) ----------------------------
+
+# The keys `_handle_game_rect` puts in its success payload. The handler builds the
+# reply in one `_ok({...})` literal, so the wire shape is readable off the source
+# the way the op table above is.
+HARNESS_RECT_REPLY = re.compile(
+    r"^func _handle_game_rect\(.*?\n\treturn _ok\(\{\n(?P<body>.*?)\n\t\}\)$",
+    re.MULTILINE | re.DOTALL,
+)
+HARNESS_REPLY_KEY = re.compile(r'^\t\t"([a-z_]+)":', re.MULTILINE)
+
+# The spellings a caller reaches for on a Control, which `game get` cannot serve.
+HARNESS_CONTROL_LAYOUT_READS = re.compile(
+    r"^const CONTROL_LAYOUT_READS := \[(?P<body>.*?)\]$", re.MULTILINE | re.DOTALL
+)
+
+
+def test_game_rect_reply_keys_mirror_its_published_result_model():
+    # The wire shape of a recipe-less live command is the harness's alone: gda
+    # validates the reply against the result model and publishes it. So a field
+    # the model requires and the harness never writes is a `contract_violation`
+    # on a real engine only — PR CI runs no Godot e2e — and a field the harness
+    # writes and the model omits is a fact the caller never sees. Both are
+    # one-sided edits this equality catches at unit speed.
+    from gda.commands.game import GameRectResult
+
+    source = GDA_HARNESS_GD.read_text(encoding="utf-8")
+    match = HARNESS_RECT_REPLY.search(source)
+    assert match is not None, (
+        f"could not read _handle_game_rect's reply literal from "
+        f"{GDA_HARNESS_GD.name}; fix HARNESS_RECT_REPLY rather than letting this "
+        "guard pass vacuously"
+    )
+    keys = HARNESS_REPLY_KEY.findall(match.group("body"))
+    assert set(keys) == set(GameRectResult.model_fields), (
+        f"harness reply keys {sorted(keys)} != GameRectResult fields "
+        f"{sorted(GameRectResult.model_fields)}"
+    )
+
+
+def test_game_get_names_game_rect_for_the_control_reads_it_cannot_serve():
+    # `game get` reads the storage surface, and a Control's laid-out geometry is
+    # not on it (#852, GDA-DF-071): `position` and `size` carry editor usage only,
+    # `global_position` carries no usage flags, and `global_rect` is a method. The
+    # generic refusal therefore stranded a caller on exactly the reads `game rect`
+    # serves. The message is written in the harness, so this reads the harness.
+    source = GDA_HARNESS_GD.read_text(encoding="utf-8")
+    declared = HARNESS_CONTROL_LAYOUT_READS.search(source)
+    assert declared is not None, (
+        f"{GDA_HARNESS_GD.name} must declare CONTROL_LAYOUT_READS"
+    )
+    assert set(re.findall(r'"([a-z_]+)"', declared.group("body"))) == {
+        "position",
+        "size",
+        "global_position",
+        "global_rect",
+    }
+
+    message = _harness_function(source, "_control_layout_read_message")
+    # The read that DOES serve them, with every field it reports named, so the
+    # caller re-issues one command instead of discovering the fields.
+    assert "gda game rect" in message
+    for field in (
+        "position",
+        "size",
+        "local_position",
+        "local_size",
+        "minimum_size",
+        "combined_minimum_size",
+    ):
+        assert field in message, f"the redirect must name game rect's {field}"
+    # And the layout INPUT: the storage properties that decide that output, which
+    # `game get` and `game set` do serve.
+    for storage in (
+        "offset_left",
+        "offset_top",
+        "offset_right",
+        "offset_bottom",
+        "anchor_left",
+        "anchor_top",
+        "anchor_right",
+        "anchor_bottom",
+    ):
+        assert storage in message, f"the redirect must name the storage {storage}"
+
+    # Control-only: any other node keeps the generic message, so the redirect
+    # cannot send a Node2D caller to a command that refuses it.
+    handler = _harness_function(source, "_handle_game_get")
+    guarded = [
+        line
+        for line in handler.splitlines()
+        if "CONTROL_LAYOUT_READS" in line and "is Control" in line
+    ]
+    assert guarded, (
+        "the CONTROL_LAYOUT_READS redirect must be guarded by a Control check in "
+        f"_handle_game_get: {handler}"
+    )
+
+
+def _harness_function(source: str, name: str) -> str:
+    """One top-level GDScript function's text, its body included."""
+    lines = source.splitlines()
+    start = next(
+        (index for index, line in enumerate(lines) if line.startswith(f"func {name}(")),
+        None,
+    )
+    assert start is not None, f"expected function {name} in {GDA_HARNESS_GD.name}"
+    body = [lines[start]]
+    for line in lines[start + 1 :]:
+        if line and not line.startswith("\t"):
+            break
+        body.append(line)
+    return "\n".join(body)
+
+
 HARNESS_LAUNCH_MARKER = re.compile(r'^const LAUNCH_MARKER := "(.*)"$', re.MULTILINE)
 
 

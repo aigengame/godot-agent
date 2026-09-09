@@ -50,6 +50,27 @@ RECT_MAIN_TSCN = (
     "custom_minimum_size = Vector2(160, 48)\n"
     'text = "HP"\n'
 )
+# The layout fixture for `game rect`'s minimum sizes and local rect (#852). Every
+# number it produces is decided by the engine, not by a theme: `Box` is a plain
+# `Control`, whose `get_minimum_size()` returns the `_get_minimum_size` virtual it
+# does not implement — (0, 0) — so the authored `custom_minimum_size` is visible
+# ONLY through `get_combined_minimum_size()`, the per-axis maximum of the two
+# (`Control::_update_minimum_size_cache`). `Box` is a container-managed child, so
+# its own `position` is (0, 0) in the container's space while the container itself
+# is offset in the viewport. `Player` is the non-Control that must keep the generic
+# refusal message.
+MIN_SIZE_MAIN_TSCN = (
+    "[gd_scene format=3]\n\n"
+    '[node name="Main" type="Control"]\n\n'
+    '[node name="HUD" type="VBoxContainer" parent="."]\n'
+    "offset_left = 24.0\n"
+    "offset_top = 24.0\n"
+    "offset_right = 184.0\n"
+    "offset_bottom = 72.0\n\n"
+    '[node name="Box" type="Control" parent="HUD"]\n'
+    "custom_minimum_size = Vector2(80, 20)\n\n"
+    '[node name="Player" type="Node2D" parent="."]\n'
+)
 CONTROL_POSITION_MAIN_TSCN = (
     "[gd_scene format=3]\n\n"
     '[node name="Main" type="Control"]\n\n'
@@ -320,6 +341,95 @@ def test_daemon_game_rect_reads_container_managed_child_rect(
         assert doc["type"] == "Label"
         assert doc["position"] == [24.0, 24.0]
         assert doc["size"] == [160.0, 48.0]
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_rect_reports_the_minimum_sizes_and_the_local_rect(
+    tmp_path, daemon_runtime_dir
+):
+    # #852: `game rect` reports the whole layout read, not the global rect alone.
+    # Only a real engine lays a Control out, so the relationships below are read
+    # off a running VBoxContainer and its child.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MIN_SIZE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        hud = run("game", "rect", "/root/Main/HUD")
+        assert hud.returncode == 0, hud.stdout + hud.stderr
+        container = json.loads(hud.stdout)
+
+        box = run("game", "rect", "/root/Main/HUD/Box")
+        assert box.returncode == 0, box.stdout + box.stderr
+        doc = json.loads(box.stdout)
+        assert doc["path"] == "/root/Main/HUD/Box"
+        assert doc["type"] == "Control"
+
+        # The local rect is the SAME rectangle in the parent's space: Control
+        # .position is relative to the parent's rect origin, so the child's global
+        # origin is the container's plus its own. The container is offset in the
+        # viewport, so the two rects differ — which is what makes both worth
+        # reporting.
+        assert doc["local_position"] == [
+            doc["position"][0] - container["position"][0],
+            doc["position"][1] - container["position"][1],
+        ]
+        assert doc["local_position"] != doc["position"], doc
+        # get_rect() and get_global_rect() take the same size through their
+        # transforms and nothing in the fixture scales, so the two sizes agree.
+        assert doc["local_size"] == doc["size"]
+
+        # The two minimum sizes are different reads. A plain Control implements no
+        # `_get_minimum_size`, so its intrinsic minimum is exactly (0, 0) — and the
+        # authored custom_minimum_size (80, 20) appears only in the combined one,
+        # which is the per-axis maximum of the two.
+        assert doc["minimum_size"] == [0.0, 0.0], doc
+        assert doc["combined_minimum_size"] == [80.0, 20.0], doc
+        # The container honors that combined minimum on both axes: BoxContainer
+        # fits every child into a rect no smaller than it.
+        assert doc["size"][0] >= doc["combined_minimum_size"][0], doc
+        assert doc["size"][1] >= doc["combined_minimum_size"][1], doc
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_get_names_game_rect_for_a_controls_layout_reads(
+    tmp_path, daemon_runtime_dir
+):
+    # #852: the four spellings a caller reaches for on a Control are not storage
+    # properties, so `game get` refuses them — and the refusal now names the read
+    # that serves them. A non-Control keeps the generic message, which only a real
+    # engine's property list can prove.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MIN_SIZE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        for spelling in ("position", "size", "global_position", "global_rect"):
+            got = run("game", "get", "/root/Main/HUD/Box", "--property", spelling)
+            assert got.returncode == 6, got.stdout + got.stderr
+            error = json.loads(got.stdout)["error"]
+            assert error["code"] == "live_unknown_property", (spelling, error)
+            assert "gda game rect /root/Main/HUD/Box" in error["message"], error
+            for named in ("minimum_size", "offset_left", "anchor_right"):
+                assert named in error["message"], (spelling, named, error)
+
+        # A non-Control has no layout output to redirect to: same code, generic
+        # message, no `game rect`.
+        other = run("game", "get", "/root/Main/Player", "--property", "size")
+        assert other.returncode == 6, other.stdout + other.stderr
+        error = json.loads(other.stdout)["error"]
+        assert error["code"] == "live_unknown_property"
+        assert "game rect" not in error["message"], error
     finally:
         run("daemon", "stop")
 

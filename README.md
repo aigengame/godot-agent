@@ -485,12 +485,14 @@ gda restores the explicit lines it drops and reports the rest on the result.
 | `game tree` | Read the running game's runtime scene tree (after `_ready`). |
 | `game find` | Find runtime nodes by engine class, script, group, name, or unique name, instead of by path. `--type` is the ENGINE class (subclass-inclusive) and never a project `class_name` — `--script res://path.gd` is what reaches that. |
 | `game get` | Read a runtime node's live properties by node path; explicit names can address attached-script variables. |
-| `game rect` | Read a runtime Control's rendered viewport rect by node path. |
+| `game rect` | Read a runtime Control's layout output by node path: the rendered viewport rect, the same rect in the parent's space, and the intrinsic and combined minimum sizes. |
 | `game set` | Set a runtime node property, or an explicitly named attached-script variable, on the running game; `verified` reports whether the read-back matched. |
 | `game call` | Invoke one method the node's script declares in `GDA_CALLABLE` — the project's own read-only promise, which gda cannot verify — and project what it returns; nothing undeclared is ever called. |
 
 `game call` reads what `game get` cannot: state your project exposes as a method.
 `game set --property position` follows the same `Control` rule as `node set`.
+`game get` refuses a Control's `position`, `size`, `global_position` and `global_rect`;
+`game rect` is the read for them.
 
 **`diag`** — runtime diagnostics
 

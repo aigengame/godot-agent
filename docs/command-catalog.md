@@ -378,7 +378,7 @@ current size, and echoes the resulting `position`. If the `Control` is a direct 
 `Container`, the command refuses with `unknown_property` and names the four offset properties as the
 actionable alternative; container-managed layout is not overridden. Live `gda game set` mirrors the
 same policy with `live_unknown_property` for the container-managed case. `gda game rect` remains a
-read-only rendered-geometry query and is not a setter.
+read-only query and is not a setter; it is the read for a `Control`'s layout output (#852).
 
 **Object-typed property assignment by `res://` reference** (ADR-0033, #363): for an **Object-typed**
 property that expects a Resource (sub)class — e.g. a `CollisionShape2D`'s `shape` (`Shape2D`) — `gda
@@ -1461,17 +1461,30 @@ re-derives every verdict from a running engine.
   the content digest of each PATH-LESS `Texture2D` value's **texture projection**
   (ADR-0035 amendment): the digest needs `Texture2D.get_image()`, a GPU-to-CPU readback,
   so without the flag the projection's `digest` field stays null.
-  `game rect` (shipped, #419) reads a running
-  `Control`'s rendered viewport-space rectangle via `Control.get_global_rect()`, returning
-  `position` and `size` as the existing Vector2 projection. These commands address the
-  node by its **runtime (absolute) path** as `game tree` reports it (e.g.
+  `game rect` (shipped, #419, extended by #852) reads a running `Control`'s layout
+  OUTPUT, which no storage property carries: `position` / `size` from
+  `Control.get_global_rect()` (the rendered viewport-space rectangle), `local_position` /
+  `local_size` from `Control.get_rect()` (the same rectangle in the PARENT's space, which
+  differs by the ancestors' offsets and, in size, only under an ancestor scale), and the
+  two minimum sizes, which are different reads — `minimum_size`
+  (`Control.get_minimum_size()`) is the class's intrinsic minimum and EXCLUDES the
+  authored `custom_minimum_size`, while `combined_minimum_size`
+  (`Control.get_combined_minimum_size()`) is the per-axis maximum of the two, the size a
+  parent `Container` honors. Each is the existing Vector2 projection. These commands
+  address the node by its **runtime (absolute) path** as `game tree` reports it (e.g.
   `/root/Main/Player`), in contrast to the on-disk node group's **root-relative** path:
   the live tree has no `.tscn` scene root to be relative to, and the headless resolver
   rejects absolute paths, so the harness resolves off the running `SceneTree` root. A
   `set` applies at a frame boundary (ADR-0020) and is bound to the session, not persisted;
   a missing node is `live_node_not_found`, an absent property `live_unknown_property`, an
   uncoercible value `live_uncoercible_value`, and a `game rect` target that is not a
-  `Control` is `live_not_control`. The on-disk counterparts stay under `scene` / `node`
+  `Control` is `live_not_control`. On a `Control`, the four spellings a caller reaches for
+  — `position`, `size`, `global_position` and `global_rect` — are not storage properties
+  (the first two carry editor usage only, `global_position` no usage flags, and
+  `global_rect` is a method), so `game get` refuses them; since #852 that
+  `live_unknown_property` message names `gda game rect` and the fields it reports, plus
+  the `offset_*` / `anchor_*` storage properties that decide the layout. Any other node
+  keeps the generic message. The on-disk counterparts stay under `scene` / `node`
   (ADR-0019).
   `game call <node> --method NAME [--args JSON]` (shipped, #673, ADR-0041) serves the
   read `game get` cannot: a debug or state contract the project exposes as a METHOD
