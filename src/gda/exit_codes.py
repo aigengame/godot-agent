@@ -24,7 +24,8 @@ glance and new codes cannot silently collide.
   ``parse`` it spans several ``GdaError.code``s that the ``code`` field tells
   apart.
 - ``EXIT_USAGE`` (exit ``2``) is the ``usage`` category: gda could not resolve
-  what was asked for — an unrecognized command or option (#670). It is the ONE
+  what was asked for, or argv did not satisfy the command's declared contract
+  (#670, #947). It is the ONE
   value here gda did not choose: ``2`` is the exit every CLI parser (click's
   included) already uses for a usage error, and gda's structured refusal is the
   same failure reported better, not a different one. Registering it therefore

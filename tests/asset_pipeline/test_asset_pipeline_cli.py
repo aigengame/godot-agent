@@ -17,7 +17,7 @@ from gda_assets.api import (
     PipelineResult,
 )
 from gda.errors import make_failure
-from tests.support import minimal_project
+from tests.support import minimal_project, structured_argv_error_message
 
 
 def test_asset_pipeline_run_is_discoverable_with_typed_file_input():
@@ -203,7 +203,7 @@ def test_relative_sources_need_an_explicit_base_independent_of_cwd(
 
     assert argv_refusal.exit_code == 2
     assert params_refusal.exit_code == 4
-    assert "source_root is required" in argv_refusal.stderr
+    assert "source_root is required" in structured_argv_error_message(argv_refusal)
     assert "source_root is required" in params_refusal.stdout
     assert calls == []
 

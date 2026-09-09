@@ -11,7 +11,7 @@ opposite — operation. So the mapping here is CURATED: one row per spelling the
 record actually showed — plus, where a row says so, the sibling spelling of one, when
 the same slip reaches a second command — each naming the supported invocation.
 
-This module owns two things, which are the two halves of one job:
+This module owns the usage boundary, in two parts:
 
 - :data:`NEAR_MISSES`, the single authority for what gda recommends. One table, not
   per-group fragments: three of its rows belong to no group at all (a root option, a
@@ -21,16 +21,18 @@ This module owns two things, which are the two halves of one job:
   cannot outlive a rename.
 - :class:`GdaGroup`, the click group the composition root mounts everywhere, which
   turns an unrecognized command or option into gda's ordinary ``{"error": {...}}``
-  envelope.
+  envelope and gives explicit-JSON argv validation failures that same public
+  channel. Human argv validation keeps Click's readable stderr panel.
 
-**Where the interception sits.** A Typer parser reports these two failures at three
-places, and this class covers all of them because ``gda.cli`` gives every group the
-class: an unknown COMMAND is decided in :meth:`GdaGroup.resolve_command` (the group
-it was typed under); an unknown OPTION on the root or on a group surfaces from that
+**Where the interception sits.** Unknown names can surface at three points, and
+this class covers all of them because ``gda.cli`` gives every group the class: an
+unknown COMMAND is decided in :meth:`GdaGroup.resolve_command` (the group it was
+typed under); an unknown OPTION on the root or on a group surfaces from that
 parser's own :meth:`GdaGroup.parse_args`; and an unknown option on a LEAF command
 surfaces from the leaf's parser, which runs inside its parent group's
-:meth:`GdaGroup.invoke`. So no command module — and no leaf command class — carries
-a line of this.
+:meth:`GdaGroup.invoke`. Type and model validation failures also reach that final
+``invoke`` boundary. So no command module — and no leaf command class — carries a
+line of this.
 
 **Which channel answers.** Whichever the invocation asked for, through the ONE
 public failure channel (``gda.headless.emit_failure``): the structured envelope
@@ -66,9 +68,10 @@ from gda.headless import (
     walk_mounted_groups,
 )
 
-# The two registered codes this module reports (ADR-0002, the `usage` category).
+# The registered codes this module reports (ADR-0002, the `usage` category).
 UNKNOWN_COMMAND = "unknown_command"
 UNKNOWN_OPTION = "unknown_option"
+INVALID_ARGUMENT = "invalid_argument"
 
 # Where the whole surface is enumerated — named in every hintless refusal, so a
 # caller that gda cannot advise is still pointed somewhere useful.
@@ -340,6 +343,23 @@ def _is_option(token: str) -> bool:
     return token.startswith("-") and token != "-"
 
 
+def _bad_parameter_message(exc: typer.BadParameter) -> str:
+    """Return an argv-refusal sentence without echoing a parser input value.
+
+    Command bodies raise ``BadParameter`` with an already-sanitized sentence after
+    the shared params model rejects the request. Click's own type conversion instead
+    attaches the parameter and commonly puts the raw token in ``message``. Name that
+    parameter and its contract, but never copy the token into the public envelope.
+    """
+    if exc.param is None:
+        return exc.message
+    options = getattr(exc.param, "opts", ())
+    label = next((option for option in options if option.startswith("--")), None)
+    if label is None:
+        label = getattr(exc.param, "human_readable_name", "argument")
+    return f"{label}: does not satisfy its declared argv contract"
+
+
 class GdaGroup(TyperGroup):
     """The click group gda mounts at every level, so a wrong invocation is reported.
 
@@ -372,6 +392,17 @@ class GdaGroup(TyperGroup):
             return super().invoke(ctx)
         except NoSuchOption as exc:
             _refuse_option(ctx, exc, on_group=False)
+            raise
+        except typer.BadParameter as exc:
+            # Human callers retain Click's readable stderr panel. An explicit JSON
+            # caller instead receives the same exit-2 usage failure through gda's
+            # public envelope, before a command can dispatch an operation.
+            target = exc.ctx or ctx
+            if json_in_effect(target):
+                emit_failure(
+                    make_failure(INVALID_ARGUMENT, _bad_parameter_message(exc), ""),
+                    json_output=True,
+                )
             raise
 
     def resolve_command(self, ctx: ClickContext, args: list[str]):

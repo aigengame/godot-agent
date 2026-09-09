@@ -270,8 +270,8 @@ _Avoid_: script error code, raw engine error
 **Classifier error code**:
 A `Gda error code` assigned by `gda` itself rather than reported by an operation —
 after classifying a runner, parser, version, crash, or fallback operation failure,
-or before any operation is identified at all, when the invocation names no command
-or option gda has (#670).
+or before any operation runs, when the invocation names no command or option gda has
+or its argv fails the identified command's contract (#670, #947).
 _Avoid_: wrapper error code, Python error code
 
 **Error envelope**:
@@ -280,11 +280,12 @@ successful result. It is what `--json` emits; without that flag the same failure
 is RENDERED for a human instead — the code and its category on a head line, the
 message, each optional typed key as a labelled line, then `diagnostics` verbatim
 as real lines. Two renderings of ONE outcome, at one exit code, from one renderer
-that keys on no `Gda error code` — the `usage` refusals included, since they answer
-through this channel rather than through the parser's own error (#685). One case falls
-outside it, by that channel's own rule: where gda has no correction to add AND no JSON
-was asked for, it says nothing and the parser's message stands — silence rather than a
-second gda layout.
+that keys on no `Gda error code` — the `usage` refusals included. An invalid argv
+value keeps the parser's readable stderr panel for a human, while explicit `--json`
+reports `invalid_argument` through this channel before an operation runs (#947). One
+case falls outside it, by that channel's own rule: where gda has no correction to add
+AND no JSON was asked for, it says nothing and the parser's message stands — silence
+rather than a second gda layout.
 _Avoid_: error blob, failure JSON
 
 **Failure evidence**:
