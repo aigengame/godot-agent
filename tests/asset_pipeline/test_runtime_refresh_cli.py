@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+from pydantic import TypeAdapter
 from typer.testing import CliRunner
 
 from gda.cli import app
@@ -150,11 +152,23 @@ def test_incomplete_refresh_message_reports_reset_stages_and_last_session_facts(
 
     project = minimal_project(tmp_path / "project")
     request = RefreshRequest("res://model.glb", "res://test.tscn", "/root/Test/Model")
-    refresh = RefreshResult(
-        request,
-        completed=["inspect_imported", "stop", "start", "ready", "observe_instance"],
-        before=SessionState(True, 10, False, "old"),
-        after=SessionState(True, 11, False, "new"),
+    refresh = TypeAdapter(RefreshResult).validate_python(
+        {
+            "request": request,
+            "completed": [
+                "inspect_imported",
+                "stop",
+                "start",
+                "ready",
+                "observe_instance",
+            ],
+            "before": SessionState(True, 10, False, "old"),
+            "after": SessionState(True, 11, False, "new"),
+            "comparison": {
+                "status": "incomplete",
+                "reasons": ["vertex limit exceeded"],
+            },
+        }
     )
     pipeline = PipelineResult(
         refresh=refresh,
@@ -212,4 +226,52 @@ def test_refresh_failure_before_reset_does_not_imply_a_restart_or_final_state():
     assert "completed reset stages: none" in message
     assert "before: unavailable" in message
     assert "last observed: unavailable" in message
+    assert "content comparison was not completed" in message
     assert "restarted" not in message
+
+
+@pytest.mark.parametrize(
+    "stage,code",
+    [
+        ("refresh.capture", "capture_failed"),
+        ("refresh.status", "refresh_session_changed"),
+        ("refresh.status", "daemon_not_running"),
+    ],
+)
+def test_later_refresh_failure_preserves_completed_content_match(stage, code):
+    from gda.commands.asset_pipeline import PipelineRunResult, _failure_message
+
+    result = PipelineRunResult.model_validate(
+        {
+            "completed": [],
+            "outputs": [],
+            "observations": [],
+            "refresh": {
+                "request": {
+                    "path": "res://model.glb",
+                    "scene": "res://test.tscn",
+                    "node": "/root/Test/Model",
+                },
+                "completed": [
+                    "inspect_imported",
+                    "stop",
+                    "start",
+                    "ready",
+                    "observe_instance",
+                    "compare",
+                ],
+                "comparison": {"status": "match", "reasons": []},
+            },
+            "failure": {
+                "stage": stage,
+                "code": code,
+                "message": "later operation failed",
+            },
+        }
+    )
+    message = _failure_message(stage, "later operation failed", result)
+    assert stage in message
+    assert "completed reset stages: stop, start, ready" in message
+    assert "content comparison matched; refresh did not complete" in message
+    assert "content verification is incomplete" not in message
+    assert "Inspect the installed output" not in message

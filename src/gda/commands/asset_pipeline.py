@@ -363,12 +363,24 @@ def _failure_message(stage: str, message: str, result: PipelineRunResult) -> str
                 else f"running={str(state.running).lower()}, session={state.session_id or 'unavailable'}"
             )
             details.append(f"{label}: {observed}")
-        return (
-            f"{summary}; {'; '.join(details)}; content verification is incomplete. "
-            "Completed reset stages are not undone. Read refresh.completed, "
-            "ready_session, after, issues, and localized content reasons. "
+        comparison = refresh.comparison
+        if comparison is None:
+            content_outcome = "content comparison was not completed"
+        elif comparison.status == "match":
+            content_outcome = "content comparison matched; refresh did not complete"
+        else:
+            content_outcome = "content verification is incomplete"
+        recovery = (
             "Inspect the installed output with resource inspect-model-content "
             "before explicitly requesting another refresh."
+            if comparison is not None and comparison.status == "incomplete"
+            else "Resolve the reported failing stage before another explicit refresh."
+        )
+        return (
+            f"{summary}; {'; '.join(details)}; {content_outcome}. "
+            "Completed reset stages are not undone. Read refresh.completed, "
+            "ready_session, after, issues, and localized content reasons. "
+            f"{recovery}"
         )
     if (
         result.failure is None

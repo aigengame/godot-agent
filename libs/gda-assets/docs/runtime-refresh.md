@@ -150,3 +150,8 @@ stop/start/readiness stages are not undone when comparison is incomplete. If no
 reset stage completed or the final status is unavailable, the message says so;
 consult the retained stage facts and localized content reasons before another
 explicit refresh.
+
+A completed content match remains a match if capture or the final session check
+fails later. In that case, the message preserves the comparison and identifies the
+failed refresh stage; it does not describe the content as unverified. If comparison
+was never reached, the message says it was not completed.
