@@ -89,3 +89,43 @@ def test_package_adapter_retains_native_failure(monkeypatch, tmp_path):
     assert raised.value.code == "path_not_found"
     assert port.last_failure is failure
     assert failure.child_stderr == "native stderr"
+
+
+def test_package_adapter_projects_load_recovery_without_source_import_advice(
+    monkeypatch, tmp_path
+):
+    failure = make_failure(
+        "not_a_scene",
+        "resource could not be loaded as PackedScene: res://wrapper.tscn; "
+        "inspect engine diagnostics; imported sources may need resource import",
+        "ERROR: Cannot open file 'res://accent.tres'.",
+    )
+    monkeypatch.setattr(
+        "gda.integrations.package.run_package_inspect_model_operation",
+        lambda *args, **kwargs: failure,
+    )
+    port = GdaGodotPackagePort()
+
+    with pytest.raises(PortFailure) as raised:
+        port.inspect_model(
+            tmp_path / "game.pck",
+            "res://wrapper.tscn",
+            subtree=".",
+            max_nodes=12,
+            max_items=34,
+        )
+
+    assert raised.value.code == "not_a_scene"
+    assert "res://wrapper.tscn" in str(raised.value)
+    assert "check export inclusion and dependencies" in str(raised.value)
+    assert "rebuild the package" in str(raised.value)
+    assert "does not establish that a dependency is missing" in str(raised.value)
+    assert "resource import" not in str(raised.value)
+    assert raised.value.cause is not None
+    assert raised.value.cause["code"] == "not_a_scene"
+    assert raised.value.cause["message"] == str(raised.value)
+    assert raised.value.cause["diagnostics"] == failure.error.diagnostics
+    assert port.last_failure is not None
+    assert port.last_failure.error.message == str(raised.value)
+    assert port.last_failure.error.diagnostics == failure.error.diagnostics
+    assert port.last_failure.child_stderr == failure.error.diagnostics
