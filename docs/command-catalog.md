@@ -1129,7 +1129,7 @@ a missing action is `unknown_setting`, mirroring `remove-autoload`. A failed sav
 | `gda resource uid` | Resolve UID ↔ resource path (both directions) |
 | `gda resource import` | Ensure assets are imported into the project cache (clean-worktree loading) |
 | `gda resource import-options` | Read configured GLB importer values and the supported update scope |
-| `gda resource reimport` | Change root scale, run project-wide import, and verify loaded dimensions |
+| `gda resource reimport` | Change root scale or LOD generation, run project-wide import, and verify the loaded effect |
 
 `gda resource import-options res://model.glb --json` reads the existing `.import`
 sidecar with Godot's ConfigFile parser in an isolated empty project. It does not
@@ -1145,31 +1145,39 @@ values and strings above 4096 characters have an unavailable reason. Godot write
 defaults and edits into the same sidecar, so explicit authorship, importer defaults,
 declared types/hints and effective engine values are unavailable from this query.
 `supported_updates` describes gda's bounded update contract: numeric
-`nodes/root_scale`, from `0.001` to `1000`. It does not discover plugin options.
+`nodes/root_scale`, from `0.001` to `1000`, and boolean
+`meshes/generate_lods`. One request selects exactly one option. It does not
+discover plugin options.
 
 ```sh
 gda resource reimport res://model.glb --updates-json '{"nodes/root_scale":2}' --dry-run
 gda resource reimport --params-json '{"path":"res://model.glb","updates":{"nodes/root_scale":2}}'
+gda resource reimport res://model.glb --updates-json '{"meshes/generate_lods":false}'
+gda resource reimport res://model.glb --updates-json '{"meshes/generate_lods":true}'
 ```
 
-Dry-run validates the patch and recorded configuration without target mutation,
+Dry-run validates the selected patch and recorded configuration without target mutation,
 target loading, or an import pass. It does not predict geometry or prove engine
-adoption. Unknown keys, nonnumeric values (including booleans), out-of-range values
-and unavailable scene scale configuration are refused. A no-op returns `unchanged`
+adoption. Unknown keys, multiple selected keys, nonnumeric root scales (including
+booleans), nonboolean LOD values, out-of-range scales and unavailable selected
+configuration are refused. A no-op returns `unchanged`
 with no configuration write, import pass or dimension verification; this does not
 prove that a previously edited sidecar was adopted. Invalid cache evidence needs
 explicit repair; this command does not delete sidecars or caches to repair it.
 
-A changed request needs an already imported baseline. The operation reads complete
-static mesh bounds through `inspect-model` (up to 4096 nodes), edits only root scale
-through ConfigFile, and invokes the existing project-wide import primitive even
-when GLB bytes are unchanged. Godot may normalize sidecar formatting; unselected
+A changed request needs an already imported baseline. A root-scale request reads
+complete static mesh bounds through `inspect-model` (up to 4096 nodes). An LOD
+request instead reads actual LOD levels per loaded ArrayMesh surface; it does not
+require measurable dimensions or apply scale tolerances. The operation edits only
+the selected option through ConfigFile and invokes the existing project-wide import
+primitive even when GLB bytes are unchanged. Godot may normalize sidecar formatting; unselected
 `[params]` values are compared semantically, including nested values omitted from
 the query. gda does not edit authored scenes or material overrides. Import scripts
 still run under the Trusted project assumption and can cause their own effects.
 
 Success requires unchanged source bytes, the requested configured value, preserved
-unselected parameters and changed loaded dimensions matching the scale ratio.
+unselected parameters and a matching loaded observation. Root-scale adoption needs
+changed dimensions matching the scale ratio.
 The comparison uses static resource-space mesh AABB **sizes**, including the root
 transform; both baked and root-transform scale modes are supported. It compares
 axes whose prior size exceeds `0.0001`, with relative tolerance `0.00001` and absolute
@@ -1177,14 +1185,27 @@ tolerance `0.0001`. No geometry, incomplete bounds, or a change too small to dis
 from unchanged geometry is refused before editing the configuration. This is a
 bounded dimension check, not animation, runtime-instance, or artistic acceptance.
 
+LOD adoption needs an observable transition on the same unchanged source: disabling
+changes a nonzero loaded LOD count to zero, and enabling changes zero to nonzero.
+An enabled option with zero resulting LODs is valid importer behavior for geometry
+such as a triangle, but it cannot prove that an enable request was adopted. A no-op
+also provides no new adoption evidence. The result reports per-surface counts and
+whether the bounded observation was complete. This native surface shape is admitted
+for Godot 4.6 and tested with Godot 4.6.3. `RenderingServer.mesh_get_surface` returns
+native buffers before gda can apply its traversal, vertex, surface, and 64 MiB LOD
+index reporting bounds. At most 256 LOD entries per surface are processed. Those
+limits bound processing and output, not the engine's
+initial resource load or native allocation. The operation does not inspect texture
+quality and never disables LOD generation automatically.
+
 `import_result` retains the existing cache-evidence and created-file report;
-`verification` supplies the independent loaded-size observation. An import script
+`verification` supplies the independent loaded observation. An import script
 can fail while old artifacts still satisfy the static import checks, so that
 summary alone never establishes adoption. `imported` means that a pass ran and
 the subsequent cache reread passed the static checks; it does not verify the
 requested options. An unchanged cache hash alone is not failure evidence either:
 a successful cached import or no-op edit can leave those bytes unchanged.
-When loaded dimensions reject adoption, the failure explains this distinction and
+When a loaded observation rejects adoption, the failure explains this distinction and
 carries the last 16 KiB (UTF-8 bytes) of available project-wide import stderr in
 `diagnostics`. The message states when none was captured. These lines are context
 from the whole pass, not an inferred per-asset cause or a new import classification.
