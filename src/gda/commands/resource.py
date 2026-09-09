@@ -23,7 +23,7 @@ import re
 from contextlib import contextmanager
 from tempfile import TemporaryDirectory
 from pathlib import Path
-from typing import Any, Callable, Literal, Optional
+from typing import Annotated, Any, Callable, Literal, Optional
 
 import typer
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -158,11 +158,22 @@ class ConfiguredImportOption(BaseModel):
     value_unavailable_reason: str | None
 
 
-class SupportedImportUpdate(BaseModel):
+class RootScaleSupportedImportUpdate(BaseModel):
     name: Literal["nodes/root_scale"] = "nodes/root_scale"
     value_type: Literal["float"] = "float"
     minimum: float = ROOT_SCALE_MIN
     maximum: float = ROOT_SCALE_MAX
+
+
+class LodGenerationSupportedImportUpdate(BaseModel):
+    name: Literal["meshes/generate_lods"] = "meshes/generate_lods"
+    value_type: Literal["bool"] = "bool"
+
+
+SupportedImportUpdate = Annotated[
+    RootScaleSupportedImportUpdate | LodGenerationSupportedImportUpdate,
+    Field(discriminator="name"),
+]
 
 
 class ResourceImportOptionsResult(BaseModel):
@@ -184,7 +195,10 @@ class ResourceImportOptionsResult(BaseModel):
         ]
     )
     supported_updates: list[SupportedImportUpdate] = Field(
-        default_factory=lambda: [SupportedImportUpdate()],
+        default_factory=lambda: [
+            RootScaleSupportedImportUpdate(),
+            LodGenerationSupportedImportUpdate(),
+        ],
         description="The gda built-in scene-importer update contract, not dynamically discovered plugin metadata.",
     )
 
@@ -1990,12 +2004,25 @@ class RootScaleUpdate(BaseModel):
     )
 
 
+class LodGenerationUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    generate_lods: bool = Field(
+        alias="meshes/generate_lods",
+        strict=True,
+        description="Whether the built-in scene importer generates mesh LODs.",
+    )
+
+
+ImportOptionUpdate = RootScaleUpdate | LodGenerationUpdate
+
+
 class ResourceReimportParams(BaseModel):
     path: NormalizedPath = Field(
         description="An already imported GLB source in the project."
     )
-    updates: RootScaleUpdate = Field(
-        description="Supported importer edits; currently nodes/root_scale only."
+    updates: ImportOptionUpdate = Field(
+        description="Exactly one supported built-in scene-importer option edit."
     )
     dry_run: bool = Field(
         default=False,
@@ -2009,10 +2036,21 @@ class ResourceReimportParams(BaseModel):
     )
 
 
-class ImportOptionChange(BaseModel):
-    name: str
+class RootScaleChange(BaseModel):
+    name: Literal["nodes/root_scale"] = "nodes/root_scale"
     before: float
     requested: float
+
+
+class LodGenerationChange(BaseModel):
+    name: Literal["meshes/generate_lods"] = "meshes/generate_lods"
+    before: bool
+    requested: bool
+
+
+ImportOptionChange = Annotated[
+    RootScaleChange | LodGenerationChange, Field(discriminator="name")
+]
 
 
 _SCALE_REL_TOLERANCE = 0.00001
@@ -2035,6 +2073,40 @@ class RootScaleVerification(BaseModel):
     absolute_tolerance: float = _SCALE_ABS_TOLERANCE
 
 
+class LodSurfaceObservation(BaseModel):
+    mesh: int = Field(description="Zero-based ArrayMesh traversal index.")
+    surface: int
+    vertices: int
+    lod_count: int
+    lod_index_bytes: int
+
+
+class LodStateObservation(BaseModel):
+    engine_version: EngineVersion
+    complete: bool
+    nodes: int
+    meshes: int
+    surfaces: int
+    vertices: int
+    lods: int
+    lod_index_bytes: int
+    observations: list[LodSurfaceObservation]
+    unsupported: list[str]
+    omissions: list[str]
+    measurement: Literal["array_mesh_surface_lods"] = "array_mesh_surface_lods"
+
+
+class LodGenerationVerification(BaseModel):
+    before: LodStateObservation
+    after: LodStateObservation
+    requested: bool
+    effective_generate_lods: bool | None = Field(
+        description="Requested setting supported by an observed LOD transition; null when unverified."
+    )
+    matched: bool
+    measurement: Literal["array_mesh_surface_lods"] = "array_mesh_surface_lods"
+
+
 class ResourceReimportResult(BaseModel):
     path: str
     dry_run: bool
@@ -2043,18 +2115,33 @@ class ResourceReimportResult(BaseModel):
     sidecar_changed: bool = False
     import_result: ResourceImportResult | None = None
     engine_pass_attempted: bool = False
-    verification: RootScaleVerification | None = None
+    verification: RootScaleVerification | LodGenerationVerification | None = Field(
+        default=None, discriminator="measurement"
+    )
     mutation_scope: str = "Selected source-adjacent .import options; actual import work is project-wide. Verification loads trusted project code."
 
 
 class _ImportConfigEditParams(BaseModel):
     sidecar: str
     original: str
-    root_scale: float
+    selected_option: Literal["nodes/root_scale", "meshes/generate_lods"]
+    root_scale: float | None = None
+    generate_lods: bool | None = None
+
+    @model_validator(mode="after")
+    def selected_value_is_present(self):
+        if self.selected_option == "nodes/root_scale":
+            if self.root_scale is None or self.generate_lods is not None:
+                raise ValueError("root_scale must be the only selected value")
+        elif self.generate_lods is None or self.root_scale is not None:
+            raise ValueError("generate_lods must be the only selected value")
+        return self
 
 
 class _ImportConfigEditResult(BaseModel):
-    root_scale: float
+    selected_option: Literal["nodes/root_scale", "meshes/generate_lods"]
+    root_scale: float | None = None
+    generate_lods: bool | None = None
     changed_unselected_options: list[str] = Field(default_factory=list)
 
 
@@ -2062,14 +2149,41 @@ _IMPORT_CONFIG_PATCH = HeadlessCommand(
     operation="resource-import-config-patch",
     input_model=_ImportConfigEditParams,
     output_model=_ImportConfigEditResult,
-    render=lambda result: str(result.root_scale),
+    render=lambda result: result.selected_option,
 )
 _IMPORT_CONFIG_CHECK = HeadlessCommand(
     operation="resource-import-config-check",
     input_model=_ImportConfigEditParams,
     output_model=_ImportConfigEditResult,
-    render=lambda result: str(result.root_scale),
+    render=lambda result: result.selected_option,
 )
+
+
+class _LodStateParams(BaseModel):
+    path: str
+    max_nodes: int = Field(default=4096, ge=1, le=4096)
+    max_surfaces: int = Field(default=4096, ge=1, le=4096)
+    max_vertices: int = Field(default=1_000_000, ge=1, le=1_000_000)
+    max_lods_per_surface: int = Field(default=256, ge=1, le=256)
+    max_lod_index_bytes: int = Field(
+        default=64 * 1024 * 1024, ge=1, le=64 * 1024 * 1024
+    )
+
+
+_RESOURCE_LOD_STATE = HeadlessCommand(
+    operation="resource-lod-state",
+    input_model=_LodStateParams,
+    output_model=LodStateObservation,
+    render=lambda result: f"{result.lods} LOD level(s)",
+)
+
+
+def _reimport_lod_state(
+    project: Path, path: str, godot: str | None
+) -> LodStateObservation | Failure:
+    return _RESOURCE_LOD_STATE.execute(
+        _LodStateParams(path=path), project=project, godot=godot
+    )
 
 
 def _reimport_bounds(
@@ -2115,6 +2229,21 @@ def _sizes_match(
     )
 
 
+def _adoption_failure_context(imported: ResourceImportResult, stderr: str) -> str:
+    import_explanation = (
+        " The project-wide import pass completed and its cache reread reported "
+        f"{imported.summary.imported} imported asset(s); that count does not prove adoption. "
+        "Existing cache artifacts can remain loadable after a rejected import. "
+    )
+    diagnostic_explanation = (
+        "Diagnostics contain the last 16 KiB of project-wide import stderr; "
+        "these lines alone do not establish this asset's cause."
+        if stderr
+        else "No stderr was captured from the import pass; a native cause was not established."
+    )
+    return import_explanation + diagnostic_explanation
+
+
 def run_resource_reimport_operation(
     project: Path, params: ResourceReimportParams, *, godot: str | None = None
 ) -> ResourceReimportResult | Failure:
@@ -2124,21 +2253,45 @@ def run_resource_reimport_operation(
     if isinstance(options, Failure):
         return options
     current = {option.name: option for option in options.configured_options}
-    scale = current.get("nodes/root_scale")
-    apply_scale = current.get("nodes/apply_root_scale")
-    if (
-        scale is None
-        or scale.value_type != "float"
-        or not isinstance(scale.value, (int, float))
-        or not ROOT_SCALE_MIN <= scale.value <= ROOT_SCALE_MAX
-        or apply_scale is None
-        or apply_scale.value_type != "bool"
-    ):
-        return make_failure(
-            "invalid_params",
-            "supported scene root-scale configuration is unavailable",
-            "",
+    update = params.updates
+    scale_request = isinstance(update, RootScaleUpdate)
+    selected_name = "nodes/root_scale" if scale_request else "meshes/generate_lods"
+    selected = current.get(selected_name)
+    if scale_request:
+        assert isinstance(update, RootScaleUpdate)
+        apply_scale = current.get("nodes/apply_root_scale")
+        if (
+            selected is None
+            or selected.value_type != "float"
+            or isinstance(selected.value, bool)
+            or not isinstance(selected.value, (int, float))
+            or not ROOT_SCALE_MIN <= selected.value <= ROOT_SCALE_MAX
+            or apply_scale is None
+            or apply_scale.value_type != "bool"
+        ):
+            return make_failure(
+                "invalid_params",
+                "supported scene root-scale configuration is unavailable",
+                "",
+            )
+        requested: float | bool = update.root_scale
+        change: ImportOptionChange = RootScaleChange(
+            before=selected.value, requested=requested
         )
+    else:
+        assert isinstance(update, LodGenerationUpdate)
+        if (
+            selected is None
+            or selected.value_type != "bool"
+            or not isinstance(selected.value, bool)
+        ):
+            return make_failure(
+                "invalid_params",
+                "supported scene LOD-generation configuration is unavailable",
+                "",
+            )
+        requested = update.generate_lods
+        change = LodGenerationChange(before=selected.value, requested=requested)
     evidence = _asset_state(project_absolute(project), options.path)
     if evidence.status == "invalid":
         return make_failure(
@@ -2146,16 +2299,7 @@ def run_resource_reimport_operation(
             "import evidence is invalid; inspect resource import --dry-run and repair it explicitly before changing options",
             "",
         )
-    requested = params.updates.root_scale
-    changes = (
-        []
-        if scale.value == requested
-        else [
-            ImportOptionChange(
-                name="nodes/root_scale", before=scale.value, requested=requested
-            )
-        ]
-    )
+    changes = [] if selected.value == requested else [change]
     result = ResourceReimportResult(
         path=options.path,
         dry_run=params.dry_run,
@@ -2167,7 +2311,7 @@ def run_resource_reimport_operation(
     if evidence.status != "cached":
         return make_failure(
             "invalid_params",
-            "import the source explicitly before comparing its configured scale with a new value",
+            "import the source explicitly before changing a supported import option",
             "",
         )
     source = project_absolute(project) / options.path[len(RES_PREFIX) :]
@@ -2175,21 +2319,39 @@ def run_resource_reimport_operation(
     original = sidecar.read_bytes()
     with source.open("rb") as stream:
         source_digest = hashlib.file_digest(stream, "sha256").digest()
-    before = _reimport_bounds(project, options.path, godot)
+    before = (
+        _reimport_bounds(project, options.path, godot)
+        if scale_request
+        else _reimport_lod_state(project, options.path, godot)
+    )
     if isinstance(before, Failure):
         return before
-    axes = [i for i, extent in enumerate(before.size) if extent > _SCALE_ABS_TOLERANCE]
-    if not axes:
-        return make_failure(
-            "invalid_params", "model has no measurable size axis above 0.0001", ""
-        )
-    ratio = requested / scale.value
-    if _sizes_match(before, before, ratio, axes):
-        return make_failure(
-            "invalid_params",
-            "requested size change is below verification tolerance; unchanged geometry could pass",
-            "",
-        )
+    axes: list[int] = []
+    ratio = 1.0
+    if scale_request:
+        assert isinstance(before, ModelBounds)
+        axes = [
+            i for i, extent in enumerate(before.size) if extent > _SCALE_ABS_TOLERANCE
+        ]
+        if not axes:
+            return make_failure(
+                "invalid_params", "model has no measurable size axis above 0.0001", ""
+            )
+        ratio = float(requested) / selected.value
+        if _sizes_match(before, before, ratio, axes):
+            return make_failure(
+                "invalid_params",
+                "requested size change is below verification tolerance; unchanged geometry could pass",
+                "",
+            )
+    else:
+        assert isinstance(before, LodStateObservation)
+        if not before.complete:
+            return make_failure(
+                "invalid_params",
+                "LOD adoption needs a complete Godot 4.6 ArrayMesh surface observation before editing",
+                "; ".join(before.unsupported + before.omissions),
+            )
     import_stderr = ""
 
     def retain_import_stderr(raw: RunResult) -> None:
@@ -2200,7 +2362,11 @@ def run_resource_reimport_operation(
         reference = scratch / "original.import"
         reference.write_bytes(original)
         edit = _ImportConfigEditParams(
-            sidecar=str(sidecar), original=str(reference), root_scale=requested
+            sidecar=str(sidecar),
+            original=str(reference),
+            selected_option=selected_name,
+            root_scale=float(requested) if scale_request else None,
+            generate_lods=bool(requested) if not scale_request else None,
         )
         patched = _IMPORT_CONFIG_PATCH.execute(edit, project=scratch, godot=godot)
         # A timeout or save failure may still have changed the file.
@@ -2232,56 +2398,81 @@ def run_resource_reimport_operation(
         checked = _IMPORT_CONFIG_CHECK.execute(edit, project=scratch, godot=godot)
         if isinstance(checked, Failure):
             return _reimport_failure(checked, result)
-        if checked.root_scale != requested or checked.changed_unselected_options:
+        retained = (
+            checked.root_scale == requested
+            if scale_request
+            else checked.generate_lods is requested
+        )
+        if not retained or checked.changed_unselected_options:
             return _reimport_failure(
                 make_failure(
                     "operation_failed",
-                    "engine changed unselected import options or did not retain root_scale: "
+                    "engine changed unselected import options or did not retain "
+                    + selected_name
+                    + ": "
                     + ", ".join(checked.changed_unselected_options),
                     "",
                 ),
                 result,
             )
-    after = _reimport_bounds(project, options.path, godot)
+    after = (
+        _reimport_bounds(project, options.path, godot)
+        if scale_request
+        else _reimport_lod_state(project, options.path, godot)
+    )
     if isinstance(after, Failure):
         return _reimport_failure(after, result)
-    result.verification = RootScaleVerification(
-        before=before,
-        after=after,
-        scale_ratio=ratio,
-        effective_root_scale=None,
-        compared_axes=axes,
-        matched=_sizes_match(before, after, ratio, axes)
-        and not _sizes_match(before, after, 1.0, axes),
-    )
+    if scale_request:
+        assert isinstance(before, ModelBounds) and isinstance(after, ModelBounds)
+        result.verification = RootScaleVerification(
+            before=before,
+            after=after,
+            scale_ratio=ratio,
+            effective_root_scale=None,
+            compared_axes=axes,
+            matched=_sizes_match(before, after, ratio, axes)
+            and not _sizes_match(before, after, 1.0, axes),
+        )
+    else:
+        assert isinstance(before, LodStateObservation) and isinstance(
+            after, LodStateObservation
+        )
+        transition = (
+            before.lods == 0 and after.lods > 0
+            if requested
+            else before.lods > 0 and after.lods == 0
+        )
+        result.verification = LodGenerationVerification(
+            before=before,
+            after=after,
+            requested=bool(requested),
+            effective_generate_lods=None,
+            matched=before.complete and after.complete and transition,
+        )
     with source.open("rb") as stream:
         source_unchanged = (
             hashlib.file_digest(stream, "sha256").digest() == source_digest
         )
     if not source_unchanged or not result.verification.matched:
-        import_explanation = (
-            " The project-wide import pass completed and its cache reread reported "
-            f"{imported.summary.imported} imported asset(s); that count does not prove adoption. "
-            "Existing cache artifacts can remain loadable after a rejected import. "
-        )
-        diagnostic_explanation = (
-            "Diagnostics contain the last 16 KiB of project-wide import stderr; "
-            "these lines alone do not establish this asset's cause."
-            if import_stderr
-            else "No stderr was captured from the import pass; a native cause was not established."
+        subject = (
+            "loaded dimensions do not verify the requested scale"
+            if scale_request
+            else "loaded ArrayMesh LODs do not verify the requested generate_lods transition"
         )
         return _reimport_failure(
             make_failure(
                 "operation_failed",
-                "loaded dimensions do not verify the requested scale on unchanged source bytes; "
+                subject + " on unchanged source bytes; "
                 "updated options remain on disk and no rollback was attempted."
-                + import_explanation
-                + diagnostic_explanation,
+                + _adoption_failure_context(imported, import_stderr),
                 import_stderr,
             ),
             result,
         )
-    result.verification.effective_root_scale = requested
+    if isinstance(result.verification, RootScaleVerification):
+        result.verification.effective_root_scale = float(requested)
+    else:
+        result.verification.effective_generate_lods = bool(requested)
     result.status = "applied"
     return result
 
@@ -2294,8 +2485,13 @@ def render_resource_reimport(result: ResourceReimportResult) -> str:
     text = f"{result.path}: {result.status}, {len(result.changes)} option change(s)"
     if result.import_result is not None:
         text += "\n" + render_resource_import(result.import_result)
-    if result.verification is not None:
+    if isinstance(result.verification, RootScaleVerification):
         text += f"\n  loaded size scale verified: {result.verification.scale_ratio:g}x"
+    elif isinstance(result.verification, LodGenerationVerification):
+        text += (
+            "\n  loaded LOD transition verified: "
+            f"{result.verification.before.lods} -> {result.verification.after.lods} level(s)"
+        )
     return text
 
 

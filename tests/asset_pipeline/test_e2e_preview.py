@@ -466,3 +466,43 @@ def test_public_preview_compares_native_performance_and_rejects_changed_setup(
     assert "preview_setup_mismatch" in incompatible["reasons"]
     for result in (first, second, third):
         _assert_removed(result)
+
+
+def test_native_preview_waits_after_captures_before_sampling(tmp_path, monkeypatch):
+    import time
+    from gda.integrations.preview import GdaGodotPreviewPort
+
+    source = tmp_path / "model.glb"
+    _asymmetric_glb(source, textured=False)
+    monkeypatch.setenv("GDA_USER_DATA_ROOT", str(tmp_path / "user-data"))
+    moments = {}
+
+    class TimedPort(GdaGodotPreviewPort):
+        def warmup(self, seconds):
+            moments["before"] = time.monotonic()
+            super().warmup(seconds)
+            moments["after"] = time.monotonic()
+
+        def performance(self, frames, *, budget):
+            moments["sample"] = time.monotonic()
+            return super().performance(frames, budget=budget)
+
+    result = preview_asset(
+        PreviewRequest(
+            source,
+            tmp_path / "captures",
+            settings=PreviewSettings(width=320, height=180),
+            frames=4,
+            warmup_seconds=0.25,
+        ),
+        host=lambda project: TimedPort(project),
+        files=PreviewFiles(),
+    )
+    assert result.failure is None, result.failure
+    assert moments["after"] - moments["before"] >= 0.25
+    assert moments["sample"] >= moments["after"]
+    assert result.request.warmup_seconds == 0.25 and "warmup" in result.completed
+    assert result.performance is not None and len(result.performance.samples) == 4
+    assert result.cleanup.session_stopped and result.cleanup.project_removed
+    assert result.project is not None
+    assert not result.cleanup.issues and not Path(result.project).exists()

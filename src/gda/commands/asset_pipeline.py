@@ -344,6 +344,44 @@ def _failure_message(stage: str, message: str, result: PipelineRunResult) -> str
         or "no installed files"
     )
     summary = f"asset pipeline failed during {stage}: {message}; affected: {affected}"
+    refresh = result.refresh
+    if refresh is not None and refresh.status == "incomplete":
+        reset_stages = (
+            ", ".join(
+                name for name in ("stop", "start", "ready") if name in refresh.completed
+            )
+            or "none"
+        )
+        details = [f"completed reset stages: {reset_stages}"]
+        for label, state in (
+            ("before", refresh.before),
+            ("last observed", refresh.after),
+        ):
+            observed = (
+                "unavailable"
+                if state is None
+                else f"running={str(state.running).lower()}, session={state.session_id or 'unavailable'}"
+            )
+            details.append(f"{label}: {observed}")
+        comparison = refresh.comparison
+        if comparison is None:
+            content_outcome = "content comparison was not completed"
+        elif comparison.status == "match":
+            content_outcome = "content comparison matched; refresh did not complete"
+        else:
+            content_outcome = "content verification is incomplete"
+        recovery = (
+            "Inspect the installed output with resource inspect-model-content "
+            "before explicitly requesting another refresh."
+            if comparison is not None and comparison.status == "incomplete"
+            else "Resolve the reported failing stage before another explicit refresh."
+        )
+        return (
+            f"{summary}; {'; '.join(details)}; {content_outcome}. "
+            "Completed reset stages are not undone. Read refresh.completed, "
+            "ready_session, after, issues, and localized content reasons. "
+            f"{recovery}"
+        )
     if (
         result.failure is None
         or result.failure.code != "observation_changed"
@@ -690,7 +728,15 @@ class AssetPipelinePreviewParams(_AssetCommandModel):
         strict=True,
         ge=1,
         le=120,
-        description="Performance sample frames at the final view, without stabilization.",
+        description="Performance sample frames after the final view and optional wait.",
+    )
+    warmup_seconds: float = Field(
+        default=0.0,
+        strict=True,
+        ge=0,
+        le=10,
+        allow_inf_nan=False,
+        description="Optional seconds to wait after the final view before sampling (0..10); no stability guarantee.",
     )
     timeout: float = Field(
         default=25.0,
@@ -789,6 +835,7 @@ def run_asset_preview(
             ),
         ),
         frames=params.frames,
+        warmup_seconds=params.warmup_seconds,
         timeout=params.timeout,
         max_nodes=params.max_nodes,
         budget=params.budget.resolve() if params.budget is not None else None,
@@ -849,6 +896,7 @@ def render_asset_preview(result: AssetPipelinePreviewResult) -> str:
         lines.append(f"  performance: passed={preview.performance.passed}")
     if preview.comparison is not None:
         lines.append(f"  comparison: {preview.comparison.status}")
+        lines.extend(f"    {text}" for text in preview.comparison.limitations)
         lines.extend(f"    {reason}" for reason in preview.comparison.reasons)
         lines.extend(
             f"    {name}: mean delta={change.mean_delta:g}, p95 delta={change.p95_delta:g}"
@@ -884,6 +932,11 @@ def asset_pipeline_preview(
         None, "--settings", help="Optional preview settings JSON file (at most 1 MiB)."
     ),
     frames: int = typer.Option(60, "--frames", min=1, max=120),
+    warmup_seconds: float = typer.Option(
+        0.0,
+        "--warmup-seconds",
+        help="Optional wait before sampling, finite seconds in 0..10; no stability guarantee.",
+    ),
     timeout: float = typer.Option(
         25.0, "--timeout", help="Positive readiness timeout in seconds, at most 50."
     ),
@@ -909,6 +962,7 @@ def asset_pipeline_preview(
             output_dir=output_dir,
             settings=settings,
             frames=frames,
+            warmup_seconds=warmup_seconds,
             timeout=timeout,
             max_nodes=max_nodes,
             budget=budget,

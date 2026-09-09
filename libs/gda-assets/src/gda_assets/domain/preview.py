@@ -191,3 +191,13 @@ def frame_views(
             )
         )
     return tuple(views)
+
+
+def validate_warmup(seconds: float) -> None:
+    """Keep the optional pre-sampling delay finite and bounded."""
+    if (
+        type(seconds) not in (int, float)
+        or not math.isfinite(seconds)
+        or not 0 <= seconds <= 10
+    ):
+        raise ValueError("Preview warmup_seconds must be finite and between 0 and 10")

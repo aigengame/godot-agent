@@ -44,12 +44,13 @@ def test_reimport_wrong_update_type_is_a_structured_usage_failure(monkeypatch):
     assert result.exit_code == EXIT_USAGE, result.stdout + result.stderr
     assert result.stderr == ""
     error = json.loads(result.stdout)["error"]
-    assert error == {
+    assert error | {"message": ""} == {
         "category": "usage",
         "code": "invalid_argument",
-        "message": "updates.nodes/root_scale: Input should be a valid number",
+        "message": "",
         "diagnostics": "",
     }
+    assert "nodes/root_scale: Input should be a valid number" in error["message"]
     assert secret not in result.stdout
 
 
@@ -133,10 +134,7 @@ def test_reimport_unknown_update_key_is_a_structured_usage_failure(monkeypatch):
     error = json.loads(result.stdout)["error"]
     assert error["category"] == "usage"
     assert error["code"] == "invalid_argument"
-    assert (
-        "updates.meshes/unsupported_947: Extra inputs are not permitted"
-        in error["message"]
-    )
+    assert "meshes/unsupported_947: Extra inputs are not permitted" in error["message"]
 
 
 def test_equivalent_params_json_failure_retains_invalid_params_exit_four(monkeypatch):

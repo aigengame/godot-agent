@@ -1,6 +1,7 @@
 """gda host projections for the isolated model-preview workflow."""
 
 import json
+import time
 from pathlib import Path
 from typing import NoReturn
 
@@ -143,6 +144,10 @@ class GdaGodotPreviewPort(GdaGodotAssetPort):
             return _PREVIEW_STATE_ADAPTER.validate_json(json.dumps(value), strict=True)
         except (IndexError, TypeError, ValueError, ValidationError) as exc:
             self._contract_failure(f"invalid preview view_state: {exc}")
+
+    def warmup(self, seconds: float) -> None:
+        """Wait while the owned native process runs; cancellation reaches cleanup."""
+        time.sleep(seconds)
 
     def performance(self, frames: int, *, budget: bool) -> PreviewPerformance:
         outcome = run_perf_monitors_operation(

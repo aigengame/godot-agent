@@ -25,12 +25,32 @@ def test_import_adjustment_schema_exposes_the_supported_patch_without_godot():
         assert tool.input_schema == schema["input"]
         assert tool.output_schema == schema["output"]
         if command == "reimport":
-            updates = schema["input"]["$defs"]["RootScaleUpdate"]
-            assert updates["additionalProperties"] is False
-            scale = updates["properties"]["nodes/root_scale"]
+            definitions = schema["input"]["$defs"]
+            root_scale = definitions["RootScaleUpdate"]
+            lod_generation = definitions["LodGenerationUpdate"]
+            assert root_scale["additionalProperties"] is False
+            assert lod_generation["additionalProperties"] is False
+            scale = root_scale["properties"]["nodes/root_scale"]
             assert scale["type"] == "number"
             assert scale["minimum"] == 0.001
             assert scale["maximum"] == 1000.0
+            assert lod_generation["properties"]["meshes/generate_lods"] == {
+                "description": "Whether the built-in scene importer generates mesh LODs.",
+                "title": "Meshes/Generate Lods",
+                "type": "boolean",
+            }
+            update_refs = {
+                item["$ref"]
+                for item in schema["input"]["properties"]["updates"]["anyOf"]
+            }
+            assert update_refs == {
+                "#/$defs/RootScaleUpdate",
+                "#/$defs/LodGenerationUpdate",
+            }
+            changes = schema["output"]["properties"]["changes"]["items"]
+            assert changes["discriminator"]["propertyName"] == "name"
+            verification = schema["output"]["properties"]["verification"]["anyOf"][0]
+            assert verification["discriminator"]["propertyName"] == "measurement"
             assert schema["kind"] == "composite"
     help_result = CliRunner().invoke(app, ["resource", "reimport", "--help"])
     assert help_result.exit_code == 0

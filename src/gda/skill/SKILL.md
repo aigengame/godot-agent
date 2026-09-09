@@ -306,14 +306,17 @@ it does not play or re-save the scene.
 `resource import-options res://model.glb --json` reads configured importer values
 without running target code or importing; defaults, explicit authorship and effective
 engine values are unavailable. `resource reimport res://model.glb --updates-json
-'{"nodes/root_scale":2}' --dry-run` checks the supported patch without target writes.
-Omit `--dry-run` to update root scale, run project-wide import and verify changed
-static dimensions on unchanged GLB bytes. Start from an imported baseline; no-op
-does not verify adoption. Read `verification` as well as `import_result`, because
+'{"nodes/root_scale":2}' --dry-run` checks one supported patch without target writes.
+Use `--updates-json '{"meshes/generate_lods":false}'` or an explicit `true` to
+change LOD generation. Omit `--dry-run` to update the selected option, run
+project-wide import and verify changed static dimensions or a loaded LOD-count
+transition on unchanged GLB bytes. Start from an imported baseline; no-op and an
+enabled model that still has zero LOD levels do not verify adoption. Read
+`verification` as well as `import_result`, because
 old cache artifacts can survive an import failure. On failure, `error.partial_result`
 reports completed effects; configuration is not automatically rolled back. An
 `imported` count describes the pass and cache reread, not adoption of the requested
-options. A dimension-verification failure carries bounded project-wide import
+options. A loaded-effect verification failure carries bounded project-wide import
 stderr when available and states when none was captured; it does not infer a
 per-asset cause from those lines. See the
 command schema and catalog for measurement bounds and unavailable metadata.
@@ -337,9 +340,13 @@ windowed session stops. Read `preview.completed`, `views` and their capture rece
 budgets. Optional `--baseline previous.json` expects an explicitly saved
 `{"preview":...}` result; `comparison` is `non_comparable` unless actual camera,
 view, light, viewport, Engine, platform, renderer, static pose, monitor set, and
-sample window match, otherwise it reports scene-level mean/p95 deltas. Performance
-sampling begins after the final view without a stabilization period, so it is not a
-benchmark-equilibrium claim. The static imported pose has no overlays. Preview does
+sample window and requested warmup match, otherwise it reports scene-level mean/p95
+deltas. Optional `--warmup-seconds` accepts finite seconds in 0..10 (default 0), waits
+after the final view, and records the value in `preview.request.warmup_seconds`.
+FPS is a sampled counter affected by startup; several frame samples can read the
+same update. Keep low values. Comparable setup and a wait do not establish stable
+performance. See the [sampling investigation and procedure](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/docs/preview-performance.md).
+The static imported pose has no overlays. Preview does
 not compare model-content digests, infer per-mesh GPU cost, map every Godot node back
 to a Blender source object, or promise repeatable pixels or performance. On failure,
 read `error.partial_result.preview`; source files and user projects are not modified.
