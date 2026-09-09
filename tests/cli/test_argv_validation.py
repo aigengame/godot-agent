@@ -134,10 +134,7 @@ def test_reimport_unknown_update_key_is_a_structured_usage_failure(monkeypatch):
     error = json.loads(result.stdout)["error"]
     assert error["category"] == "usage"
     assert error["code"] == "invalid_argument"
-    assert (
-        "meshes/unsupported_947: Extra inputs are not permitted"
-        in error["message"]
-    )
+    assert "meshes/unsupported_947: Extra inputs are not permitted" in error["message"]
 
 
 def test_equivalent_params_json_failure_retains_invalid_params_exit_four(monkeypatch):
