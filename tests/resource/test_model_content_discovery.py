@@ -27,7 +27,7 @@ from tests.support import (
 
 
 CONTENT = {
-    "measurement": "godot-static-model-content-v1",
+    "measurement": "godot-static-model-content-v2",
     "engine_version": {
         "major": 4,
         "minor": 6,
@@ -67,7 +67,7 @@ def test_resource_and_game_commands_publish_the_same_bounded_content_shape():
         assert props["max_vertices"]["maximum"] == 1000000
         content = schema["output"]["$defs"]["ModelContent"]
         assert content["properties"]["measurement"]["const"] == (
-            "godot-static-model-content-v1"
+            "godot-static-model-content-v2"
         )
         assert content["properties"]["nodes"]["minimum"] == 0
         assert content["properties"]["surfaces"]["minimum"] == 0

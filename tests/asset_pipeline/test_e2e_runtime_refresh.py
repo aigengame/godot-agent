@@ -202,7 +202,7 @@ def _run_handoff(run: Gda, source_root: Path, source: str, *, refresh=None) -> d
 
 def _assert_complete(sample: dict) -> str:
     content = sample["content"]
-    assert content["measurement"] == "godot-static-model-content-v1"
+    assert content["measurement"] == "godot-static-model-content-v2"
     assert content.get("engine") or content.get("engine_version")
     assert content["complete"] is True
     assert content["unsupported"] == []

@@ -3474,9 +3474,11 @@ func _op_package_resource_presence(params: Dictionary) -> void:
 # This block is duplicated byte-for-byte in the live harness: imported and live
 # facts must be produced by one algorithm even though neither script can preload
 # the other. Keep the surface deliberately narrow; this is not Resource identity.
-const MODEL_CONTENT_MEASUREMENT := "godot-static-model-content-v1"
+const MODEL_CONTENT_MEASUREMENT := "godot-static-model-content-v2"
 const MODEL_CONTENT_MAX_BYTES := 67108864
 const MODEL_CONTENT_MAX_STORED_BYTES := 33554432
+const MODEL_CONTENT_MAX_LOD_BYTES := 8388608
+const MODEL_CONTENT_MAX_LODS := 1024
 const MODEL_CONTENT_MAX_SURFACES := 4096
 
 
@@ -3570,25 +3572,138 @@ func _model_content_surface_stored_bytes(surface: Dictionary) -> int:
 	return total
 
 
-func _model_content_surface_lod_status(surface: Dictionary) -> int:
-	# Godot 4.6 omits `lods` when absent and stores a nonempty one as the native
-	# [edge_length, index_bytes, ...] Array. Any other present shape is unknown.
-	# Source: godotengine/godot 4.6.3-stable scene/resources/mesh.cpp:1536-1543.
+func _model_content_public_surface_valid(surface: Dictionary, vertices: int,
+		indices: int, primitive: int, format: int, location: String,
+		state: Dictionary) -> bool:
+	# This is the public Godot 4.6 RenderingServer shape. Valid no-LOD surfaces
+	# omit `lods`; an empty or partial Dictionary is never evidence of no LODs.
+	var required := {
+		"primitive": TYPE_INT,
+		"format": TYPE_INT,
+		"vertex_data": TYPE_PACKED_BYTE_ARRAY,
+		"vertex_count": TYPE_INT,
+		"aabb": TYPE_AABB,
+		"uv_scale": TYPE_VECTOR4,
+	}
+	var allowed := required.keys() + ["attribute_data", "skin_data", "index_data",
+			"index_count", "lods", "bone_aabbs", "blend_shape_data", "material"]
+	for key in surface:
+		if not key in allowed:
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer mesh surface shape is unsupported")
+			return false
+	for key in required:
+		if not surface.has(key) or typeof(surface[key]) != int(required[key]):
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer mesh surface shape is unsupported")
+			return false
+	if (int(surface["vertex_count"]) != vertices
+			or int(surface["primitive"]) != primitive
+			or int(surface["format"]) != format):
+		_model_content_note(state["unsupported"], location
+				+ ": RenderingServer mesh surface facts are inconsistent")
+		return false
+	for key in ["attribute_data", "skin_data"]:
+		if surface.has(key) and not surface[key] is PackedByteArray:
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer mesh buffer shape is unsupported")
+			return false
+	var optional := {
+		"bone_aabbs": TYPE_ARRAY,
+		"blend_shape_data": TYPE_PACKED_BYTE_ARRAY,
+		"material": TYPE_RID,
+	}
+	for key in optional:
+		if surface.has(key) and typeof(surface[key]) != int(optional[key]):
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer mesh surface shape is unsupported")
+			return false
+	if indices > 0:
+		if (not surface.has("index_data") or not surface["index_data"] is PackedByteArray
+				or not surface.has("index_count") or typeof(surface["index_count"]) != TYPE_INT
+				or int(surface["index_count"]) != indices):
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer index buffer shape is unsupported")
+			return false
+		var index_width := 2 if vertices <= 65536 else 4
+		if (surface["index_data"] as PackedByteArray).size() != indices * index_width:
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer index representation is unsupported")
+			return false
+	elif surface.has("index_data") or surface.has("index_count"):
+		_model_content_note(state["unsupported"], location
+				+ ": RenderingServer index buffer shape is unsupported")
+		return false
+	return true
+
+
+func _model_content_lods(surface: Dictionary, vertices: int, indices: int,
+		location: String, state: Dictionary) -> void:
 	if not surface.has("lods"):
-		return 0
+		return
 	var lods: Variant = surface["lods"]
-	if not lods is Array:
-		return -1
-	return 1 if not lods.is_empty() else 0
+	if not lods is Array or lods.is_empty():
+		_model_content_note(state["unsupported"], location
+				+ ": RenderingServer LOD shape is unsupported")
+		return
+	if int(state["lods"]) + lods.size() > MODEL_CONTENT_MAX_LODS:
+		_model_content_note(state["omitted"], "LOD count limit exceeded at " + location)
+		return
+	# Count every entry whose shape we are about to inspect. A malformed or
+	# over-byte surface must not reset the global processing budget.
+	state["lods"] = int(state["lods"]) + lods.size()
+	var index_width := 2 if vertices <= 65536 else 4
+	var lod_bytes := 0
+	var previous_edge_length := 0.0
+	for lod_index in lods.size():
+		var value: Variant = lods[lod_index]
+		if not value is Dictionary:
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer LOD shape is unsupported")
+			return
+		var lod: Dictionary = value
+		if (lod.size() != 2 or not lod.has("edge_length") or not lod.has("index_data")
+				or typeof(lod["edge_length"]) != TYPE_FLOAT
+				or not lod["index_data"] is PackedByteArray):
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer LOD shape is unsupported")
+			return
+		var edge_length := float(lod["edge_length"])
+		var index_data: PackedByteArray = lod["index_data"]
+		var lod_indices := index_data.size() / index_width
+		if (not is_finite(edge_length) or edge_length <= previous_edge_length
+				or index_data.is_empty() or index_data.size() % index_width != 0
+				or lod_indices >= indices):
+			_model_content_note(state["unsupported"], location
+					+ ": RenderingServer LOD representation is unsupported")
+			return
+		previous_edge_length = edge_length
+		lod_bytes += index_data.size()
+	if int(state["lod_bytes"]) + lod_bytes > MODEL_CONTENT_MAX_LOD_BYTES:
+		_model_content_note(state["omitted"], "LOD index byte limit exceeded at " + location)
+		return
+	if int(state["stored_bytes"]) + lod_bytes > MODEL_CONTENT_MAX_STORED_BYTES:
+		_model_content_note(state["omitted"], "stored mesh byte limit exceeded at " + location)
+		return
+	state["lod_bytes"] = int(state["lod_bytes"]) + lod_bytes
+	state["stored_bytes"] = int(state["stored_bytes"]) + lod_bytes
+	_model_content_hash(state, "lods", location)
+	_model_content_hash(state, lods.size(), location)
+	for value in lods:
+		var lod: Dictionary = value
+		_model_content_hash(state, float(lod["edge_length"]), location)
+		_model_content_hash(state, lod["index_data"], location)
 
 
 func _model_static_content(root: Node, max_nodes: int, max_vertices: int) -> Dictionary:
 	var hashing := HashingContext.new()
 	hashing.start(HashingContext.HASH_SHA256)
-	var state := {"hash": hashing, "bytes": 0, "stored_bytes": 0, "unsupported": [], "omitted": []}
+	var state := {"hash": hashing, "bytes": 0, "stored_bytes": 0,
+			"lod_bytes": 0, "lods": 0,
+			"unsupported": [], "omitted": []}
 	var engine := Engine.get_version_info()
 	if int(engine.get("major", 0)) != 4 or int(engine.get("minor", 0)) != 6:
-		_model_content_note(state["unsupported"], "native ArrayMesh storage shape is validated only for Godot 4.6")
+		_model_content_note(state["unsupported"], "RenderingServer mesh surface shape is validated only for Godot 4.6")
 	var stack: Array[Node] = [root]
 	var node_count := 0
 	var surface_count := 0
@@ -3627,10 +3742,6 @@ func _model_static_content(root: Node, max_nodes: int, max_vertices: int) -> Dic
 						+ instance.mesh.get_class() + " is unsupported")
 			else:
 				var mesh: ArrayMesh = instance.mesh
-				var stored_surfaces: Variant = mesh.get("_surfaces")
-				if not stored_surfaces is Array or stored_surfaces.size() < mesh.get_surface_count():
-					_model_content_note(state["unsupported"], locator + ": native mesh surface metadata is unavailable")
-					stored_surfaces = []
 				if mesh.get_blend_shape_count() > 0:
 					_model_content_note(state["unsupported"], locator + ": blend shapes are unsupported")
 				for surface in mesh.get_surface_count():
@@ -3644,27 +3755,31 @@ func _model_static_content(root: Node, max_nodes: int, max_vertices: int) -> Dic
 					if vertex_count + vertices > max_vertices:
 						_model_content_note(state["omitted"], "vertex limit exceeded at " + surface_location)
 						continue
-					if indices * 4 > MODEL_CONTENT_MAX_STORED_BYTES - int(state["stored_bytes"]):
+					var index_width := 2 if vertices <= 65536 else 4
+					if indices * index_width > MODEL_CONTENT_MAX_STORED_BYTES - int(state["stored_bytes"]):
 						_model_content_note(state["omitted"], "index byte limit exceeded at " + surface_location)
 						continue
 					vertex_count += vertices
-					if surface >= stored_surfaces.size() or not stored_surfaces[surface] is Dictionary:
-						_model_content_note(state["unsupported"], surface_location + ": native mesh surface metadata is unavailable")
+					var public_surface: Variant = RenderingServer.mesh_get_surface(mesh.get_rid(), surface)
+					if not public_surface is Dictionary or public_surface.is_empty():
+						_model_content_note(state["unsupported"], surface_location
+								+ ": RenderingServer mesh surface data is unavailable")
 						continue
-					var stored_surface: Dictionary = stored_surfaces[surface]
-					var lod_status := _model_content_surface_lod_status(stored_surface)
-					if lod_status < 0:
-						_model_content_note(state["unsupported"], surface_location + ": native LOD metadata shape is unsupported")
-					elif lod_status > 0:
-						_model_content_note(state["unsupported"], surface_location + ": LODs are unsupported")
-					var stored_bytes := _model_content_surface_stored_bytes(stored_surface)
+					var primitive := mesh.surface_get_primitive_type(surface)
+					var format := mesh.surface_get_format(surface)
+					if not _model_content_public_surface_valid(public_surface, vertices, indices,
+							primitive, format, surface_location, state):
+						continue
+					var stored_bytes := _model_content_surface_stored_bytes(public_surface)
 					if stored_bytes < 0:
-						_model_content_note(state["unsupported"], surface_location + ": native mesh buffer size is unavailable")
+						_model_content_note(state["unsupported"], surface_location
+								+ ": RenderingServer mesh buffer size is unavailable")
 						continue
 					if int(state["stored_bytes"]) + stored_bytes > MODEL_CONTENT_MAX_STORED_BYTES:
 						_model_content_note(state["omitted"], "stored mesh byte limit exceeded at " + surface_location)
 						continue
 					state["stored_bytes"] = int(state["stored_bytes"]) + stored_bytes
+					_model_content_lods(public_surface, vertices, indices, surface_location, state)
 					_model_content_hash(state, "surface", surface_location)
 					_model_content_hash(state, surface, surface_location)
 					var arrays := mesh.surface_get_arrays(surface)
@@ -3675,8 +3790,8 @@ func _model_static_content(root: Node, max_nodes: int, max_vertices: int) -> Dic
 					if array_bytes > MODEL_CONTENT_MAX_BYTES:
 						_model_content_note(state["omitted"], "byte limit exceeded at " + surface_location)
 						continue
-					_model_content_hash(state, mesh.surface_get_primitive_type(surface), surface_location)
-					_model_content_hash(state, mesh.surface_get_format(surface), surface_location)
+					_model_content_hash(state, primitive, surface_location)
+					_model_content_hash(state, format, surface_location)
 					_model_content_hash(state, arrays, surface_location)
 					_model_content_material(instance, surface, state, surface_location)
 		# Push only the bounded prefix, in reverse, so a pathologically wide node

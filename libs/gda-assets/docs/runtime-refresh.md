@@ -71,6 +71,15 @@ as verified. A complete digest mismatch reports `mismatch`. The digest remains a
 bounded content comparison, not a general resource identity or proof of all visual
 behavior.
 
+Measurement version 2 includes the complete admitted static LOD thresholds and
+index bytes returned by Godot 4.6's public RenderingServer surface readback. This
+lets refresh reject an old running instance after generated LOD content changes
+and accept the replacement after the controlled session reset. The LOD data is a
+Godot import/runtime representation; a standard GLB does not itself carry that
+Godot representation. The sampler's script-side limits apply after the engine has
+materialized the public surface Dictionary, as detailed in the static-content
+guide.
+
 ## Capture and failure evidence
 
 A requested capture occurs after the instance observation. It must report the same
