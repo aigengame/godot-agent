@@ -42,6 +42,9 @@ through verbatim rather than reconstruct argv.
   **stdin**. gda deserializes it into the command's existing Pydantic input model
   (`model_validate_json`). Command selection stays in argv (Typer routing is
   unchanged); only the params *source* changes.
+  The equivalent `--params-json=<json>` form uses the same path. Mode selection
+  follows the parser-bound options described in [ADR-0004](0004-schema-flag-self-description.md#decision),
+  so control-looking data does not relax an ordinary call's required arguments.
 
 - **The params (input) model is the single source of truth for the input side** —
   both the emitted `input` schema (`--schema` / the `gda schema` dump, via

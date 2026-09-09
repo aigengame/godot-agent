@@ -556,7 +556,13 @@ def schema_command_class(
                     param.required = required
 
         def parse_args(self, ctx: typer.Context, args: list[str]) -> list[str]:
-            if "--schema" in args:
+            # Bind tokens with the command's own parser before deciding whether
+            # required arguments can be relaxed. This phase runs no callbacks or
+            # value validation; the normal/relaxed parse below owns those once.
+            # Raw membership mistakes consumed values for flags and misses the
+            # --params-json=<value> spelling (#971).
+            options, _, _ = self.make_parser(ctx).parse_args(list(args))
+            if options.get("schema"):
                 self._parse_relaxed(ctx, args)
                 # Carry the command's static execution channel (ADR-0017) from
                 # the one source of truth — the backing ``HeadlessCommand.kind``
@@ -587,7 +593,7 @@ def schema_command_class(
                     ).model_dump_json()
                 )
                 raise typer.Exit()
-            if command is not None and "--params-json" in args:
+            if command is not None and options.get("params_json") is not None:
                 # The individual operation args are absent — supplied by the JSON
                 # object instead; ``invoke`` builds the model and dispatches.
                 return self._parse_relaxed(ctx, args)

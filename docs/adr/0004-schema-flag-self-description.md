@@ -352,6 +352,13 @@ semantics here, and deliberately scope out an overloaded interpretation.
 
 ## Decision
 
+Control modes follow the command parser's option bindings (#971). A value or
+positional argument equal to `--schema` does not request self-description.
+Required operational arguments are relaxed only for an actual schema request or
+the structured-input mode in ADR-0015; ordinary calls retain normal validation.
+Token binding precedes that choice, while parameter callbacks and value validation
+run once through the existing command parser.
+
 - **`gda <command> --schema` emits the command's own machine-readable contract**: a
   JSON object with three keys — an `input` JSON Schema (the command's
   arguments/params), an `output` JSON Schema (the shape of its **success** `--json`
