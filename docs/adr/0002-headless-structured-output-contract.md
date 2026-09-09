@@ -228,14 +228,15 @@ the standard build), and they never determine the outcome or a stable code.
 >   them through the renderer makes the one-renderer statement exact and makes the
 >   `hint:` line reachable: it is set nowhere else, so before #798 a human could not
 >   read it.
-> - Click's own parse errors (a missing argument or invalid value) keep that panel on
->   `stderr` for a human. Under explicit `--json`, gda classifies the same exit-2
->   refusal as `invalid_argument` and emits the envelope on `stdout` before any
->   operation runs (#947). Model validators contribute their already-sanitized
->   sentence. Click type conversion names only the argument contract and does not echo
->   the raw token. The same human fall-through holds where gda recognizes a mistake
->   but has no correction to add and no `--json` was asked for: gda declines to answer
->   and the parser's message stands.
+> - An invalid supplied value keeps Click's parser panel on `stderr` for a human. Under
+>   explicit `--json`, validation that reaches `BadParameter` is classified as
+>   `invalid_argument` and emitted on `stdout` before any operation runs (#947). Model
+>   validators contribute their already-sanitized sentence. Click type conversion
+>   names only the argument contract and does not echo the raw token. Click syntax
+>   errors outside that validation boundary, such as an option with no value, retain
+>   Click's text on `stderr` even under `--json`. The same human fall-through holds
+>   where gda recognizes a mistake but has no correction to add and no `--json` was
+>   asked for: gda declines to answer and the parser's message stands.
 > - `--json` is unchanged. The envelope goes to `stdout`, byte for byte; the flag
 >   chooses the rendering, never the stream.
 > - Two reversals were considered and declined. Sending the `usage` refusals back to
@@ -289,7 +290,7 @@ operation, and parse codes the CLI assigns).
 | `user_data_unwritable` | `environment` | `runner` | `127` | The log or user-data placement for the launch could not be made usable, so the launch was refused. |
 | `unknown_command` | `usage` | `classifier` | `2` | gda has no such command; discover the surface with `gda schema` or `gda --help`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |
 | `unknown_option` | `usage` | `classifier` | `2` | The command exists but has no such option; read its options with `--help` or its input contract with `--schema`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |
-| `invalid_argument` | `usage` | `classifier` | `2` | A command-line argument or option value does not match the command's argv contract; with `--json`, gda reports the parser refusal as a structured envelope before any operation runs. |
+| `invalid_argument` | `usage` | `classifier` | `2` | A supplied command-line argument or option value does not match the command's argv contract; with `--json`, gda reports that validation as a structured envelope before any operation runs. |
 | `unsupported_version` | `version` | `version_gate` | `3` | The detected Godot version is below the supported minimum. |
 | `engine_crashed` | `operation` | `classifier` | `4` | Godot terminated abnormally, such as by signal death. |
 | `operation_failed` | `operation` | `classifier` | `4` | The engine or operation failed without a valid registered operation error envelope. |

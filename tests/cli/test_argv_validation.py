@@ -118,7 +118,12 @@ def test_reimport_unknown_update_key_is_a_structured_usage_failure(monkeypatch):
             "reimport",
             "res://model.glb",
             "--updates-json",
-            json.dumps({"meshes/generate_lods": False}),
+            json.dumps(
+                {
+                    "nodes/root_scale": 1.0,
+                    "meshes/unsupported_947": False,
+                }
+            ),
             "--json",
         ],
     )
@@ -128,7 +133,7 @@ def test_reimport_unknown_update_key_is_a_structured_usage_failure(monkeypatch):
     assert error["category"] == "usage"
     assert error["code"] == "invalid_argument"
     assert (
-        "updates.meshes/generate_lods: Extra inputs are not permitted"
+        "updates.meshes/unsupported_947: Extra inputs are not permitted"
         in error["message"]
     )
 
@@ -181,6 +186,28 @@ def test_human_argv_failure_keeps_clicks_readable_stderr():
     assert result.exit_code == EXIT_USAGE
     assert result.stdout == ""
     assert "updates-json must be a JSON object" in panel_text(result.stderr)
+
+
+def test_click_syntax_error_outside_validation_stays_text_under_json():
+    """A missing option value remains Click syntax output, outside #947's boundary."""
+
+    done = subprocess.run(
+        [
+            *GDA_CMD,
+            "--json",
+            "resource",
+            "reimport",
+            "res://model.glb",
+            "--updates-json",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert done.returncode == EXIT_USAGE, done.stdout + done.stderr
+    assert done.stdout == ""
+    assert "requires an argument" in panel_text(done.stderr)
 
 
 def _snapshot_files(root: Path) -> dict[str, bytes]:

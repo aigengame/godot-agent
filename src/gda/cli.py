@@ -139,9 +139,9 @@ def main(
         # `--version`, whose callback reads it. (A SUBCOMMAND is unaffected either
         # way: this callback body runs before click parses one.)
         is_eager=True,
-        help="Emit the invoked command's outcome as JSON — the result on success "
-        "or an error envelope on failure; the same as passing --json after the "
-        "command. With --version it emits structured install provenance "
+        help="Emit the invoked command's structured result or gda error envelope "
+        "as JSON — the same as passing --json after the command. Click syntax "
+        "errors stay text. With --version it emits structured install provenance "
         "(`--help` stays text).",
     ),
     user_data_root: Optional[str] = typer.Option(

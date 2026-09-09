@@ -146,8 +146,8 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.USAGE,
         EXIT_USAGE,
         ErrorCodeSource.CLASSIFIER,
-        "A command-line argument or option value does not match the command's "
-        "argv contract; with --json, gda reports the parser refusal as a "
+        "A supplied command-line argument or option value does not match the "
+        "command's argv contract; with --json, gda reports that validation as a "
         "structured envelope before any operation runs.",
     ),
     ErrorCodeSpec(

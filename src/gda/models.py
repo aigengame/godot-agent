@@ -42,8 +42,8 @@ class ErrorCategory(str, Enum):
     LIVE is a Phase-2 live operation failing against ``gda-daemon`` / the engine
     session — no running daemon, a lost session, or a live timeout (ADR-0017,
     ADR-0021). USAGE is the one bucket that precedes all of them: gda could not
-    resolve WHAT was asked for, or argv did not satisfy the identified command's
-    contract, so no operation was run (#670, #947).
+    resolve WHAT was asked for, or a supplied argv value did not satisfy the
+    identified command's contract, so no operation was run (#670, #947).
     """
 
     ENVIRONMENT = "environment"

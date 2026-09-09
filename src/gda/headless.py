@@ -203,8 +203,8 @@ def json_option() -> bool:
         False,
         "--json",
         callback=_inherit_ancestor_json,
-        help="Emit the outcome as one JSON object: the result on success or an "
-        "error envelope on failure.",
+        help="Emit the command's structured result or gda error envelope as one "
+        "JSON object. Click syntax errors stay text.",
     )
 
 
@@ -232,9 +232,9 @@ def _group_json(
         False,
         "--json",
         callback=_record_group_json,
-        help="Emit the invoked command's outcome as JSON — the result on success "
-        "or an error envelope on failure; the same as passing --json after the "
-        "command.",
+        help="Emit the invoked command's structured result or gda error envelope "
+        "as JSON — the same as passing --json after the command. Click syntax "
+        "errors stay text.",
     ),
 ) -> None:
     """The callback every command group is given, so ``--json`` parses there too.

@@ -193,9 +193,11 @@ the mistake the envelope carries a `hint` naming the invocation to run instead
 
 An argument that does not match the command's argv contract is
 `invalid_argument` at exit `2`. With `--json`, malformed option JSON, wrong types,
-unknown object keys, and other parser refusals use the same error envelope before any
-engine operation runs. The equivalent invalid `--params-json` object remains
-`invalid_params` at exit `4` because it is the structured parameter contract.
+unknown object keys, and shared command-model refusals use the same error envelope
+before any engine operation runs. Click syntax errors outside that validation
+boundary, such as an option with no value, retain Click's text on `stderr` even under
+`--json`. The equivalent invalid `--params-json` object remains `invalid_params` at
+exit `4` because it is the structured parameter contract.
 
 A failure that computed evidence also carries it as DATA, under the envelope's
 optional `evidence` key — omitted, never null, on the failures that computed none.
