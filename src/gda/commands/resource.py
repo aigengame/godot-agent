@@ -23,7 +23,7 @@ import re
 from contextlib import contextmanager
 from tempfile import TemporaryDirectory
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Callable, Literal, Optional
 
 import typer
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -31,6 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from gda.binary import resolve_godot_binary
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import (
+    captured_output_tail,
     classify_launch_or_crash,
     containment_refusal,
     Failure,
@@ -64,7 +65,7 @@ from gda.project import (
     project_anchored,
 )
 from gda.render import render_property_lines, render_set_echo
-from gda.runner import launch
+from gda.runner import RunResult, launch
 
 
 class ResourceCreateParams(BaseModel):
@@ -1133,7 +1134,9 @@ class ResourceImportSummary(BaseModel):
             "dry run; the pass does not retry these)."
         )
     )
-    imported: int = Field(description="Assets the pass imported.")
+    imported: int = Field(
+        description="Assets with cached artifact evidence after the pass; not proof that requested options were adopted."
+    )
     not_importable: int = Field(description="Assets the pass decided need no import.")
     failed: int = Field(description="Assets still without an intact cache.")
     created_cache_owned: int = Field(
@@ -1838,6 +1841,7 @@ def run_resource_import_operation(
     *,
     godot: Optional[str] = None,
     options_changed: bool = False,
+    _observe_pass: Callable[[RunResult], None] | None = None,
 ) -> "ResourceImportResult | Failure":
     """Decide per asset, run the engine pass only when needed, account for it all.
 
@@ -1849,6 +1853,8 @@ def run_resource_import_operation(
     change: cached artifact evidence then also requests a pass, since it does
     not check importer options. This does not bypass invalid evidence or add
     a per-file engine primitive; ordinary resource import leaves it false.
+    The internal pass observer lets reimport retain diagnostics for a later
+    adoption failure without adding fields to the public import result.
     """
     assert project is not None  # a project-using recipe; dispatch resolved it
     res_paths: list[str] = []
@@ -1911,6 +1917,8 @@ def run_resource_import_operation(
             timeout=params.timeout,
             timeout_label="Godot import",
         )
+        if _observe_pass is not None:
+            _observe_pass(raw)
         prefix = classify_launch_or_crash(raw, binary)
         if prefix is not None:
             return prefix
@@ -2182,6 +2190,12 @@ def run_resource_reimport_operation(
             "requested size change is below verification tolerance; unchanged geometry could pass",
             "",
         )
+    import_stderr = ""
+
+    def retain_import_stderr(raw: RunResult) -> None:
+        nonlocal import_stderr
+        import_stderr = captured_output_tail(raw.stderr)
+
     with _import_config_project() as scratch:
         reference = scratch / "original.import"
         reference.write_bytes(original)
@@ -2201,6 +2215,7 @@ def run_resource_reimport_operation(
             ResourceImportParams(assets=[options.path], timeout=params.timeout),
             godot=godot,
             options_changed=True,
+            _observe_pass=retain_import_stderr,
         )
         if isinstance(imported, Failure):
             return _reimport_failure(imported, result)
@@ -2244,11 +2259,25 @@ def run_resource_reimport_operation(
             hashlib.file_digest(stream, "sha256").digest() == source_digest
         )
     if not source_unchanged or not result.verification.matched:
+        import_explanation = (
+            " The project-wide import pass completed and its cache reread reported "
+            f"{imported.summary.imported} imported asset(s); that count does not prove adoption. "
+            "Existing cache artifacts can remain loadable after a rejected import. "
+        )
+        diagnostic_explanation = (
+            "Diagnostics contain the last 16 KiB of project-wide import stderr; "
+            "these lines alone do not establish this asset's cause."
+            if import_stderr
+            else "No stderr was captured from the import pass; a native cause was not established."
+        )
         return _reimport_failure(
             make_failure(
                 "operation_failed",
-                "loaded dimensions do not verify the requested scale on unchanged source bytes; no rollback was attempted",
-                "",
+                "loaded dimensions do not verify the requested scale on unchanged source bytes; "
+                "updated options remain on disk and no rollback was attempted."
+                + import_explanation
+                + diagnostic_explanation,
+                import_stderr,
             ),
             result,
         )
