@@ -106,3 +106,29 @@ diagnosed in the result. A collection failure returns the useful facts gathered 
 far in the command's partial result without claiming successful completion. If an
 observation output was requested and can be created, that partial observation is
 saved explicitly; an existing output file is never replaced.
+
+When `error.partial_result.failure.code` is `observation_changed`, first read
+`completed`, `outputs`, and `content_observations`. If `install`, `import`, and
+`load` completed but `observe` did not, the installed output is available even
+though collection failed. A changed configuration digest establishes only that the
+published sidecar bytes differed across the observation window. It does not identify
+the writer or establish that the two configurations are semantically equivalent.
+
+To retry collection without repeating production, submit the installed output as an
+explicit existing file. Copy its current `source_after.sha256` from the partial
+result into the declaration:
+
+```sh
+gda asset-pipeline run --project ./consumer \
+  --files '[{"source":"/absolute/path/consumer/art/model.glb","target":"res://art/model.glb"}]' \
+  --overwrite --collect-observations \
+  --declared-output-sha256 \
+  '{"res://art/model.glb":"<source_after.sha256>"}' --json
+```
+
+Do not pass `--production` on this file-only repeat. For a GLB with selected external
+references, include their file mappings and the same explicit `references` entries.
+The new invocation checks the current installed bytes before import and collects a
+new bounded observation. It can still fail if source or configuration bytes change
+again. No automatic retry, sidecar normalization, or persisted resume state is
+implied.

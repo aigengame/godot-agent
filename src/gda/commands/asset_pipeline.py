@@ -316,12 +316,53 @@ def _pipeline_result(result: PipelineResult) -> PipelineRunResult:
     return PipelineRunResult.model_validate(asdict(result))
 
 
+def _configuration_only_observation_change(result: PipelineRunResult) -> bool:
+    content = result.content_observations
+    if content is None or not content.changes:
+        return False
+    if any(
+        asset.source_after is None
+        or asset.source_after.state != "observed"
+        or asset.source_after.sha256 is None
+        for asset in content.assets
+    ):
+        return False
+    configurations = {
+        digest.path
+        for asset in content.assets
+        for digest in (asset.configuration_before, asset.configuration_after)
+        if digest is not None
+    }
+    return bool(configurations) and all(
+        change.before.path in configurations for change in content.changes
+    )
+
+
 def _failure_message(stage: str, message: str, result: PipelineRunResult) -> str:
     affected = (
         ", ".join(f"{item.target} ({item.state})" for item in result.outputs)
         or "no installed files"
     )
-    return f"asset pipeline failed during {stage}: {message}; affected: {affected}"
+    summary = f"asset pipeline failed during {stage}: {message}; affected: {affected}"
+    if (
+        result.failure is None
+        or result.failure.code != "observation_changed"
+        or not {"install", "import", "load"}.issubset(result.completed)
+        or "observe" in result.completed
+        or not _configuration_only_observation_change(result)
+    ):
+        return summary
+    completed = ", ".join(result.completed)
+    return (
+        f"{summary}; completed stages: {completed}; observation did not complete. "
+        "The result establishes an observed "
+        "configuration byte change, not its writer or semantic equivalence. Reuse the "
+        "installed files in a new asset-pipeline run with explicit existing-file "
+        "--files, --overwrite, --collect-observations, and "
+        "--declared-output-sha256 values from the retained source hashes; omit "
+        "--production. This does not rerun Blender or another producer. The new "
+        "invocation checks current inputs and can fail if they change again"
+    )
 
 
 def run_asset_pipeline(
