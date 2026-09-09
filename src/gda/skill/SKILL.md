@@ -175,7 +175,7 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 | Exit | Meaning |
 | ---- | ------- |
 | `0`   | success |
-| `2`   | gda could not resolve what you asked for: `unknown_command`, `unknown_option` |
+| `2`   | argv usage failure: `unknown_command`, `unknown_option`, `invalid_argument` |
 | `127` | environment unusable: `binary_not_found`, `user_data_unwritable`, `live_unsupported_platform`, `live_windowed_unavailable`, `live_windowed_permission_denied`, `harness_install_permission_denied` |
 | `124` | engine timed out: `launch_timeout` — gda ended a run that had not returned (read it as below) |
 | `3`   | engine version too old |
@@ -196,6 +196,14 @@ the mistake the envelope carries a `hint` naming the invocation to run instead
 (`{"error": {"code": "unknown_command", "hint": "gda scene get", …}}`). Re-issue the
 `hint`; when there is none, `gda schema` lists every command and
 `gda help <command>` describes one.
+
+A missing required parameter or argument that does not match the command's argv
+contract is `invalid_argument` at exit `2`. With `--json`, malformed option JSON,
+wrong types, unknown object keys, and shared command-model refusals use the same error
+envelope before any engine operation runs. Other Click syntax errors, such as an
+option token with no following value, may retain Click's text on `stderr` even under
+`--json`. The equivalent invalid `--params-json` object remains `invalid_params` at
+exit `4` because it is the structured parameter contract.
 
 A failure that computed evidence also carries it as DATA, under the envelope's
 optional `evidence` key — omitted, never null, on the failures that computed none.
@@ -332,9 +340,13 @@ windowed session stops. Read `preview.completed`, `views` and their capture rece
 budgets. Optional `--baseline previous.json` expects an explicitly saved
 `{"preview":...}` result; `comparison` is `non_comparable` unless actual camera,
 view, light, viewport, Engine, platform, renderer, static pose, monitor set, and
-sample window match, otherwise it reports scene-level mean/p95 deltas. Performance
-sampling begins after the final view without a stabilization period, so it is not a
-benchmark-equilibrium claim. The static imported pose has no overlays. Preview does
+sample window and requested warmup match, otherwise it reports scene-level mean/p95
+deltas. Optional `--warmup-seconds` accepts finite seconds in 0..10 (default 0), waits
+after the final view, and records the value in `preview.request.warmup_seconds`.
+FPS is a sampled counter affected by startup; several frame samples can read the
+same update. Keep low values. Comparable setup and a wait do not establish stable
+performance. See the [sampling investigation and procedure](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/docs/preview-performance.md).
+The static imported pose has no overlays. Preview does
 not compare model-content digests, infer per-mesh GPU cost, map every Godot node back
 to a Blender source object, or promise repeatable pixels or performance. On failure,
 read `error.partial_result.preview`; source files and user projects are not modified.

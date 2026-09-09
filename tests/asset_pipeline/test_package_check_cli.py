@@ -1,7 +1,10 @@
 """Unified package acceptance command across CLI and MCP transports."""
 
+import hashlib
 import json
 from pathlib import Path
+import struct
+import sys
 
 from typer.testing import CliRunner
 
@@ -166,6 +169,66 @@ def test_package_workflow_failure_is_nonzero_with_full_partial_result(
     assert result.error.partial_result is not None
     assert result.error.partial_result["package_check"]["completed"] == ["validate"]
     assert result.child_stderr == "native stderr"
+
+
+def test_incomplete_pck_failure_retains_snapshot_and_cleanup(monkeypatch, tmp_path):
+    marker = tmp_path / "main-pack-launched"
+    binary = tmp_path / "godot-editor-probe"
+    binary.write_text(
+        f"#!{sys.executable}\n"
+        "import pathlib, sys\n"
+        f"marker = pathlib.Path({str(marker)!r})\n"
+        "if '--main-pack' in sys.argv:\n"
+        "    marker.write_text('launched')\n"
+        "print('Options: \\n-e, --editor  Start the editor.')\n"
+    )
+    binary.chmod(0o755)
+    package = tmp_path / "failed-export.pck"
+    package.write_bytes(
+        struct.pack(
+            "<6I2Q16I",
+            0x43504447,
+            3,
+            4,
+            6,
+            3,
+            2,
+            112,
+            0,
+            *([0] * 16),
+        )
+        + b"\0" * 8
+    )
+    expectations = tmp_path / "expectations.json"
+    expectations.write_text(
+        '{"checks":[{"id":"nodes","kind":"count","metric":"node_count","min":1}]}'
+    )
+    monkeypatch.setenv("GDA_USER_DATA_ROOT", str(tmp_path / "user-data"))
+
+    result = run_asset_package_check(
+        AssetPipelinePackageCheckParams(
+            package=package,
+            path="res://main.tscn",
+            expectations=expectations,
+        ),
+        project=None,
+        godot=str(binary),
+    )
+
+    assert isinstance(result, Failure)
+    assert result.error.code == "operation_failed"
+    assert result.error.partial_result is not None
+    partial = result.error.partial_result["package_check"]
+    assert partial["failure"]["stage"] == "presence"
+    assert partial["package"]["source"] == str(package)
+    assert (
+        partial["package"]["sha256"] == hashlib.sha256(package.read_bytes()).hexdigest()
+    )
+    assert partial["package"]["size_bytes"] == 112
+    assert partial["completed"] == ["validate", "stage", "cleanup"]
+    assert partial["cleanup"] == {"staging_removed": True, "issues": []}
+    assert not Path(partial["package"]["root"]).exists()
+    assert not marker.exists()
 
 
 def test_package_load_recovery_is_consistent_in_json_and_human_output(

@@ -1,6 +1,7 @@
 """One typed CLI/MCP surface for isolated model preview."""
 
 import json
+import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
@@ -34,6 +35,7 @@ def test_preview_human_result_reports_comparison_and_diagnostic_coverage(tmp_pat
     rendered = render_asset_preview(AssetPipelinePreviewResult(preview=preview))
     assert "non_comparable" in rendered and "preview_setup_mismatch" in rendered
     assert "diagnostics" in rendered and "truncated=True" in rendered
+    assert "startup" in rendered and "stabilized performance" in rendered
 
 
 def test_preview_schema_and_mcp_publish_bounded_typed_contract():
@@ -44,11 +46,15 @@ def test_preview_schema_and_mcp_publish_bounded_typed_contract():
     assert schema["kind"] == "composite"
     assert schema["input"]["additionalProperties"] is False
     assert schema["input"]["properties"]["frames"]["maximum"] == 120
+    assert schema["input"]["properties"]["warmup_seconds"]["maximum"] == 10
+    assert schema["input"]["properties"]["warmup_seconds"]["minimum"] == 0
+    assert schema["input"]["properties"]["warmup_seconds"]["default"] == 0
     assert schema["input"]["properties"]["max_nodes"]["maximum"] == 4096
     assert schema["input"]["properties"]["settings"]["anyOf"][0]["type"] == "string"
     assert "PreviewResult" in schema["output"]["$defs"]
     bindings = {item["input_property"]: item for item in schema["argv"]}
     assert bindings["settings"]["option"] == "--settings"
+    assert bindings["warmup_seconds"]["option"] == "--warmup-seconds"
     assert bindings["settings"]["json_value"] is False
     tools = list_tools(
         build_server(FakeGdaRunner(schema_then(lambda *_: gda_result())))
@@ -76,6 +82,7 @@ def test_preview_argv_and_params_json_resolve_the_same_request(monkeypatch, tmp_
         "output_dir": str(tmp_path / "captures"),
         "settings": str(settings_file),
         "frames": 5,
+        "warmup_seconds": 2.5,
         "timeout": 4.5,
         "max_nodes": 10,
     }
@@ -91,6 +98,8 @@ def test_preview_argv_and_params_json_resolve_the_same_request(monkeypatch, tmp_
             str(settings_file),
             "--frames",
             "5",
+            "--warmup-seconds",
+            "2.5",
             "--timeout",
             "4.5",
             "--max-nodes",
@@ -107,6 +116,7 @@ def test_preview_argv_and_params_json_resolve_the_same_request(monkeypatch, tmp_
     assert calls[0][0].source == source
     assert calls[0][0].output_dir == (tmp_path / "captures").resolve()
     assert calls[0][0].settings.width == 800
+    assert calls[0][0].warmup_seconds == 2.5
 
 
 def test_bad_settings_file_stops_before_preview_service(monkeypatch, tmp_path):
@@ -248,3 +258,32 @@ def test_res_path_resolves_inside_the_selected_project(monkeypatch, tmp_path):
 
     assert result.exit_code == 0, result.output
     assert requests[0].source == source.resolve()
+
+
+@pytest.mark.parametrize("value", [-0.1, 10.1, float("nan"), float("inf"), True, "2.5"])
+def test_invalid_warmup_params_json_never_reaches_workflow(
+    monkeypatch, tmp_path, value
+):
+    def refuse(*args, **kwargs):
+        raise AssertionError("invalid warmup reached workflow")
+
+    monkeypatch.setattr("gda.commands.asset_pipeline.preview_asset", refuse)
+    outcome = CliRunner().invoke(
+        app,
+        [
+            "asset-pipeline",
+            "preview",
+            "--params-json",
+            json.dumps(
+                {
+                    "path": str(tmp_path / "a.glb"),
+                    "output_dir": str(tmp_path / "out"),
+                    "warmup_seconds": value,
+                }
+            ),
+            "--json",
+        ],
+    )
+    assert outcome.exit_code == 4
+    assert json.loads(outcome.stdout)["error"]["code"] == "invalid_params"
+    assert not (tmp_path / "out").exists()

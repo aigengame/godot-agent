@@ -173,6 +173,16 @@ nonzero with `error.partial_result.package_check`; cleanup issues remain explici
 This initial path requires a desktop editor-capable Godot binary. It does not run a
 release executable or prove native input, rendering, or gameplay behavior.
 
+Treat a failed `export run` as final even if it left an output file. Before loading a
+package, gda narrowly refuses the Godot V3 `GDPC` header state whose directory
+offset is still zero and reports it as an incomplete PCK; rebuild and check only the
+output of a successful export. This is one known incomplete writer state, not
+general PCK validation: opaque, short, other-version, and other malformed packages
+remain engine-owned and can still reach the package inspection's 60-second timeout
+with limited diagnostics. The
+[architecture evidence](docs/ARCHITECTURE.md#evidence-limits-and-validation-gates)
+records the native controls and Godot source basis for this boundary.
+
 ## Preview a model
 
 Write captures to a new output directory:
@@ -220,9 +230,13 @@ being embedded in JSON. The current fixture establishes only the static imported
 pose and provides no overlays. Resource-relative Godot node names do not establish
 a complete mapping back to Blender source objects.
 
-Performance sampling begins immediately after the final view is applied, without a
-stabilization period. Treat it as a bounded observation of that run, not evidence
-that rendering reached equilibrium or a general benchmark.
+Performance sampling begins after the final view. Optional `--warmup-seconds`
+accepts finite seconds in 0..10 (default 0) and waits before sampling. It is recorded
+in `preview.request.warmup_seconds`; different requested waits make comparisons
+non-comparable. FPS is affected by startup and counter-update timing, and multiple
+frame samples can read the same update. Keep low values. A wait and matching setup
+do not establish stable performance. See the
+[sampling investigation and procedure](docs/preview-performance.md).
 
 An optional performance budget uses the existing `perf` budget format and the
 preview monitor names `fps`, `draw_calls`, and `primitives_in_frame`:
@@ -242,8 +256,8 @@ gda asset-pipeline preview --path ./model.glb \
 
 `--baseline` reads an explicitly saved `{ "preview": ... }` result. Comparison is
 `non_comparable` with reasons unless the actual camera, view, light, viewport,
-Engine, platform, renderer, static pose, monitor set, and performance sample window
-match. Comparable results report scene-level mean and p95 deltas per monitor. This
+Engine, platform, renderer, static pose, monitor set, performance sample window,
+and requested warmup match. Comparable results report scene-level mean and p95 deltas per monitor. This
 does not compare model content, promise identical pixels or performance across
 runs, or infer per-mesh GPU cost. Runtime preview does not require the content
 digest from `asset-pipeline run --refresh`.

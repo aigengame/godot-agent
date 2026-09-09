@@ -963,9 +963,9 @@ def test_no_assets_is_a_usage_error(tmp_path):
     result = _run(project)
 
     assert result.exit_code == 2, result.stdout + result.stderr
-    from tests.support import plain_text
+    from tests.support import structured_argv_error_message
 
-    assert "ASSETS" in plain_text(result.stderr)
+    assert "ASSETS" in structured_argv_error_message(result)
 
 
 def test_schema_is_self_describing():

@@ -371,6 +371,28 @@ operations in `tests/test_e2e_package_operations.py` cover both inclusion and di
 resource omission. They do not claim transitive-dependency corruption coverage or
 native release execution. See [the package guide](../README.md#check-an-exported-package).
 
+[#948](https://github.com/aigengame/godot-agent/issues/948) reproduced one failed
+Godot 4.6.3 pack export: `export_failed` with `Must select at least one file to
+export` left a 112-byte V3 `GDPC` header with file base 112 and directory offset
+zero. Before the narrow admission check, the empty-cwd `--main-pack` package
+presence launch reached its 60-second bound at 60.019 seconds with empty captured
+streams; public staging cleanup still completed. During this investigation, a legal
+zero-file PCK made by `PCKPacker` had directory offset 128 and file count zero; a
+minimal export and the maintained GLB package had nonzero offsets and 4 and 7 files.
+Those controls completed package presence in 0.835, 0.409, and 0.421 seconds during
+the investigation; these observations are discriminators, not performance
+guarantees. The V3 writer initializes the offset to zero and returns before the
+directory on failed resource export, then backfills it only on success
+([header](https://github.com/godotengine/godot/blob/4.6.3-stable/editor/export/editor_export_platform.cpp#L1966-L1993),
+[write path](https://github.com/godotengine/godot/blob/4.6.3-stable/editor/export/editor_export_platform.cpp#L2068-L2157));
+the loader otherwise seeks offset zero and reads `GDPC` as the file count
+([load path](https://github.com/godotengine/godot/blob/4.6.3-stable/core/io/file_access_pack.cpp#L286-L348)).
+A legal empty pack writes a nonzero directory offset and then a zero count
+([PCKPacker flush](https://github.com/godotengine/godot/blob/4.6.3-stable/core/io/pck_packer.cpp#L204-L219)).
+The check therefore recognizes only that V3 zero-offset state in gda's package
+runner admission. Other invalid packages remain engine-owned and can still reach
+the existing 60-second bound; this is not a general PCK parser or validator.
+
 ## Research basis and retained limits
 
 - DDD bounded contexts and local anti-corruption layers support model ownership;
