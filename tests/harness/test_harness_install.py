@@ -654,6 +654,39 @@ def test_an_emptied_commented_autoload_header_is_not_gda_s_to_drop(tmp_path):
     assert result.removed_sections == ()
 
 
+def test_an_entry_written_across_lines_is_re_pointed_and_removed_whole(tmp_path):
+    # A `ConfigFile` value may hold a literal newline, so the entry the edit acts on
+    # is the SPAN the scan recorded, not the line it starts on. Taking one line of
+    # it leaves the continuation behind — a stray `continued"` line the engine then
+    # reads as a declaration of its own.
+    project_godot = tmp_path / "project.godot"
+    across_lines = (
+        _NO_AUTOLOAD + '\n[autoload]\n\nGdaHarness="*res://legacy/old.gd\ncontinued"\n'
+    )
+    project_godot.write_text(across_lines, encoding="utf-8")
+
+    assert install_harness(tmp_path).changed is True
+
+    # Re-pointed: the whole span becomes the one line gda writes.
+    assert (
+        project_godot.read_text(encoding="utf-8")
+        == _NO_AUTOLOAD + f"\n[autoload]\n\n{_autoload_line()}\n"
+    )
+
+    uninstall_harness(tmp_path)
+
+    assert project_godot.read_text(encoding="utf-8") == _NO_AUTOLOAD
+
+    # And an uninstall that meets the multi-line entry itself takes all of its
+    # lines — which is what leaves the section key-less, so the header goes too.
+    project_godot.write_text(across_lines, encoding="utf-8")
+
+    result = uninstall_harness(tmp_path)
+
+    assert project_godot.read_text(encoding="utf-8") == _NO_AUTOLOAD
+    assert result.removed_sections == ("[autoload]",)
+
+
 def test_a_round_trip_keeps_a_leading_byte_order_mark(tmp_path):
     # The reader drops a leading BOM from the keys it NAMES (the engine glues it to
     # the first key), but the bytes stay the file's: an edit spells the text back

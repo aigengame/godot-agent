@@ -103,6 +103,13 @@ SECTIONLESS = ""
 # (PR #898 review). Dropped from the SCANNED text only: the mark is kept beside it
 # (`ConfigText.bom`) and spelled back by every writer, because the bytes of a file
 # gda edits are the file's, not gda's (#930).
+#
+# The drop decides more than a key: on line 0 it decides a SECTION. `﻿[autoload]`
+# is a header to this scan and is NOT one to the engine, which reads the marked
+# line as a single section-less key. gda reads the file the engine's own reader
+# CANNOT (such a file declares no readable `config_version` either, so the engine
+# loads no project from it), and the harness installer scopes that shape out
+# rather than model it — see `gda.harness.install` (#930 review, round 1).
 _BOM = "\ufeff"
 
 
@@ -360,7 +367,9 @@ class ConfigSection:
     """One section of a scanned text, bounded by the SCAN that found it.
 
     ``header`` is the index of the ``[name]`` line that opens it, or ``None`` for
-    the section-less head, which no header opens. ``start`` and ``end`` bound the
+    the section-less head, which no header opens. The NAME is not repeated here:
+    a section is asked for by name (:meth:`ConfigText.sections_named`), so the
+    answer only has to say where it is. ``start`` and ``end`` bound the
     section's body as a half-open range of line indices: from the line after its
     header (or the file's first line) up to the line the NEXT header sits on,
     EOF-bounded. ``entries`` are the assignments inside those bounds, in file
@@ -373,7 +382,6 @@ class ConfigSection:
     harness autoload entry inside a description string (#930).
     """
 
-    name: str
     header: int | None
     start: int
     end: int
@@ -429,7 +437,6 @@ class ConfigText:
         ends = [header.index for header in self.headers] + [len(self.lines)]
         return tuple(
             ConfigSection(
-                name=name,
                 header=None if header is None else header.index,
                 start=start,
                 end=end,

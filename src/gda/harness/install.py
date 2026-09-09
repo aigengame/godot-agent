@@ -61,7 +61,7 @@ string, and an uninstall deleted a line out of one (#930). Before that, a
 ``[autoload] ; note``: the install appended a SECOND autoload section and the
 uninstall left its entry behind (PR #898 review, round 3).
 
-Three shapes of input still come back changed, so the byte-identity guarantee of
+Five shapes of input still come back changed, so the byte-identity guarantee of
 :func:`uninstall_harness` is scoped to exclude them:
 
 - a file with MIXED terminators is normalized to its first one;
@@ -72,14 +72,21 @@ Three shapes of input still come back changed, so the byte-identity guarantee of
 - a file whose ``[autoload]`` section was ALREADY EMPTY loses that header, for the
   reason :func:`uninstall_harness` states — it is that function's guarantee, so the
   reasoning lives there and this list only names the shape (PR #898 review,
-  round 2: the list read as exhaustive and was not).
+  round 2: the list read as exhaustive and was not);
+- a file with a BYTE-ORDER MARK whose FIRST line is the ``[autoload]`` header: gda
+  joins that header, the engine reads no section there. The shared reader drops the
+  mark before it splits the text, so gda sees ``[autoload]`` where ``ConfigFile``
+  sees one marked, section-less KEY — and the install then reports a registration
+  the engine will not make. The same file declares no readable ``config_version``,
+  so the engine loads no project from it at all (#930 review, round 1).
 
 None is reachable for a ``project.godot`` the engine itself wrote: Godot's
 ``ConfigFile`` writer emits uniformly ``\\n``-terminated lines, always terminates
-the last one, and never emits an empty section. They need a hand-edited or
-tool-mangled file, so they are documented rather than coded around — the code stays
-a plain line-oriented edit instead of growing a per-line terminator model, or a
-record of pre-install state, for inputs Godot cannot produce.
+the last one, never emits an empty section, and never writes a byte-order mark.
+They need a hand-edited or tool-mangled file, so they are documented rather than
+coded around — the code stays a plain line-oriented edit instead of growing a
+per-line terminator model, a record of pre-install state, or a second reading of
+the format for inputs Godot cannot produce.
 """
 
 from dataclasses import dataclass
@@ -540,7 +547,7 @@ def install_harness(project: Path) -> HarnessInstall:
 def _drop_emptied_autoload_sections(
     config: ConfigText, sections: list[ConfigSection], removed: set[int]
 ) -> tuple[set[int], tuple[str, ...]]:
-    """Extend ``removed`` with the sections it emptied; (removed lines, dropped).
+    """Return ``removed`` widened by the sections it emptied; (lines, dropped).
 
     ``sections`` holds the ``[autoload]`` sections a harness entry was actually
     removed from — the ONLY sections this may drop. A section gda emptied would
