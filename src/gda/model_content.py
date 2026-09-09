@@ -10,7 +10,7 @@ from gda.models import EngineVersion
 class ModelContent(BaseModel):
     """Bounded, deterministic content facts returned by the native sampler."""
 
-    measurement: Literal["godot-static-model-content-v2"]
+    measurement: Literal["godot-static-model-content-v3"]
     engine_version: EngineVersion
     complete: bool
     digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")

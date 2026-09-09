@@ -28,7 +28,7 @@ from gda_assets.api import (
 
 
 CONTENT = ModelContent(
-    "godot-static-model-content-v2", "4.6.3.stable.official", True, "a" * 64
+    "godot-static-model-content-v3", "4.6.3.stable.official", True, "a" * 64
 )
 
 

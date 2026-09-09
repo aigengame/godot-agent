@@ -125,7 +125,7 @@ as verified. A complete digest mismatch reports `mismatch`. The digest remains a
 bounded content comparison, not a general resource identity or proof of all visual
 behavior.
 
-Measurement version 2 includes the complete admitted static LOD thresholds and
+Measurement version 3 includes the complete admitted static LOD thresholds and
 index bytes returned by Godot 4.6's public RenderingServer surface readback. This
 lets refresh reject an old running instance after generated LOD content changes
 and accept the replacement after the controlled session reset. The LOD data is a
@@ -133,6 +133,14 @@ Godot import/runtime representation; a standard GLB does not itself carry that
 Godot representation. The sampler's script-side limits apply after the engine has
 materialized the public surface Dictionary, as detailed in the static-content
 guide.
+
+Version 3 also compares the admitted albedo Image metadata and bytes, including
+mipmaps. An image-only replacement can therefore reject an old instance even
+when paths, counts, and bounds do not change. The texture pixel and shared byte
+limits can make a sample incomplete; they do not bound the engine's initial GPU
+readback or allocation. Other texture slots and unreadable texture forms remain
+outside the measurement. Different measurement versions cannot be compared; no
+new workflow identity or recovery mechanism is required.
 
 ## Capture and failure evidence
 

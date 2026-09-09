@@ -3623,12 +3623,13 @@ func _op_package_resource_presence(params: Dictionary) -> void:
 # This block is duplicated byte-for-byte in the live harness: imported and live
 # facts must be produced by one algorithm even though neither script can preload
 # the other. Keep the surface deliberately narrow; this is not Resource identity.
-const MODEL_CONTENT_MEASUREMENT := "godot-static-model-content-v2"
+const MODEL_CONTENT_MEASUREMENT := "godot-static-model-content-v3"
 const MODEL_CONTENT_MAX_BYTES := 67108864
 const MODEL_CONTENT_MAX_STORED_BYTES := 33554432
 const MODEL_CONTENT_MAX_LOD_BYTES := 8388608
 const MODEL_CONTENT_MAX_LODS := 1024
 const MODEL_CONTENT_MAX_SURFACES := 4096
+const MODEL_CONTENT_MAX_ALBEDO_PIXELS := 16777216
 
 
 func _model_content_note(items: Array, note: String) -> void:
@@ -3644,6 +3645,51 @@ func _model_content_hash(state: Dictionary, value: Variant, location: String) ->
 	state["bytes"] = int(state["bytes"]) + bytes.size()
 	(state["hash"] as HashingContext).update(bytes)
 	return true
+
+
+func _model_content_albedo(value: Variant, state: Dictionary, location: String) -> void:
+	if not value is Texture2D or value.get_script() != null \
+			or not value.get_class() in ["ImageTexture", "CompressedTexture2D"]:
+		_model_content_note(state["unsupported"], location + ": albedo texture type is unsupported")
+		return
+	var texture: Texture2D = value
+	var width := texture.get_width()
+	var height := texture.get_height()
+	if width <= 0 or height <= 0:
+		_model_content_note(state["unsupported"], location + ": albedo dimensions are unavailable")
+		return
+	var pixels := width * height
+	if pixels > MODEL_CONTENT_MAX_ALBEDO_PIXELS - int(state["albedo_pixels"]):
+		_model_content_note(state["omitted"], "albedo pixel limit exceeded at " + location)
+		return
+	# Charge every attempted read, including repeated references and failed reads.
+	state["albedo_pixels"] = int(state["albedo_pixels"]) + pixels
+	# Native readback may allocate/copy before the returned-size checks below.
+	var image: Image = texture.get_image()
+	if image == null or image.is_empty():
+		_model_content_note(state["unsupported"], location + ": albedo image data is unavailable")
+		return
+	if image.get_width() != width or image.get_height() != height:
+		_model_content_note(state["unsupported"], location + ": albedo image dimensions are inconsistent")
+		return
+	var format := image.get_format()
+	if image.is_compressed() or not format in [Image.FORMAT_RGB8, Image.FORMAT_RGBA8]:
+		_model_content_note(state["unsupported"], location + ": albedo image format is unsupported")
+		return
+	var size := image.get_data_size()
+	if size <= 0:
+		_model_content_note(state["unsupported"], location + ": albedo image data is unavailable")
+		return
+	if size > MODEL_CONTENT_MAX_BYTES - int(state["bytes"]):
+		_model_content_note(state["omitted"], "albedo byte limit exceeded at " + location)
+		return
+	var data := image.get_data()
+	if data.size() != size:
+		_model_content_note(state["unsupported"], location + ": albedo image data is incomplete")
+		return
+	_model_content_hash(state, "albedo_image", location)
+	_model_content_hash(state, [width, height, format, image.has_mipmaps(), image.get_mipmap_count()], location)
+	_model_content_hash(state, data, location)
 
 
 func _model_content_material(instance: MeshInstance3D, surface: int,
@@ -3682,6 +3728,10 @@ func _model_content_material(instance: MeshInstance3D, surface: int,
 				return
 			if not _model_content_hash(state, null, location):
 				return
+		elif type == TYPE_OBJECT and name == "albedo_texture":
+			if not _model_content_hash(state, name, location):
+				return
+			_model_content_albedo(value, state, location + ":albedo_texture")
 		elif type == TYPE_OBJECT:
 			_model_content_note(state["unsupported"], location + ": material resource property "
 					+ name + " is unsupported")
@@ -3848,7 +3898,7 @@ func _model_static_content(root: Node, max_nodes: int, max_vertices: int) -> Dic
 	var hashing := HashingContext.new()
 	hashing.start(HashingContext.HASH_SHA256)
 	var state := {"hash": hashing, "bytes": 0, "stored_bytes": 0,
-			"lod_bytes": 0, "lods": 0,
+			"lod_bytes": 0, "lods": 0, "albedo_pixels": 0,
 			"unsupported": [], "omitted": []}
 	var engine := Engine.get_version_info()
 	if int(engine.get("major", 0)) != 4 or int(engine.get("minor", 0)) != 6:

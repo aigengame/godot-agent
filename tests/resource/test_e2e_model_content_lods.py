@@ -181,7 +181,7 @@ def test_live_static_content_hashes_lods_and_bounds_their_count(
         run("daemon", "stop")
 
     for result in (first, changed, index_changed):
-        assert result["content"]["measurement"] == "godot-static-model-content-v2"
+        assert result["content"]["measurement"] == "godot-static-model-content-v3"
         assert result["content"]["complete"] is True
         assert result["content"]["unsupported"] == []
         assert result["content"]["omitted"] == []
@@ -236,7 +236,7 @@ def test_normally_imported_lod_sphere_matches_its_live_instance(
     finally:
         run("daemon", "stop")
 
-    assert resource["content"]["measurement"] == "godot-static-model-content-v2"
+    assert resource["content"]["measurement"] == "godot-static-model-content-v3"
     assert resource["content"]["complete"] is True
     assert resource["content"]["unsupported"] == []
     assert resource["content"]["omitted"] == []
