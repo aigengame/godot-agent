@@ -430,7 +430,9 @@ class ConfigText:
         A tuple, not one section: ``ConfigFile`` lets a name be opened more than
         once and merges the parts, so a caller that edits ``[autoload]`` must see
         all of them. :data:`SECTIONLESS` names the file's head, which always exists
-        (it is the file's beginning) and always answers with exactly one section.
+        (it is the file's beginning); a literal ``[]`` header reopens it, so even
+        that answer can have two parts — as it has for the engine, which merges
+        them into the same section-less keys.
         """
         opens: list[tuple[ConfigHeader | None, int]] = [(None, 0)]
         opens += [(header, header.index + 1) for header in self.headers]

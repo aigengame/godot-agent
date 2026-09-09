@@ -466,16 +466,24 @@ def _ensure_autoload(text: str) -> _ConfigEdit:
     # Re-point an existing GdaHarness entry, or insert a fresh one — both scoped to
     # the [autoload] section, so a same-named key in another section is never
     # touched (PR #247 review; symmetric with _remove_autoload).
-    for section in sections:
-        for entry in _harness_entries(section):
-            # A no-op when the entry already declares this value, whatever spacing
-            # or trailing comment the line carries: gda writes only where the
-            # DECLARATION differs, so it never rewrites a line it did not need to.
-            if entry.value == _AUTOLOAD_VALUE:
-                return _ConfigEdit(text, False)
-            lines = list(config.lines)
-            lines[entry.index : entry.index + len(entry.lines)] = [line]
-            return _ConfigEdit(config.spelled(lines), True)
+    declared = [entry for section in sections for entry in _harness_entries(section)]
+    if declared:
+        # The LAST declaration, because that is the one the engine loads
+        # (`ConfigText.settings`, verified on 4.6.3: a bare `GdaHarness=` after a
+        # quoted `"GdaHarness"=` wins). Deciding on the first let a canonical entry
+        # hide a later one pointing elsewhere, so the install reported nothing to
+        # do and the harness never registered (#938 review, round 2). The earlier
+        # duplicates are left as the file wrote them — the engine ignores them, and
+        # `_remove_autoload` takes them all out again.
+        entry = declared[-1]
+        # A no-op when that entry already declares this value, whatever spacing or
+        # trailing comment the line carries: gda writes only where the DECLARATION
+        # differs, so it never rewrites a line it did not need to.
+        if entry.value == _AUTOLOAD_VALUE:
+            return _ConfigEdit(text, False)
+        lines = list(config.lines)
+        lines[entry.index : entry.index + len(entry.lines)] = [line]
+        return _ConfigEdit(config.spelled(lines), True)
 
     # An existing [autoload] section with no GdaHarness entry — insert right after
     # its header, preserving any sibling autoloads.
@@ -547,7 +555,7 @@ def install_harness(project: Path) -> HarnessInstall:
 def _drop_emptied_autoload_sections(
     config: ConfigText, sections: list[ConfigSection], removed: set[int]
 ) -> tuple[set[int], tuple[str, ...]]:
-    """Return ``removed`` widened by the sections it emptied; (lines, dropped).
+    """Return ``removed`` widened by the sections it emptied, and their headers.
 
     ``sections`` holds the ``[autoload]`` sections a harness entry was actually
     removed from — the ONLY sections this may drop. A section gda emptied would

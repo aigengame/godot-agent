@@ -657,8 +657,9 @@ def test_an_emptied_commented_autoload_header_is_not_gda_s_to_drop(tmp_path):
 def test_an_entry_written_across_lines_is_re_pointed_and_removed_whole(tmp_path):
     # A `ConfigFile` value may hold a literal newline, so the entry the edit acts on
     # is the SPAN the scan recorded, not the line it starts on. Taking one line of
-    # it leaves the continuation behind — a stray `continued"` line the engine then
-    # reads as a declaration of its own.
+    # it leaves the continuation behind, and the engine then refuses the WHOLE file:
+    # `ConfigFile.load` returns ERR_PARSE_ERROR ("Unterminated string", verified on
+    # 4.6.3), so the project stops loading over a line gda left in it.
     project_godot = tmp_path / "project.godot"
     across_lines = (
         _NO_AUTOLOAD + '\n[autoload]\n\nGdaHarness="*res://legacy/old.gd\ncontinued"\n'
@@ -683,6 +684,40 @@ def test_an_entry_written_across_lines_is_re_pointed_and_removed_whole(tmp_path)
 
     result = uninstall_harness(tmp_path)
 
+    assert project_godot.read_text(encoding="utf-8") == _NO_AUTOLOAD
+    assert result.removed_sections == ("[autoload]",)
+
+
+def test_install_re_points_the_entry_the_engine_reads_last(tmp_path):
+    # `ConfigFile` lets the LAST declaration of a key win, and the two spellings
+    # here are one key to it (verified on 4.6.3: `get_section_keys` reports a single
+    # `GdaHarness` and `get_value` returns the bare line's `*res://old.gd`). Gda has
+    # to decide on that last entry: stopping at the canonical FIRST one reported
+    # nothing to do while the engine went on loading `res://old.gd`, so the harness
+    # never registered and `daemon start` waited out its readiness deadline
+    # (PR #938 review, round 2).
+    project_godot = tmp_path / "project.godot"
+    before = (
+        _NO_AUTOLOAD + f'\n[autoload]\n\n"GdaHarness"="*{HARNESS_RES_PATH}"\n'
+        'GdaHarness="*res://old.gd"\n'
+    )
+    project_godot.write_text(before, encoding="utf-8")
+
+    result = install_harness(tmp_path)
+
+    assert result.changed is True
+    text = project_godot.read_text(encoding="utf-8")
+    # The last declaration is re-pointed; the earlier spelling stays as written
+    # (the engine ignores it, and gda rewrites no line it does not have to).
+    assert text == before.replace(
+        'GdaHarness="*res://old.gd"\n', f"{_autoload_line()}\n"
+    )
+    assert install_harness(tmp_path).changed is False  # and the repeat is a no-op
+
+    result = uninstall_harness(tmp_path)
+
+    # Both spellings go: the removal takes every harness entry it finds, so the
+    # section is key-less and the header gda wrote goes with it.
     assert project_godot.read_text(encoding="utf-8") == _NO_AUTOLOAD
     assert result.removed_sections == ("[autoload]",)
 

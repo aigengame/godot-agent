@@ -883,6 +883,15 @@ def test_an_escaped_application_key_is_read_as_the_setting_it_spells(tmp_path):
     verdict = main_scene_unrunnable(empty, None)
     assert verdict is not None and verdict.code == MAIN_SCENE_UNDEFINED
 
+    # A BARE key with inner whitespace is the same key to the engine, which
+    # accumulates only characters above code 32 into it (verified on 4.6.3:
+    # `get_section_keys` reports `run/main_scene` and the value loads). Reading it
+    # as a different key refused a project the engine runs perfectly well.
+    spaced = _project_with(
+        tmp_path, '[application]\nrun/main _scene="res://main.tscn"\n'
+    )
+    assert main_scene_unrunnable(spaced, None) is None
+
 
 def test_an_application_key_gda_cannot_decode_defers_to_the_engine(tmp_path):
     # A spelling the engine's own tokenizer refuses the FILE for (a truncated hex
