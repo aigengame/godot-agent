@@ -69,3 +69,11 @@ def test_invalid_baseline_diagnostic_does_not_embed_input_or_vendor_dump(tmp_pat
     assert "untrusted-input-marker" not in str(failure.value)
     assert "pydantic.dev" not in str(failure.value)
     assert "request" in str(failure.value)
+
+
+def test_pre_warmup_baseline_retains_zero_default(tmp_path):
+    payload = asdict(_result())
+    del payload["request"]["warmup_seconds"]
+    path = tmp_path / "old.json"
+    _write(path, {"preview": payload})
+    assert read_preview_baseline(path).request.warmup_seconds == 0

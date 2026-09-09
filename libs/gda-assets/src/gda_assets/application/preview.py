@@ -5,7 +5,12 @@ import math
 from gda_assets.application.ports import PortFailure
 from gda_assets.application.preview_ports import PreviewFilesPort, PreviewHost
 from gda_assets.domain.artifacts import PipelineFailure
-from gda_assets.domain.preview import cameras_match, frame_views, validate_settings
+from gda_assets.domain.preview import (
+    cameras_match,
+    frame_views,
+    validate_settings,
+    validate_warmup,
+)
 from gda_assets.domain.preview_comparison import compare_previews
 from gda_assets.domain.preview_result import PreviewRequest, PreviewResult, PreviewView
 
@@ -31,6 +36,7 @@ def preview_asset(
     stage = "validate"
     try:
         validate_settings(request.settings)
+        validate_warmup(request.warmup_seconds)
         if type(request.frames) is not int or not 1 <= request.frames <= 120:
             raise ValueError("Preview performance frames must be between 1 and 120")
         if not math.isfinite(request.timeout) or not 0 < request.timeout <= 50:
@@ -108,6 +114,10 @@ def preview_asset(
                     "Capture and fixture view observations do not match the requested setup",
                 )
             previous_frame = capture.receipt.engine_frame
+            result.completed.append(stage)
+        if request.warmup_seconds > 0:
+            stage = "warmup"
+            runtime.warmup(request.warmup_seconds)
             result.completed.append(stage)
         stage = "performance"
         before = runtime.status()
