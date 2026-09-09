@@ -1249,10 +1249,11 @@ def resource_import(
     sidecars). An `invalid` or `failed` asset says why: `reason` names the
     check that decided it (an invalid one survives into the settled `failed`),
     `detail` the offending line or path when there is one, and `engine_output`
-    the pass's own stderr lines for that asset (at most 20, with
-    `engine_output_truncated` when more matched). `--dry-run` reports the states
-    and the decidable predictions (including `pass_will_also_import`) and writes
-    nothing. Plain `gda script run` never triggers an import pass. The pass
+    the pass's own stderr lines naming that asset when this request ran a pass
+    (at most 20, with `engine_output_truncated` when more matched; empty when
+    no pass ran). `--dry-run` reports the states and the decidable predictions
+    (including `pass_will_also_import`) and writes nothing. Plain `gda script
+    run` never triggers an import pass. The pass
     executes engine importer code over project content (the Trusted project
     assumption, ADR-0009).
     """
