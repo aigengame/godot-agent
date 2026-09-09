@@ -239,9 +239,9 @@ def test_native_configuration_normalization_refuses_then_explicit_file_reuse_suc
         }
     ]
     assert b"nodes/root_script=null" in sidecar.read_bytes()
-    assert "completed stages: validate, stage, install, import, load" in first[
-        "message"
-    ]
+    assert (
+        "completed stages: validate, stage, install, import, load" in first["message"]
+    )
     assert "not its writer or semantic equivalence" in first["message"]
     assert "omit --production" in first["message"]
     assert "can fail if they change again" in first["message"]
@@ -279,9 +279,9 @@ def test_native_configuration_normalization_refuses_then_explicit_file_reuse_suc
     ]
     assert repeated_observations["status"] == "stable"
     assert repeated_asset["source_before"] == repeated_asset["source_after"]
-    assert repeated_asset["configuration_before"] == repeated_asset[
-        "configuration_after"
-    ]
+    assert (
+        repeated_asset["configuration_before"] == repeated_asset["configuration_after"]
+    )
 
 
 def test_wrong_declared_digest_refuses_before_import_and_retains_pre_facts(

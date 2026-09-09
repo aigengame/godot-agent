@@ -517,9 +517,9 @@ def test_observation_change_publishes_stage_facts_and_file_reuse_guidance_to_jso
         "import",
         "load",
     ]
-    assert "completed stages: validate, stage, install, import, load" in error[
-        "message"
-    ]
+    assert (
+        "completed stages: validate, stage, install, import, load" in error["message"]
+    )
     assert "observation did not complete" in error["message"]
     assert "not its writer or semantic equivalence" in error["message"]
     assert "--files" in error["message"]
