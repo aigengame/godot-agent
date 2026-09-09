@@ -67,6 +67,12 @@ def test_dry_run_reports_missing_and_predictions_and_writes_nothing(tmp_path):
             "status": "missing",
             "sidecar": None,
             "dest_files": [],
+            # The #853 keys ride on EVERY asset, empty where there is nothing to
+            # explain — the shape `sidecar` already set for this result.
+            "reason": None,
+            "detail": None,
+            "engine_output": [],
+            "engine_output_truncated": False,
         }
     ]
     assert data["predicted_source_adjacent"] == ["res://icon.png.import"]
@@ -599,3 +605,329 @@ def test_result_model_validates_its_mode_fields():
         ResourceImportResult.model_validate(
             {**base, "summary": {**base["summary"], "requested": 5}}
         )
+
+
+# --- why an asset is invalid or failed (#853) ----------------------------------
+
+
+def test_an_invalid_reason_survives_the_settlement_unchanged(monkeypatch, tmp_path):
+    # The AC's first pair, both halves of one fixture: `--dry-run` reports the
+    # evidence state WITH the check that decided it, and a real run — which
+    # spends no pass on an invalid request — settles to `failed` still naming
+    # that same check. PIPE-DF-191 got the settlement with nothing on it.
+    #
+    # The fixture is the reason spelling that also carries a DETAIL (PR #937
+    # review round 1): a sidecar that decodes but whose `dest_files=` list does
+    # not parse, so the offending line has to survive the settlement beside the
+    # reason. With undecodable bytes there was no detail to lose.
+    project = icon_project(tmp_path)
+    (project / "icon.png.import").write_text(
+        '[remap]\n\nimporter="texture"\nuid="uid://test"\n\n[deps]\n\n'
+        'source_file="res://icon.png"\ndest_files=[oops]\n',
+        encoding="utf-8",
+    )
+
+    dry = json.loads(_run(project, "res://icon.png", "--dry-run").stdout)["assets"][0]
+    assert dry["status"] == "invalid"
+    assert dry["reason"] == "sidecar_unparsable"
+    assert dry["detail"] == "dest_files=[oops]"
+    assert dry["sidecar"] == "res://icon.png.import"
+
+    calls, fake_launch = _fake_pass(project, lambda p: None)
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+    real = json.loads(_run(project, "res://icon.png").stdout)["assets"][0]
+
+    assert calls == []
+    assert real["status"] == "failed"
+    assert real["reason"] == "sidecar_unparsable"
+    assert real["detail"] == "dest_files=[oops]"
+    # No pass ran, so there is no engine output to attribute to it.
+    assert real["engine_output"] == []
+    assert real["engine_output_truncated"] is False
+
+
+def test_each_asset_takes_only_the_passs_lines_that_name_it(monkeypatch, tmp_path):
+    # PR #937 review round 2: `engine_output` follows the PASS, never the
+    # reason. Round 1 gated it on a settlement-decided reason, assuming the
+    # engine says nothing about an asset it skips — false on 4.6.3, where an
+    # unparsable sidecar draws two `ResourceFormatImporter::load` errors naming
+    # it before the skip. The stderr below is that real shape (reproduced
+    # against the engine), and the rule is the literal one: each asset takes
+    # the lines that NAME it, and only those.
+    project = icon_project(tmp_path)
+    (project / "bad.png").write_bytes(b"\x89PNG bad")
+    (project / "bad.png.import").write_text(
+        '[remap]\n\nimporter="texture"\nuid="uid://test"\n\n[deps]\n\n'
+        'source_file="res://bad.png"\ndest_files=[oops]\n',
+        encoding="utf-8",
+    )
+    bad_lines = [
+        "ERROR: ResourceFormatImporter::load - 'res://bad.png.import:8' error "
+        "'Unexpected identifier 'oops''.",
+        "ERROR: ResourceFormatImporter::load - 'res://bad.png.import:8' error "
+        "'Unexpected identifier 'oops''.",
+    ]
+    stderr = (
+        f"{bad_lines[0]}\n"
+        "   at: _test_for_reimport (editor/file_system/editor_file_system.cpp:620)\n"
+        f"{bad_lines[1]}\n"
+        "   at: _get_import_dest_paths (editor/file_system/editor_file_system.cpp:772)\n"
+        "ERROR: Error importing 'res://fresh.png'.\n"
+        "   at: _reimport_file (editor/file_system/editor_file_system.cpp:3065)\n"
+    )
+
+    def fake_launch(binary, args, *, cwd, timeout, timeout_label="Godot", watch=None):
+        sidecar(project, "fresh.png", ".godot/imported/never-written.ctex")
+        return RunResult(stdout="", stderr=stderr, exit_code=0)
+
+    (project / "fresh.png").write_bytes(b"\x89PNG fresh")
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+
+    data = json.loads(_run(project, "res://bad.png", "res://fresh.png").stdout)
+    by_path = {a["path"]: a for a in data["assets"]}
+
+    # The asset the engine SKIPPED still keeps its pre-pass reason AND the
+    # engine's two lines about it. The `at:` continuations name a source file,
+    # not the asset, so they stay out.
+    assert by_path["res://bad.png"]["status"] == "failed"
+    assert by_path["res://bad.png"]["reason"] == "sidecar_unparsable"
+    assert by_path["res://bad.png"]["engine_output"] == bad_lines
+    assert by_path["res://bad.png"]["engine_output_truncated"] is False
+    # The sibling that spent the pass takes its own line, and only its own.
+    assert by_path["res://fresh.png"]["reason"] == "dest_missing_after_pass"
+    assert by_path["res://fresh.png"]["engine_output"] == [
+        "ERROR: Error importing 'res://fresh.png'."
+    ]
+
+    # And with no pass to attribute anything to, both are empty: `bad.png`
+    # alone is invalid, so nothing runs.
+    calls, no_pass = _fake_pass(project, lambda p: None)
+    monkeypatch.setattr("gda.commands.resource.launch", no_pass)
+    alone = json.loads(_run(project, "res://bad.png").stdout)["assets"][0]
+    assert calls == []
+    assert alone["status"] == "failed"
+    assert alone["reason"] == "sidecar_unparsable"
+    assert alone["engine_output"] == []
+
+
+def test_the_remedy_footnote_follows_the_artifact_reason_into_a_real_run(
+    monkeypatch, tmp_path
+):
+    # PR #937 review round 2 [P3]: the "delete the .import sidecar" hint was
+    # keyed on the `invalid` STATE, which a real run settles away — so the run
+    # that most needs the remedy printed none. It follows the artifact reason
+    # now, and `dest_missing_after_pass` still gets no sidecar advice.
+    project = icon_project(tmp_path)
+    sidecar(project, "icon.png", None, valid=False)
+
+    calls, fake_launch = _fake_pass(project, lambda p: None)
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+    settled = runner_cli.invoke(
+        app, ["resource", "import", "res://icon.png", "--project", str(project)]
+    )
+
+    assert settled.exit_code == 0, settled.stdout + settled.stderr
+    assert "failed" in settled.stdout
+    assert "delete the asset's .import sidecar" in settled.stdout
+
+    # A pass-decided failure is not a sidecar-syntax problem; no such advice.
+    project2 = icon_project(tmp_path / "second")
+
+    def effects(p):
+        sidecar(p, "icon.png", ".godot/imported/never-written.ctex")
+
+    _, leaves_dest = _fake_pass(project2, effects)
+    monkeypatch.setattr("gda.commands.resource.launch", leaves_dest)
+    passed = runner_cli.invoke(
+        app, ["resource", "import", "res://icon.png", "--project", str(project2)]
+    )
+
+    assert "dest_missing_after_pass" in passed.stdout
+    assert "delete the asset's .import sidecar" not in passed.stdout
+
+
+def test_a_pass_that_leaves_the_asset_uncached_reports_the_settlement_reason(
+    monkeypatch, tmp_path
+):
+    # The other half of the enum, and the one only the COMMAND can decide: no
+    # pre-pass check refused this asset — the pass ran and the destination is
+    # still not there. The engine's own lines for the asset ride with it.
+    project = icon_project(tmp_path)
+    stderr = (
+        "ERROR: Error loading image: 'res://icon.png'.\n"
+        "   at: load_image (core/io/image_loader.cpp:100)\n"
+        "ERROR: Error importing 'res://icon.png'.\n"
+        "ERROR: Error importing 'res://other.png'.\n"
+    )
+
+    def fake_launch(binary, args, *, cwd, timeout, timeout_label="Godot", watch=None):
+        sidecar(project, "icon.png", ".godot/imported/never-written.ctex")
+        return RunResult(stdout="", stderr=stderr, exit_code=0)
+
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+
+    asset = json.loads(_run(project, "res://icon.png").stdout)["assets"][0]
+
+    assert asset["status"] == "failed"
+    assert asset["reason"] == "dest_missing_after_pass"
+    assert asset["detail"] is None
+    # Only the lines that NAME this asset: the neighbour's error and the
+    # engine's `at:` continuation lines are not this asset's evidence.
+    assert asset["engine_output"] == [
+        "ERROR: Error loading image: 'res://icon.png'.",
+        "ERROR: Error importing 'res://icon.png'.",
+    ]
+    assert asset["engine_output_truncated"] is False
+
+
+def test_engine_output_is_bounded_to_twenty_lines(monkeypatch, tmp_path):
+    # #665's bounded-stream rule, without a spill file: a pass that floods the
+    # log must not turn one asset's verdict into an unbounded payload, and the
+    # caller is TOLD the cut happened.
+    project = icon_project(tmp_path)
+    lines = [f"ERROR: {i} 'res://icon.png' failed." for i in range(25)]
+
+    def fake_launch(binary, args, *, cwd, timeout, timeout_label="Godot", watch=None):
+        sidecar(project, "icon.png", ".godot/imported/never-written.ctex")
+        return RunResult(stdout="", stderr="\n".join(lines) + "\n", exit_code=0)
+
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+
+    asset = json.loads(_run(project, "res://icon.png").stdout)["assets"][0]
+
+    assert asset["engine_output"] == lines[:20]
+    assert asset["engine_output_truncated"] is True
+
+
+def test_exactly_twenty_matching_lines_are_not_reported_truncated(
+    monkeypatch, tmp_path
+):
+    # The boundary: the flag says lines were DROPPED, not that the cap was met.
+    project = icon_project(tmp_path)
+    lines = [f"ERROR: {i} 'res://icon.png' failed." for i in range(20)]
+
+    def fake_launch(binary, args, *, cwd, timeout, timeout_label="Godot", watch=None):
+        sidecar(project, "icon.png", ".godot/imported/never-written.ctex")
+        return RunResult(stdout="", stderr="\n".join(lines) + "\n", exit_code=0)
+
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+
+    asset = json.loads(_run(project, "res://icon.png").stdout)["assets"][0]
+
+    assert asset["engine_output"] == lines
+    assert asset["engine_output_truncated"] is False
+
+
+def test_a_settled_asset_the_pass_repaired_carries_no_reason(monkeypatch, tmp_path):
+    # The reason explains a verdict, so a verdict that needs no explanation
+    # must not carry a stale one — an `imported` asset re-read after the pass
+    # answers `cached`, and the settlement must not copy the pass's noise onto
+    # it either.
+    project = icon_project(tmp_path)
+
+    def fake_launch(binary, args, *, cwd, timeout, timeout_label="Godot", watch=None):
+        cached_asset(project, "icon.png", ".godot/imported/icon.png-" + "a" * 32)
+        return RunResult(
+            stdout="", stderr="ERROR: noise about 'res://icon.png'.\n", exit_code=0
+        )
+
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+
+    asset = json.loads(_run(project, "res://icon.png").stdout)["assets"][0]
+
+    assert asset["status"] == "imported"
+    assert asset["reason"] is None
+    assert asset["detail"] is None
+    assert asset["engine_output"] == []
+
+
+def test_a_not_importable_asset_carries_no_reason(monkeypatch, tmp_path):
+    # The engine deciding a type needs no import is not a failure at all.
+    project = icon_project(tmp_path)
+    (project / "script.gd").write_text("extends Node\n", encoding="utf-8")
+
+    calls, fake_launch = _fake_pass(project, lambda p: None)
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+
+    asset = json.loads(_run(project, "res://script.gd").stdout)["assets"][0]
+
+    assert asset["status"] == "not_importable"
+    assert asset["reason"] is None
+
+
+def test_the_wire_enum_covers_every_reason_the_adapter_can_decide():
+    # The two enums are one contract split across the commands -> core seam: a
+    # reason the adapter learns to decide but the wire model cannot spell would
+    # fail validation at the worst moment, on the failure path. The wire adds
+    # exactly one value of its own, the settlement's.
+    from typing import get_args
+
+    from gda.commands.resource import AssetReason
+    from gda.import_evidence import EvidenceReason
+
+    assert set(get_args(EvidenceReason)) < set(get_args(AssetReason))
+    assert set(get_args(AssetReason)) - set(get_args(EvidenceReason)) == {
+        "dest_missing_after_pass"
+    }
+
+
+def test_a_dry_run_never_reports_engine_output():
+    # The mode invariant, in the model that already validates the mode's field
+    # set (#732): a dry run runs no pass, so no asset can carry the pass's lines.
+    import pydantic
+
+    from gda.commands.resource import ResourceImportResult
+
+    payload = {
+        "dry_run": True,
+        "cache_root": "res://.godot",
+        "engine_pass": False,
+        "assets": [
+            {
+                "path": "res://icon.png",
+                "status": "invalid",
+                "reason": "sidecar_marked_invalid",
+                "engine_output": ["ERROR: something about 'res://icon.png'."],
+            }
+        ],
+        "summary": {
+            "requested": 1,
+            "cached": 0,
+            "missing": 0,
+            "stale": 0,
+            "invalid": 1,
+            "imported": 0,
+            "not_importable": 0,
+            "failed": 0,
+            "created_cache_owned": 0,
+            "created_source_adjacent": 0,
+        },
+    }
+    with pytest.raises(pydantic.ValidationError):
+        ResourceImportResult.model_validate(payload)
+
+
+def test_the_human_render_shows_the_reason_on_the_assets_line(monkeypatch, tmp_path):
+    # AC: the reason is not a JSON-only key. The default rendering names it
+    # beside the verdict, with the offending line or path when there is one.
+    project = icon_project(tmp_path)
+    cached_asset(project, "icon.png", ".godot/imported/icon.png-" + "a" * 32 + ".ctex")
+    receipt_path(project, "icon.png").write_text("source_md5=[\n", encoding="utf-8")
+
+    result = runner_cli.invoke(
+        app,
+        [
+            "resource",
+            "import",
+            "res://icon.png",
+            "--dry-run",
+            "--project",
+            str(project),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    line = next(line for line in result.stdout.splitlines() if "res://icon.png" in line)
+    assert "invalid" in line
+    assert "receipt_unsupported" in line
+    assert ".md5" in line

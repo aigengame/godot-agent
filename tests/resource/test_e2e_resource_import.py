@@ -418,3 +418,75 @@ def test_lone_surrogate_receipt_matches_the_engines_deliberate_skip(tmp_path):
     assert real["assets"][0]["status"] == "failed"
     assert real["engine_pass"] is False
     assert real["created"] == []
+
+
+@pytest.mark.e2e
+def test_a_failed_asset_names_its_reason_and_the_engines_own_lines(tmp_path):
+    # #853, against the real engine: ordinary text named .png imports for the
+    # first time, so the pass RUNS and still leaves no cache — the settlement's
+    # own `dest_missing_after_pass`, with the engine's stderr lines for that
+    # asset attached. PIPE-DF-191 got this verdict bare and had to prove the
+    # outcome from unchanged resource bytes.
+    project = _project(tmp_path)
+    gda = Gda(project, json_output=True, timeout=180)
+    (project / "broken.png").write_text("this is not a png", encoding="utf-8")
+
+    first = json.loads(gda("resource", "import", "res://broken.png").stdout)
+    asset = first["assets"][0]
+    assert asset["status"] == "failed", first
+    assert asset["reason"] == "dest_missing_after_pass"
+    assert asset["engine_output_truncated"] is False
+    # The engine's own words, verbatim, and only the lines that name the asset
+    # (the pass also imports icon.png in the same run).
+    assert any(
+        "Error importing 'res://broken.png'" in line for line in asset["engine_output"]
+    ), asset["engine_output"]
+    assert all("res://broken.png" in line for line in asset["engine_output"])
+
+    # The other direction, on the same artifacts: the pass wrote `valid=false`,
+    # so the SECOND run's pre-pass check refuses the asset before any engine
+    # starts — and that check is what the settled `failed` reports.
+    second = json.loads(gda("resource", "import", "res://broken.png").stdout)
+    assert second["engine_pass"] is False
+    assert second["assets"][0]["status"] == "failed"
+    assert second["assets"][0]["reason"] == "sidecar_marked_invalid"
+    assert second["assets"][0]["engine_output"] == []
+
+
+@pytest.mark.e2e
+def test_the_engine_names_a_sidecar_it_skips_and_those_lines_ride_along(tmp_path):
+    # PR #937 review round 2, the assumption round 1 got wrong, pinned against
+    # the real engine: gda's verdict for an unparsable sidecar is a SKIP the
+    # pass never retries — and the engine still prints
+    # `ResourceFormatImporter::load - 'res://bad.png.import:8'` twice while
+    # deciding that, once from `_test_for_reimport` and once from
+    # `_get_import_dest_paths`. So `engine_output` follows the PASS, not the
+    # reason: a request that spent one carries the engine's words about every
+    # asset it names, this one included.
+    project = _project(tmp_path)
+    gda = Gda(project, json_output=True, timeout=180)
+    _png(project / "bad.png", (0, 0, 255))
+    (project / "bad.png.import").write_text(
+        '[remap]\n\nimporter="texture"\nuid="uid://gda853probe"\n\n[deps]\n\n'
+        'source_file="res://bad.png"\ndest_files=[oops]\n',
+        encoding="utf-8",
+    )
+
+    # icon.png has no sidecar, so THIS request spends a pass.
+    result = gda("resource", "import", "res://bad.png", "res://icon.png")
+    assert result.returncode == 0, result.stdout + result.stderr
+    doc = json.loads(result.stdout)
+    assert doc["engine_pass"] is True
+    by_path = {a["path"]: a for a in doc["assets"]}
+
+    skipped = by_path["res://bad.png"]
+    assert skipped["status"] == "failed"
+    assert skipped["reason"] == "sidecar_unparsable"
+    assert skipped["detail"] == "dest_files=[oops]"
+    assert skipped["engine_output"], doc
+    assert all("res://bad.png" in line for line in skipped["engine_output"])
+    assert any(".import:" in line for line in skipped["engine_output"])
+    assert skipped["engine_output_truncated"] is False
+    # The sibling imported normally and has nothing to explain.
+    assert by_path["res://icon.png"]["status"] == "imported"
+    assert by_path["res://icon.png"]["engine_output"] == []
