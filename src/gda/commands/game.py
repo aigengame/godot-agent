@@ -17,7 +17,7 @@ against the engine session it holds, reading the runtime ``SceneTree`` after
 """
 
 import json
-from typing import Any, Optional
+from typing import Any, NotRequired, Optional, TypedDict
 
 import typer
 from pydantic import (
@@ -88,17 +88,8 @@ class GameNode(BaseModel):
     # The presence rule above is a SERIALIZATION rule, so it lives on the writer
     # rather than on every caller: the field stays a plain int with a 0 default
     # (a consumer reads a number, never None), and the key is dropped from the
-    # emitted JSON when nothing was omitted. `mode="wrap"` runs pydantic's own
-    # serializer first, so nested children are serialized — and pruned — by this
-    # same rule at every depth.
-    @model_serializer(mode="wrap")
-    def _omit_absent_omission_count(
-        self, handler: SerializerFunctionWrapHandler
-    ) -> dict[str, Any]:
-        rendered = handler(self)
-        if not rendered.get("children_omitted"):
-            rendered.pop("children_omitted", None)
-        return rendered
+    # emitted JSON when nothing was omitted. The writer is ONE serializer on
+    # :class:`GameTreeResult`, not one per node — see it for why.
 
 
 class GameTreeParams(RelayedLiveParams):
@@ -139,6 +130,31 @@ class GameTreeParams(RelayedLiveParams):
     )
 
 
+# The shape ``game tree`` EMITS, as opposed to the shape it holds: identical to
+# :class:`GameNode` / :class:`GameTreeResult` except that `children_omitted` is
+# optional, which is the one difference the prune below makes. Declared because a
+# `model_serializer`'s return annotation is what pydantic builds the writer from
+# — see the method for why a bare mapping is not enough here. Not published: the
+# `--schema` document is generated from the models in validation mode, where a
+# serializer's return type does not appear.
+class EmittedGameNode(TypedDict):
+    """One node of the emitted runtime tree (#929)."""
+
+    name: str
+    type: str
+    path: str
+    children: list["EmittedGameNode"]
+    children_omitted: NotRequired[int]
+
+
+class EmittedGameTree(TypedDict):
+    """The emitted ``game tree`` result (#929)."""
+
+    root: EmittedGameNode
+    truncated: bool
+    omitted_nodes: int
+
+
 class GameTreeResult(BaseModel):
     """The result of ``gda game tree``: the running game's runtime scene tree (#849).
 
@@ -163,6 +179,38 @@ class GameTreeResult(BaseModel):
             "missing from this result."
         )
     )
+
+    # The ONE writer of :class:`GameNode`'s `children_omitted` presence rule
+    # (#929). It sits here, on the whole tree, because the obvious home — a
+    # `model_serializer` on the node itself — is a Python callback at EVERY
+    # level, and pydantic stops calling those at about 128 nested levels: a
+    # chain the model happily VALIDATED then raised an uncaught
+    # `PydanticSerializationError`, so the CLI exited 1 with a bare traceback
+    # and no `Error envelope` at all, while `scene get`'s plain nested model
+    # refused the same depth typed. One callback at the top runs pydantic's own
+    # serializer over the whole tree first and then walks the dumped
+    # dictionaries with an explicit stack — never recursion, which would only
+    # move the ceiling into Python. The emitted JSON is unchanged and every tree
+    # the model accepts now also serializes; past that the refusal stays the
+    # typed `tree_too_deep` (issue #37) that `game tree --help` states.
+    #
+    # The return type is spelled out rather than left as a bare mapping BECAUSE
+    # of the depth: pydantic serializes a callback's result through the schema
+    # the annotation gives it, and an unannotated one falls back to the inferred
+    # writer, whose own JSON guard stops at the same ~128 levels this method
+    # exists to clear. The annotation is what makes the tree schema-driven again.
+    @model_serializer(mode="wrap")
+    def _omit_absent_omission_counts(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> "EmittedGameTree":
+        rendered = handler(self)
+        pending: list[Any] = [rendered["root"]]
+        while pending:
+            node = pending.pop()
+            if not node.get("children_omitted"):
+                node.pop("children_omitted", None)
+            pending.extend(node["children"])
+        return rendered
 
     @model_validator(mode="after")
     def _check_omission_counters(self) -> "GameTreeResult":
@@ -914,7 +962,9 @@ def game_tree(
     selected subtree is counted, never silently dropped: the result carries
     `truncated` and `omitted_nodes`, and each node whose children were not walked
     carries `children_omitted`. Read bounded first, then address the nodes you
-    want by their exact path (`game get`, `game rect`, `game set`).
+    want by their exact path (`game get`, `game rect`, `game set`). A tree
+    nesting deeper than about 250 levels is refused as `tree_too_deep`: bound
+    such a read with `--root` and `--max-depth`.
     """
     dispatch_domain(
         GAME_TREE_COMMAND,

@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.commands.game import GameFindParams, GameTreeParams
+from gda.commands.game import GameFindParams, GameTreeParams, GameTreeResult
 from gda.exit_codes import EXIT_LIVE, EXIT_PARSE
 from gda.runner import RunResult
 from tests.support import (
@@ -127,6 +127,78 @@ def test_game_tree_reports_the_omitted_counts_of_a_bounded_read(monkeypatch, tmp
     # A node whose children were ALL serialized keeps the key absent.
     assert "children_omitted" not in children[1]
     assert "children_omitted" not in children[2]
+
+
+# The zero-`children_omitted` prune is a SERIALIZATION rule, and #929 moved the
+# serializer that carries it from every node to the result. These cases pin what
+# the rule EMITS, so the move is provable without them naming the mechanism: the
+# key is absent wherever the count is 0, present where it is not, and a tree the
+# model accepts reaches the caller whole.
+def _chain_reply(levels: int) -> dict:
+    """A `game tree` reply whose root is a single chain `levels` nodes deep."""
+    node = {"name": "leaf", "type": "Node", "path": "/root/Main", "children": []}
+    for index in range(levels - 1):
+        node = {
+            "name": str(index),
+            "type": "Node",
+            "path": "/root/Main",
+            "children": [node],
+        }
+    return {"root": node, "truncated": False, "omitted_nodes": 0}
+
+
+def test_game_tree_json_keeps_only_the_omission_counts_above_zero(
+    monkeypatch, tmp_path
+):
+    # The bounded fixture carries both cases on one tree, so the emitted JSON
+    # must equal it exactly: `children_omitted` on the one node whose children
+    # the read left out, and nowhere else.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_TREE_TRUNCATED_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app, ["game", "tree", "--project", str(minimal_project(tmp_path)), "--json"]
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout) == GAME_TREE_TRUNCATED_RESULT
+
+
+def test_both_dump_paths_prune_the_zero_omission_counts():
+    # The CLI emits through `model_dump_json`, but the object model is a public
+    # surface too, so the rule must hold on both paths rather than on the one
+    # the CLI happens to take.
+    model = GameTreeResult.model_validate(GAME_TREE_TRUNCATED_RESULT)
+
+    assert model.model_dump() == GAME_TREE_TRUNCATED_RESULT
+    assert json.loads(model.model_dump_json()) == GAME_TREE_TRUNCATED_RESULT
+
+
+def test_game_tree_emits_a_deep_tree_the_model_accepts(monkeypatch, tmp_path):
+    # #929: a 200-level chain is well inside the model's own recursion limit,
+    # yet the read used to exit 1 with a bare traceback and NO error envelope —
+    # a per-node prune serializer is a Python callback at every level, and
+    # pydantic stops calling those far below the depth it validates. The tree
+    # the model accepts must reach the caller instead.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(_chain_reply(200)), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app, ["game", "tree", "--project", str(minimal_project(tmp_path)), "--json"]
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    node, levels = json.loads(result.stdout)["root"], 1
+    while node["children"]:
+        node = node["children"][0]
+        levels += 1
+    assert levels == 200
+    # And the prune still reaches every depth of it.
+    assert "children_omitted" not in result.stdout
 
 
 def test_game_tree_renders_the_omission_for_a_human(monkeypatch, tmp_path):
