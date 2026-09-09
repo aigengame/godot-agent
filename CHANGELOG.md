@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.16.0](https://github.com/aigengame/godot-agent/compare/v0.15.0...v0.16.0) (2026-09-08)
+
+
+### Features
+
+* **gda:** dogfooding II W2 — import evidence core, template roots, bounded project writes, action --as-event, game find ([b7c4856](https://github.com/aigengame/godot-agent/commit/b7c48569377e9796088137a61bb89f1ade39f9c9))
+* **gda:** game find locates runtime nodes by name, type or unique name ([#855](https://github.com/aigengame/godot-agent/issues/855)) ([a2313fd](https://github.com/aigengame/godot-agent/commit/a2313fd08baf3649dd9c83431e269b1d8d0e1205))
+* **gda:** input action --as-event delivers an InputEventAction through the viewport ([#854](https://github.com/aigengame/godot-agent/issues/854)) ([7673f08](https://github.com/aigengame/godot-agent/commit/7673f0872269a04c734084d5127e1dd9633c5a5c))
+
+
+### Bug Fixes
+
+* **gda:** bound a project write to the request and report the file it reserialized ([#843](https://github.com/aigengame/godot-agent/issues/843)) ([7f1ad18](https://github.com/aigengame/godot-agent/commit/7f1ad18faac0f5d876ea7e7b5401a56458437ab8))
+* **gda:** export names both template directories when --user-data-root hides the host's ([#840](https://github.com/aigengame/godot-agent/issues/840)) ([fd1f4d5](https://github.com/aigengame/godot-agent/commit/fd1f4d5277cc09b944efa7150fb0bfa2ce0950ff))
+
 ## [0.15.0](https://github.com/aigengame/godot-agent/compare/v0.14.0...v0.15.0) (2026-09-07)
 
 
