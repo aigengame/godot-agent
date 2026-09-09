@@ -22,7 +22,7 @@ from gda_assets.domain.refresh import (
 from gda_assets.application.ports import PortFailure
 
 
-CONTENT = ModelContent("godot-static-model-content-v1", "4.6.3", True, "b" * 64)
+CONTENT = ModelContent("godot-static-model-content-v2", "4.6.3", True, "b" * 64)
 
 
 class Runtime:
