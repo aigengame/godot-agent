@@ -33,7 +33,7 @@ from tests.live_number_corpus import (
     tally_outcome,
     value_bits,
 )
-from tests.support import Gda, panel_text
+from tests.support import Gda
 
 from tests.conftest import LIVE_PROJECT_GODOT
 
@@ -291,8 +291,12 @@ def test_live_call_refuses_an_argument_the_wire_would_flatten(
                 "--args",
                 f"[{literal}]",
             )
-            assert refused.returncode != 0, refused.stdout + refused.stderr
-            assert "cannot cross the live wire" in panel_text(refused.stderr), literal
+            assert refused.returncode == 2, refused.stdout + refused.stderr
+            assert refused.stderr == ""
+            error = json.loads(refused.stdout)["error"]
+            assert error["category"] == "usage"
+            assert error["code"] == "invalid_argument"
+            assert "cannot cross the live wire" in error["message"], literal
             assert "live_timeout" not in refused.stdout
 
         # The --params-json path reaches the same validator and reports the
@@ -368,8 +372,12 @@ def test_every_live_ingress_refuses_a_flattening_value_against_a_real_daemon(
             ),
         ):
             refused = run(*argv)
-            assert refused.returncode != 0, refused.stdout + refused.stderr
-            message = panel_text(refused.stderr)
+            assert refused.returncode == 2, refused.stdout + refused.stderr
+            assert refused.stderr == ""
+            error = json.loads(refused.stdout)["error"]
+            assert error["category"] == "usage"
+            assert error["code"] == "invalid_argument"
+            message = error["message"]
             assert "cannot cross the live wire" in message, argv
             # Decided before the daemon is asked: not a live-channel failure, and
             # not the windowed-display refusal a real `screen capture` would hit.
