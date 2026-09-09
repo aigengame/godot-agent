@@ -9,6 +9,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
@@ -210,59 +211,88 @@ def test_click_syntax_error_outside_validation_stays_text_under_json():
     assert "requires an argument" in panel_text(done.stderr)
 
 
-def test_real_cli_raw_json_fallback_stops_at_end_of_options():
-    human = subprocess.run(
-        [
-            *GDA_CMD,
-            "game",
-            "tree",
-            "--max-depth",
-            "wrong",
-            "--",
-            "--json",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    inherited = subprocess.run(
-        [
-            *GDA_CMD,
-            "--json",
-            "game",
-            "tree",
-            "--max-depth",
-            "wrong",
-            "--",
-            "--json",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert human.returncode == EXIT_USAGE, human.stdout + human.stderr
-    assert human.stdout == ""
-    assert "--max-depth" in panel_text(human.stderr)
-    assert inherited.returncode == EXIT_USAGE, inherited.stdout + inherited.stderr
-    assert inherited.stderr == ""
-    assert json.loads(inherited.stdout)["error"]["code"] == "invalid_argument"
-
-
-def test_real_cli_missing_required_parameter_is_structured_under_json():
+@pytest.mark.parametrize(
+    ("argv", "json_expected"),
+    [
+        pytest.param(
+            ["game", "tree", "--max-depth", "wrong", "--json"],
+            True,
+            id="leaf-json",
+        ),
+        pytest.param(
+            ["--", "game", "tree", "--max-depth", "wrong", "--json"],
+            True,
+            id="root-terminator-before-leaf-json",
+        ),
+        pytest.param(
+            ["game", "--", "tree", "--max-depth", "wrong", "--json"],
+            True,
+            id="group-terminator-before-leaf-json",
+        ),
+        pytest.param(
+            ["game", "tree", "--max-depth", "wrong", "--", "--json"],
+            False,
+            id="leaf-terminator-before-positional-json",
+        ),
+        pytest.param(
+            ["--json", "game", "tree", "--max-depth", "wrong", "--", "--json"],
+            True,
+            id="root-json-before-leaf-terminator",
+        ),
+        pytest.param(
+            ["game", "--json", "tree", "--max-depth", "wrong", "--", "--json"],
+            True,
+            id="group-json-before-leaf-terminator",
+        ),
+        pytest.param(
+            ["resource", "reimport", "--json"],
+            True,
+            id="missing-required-parameter-with-json",
+        ),
+        pytest.param(
+            [
+                "resource",
+                "reimport",
+                "res://model.glb",
+                "--updates-json",
+                "--json",
+            ],
+            False,
+            id="json-token-consumed-as-option-value",
+        ),
+        pytest.param(
+            [
+                "resource",
+                "reimport",
+                "res://model.glb",
+                "--updates-json",
+                "--json",
+                "--json",
+            ],
+            True,
+            id="option-value-followed-by-json-flag",
+        ),
+    ],
+)
+def test_real_cli_known_parameter_failures_use_only_parsed_json_flags(
+    argv, json_expected
+):
     done = subprocess.run(
-        [*GDA_CMD, "resource", "reimport", "--json"],
+        [*GDA_CMD, *argv],
         capture_output=True,
         text=True,
         check=False,
     )
 
     assert done.returncode == EXIT_USAGE, done.stdout + done.stderr
-    assert done.stderr == ""
-    error = json.loads(done.stdout)["error"]
-    assert error["category"] == "usage"
-    assert error["code"] == "invalid_argument"
-    assert "path" in error["message"].lower()
+    if json_expected:
+        assert done.stderr == ""
+        error = json.loads(done.stdout)["error"]
+        assert error["category"] == "usage"
+        assert error["code"] == "invalid_argument"
+    else:
+        assert done.stdout == ""
+        assert panel_text(done.stderr)
 
 
 def _snapshot_files(root: Path) -> dict[str, bytes]:

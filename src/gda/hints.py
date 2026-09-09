@@ -64,6 +64,7 @@ from gda.errors import Failure, make_failure
 from gda.headless import (
     emit_failure,
     json_in_effect,
+    parsed_json_in_effect,
     remember_argv,
     walk_mounted_groups,
 )
@@ -398,7 +399,7 @@ class GdaGroup(TyperGroup):
             # caller instead receives the same exit-2 usage failure through gda's
             # public envelope, before a command can dispatch an operation.
             target = exc.ctx or ctx
-            if json_in_effect(target):
+            if parsed_json_in_effect(target):
                 emit_failure(
                     make_failure(INVALID_ARGUMENT, _bad_parameter_message(exc), ""),
                     json_output=True,
