@@ -26,7 +26,7 @@ from tests.support import (
     inject_live_runner,
     panel_text,
     sentinel,
-    usage_error_text,
+    structured_argv_error_message,
     minimal_project,
 )
 
@@ -168,7 +168,7 @@ def test_game_tree_refuses_a_negative_max_depth(monkeypatch, tmp_path):
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
-    assert "--max-depth" in usage_error_text(result)
+    assert "--max-depth" in structured_argv_error_message(result)
 
 
 def test_game_tree_help_states_the_bounding_options():

@@ -32,6 +32,7 @@ from tests.support import (
     error_sentinel,
     inject_live_runner,
     sentinel,
+    structured_argv_error_message,
     minimal_project,
 )
 
@@ -555,7 +556,10 @@ def test_input_tap_requires_exactly_one_target(monkeypatch, tmp_path):
 
     assert neither.exit_code == 2, neither.stdout + neither.stderr
     assert both.exit_code == 2, both.stdout + both.stderr
-    assert "exactly one of 'key' or 'action'" in neither.stderr + both.stderr
+    messages = structured_argv_error_message(neither) + structured_argv_error_message(
+        both
+    )
+    assert "exactly one of 'key' or 'action'" in messages
     assert fake.calls == []
 
 
@@ -597,9 +601,9 @@ def test_input_tap_rejects_the_other_targets_fields(monkeypatch, tmp_path):
     )
 
     assert modifiers_on_action.exit_code == 2
-    assert "rides a key tap only" in modifiers_on_action.stderr
+    assert "rides a key tap only" in structured_argv_error_message(modifiers_on_action)
     assert strength_on_key.exit_code == 2
-    assert "rides an action tap only" in strength_on_key.stderr
+    assert "rides an action tap only" in structured_argv_error_message(strength_on_key)
     assert fake.calls == []
 
 
@@ -629,7 +633,7 @@ def test_input_tap_window_is_bounded_to_the_shared_ceiling(monkeypatch, tmp_path
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
-    assert str(MAX_WINDOW_FRAMES) in result.stderr
+    assert str(MAX_WINDOW_FRAMES) in structured_argv_error_message(result)
     assert fake.calls == []
 
 
@@ -657,8 +661,8 @@ def test_input_tap_hold_frames_zero_is_a_usage_error(monkeypatch, tmp_path):
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
-    stripped = re.sub(r"\x1b\[[0-9;]*m", "", result.stderr)
-    assert "--hold-frames" in stripped, stripped
+    message = structured_argv_error_message(result)
+    assert "--hold-frames" in message, message
     assert fake.calls == []
 
 

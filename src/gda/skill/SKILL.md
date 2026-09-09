@@ -175,7 +175,7 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 | Exit | Meaning |
 | ---- | ------- |
 | `0`   | success |
-| `2`   | gda could not resolve what you asked for: `unknown_command`, `unknown_option` |
+| `2`   | argv usage failure: `unknown_command`, `unknown_option`, `invalid_argument` |
 | `127` | environment unusable: `binary_not_found`, `user_data_unwritable`, `live_unsupported_platform`, `live_windowed_unavailable`, `live_windowed_permission_denied`, `harness_install_permission_denied` |
 | `124` | engine timed out: `launch_timeout` — gda ended a run that had not returned (read it as below) |
 | `3`   | engine version too old |
@@ -196,6 +196,14 @@ the mistake the envelope carries a `hint` naming the invocation to run instead
 (`{"error": {"code": "unknown_command", "hint": "gda scene get", …}}`). Re-issue the
 `hint`; when there is none, `gda schema` lists every command and
 `gda help <command>` describes one.
+
+A missing required parameter or argument that does not match the command's argv
+contract is `invalid_argument` at exit `2`. With `--json`, malformed option JSON,
+wrong types, unknown object keys, and shared command-model refusals use the same error
+envelope before any engine operation runs. Other Click syntax errors, such as an
+option token with no following value, may retain Click's text on `stderr` even under
+`--json`. The equivalent invalid `--params-json` object remains `invalid_params` at
+exit `4` because it is the structured parameter contract.
 
 A failure that computed evidence also carries it as DATA, under the envelope's
 optional `evidence` key — omitted, never null, on the failures that computed none.

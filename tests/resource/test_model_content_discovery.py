@@ -18,7 +18,12 @@ from gda.commands.resource import (
 )
 from gda.errors import Failure
 from gda.runner import RunResult
-from tests.support import FakeRunner, minimal_project, sentinel
+from tests.support import (
+    FakeRunner,
+    minimal_project,
+    sentinel,
+    structured_argv_error_message,
+)
 
 
 CONTENT = {
@@ -180,4 +185,4 @@ def test_live_node_must_be_absolute_before_dispatch(tmp_path):
     )
 
     assert result.exit_code == 2
-    assert "absolute" in result.stderr
+    assert "absolute" in structured_argv_error_message(result)

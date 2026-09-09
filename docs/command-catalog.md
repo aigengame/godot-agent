@@ -785,8 +785,9 @@ script as **raw text** — it never compiles or loads the script, so editing one
 project code (the read trust boundary of #30). It edits only a script that exists; a missing
 target is `path_not_found`, never a silent create. Exactly one of three mutually-exclusive
 modes must be selected — derived once by the params model, identically on argv and
-`--params-json` (ADR-0015, #713); a missing or mixed mode is a usage error, exit 2, on argv,
-and structured `invalid_params` on `--params-json`:
+`--params-json` (ADR-0015, #713); a missing or mixed mode is a usage error, exit 2,
+on argv (`invalid_argument` when `--json` selects the envelope), and structured
+`invalid_params` on `--params-json`:
 
 - **search-replace** — `--search <old> --replace <new>`: replace **every** literal (not regex)
   occurrence of `<old>` with `<new>`. A search string the source does not contain is refused
@@ -1155,7 +1156,10 @@ gda resource reimport --params-json '{"path":"res://model.glb","updates":{"nodes
 Dry-run validates the patch and recorded configuration without target mutation,
 target loading, or an import pass. It does not predict geometry or prove engine
 adoption. Unknown keys, nonnumeric values (including booleans), out-of-range values
-and unavailable scene scale configuration are refused. A no-op returns `unchanged`
+and unavailable scene scale configuration are refused. On argv, malformed
+`--updates-json` and model refusals are `invalid_argument`/exit 2 under `--json`;
+the equivalent structured object remains `invalid_params`/exit 4 under
+`--params-json`. Both are decided before any engine operation or file change. A no-op returns `unchanged`
 with no configuration write, import pass or dimension verification; this does not
 prove that a previously edited sidecar was adopted. Invalid cache evidence needs
 explicit repair; this command does not delete sidecars or caches to repair it.
@@ -1646,8 +1650,9 @@ re-derives every verdict from a running engine.
   sequence's selected-clock window (`max(frame)+1` or `max(physics_frame)+1` ≤ the
   per-window ceiling, the same bound `perf monitor` enforces, #223) are bounded
   **model-side** (ADR-0015), so an
-  out-of-contract request is a structured `invalid_params` (or argv usage error)
-  before it reaches the harness. The two failures that need the live engine
+  out-of-contract request is structured `invalid_params` on `--params-json`, or
+  `invalid_argument`/exit 2 on argv under `--json`, before it reaches the harness.
+  The two failures that need the live engine
   to decide are deferred to the harness: a key name the engine cannot resolve to a
   keycode is `live_invalid_key`, an action absent from the running `InputMap` is
   `live_unknown_action`; a sequence event whose type the harness does not recognize

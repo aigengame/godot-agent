@@ -31,20 +31,11 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.dispatch import params_or_bad_parameter
-from tests.support import assert_no_pydantic_dump, usage_error_text
+from tests.support import assert_no_pydantic_dump, structured_argv_error_message
 
 
 def _argv_usage_error_message(result) -> str:
-    # The Rich-panel normalization is shared (tests/support.py,
-    # `usage_error_text`) — the SAME one tests/live/test_screen_commands.py uses —
-    # so only the "Invalid value: " extraction is specific to this module.
-    plain = usage_error_text(result)
-    # The panel is preceded by the "Usage: ..." / "Try '... --help'" preamble
-    # and an "Error" heading, so find the marker rather than assume it leads.
-    prefix = "Invalid value: "
-    marker = plain.rfind(prefix)
-    assert marker != -1, plain
-    return plain[marker + len(prefix) :]
+    return structured_argv_error_message(result)
 
 
 def _params_json_invalid_params_message(result) -> str:

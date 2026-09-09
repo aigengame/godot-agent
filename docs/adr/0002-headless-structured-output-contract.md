@@ -196,10 +196,9 @@ the standard build), and they never determine the outcome or a stable code.
 > It now reports through this same envelope, with three consequences recorded here:
 >
 > - **A sixth category, `usage`**, rather than folding into `operation`: no engine was
->   launched and no operation was named, so `operation`'s meaning ("a launched engine
->   failed to deliver a result") would have been false. It is the one category whose
->   codes cannot be reported by any operation — both are classifier-source and neither
->   is GDScript-mirrored.
+>   launched, so `operation`'s meaning ("a launched engine failed to deliver a result")
+>   would have been false. It is the one category whose codes cannot be reported by
+>   any operation — all are classifier-source and none is GDScript-mirrored.
 > - **Exit `2`, which gda did not choose.** It is the exit every CLI parser already
 >   uses for a usage error, and it is what these invocations already exited with, so
 >   registering it changes no observable exit code — it only makes the envelope's
@@ -229,11 +228,15 @@ the standard build), and they never determine the outcome or a stable code.
 >   them through the renderer makes the one-renderer statement exact and makes the
 >   `hint:` line reachable: it is set nowhere else, so before #798 a human could not
 >   read it.
-> - The recorded exception is click's own parse errors (a missing argument, an invalid
->   value), which stay click-formatted on `stderr`: gda did not classify them, so it has
->   no envelope to render. The same holds where gda recognizes a mistake but has no
->   correction to add and no `--json` was asked for: gda declines to answer and the
->   parser's message stands.
+> - A missing required parameter or invalid supplied value keeps Click's parser panel
+>   on `stderr` for a human. Under explicit `--json`, command parameter validation is
+>   classified as `invalid_argument` and emitted on `stdout` before any operation runs
+>   (#947). Model validators contribute their already-sanitized sentence. Click type
+>   conversion names only the argument contract and does not echo the raw token. Other
+>   Click syntax errors, such as an option token with no following value, may retain
+>   Click's text on `stderr` even under `--json`. The same human fall-through holds
+>   where gda recognizes a mistake but has no correction to add and no `--json` was
+>   asked for: gda declines to answer and the parser's message stands.
 > - `--json` is unchanged. The envelope goes to `stdout`, byte for byte; the flag
 >   chooses the rendering, never the stream.
 > - Two reversals were considered and declined. Sending the `usage` refusals back to
@@ -287,6 +290,7 @@ operation, and parse codes the CLI assigns).
 | `user_data_unwritable` | `environment` | `runner` | `127` | The log or user-data placement for the launch could not be made usable, so the launch was refused. |
 | `unknown_command` | `usage` | `classifier` | `2` | gda has no such command; discover the surface with `gda schema` or `gda --help`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |
 | `unknown_option` | `usage` | `classifier` | `2` | The command exists but has no such option; read its options with `--help` or its input contract with `--schema`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |
+| `invalid_argument` | `usage` | `classifier` | `2` | A required command-line parameter is missing or a supplied argument or option value does not match the command's argv contract; with `--json`, gda reports that validation as a structured envelope before any operation runs. |
 | `unsupported_version` | `version` | `version_gate` | `3` | The detected Godot version is below the supported minimum. |
 | `engine_crashed` | `operation` | `classifier` | `4` | Godot terminated abnormally, such as by signal death. |
 | `operation_failed` | `operation` | `classifier` | `4` | The engine or operation failed without a valid registered operation error envelope. |
