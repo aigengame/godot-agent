@@ -228,12 +228,12 @@ the standard build), and they never determine the outcome or a stable code.
 >   them through the renderer makes the one-renderer statement exact and makes the
 >   `hint:` line reachable: it is set nowhere else, so before #798 a human could not
 >   read it.
-> - An invalid supplied value keeps Click's parser panel on `stderr` for a human. Under
->   explicit `--json`, validation that reaches `BadParameter` is classified as
->   `invalid_argument` and emitted on `stdout` before any operation runs (#947). Model
->   validators contribute their already-sanitized sentence. Click type conversion
->   names only the argument contract and does not echo the raw token. Click syntax
->   errors outside that validation boundary, such as an option with no value, retain
+> - A missing required parameter or invalid supplied value keeps Click's parser panel
+>   on `stderr` for a human. Under explicit `--json`, command parameter validation is
+>   classified as `invalid_argument` and emitted on `stdout` before any operation runs
+>   (#947). Model validators contribute their already-sanitized sentence. Click type
+>   conversion names only the argument contract and does not echo the raw token. Other
+>   Click syntax errors, such as an option token with no following value, may retain
 >   Click's text on `stderr` even under `--json`. The same human fall-through holds
 >   where gda recognizes a mistake but has no correction to add and no `--json` was
 >   asked for: gda declines to answer and the parser's message stands.
@@ -290,7 +290,7 @@ operation, and parse codes the CLI assigns).
 | `user_data_unwritable` | `environment` | `runner` | `127` | The log or user-data placement for the launch could not be made usable, so the launch was refused. |
 | `unknown_command` | `usage` | `classifier` | `2` | gda has no such command; discover the surface with `gda schema` or `gda --help`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |
 | `unknown_option` | `usage` | `classifier` | `2` | The command exists but has no such option; read its options with `--help` or its input contract with `--schema`. A recognized near miss also carries the supported invocation in the envelope's `hint`. |
-| `invalid_argument` | `usage` | `classifier` | `2` | A supplied command-line argument or option value does not match the command's argv contract; with `--json`, gda reports that validation as a structured envelope before any operation runs. |
+| `invalid_argument` | `usage` | `classifier` | `2` | A required command-line parameter is missing or a supplied argument or option value does not match the command's argv contract; with `--json`, gda reports that validation as a structured envelope before any operation runs. |
 | `unsupported_version` | `version` | `version_gate` | `3` | The detected Godot version is below the supported minimum. |
 | `engine_crashed` | `operation` | `classifier` | `4` | Godot terminated abnormally, such as by signal death. |
 | `operation_failed` | `operation` | `classifier` | `4` | The engine or operation failed without a valid registered operation error envelope. |

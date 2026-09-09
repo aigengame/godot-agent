@@ -280,14 +280,14 @@ successful result. It is what `--json` emits; without that flag the same failure
 is RENDERED for a human instead — the code and its category on a head line, the
 message, each optional typed key as a labelled line, then `diagnostics` verbatim
 as real lines. Two renderings of ONE outcome, at one exit code, from one renderer
-that keys on no `Gda error code` — the `usage` refusals included. An invalid supplied
-argv value keeps the parser's readable stderr panel for a human, while explicit
-`--json` reports `invalid_argument` through this channel before an operation runs
-(#947). Click syntax errors outside that validation boundary, such as an option with
-no value, retain Click's text on `stderr`. One other case falls outside it, by that
-channel's own rule: where gda has no correction to add AND no JSON was asked for, it
-says nothing and the parser's message stands — silence rather than a second gda
-layout.
+that keys on no `Gda error code` — the `usage` refusals included. A missing required
+parameter or invalid supplied argv value keeps the parser's readable stderr panel for
+a human, while explicit `--json` reports `invalid_argument` through this channel
+before an operation runs (#947). Other Click syntax errors, such as an option token
+with no following value, may retain Click's text on `stderr`. One other case falls
+outside it, by that channel's own rule: where gda has no correction to add AND no
+JSON was asked for, it says nothing and the parser's message stands — silence rather
+than a second gda layout.
 _Avoid_: error blob, failure JSON
 
 **Failure evidence**:

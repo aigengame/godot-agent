@@ -153,11 +153,12 @@ def json_in_effect(ctx: ClickContext) -> bool:
     2. The ancestor ``--json``, recorded when the root callback (#671) or a group's
        (#683) bound it — the reading available at parse time, before any command's
        params exist.
-    3. The literal token in the recorded argv. A ``--json`` written AFTER an
-       offending token never parses, because the command or option it would have
-       belonged to does not exist, so the token itself is the only evidence of the
-       intent — and it is read as exactly that. The Skill teaches the trailing
-       spelling, so leaving this reading out would answer most agents in prose.
+    3. The literal token in the recorded argv, before an end-of-options ``--``. A
+       ``--json`` written AFTER an offending token never parses, because the command
+       or option it would have belonged to does not exist, so the token itself is the
+       only evidence of the intent. The Skill teaches the trailing spelling, so
+       leaving this reading out would answer most agents in prose. A token after
+       ``--`` is positional data, not a flag, and therefore supplies no such evidence.
 
     It lives HERE, beside :func:`ancestor_json` and the option that inherits it,
     rather than with the near-miss refusal that introduced it (``gda.hints``, #670).
@@ -172,7 +173,12 @@ def json_in_effect(ctx: ClickContext) -> bool:
         return True
     if ancestor_json(ctx):
         return True
-    return "--json" in ctx.meta.get(RAW_ARGV_META_KEY, ())
+    for token in ctx.meta.get(RAW_ARGV_META_KEY, ()):
+        if token == "--":
+            break
+        if token == "--json":
+            return True
+    return False
 
 
 def _inherit_ancestor_json(
@@ -204,7 +210,7 @@ def json_option() -> bool:
         "--json",
         callback=_inherit_ancestor_json,
         help="Emit the command's structured result or gda error envelope as one "
-        "JSON object. Click syntax errors stay text.",
+        "JSON object. Some syntax errors remain text.",
     )
 
 
@@ -233,8 +239,8 @@ def _group_json(
         "--json",
         callback=_record_group_json,
         help="Emit the invoked command's structured result or gda error envelope "
-        "as JSON — the same as passing --json after the command. Click syntax "
-        "errors stay text.",
+        "as JSON — the same as passing --json after the command. Some syntax "
+        "errors remain text.",
     ),
 ) -> None:
     """The callback every command group is given, so ``--json`` parses there too.

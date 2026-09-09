@@ -146,9 +146,9 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.USAGE,
         EXIT_USAGE,
         ErrorCodeSource.CLASSIFIER,
-        "A supplied command-line argument or option value does not match the "
-        "command's argv contract; with --json, gda reports that validation as a "
-        "structured envelope before any operation runs.",
+        "A required command-line parameter is missing or a supplied argument or "
+        "option value does not match the command's argv contract; with --json, gda "
+        "reports that validation as a structured envelope before any operation runs.",
     ),
     ErrorCodeSpec(
         "unsupported_version",

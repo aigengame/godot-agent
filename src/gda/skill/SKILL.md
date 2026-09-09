@@ -191,11 +191,11 @@ the mistake the envelope carries a `hint` naming the invocation to run instead
 `hint`; when there is none, `gda schema` lists every command and
 `gda help <command>` describes one.
 
-An argument that does not match the command's argv contract is
-`invalid_argument` at exit `2`. With `--json`, malformed option JSON, wrong types,
-unknown object keys, and shared command-model refusals use the same error envelope
-before any engine operation runs. Click syntax errors outside that validation
-boundary, such as an option with no value, retain Click's text on `stderr` even under
+A missing required parameter or argument that does not match the command's argv
+contract is `invalid_argument` at exit `2`. With `--json`, malformed option JSON,
+wrong types, unknown object keys, and shared command-model refusals use the same error
+envelope before any engine operation runs. Other Click syntax errors, such as an
+option token with no following value, may retain Click's text on `stderr` even under
 `--json`. The equivalent invalid `--params-json` object remains `invalid_params` at
 exit `4` because it is the structured parameter contract.
 

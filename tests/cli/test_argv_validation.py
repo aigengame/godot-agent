@@ -210,6 +210,61 @@ def test_click_syntax_error_outside_validation_stays_text_under_json():
     assert "requires an argument" in panel_text(done.stderr)
 
 
+def test_real_cli_raw_json_fallback_stops_at_end_of_options():
+    human = subprocess.run(
+        [
+            *GDA_CMD,
+            "game",
+            "tree",
+            "--max-depth",
+            "wrong",
+            "--",
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    inherited = subprocess.run(
+        [
+            *GDA_CMD,
+            "--json",
+            "game",
+            "tree",
+            "--max-depth",
+            "wrong",
+            "--",
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert human.returncode == EXIT_USAGE, human.stdout + human.stderr
+    assert human.stdout == ""
+    assert "--max-depth" in panel_text(human.stderr)
+    assert inherited.returncode == EXIT_USAGE, inherited.stdout + inherited.stderr
+    assert inherited.stderr == ""
+    assert json.loads(inherited.stdout)["error"]["code"] == "invalid_argument"
+
+
+def test_real_cli_missing_required_parameter_is_structured_under_json():
+    done = subprocess.run(
+        [*GDA_CMD, "resource", "reimport", "--json"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert done.returncode == EXIT_USAGE, done.stdout + done.stderr
+    assert done.stderr == ""
+    error = json.loads(done.stdout)["error"]
+    assert error["category"] == "usage"
+    assert error["code"] == "invalid_argument"
+    assert "path" in error["message"].lower()
+
+
 def _snapshot_files(root: Path) -> dict[str, bytes]:
     return {
         path.relative_to(root).as_posix(): path.read_bytes()
