@@ -149,7 +149,6 @@ jobs:
 
     steps:
       - name: Checkout repository
-        # Materialize Git LFS assets for tests and package builds.
         uses: actions/checkout@v6
         with:
           lfs: true
@@ -448,8 +447,6 @@ jobs:
 
     steps:
       - name: Checkout repository
-        # lfs: true so the engine/e2e asset loads and the export path see real
-        # LFS-tracked bytes, not pointer files (gADR-0015). A no-op until wave-3.
         uses: actions/checkout@v6
         with:
           lfs: true
@@ -457,7 +454,7 @@ jobs:
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
         with:
-          # Engine-backed tiers are gda's and the example game's only; the
+          # Engine-backed tiers belong to gda and Asset Pipeline; the
           # member ships no engine-facing code (ADR-0038).
           sync: root
           save-cache: false
