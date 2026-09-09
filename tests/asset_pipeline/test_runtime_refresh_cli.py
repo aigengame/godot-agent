@@ -141,3 +141,75 @@ def test_mcp_relays_concrete_lifecycle_facts_in_refresh_result():
         result.structured_content["pipeline"]["refresh"] | lifecycle
         == result.structured_content["pipeline"]["refresh"]
     )
+
+
+def test_incomplete_refresh_message_reports_reset_stages_and_last_session_facts(
+    monkeypatch, tmp_path
+):
+    from gda_assets.api import PipelineFailure, RefreshRequest, SessionState
+
+    project = minimal_project(tmp_path / "project")
+    request = RefreshRequest("res://model.glb", "res://test.tscn", "/root/Test/Model")
+    refresh = RefreshResult(
+        request,
+        completed=["inspect_imported", "stop", "start", "ready", "observe_instance"],
+        before=SessionState(True, 10, False, "old"),
+        after=SessionState(True, 11, False, "new"),
+    )
+    pipeline = PipelineResult(
+        refresh=refresh,
+        failure=PipelineFailure(
+            "refresh.compare", "refresh_incomplete", "vertex limit exceeded"
+        ),
+    )
+    monkeypatch.setattr(
+        "gda.commands.asset_pipeline.run_pipeline", lambda *_args, **_kwargs: pipeline
+    )
+    outcome = CliRunner().invoke(
+        app,
+        [
+            "asset-pipeline",
+            "run",
+            "--project",
+            str(project),
+            "--files",
+            json.dumps(
+                [{"source": str(tmp_path / "model.glb"), "target": "res://model.glb"}]
+            ),
+            "--refresh",
+            json.dumps(
+                {"path": request.path, "scene": request.scene, "node": request.node}
+            ),
+            "--json",
+        ],
+    )
+    assert outcome.exit_code == 4
+    error = json.loads(outcome.stdout)["error"]
+    assert error["code"] == "operation_failed"
+    assert "completed reset stages: stop, start, ready" in error["message"]
+    assert "before: running=true, session=old" in error["message"]
+    assert "last observed: running=true, session=new" in error["message"]
+    assert "content verification is incomplete" in error["message"]
+    assert error["partial_result"]["refresh"]["after"]["session_id"] == "new"
+
+
+def test_refresh_failure_before_reset_does_not_imply_a_restart_or_final_state():
+    from gda.commands.asset_pipeline import _failure_message, _pipeline_result
+    from gda_assets.api import PipelineFailure, RefreshRequest
+
+    refresh = RefreshResult(
+        RefreshRequest("res://model.glb", "res://test.tscn", "/root/Test/Model")
+    )
+    result = _pipeline_result(
+        PipelineResult(
+            refresh=refresh,
+            failure=PipelineFailure(
+                "refresh.inspect_imported", "read_failed", "unavailable"
+            ),
+        )
+    )
+    message = _failure_message("refresh.inspect_imported", "unavailable", result)
+    assert "completed reset stages: none" in message
+    assert "before: unavailable" in message
+    assert "last observed: unavailable" in message
+    assert "restarted" not in message

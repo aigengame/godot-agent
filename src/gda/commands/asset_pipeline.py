@@ -344,6 +344,32 @@ def _failure_message(stage: str, message: str, result: PipelineRunResult) -> str
         or "no installed files"
     )
     summary = f"asset pipeline failed during {stage}: {message}; affected: {affected}"
+    refresh = result.refresh
+    if refresh is not None and refresh.status == "incomplete":
+        reset_stages = (
+            ", ".join(
+                name for name in ("stop", "start", "ready") if name in refresh.completed
+            )
+            or "none"
+        )
+        details = [f"completed reset stages: {reset_stages}"]
+        for label, state in (
+            ("before", refresh.before),
+            ("last observed", refresh.after),
+        ):
+            observed = (
+                "unavailable"
+                if state is None
+                else f"running={str(state.running).lower()}, session={state.session_id or 'unavailable'}"
+            )
+            details.append(f"{label}: {observed}")
+        return (
+            f"{summary}; {'; '.join(details)}; content verification is incomplete. "
+            "Completed reset stages are not undone. Read refresh.completed, "
+            "ready_session, after, issues, and localized content reasons. "
+            "Inspect the installed output with resource inspect-model-content "
+            "before explicitly requesting another refresh."
+        )
     if (
         result.failure is None
         or result.failure.code != "observation_changed"

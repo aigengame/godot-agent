@@ -23,6 +23,60 @@ and 1,000,000 vertices.
 Refresh is independent of `--collect-observations`. Use both when you also need the
 optional disk/import observations described in [Content observations](observations.md).
 
+## Inspect the installed output before choosing to refresh
+
+For a single driver controlling the project, separate preparation from the reset:
+
+1. Finish production and processing, then install/import/load without `--refresh`.
+2. Inspect that selected installed output and review `content.complete`,
+   `content.unsupported`, and `content.omitted`. A complete sample has a digest;
+   localized reasons explain an incomplete sample. Choose whether to refresh only
+   after reviewing these facts against the current [measurement scope](../../../docs/model-content.md).
+3. Check that the selected files have not changed, then explicitly reuse the
+   installed files with `--files` and `--refresh`. Omit production and already
+   completed processing, such as `resize`.
+
+For example, first install a completed GLB and inspect its imported content:
+
+```sh
+gda asset-pipeline run --project ./consumer --source-root ./production \
+  --files '[{"source":"model.glb","target":"res://model.glb"}]' --overwrite --json
+installed_hash=$(shasum -a 256 ./consumer/model.glb)
+gda resource inspect-model-content --project ./consumer \
+  --path res://model.glb --json
+```
+
+`resource inspect-model-content` does **not** import. Inspecting a pre-existing
+cache before replacing and importing its source says nothing about support for the
+incoming output. Keep the installed source and imported cache under this driver's
+control between these steps. After reviewing the inspection and deciding to reset,
+run the following separate step:
+
+```sh
+if [ "$installed_hash" = "$(shasum -a 256 ./consumer/model.glb)" ]; then
+  gda asset-pipeline run --project ./consumer --source-root ./consumer \
+    --files '[{"source":"model.glb","target":"res://model.glb"}]' --overwrite \
+    --refresh '{"path":"res://model.glb","scene":"res://test.tscn","node":"/root/Test/Model"}' \
+    --json
+else
+  printf '%s\n' 'Output changed: import and inspect it again before refreshing.' >&2
+fi
+```
+
+The second call reuses the installed GLB; it still performs the ordinary
+installation/import/load checks. It does not call Blender, regenerate the source,
+or repeat omitted processing. For a selected set, check every output and its
+required referenced files. This procedure has no lock or atomicity guarantee;
+changes by another driver or engine invalidate the inspected state. Re-import and
+inspect again after a change. No saved receipt or mandatory inspection gate is
+introduced.
+
+LOD and embedded albedo were incomplete at the initial dogfood baseline. They are
+not permanent rejection criteria: use the scope of the delivered measurement. An
+explicitly low vertex budget (for example `--max-vertices 1` for a larger model)
+still demonstrates a localized omission. An incomplete sample does not cancel a
+later explicit reset request; it prevents verification from passing.
+
 ## What the workflow does
 
 Refresh starts only after file processing, installation, Godot import and load, and
@@ -88,3 +142,11 @@ is the final status read and is the best available last-known daemon/session sta
 it does not itself prove readiness. If that final read also fails, `issues` records
 that the final state is unavailable. The workflow does not silently retry the launch
 or rebuild the asset.
+
+For incomplete verification, the error message also summarizes the completed
+reset stages and the before/last-observed running state and session IDs. A result
+can therefore report a new running session and still be unverified. Completed
+stop/start/readiness stages are not undone when comparison is incomplete. If no
+reset stage completed or the final status is unavailable, the message says so;
+consult the retained stage facts and localized content reasons before another
+explicit refresh.
