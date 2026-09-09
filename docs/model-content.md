@@ -16,7 +16,7 @@ shared `content` object:
 
 ```json
 {
-  "measurement": "godot-static-model-content-v2",
+  "measurement": "godot-static-model-content-v3",
   "engine_version": {"major": 4, "minor": 6},
   "complete": true,
   "digest": "<64 lowercase hexadecimal characters>",
@@ -60,15 +60,15 @@ instance. Its wrapper adds:
 locates the observation in that session; it does not make the traversal an
 atomic frame snapshot.
 
-## Version 2 sampling rules
+## Version 3 sampling rules
 
-The headless and live implementations use the same sampling block. Version 2
+The headless and live implementations use the same sampling block. Version 3
 walks the selected root and its bounded child prefix in stable child order. It
 hashes each node's root-relative locator and engine class. It excludes the
 selected root's name and local placement because those belong to its consumer;
 it includes each descendant `Node3D` local transform.
 
-For each `MeshInstance3D`, version 2 supports `ArrayMesh` surfaces, including
+For each `MeshInstance3D`, version 3 supports `ArrayMesh` surfaces, including
 static LODs, without blend shapes, skins, or material overlays. Other
 `VisualInstance3D` nodes and `Camera3D` are unsupported because their visible
 content is outside this static mesh measurement. The sampler hashes the surface index,
@@ -79,14 +79,14 @@ of total public surface buffer data, 8 MiB of LOD index bytes, 1,024 LOD
 entries, and 64 MiB of serialized hash input in addition to the caller's node
 and vertex limits.
 
-Version 2 reads each surface through public
+Version 3 reads each surface through public
 [`RenderingServer.mesh_get_surface()`](https://docs.godotengine.org/en/4.6/classes/class_renderingserver.html#class-renderingserver-method-mesh-get-surface).
 On the validated Godot 4.6 representation, a LOD is a Dictionary containing a
 positive `edge_length` float and a nonempty `index_data` byte array. Entries are
 strictly ordered by increasing threshold. The sampler hashes every threshold
 and every index byte in that order. Godot stores two-byte indices when the
 surface has at most 65,536 vertices and four-byte indices above that boundary;
-version 2 validates the corresponding byte width without decoding or dropping
+version 3 validates the corresponding byte width without decoding or dropping
 indices. Godot omits the `lods` key for a valid surface with no LODs. The sampler
 accepts that omission only after validating the rest of the public surface
 shape; an empty or malformed surface Dictionary is incomplete rather than
@@ -109,13 +109,55 @@ systems, or other engine minor versions.
 The effective surface material comes from
 `MeshInstance3D.get_active_material()`, so normal material and surface override
 precedence is observed. A material is supported when it is an unscripted
-`StandardMaterial3D`. Version 2 hashes its storage properties in property-name
+`StandardMaterial3D`. Version 3 hashes its storage properties in property-name
 order for these Variant types: null, bool, int, float, String, StringName,
-Vector2, Vector3, Vector4, and Color. A null Object property is included. A
-non-null Resource property, including a referenced texture, makes the sample
-unsupported because version 2 does not recursively identify Resource content.
+Vector2, Vector3, Vector4, and Color. A null Object property is included. The non-null
+`albedo_texture` property has the narrow image-content rule below. Other non-null
+Resource properties remain unsupported; the sampler does not recursively identify
+arbitrary Resource content.
 Resource bookkeeping fields such as `resource_name`, `resource_path`,
 `resource_local_to_scene`, and `script` are excluded.
+
+For albedo, version 3 admits unscripted `ImageTexture` and `CompressedTexture2D`
+whose public [`Texture2D.get_image()`](https://docs.godotengine.org/en/4.6/classes/class_texture2d.html#class-texture2d-method-get-image)
+returns a nonempty, uncompressed RGB8 or RGBA8 `Image` with matching dimensions.
+It hashes width, height, format, mipmap presence/count, and every returned image
+byte, including mipmaps. This distinguishes an image-only change even when the
+resource path, node names, geometry counts, and bounds stay the same. It also
+observes global and surface material overrides through `get_active_material()`.
+An absent image, inconsistent dimensions, another image format, a scripted or
+procedural texture, and render-target textures remain unsupported. Non-albedo
+texture slots remain unsupported even when their image data is readable.
+
+The maintained GLB fixture contains an embedded base-color PNG. Godot's default
+embedded-image option extracts it to a project PNG and imports a
+`CompressedTexture2D`; sampling its decoded Image still measures the received
+image content. This implementation does not infer production provenance from a
+texture path or require the engine to retain the original embedding. See the
+[Godot 4.6.3 extraction and texture loading path](https://github.com/godotengine/godot/blob/4.6.3-stable/modules/gltf/gltf_document.cpp#L2186-L2263).
+
+Before each image read, the sampler charges the texture's reported base-level
+width × height against a fixed aggregate limit of 16,777,216 pixels. Repeated
+references and attempted reads that later fail consume that budget too. It checks
+`Image.get_data_size()` against the remaining 64 MiB total serialized hash budget
+before requesting the byte array; all mip levels count toward that byte budget.
+The image shares this existing budget with geometry, LODs, and material values.
+An omitted or unsupported image makes the complete sample's digest null.
+
+The pixel check precedes `get_image()`. The byte check happens after that method
+has returned: Godot may already have allocated or copied an image or read from the
+GPU. Neither limit bounds that initial native allocation or latency. In the
+validated 4.6.3 arm64/macOS GL Compatibility experiment, a default-imported 1024²
+RGBA8 image had 10 mip levels and 5,592,404 data bytes. Headless and windowed
+readback returned identical image metadata and raw SHA-256. Three windowed
+`get_image()` reads took 2,629, 617, and 306 microseconds; headless reads took
+1–3 microseconds. The coarse static-memory delta while retaining the windowed
+image was about 11.2 MB, while the headless delta was zero. These snapshots reflect
+allocator reuse and object lifetimes, not transient/native peak memory or an SLA.
+A 2048² headless image had 11 mip levels and 22,369,620 bytes. Runtime-created
+1024² RGB8 and RGBA8 `ImageTexture` controls also returned identical raw bytes
+between headless and windowed GL Compatibility. Other formats and renderers are
+not established by these measurements.
 
 Scripted nodes, `Skeleton3D`, `AnimationPlayer`, skins, non-`ArrayMesh` meshes,
 blend shapes, and other material or property types remain visible through
@@ -152,14 +194,18 @@ resource and one selected live instance within a compatible engine context.
 `complete` is true only when both `unsupported` and `omitted` are empty and the
 sample contains at least one surface and one vertex. Only a complete result
 carries `digest`; otherwise `digest` is null. `unsupported`
-means encountered content is outside version 2's admitted semantics. `omitted`
-means a node, vertex, surface, index, stored-buffer, or serialized-byte limit
+means encountered content is outside version 3's admitted semantics. `omitted`
+means a node, vertex, surface, index, stored-buffer, albedo-pixel, or serialized-byte limit
 prevented complete sampling. The lists are sorted and deduplicated so the
 incomplete result remains useful for diagnosis.
 
-The digest identifies the admitted static content for measurement version 2.
+The digest identifies the admitted static content for measurement version 3.
 It does not identify a full resource, rendered appearance, animated pose,
 runtime behavior, or visual equivalence. Godot's Variant byte encoding and
 imported representation participate in the measurement, so cross-version
 digest identity is not promised. Compare the measurement identifier and actual
 engine versions before interpreting two digests.
+
+Version 3 supersedes version 2 when albedo image bytes become part of the
+measurement. Digests with different measurement identifiers are not comparable,
+even for a model without a texture.

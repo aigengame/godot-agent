@@ -202,7 +202,7 @@ def _run_handoff(run: Gda, source_root: Path, source: str, *, refresh=None) -> d
 
 def _assert_complete(sample: dict) -> str:
     content = sample["content"]
-    assert content["measurement"] == "godot-static-model-content-v2"
+    assert content["measurement"] == "godot-static-model-content-v3"
     assert content.get("engine") or content.get("engine_version")
     assert content["complete"] is True
     assert content["unsupported"] == []
@@ -310,16 +310,14 @@ def test_refresh_digest_detects_each_admitted_material_or_geometry_change(
         run("daemon", "stop")
 
 
-def test_native_sampler_marks_unsupported_and_bounded_samples_incomplete(tmp_path):
+def test_native_sampler_admits_embedded_albedo_but_keeps_vertex_omissions(tmp_path):
     project, source = tmp_path / "project", tmp_path / "source"
     _fixture(project, source)
     run = Gda(project, json_output=True, timeout=180)
 
     _run_handoff(run, source, "textured.glb")
-    unsupported = run.json("resource", "inspect-model-content", "--path", MODEL)
-    assert unsupported["content"]["complete"] is False
-    assert unsupported["content"]["digest"] is None
-    assert unsupported["content"]["unsupported"]
+    textured = run.json("resource", "inspect-model-content", "--path", MODEL)
+    assert _assert_complete(textured)
 
     _run_handoff(run, source, "a.glb")
     bounded = run.json(

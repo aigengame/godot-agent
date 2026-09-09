@@ -75,7 +75,7 @@ def _handoff(run: Gda, source_root: Path, source: str, *, refresh=None) -> dict:
 
 def _digest(sample: dict) -> str:
     content = sample["content"]
-    assert content["measurement"] == "godot-static-model-content-v2"
+    assert content["measurement"] == "godot-static-model-content-v3"
     assert content["complete"] is True
     assert content["unsupported"] == []
     assert content["omitted"] == []

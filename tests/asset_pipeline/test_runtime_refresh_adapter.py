@@ -38,7 +38,7 @@ ENGINE = EngineVersion(
 
 def _content(digest: str = "a" * 64) -> NativeModelContent:
     return NativeModelContent(
-        measurement="godot-static-model-content-v2",
+        measurement="godot-static-model-content-v3",
         engine_version=ENGINE,
         complete=True,
         digest=digest,
