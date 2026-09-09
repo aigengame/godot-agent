@@ -1097,7 +1097,10 @@ def resource_import(
     every file the pass created, classified against the cache root
     (cache-owned under .godot/ vs source-adjacent, e.g. .import and .uid
     sidecars). `--dry-run` reports the states and the decidable predictions
-    (including `pass_will_also_import`) and writes nothing. Plain `gda script run` never triggers an import pass. The pass
+    (including `pass_will_also_import`) and writes nothing. An asset whose CASE does
+    not match the stored file is refused with `path_case_mismatch` naming the stored
+    res:// spelling, because such a path opens on a case-insensitive filesystem and
+    fails on a case-sensitive one. Plain `gda script run` never triggers an import pass. The pass
     executes engine importer code over project content (the Trusted project
     assumption, ADR-0009).
     """

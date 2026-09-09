@@ -868,8 +868,11 @@ because a script compiled against the wrong project reports every `res://` depen
 plus the type errors derived from them, which reads as a broken script; `project_root` is what
 tells the two apart. A target the resolved project **does not own** is **refused before parsing**
 with `target_outside_project`, naming both the file and the project, rather than emitting that
-false cascade. The check applies to **every** path in a batch, and the first offender in requested
-order refuses the whole call (#663): one call has one project, so one outsider makes the requested
+false cascade. A target it does own but spells differently — the same path in another CASE —
+is `path_case_mismatch` (#845), because Godot opens it on a case-insensitive filesystem with
+only a `WARN_PRINT` the classifier skips, so a portability gate reported `valid: true` for a
+path that fails on Linux (GDA-DF-062). Both checks apply to **every** path in a batch, and
+the first offender in requested order refuses the whole call (#663): one call has one project, so one outsider makes the requested
 set unservable. `--all` carries no paths to check, and needs none: it enumerates through gda's own
 `res://` walk, which skips a directory holding a nested `project.godot` exactly as the engine's
 editor scan does (`EditorFileSystem::_should_skip_directory`), so it never reaches a file this
@@ -959,7 +962,13 @@ is the shared containment verdict instead, `target_outside_project` (ADR-0006 am
 #697/#763) — the code `script validate` and `resource import` report for the same
 condition; it names no root, because this edge is decided ahead of the projectless check.
 The resolved project must also OWN the script: a nearer `project.godot` between the two is
-the same refusal, naming the owner to pass.
+the same refusal, naming the owner to pass. And the script must be spelled the way the
+project stores it: a path differing only in CASE is `path_case_mismatch` (#845), the same
+refusal `script validate` and `resource import` make, decided at ADR-0006's path authority
+and through the same gate. Such a path opens on a case-insensitive filesystem and fails on
+a case-sensitive one, so gda reports one code on every platform and carries both `res://`
+spellings as `evidence.requested_path` / `evidence.stored_path`; re-issue with the stored
+one. It carries no `hint` — that key is the curated near-miss table's (ADR-0004, #670).
 
 Every `script run` failure that computed evidence also carries it as DATA on the
 envelope's optional `evidence` key (#687): the child's own `exit_status` on `--strict`'s
@@ -1171,7 +1180,9 @@ is `target_outside_project` (#763), while one that collapses back inside (`res:/
 is accepted, exactly as the script commands accept it. An asset a NESTED `project.godot`
 owns gets the same refusal, because the engine's own scan skips that directory
 (`EditorFileSystem::_should_skip_directory`) and would return `not_importable` after a
-wasted pass. `user://`/`uid://` name no project asset and stay `invalid_params`. `resource import ASSETS... [--dry-run] [--timeout S]` reads
+wasted pass. An asset whose CASE does not match the stored entry is `path_case_mismatch`
+(#845) — the same authority, the same gate, the same code the two `script` commands
+report. `user://`/`uid://` name no project asset and stay `invalid_params`. `resource import ASSETS... [--dry-run] [--timeout S]` reads
 each requested asset's EVIDENCE STATE from the same project artifacts the engine's own
 reimport test reads: `cached` needs positive ARTIFACT-level evidence (a keep/skip
 importer, or the PATH-derived `.md5` receipt present with `source_md5`/`dest_md5`

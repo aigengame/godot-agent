@@ -61,7 +61,11 @@ from gda.models import (
     TerminationPhase,
 )
 from gda.parser import parse_result
-from gda.project import ForeignOwnerViolation, containment_violation
+from gda.project import (
+    CaseMismatchViolation,
+    ForeignOwnerViolation,
+    containment_violation,
+)
 from gda.runner import DEFAULT_TIMEOUT_LABEL, LaunchFailure, RunResult
 from gda.script_errors import ScriptError, script_error_line
 
@@ -935,13 +939,50 @@ def target_owned_by_another_project_failure(
     )
 
 
+def path_case_mismatch_failure(requested: str, stored: str) -> Failure:
+    """The ``path_case_mismatch`` refusal for a mis-cased project path (#845).
+
+    The third condition the gate refuses, and the one no engine run reports for
+    itself. On a case-insensitive filesystem Godot OPENS the file and only warns
+    ("Case mismatch opening requested file … This file will not open when exported
+    to other case-sensitive platforms", ``drivers/unix/file_access_unix.cpp``); the
+    warning is a ``WARN_PRINT``, which ``gda.script_errors`` skips by contract, so
+    ``script validate`` returned ``valid: true`` for a path that fails on Linux and
+    on a case-sensitive export host (dogfooding GDA-DF-062). On a case-sensitive
+    filesystem the same call is a bare ``path_not_found``, which sends the caller
+    looking for a missing file instead of a mis-typed one. One code for one mistake,
+    on every platform, decided before the engine runs.
+
+    The message names BOTH spellings, and both ride typed (#687): the requested one
+    is what the caller must stop using, the stored one is what it re-issues with.
+    They pass ADR-0004's criterion on its three clauses — the authority read the
+    directory entries to reach this verdict, so both are already in hand; neither is
+    recoverable from the envelope without parsing the sentence; and the stored
+    spelling is exactly what the caller does next.
+
+    NOT a ``hint``: that key is contractually one corrected invocation from the
+    curated near-miss table (ADR-0004's #670 note, ``gda.hints``), and a case
+    mismatch is not a near miss — it is a computed correction, the same shape #840
+    put on ``evidence`` rather than on ``hint``.
+    """
+    return make_failure(
+        "path_case_mismatch",
+        f"{requested} is stored as {stored}: the case does not match, so this path "
+        "opens on a case-insensitive filesystem and fails on a case-sensitive one, "
+        f"and nothing was run. Address the target as {stored!r}.",
+        "",
+        evidence=FailureEvidence(requested_path=requested, stored_path=stored),
+    )
+
+
 def containment_refusal(target: str, project: Path | None) -> Failure | None:
     """The refusal when ``target`` does not belong to ``project`` — or ``None`` (#802).
 
     THE gate the three path-taking commands call — ``script validate`` per batch
     entry, ``script run`` for its entry script, ``resource import`` per asset. The
     DECISION is not made here: :func:`gda.project.containment_violation` owns the
-    ordering (ownership first), the normalization, and the four coordinates; this
+    ordering (ownership, then containment, then the spelling), the normalization,
+    and the coordinates; this
     function maps each half of its answer to the envelope the taxonomy owns. The
     split follows ADR-0040 §5 — the taxonomy reaches DOWN to the path authority,
     never the reverse; the composition briefly lived whole on ``gda.project`` and
@@ -964,6 +1005,8 @@ def containment_refusal(target: str, project: Path | None) -> Failure | None:
             violation.root,
             violation.owner_relative,
         )
+    if isinstance(violation, CaseMismatchViolation):
+        return path_case_mismatch_failure(violation.requested, violation.stored)
     return target_outside_project_failure(violation.outside, violation.root)
 
 

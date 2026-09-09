@@ -610,7 +610,12 @@ def test_the_gate_is_where_both_refusals_are_built():
     # inside the gate (a third builder, a probe of its own, a second decision
     # source) fails here by construction, so ordering and coordinates cannot
     # quietly grow a second home.
+    # `path_case_mismatch_failure` is the third builder the gate maps (#845). It is
+    # not a CONTAINMENT refusal — it reports a spelling, under its own code — so it
+    # stays out of the set above and is named here, where the claim is that the gate
+    # calls nothing ELSE.
     assert _called_names(gate) == CONTAINMENT_REFUSAL_BUILDERS | {
         "containment_violation",
         "isinstance",
+        "path_case_mismatch_failure",
     }

@@ -222,6 +222,26 @@ class FailureEvidence(BaseModel):
             "absence means the templates are missing on the host too."
         ),
     )
+    # The two spellings of a `path_case_mismatch` refusal (#845): the address the
+    # caller asked for and the one the project actually stores. Both are already in
+    # hand on the failure path (the authority reads the directory entries to reach the
+    # verdict), neither is recoverable from the envelope without reading the message,
+    # and the stored one is what the caller re-issues with — which is why it rides
+    # here rather than as a `hint`, whose contract is the curated near-miss table.
+    requested_path: str | None = Field(
+        default=None,
+        description=(
+            "The res:// address as the caller spelled it, on a refusal about the "
+            "spelling itself."
+        ),
+    )
+    stored_path: str | None = Field(
+        default=None,
+        description=(
+            "The res:// address as the project stores it — the corrected spelling "
+            "to re-issue with, on a path_case_mismatch."
+        ),
+    )
 
     @field_serializer("script_errors")
     def _keep_the_published_script_error_shape(
