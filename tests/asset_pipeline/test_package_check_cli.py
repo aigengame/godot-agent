@@ -1,6 +1,7 @@
 """Unified package acceptance command across CLI and MCP transports."""
 
 import json
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -9,8 +10,10 @@ from gda.commands.asset_pipeline import (
     AssetPipelinePackageCheckParams,
     run_asset_package_check,
 )
+from gda.commands.resource import PackageResourcePresenceResult
 from gda.errors import Failure, make_failure
 from gda.mcp.server import build_server
+from gda.models import EngineVersion
 from gda_assets.api import PackageCheckResult, PipelineFailure
 from gda_assets.domain.model import CheckResult, ModelCheckResult
 from gda_assets.domain.package import (
@@ -163,6 +166,71 @@ def test_package_workflow_failure_is_nonzero_with_full_partial_result(
     assert result.error.partial_result is not None
     assert result.error.partial_result["package_check"]["completed"] == ["validate"]
     assert result.child_stderr == "native stderr"
+
+
+def test_package_load_recovery_is_consistent_in_json_and_human_output(
+    monkeypatch, tmp_path
+):
+    package = tmp_path / "game.pck"
+    package.write_bytes(b"fixture")
+    expectations = tmp_path / "expectations.json"
+    expectations.write_text('{"checks":[{"id":"root","kind":"node","node":"."}]}')
+    engine = EngineVersion(
+        major=4,
+        minor=6,
+        patch=3,
+        hex=0x40603,
+        status="stable",
+        build="official",
+        hash="abc",
+        string="4.6.3.stable.official",
+        timestamp=0,
+    )
+    monkeypatch.setattr(
+        "gda.integrations.package.run_package_resource_presence_operation",
+        lambda *args, **kwargs: PackageResourcePresenceResult.model_validate(
+            {
+                "engine_version": engine.model_dump(),
+                "resources": [{"path": "res://wrapper.tscn", "present": True}],
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        "gda.integrations.package.run_package_inspect_model_operation",
+        lambda *args, **kwargs: make_failure(
+            "not_a_scene",
+            "imported sources may need resource import",
+            "ERROR: Cannot open file 'res://accent.tres'.",
+        ),
+    )
+    args = [
+        "asset-pipeline",
+        "check-package",
+        "--package",
+        str(package),
+        "--path",
+        "res://wrapper.tscn",
+        "--expectations",
+        str(expectations),
+    ]
+    runner = CliRunner()
+
+    structured = runner.invoke(app, [*args, "--json"])
+    human = runner.invoke(app, args)
+
+    assert structured.exit_code == human.exit_code == 4
+    error = json.loads(structured.stdout)["error"]
+    assert error["message"] in human.stdout
+    assert error["diagnostics"] in human.stdout
+    assert "check export inclusion and dependencies" in error["message"]
+    assert "does not establish that a dependency is missing" in error["message"]
+    assert "resource import" not in error["message"]
+    partial = error["partial_result"]["package_check"]
+    assert partial["failure"]["cause"]["message"] == error["message"].removeprefix(
+        "package check failed during inspect: "
+    )
+    assert partial["cleanup"] == {"staging_removed": True, "issues": []}
+    assert not Path(partial["package"]["root"]).exists()
 
 
 def test_human_result_names_editor_evidence_verdict_and_cleanup(monkeypatch, tmp_path):

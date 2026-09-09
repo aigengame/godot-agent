@@ -81,6 +81,28 @@ class GdaGodotPackagePort:
             godot=self._godot,
         )
         if isinstance(outcome, Failure):
+            # The shared engine operation explains source-project recovery. At
+            # this package boundary the staged PCK is the whole resource view,
+            # so importing source cannot repair it. Keep `not_a_scene` uncertain:
+            # it covers several load failures, and diagnostics prose is evidence,
+            # not a stable dependency classifier.
+            if outcome.error.code == "not_a_scene":
+                outcome = Failure(
+                    error=outcome.error.model_copy(
+                        update={
+                            "message": (
+                                "package resource could not be loaded as PackedScene: "
+                                f"{path}; inspect engine diagnostics. "
+                                "This failure does not establish that a dependency is "
+                                "missing; check export inclusion and dependencies, then "
+                                "rebuild the package. Importing the source project does "
+                                "not modify this existing PCK."
+                            )
+                        }
+                    ),
+                    exit_code=outcome.exit_code,
+                    child_stderr=outcome.child_stderr,
+                )
             self._raise(outcome)
         try:
             model = project_model_report(outcome)

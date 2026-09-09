@@ -360,3 +360,84 @@ def test_cold_exported_packages_use_only_imported_remaps_for_checks_and_exclusio
         for path in unrelated.rglob("*")
         if path.is_file()
     } == unrelated_before
+
+
+def test_missing_package_dependency_guides_rebuild_and_keeps_source_control(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "source"
+    project.mkdir()
+    (project / "accent.tres").write_text(
+        '[gd_resource type="StandardMaterial3D" format=3]\n\n'
+        "[resource]\n"
+        "albedo_color = Color(0.9, 0.2, 0.1, 1)\n"
+    )
+    (project / "wrapper.tscn").write_text(
+        "[gd_scene load_steps=3 format=3]\n\n"
+        '[ext_resource type="Material" path="res://accent.tres" id="1"]\n\n'
+        '[sub_resource type="BoxMesh" id="Box"]\n\n'
+        '[node name="Wrapper" type="Node3D"]\n'
+        '[node name="Body" type="MeshInstance3D" parent="."]\n'
+        'mesh = SubResource("Box")\n'
+        'material_override = ExtResource("1")\n'
+    )
+    (project / "main.tscn").write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="PackedScene" path="res://wrapper.tscn" id="1"]\n\n'
+        '[node name="Main" type="Node3D"]\n'
+        '[node name="Wrapper" parent="." instance=ExtResource("1")]\n'
+    )
+    (project / "project.godot").write_text(
+        project_godot(name="gda-949-e2e", extra='run/main_scene="res://main.tscn"')
+    )
+    (project / "export_presets.cfg").write_text(
+        _preset("MissingDependency", 0, exclude="accent.tres")
+    )
+    expectations = project / "expectations.json"
+    expectations.write_text(
+        '{"checks":[{"id":"body","kind":"node","node":"Body","type":"MeshInstance3D"}]}'
+    )
+    monkeypatch.setenv("GDA_USER_DATA_ROOT", str(tmp_path / "user-data"))
+    run = Gda(project, json_output=True, timeout=300)
+
+    source = run.json(
+        "asset-pipeline",
+        "check",
+        "--path",
+        "res://wrapper.tscn",
+        "--expectations",
+        str(expectations),
+    )
+    assert source["verdict"] == "pass"
+
+    package = tmp_path / "missing-dependency.pck"
+    _export(run, "MissingDependency", package)
+    source_hidden = tmp_path / "source-hidden"
+    project.rename(source_hidden)
+    failure = Gda(None, json_output=True).error(
+        "asset-pipeline",
+        "check-package",
+        "--package",
+        str(package),
+        "--path",
+        "res://wrapper.tscn",
+        "--expectations",
+        str(source_hidden / "expectations.json"),
+        code="not_a_scene",
+        timeout=180,
+    )
+
+    assert "res://wrapper.tscn" in failure["message"]
+    assert "check export inclusion and dependencies" in failure["message"]
+    assert "rebuild the package" in failure["message"]
+    assert "does not establish that a dependency is missing" in failure["message"]
+    assert "resource import" not in failure["message"]
+    assert "accent.tres" in failure["diagnostics"]
+    partial = failure["partial_result"]["package_check"]
+    assert partial["failure"]["cause"]["code"] == "not_a_scene"
+    assert partial["failure"]["cause"]["message"] == failure["message"].removeprefix(
+        "package check failed during inspect: "
+    )
+    assert partial["failure"]["cause"]["diagnostics"] == failure["diagnostics"]
+    assert partial["cleanup"] == {"staging_removed": True, "issues": []}
+    assert not Path(partial["package"]["root"]).exists()
