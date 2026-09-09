@@ -341,7 +341,7 @@ def _labelled_script_output(stdout: str, stderr: str) -> str:
 CAPTURED_OUTPUT_TAIL_CAP_BYTES = 16 * 1024
 
 
-def _tail(stream: str) -> str:
+def captured_output_tail(stream: str) -> str:
     """The last :data:`CAPTURED_OUTPUT_TAIL_CAP_BYTES` UTF-8 bytes of a stream.
 
     Slicing bytes can land inside a multi-byte sequence, so the decode uses
@@ -480,8 +480,8 @@ def launch_timeout_failure(raw: RunResult) -> Failure:
         f"stream, and any engine error in it is advisory: the verdict here is the "
         f"timeout.",
         _labelled_output(
-            _tail(raw.stdout),
-            _tail(raw.stderr),
+            captured_output_tail(raw.stdout),
+            captured_output_tail(raw.stderr),
             stdout_header=CAPTURED_STDOUT_HEADER,
             stderr_header=CAPTURED_STDERR_HEADER,
         ),
@@ -1056,7 +1056,9 @@ def _ended_run_diagnostics(
         if rendered
         else f"gda: no recognized script errors appeared before {what}\n"
     )
-    return header + _labelled_script_output(_tail(stdout), _tail(stderr))
+    return header + _labelled_script_output(
+        captured_output_tail(stdout), captured_output_tail(stderr)
+    )
 
 
 def script_run_timeout_failure(

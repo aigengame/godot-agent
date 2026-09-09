@@ -1179,9 +1179,16 @@ bounded dimension check, not animation, runtime-instance, or artistic acceptance
 
 `import_result` retains the existing cache-evidence and created-file report;
 `verification` supplies the independent loaded-size observation. An import script
-can fail while old artifacts still satisfy the static import checks (#853), so that
-summary alone never establishes adoption. Failed verification or an interrupted
-import returns `error.partial_result`, including whether the sidecar changed,
+can fail while old artifacts still satisfy the static import checks, so that
+summary alone never establishes adoption. `imported` means that a pass ran and
+the subsequent cache reread passed the static checks; it does not verify the
+requested options. An unchanged cache hash alone is not failure evidence either:
+a successful cached import or no-op edit can leave those bytes unchanged.
+When loaded dimensions reject adoption, the failure explains this distinction and
+carries the last 16 KiB (UTF-8 bytes) of available project-wide import stderr in
+`diagnostics`. The message states when none was captured. These lines are context
+from the whole pass, not an inferred per-asset cause or a new import classification.
+Failed verification or an interrupted import returns `error.partial_result`, including whether the sidecar changed,
 whether an engine pass was attempted, and available import/verification results.
 There is no automatic rollback. `--timeout` bounds the import pass (default 300s);
 each sentinel query/load retains the normal headless-operation timeout.

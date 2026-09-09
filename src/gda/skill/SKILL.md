@@ -303,7 +303,11 @@ Omit `--dry-run` to update root scale, run project-wide import and verify change
 static dimensions on unchanged GLB bytes. Start from an imported baseline; no-op
 does not verify adoption. Read `verification` as well as `import_result`, because
 old cache artifacts can survive an import failure. On failure, `error.partial_result`
-reports completed effects; configuration is not automatically rolled back. See the
+reports completed effects; configuration is not automatically rolled back. An
+`imported` count describes the pass and cache reread, not adoption of the requested
+options. A dimension-verification failure carries bounded project-wide import
+stderr when available and states when none was captured; it does not infer a
+per-asset cause from those lines. See the
 command schema and catalog for measurement bounds and unavailable metadata.
 
 Every headless reply carries its floats at full binary64 precision, so a value read back through `node get`, `scene get-exports`, `project get`/`project list`, `resource get`, or the echo of a `set` is the exact number the project holds — `1e-300` reads back as `1e-300`, not `0.0`; the one residual belongs to the ENGINE's writer — a negative zero reads back as `0.0` (#771). The `--value` string you send IN is coerced by the engine's own parser, and gda refuses what that parser would destroy: a literal it reads as `0.0` when you did not write zero, or as `NaN` at all, fails with `uncoercible_value` (exit 4, target untouched) instead of writing a number you never sent — `2.2250738585072014e-308` and `5e-324`, and also `0.000000000000000001`, whose 18 leading zeros fill the parser's whole mantissa window (`1e-18` is exact). The rule follows the LITERAL, not the property type, so a number inside a Dictionary or Array `--value` is refused the same way and names the offending literal: `--value '{"a": 1e-320}'` fails, `--value '{"a": 1e-18}'` stores exactly. Only real JSON numbers are read — a numeric-looking STRING value (`{"a": "1e-320"}`) and a numeric-looking KEY (`{"1e-320": 1.0}`) are stored unchanged (#805). So spell a small or many-digit value in SCIENTIFIC notation carrying only the digits it needs: that also avoids the low-digit loss the parser inflicts on a full-precision literal between `1e-4` and `1e-2`, which is disclosed rather than refused (#772). Read the `set` echo when the exact bits matter.
