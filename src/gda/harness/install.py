@@ -43,51 +43,57 @@ uninstall each RETURN the exact set they touched (``created_paths`` /
 agent (or a reviewer) needs to audit what gda wrote into a tracked project.
 
 **Line endings (#654).** ``project.godot`` is read and written with newline
-translation OFF and rejoined with the terminator its FIRST line uses, so a CRLF
-project file stays CRLF — Python's default text mode would otherwise silently
-rewrite the whole file to LF on any autoload edit. The line primitives this
-edit runs on (``split_config``, ``config_line``, ``section_of``,
-``is_section_header``) belong to :mod:`gda.project_file`, the one reader of
-Godot's ``ConfigFile`` text (#843); this module contributes the
-``[autoload]``-specific EDIT, not a second reading of the format. Every raw line
-this edit looks at is reduced by that reader's :func:`~gda.project_file.config_line`
-first — a ``.strip()`` of its own left the comment on, and a header written
-``[autoload] ; note`` was then missed: the install appended a SECOND autoload
-section and the uninstall left its entry behind (PR #898 review, round 3).
+translation OFF and spelled back with the terminator its FIRST line uses, so a
+CRLF project file stays CRLF — Python's default text mode would otherwise
+silently rewrite the whole file to LF on any autoload edit.
 
-Three shapes of input still come back changed, so the byte-identity guarantee of
+**Every boundary is the reader's (#843, #930).** :mod:`gda.project_file` is the
+one reader of Godot's ``ConfigFile`` text; this module contributes the
+``[autoload]``-specific EDIT, not a second reading of the format. The edit asks
+that reader for the ``[autoload]`` sections and the entries inside them
+(:meth:`~gda.project_file.ConfigText.sections_named`) and works on the line SPANS
+its single scan recorded. Recognizing the sections here, line by line, carried
+none of that scan's state — the per-line reduction restarts it on every line — so
+a header-shaped line INSIDE a multi-line quoted value opened an ``[autoload]``
+section the file does not have: an install wrote its entry into a description
+string, and an uninstall deleted a line out of one (#930). Before that, a
+``.strip()`` of this module's own left the comment on and missed a header written
+``[autoload] ; note``: the install appended a SECOND autoload section and the
+uninstall left its entry behind (PR #898 review, round 3).
+
+Five shapes of input still come back changed, so the byte-identity guarantee of
 :func:`uninstall_harness` is scoped to exclude them:
 
 - a file with MIXED terminators is normalized to its first one;
 - a file with NO final terminator gains one (install terminates the line it
   appends after; uninstall has no way to know the file never ended in a break);
-- a CR-only (classic-Mac) file comes back CRLF — ``line_ending`` only tells
-  ``\\r\\n`` from ``\\n``, while ``str.splitlines`` also splits a bare ``\\r``;
+- a CR-only (classic-Mac) file comes back CRLF — the reader's terminator rule only
+  tells ``\\r\\n`` from ``\\n``, while ``str.splitlines`` also splits a bare ``\\r``;
 - a file whose ``[autoload]`` section was ALREADY EMPTY loses that header, for the
   reason :func:`uninstall_harness` states — it is that function's guarantee, so the
   reasoning lives there and this list only names the shape (PR #898 review,
-  round 2: the list read as exhaustive and was not).
+  round 2: the list read as exhaustive and was not);
+- a file with a BYTE-ORDER MARK whose FIRST line is the ``[autoload]`` header: gda
+  joins that header, the engine reads no section there. The shared reader drops the
+  mark before it splits the text, so gda sees ``[autoload]`` where ``ConfigFile``
+  sees one marked, section-less KEY — and the install then reports a registration
+  the engine will not make. The same file declares no readable ``config_version``,
+  so the engine loads no project from it at all (#930 review, round 1).
 
 None is reachable for a ``project.godot`` the engine itself wrote: Godot's
 ``ConfigFile`` writer emits uniformly ``\\n``-terminated lines, always terminates
-the last one, and never emits an empty section. They need a hand-edited or
-tool-mangled file, so they are documented rather than coded around — the code stays
-a plain line-oriented edit instead of growing a per-line terminator model, or a
-record of pre-install state, for inputs Godot cannot produce.
+the last one, never emits an empty section, and never writes a byte-order mark.
+They need a hand-edited or tool-mangled file, so they are documented rather than
+coded around — the code stays a plain line-oriented edit instead of growing a
+per-line terminator model, a record of pre-install state, or a second reading of
+the format for inputs Godot cannot produce.
 """
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from gda.project_file import (
-    SECTIONLESS,
-    config_line,
-    is_section_header,
-    section_name,
-    section_of,
-    split_config,
-)
+from gda.project_file import ConfigEntry, ConfigSection, ConfigText, read_config_text
 
 # The autoload name and the res:// location the bundled harness is installed to.
 HARNESS_AUTOLOAD_NAME = "GdaHarness"
@@ -114,7 +120,7 @@ HARNESS_VERSION = "22"
 _VERSION_HEADER_PREFIX = "# gda-harness-version:"
 _AUTOLOAD_HEADER = "[autoload]"
 # The same section by NAME. Every RECOGNITION on the edit path goes through this
-# (via the shared reader's `config_line` + `section_name`/`section_of`), because
+# (via the shared reader's `sections_named`, which reads its scan), because
 # Godot's own parser strips a header's inner whitespace and reads past a trailing
 # comment — `[ autoload ]` and `[autoload] ; note` are both the autoload section
 # (`VariantParser::_parse_tag`, `parse_tag_assign_eof`). Comparing a line to the
@@ -122,6 +128,11 @@ _AUTOLOAD_HEADER = "[autoload]"
 # emptied header left behind (PR #898 review). The literal above stays what the
 # install WRITES and what the #654 receipt reports.
 _AUTOLOAD_SECTION = "autoload"
+# The setting the reader names the harness entry by — `<section>/<key>`, with the
+# key DECODED. Matching the entry by that name is what makes the two spellings of
+# one key (`GdaHarness` and `"GdaHarness"`) the same entry to gda, as they are to
+# the engine, so an install can never add a duplicate beside the quoted one.
+_HARNESS_SETTING = f"{_AUTOLOAD_SECTION}/{HARNESS_AUTOLOAD_NAME}"
 _PROJECT_FILE = "project.godot"
 _BUNDLED_HARNESS = Path(__file__).parent / HARNESS_FILE
 
@@ -193,9 +204,12 @@ class _ConfigEdit:
     sections: tuple[str, ...] = ()
 
 
+# Enabled-singleton form: the res:// path prefixed with "*" (issue #119).
+_AUTOLOAD_VALUE = f'"*{HARNESS_RES_PATH}"'
+
+
 def _autoload_line() -> str:
-    # Enabled-singleton form: the res:// path prefixed with "*" (issue #119).
-    return f'{HARNESS_AUTOLOAD_NAME}="*{HARNESS_RES_PATH}"'
+    return f"{HARNESS_AUTOLOAD_NAME}={_AUTOLOAD_VALUE}"
 
 
 def _read_config(path: Path) -> str:
@@ -417,51 +431,71 @@ def _materialize(project: Path) -> bool:
     return True
 
 
+def _harness_entries(section: ConfigSection) -> list[ConfigEntry]:
+    """The GdaHarness assignments inside ``section``, in file order.
+
+    By the reader's DECODED key (:data:`_HARNESS_SETTING`), not by the spelling on
+    the line: the engine reads ``GdaHarness=`` and ``"GdaHarness"=`` as one key, so
+    gda does too.
+    """
+    return [entry for entry in section.entries if entry.name == _HARNESS_SETTING]
+
+
 def _ensure_autoload(text: str) -> _ConfigEdit:
     """Ensure the harness autoload line is present in ``[autoload]``.
 
-    The "already present" decision is scoped to the ``[autoload]`` section: only an
-    EXACT GdaHarness line *inside* ``[autoload]`` is a no-op. There is no global
-    early return on the line appearing anywhere in the file, so a same-named key in
-    another section is never consulted, re-pointed, or removed (PR #247 review).
+    The "already present" decision is scoped to the ``[autoload]`` section: only a
+    GdaHarness entry *inside* ``[autoload]`` that already declares this exact value
+    is a no-op. There is no global early return on the line appearing anywhere in
+    the file, so a same-named key in another section is never consulted,
+    re-pointed, or removed (PR #247 review).
+
+    Both the sections and the entries come from the shared reader's ONE scan
+    (:meth:`~gda.project_file.ConfigText.sections_named`), so a header-shaped line
+    inside a multi-line quoted value is not a section to join and the entry
+    spelled inside such a value is not an entry to re-point (#930).
 
     The returned :class:`_ConfigEdit` names the ``[autoload]`` section in
     ``sections`` when this call had to CREATE it — the half of the #654 receipt
     ``_remove_autoload`` mirrors when it drops the section again.
     """
     line = _autoload_line()
-    lines, eol, trailing = split_config(text)
+    config = read_config_text(text)
+    sections = config.sections_named(_AUTOLOAD_SECTION)
 
     # Re-point an existing GdaHarness entry, or insert a fresh one — both scoped to
     # the [autoload] section, so a same-named key in another section is never
     # touched (PR #247 review; symmetric with _remove_autoload).
-    section = SECTIONLESS
-    autoload_header_index: Optional[int] = None
-    for i, raw in enumerate(lines):
-        stripped = config_line(raw)
-        section = section_of(stripped, section)
-        if section != _AUTOLOAD_SECTION:
-            continue
-        if section_name(stripped) == _AUTOLOAD_SECTION:
-            if autoload_header_index is None:
-                autoload_header_index = i
-        elif stripped.startswith(f"{HARNESS_AUTOLOAD_NAME}="):
-            # A GdaHarness entry inside [autoload]: a no-op when already exact,
-            # otherwise re-point it in place.
-            if stripped == line:
-                return _ConfigEdit(text, False)
-            lines[i] = line
-            return _ConfigEdit(eol.join(lines) + trailing, True)
+    declared = [entry for section in sections for entry in _harness_entries(section)]
+    if declared:
+        # The LAST declaration, because that is the one the engine loads
+        # (`ConfigText.settings`, verified on 4.6.3: a bare `GdaHarness=` after a
+        # quoted `"GdaHarness"=` wins). Deciding on the first let a canonical entry
+        # hide a later one pointing elsewhere, so the install reported nothing to
+        # do and the harness never registered (#938 review, round 2). The earlier
+        # duplicates are left as the file wrote them — the engine ignores them, and
+        # `_remove_autoload` takes them all out again.
+        entry = declared[-1]
+        # A no-op when that entry already declares this value, whatever spacing or
+        # trailing comment the line carries: gda writes only where the DECLARATION
+        # differs, so it never rewrites a line it did not need to.
+        if entry.value == _AUTOLOAD_VALUE:
+            return _ConfigEdit(text, False)
+        lines = list(config.lines)
+        lines[entry.index : entry.index + len(entry.lines)] = [line]
+        return _ConfigEdit(config.spelled(lines), True)
 
     # An existing [autoload] section with no GdaHarness entry — insert right after
     # its header, preserving any sibling autoloads.
-    if autoload_header_index is not None:
-        lines.insert(autoload_header_index + 1, line)
-        return _ConfigEdit(eol.join(lines) + trailing, True)
+    if sections:
+        lines = list(config.lines)
+        lines.insert(sections[0].start, line)
+        return _ConfigEdit(config.spelled(lines), True)
 
     # No [autoload] section — append one at EOF (sections may appear in any order).
     # The leading blank line is the section separator ``_drop_emptied_autoload_sections``
     # takes back when uninstall empties the section again (#654).
+    eol = config.eol
     base = text if text.endswith(("\n", "\r")) else text + eol
     return _ConfigEdit(
         f"{base}{eol}{_AUTOLOAD_HEADER}{eol}{eol}{line}{eol}",
@@ -519,44 +553,52 @@ def install_harness(project: Path) -> HarnessInstall:
 
 
 def _drop_emptied_autoload_sections(
-    lines: list[str], headers: set[int]
-) -> tuple[list[str], tuple[str, ...]]:
-    """Drop the named ``[autoload]`` sections if now key-less; (lines, dropped).
+    config: ConfigText, sections: list[ConfigSection], removed: set[int]
+) -> tuple[set[int], tuple[str, ...]]:
+    """Return ``removed`` widened by the sections it emptied, and their headers.
 
-    ``headers`` holds the ``lines`` indices of the ``[autoload]`` headers a harness
-    entry was actually removed from — the ONLY sections this may drop. A section gda
-    emptied would otherwise survive as a bare header, keeping a tracked
-    ``project.godot`` modified after every live session (GDA-DF-020, #654), but an
-    unrelated ``[autoload]`` section that was ALREADY empty before this call is none
-    of gda's business and stays (PR #680 review). Scoping the removal to the touched
-    section is what makes "a pre-existing empty section is not gda's to remove" true
-    of the code and not just of the docs.
+    ``sections`` holds the ``[autoload]`` sections a harness entry was actually
+    removed from — the ONLY sections this may drop. A section gda emptied would
+    otherwise survive as a bare header, keeping a tracked ``project.godot`` modified
+    after every live session (GDA-DF-020, #654), but an unrelated ``[autoload]``
+    section that was ALREADY empty before this call is none of gda's business and
+    stays (PR #680 review). Scoping the removal to the touched section is what makes
+    "a pre-existing empty section is not gda's to remove" true of the code and not
+    just of the docs.
 
-    Deletes in DESCENDING index order so removing a later span cannot shift the
-    index of one not yet visited.
+    Every span is measured on the SCANNED text and collected as a set of line
+    indices, so no deletion can shift the bounds of a section not yet visited — the
+    order the old descending walk had to keep for the same reason.
     """
-    kept = list(lines)
+    gone = set(removed)
     dropped: list[str] = []
-    for index in sorted(headers, reverse=True):
-        span = _emptied_autoload_span(kept, index)
+    for section in sections:
+        span = _emptied_autoload_span(config, section, gone)
         if span is None:
             continue  # a sibling autoload survives -> the section stays
-        del kept[span[0] : span[1]]
+        gone.update(range(*span))
         dropped.append(_AUTOLOAD_HEADER)
-    return kept, tuple(dropped)
+    return gone, tuple(dropped)
 
 
-def _emptied_autoload_span(lines: list[str], index: int) -> Optional[tuple[int, int]]:
+def _emptied_autoload_span(
+    config: ConfigText, section: ConfigSection, removed: set[int]
+) -> Optional[tuple[int, int]]:
     """The ``[start, end)`` slice to delete for a key-less ``[autoload]``, else None.
 
-    The section spans its header at ``index`` up to the next section header (or EOF),
-    so removing it takes the blank lines inside it. When it ran to EOF the span also
-    takes the ONE blank separator line in front of it, because nothing follows to be
-    separated from — together that is the exact inverse of the
-    ``\\n[autoload]\\n\\n<entry>\\n`` ``_ensure_autoload`` appends, so the file returns
-    to its pre-install bytes. A mid-file section keeps that separator: it still
-    divides the two neighbours.
+    The section spans its header up to the next section header (or EOF) — the bounds
+    the one scan recorded — so removing it takes the blank lines inside it, and a
+    header spelling inside a quoted value ends nothing. ``removed`` are the lines
+    the entry removal already took, which is what makes the section key-less. When
+    the section ran to EOF the span also takes the ONE blank separator line in front
+    of it, because nothing follows to be separated from — together that is the exact
+    inverse of the ``\\n[autoload]\\n\\n<entry>\\n`` ``_ensure_autoload`` appends, so
+    the file returns to its pre-install bytes. A mid-file section keeps that
+    separator: it still divides the two neighbours.
     """
+    header = section.header
+    if header is None:  # only the section-less head has no header line
+        return None
     # The one comparison on this path that is deliberately LITERAL, where
     # recognition is by name (`_AUTOLOAD_SECTION`). The asymmetry is the rule
     # itself: reading the file means reading it as Godot's parser does, so a
@@ -566,15 +608,17 @@ def _emptied_autoload_span(lines: list[str], index: int) -> Optional[tuple[int, 
     # a bare `[autoload]`. Recognizing the drop by name too would have destroyed a
     # user's empty `[ autoload ]` on a round trip that created nothing, and would
     # take a user's comment with the header here (PR #898 review, rounds 2-3).
-    if index >= len(lines) or lines[index].strip() != _AUTOLOAD_HEADER:
+    if config.lines[header].strip() != _AUTOLOAD_HEADER:
         return None
-    end = index + 1
-    while end < len(lines) and not is_section_header(lines[end]):
-        end += 1
-    if any(line.strip() for line in lines[index + 1 : end]):
+    if any(
+        config.lines[index].strip()
+        for index in range(section.start, section.end)
+        if index not in removed
+    ):
         return None
-    start = index
-    if end == len(lines) and start > 0 and not lines[start - 1].strip():
+    start = header
+    end = section.end
+    if end == len(config.lines) and start > 0 and not config.lines[start - 1].strip():
         start -= 1
     return start, end
 
@@ -582,35 +626,30 @@ def _emptied_autoload_span(lines: list[str], index: int) -> Optional[tuple[int, 
 def _remove_autoload(text: str) -> _ConfigEdit:
     """Drop the harness autoload line from ``project.godot`` text.
 
-    Removes only the ``GdaHarness=...`` line **inside the ``[autoload]`` section**,
+    Removes only the ``GdaHarness=...`` entry **inside the ``[autoload]`` section**,
     leaving any sibling autoloads intact (the inverse of ``_ensure_autoload``). A
-    same-named key in another section is left untouched. When that empties the
-    section the harness entry sat in, the header goes too
-    (:func:`_drop_emptied_autoload_sections`, #654) and the returned
-    :class:`_ConfigEdit` names it in ``sections``.
+    same-named key in another section is left untouched, and so is a line spelled
+    like the entry inside a multi-line quoted value: the sections and the entries
+    are the ones the shared reader's single scan found, and an entry is taken out by
+    the SPAN it was written on (#930). When that empties the section the harness
+    entry sat in, the header goes too (:func:`_drop_emptied_autoload_sections`,
+    #654) and the returned :class:`_ConfigEdit` names it in ``sections``.
     """
-    lines, eol, trailing = split_config(text)
-    section = SECTIONLESS
-    kept: list[str] = []
-    # The `kept` index of the [autoload] header now in scope, and the headers a
-    # harness entry was actually dropped from — only those may lose their section.
-    header_index: Optional[int] = None
-    emptied: set[int] = set()
-    for raw in lines:
-        stripped = config_line(raw)
-        section = section_of(stripped, section)
-        if section == _AUTOLOAD_SECTION:
-            if section_name(stripped) == _AUTOLOAD_SECTION:
-                header_index = len(kept)
-            elif stripped.startswith(f"{HARNESS_AUTOLOAD_NAME}="):
-                if header_index is not None:
-                    emptied.add(header_index)
-                continue  # drop the autoload entry only
-        kept.append(raw)
-    if len(kept) == len(lines):
+    config = read_config_text(text)
+    removed: set[int] = set()
+    emptied: list[ConfigSection] = []
+    for section in config.sections_named(_AUTOLOAD_SECTION):
+        entries = _harness_entries(section)
+        if not entries:
+            continue
+        for entry in entries:
+            removed.update(range(entry.index, entry.index + len(entry.lines)))
+        emptied.append(section)
+    if not removed:
         return _ConfigEdit(text, False)
-    kept, dropped = _drop_emptied_autoload_sections(kept, emptied)
-    return _ConfigEdit(eol.join(kept) + trailing, True, dropped)
+    removed, dropped = _drop_emptied_autoload_sections(config, emptied, removed)
+    kept = [raw for index, raw in enumerate(config.lines) if index not in removed]
+    return _ConfigEdit(config.spelled(kept), True, dropped)
 
 
 def _remove_files(project: Path) -> tuple[str, ...]:
