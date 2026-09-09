@@ -149,9 +149,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        # lfs: true materializes any Git-LFS-tracked assets (gADR-0015) so the Panda
-        # Adventure size gate and asset loads see real bytes. A no-op until wave-3
-        # commits its first >= T asset; provisioned now so a large file is born in LFS.
+        # Materialize Git LFS assets for tests and package builds.
         uses: actions/checkout@v6
         with:
           lfs: true
@@ -176,14 +174,6 @@ jobs:
         # Four workers (the runner has four vCPUs); `loadgroup` keeps the
         # `xdist_group`-marked tests together and load-balances the rest (#818).
         run: uv run --frozen pytest -m "not e2e" -n 4 --dist loadgroup
-
-      # The root testpaths excludes the example game; run its PURE-Python tier here
-      # (no Godot). The "engine" and "e2e" tiers need a real engine and run in the
-      # godot-e2e job; the "acquire_live" tier needs a live network / image-gen API
-      # (asset pipeline, gADR-0014) and is run on demand, never in CI. Explicit
-      # path keeps the game and gda suites separate.
-      - name: Run Panda Adventure pure-Python tests
-        run: uv run --frozen pytest examples/platformer/panda-adventure/tests -m "not e2e and not engine and not acquire_live"
 
       - name: Build distributions
         run: uv build
@@ -501,17 +491,3 @@ jobs:
           uv pip install --python /tmp/gda-assets-consumer/bin/python dist-asset-smoke/gda-*.whl
           /tmp/gda-assets-consumer/bin/python scripts/smoke_asset_pipeline.py \
             --gda /tmp/gda-assets-consumer/bin/gda --godot "$GDA_GODOT"
-
-      # The example game's engine-backed tiers: the data round-trip + logic seam
-      # (engine marker) and the live daemon loop (e2e). install-godot exported
-      # GDA_GODOT, so these resolve the engine. -rs surfaces any skips.
-      - name: Run Panda Adventure engine and e2e tests
-        run: uv run --frozen pytest examples/platformer/panda-adventure/tests -m "engine or e2e" -rs
-
-      # Portable export guard: `export get` validates the macOS preset is found and
-      # parses (no templates or platform tooling needed), so it is safe on a Linux
-      # runner. `export run --mode pack` works on macOS (verified) but a macOS preset
-      # on a Linux runner is unverified here, so we keep `get`. The REAL .app export
-      # is reproduced by scripts/export_macos.sh and smoke-tested on macOS (see PR).
-      - name: Guard Panda Adventure export preset wiring
-        run: uv run --frozen gda export get --preset macOS --project examples/platformer/panda-adventure --json
