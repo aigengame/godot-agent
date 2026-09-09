@@ -585,3 +585,43 @@ added incrementally under ADR-0025 if a concrete need appears.
 > did not scope. The follow-up is named rather than taken here. The human rendering
 > is unchanged too — `script run` without `--json` stays the script's own output, per
 > this ADR's passthrough decision.
+
+> **Outcome (2026-09-09, #844) — `--strict` has a SECOND trigger: a run the engine
+> reported leaking at exit.** The flag was defined against the child's exit status
+> alone, and the status is the one thing a leaking run gets right. A fixture left
+> callback reference cycles; Godot printed `WARNING: ObjectDB instances leaked at
+> exit` and `ERROR: <n> resources still in use at exit`, and the run reported shell
+> zero, `exit_status: 0` and `diagnostics: []`, with both records visible only
+> inside the raw `stderr` string — so the production added "stderr must be empty" as
+> a gate of its own, which is a gate on the WHOLE stream rather than on a fact
+> (GDA-DF-063, gda 0.10.0). Under `--strict`, a `shutdown_leak` diagnostic is now a
+> `script_failed` verdict even at exit status zero. Without `--strict` it stays data
+> on the success result, exactly as the #651 amendment above fixes for everything
+> the script survived: this note inverts one more default under the opt-in flag, not
+> the passthrough.
+>
+> **One verdict, one producer — the shape is deliberately unchanged.** The widened
+> rule reuses `script_exit_status_failure`: the same registered `script_failed`
+> code, the same `evidence.exit_status` (the child's `0`) and
+> `evidence.script_errors` (the parsed records, the leak among them), and the same
+> place in ADR-0004's evidence producer set. Only the MESSAGE branches, because a
+> zero status cannot explain why a strict gate fired, so it quotes the engine's own
+> leak sentence the way the never-ran verdict quotes its detail. A sibling builder
+> would have added a producer to the set that ADR fixes, and a new error code would
+> have made a caller branch twice on one question — "did this run pass?" — for one
+> answer. The status keeps the message when a run trips both triggers: the script's
+> own answer is the more specific one, and the leak is on the evidence either way.
+>
+> **What this costs the parser, and what it does not.** Recognition is
+> `gda.script_errors`', so `scene preflight` reports the same kind from the same
+> reading of the same stderr — a scene that comes up and leaks reads `status:
+> ready` with `started: false`, which is that command's existing rule ("ready AND
+> nothing recognized") applied to a record about how the run ENDED. The widening
+> admits the closed set's FIRST warning record, argued in that module against #722's
+> three admission criteria: the two sentences are C++ format-string literals, the
+> record says what became of the objects of the run the script owned, and the kind
+> states that the script RAN — so it stays out of the entry-failure precedence and,
+> naming no resource, could not decide an entry verdict even if it were in it. The
+> warning LEVEL is still skipped; a project `push_warning` that spells the same
+> words is not a leak. No new `Gda error code`, no new `FailureEvidence` field, no
+> change to ADR-0002's registry.

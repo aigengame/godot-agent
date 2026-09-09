@@ -710,14 +710,16 @@ class ScenePreflightResult(BaseModel):
     diagnostics: list[ScriptError] = Field(
         default_factory=list,
         description=(
-            "The script errors gda recognized in the engine's error stream during "
-            "startup, in emission order; empty when it printed none it recognizes. "
-            "Advisory and best-effort: recognition is a closed set — the engine's "
-            "own failure sentences (a runtime error, a failed assertion, a script "
+            "The script errors gda recognized in the engine's error stream, in "
+            "emission order; empty when it printed none it recognizes. Advisory "
+            "and best-effort: recognition is a closed set — the engine's own "
+            "failure sentences (a runtime error, a failed assertion, a script "
             "that could not be loaded), plus a project-raised push_error(), whose "
             "kind is 'push_error' and whose path/line come from the engine's "
-            "GDScript backtrace. Unrecognized engine prose is not a diagnostic; "
-            "the verbatim stream is still forwarded to gda's stderr."
+            "GDScript backtrace, plus the engine's exit-time leak report, whose "
+            "kind is 'shutdown_leak' and which is printed after the scene ran. "
+            "Unrecognized engine prose is not a diagnostic; the verbatim stream "
+            "is still forwarded to gda's stderr."
         ),
     )
     project_root: str | None = Field(
@@ -1496,6 +1498,9 @@ def preflight_scene(
     'not_ready' or 'timeout', plus the script errors gda recognized in the engine's
     error stream while it started. Read 'started' for the one-boolean gate: it is
     true only when the scene reached _ready AND nothing was recognized on stderr.
+    A scene that ends with objects or resources still alive is recognized too — the
+    engine reports that leak when it exits, so the run carries a 'shutdown_leak'
+    diagnostic and 'started' is false even though 'status' is 'ready'.
 
     A scene that does not start is a SUCCESSFUL operation — exit 0 with the verdict,
     the 'timeout' one included, because "it did not come up within the bound" is the

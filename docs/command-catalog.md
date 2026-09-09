@@ -147,10 +147,13 @@ they answer *different* ones:
   invariant violation GDA-DF-030 describes. That one is recognized by its `at:` frame — which
   the engine fixes as `push_error` — never by its message, which is the project's own prose; its
   `kind` is `push_error` and its `path`/`line` are the call site named in the engine's GDScript
-  backtrace, or null when it attached none. Everything else the engine prints stays
-  unrecognized: a backtrace alone does not qualify a record, since the engine attaches one to
-  any error raised while GDScript is on the stack, including engine-side failures a script only
-  triggered indirectly.
+  backtrace, or null when it attached none. The set also holds **the engine's exit-time leak
+  report** (#844), `kind` `shutdown_leak`: the engine prints it after the scene ran, so a scene
+  that comes up and leaks reads `status: ready` with `started: false` — the rule `started` has
+  always had, applied to a record about how the run ENDED rather than how it started.
+  Everything else the engine prints stays unrecognized: a backtrace alone does not qualify a
+  record, since the engine attaches one to any error raised while GDScript is on the stack,
+  including engine-side failures a script only triggered indirectly.
 
 **A composed verdict, not a single-file one** (established by #721): a scene that references a
 broken one is broken too, and its own dependency walk can never see that — `res://child.tscn`
@@ -950,6 +953,20 @@ arms that abort even though it is recognized (#722): it interrupts nothing — e
 continues at the next statement — so a script that reports an invariant and then computes
 quietly is alive by construction. It does appear in the run's `diagnostics`, which are advisory:
 a project that uses `push_error` as ordinary logging sees entries on runs that still succeed.
+
+**`--strict` fails a run on either of two triggers** (#844): the non-zero status the script
+chose, or a `shutdown_leak` diagnostic — Godot's two exit-time leak records (`ObjectDB
+instances leaked at exit`, `<n> resources still in use at exit`), which it prints after the
+run. A suite can report a pass, `quit(0)` and still leave its objects and a loaded resource
+alive, so a status-only gate called that run clean and the production had to add "stderr must
+be empty" as a gate of its own (GDA-DF-063). ONE verdict, not two: the same `script_failed`
+code, the same `evidence.exit_status` / `evidence.script_errors` keys and the same producer;
+only the message differs, quoting the engine's leak sentence when the status is zero. Without
+`--strict` the diagnostic is data on the successful result, as #651 decided for every error
+the script survived. Recognition still keys on the engine's own format strings — one of the
+two records is the parser's only WARNING — so a project `push_warning()` spelling the same
+words is not a leak.
+
 `script run` takes the two portable script-path forms — a `res://` address and a
 project-relative path — and decides the whole path edge before any launch (ADR-0031). Six
 shapes are `invalid_path`: an absolute path, another engine scheme, a leading `~`, a path

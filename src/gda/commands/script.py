@@ -78,6 +78,7 @@ from gda.script_errors import (
     ScriptError,
     ScriptErrorKind,
     entry_load_failure,
+    leaked_at_exit,
     parse_script_errors,
     script_error_line,
 )
@@ -765,16 +766,20 @@ class ScriptRunParams(BaseModel):
     strict: bool = Field(
         default=False,
         description=(
-            "Treat a non-zero script exit status as a gda failure: emit the error "
-            "envelope with code 'script_failed' and exit 4, instead of the default "
-            "passthrough success. Opt-in, for shell '&&' chains and CI gates that "
-            "key on the process exit code. The envelope keeps the evidence, typed "
-            "and as prose: 'evidence.exit_status' is the CHILD's status (gda's own "
-            "exit code stays 4) and 'evidence.script_errors' the parsed errors, "
-            "while the message names the status and the 'diagnostics' string "
-            "carries BOTH of the script's streams under the fixed labels "
-            "'--- script stdout ---' and '--- script stderr ---'. A script that "
-            "never ran fails either way (ADR-0031 amendment)."
+            "Treat a failed run as a gda failure: emit the error envelope with code "
+            "'script_failed' and exit 4, instead of the default passthrough "
+            "success. TWO triggers, either one enough: the script exited non-zero, "
+            "or the engine reported a leak at exit (a 'shutdown_leak' diagnostic), "
+            "which a status-only gate cannot see because the script can choose 0 "
+            "and still leave its objects alive. Opt-in, for shell '&&' chains and "
+            "CI gates that key on the process exit code. The envelope keeps the "
+            "evidence, typed and as prose: 'evidence.exit_status' is the CHILD's "
+            "status (gda's own exit code stays 4) and 'evidence.script_errors' the "
+            "parsed errors, while the message names the status — and, for a "
+            "zero-status run that leaked, the engine's leak sentence too — and the "
+            "'diagnostics' string carries BOTH of the script's streams under the "
+            "fixed labels '--- script stdout ---' and '--- script stderr ---'. A "
+            "script that never ran fails either way (ADR-0031 amendment)."
         ),
     )
     timeout: float = Field(
@@ -1429,8 +1434,9 @@ class _CompletionMarkerWatch:
        :func:`gda.script_errors.entry_load_failure` and the canonical ``res://``
        identity, so the abort recognizes exactly the sentences the rest of
        ``script run`` does and nothing is parsed twice in two ways. An error about
-       some *other* resource says nothing about the entry's fate; warnings are not
-       errors and are already skipped by the shared parser;
+       some *other* resource says nothing about the entry's fate, and neither does
+       the one warning the shared parser recognizes — a shutdown leak names no
+       resource at all, and the engine prints it after the run (#844);
     2. the caller's **declared marker** has not appeared. This is the opt-in:
        ADR-0031 rejected imposing a gda-owned sentinel wrapper on a user-authored
        entry script, so gda cannot know a run "should" have finished — only the
@@ -1705,8 +1711,13 @@ def run_script_run_operation(
         )
 
     # The script RAN. Its own status is data by default (the ADR-0031 crux) and a
-    # gda failure only when the caller opted in with --strict.
-    if strict and raw.exit_code != 0:
+    # gda failure only when the caller opted in with --strict — which since #844
+    # fails on EITHER of two triggers, because a status-only gate cannot see the
+    # second: a script can print its results, choose 0, and still leave its objects
+    # and resources alive, which the engine reports only at exit (GDA-DF-063). The
+    # leak read is the parser's own (:func:`gda.script_errors.leaked_at_exit`) over
+    # the diagnostics already parsed above — no second reading of the stderr.
+    if strict and (raw.exit_code != 0 or leaked_at_exit(diagnostics) is not None):
         return script_exit_status_failure(
             script, raw.exit_code, raw.stdout, raw.stderr, diagnostics
         )
@@ -2632,11 +2643,14 @@ def run_script(
         False,
         "--strict",
         help=(
-            "Fail when the script exits non-zero: emit the 'script_failed' error "
-            "envelope and exit 4 instead of the default passthrough success. For "
-            "shell '&&' chains and CI gates. The envelope carries the child's "
-            "status as 'evidence.exit_status' and the parsed errors as "
-            "'evidence.script_errors'; its message names the status too, and its "
+            "Fail when the script exits non-zero, OR when the engine reports a leak "
+            "at exit (a 'shutdown_leak' diagnostic — a script can exit 0 and still "
+            "leave its objects alive): emit the 'script_failed' error envelope and "
+            "exit 4 instead of the default passthrough success. For shell '&&' "
+            "chains and CI gates. The envelope carries the child's status as "
+            "'evidence.exit_status' and the parsed errors as "
+            "'evidence.script_errors'; its message names the status too — plus the "
+            "engine's leak sentence when a zero-status run leaked — and its "
             "diagnostics carry both script streams, labelled "
             "'--- script stdout ---' / '--- script stderr ---'. A script that never "
             "ran fails either way."
@@ -2705,9 +2719,13 @@ def run_script(
     not interpret the script's semantics, so a deliberate ``quit(1)`` (e.g. an
     assertion-failed logic-seam test) is data the agent reads, not a gda failure —
     read ``exit_status``, do not assume ``success == zero``. Pass ``--strict`` to
-    invert that one default and get the ``script_failed`` envelope (exit 4) for a
-    non-zero status, so a shell ``&&`` chain or CI gate stops on it; that envelope
-    carries the script's own stdout and stderr in its ``diagnostics``.
+    invert that one default and get the ``script_failed`` envelope (exit 4), so a
+    shell ``&&`` chain or CI gate stops on it; that envelope carries the script's
+    own stdout and stderr in its ``diagnostics``. Under ``--strict`` a run fails on
+    either of two triggers: the non-zero status, or a ``shutdown_leak`` diagnostic —
+    the engine reporting at exit that the run left objects or resources alive, which
+    a status-only gate cannot see. Without ``--strict`` that diagnostic stays data
+    on the successful result, like every other error the script survived.
 
     A script that WRITES ``user://`` needs a writable Godot application-data
     directory, which a restricted profile often does not have. Redirect both it and

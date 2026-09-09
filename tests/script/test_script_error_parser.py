@@ -18,6 +18,7 @@ import pytest
 from gda.script_errors import (
     ScriptErrorKind,
     entry_load_failure,
+    leaked_at_exit,
     parse_script_errors,
 )
 
@@ -166,20 +167,24 @@ def test_a_parse_error_alone_still_fails_the_entry():
 
 def test_every_never_ran_kind_is_an_entry_failure_candidate():
     # `entry_load_failure` acts on the enum's published promise, so the two must
-    # not drift. Exactly three kinds are excluded, for reasons the enum states:
-    # `runtime_error` and `push_error` both prove the script DID run (the engine
-    # raised inside it; the project's own code called push_error from it), and
+    # not drift. Exactly four kinds are excluded, for reasons the enum states:
+    # `runtime_error`, `push_error` and `shutdown_leak` all prove the script DID
+    # run (the engine raised inside it; the project's own code called push_error
+    # from it; the engine printed the leak at exit, after the run), and
     # `incompatible_script` carries no path by construction, so it can never name
-    # the entry script and has no place in an entry-verdict precedence.
+    # the entry script and has no place in an entry-verdict precedence —
+    # `shutdown_leak` carries none either, which excludes it twice over.
     #
-    # Updated deliberately by #722, which is what this assertion is FOR: adding a
-    # kind without deciding whether it can fail an entry fails here by design.
+    # Updated deliberately by #722 and again by #844, which is what this assertion
+    # is FOR: adding a kind without deciding whether it can fail an entry fails
+    # here by design.
     from gda.script_errors import _ENTRY_FAILURE_PRECEDENCE
 
     assert set(ScriptErrorKind) - set(_ENTRY_FAILURE_PRECEDENCE) == {
         ScriptErrorKind.RUNTIME_ERROR,
         ScriptErrorKind.PUSH_ERROR,
         ScriptErrorKind.INCOMPATIBLE_SCRIPT,
+        ScriptErrorKind.SHUTDOWN_LEAK,
     }
 
 
@@ -754,3 +759,119 @@ def test_an_engine_side_backtrace_frame_is_skipped_for_the_address():
 
     assert errors[0].path == "res://probe.gd"
     assert errors[0].line == 7
+
+
+# --- Shutdown leaks at engine exit (#844) -------------------------------------
+#
+# Captured VERBATIM from Godot 4.6.3 (macOS) running
+# `gda script run res://leaky.gd --project <proj>` on a script that leaves a
+# RefCounted cycle and a loaded `.tres` alive when it calls `quit(0)`. Exit
+# status 0, `diagnostics: []` before this widening — the GDA-DF-063 shape: the
+# engine says the run leaked and every channel reported a clean success.
+#
+# The two records differ in kind AND in level. `ObjectDB instances leaked at
+# exit` is a WARN_PRINT from `ObjectDB::cleanup` (core/object/object.cpp) with
+# no count in it; `<n> resources still in use at exit` is an ERR_PRINT from
+# `ResourceCache::clear` (core/io/resource.cpp) whose count is part of the
+# sentence. The first is the closed set's ONLY warning.
+SHUTDOWN_LEAK_STDERR = """\
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2663)
+ERROR: 1 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)
+"""
+
+# The SAME two records from the SAME leak under `--verbose` (recorded from
+# `godot --headless --verbose --script res://leaky.gd`): the engine drops the
+# "(run with --verbose for details)" tail of the resources sentence, so the
+# count and the fixed words are all that both spellings share.
+VERBOSE_SHUTDOWN_LEAK_STDERR = """\
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2663)
+ERROR: 1 resources still in use at exit.
+   at: clear (core/io/resource.cpp:805)
+"""
+
+
+def test_a_shutdown_leak_is_recognized_on_both_engine_records():
+    # Both records of one leaking run, in emission order, under one kind — the
+    # widening this issue makes to the closed set. Neither sentence names a
+    # res:// resource (the `at:` frame is the engine's own C++ file), so both
+    # honestly carry no path and no line.
+    errors = parse_script_errors(SHUTDOWN_LEAK_STDERR)
+
+    assert [e.kind for e in errors] == [
+        ScriptErrorKind.SHUTDOWN_LEAK,
+        ScriptErrorKind.SHUTDOWN_LEAK,
+    ]
+    assert all(e.path is None and e.line is None for e in errors)
+    # The count the engine reported stays in the message — the record model gains
+    # no field, because it is published on both halves of the contract.
+    assert errors[0].message.startswith("ObjectDB instances leaked at exit")
+    assert errors[1].message.startswith("1 resources still in use at exit")
+
+
+def test_the_verbose_spelling_of_the_resources_record_is_recognized_too():
+    # The engine writes two spellings of the resources sentence, and only the
+    # words before the tail are fixed. Recognition keys on those, so a caller
+    # running the engine verbosely gets the same diagnostic.
+    errors = parse_script_errors(VERBOSE_SHUTDOWN_LEAK_STDERR)
+
+    assert [e.kind for e in errors] == [
+        ScriptErrorKind.SHUTDOWN_LEAK,
+        ScriptErrorKind.SHUTDOWN_LEAK,
+    ]
+    assert errors[1].message == "1 resources still in use at exit."
+
+
+def test_a_shutdown_leak_never_fails_an_entry_verdict():
+    # It is a SHUTDOWN record: the engine prints it after the run, so it proves
+    # the script ran. It must never become "the script never ran" — and it cannot,
+    # by construction: the kind is outside the precedence and the record names no
+    # path to match an entry against.
+    errors = parse_script_errors(SHUTDOWN_LEAK_STDERR)
+
+    assert entry_load_failure(errors, "res://leaky.gd") is None
+
+
+def test_a_project_warning_that_spells_the_leak_sentence_is_not_one():
+    # The closed set's admission rule, at the level it now reaches: the project's
+    # prose is the payload, never the key. A `push_warning()` naming the engine's
+    # own leak sentence is the project reporting something, and gda does not
+    # promote a project warning (#722) — so it stays unrecognized rather than
+    # becoming a leak that would fail a --strict gate.
+    stderr = (
+        "WARNING: ObjectDB instances leaked at exit (run with --verbose for "
+        "details).\n"
+        "   at: push_warning (core/variant/variant_utility.cpp:1034)\n"
+        "   GDScript backtrace (most recent call first):\n"
+        "       [0] _ready (res://liar.gd:3)\n"
+    )
+
+    assert parse_script_errors(stderr) == []
+
+
+def test_an_ordinary_engine_warning_is_still_skipped():
+    # The widening admits ONE warning sentence, not the warning level: everything
+    # else the engine warns about still says nothing about a script's fate.
+    stderr = (
+        "WARNING: Node2D is deprecated.\n   at: cleanup (core/object/object.cpp:2663)\n"
+    )
+
+    assert parse_script_errors(stderr) == []
+
+
+def test_leaked_at_exit_reports_the_first_leak_record():
+    # The read the --strict rule and its message branch share, so both cannot
+    # disagree about whether a run leaked.
+    errors = parse_script_errors(SHUTDOWN_LEAK_STDERR)
+    leak = leaked_at_exit(errors)
+
+    assert leak is not None
+    assert leak.kind is ScriptErrorKind.SHUTDOWN_LEAK
+    assert leak.message.startswith("ObjectDB instances leaked at exit")
+
+
+def test_leaked_at_exit_is_none_for_a_run_that_did_not_leak():
+    assert leaked_at_exit(parse_script_errors(RUNTIME_ERROR_STDERR)) is None
+    assert leaked_at_exit([]) is None
