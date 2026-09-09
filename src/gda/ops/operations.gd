@@ -3397,6 +3397,7 @@ func _op_resource_lod_state(params: Dictionary) -> void:
 	var observations: Array = []
 	var node_count := 0
 	var mesh_count := 0
+	var visited_surfaces := 0
 	var surface_count := 0
 	var vertex_count := 0
 	var lod_count := 0
@@ -3418,9 +3419,10 @@ func _op_resource_lod_state(params: Dictionary) -> void:
 					var mesh_index: int = mesh_count
 					mesh_count += 1
 					for surface_index in mesh_resource.get_surface_count():
-						if surface_count >= max_surfaces:
+						if visited_surfaces >= max_surfaces:
 							_lod_state_note(omissions, "surface limit exceeded")
 							break
+						visited_surfaces += 1
 						var vertices: int = mesh_resource.surface_get_array_len(surface_index)
 						if vertex_count + vertices > max_vertices:
 							_lod_state_note(omissions, "vertex limit exceeded at mesh %d surface %d" % [mesh_index, surface_index])

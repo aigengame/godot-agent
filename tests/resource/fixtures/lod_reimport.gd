@@ -6,6 +6,7 @@ extends SceneTree
 func _initialize() -> void:
 	_export_mesh("lod_model.glb", _sphere())
 	_export_mesh("zero_lod_model.glb", _triangle())
+	_export_mesh("surface_budget_model.glb", _three_surfaces())
 	quit()
 
 
@@ -24,6 +25,18 @@ func _triangle() -> Mesh:
 		Vector3.ZERO, Vector3.RIGHT, Vector3.UP])
 	arrays[Mesh.ARRAY_INDEX] = PackedInt32Array([0, 1, 2])
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
+func _three_surfaces() -> Mesh:
+	var mesh := ArrayMesh.new()
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = PackedVector3Array([
+		Vector3.ZERO, Vector3.RIGHT, Vector3.UP])
+	arrays[Mesh.ARRAY_INDEX] = PackedInt32Array([0, 1, 2])
+	for _surface in 3:
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh
 
 

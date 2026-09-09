@@ -50,7 +50,13 @@ def imported_lod_models(godot_project, monkeypatch):
     assert (
         run.json("script", "run", "res://generate.gd", "--strict")["exit_status"] == 0
     )
-    run.json("resource", "import", "res://lod_model.glb", "res://zero_lod_model.glb")
+    run.json(
+        "resource",
+        "import",
+        "res://lod_model.glb",
+        "res://zero_lod_model.glb",
+        "res://surface_budget_model.glb",
+    )
     return godot_project
 
 
@@ -400,6 +406,31 @@ def test_lod_generation_edits_prove_both_transitions_on_the_same_source(
         for key, value in final_options.items()
         if key != "meshes/generate_lods"
     }
+
+
+def test_lod_state_surface_budget_counts_surfaces_rejected_by_vertex_budget(
+    imported_lod_models,
+):
+    observed = resource._RESOURCE_LOD_STATE.execute(
+        resource._LodStateParams(
+            path="res://surface_budget_model.glb",
+            max_surfaces=2,
+            max_vertices=1,
+        ),
+        project=imported_lod_models,
+        godot=None,
+    )
+    assert isinstance(observed, resource.LodStateObservation)
+    assert observed.complete is False
+    # Public surfaces/vertices count only observations that reached native
+    # surface inspection; the private traversal budget still consumes both.
+    assert observed.surfaces == 0
+    assert observed.vertices == 0
+    assert observed.omissions == [
+        "surface limit exceeded",
+        "vertex limit exceeded at mesh 0 surface 0",
+        "vertex limit exceeded at mesh 0 surface 1",
+    ]
 
 
 def test_lod_dry_run_noop_and_invalid_values_do_not_mutate(imported_lod_models):
