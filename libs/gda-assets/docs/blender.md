@@ -99,6 +99,13 @@ load/inspection commands. The workflow never reruns Blender automatically. Runni
 `--production` again is an explicit new export; choose `--overwrite` deliberately.
 There is no persisted run/resume protocol.
 
+If import and load completed but optional disk observation failed because an existing
+sidecar changed, `error.partial_result` names those completed stages and retains the
+before/after byte facts. Repeat with an explicit existing-file `--files` mapping,
+`--overwrite`, `--collect-observations`, and the retained output SHA-256 as
+`--declared-output-sha256`; omit `--production`. See the
+[content observation guide](observations.md) for the concrete command and limits.
+
 ## Reproducible validation
 
 From a development checkout with Blender and Godot configured:

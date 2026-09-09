@@ -50,7 +50,13 @@ checks caller declarations before import; `--observations-output /reports/new.js
 saves to a new file without overwriting one. Read `content_observations` and its
 coverage limitations; `stable` means no change detected in the covered disk reads,
 not runtime proof or full reproducibility. Changed or unavailable required file
-facts fail with retained partial observations. See the
+facts fail with retained partial observations. If install, import, and load completed
+but observation failed on changed configuration bytes, reuse the installed output in
+a new existing-file `--files` invocation with `--overwrite`,
+`--collect-observations`, and its retained `source_after.sha256` supplied through
+`--declared-output-sha256`; omit `--production`. The repeat checks current inputs,
+can fail again, and does not establish who changed the sidecar or whether its content
+is semantically equivalent. See the
 [observation guide](https://github.com/aigengame/godot-agent/blob/main/libs/gda-assets/docs/observations.md).
 
 Add `--refresh '{"path":"res://art/model.glb","scene":"res://test.tscn","node":"/root/Test/Model"}'`

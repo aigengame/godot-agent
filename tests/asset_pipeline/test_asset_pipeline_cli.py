@@ -445,6 +445,91 @@ def test_failure_is_nonzero_preserves_child_error_and_carries_partial_result(
     assert error["partial_result"]["completed"] == ["validate", "stage", "install"]
 
 
+def test_observation_change_publishes_stage_facts_and_file_reuse_guidance_to_json_and_human(
+    monkeypatch, tmp_path
+):
+    from gda_assets.domain.observations import (
+        AssetDiskObservation,
+        ContentObservations,
+        FileChange,
+        FileDigest,
+    )
+
+    project = minimal_project(tmp_path / "project")
+    before = FileDigest("res://models/model.glb.import", "observed", "a" * 64, 10)
+    after = FileDigest("res://models/model.glb.import", "observed", "b" * 64, 33)
+    source = FileDigest("res://models/model.glb", "observed", "c" * 64, 100)
+
+    class Port:
+        last_failure = None
+
+    monkeypatch.setattr(
+        "gda.commands.asset_pipeline.GdaGodotAssetPort", lambda *args: Port()
+    )
+    monkeypatch.setattr(
+        "gda.commands.asset_pipeline.run_pipeline",
+        lambda *args, **kwargs: PipelineResult(
+            completed=["validate", "stage", "install", "import", "load"],
+            outputs=[InstalledFile("model.glb", "res://models/model.glb", "installed")],
+            failure=PipelineFailure(
+                "observe",
+                "observation_changed",
+                "Selected input bytes changed during collection",
+            ),
+            content_observations=ContentObservations(
+                status="changed",
+                assets=[
+                    AssetDiskObservation(
+                        "res://models/model.glb",
+                        (),
+                        source_before=source,
+                        source_after=source,
+                        configuration_before=before,
+                        configuration_after=after,
+                    )
+                ],
+                changes=[FileChange(before, after)],
+            ),
+        ),
+    )
+    invocation = [
+        "asset-pipeline",
+        "run",
+        "--files",
+        '[{"source":"model.glb","target":"res://models/model.glb"}]',
+        "--source-root",
+        str(tmp_path),
+        "--project",
+        str(project),
+    ]
+
+    runner = CliRunner()
+    structured = runner.invoke(app, [*invocation, "--json"])
+    human = runner.invoke(app, invocation)
+
+    assert structured.exit_code != 0
+    assert human.exit_code == structured.exit_code
+    error = json.loads(structured.stdout)["error"]
+    assert error["partial_result"]["completed"] == [
+        "validate",
+        "stage",
+        "install",
+        "import",
+        "load",
+    ]
+    assert "completed stages: validate, stage, install, import, load" in error[
+        "message"
+    ]
+    assert "observation did not complete" in error["message"]
+    assert "not its writer or semantic equivalence" in error["message"]
+    assert "--files" in error["message"]
+    assert "--declared-output-sha256" in error["message"]
+    assert "omit --production" in error["message"]
+    assert "does not rerun Blender" in error["message"]
+    assert "can fail if they change again" in error["message"]
+    assert error["message"] in human.stdout
+
+
 def test_nested_project_target_is_rejected_before_pipeline_install(
     monkeypatch, tmp_path
 ):

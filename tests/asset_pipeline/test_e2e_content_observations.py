@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import shutil
 import struct
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from tests.support import Gda
 pytestmark = pytest.mark.e2e
 
 TARGET = "res://models/model.glb"
+FIXTURES = Path(__file__).with_name("fixtures")
 
 
 def _glb(path: Path, extent: float) -> None:
@@ -177,6 +179,109 @@ def test_config_only_root_scale_change_keeps_source_and_changes_config_digest(
         != after["configuration_after"]["sha256"]
     )
     assert after["configuration_before"] == after["configuration_after"]
+
+
+def test_native_configuration_normalization_refuses_then_explicit_file_reuse_succeeds(
+    godot_project,
+):
+    source_root = _source_root(godot_project)
+    source = source_root / "model.glb"
+    _glb(source, 1.0)
+    run, args = _run(godot_project, source_root, "model.glb")
+    _asset(run.json(*args))
+
+    fixture = godot_project / "configure_import_for_normalization.gd"
+    shutil.copyfile(FIXTURES / fixture.name, fixture)
+    run.json("script", "run", f"res://{fixture.name}")
+    sidecar = godot_project / "models/model.glb.import"
+    configured = sidecar.read_bytes()
+    assert b"meshes/generate_lods=false" in configured
+    assert b"nodes/root_script" not in configured
+
+    _glb(source, 2.0)
+    run, args = _run(godot_project, source_root, "model.glb", overwrite=True)
+    first = run.error(*args, code="operation_failed")
+    partial = first["partial_result"]
+    observations, asset = _asset({"pipeline": partial})
+
+    assert partial["completed"] == [
+        "validate",
+        "stage",
+        "install",
+        "import",
+        "load",
+    ]
+    assert partial["failure"] == {
+        "stage": "observe",
+        "code": "observation_changed",
+        "message": (
+            "Selected input bytes changed during collection; see "
+            "content_observations.changes"
+        ),
+        "cause": None,
+    }
+    assert partial["outputs"] == [
+        {
+            "source": "model.glb",
+            "target": TARGET,
+            "state": "installed",
+            "resize": None,
+        }
+    ]
+    assert partial["production"] is None
+    assert partial["cleanup"] is None
+    assert observations["status"] == "changed"
+    assert asset["source_before"] == asset["source_after"]
+    assert observations["changes"] == [
+        {
+            "before": asset["configuration_before"],
+            "after": asset["configuration_after"],
+        }
+    ]
+    assert b"nodes/root_script=null" in sidecar.read_bytes()
+    assert "completed stages: validate, stage, install, import, load" in first[
+        "message"
+    ]
+    assert "not its writer or semantic equivalence" in first["message"]
+    assert "omit --production" in first["message"]
+    assert "can fail if they change again" in first["message"]
+
+    reuse_files = [
+        {
+            "source": str((godot_project / "models/model.glb").resolve()),
+            "target": TARGET,
+            "references": [],
+        }
+    ]
+    recovery_run = Gda(
+        project=godot_project,
+        json_output=True,
+        extra_env={"GDA_BLENDER": str(godot_project / "must-not-run-blender")},
+    )
+    repeated = recovery_run.json(
+        "asset-pipeline",
+        "run",
+        "--files",
+        json.dumps(reuse_files),
+        "--overwrite",
+        "--collect-observations",
+        "--declared-output-sha256",
+        json.dumps({TARGET: asset["source_after"]["sha256"]}),
+    )
+    repeated_observations, repeated_asset = _asset(repeated)
+    assert repeated["pipeline"]["completed"] == [
+        "validate",
+        "stage",
+        "install",
+        "import",
+        "load",
+        "observe",
+    ]
+    assert repeated_observations["status"] == "stable"
+    assert repeated_asset["source_before"] == repeated_asset["source_after"]
+    assert repeated_asset["configuration_before"] == repeated_asset[
+        "configuration_after"
+    ]
 
 
 def test_wrong_declared_digest_refuses_before_import_and_retains_pre_facts(

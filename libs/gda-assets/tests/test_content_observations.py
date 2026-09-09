@@ -81,7 +81,10 @@ def test_cold_handoff_collects_selected_disk_facts_and_repeat_is_stable(tmp_path
     assert content.limitations
 
 
-@pytest.mark.parametrize("changed", ["source", "configuration", "dependency"])
+@pytest.mark.parametrize(
+    "changed",
+    ["source", pytest.param("configuration", id="unrelated-sidecar"), "dependency"],
+)
 def test_changed_input_during_import_refuses_mixed_observation(tmp_path, changed):
     from gda_assets.api import (
         AssetFile,
