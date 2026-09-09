@@ -210,12 +210,14 @@ alive) — success means live reads serve. This matters for the read-only diagno
 `logger tail` never launch a session themselves, so right after `daemon start` they report
 `engine_session_not_running` by design — expected, not a defect; run `wait-ready` first.
 Serving is NOT the same as a cleanly started scene: a script that fails to compile leaves
-its node script-less and the session serves anyway, showing an empty tree and a blank frame.
-So `wait-ready` also reports `clean_start` and the `startup_diagnostics` it recognized in the
-session log up to the handshake — the same records `script run` and `scene preflight` carry.
-Read `clean_start` before you treat a screenshot or a runtime read as evidence about the
-scene; `daemon status` repeats that verdict for the serving session without relaunching it,
-and `diag errors` reads the whole log, including what the game printed after startup.
+its node script-less and the session serves anyway, leaving the tree without whatever the
+script would have built, and often a blank frame. So `wait-ready` also reports `clean_start`
+and the `startup_diagnostics` it recognized in the session log — the same records `script
+run` and `scene preflight` carry, read ONCE right after the harness handshake, so they cover
+engine startup, the autoloads and the scene's own scripts, and may include the game's first
+frames. Read `clean_start` before you treat a screenshot or a runtime read as evidence about
+the scene; `daemon status` repeats that verdict for the serving session without relaunching
+it, and `diag errors` reads the whole log, including everything printed after that instant.
 A `live_timeout` discards the session (its late reply can no longer be attributed), so the
 next operation starts a fresh game and the runtime state you had set is gone. Most often
 it means the game stopped returning to its main loop — look for a blocking loop or wait in

@@ -574,8 +574,13 @@ class DaemonServer:
         # The startup verdict is read HERE, at the launch boundary (#848), so
         # every path that establishes a session records it — `wait-ready` and the
         # lazy launch a first live op triggers alike, since both come through
-        # here. Read once, right after the handshake the launch just completed,
-        # which is what bounds it to the log's pre-handshake prefix.
+        # here. Read ONCE, right after the handshake the launch just completed;
+        # what it sees is whatever the log held at that instant. Written only on
+        # a SUCCESSFUL launch, beside the identity above and for the same reason
+        # (PR #746 review ARC-746-001): a failed replacement replaced nothing,
+        # so the verdict it did not replace stays readable — and the launcher
+        # truncates the log before every attempt, so writing it earlier would
+        # report a failed launch's empty log as a clean start.
         self._startup_diagnostics = self._read_startup_diagnostics()
         return _Established(self._session, launched=True)
 
@@ -625,12 +630,21 @@ class DaemonServer:
         """Recognized script errors from the Session log, read at the handshake (#848).
 
         A SECOND projection of the daemon-owned file ``diag errors`` reads, never a
-        competing authority over it (ADR-0022): this one is bounded to what the log
-        held when the launch's handshake completed, and is a convenience AT the
-        readiness boundary; the full-log read stays ``diag errors``. Best-effort
-        like every read of that file — the engine flushes an error as it writes it,
-        but a log gda cannot read yields no diagnostics rather than a failure, and
-        this must not turn a serving session into a refusal.
+        competing authority over it (ADR-0022): this one is a SNAPSHOT taken at the
+        readiness boundary, the full-log read stays ``diag errors``.
+
+        What the snapshot covers is decided by WHEN it is taken, and the honest
+        statement is that it is taken once, right after the harness handshake —
+        so it holds engine startup, the project's autoloads and the scene's own
+        scripts, and MAY also hold the game's first frames, because the game goes
+        on running while the launch returns and this read happens. A record
+        emitted in that instant can land on either side. gda does not chase that
+        edge with a log offset: the boundary is a convenience, and a caller who
+        needs the whole stream reads ``diag errors``.
+
+        Best-effort like every read of that file — the engine flushes an error as
+        it writes it, but a log gda cannot read yields no diagnostics rather than
+        a failure, and this must not turn a serving session into a refusal.
         """
         try:
             data = self.paths.session_log.read_bytes()

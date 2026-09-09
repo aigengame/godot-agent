@@ -620,9 +620,9 @@ def test_daemon_stop_on_non_unix_is_live_unsupported_platform(monkeypatch, tmp_p
 # A launched session whose scene script failed to compile still SERVES: the root
 # node boots script-less and the harness connects, so `wait-ready` reported plain
 # success and the caller mistook daemon availability for scene readiness
-# (GDA-DF-047). The launch boundary now reads the daemon-owned Session log once,
-# at the moment the handshake completed, through the shared script-error parser,
-# and both `wait-ready` and `__status__` disclose what it recognized.
+# (GDA-DF-047). The launch boundary now reads the daemon-owned Session log ONCE,
+# right after the handshake, through the shared script-error parser, and both
+# `wait-ready` and `__status__` disclose what that read recognized.
 
 _PARSE_ERROR_LOG = (
     "Godot Engine v4.6.3.stable.official - https://godotengine.org\n"
@@ -739,10 +739,13 @@ def test_a_startup_that_printed_nothing_recognizable_is_a_clean_start(
 def test_the_startup_verdict_is_the_launchs_own_and_is_not_re_read_later(
     tmp_path, monkeypatch
 ):
-    # The verdict is bounded to the pre-handshake prefix: it is read ONCE, where
-    # the handshake completed. What the game logs afterwards belongs to `diag
-    # errors` (the full-log read, ADR-0022), and must not rewrite the readiness
-    # verdict — otherwise the two would be competing authorities over one file.
+    # The verdict is a SNAPSHOT: read ONCE, right after the handshake, and then
+    # remembered. What this pins is the "once" — a later read of the same file
+    # must not rewrite the readiness verdict, or `diag errors` (the full-log
+    # read, ADR-0022) and this boundary would be competing authorities over one
+    # daemon-owned log. It does NOT pin what the snapshot CONTAINS: the game
+    # keeps running while the launch returns and the read happens, so the first
+    # frames may be in it. That edge is documented, not fenced off.
     server = _server_with_own_log(tmp_path, monkeypatch, _PARSE_ERROR_LOG)
 
     server._handle({"op": "daemon-wait-ready", "params": {}})

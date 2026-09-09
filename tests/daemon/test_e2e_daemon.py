@@ -1441,7 +1441,12 @@ def _startup_verdict(project, script_source: str) -> tuple[dict, dict]:
     (project / "main.gd").write_text(script_source, encoding="utf-8")
     run = Gda(project, json_output=True)
     try:
-        started = run("daemon", "start")
+        # `--scene <fixture>` rather than the main_scene default, because that is
+        # how GDA-DF-047 was reported and what the acceptance criterion names.
+        # The two boot the same scene here (the fixture IS this project's
+        # main_scene), but the selector also runs the launch-boundary scene
+        # verification, so the disclosure is proven on the path the note used.
+        started = run("daemon", "start", "--scene", "res://main.tscn")
         assert started.returncode == 0, started.stdout + started.stderr
 
         ready = run("daemon", "wait-ready")
