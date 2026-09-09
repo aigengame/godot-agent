@@ -240,8 +240,12 @@ def test_serve_binds_both_sockets_and_answers_status(
             "ok": True,
             "pid": os.getpid(),
             "windowed": False,
-            # No session launched this lifetime -> nothing to correlate (#660).
+            # No session launched this lifetime -> nothing to correlate (#660),
+            # and no startup to report on (#848). The verdict is null rather
+            # than an empty list, which would claim a clean start nothing backs.
             "session_id": None,
+            "startup_diagnostics": None,
+            "clean_start": None,
         }
 
 
@@ -509,7 +513,14 @@ def test_wait_ready_launches_once_and_reports_the_bounded_wait(
 
     assert first is not None
     verdict = parse_result(first["stdout"])
-    assert verdict == {"pid": os.getpid(), "launched": True}
+    # The startup verdict rides success (#848); this fake launch writes no
+    # Session log, so nothing is recognized against the start it reports.
+    assert verdict == {
+        "pid": os.getpid(),
+        "launched": True,
+        "startup_diagnostics": [],
+        "clean_start": True,
+    }
     assert again is not None
     assert parse_result(again["stdout"])["launched"] is False
     # One launch, and what reaches the launcher is the caller's own DEADLINE —
@@ -619,6 +630,134 @@ def test_a_failed_replacement_launch_retains_the_last_established_identity(
     assert recovered is not None and recovered["stdout"] == "served:game-tree"
     assert replaced is not None and replaced["session_id"] == minted[2]
     assert replaced["session_id"] != minted[0]
+
+
+# The startup verdict (#848) is a per-session read model, written beside the
+# identity above and governed by the same two rules. Both are pinned here rather
+# than left to the field descriptions, because both survived a whole-suite run as
+# plausible one-line regressions: refreshing the verdict only when it is unset,
+# and writing it before the launch is known to have succeeded.
+
+# One recognized parse failure — enough to tell one launch's verdict from
+# another's, which is all these two tests compare.
+_BROKEN_STARTUP_LOG = (
+    "Godot Engine v4.6.3.stable.official - https://godotengine.org\n"
+    "\n"
+    'ERROR: Failed to load script "res://main.gd" with error "Parse error".\n'
+    "   at: load (modules/gdscript/gdscript.cpp:2907)\n"
+)
+
+
+class _MortalSession(_ServedSession):
+    """A fake session that can be declared dead, forcing a relaunch."""
+
+    def __init__(self, session_id: str) -> None:
+        super().__init__(session_id)
+        self.dead = False
+
+    def alive(self) -> bool:
+        return not self.dead
+
+
+def test_a_relaunch_replaces_the_previous_sessions_startup_verdict(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # A session is relaunched to pick up on-disk edits (ADR-0017), so the verdict
+    # MUST be re-read per established session: reporting the retired session's
+    # would tell a caller their fix did not take. Mirrors what
+    # `test_status_reports_the_minted_session_identity_across_the_lifecycle`
+    # pins for `session_id` — the two are written at the same place and must
+    # describe the same session.
+    launched: list = []
+    sessions: list = []
+
+    def _launch(*args, **kwargs):
+        # Broken on the first launch, fixed on the second — as an edit between
+        # the two would leave it.
+        paths.session_log.write_text(
+            _BROKEN_STARTUP_LOG if not launched else "", encoding="utf-8"
+        )
+        launched.append(kwargs["session_id"])
+        session = _MortalSession(kwargs["session_id"])
+        sessions.append(session)
+        return session
+
+    paths = daemon_paths(runnable_project(tmp_path))
+    server = DaemonServer(paths, godot="godot", launch=_launch)
+
+    with _serving(server, paths, monkeypatch):
+        first = _request(paths, {"op": "daemon-wait-ready", "params": {}})
+        sessions[0].dead = True
+        second = _request(paths, {"op": "daemon-wait-ready", "params": {}})
+        after = _request(paths, {"op": "__status__"})
+
+    assert len(launched) == 2
+    assert first is not None
+    broken = parse_result(first["stdout"])
+    assert broken["launched"] is True
+    assert broken["clean_start"] is False
+    assert [error["path"] for error in broken["startup_diagnostics"]] == [
+        "res://main.gd"
+    ]
+    # The relaunch reports ITS OWN startup, not the retired session's.
+    assert second is not None
+    fixed = parse_result(second["stdout"])
+    assert fixed["launched"] is True
+    assert fixed["clean_start"] is True
+    assert fixed["startup_diagnostics"] == []
+    # And `daemon status` agrees: one verdict per daemon, always the last
+    # ESTABLISHED session's.
+    assert after is not None
+    assert after["clean_start"] is True
+    assert after["startup_diagnostics"] == []
+
+
+def test_a_failed_replacement_launch_retains_the_previous_startup_verdict(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # The retention rule the verdict inherits from `session_id` (PR #746 review
+    # ARC-746-001): a FAILED replacement replaced nothing, so the verdict of the
+    # session it did not replace stays readable. The failing direction is not
+    # hypothetical — `launch_session` TRUNCATES the Session log before every
+    # attempt (#345 finding 2), so a verdict written before the success guard
+    # would read that failed attempt's empty log and report a clean start for a
+    # session that never came up.
+    attempts: list = []
+    sessions: list = []
+
+    def _launch(*args, **kwargs):
+        attempts.append(kwargs["session_id"])
+        failing = len(attempts) == 2
+        # What the real launcher does on EVERY attempt, failed ones included.
+        paths.session_log.write_text(
+            "" if failing else _BROKEN_STARTUP_LOG, encoding="utf-8"
+        )
+        if failing:
+            return None
+        session = _MortalSession(kwargs["session_id"])
+        sessions.append(session)
+        return session
+
+    paths = daemon_paths(runnable_project(tmp_path))
+    server = DaemonServer(paths, godot="godot", launch=_launch)
+
+    with _serving(server, paths, monkeypatch):
+        _request(paths, {"op": "daemon-wait-ready", "params": {}})  # establish
+        sessions[0].dead = True
+        failed = _request(paths, {"op": "daemon-wait-ready", "params": {}})
+        retained = _request(paths, {"op": "__status__"})
+
+    assert len(attempts) == 2
+    assert failed is not None
+    assert (
+        parse_result(failed["stdout"])["error"]["code"] == "engine_session_not_running"
+    )
+    # The retired session's verdict survives the launch that did not replace it.
+    assert retained is not None
+    assert retained["clean_start"] is False
+    assert [error["path"] for error in retained["startup_diagnostics"]] == [
+        "res://main.gd"
+    ]
 
 
 def test_launch_session_places_the_identity_on_the_harness_tail(

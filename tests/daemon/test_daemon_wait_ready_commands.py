@@ -22,7 +22,29 @@ from tests.support import (
 )
 
 
-READY = {"pid": 4242, "launched": True}
+READY = {
+    "pid": 4242,
+    "launched": True,
+    "startup_diagnostics": [],
+    "clean_start": True,
+}
+
+# What a broken scene's readiness boundary reports (#848): the session SERVES —
+# a root script that failed to compile leaves a script-less root behind, which
+# is exactly when the live reads are wanted — so the disclosure rides success.
+DEGRADED = {
+    "pid": 4242,
+    "launched": True,
+    "startup_diagnostics": [
+        {
+            "kind": "parse_error",
+            "message": "Parse Error: bad",
+            "path": "res://main.gd",
+            "line": 5,
+        }
+    ],
+    "clean_start": False,
+}
 
 
 def test_wait_ready_reports_the_established_session_as_json(monkeypatch, tmp_path):
@@ -37,7 +59,12 @@ def test_wait_ready_reports_the_established_session_as_json(monkeypatch, tmp_pat
 
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
-    assert data == {"pid": 4242, "launched": True}
+    assert data == {
+        "pid": 4242,
+        "launched": True,
+        "startup_diagnostics": [],
+        "clean_start": True,
+    }
     # Routed through the LIVE seam, carrying the default bound.
     assert fake.calls == [("daemon-wait-ready", {"timeout": 25.0})]
 
@@ -83,7 +110,7 @@ def test_wait_ready_human_output_reports_an_already_serving_session(
     inject_live_runner(
         monkeypatch,
         RunResult(
-            stdout=sentinel({"pid": 4242, "launched": False}), stderr="", exit_code=0
+            stdout=sentinel({**READY, "launched": False}), stderr="", exit_code=0
         ),
     )
 
@@ -138,3 +165,64 @@ def test_wait_ready_refuses_an_out_of_range_bound_on_params_json(monkeypatch, tm
     )
 
     assert_operation_error(result, "invalid_params")
+
+
+def test_wait_ready_discloses_a_degraded_start_as_json(monkeypatch, tmp_path):
+    # GDA-DF-047: readiness said "ready" while the scene's root script had failed
+    # to parse, and the blank frame that followed was captured as evidence. The
+    # verdict now names it — success, `clean_start: false`, and the recognized
+    # diagnostic naming the script and its line.
+    inject_live_runner(
+        monkeypatch, RunResult(stdout=sentinel(DEGRADED), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path)), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["launched"] is True
+    assert data["clean_start"] is False
+    assert data["startup_diagnostics"] == DEGRADED["startup_diagnostics"]
+
+
+def test_wait_ready_human_output_names_a_degraded_start(monkeypatch, tmp_path):
+    inject_live_runner(
+        monkeypatch, RunResult(stdout=sentinel(DEGRADED), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path))]
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert "startup not clean" in result.stdout
+    assert "parse_error: res://main.gd:5: Parse Error: bad" in result.stdout
+
+
+def test_wait_ready_human_output_says_nothing_extra_on_a_clean_start(
+    monkeypatch, tmp_path
+):
+    # A clean start adds no line: the readiness sentence already says everything,
+    # and a per-run "0 errors" would train the reader to skip the line that matters.
+    inject_live_runner(
+        monkeypatch, RunResult(stdout=sentinel(READY), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path))]
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert (
+        result.stdout.strip() == "engine session ready (launched now; daemon pid 4242)"
+    )
+
+
+def test_wait_ready_schema_publishes_the_startup_verdict():
+    result = CliRunner().invoke(app, ["daemon", "wait-ready", "--schema"])
+    assert result.exit_code == 0, result.stdout
+    output = json.loads(result.stdout)["output"]
+    assert {"startup_diagnostics", "clean_start"} <= set(output["required"])

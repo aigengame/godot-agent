@@ -1771,9 +1771,36 @@ re-derives every verdict from a running engine.
   for waiting and for committing to new work rather than a hard wall clock — no phase gets a
   fresh grace, every timed wait uses what remains, and once it is spent nothing further is
   launched — but a synchronous step already in flight (a filesystem write, the spawn itself)
-  can delay when that expiry is observed. Success (`{pid, launched}`) means subsequent
-  live reads serve, and a repeat while the session is alive is idempotent (`launched:
-  false`, nothing relaunched). A session stops serving when its harness channel breaks OR
+  can delay when that expiry is observed. Success (`{pid, launched, startup_diagnostics,
+  clean_start}`) means subsequent live reads serve, and a repeat while the session is alive
+  is idempotent (`launched: false`, nothing relaunched). Success also carries the STARTUP
+  VERDICT of the session it established (#848): `startup_diagnostics` — the `ScriptError[]`
+  that `script run` and `scene preflight` publish — and `clean_start`, the one boolean
+  saying nothing was recognized against that start. It answers what readiness never did: a
+  harness that connected is not a scene that started cleanly, because a script that fails
+  to compile leaves its node script-less and the session serves anyway (GDA-DF-047). A
+  disclosure on SUCCESS, never a refusal — a broken scene is exactly when `diag errors`,
+  `game tree` and a capture are wanted.
+  WHAT THE VERDICT COVERS is decided by WHEN it is read, and it is read ONCE, right after
+  the harness handshake: everything the daemon-owned `Session log` held at that instant.
+  So it covers engine startup, the project's autoloads and the scene's own scripts, and it
+  MAY also include the game's first frames — the game keeps running while the launch
+  returns and this read happens, so a record emitted in that instant can land on either
+  side of it. gda does not chase that edge with a log offset: the boundary is a
+  convenience, and the whole stream is `gda diag errors` (ADR-0022), which stays the
+  authority over the file — the two are projections of one daemon-owned log, not competing
+  readers of it. A `clean_start: true` therefore says gda recognized nothing, which
+  includes a log it could not read at all; `diag errors` answers `live_log_unavailable`
+  for that condition and tells the two apart. An idempotent repeat reports the establishing
+  launch's verdict, not a fresh read.
+  A daemon started by an OLDER gda answers without the two keys, which the CLI reports as
+  `contract_violation`; run `gda daemon stop`, then `gda daemon start`, so the daemon
+  serves the current contract. The skew is reachable because a daemon is a long-lived
+  per-project process and a repeat `daemon start` only reports `already_running`, so
+  upgrading gda while one runs leaves the older daemon serving. There is no CLI/daemon
+  version handshake and none is planned: a mixed-version session is not a compatibility
+  target — the CLI/daemon leg of ADR-0018's current-harness policy (2026-09-08).
+  A session stops serving when its harness channel breaks OR
   when a relay hits `live_timeout` — the one-op-at-a-time RPC carries no request id, so a
   late reply can no longer be attributed — and the next operation that requires a session
   relaunches it, losing runtime state (ADR-0017 amendment, ADR-0020). `daemon status`
@@ -1783,9 +1810,14 @@ re-derives every verdict from a running engine.
   retained across a failed replacement launch (nothing replaced the session it names)
   until a new session is established. It is the value a `screen capture` receipt's
   `session_id` correlates with; null before the first established session this daemon
-  lifetime. With no `--scene` selector, `daemon start` checks the project files for an empty
-  `application/run/main_scene` — `live_main_scene_undefined` (LIVE, exit 6) — or a `uid://`
-  main scene with no cache under the configured project data directory —
+  lifetime. `daemon status` reports that session's `startup_diagnostics` / `clean_start`
+  too, so a caller arriving after the launch reads the verdict without relaunching the
+  game; both are null together, when no session was established this daemon lifetime, when
+  no daemon is running, or when the status round trip missed transiently — null and an
+  empty list are different facts, the second saying a session started and nothing was
+  recognized against it. With no `--scene` selector, `daemon start` checks the project
+  files for an empty `application/run/main_scene` — `live_main_scene_undefined` (LIVE, exit
+  6) — or a `uid://` main scene with no cache under the configured project data directory —
   `live_main_scene_unresolved`, remedy: run the import pass once. Refusal precedes daemon
   or session launch (the engine version probe is allowed), and the daemon repeats the
   check at its launch boundary. A determinate main-scene refusal precedes the

@@ -9,6 +9,7 @@ import socket
 import subprocess
 import threading
 import time
+from dataclasses import replace
 from typing import cast
 
 import pytest
@@ -613,3 +614,146 @@ def test_daemon_stop_on_non_unix_is_live_unsupported_platform(monkeypatch, tmp_p
     outcome = run_daemon_stop_operation(tmp_path)
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "live_unsupported_platform"
+
+
+# --- the readiness boundary's startup diagnostics (#848) ----------------------
+# A launched session whose scene script failed to compile still SERVES: the root
+# node boots script-less and the harness connects, so `wait-ready` reported plain
+# success and the caller mistook daemon availability for scene readiness
+# (GDA-DF-047). The launch boundary now reads the daemon-owned Session log ONCE,
+# right after the handshake, through the shared script-error parser, and both
+# `wait-ready` and `__status__` disclose what that read recognized.
+
+_PARSE_ERROR_LOG = (
+    "Godot Engine v4.6.3.stable.official - https://godotengine.org\n"
+    "\n"
+    "SCRIPT ERROR: Parse Error: Expected end of statement after variable "
+    'declaration, found "Identifier" instead.\n'
+    "   at: GDScript::reload (res://main.gd:5)\n"
+    'ERROR: Failed to load script "res://main.gd" with error "Parse error".\n'
+    "   at: load (modules/gdscript/gdscript.cpp:2907)\n"
+)
+
+
+def _server_with_own_log(tmp_path, monkeypatch, log_text: str) -> DaemonServer:
+    """A server whose launch seam writes ``log_text`` as the Session log."""
+    paths = replace(
+        _project_with_marker(tmp_path), session_log=tmp_path / "session.log"
+    )
+
+    def _launch(*args, **kwargs):
+        paths.session_log.write_text(log_text, encoding="utf-8")
+        return EngineSession(cast(subprocess.Popen, FakeProc()), conn=None)
+
+    server = DaemonServer(paths, godot="godot", launch=_launch)
+    # launch is injected; the listener value is unused (just non-None).
+    server._harness_listener = cast(socket.socket, object())
+    return server
+
+
+def test_status_reports_no_startup_diagnostics_before_a_session_is_established(
+    tmp_path,
+):
+    # Nothing was launched this daemon lifetime, so there is no startup to report
+    # on: both keys are null rather than an empty list that would read as "clean".
+    server = DaemonServer(_project_with_marker(tmp_path), godot="")
+
+    status = server._handle({"op": "__status__"})
+
+    assert status is not None
+    assert status["startup_diagnostics"] is None
+    assert status["clean_start"] is None
+
+
+def test_the_launch_boundary_reads_the_startup_diagnostics_for_status(
+    tmp_path, monkeypatch
+):
+    # The lazy launch a FIRST LIVE OP triggers reads the log too, not only
+    # wait-ready: a later `daemon status` reads the verdict without a relaunch.
+    server = _server_with_own_log(tmp_path, monkeypatch, _PARSE_ERROR_LOG)
+
+    server._handle({"op": "game-tree", "params": {}})
+    status = server._handle({"op": "__status__"})
+
+    assert status is not None
+    assert status["clean_start"] is False
+    assert status["startup_diagnostics"] == [
+        {
+            "kind": "parse_error",
+            "message": (
+                "Parse Error: Expected end of statement after variable "
+                'declaration, found "Identifier" instead.'
+            ),
+            "path": "res://main.gd",
+            "line": 5,
+        },
+        {
+            "kind": "compile_failed",
+            "message": (
+                'Failed to load script "res://main.gd" with error "Parse error".'
+            ),
+            "path": "res://main.gd",
+            "line": None,
+        },
+    ]
+
+
+def test_wait_ready_discloses_the_startup_diagnostics_of_the_session_it_launched(
+    tmp_path, monkeypatch
+):
+    # The disclosure rides a SUCCESSFUL result (#848): a broken scene is exactly
+    # when `diag errors`, `game tree` and a capture are wanted, so this is not a
+    # refusal — the session serves, and the caller is told the start was not clean.
+    server = _server_with_own_log(tmp_path, monkeypatch, _PARSE_ERROR_LOG)
+
+    reply = server._handle({"op": "daemon-wait-ready", "params": {}})
+
+    assert reply is not None
+    ready = parse_result(reply["stdout"])
+    assert ready["launched"] is True
+    assert ready["clean_start"] is False
+    assert [error["path"] for error in ready["startup_diagnostics"]] == [
+        "res://main.gd",
+        "res://main.gd",
+    ]
+    assert ready["startup_diagnostics"][0]["line"] == 5
+
+
+def test_a_startup_that_printed_nothing_recognizable_is_a_clean_start(
+    tmp_path, monkeypatch
+):
+    server = _server_with_own_log(
+        tmp_path,
+        monkeypatch,
+        "Godot Engine v4.6.3.stable.official - https://godotengine.org\n",
+    )
+
+    reply = server._handle({"op": "daemon-wait-ready", "params": {}})
+
+    assert reply is not None
+    ready = parse_result(reply["stdout"])
+    assert ready["clean_start"] is True
+    assert ready["startup_diagnostics"] == []
+
+
+def test_the_startup_verdict_is_the_launchs_own_and_is_not_re_read_later(
+    tmp_path, monkeypatch
+):
+    # The verdict is a SNAPSHOT: read ONCE, right after the handshake, and then
+    # remembered. What this pins is the "once" — a later read of the same file
+    # must not rewrite the readiness verdict, or `diag errors` (the full-log
+    # read, ADR-0022) and this boundary would be competing authorities over one
+    # daemon-owned log. It does NOT pin what the snapshot CONTAINS: the game
+    # keeps running while the launch returns and the read happens, so the first
+    # frames may be in it. That edge is documented, not fenced off.
+    server = _server_with_own_log(tmp_path, monkeypatch, _PARSE_ERROR_LOG)
+
+    server._handle({"op": "daemon-wait-ready", "params": {}})
+    server.paths.session_log.write_text("", encoding="utf-8")
+    again = server._handle({"op": "daemon-wait-ready", "params": {}})
+
+    assert again is not None
+    idempotent = parse_result(again["stdout"])
+    assert idempotent["launched"] is False
+    assert idempotent["clean_start"] is False
+    assert len(idempotent["startup_diagnostics"]) == 2
