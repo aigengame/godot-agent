@@ -1,6 +1,9 @@
 """Returning package-only resource operations and isolated runner."""
 
 from pathlib import Path
+import struct
+
+import pytest
 
 from gda.commands.resource import (
     PackageResourcePresenceParams,
@@ -43,6 +46,25 @@ def _package(tmp_path: Path, suffix: str = ".pck") -> Path:
     package = tmp_path / f"game{suffix}"
     package.write_bytes(b"package")
     return package
+
+
+def _godot_v3_pck_header(
+    *, directory_offset: int, file_base: int = 112, format_version: int = 3
+) -> bytes:
+    """The fixed Godot 4.6.3 V3 header, plus its 16-byte export alignment."""
+    header = struct.pack(
+        "<6I2Q16I",
+        0x43504447,
+        format_version,
+        4,
+        6,
+        3,
+        2,
+        file_base,
+        directory_offset,
+        *([0] * 16),
+    )
+    return header + b"\0" * 8
 
 
 def test_package_runner_uses_isolated_main_pack(tmp_path):
@@ -102,6 +124,77 @@ def test_returning_operation_refuses_template_before_running_payload(tmp_path):
     assert result.error.code == "operation_failed"
     assert "requires a Godot desktop editor binary" in result.error.message
     assert "release export template" in result.error.diagnostics
+
+
+def test_returning_operation_refuses_an_incomplete_v3_pck_before_main_pack(
+    tmp_path,
+):
+    calls = []
+
+    def launch(
+        binary, args, *, cwd, timeout, timeout_label="Godot operation", **_kwargs
+    ):
+        calls.append(args)
+        if args == ["--help"]:
+            return RunResult("Options:\n-e, --editor  Start the editor.\n", "", 0)
+        return RunResult(
+            build_result(
+                {
+                    "engine_version": ENGINE,
+                    "resources": [{"path": "res://model.glb", "present": False}],
+                }
+            ),
+            "",
+            0,
+        )
+
+    package = tmp_path / "failed-export.pck"
+    package.write_bytes(_godot_v3_pck_header(directory_offset=0))
+    result = run_package_resource_presence_operation(
+        package,
+        PackageResourcePresenceParams(paths=["res://model.glb"]),
+        godot="/godot",
+        make_runner=lambda binary, selected: make_package_runner(
+            binary, selected, make_launch=launch
+        ),
+    )
+
+    assert calls == [["--help"]]
+    assert isinstance(result, Failure)
+    assert result.error.code == "operation_failed"
+    assert "incomplete Godot PCK" in result.error.message
+    assert str(package) in result.error.diagnostics
+    assert "format version: 3" in result.error.diagnostics
+    assert "directory offset: 0" in result.error.diagnostics
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        b"package",
+        b"NOPE" + _godot_v3_pck_header(directory_offset=0)[4:],
+        _godot_v3_pck_header(directory_offset=0, format_version=99),
+        _godot_v3_pck_header(directory_offset=128, file_base=128)
+        + b"\0" * 16
+        + struct.pack("<I", 0),
+    ],
+    ids=("short", "opaque", "unknown-format", "legal-empty-v3"),
+)
+def test_package_admission_leaves_other_artifacts_to_godot(tmp_path, contents):
+    calls = []
+
+    def launch(
+        binary, args, *, cwd, timeout, timeout_label="Godot operation", **_kwargs
+    ):
+        calls.append(args)
+        return RunResult("Options:\n-e, --editor  Start the editor.\n", "", 0)
+
+    package = tmp_path / "package.pck"
+    package.write_bytes(contents)
+    result = make_package_runner(Path("/godot"), package, make_launch=launch)
+
+    assert isinstance(result, PackageGodotRunner)
+    assert calls == [["--help"]]
 
 
 def test_package_inspection_returns_the_existing_typed_model(tmp_path):
