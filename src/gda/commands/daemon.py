@@ -1513,6 +1513,12 @@ def daemon_wait_ready(
     scene's own scripts, and possibly the game's first frames. Read
     `clean_start` before you treat a screenshot or a runtime read as evidence
     about the scene, and read `gda diag errors` for the whole log (#848).
+
+    A daemon started by an OLDER gda answers without these two keys, which the
+    CLI reports as `contract_violation`; run `gda daemon stop`, then `gda daemon
+    start`, so the daemon serves the current contract. A mixed-version session
+    is not a compatibility target and gets no negotiation — the CLI/daemon leg
+    of ADR-0018's current-harness policy.
     """
     # The params model owns the bounds (ADR-0015); this argv body only
     # translates a model refusal into the Click usage error.
