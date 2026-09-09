@@ -14,7 +14,14 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.commands.game import GameFindParams, GameTreeParams, GameTreeResult
+from gda.commands.game import (
+    EmittedGameNode,
+    EmittedGameTree,
+    GameFindParams,
+    GameNode,
+    GameTreeParams,
+    GameTreeResult,
+)
 from gda.exit_codes import EXIT_LIVE, EXIT_PARSE
 from gda.runner import RunResult
 from tests.support import (
@@ -174,6 +181,30 @@ def test_both_dump_paths_prune_the_zero_omission_counts():
 
     assert model.model_dump() == GAME_TREE_TRUNCATED_RESULT
     assert json.loads(model.model_dump_json()) == GAME_TREE_TRUNCATED_RESULT
+
+
+def test_the_emitted_shape_names_every_field_the_models_hold():
+    # The emitted TypedDicts are what pydantic builds the tree writer from, so
+    # they decide what reaches the caller — a field added to a model but not to
+    # them is dropped from the JSON silently, while `--schema` keeps publishing
+    # it. The models stay the single authority for WHICH fields exist; these
+    # declarations only restate `children_omitted`'s optionality, so the field
+    # NAMES must agree.
+    assert set(EmittedGameNode.__annotations__) == set(GameNode.model_fields)
+    assert set(EmittedGameTree.__annotations__) == set(GameTreeResult.model_fields)
+
+
+def test_the_prune_leaves_an_excluded_tree_alone():
+    # `exclude` / `include` / `exclude_defaults` let a caller drop `root` or
+    # `children` from the dump. The prune must find nothing to do then, rather
+    # than raise a KeyError the caller reads as a serialization failure.
+    model = GameTreeResult.model_validate(GAME_TREE_TRUNCATED_RESULT)
+
+    assert model.model_dump(exclude={"root"}) == {"truncated": True, "omitted_nodes": 2}
+    assert json.loads(model.model_dump_json(exclude={"root"})) == {
+        "truncated": True,
+        "omitted_nodes": 2,
+    }
 
 
 def test_game_tree_emits_a_deep_tree_the_model_accepts(monkeypatch, tmp_path):

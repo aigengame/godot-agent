@@ -204,12 +204,16 @@ class GameTreeResult(BaseModel):
         self, handler: SerializerFunctionWrapHandler
     ) -> "EmittedGameTree":
         rendered = handler(self)
-        pending: list[Any] = [rendered["root"]]
+        # Both reads are defensive because `exclude` / `include` /
+        # `exclude_defaults` let a caller drop either key: the prune must then
+        # find nothing to do, not raise a KeyError the caller reads as a
+        # serialization failure.
+        pending: list[Any] = [rendered["root"]] if "root" in rendered else []
         while pending:
             node = pending.pop()
             if not node.get("children_omitted"):
                 node.pop("children_omitted", None)
-            pending.extend(node["children"])
+            pending.extend(node.get("children", ()))
         return rendered
 
     @model_validator(mode="after")
@@ -963,8 +967,9 @@ def game_tree(
     `truncated` and `omitted_nodes`, and each node whose children were not walked
     carries `children_omitted`. Read bounded first, then address the nodes you
     want by their exact path (`game get`, `game rect`, `game set`). A tree
-    nesting deeper than about 250 levels is refused as `tree_too_deep`: bound
-    such a read with `--root` and `--max-depth`.
+    nesting deeper than about 250 levels is refused (`tree_too_deep`; past about
+    500 the engine's own JSON writer cuts the reply short and the refusal is
+    `contract_violation`): bound such a read with `--root` and `--max-depth`.
     """
     dispatch_domain(
         GAME_TREE_COMMAND,
