@@ -17,6 +17,9 @@ import re
 from copy import deepcopy
 
 
+from collections.abc import Mapping, Sequence
+
+
 from functools import cache
 
 
@@ -4129,8 +4132,16 @@ def _consumer_b_value_matches(value: Any, contract: Any, ldb: dict[str, Any]) ->
             and all(isinstance(item, str) and item for item in value)
         )
     if kind == "canonical-value":
+
+        def materialize(item: Any) -> Any:
+            if isinstance(item, Mapping):
+                return {key: materialize(member) for key, member in item.items()}
+            if isinstance(item, Sequence) and not isinstance(item, (str, bytes)):
+                return [materialize(member) for member in item]
+            return item
+
         try:
-            _encoded(value)
+            _encoded(materialize(value))
         except (TypeError, ValueError, UnicodeEncodeError):
             return False
         return True
