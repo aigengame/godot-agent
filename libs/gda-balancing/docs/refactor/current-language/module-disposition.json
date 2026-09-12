@@ -1,0 +1,1289 @@
+[
+  {
+    "path": "src/gda_balancing/__init__.py",
+    "lines": 6,
+    "bytes": 284,
+    "owner": "__init__.py",
+    "action": "Keep",
+    "stage": "S11",
+    "reason": "Retain cohesive current boundary; revalidate affected current contract."
+  },
+  {
+    "path": "src/gda_balancing/__main__.py",
+    "lines": 10,
+    "bytes": 298,
+    "owner": "__main__.py",
+    "action": "Keep",
+    "stage": "S11",
+    "reason": "Retain cohesive current boundary; revalidate affected current contract."
+  },
+  {
+    "path": "src/gda_balancing/application/__init__.py",
+    "lines": 1,
+    "bytes": 63,
+    "owner": "application/__init__.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/application/authority.py",
+    "lines": 27,
+    "bytes": 910,
+    "owner": "application/authority.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/application/evidence_verify.py",
+    "lines": 158,
+    "bytes": 6239,
+    "owner": "application/evidence_verify.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/application/execution_sessions.py",
+    "lines": 191,
+    "bytes": 6938,
+    "owner": "application/execution_sessions.py",
+    "action": "Keep/extend actual seam",
+    "stage": "S10",
+    "reason": "One protocol-neutral session lifecycle, complete-run retained; incremental state/invalidation under #745."
+  },
+  {
+    "path": "src/gda_balancing/application/experiment_check.py",
+    "lines": 35,
+    "bytes": 1179,
+    "owner": "application/experiment_check.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/application/experiment_execution.py",
+    "lines": 92,
+    "bytes": 3141,
+    "owner": "application/experiment_execution.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/application/experiment_fixtures.py",
+    "lines": 248,
+    "bytes": 8894,
+    "owner": "application/experiment_fixtures.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/application/experiment_replay.py",
+    "lines": 250,
+    "bytes": 8984,
+    "owner": "application/experiment_replay.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/application/experiment_run.py",
+    "lines": 159,
+    "bytes": 5407,
+    "owner": "application/experiment_run.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/application/formula_conversion.py",
+    "lines": 103,
+    "bytes": 3329,
+    "owner": "application/formula_conversion.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/application/migration.py",
+    "lines": 645,
+    "bytes": 21749,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/application/model_build.py",
+    "lines": 66,
+    "bytes": 2237,
+    "owner": "application/model_build.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/application/model_check.py",
+    "lines": 26,
+    "bytes": 870,
+    "owner": "application/model_check.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/application/model_inspect.py",
+    "lines": 35,
+    "bytes": 1071,
+    "owner": "application/model_inspect.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/application/model_migration.py",
+    "lines": 171,
+    "bytes": 6547,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/application/package_get.py",
+    "lines": 24,
+    "bytes": 882,
+    "owner": "application/package_get.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/application/package_list.py",
+    "lines": 19,
+    "bytes": 738,
+    "owner": "application/package_list.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/application/schema_get.py",
+    "lines": 22,
+    "bytes": 857,
+    "owner": "application/schema_get.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/application/template_catalog.py",
+    "lines": 68,
+    "bytes": 2227,
+    "owner": "application/template_catalog.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/application/template_instantiation.py",
+    "lines": 52,
+    "bytes": 1553,
+    "owner": "application/template_instantiation.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/application/version.py",
+    "lines": 30,
+    "bytes": 1088,
+    "owner": "application/version.py",
+    "action": "Keep thin orchestration",
+    "stage": "S3 S5a S5b S9 S10",
+    "reason": "Drive domain use case and publication; remove duplicated policy; shared CLI/HTTP behavior."
+  },
+  {
+    "path": "src/gda_balancing/domain/__init__.py",
+    "lines": 1,
+    "bytes": 60,
+    "owner": "domain/__init__.py",
+    "action": "Keep",
+    "stage": "S11",
+    "reason": "Retain cohesive current boundary; revalidate affected current contract."
+  },
+  {
+    "path": "src/gda_balancing/domain/artifact_errors.py",
+    "lines": 18,
+    "bytes": 686,
+    "owner": "domain/artifact_errors.py",
+    "action": "Keep distinct integrity/publication policy",
+    "stage": "S5a S5b S10",
+    "reason": "Exact content/framing and per-invocation artifact-set atomicity differ from event atomicity."
+  },
+  {
+    "path": "src/gda_balancing/domain/artifact_semantics.py",
+    "lines": 68,
+    "bytes": 2697,
+    "owner": "domain/artifact_semantics.py",
+    "action": "Keep distinct integrity/publication policy",
+    "stage": "S5a S5b S10",
+    "reason": "Exact content/framing and per-invocation artifact-set atomicity differ from event atomicity."
+  },
+  {
+    "path": "src/gda_balancing/domain/artifact_set.py",
+    "lines": 59,
+    "bytes": 2239,
+    "owner": "domain/artifact_set.py",
+    "action": "Keep distinct integrity/publication policy",
+    "stage": "S5a S5b S10",
+    "reason": "Exact content/framing and per-invocation artifact-set atomicity differ from event atomicity."
+  },
+  {
+    "path": "src/gda_balancing/domain/artifacts.py",
+    "lines": 134,
+    "bytes": 4613,
+    "owner": "domain/artifacts.py",
+    "action": "Keep distinct integrity/publication policy",
+    "stage": "S5a S5b S10",
+    "reason": "Exact content/framing and per-invocation artifact-set atomicity differ from event atomicity."
+  },
+  {
+    "path": "src/gda_balancing/domain/authority/__init__.py",
+    "lines": 1,
+    "bytes": 42,
+    "owner": "domain/authority/__init__.py",
+    "action": "Simplify",
+    "stage": "S2 S3 S5a S5b",
+    "reason": "One current admitted authority/index; preserve distinct bootstrap/package/template/runtime/vector validation owners and independent consumers."
+  },
+  {
+    "path": "src/gda_balancing/domain/authority/admission.py",
+    "lines": 5384,
+    "bytes": 215223,
+    "owner": "domain/authority/admission.py facade + existing cohesive *_validation modules",
+    "action": "Simplify",
+    "stage": "S2 S3 S5a S5b",
+    "reason": "Delegate ordered judgments; one shared production assignability/call-domain rule, no per-genre core switches."
+  },
+  {
+    "path": "src/gda_balancing/domain/authority/context.py",
+    "lines": 775,
+    "bytes": 27758,
+    "owner": "domain/authority/context.py",
+    "action": "Simplify",
+    "stage": "S2 S3 S5a S5b",
+    "reason": "Request/session-owned immutable snapshot and derived indexes; no ambient authority replacement; wrapper redesign needs mutation/resource evidence."
+  },
+  {
+    "path": "src/gda_balancing/domain/authority/contract_validation.py",
+    "lines": 333,
+    "bytes": 11801,
+    "owner": "domain/authority/contract_validation.py",
+    "action": "Simplify",
+    "stage": "S2 S3 S5a S5b",
+    "reason": "One current admitted authority/index; preserve distinct bootstrap/package/template/runtime/vector validation owners and independent consumers."
+  },
+  {
+    "path": "src/gda_balancing/domain/authority/graph.py",
+    "lines": 247,
+    "bytes": 9132,
+    "owner": "domain/authority/graph.py",
+    "action": "Simplify",
+    "stage": "S2 S3 S5a S5b",
+    "reason": "One current admitted authority/index; preserve distinct bootstrap/package/template/runtime/vector validation owners and independent consumers."
+  },
+  {
+    "path": "src/gda_balancing/domain/authority/package_catalog.py",
+    "lines": 67,
+    "bytes": 2567,
+    "owner": "domain/authority/package_catalog.py",
+    "action": "Simplify",
+    "stage": "S2 S3 S5a S5b",
+    "reason": "One current admitted authority/index; preserve distinct bootstrap/package/template/runtime/vector validation owners and independent consumers."
+  },
+  {
+    "path": "src/gda_balancing/domain/authority/package_projection.py",
+    "lines": 1452,
+    "bytes": 60424,
+    "owner": "domain/authority/package_projection.py",
+    "action": "Simplify",
+    "stage": "S2 S3 S5a S5b",
+    "reason": "One current admitted authority/index; preserve distinct bootstrap/package/template/runtime/vector validation owners and independent consumers."
+  },
+  {
+    "path": "src/gda_balancing/domain/authority/package_semantics.py",
+    "lines": 79,
+    "bytes": 3002,
+    "owner": "domain/authority/package_semantics.py",
+    "action": "Simplify",
+    "stage": "S2 S3 S5a S5b",
+    "reason": "One current admitted authority/index; preserve distinct bootstrap/package/template/runtime/vector validation owners and independent consumers."
+  },
+  {
+    "path": "src/gda_balancing/domain/authority/package_validation.py",
+    "lines": 1100,
+    "bytes": 42627,
+    "owner": "domain/authority/package_validation.py",
+    "action": "Simplify",
+    "stage": "S2 S3 S5a S5b",
+    "reason": "One current admitted authority/index; preserve distinct bootstrap/package/template/runtime/vector validation owners and independent consumers."
+  },
+  {
+    "path": "src/gda_balancing/domain/authority/projections.py",
+    "lines": 149,
+    "bytes": 5810,
+    "owner": "domain/authority/projections.py",
+    "action": "Simplify",
+    "stage": "S2 S3 S5a S5b",
+    "reason": "One current admitted authority/index; preserve distinct bootstrap/package/template/runtime/vector validation owners and independent consumers."
+  },
+  {
+    "path": "src/gda_balancing/domain/authority/runtime_validation.py",
+    "lines": 1611,
+    "bytes": 61357,
+    "owner": "domain/authority/runtime_validation.py",
+    "action": "Simplify",
+    "stage": "S2 S3 S5a S5b",
+    "reason": "One current admitted authority/index; preserve distinct bootstrap/package/template/runtime/vector validation owners and independent consumers."
+  },
+  {
+    "path": "src/gda_balancing/domain/authority/schema_catalog.py",
+    "lines": 60,
+    "bytes": 2309,
+    "owner": "domain/authority/schema_catalog.py",
+    "action": "Simplify",
+    "stage": "S2 S3 S5a S5b",
+    "reason": "One current admitted authority/index; preserve distinct bootstrap/package/template/runtime/vector validation owners and independent consumers."
+  },
+  {
+    "path": "src/gda_balancing/domain/authority/template_validation.py",
+    "lines": 614,
+    "bytes": 23563,
+    "owner": "domain/authority/template_validation.py",
+    "action": "Simplify",
+    "stage": "S2 S3 S5a S5b",
+    "reason": "One current admitted authority/index; preserve distinct bootstrap/package/template/runtime/vector validation owners and independent consumers."
+  },
+  {
+    "path": "src/gda_balancing/domain/authority/vector_validation.py",
+    "lines": 1340,
+    "bytes": 47109,
+    "owner": "domain/authority/vector_validation.py",
+    "action": "Simplify",
+    "stage": "S2 S3 S5a S5b",
+    "reason": "One current admitted authority/index; preserve distinct bootstrap/package/template/runtime/vector validation owners and independent consumers."
+  },
+  {
+    "path": "src/gda_balancing/domain/authority/versioning.py",
+    "lines": 21,
+    "bytes": 826,
+    "owner": "domain/authority/graph.py",
+    "action": "Remove",
+    "stage": "S3",
+    "reason": "Unique current ownership and content integrity replace SemVer validation/selection."
+  },
+  {
+    "path": "src/gda_balancing/domain/canonical.py",
+    "lines": 104,
+    "bytes": 3583,
+    "owner": "domain/canonical.py",
+    "action": "Keep",
+    "stage": "S11",
+    "reason": "Retain cohesive current boundary; revalidate affected current contract."
+  },
+  {
+    "path": "src/gda_balancing/domain/comparison.py",
+    "lines": 508,
+    "bytes": 20647,
+    "owner": "domain/comparison.py",
+    "action": "Keep/extend current policy",
+    "stage": "S5a S5b S9",
+    "reason": "Typed comparable metrics, authenticated eligible evidence and truthful exact/semantic distinction."
+  },
+  {
+    "path": "src/gda_balancing/domain/diagnostics.py",
+    "lines": 226,
+    "bytes": 7634,
+    "owner": "domain/diagnostics.py",
+    "action": "Keep",
+    "stage": "S11",
+    "reason": "Retain cohesive current boundary; revalidate affected current contract."
+  },
+  {
+    "path": "src/gda_balancing/domain/errors.py",
+    "lines": 5,
+    "bytes": 182,
+    "owner": "domain/errors.py",
+    "action": "Keep",
+    "stage": "S11",
+    "reason": "Retain cohesive current boundary; revalidate affected current contract."
+  },
+  {
+    "path": "src/gda_balancing/domain/evidence_verification.py",
+    "lines": 441,
+    "bytes": 15945,
+    "owner": "domain/evidence_verification.py",
+    "action": "Keep/extend current policy",
+    "stage": "S5a S5b S9",
+    "reason": "Typed comparable metrics, authenticated eligible evidence and truthful exact/semantic distinction."
+  },
+  {
+    "path": "src/gda_balancing/domain/experiment.py",
+    "lines": 984,
+    "bytes": 38866,
+    "owner": "domain/experiment.py",
+    "action": "Simplify bindings",
+    "stage": "S5a S5b S9",
+    "reason": "Separate execution intent from build provenance; retain typed experiment/evaluation artifact contracts."
+  },
+  {
+    "path": "src/gda_balancing/domain/experiment_artifact_replay.py",
+    "lines": 1228,
+    "bytes": 50926,
+    "owner": "domain/experiment_artifact_replay.py",
+    "action": "Keep independent interpretation",
+    "stage": "S5a S5b S9",
+    "reason": "Independent replay checks producer claims; do not DRY into producer evaluator."
+  },
+  {
+    "path": "src/gda_balancing/domain/experiment_artifacts.py",
+    "lines": 1968,
+    "bytes": 79858,
+    "owner": "domain/experiment_artifacts.py",
+    "action": "Simplify bindings",
+    "stage": "S5a S5b S9",
+    "reason": "Separate execution intent from build provenance; retain typed experiment/evaluation artifact contracts."
+  },
+  {
+    "path": "src/gda_balancing/domain/formula/__init__.py",
+    "lines": 1,
+    "bytes": 41,
+    "owner": "domain/formula/__init__.py",
+    "action": "Keep/simplify affected projection",
+    "stage": "S4 S6",
+    "reason": "One pure semantic path; notation/type inference and source diagnostics stay distinct from execution."
+  },
+  {
+    "path": "src/gda_balancing/domain/formula/conversion.py",
+    "lines": 102,
+    "bytes": 3594,
+    "owner": "domain/formula/conversion.py",
+    "action": "Keep/simplify affected projection",
+    "stage": "S4 S6",
+    "reason": "One pure semantic path; notation/type inference and source diagnostics stay distinct from execution."
+  },
+  {
+    "path": "src/gda_balancing/domain/formula/inference.py",
+    "lines": 312,
+    "bytes": 12838,
+    "owner": "domain/formula/inference.py",
+    "action": "Keep/simplify affected projection",
+    "stage": "S4 S6",
+    "reason": "One pure semantic path; notation/type inference and source diagnostics stay distinct from execution."
+  },
+  {
+    "path": "src/gda_balancing/domain/formula/notation.py",
+    "lines": 1558,
+    "bytes": 65972,
+    "owner": "domain/formula/notation.py",
+    "action": "Keep/simplify affected projection",
+    "stage": "S4 S6",
+    "reason": "One pure semantic path; notation/type inference and source diagnostics stay distinct from execution."
+  },
+  {
+    "path": "src/gda_balancing/domain/formula/types.py",
+    "lines": 198,
+    "bytes": 7103,
+    "owner": "domain/formula/types.py",
+    "action": "Keep/simplify affected projection",
+    "stage": "S4 S6",
+    "reason": "One pure semantic path; notation/type inference and source diagnostics stay distinct from execution."
+  },
+  {
+    "path": "src/gda_balancing/domain/model/__init__.py",
+    "lines": 52,
+    "bytes": 1658,
+    "owner": "domain/model/__init__.py",
+    "action": "Simplify",
+    "stage": "S3 S4 S5a S5b",
+    "reason": "One prepared Typed HIR, explicit specialization and selected closure; independent artifact admission remains."
+  },
+  {
+    "path": "src/gda_balancing/domain/model/_admission.py",
+    "lines": 2028,
+    "bytes": 81008,
+    "owner": "domain/model/_admission.py",
+    "action": "Keep separate validator",
+    "stage": "S3 S4 S5a S5b",
+    "reason": "Untrusted/imported artifacts require fresh admission, not compiler self-assertion."
+  },
+  {
+    "path": "src/gda_balancing/domain/model/_binding.py",
+    "lines": 194,
+    "bytes": 7135,
+    "owner": "domain/model/_binding.py",
+    "action": "Simplify",
+    "stage": "S3 S4 S5a S5b",
+    "reason": "One prepared Typed HIR, explicit specialization and selected closure; independent artifact admission remains."
+  },
+  {
+    "path": "src/gda_balancing/domain/model/_checking.py",
+    "lines": 352,
+    "bytes": 12134,
+    "owner": "domain/model/_checking.py",
+    "action": "Simplify",
+    "stage": "S3 S4 S5a S5b",
+    "reason": "One prepared Typed HIR, explicit specialization and selected closure; independent artifact admission remains."
+  },
+  {
+    "path": "src/gda_balancing/domain/model/_compilation.py",
+    "lines": 515,
+    "bytes": 20565,
+    "owner": "domain/model/_compilation.py",
+    "action": "Simplify",
+    "stage": "S3 S4 S5a S5b",
+    "reason": "One prepared Typed HIR, explicit specialization and selected closure; independent artifact admission remains."
+  },
+  {
+    "path": "src/gda_balancing/domain/model/_inspection.py",
+    "lines": 62,
+    "bytes": 2567,
+    "owner": "domain/model/_inspection.py",
+    "action": "Simplify",
+    "stage": "S3 S4 S5a S5b",
+    "reason": "One prepared Typed HIR, explicit specialization and selected closure; independent artifact admission remains."
+  },
+  {
+    "path": "src/gda_balancing/domain/model/_inspection_types.py",
+    "lines": 11,
+    "bytes": 384,
+    "owner": "domain/model/_inspection_types.py",
+    "action": "Simplify",
+    "stage": "S3 S4 S5a S5b",
+    "reason": "One prepared Typed HIR, explicit specialization and selected closure; independent artifact admission remains."
+  },
+  {
+    "path": "src/gda_balancing/domain/model/_lowering.py",
+    "lines": 4636,
+    "bytes": 192728,
+    "owner": "domain/model semantic preparation + explicit specialization/projection functions",
+    "action": "Simplify",
+    "stage": "S3 S4 S5a S5b",
+    "reason": "Remove repeated preparation and object-alias dependency, consolidate assignment judgment; do not change public artifacts accidentally."
+  },
+  {
+    "path": "src/gda_balancing/domain/model/_operation_call_domain_adapters.py",
+    "lines": 362,
+    "bytes": 14092,
+    "owner": "domain/model/_operation_call_domain_adapters.py",
+    "action": "Simplify",
+    "stage": "S3 S4 S5a S5b",
+    "reason": "One prepared Typed HIR, explicit specialization and selected closure; independent artifact admission remains."
+  },
+  {
+    "path": "src/gda_balancing/domain/model/_resolution.py",
+    "lines": 1113,
+    "bytes": 40412,
+    "owner": "domain/model/_resolution.py",
+    "action": "Simplify",
+    "stage": "S3 S4 S5a S5b",
+    "reason": "One prepared Typed HIR, explicit specialization and selected closure; independent artifact admission remains."
+  },
+  {
+    "path": "src/gda_balancing/domain/operation_call_domains.py",
+    "lines": 470,
+    "bytes": 19664,
+    "owner": "domain/operation_call_domains.py",
+    "action": "Deepen existing owner",
+    "stage": "S3 S4 S6",
+    "reason": "One production closure/type/call rule; bounded composition added through declared laws; independent conformance implementation remains separate."
+  },
+  {
+    "path": "src/gda_balancing/domain/operation_program.py",
+    "lines": 275,
+    "bytes": 10329,
+    "owner": "domain/operation_program.py",
+    "action": "Deepen existing owner",
+    "stage": "S3 S4 S6",
+    "reason": "One production closure/type/call rule; bounded composition added through declared laws; independent conformance implementation remains separate."
+  },
+  {
+    "path": "src/gda_balancing/domain/program_reachability.py",
+    "lines": 131,
+    "bytes": 4973,
+    "owner": "domain/program_reachability.py",
+    "action": "Deepen existing owner",
+    "stage": "S3 S4 S6",
+    "reason": "One production closure/type/call rule; bounded composition added through declared laws; independent conformance implementation remains separate."
+  },
+  {
+    "path": "src/gda_balancing/domain/publication.py",
+    "lines": 1455,
+    "bytes": 57661,
+    "owner": "domain/publication.py",
+    "action": "Keep distinct integrity/publication policy",
+    "stage": "S5a S5b S10",
+    "reason": "Exact content/framing and per-invocation artifact-set atomicity differ from event atomicity."
+  },
+  {
+    "path": "src/gda_balancing/domain/publication_types.py",
+    "lines": 54,
+    "bytes": 1524,
+    "owner": "domain/publication_types.py",
+    "action": "Keep distinct integrity/publication policy",
+    "stage": "S5a S5b S10",
+    "reason": "Exact content/framing and per-invocation artifact-set atomicity differ from event atomicity."
+  },
+  {
+    "path": "src/gda_balancing/domain/runtime/__init__.py",
+    "lines": 1,
+    "bytes": 54,
+    "owner": "domain/runtime/__init__.py",
+    "action": "Simplify then extend by witnessed law",
+    "stage": "S5a S5b S6 S7",
+    "reason": "Close actual execution inputs; preserve exact state/RNG/scheduler/transaction ownership; packages supply mechanics."
+  },
+  {
+    "path": "src/gda_balancing/domain/runtime/execution.py",
+    "lines": 2706,
+    "bytes": 119729,
+    "owner": "domain/runtime/execution.py",
+    "action": "Simplify then extend by witnessed law",
+    "stage": "S5a S5b S6 S7",
+    "reason": "Close actual execution inputs; preserve exact state/RNG/scheduler/transaction ownership; packages supply mechanics."
+  },
+  {
+    "path": "src/gda_balancing/domain/runtime/projections.py",
+    "lines": 811,
+    "bytes": 29354,
+    "owner": "domain/runtime/projections.py",
+    "action": "Simplify then extend by witnessed law",
+    "stage": "S5a S5b S6 S7",
+    "reason": "Close actual execution inputs; preserve exact state/RNG/scheduler/transaction ownership; packages supply mechanics."
+  },
+  {
+    "path": "src/gda_balancing/domain/runtime/scheduler.py",
+    "lines": 70,
+    "bytes": 2698,
+    "owner": "domain/runtime/scheduler.py",
+    "action": "Simplify then extend by witnessed law",
+    "stage": "S5a S5b S6 S7",
+    "reason": "Close actual execution inputs; preserve exact state/RNG/scheduler/transaction ownership; packages supply mechanics."
+  },
+  {
+    "path": "src/gda_balancing/domain/structured_values.py",
+    "lines": 1019,
+    "bytes": 38559,
+    "owner": "domain/structured_values.py",
+    "action": "Deepen existing owner",
+    "stage": "S3 S4 S6",
+    "reason": "One production closure/type/call rule; bounded composition added through declared laws; independent conformance implementation remains separate."
+  },
+  {
+    "path": "src/gda_balancing/domain/template/__init__.py",
+    "lines": 19,
+    "bytes": 492,
+    "owner": "domain/template/__init__.py",
+    "action": "Simplify current definitions",
+    "stage": "S2 S3 S8",
+    "reason": "Template emits ordinary Model Source; remove historical coordinates and derived duplicated authority, preserve current content."
+  },
+  {
+    "path": "src/gda_balancing/domain/template/_release_semantics.py",
+    "lines": 1446,
+    "bytes": 53643,
+    "owner": "domain/template current semantics implementation (rename only in semantic edit)",
+    "action": "Simplify current definitions",
+    "stage": "S2 S3 S8",
+    "reason": "Template emits ordinary Model Source; remove historical coordinates and derived duplicated authority, preserve current content."
+  },
+  {
+    "path": "src/gda_balancing/domain/template/quantity_minimal.py",
+    "lines": 371,
+    "bytes": 13746,
+    "owner": "domain/template/quantity_minimal.py",
+    "action": "Simplify current definitions",
+    "stage": "S2 S3 S8",
+    "reason": "Template emits ordinary Model Source; remove historical coordinates and derived duplicated authority, preserve current content."
+  },
+  {
+    "path": "src/gda_balancing/domain/template_contract.py",
+    "lines": 187,
+    "bytes": 7134,
+    "owner": "domain/template_contract.py",
+    "action": "Simplify current definitions",
+    "stage": "S2 S3 S8",
+    "reason": "Template emits ordinary Model Source; remove historical coordinates and derived duplicated authority, preserve current content."
+  },
+  {
+    "path": "src/gda_balancing/domain/wire_schema.py",
+    "lines": 155,
+    "bytes": 5661,
+    "owner": "domain/wire_schema.py",
+    "action": "Keep",
+    "stage": "S11",
+    "reason": "Retain cohesive current boundary; revalidate affected current contract."
+  },
+  {
+    "path": "src/gda_balancing/infrastructure/__init__.py",
+    "lines": 1,
+    "bytes": 61,
+    "owner": "infrastructure/__init__.py",
+    "action": "Keep technical IO",
+    "stage": "S10",
+    "reason": "File atomicity/input bytes/distribution/package loading only; no balancing rules or game dependency."
+  },
+  {
+    "path": "src/gda_balancing/infrastructure/atomic_files.py",
+    "lines": 262,
+    "bytes": 8156,
+    "owner": "infrastructure/atomic_files.py",
+    "action": "Keep technical IO",
+    "stage": "S10",
+    "reason": "File atomicity/input bytes/distribution/package loading only; no balancing rules or game dependency."
+  },
+  {
+    "path": "src/gda_balancing/infrastructure/distribution.py",
+    "lines": 8,
+    "bytes": 223,
+    "owner": "infrastructure/distribution.py",
+    "action": "Keep technical IO",
+    "stage": "S10",
+    "reason": "File atomicity/input bytes/distribution/package loading only; no balancing rules or game dependency."
+  },
+  {
+    "path": "src/gda_balancing/infrastructure/input_bytes.py",
+    "lines": 125,
+    "bytes": 3713,
+    "owner": "infrastructure/input_bytes.py",
+    "action": "Keep technical IO",
+    "stage": "S10",
+    "reason": "File atomicity/input bytes/distribution/package loading only; no balancing rules or game dependency."
+  },
+  {
+    "path": "src/gda_balancing/infrastructure/package_resources.py",
+    "lines": 31,
+    "bytes": 917,
+    "owner": "infrastructure/package_resources.py",
+    "action": "Keep technical IO",
+    "stage": "S10",
+    "reason": "File atomicity/input bytes/distribution/package loading only; no balancing rules or game dependency."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/__init__.py",
+    "lines": 1,
+    "bytes": 68,
+    "owner": "interfaces/__init__.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/__init__.py",
+    "lines": 1,
+    "bytes": 50,
+    "owner": "interfaces/cli/__init__.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/artifact_set.py",
+    "lines": 12,
+    "bytes": 313,
+    "owner": "interfaces/cli/artifact_set.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/descriptors.py",
+    "lines": 485,
+    "bytes": 23013,
+    "owner": "interfaces/cli/descriptors.py",
+    "action": "Remove dead branch/simplify",
+    "stage": "S1 S3 S10",
+    "reason": "Delete artifact_sink only; one descriptor owner, current framed artifact-set path and typed diagnostics retained."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/dispatch.py",
+    "lines": 559,
+    "bytes": 21330,
+    "owner": "interfaces/cli/dispatch.py",
+    "action": "Remove dead branch/simplify",
+    "stage": "S1 S3 S10",
+    "reason": "Delete artifact_sink only; one descriptor owner, current framed artifact-set path and typed diagnostics retained."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/envelope.py",
+    "lines": 132,
+    "bytes": 4941,
+    "owner": "interfaces/cli/envelope.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/errors.py",
+    "lines": 23,
+    "bytes": 795,
+    "owner": "interfaces/cli/errors.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/evidence_verify.py",
+    "lines": 213,
+    "bytes": 7909,
+    "owner": "interfaces/cli/evidence_verify.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/experiment_check.py",
+    "lines": 74,
+    "bytes": 2366,
+    "owner": "interfaces/cli/experiment_check.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/experiment_fixtures.py",
+    "lines": 42,
+    "bytes": 1509,
+    "owner": "interfaces/cli/experiment_fixtures.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/experiment_replay.py",
+    "lines": 248,
+    "bytes": 8520,
+    "owner": "interfaces/cli/experiment_replay.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/experiment_run.py",
+    "lines": 204,
+    "bytes": 6407,
+    "owner": "interfaces/cli/experiment_run.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/formula.py",
+    "lines": 231,
+    "bytes": 8276,
+    "owner": "interfaces/cli/formula.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/main.py",
+    "lines": 14,
+    "bytes": 483,
+    "owner": "interfaces/cli/main.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/manifest.py",
+    "lines": 47,
+    "bytes": 1425,
+    "owner": "interfaces/cli/manifest.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/model_build.py",
+    "lines": 96,
+    "bytes": 3048,
+    "owner": "interfaces/cli/model_build.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/model_check.py",
+    "lines": 60,
+    "bytes": 1717,
+    "owner": "interfaces/cli/model_check.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/model_fixtures.py",
+    "lines": 21,
+    "bytes": 2291,
+    "owner": "interfaces/cli/model_fixtures.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/model_inspect.py",
+    "lines": 99,
+    "bytes": 3159,
+    "owner": "interfaces/cli/model_inspect.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/model_migration.py",
+    "lines": 121,
+    "bytes": 3860,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/package.py",
+    "lines": 134,
+    "bytes": 4575,
+    "owner": "interfaces/cli/package.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/package_list.py",
+    "lines": 71,
+    "bytes": 2402,
+    "owner": "interfaces/cli/package_list.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/path_contracts.py",
+    "lines": 29,
+    "bytes": 990,
+    "owner": "interfaces/cli/path_contracts.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/registry.py",
+    "lines": 55,
+    "bytes": 2116,
+    "owner": "interfaces/cli/registry.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/rendering.py",
+    "lines": 62,
+    "bytes": 2680,
+    "owner": "interfaces/cli/rendering.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/schema.py",
+    "lines": 202,
+    "bytes": 6450,
+    "owner": "interfaces/cli/schema.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/serve.py",
+    "lines": 109,
+    "bytes": 3262,
+    "owner": "interfaces/cli/serve.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/surface.py",
+    "lines": 716,
+    "bytes": 26331,
+    "owner": "interfaces/cli/surface.py",
+    "action": "Remove dead branch/simplify",
+    "stage": "S1 S3 S10",
+    "reason": "Delete artifact_sink only; one descriptor owner, current framed artifact-set path and typed diagnostics retained."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/template_catalog.py",
+    "lines": 219,
+    "bytes": 6596,
+    "owner": "interfaces/cli/template_catalog.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/template_instantiation.py",
+    "lines": 140,
+    "bytes": 4131,
+    "owner": "interfaces/cli/template_instantiation.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/cli/version.py",
+    "lines": 74,
+    "bytes": 2105,
+    "owner": "interfaces/cli/version.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/execution_service_language.py",
+    "lines": 223,
+    "bytes": 6917,
+    "owner": "interfaces/execution_service_language.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/http/__init__.py",
+    "lines": 1,
+    "bytes": 71,
+    "owner": "interfaces/http/__init__.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/http/api_v1.py",
+    "lines": 216,
+    "bytes": 7538,
+    "owner": "interfaces/http/api_v1.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/http/local_host.py",
+    "lines": 300,
+    "bytes": 9372,
+    "owner": "interfaces/http/local_host.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/interfaces/http/service_errors.py",
+    "lines": 169,
+    "bytes": 4746,
+    "owner": "interfaces/http/service_errors.py",
+    "action": "Keep adapter; regenerate changed contract",
+    "stage": "S3 S10",
+    "reason": "Protocol/argv/schema/envelope projection; call shared application path; no second engine or public semantic owner."
+  },
+  {
+    "path": "src/gda_balancing/schema/__init__.py",
+    "lines": 8,
+    "bytes": 397,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/artifacts.py",
+    "lines": 351,
+    "bytes": 17030,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/bundle.py",
+    "lines": 120,
+    "bytes": 5523,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/funnel/__init__.py",
+    "lines": 122,
+    "bytes": 5194,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/funnel/preflight.py",
+    "lines": 473,
+    "bytes": 20741,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/funnel/report.py",
+    "lines": 31,
+    "bytes": 1410,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/funnel/semantic/__init__.py",
+    "lines": 38,
+    "bytes": 1722,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/funnel/semantic/graph.py",
+    "lines": 240,
+    "bytes": 9481,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/funnel/semantic/rules.py",
+    "lines": 1709,
+    "bytes": 62416,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/funnel/structural.py",
+    "lines": 135,
+    "bytes": 6050,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/model/__init__.py",
+    "lines": 10,
+    "bytes": 521,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/model/attributes.py",
+    "lines": 114,
+    "bytes": 4654,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/model/document.py",
+    "lines": 79,
+    "bytes": 3536,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/model/effects.py",
+    "lines": 158,
+    "bytes": 6756,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/model/formula.py",
+    "lines": 316,
+    "bytes": 9606,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/model/ids.py",
+    "lines": 16,
+    "bytes": 522,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/pointer.py",
+    "lines": 19,
+    "bytes": 684,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/refusal.py",
+    "lines": 26,
+    "bytes": 647,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema/version.py",
+    "lines": 49,
+    "bytes": 2536,
+    "owner": "No production replacement; one-time authored rewrite/offline conversion only if named input remains",
+    "action": "Remove after input disposition",
+    "stage": "S1b",
+    "reason": "Retire old-input authority and command; not Panda cutover."
+  },
+  {
+    "path": "src/gda_balancing/schema2/__init__.py",
+    "lines": 1,
+    "bytes": 73,
+    "owner": "schema2/__init__.py",
+    "action": "Keep resource packaging",
+    "stage": "S2 S3 S10",
+    "reason": "One current Kernel/LDB resources; cosmetic rename deferred."
+  },
+  {
+    "path": "src/gda_balancing/schema2/authorities/__init__.py",
+    "lines": 1,
+    "bytes": 78,
+    "owner": "schema2/authorities/__init__.py",
+    "action": "Keep resource packaging",
+    "stage": "S2 S3 S10",
+    "reason": "One current Kernel/LDB resources; cosmetic rename deferred."
+  }
+]

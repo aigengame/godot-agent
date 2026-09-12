@@ -1,0 +1,1016 @@
+[
+  {
+    "id": "ISSUE509-AC01",
+    "text": "Each remaining choice has one accepted or rejected outcome with rationale, falsifier, owner, and migration consequence.",
+    "source": "https://github.com/aigengame/godot-agent/issues/509",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Product decision owner + Metrics/Experiment/Runtime",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-R"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE509-AC02",
+    "text": "Accepted decisions are written to the owning bADR and vocabulary/coverage surfaces; rejected surfaces are recorded explicitly rather than left as implicit future work.",
+    "source": "https://github.com/aigengame/godot-agent/issues/509",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Product decision owner + Metrics/Experiment/Runtime",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-R"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE509-AC03",
+    "text": "Player-policy semantics cannot depend on host-only behavior outside admitted Model/package operations.",
+    "source": "https://github.com/aigengame/godot-agent/issues/509",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Product decision owner + Metrics/Experiment/Runtime",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-R"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE509-AC04",
+    "text": "Stochastic and aggregate methods preserve every underlying Metric and declare replication, seed, uncertainty, and weighting policy as exact Experiment inputs.",
+    "source": "https://github.com/aigengame/godot-agent/issues/509",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Product decision owner + Metrics/Experiment/Runtime",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-R"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE509-AC05",
+    "text": "Continuous-equation support remains refused until its solver, tolerance, snapshot, zero-crossing, determinism, and resource-bound contracts are accepted.",
+    "source": "https://github.com/aigengame/godot-agent/issues/509",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Product decision owner + Metrics/Experiment/Runtime",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-R"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE509-AC06",
+    "text": "The maintainer records human acceptance on this issue; no implementation is included in this decision slice.",
+    "source": "https://github.com/aigengame/godot-agent/issues/509",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Product decision owner + Metrics/Experiment/Runtime",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-R"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE510-AC01",
+    "text": "The Experiment content-binds the Resolved Model, Runtime profile, replication unit, sample count, seed derivation, censoring, and correlation/common-random-number policy.",
+    "source": "https://github.com/aigengame/godot-agent/issues/510",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Experiment + Metrics + Verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-R",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE510-AC02",
+    "text": "Repeating the exact inputs produces the same observations, Metrics, dispositions, and artifact identities.",
+    "source": "https://github.com/aigengame/godot-agent/issues/510",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Experiment + Metrics + Verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-R",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE510-AC03",
+    "text": "TTK, TTD, survival, uncertainty, and sample disposition are computed from preserved replicate-level observations and round-trip through the public Metrics schema.",
+    "source": "https://github.com/aigengame/godot-agent/issues/510",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Experiment + Metrics + Verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-R",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE510-AC04",
+    "text": "Positive, boundary, censored, correlated, malformed-input, and mutation cases execute through the public evaluator boundary.",
+    "source": "https://github.com/aigengame/godot-agent/issues/510",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Experiment + Metrics + Verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-R",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE510-AC05",
+    "text": "Missing or invalid prerequisites atomically publish only a typed terminal-audit artifact set; no partial Metrics, Verdict, or Evidence success artifact is published.",
+    "source": "https://github.com/aigengame/godot-agent/issues/510",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Experiment + Metrics + Verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-R",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE510-AC06",
+    "text": "An authenticated Verifier can independently check the exact Experiment, dataset, aggregation policy, and reported Metrics.",
+    "source": "https://github.com/aigengame/godot-agent/issues/510",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Experiment + Metrics + Verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-R",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE512-AC01",
+    "text": "A bADR accepts or rejects continuous-equation support and records the falsifier, ownership, compatibility, and migration consequences.",
+    "source": "https://github.com/aigengame/godot-agent/issues/512",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Kernel/equation package + Runtime + product decision owner",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-A",
+      "G-R",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE512-AC02",
+    "text": "Before acceptance, `math.equation` is absent from the admitted LDB and is refused canonically rather than interpreted by the host.",
+    "source": "https://github.com/aigengame/godot-agent/issues/512",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Kernel/equation package + Runtime + product decision owner",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-A",
+      "G-R",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE512-AC03",
+    "text": "An accepted contract pins solver family/version, tolerances, units, initial conditions, snapshot cadence, zero-crossing/event ordering, determinism, and resource bounds.",
+    "source": "https://github.com/aigengame/godot-agent/issues/512",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Kernel/equation package + Runtime + product decision owner",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-A",
+      "G-R",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE512-AC04",
+    "text": "If accepted, one nonlinear first-order positive case plus boundary, stiff/unevaluable, resource-exhaustion, mutation, and exact-repeat cases execute through public artifacts.",
+    "source": "https://github.com/aigengame/godot-agent/issues/512",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Kernel/equation package + Runtime + product decision owner",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-A",
+      "G-R",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE512-AC05",
+    "text": "The output uses the ordinary observation/Metrics/Verdict/Evidence pipeline; the solver is not a second Model, Experiment, or Metrics authority.",
+    "source": "https://github.com/aigengame/godot-agent/issues/512",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Kernel/equation package + Runtime + product decision owner",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-A",
+      "G-R",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE512-AC06",
+    "text": "If rejected, downstream growth/economy work uses admitted discrete operations and no placeholder equation syntax remains.",
+    "source": "https://github.com/aigengame/godot-agent/issues/512",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Kernel/equation package + Runtime + product decision owner",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-A",
+      "G-R",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE513-AC01",
+    "text": "Each Metric descriptor owns its unit, direction, population/sample definition, missing/censored-data policy, uncertainty method, and deterministic aggregation algorithm.",
+    "source": "https://github.com/aigengame/godot-agent/issues/513",
+    "source_updated_at": "2026-07-22T10:46:21Z",
+    "source_status": " ",
+    "owner": "Metrics descriptors + independent recomputation",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE513-AC02",
+    "text": "Simulated and observed datasets use the same round-trippable schema while preserving distinct source and provenance identities.",
+    "source": "https://github.com/aigengame/godot-agent/issues/513",
+    "source_updated_at": "2026-07-22T10:46:21Z",
+    "source_status": " ",
+    "owner": "Metrics descriptors + independent recomputation",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE513-AC03",
+    "text": "Curves preserve their declared time/index coordinate and comparison basis; scalar summaries cannot replace the underlying observations.",
+    "source": "https://github.com/aigengame/godot-agent/issues/513",
+    "source_updated_at": "2026-07-22T10:46:21Z",
+    "source_status": " ",
+    "owner": "Metrics descriptors + independent recomputation",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE513-AC04",
+    "text": "Positive, empty/singleton, percentile boundary, censored, extreme-value, order-mutation, and exact-repeat cases have canonical results or refusals.",
+    "source": "https://github.com/aigengame/godot-agent/issues/513",
+    "source_updated_at": "2026-07-22T10:46:21Z",
+    "source_status": " ",
+    "owner": "Metrics descriptors + independent recomputation",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE513-AC05",
+    "text": "All reported aggregates can be independently recomputed from the bound observation dataset and descriptor.",
+    "source": "https://github.com/aigengame/godot-agent/issues/513",
+    "source_updated_at": "2026-07-22T10:46:21Z",
+    "source_status": " ",
+    "owner": "Metrics descriptors + independent recomputation",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE513-AC06",
+    "text": "No Metric implementation reads undeclared Model state or becomes a balance-acceptance authority.",
+    "source": "https://github.com/aigengame/godot-agent/issues/513",
+    "source_updated_at": "2026-07-22T10:46:21Z",
+    "source_status": " ",
+    "owner": "Metrics descriptors + independent recomputation",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE514-AC01",
+    "text": "Build identity, equivalence, selection opportunity, choice impact, and meaningful-choice criteria are descriptor-owned and testable.",
+    "source": "https://github.com/aigengame/godot-agent/issues/514",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Build/decision packages + Metrics descriptors",
+    "stages": [
+      "S8",
+      "S9"
+    ],
+    "gates": [
+      "G-X",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE514-AC02",
+    "text": "Dominant, dead, equivalent, and genuinely distinct reference builds produce the specified diversity observations and Metrics.",
+    "source": "https://github.com/aigengame/godot-agent/issues/514",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Build/decision packages + Metrics descriptors",
+    "stages": [
+      "S8",
+      "S9"
+    ],
+    "gates": [
+      "G-X",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE514-AC03",
+    "text": "Decision frequency, impact, and meaningful-choice share are computed from preserved choice/outcome observations rather than inferred from static config alone.",
+    "source": "https://github.com/aigengame/godot-agent/issues/514",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Build/decision packages + Metrics descriptors",
+    "stages": [
+      "S8",
+      "S9"
+    ],
+    "gates": [
+      "G-X",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE514-AC04",
+    "text": "Aggregate scoring exposes normalization, weight, direction, contribution, uncertainty, and tie handling for every Metric; it never erases individual results.",
+    "source": "https://github.com/aigengame/godot-agent/issues/514",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Build/decision packages + Metrics descriptors",
+    "stages": [
+      "S8",
+      "S9"
+    ],
+    "gates": [
+      "G-X",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE514-AC05",
+    "text": "Reordering input builds, choices, or Metrics cannot change the result unless the declared policy makes order semantic.",
+    "source": "https://github.com/aigengame/godot-agent/issues/514",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Build/decision packages + Metrics descriptors",
+    "stages": [
+      "S8",
+      "S9"
+    ],
+    "gates": [
+      "G-X",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE514-AC06",
+    "text": "Positive, degenerate, missing-observation, hidden-weight, mutation, and exact-repeat cases are independently verifiable.",
+    "source": "https://github.com/aigengame/godot-agent/issues/514",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Build/decision packages + Metrics descriptors",
+    "stages": [
+      "S8",
+      "S9"
+    ],
+    "gates": [
+      "G-X",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE515-AC01",
+    "text": "Every target binds a Metric descriptor/version, direction, tolerance or acceptance region, population, uncertainty policy, and exact evaluation dataset.",
+    "source": "https://github.com/aigengame/godot-agent/issues/515",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Targets/Comparison + Evidence verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE515-AC02",
+    "text": "In-tolerance and out-of-tolerance completed comparisons return typed positive and negative Verdicts while listing every target result.",
+    "source": "https://github.com/aigengame/godot-agent/issues/515",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Targets/Comparison + Evidence verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE515-AC03",
+    "text": "Missing, malformed, non-identifiable, discrepant, or otherwise unevaluable prerequisites return canonical evaluation refusal and no success artifact.",
+    "source": "https://github.com/aigengame/godot-agent/issues/515",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Targets/Comparison + Evidence verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE515-AC04",
+    "text": "Multi-objective evaluation follows the declared correlation, priority/trade-off, holdout, and boundary-equality policy without hidden weights.",
+    "source": "https://github.com/aigengame/godot-agent/issues/515",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Targets/Comparison + Evidence verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE515-AC05",
+    "text": "Evidence is separately issued only after an authenticated Verifier checks the exact Model, Experiment, Metrics, target policy, Verdict, and prerequisite receipts.",
+    "source": "https://github.com/aigengame/godot-agent/issues/515",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Targets/Comparison + Evidence verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE515-AC06",
+    "text": "Public command/artifact cases cover positive, negative, equality-boundary, refusal, mutation, and exact-repeat behavior.",
+    "source": "https://github.com/aigengame/godot-agent/issues/515",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Targets/Comparison + Evidence verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-E",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE516-AC01",
+    "text": "Tunable parameters, domains, constraints, objective targets, budgets, seeds, and stopping/tie policies are exact content-bound inputs.",
+    "source": "https://github.com/aigengame/godot-agent/issues/516",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Calibration + Model + Verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-C",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE516-AC02",
+    "text": "Sensitivity reports expose parameter perturbation, Metric delta, uncertainty, and ranking basis for every evaluated point.",
+    "source": "https://github.com/aigengame/godot-agent/issues/516",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Calibration + Model + Verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-C",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE516-AC03",
+    "text": "Search preserves every candidate identity and Verdict and can demonstrate progress on a failing reference target without claiming guaranteed optimality.",
+    "source": "https://github.com/aigengame/godot-agent/issues/516",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Calibration + Model + Verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-C",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE516-AC04",
+    "text": "The selected suggestion is a new valid Model Source with lineage to the input and search report; the input bytes and identity remain unchanged.",
+    "source": "https://github.com/aigengame/godot-agent/issues/516",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Calibration + Model + Verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-C",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE516-AC05",
+    "text": "Infeasible domains, exhausted budgets, non-identifiable parameters, no-improvement, boundary, mutation, and exact-repeat cases have canonical outcomes.",
+    "source": "https://github.com/aigengame/godot-agent/issues/516",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Calibration + Model + Verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-C",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE516-AC06",
+    "text": "An independent Verifier can recompute or validate the candidate ledger, constraints, selected result, and non-mutation claim.",
+    "source": "https://github.com/aigengame/godot-agent/issues/516",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Calibration + Model + Verifier",
+    "stages": [
+      "S9"
+    ],
+    "gates": [
+      "G-C",
+      "G-E"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE517-AC01",
+    "text": "The demo's source migrates or is deliberately rewritten as one valid 2.0 Model Source with explicit lineage; unsupported 1.x constructs are declared deprecated, not emulated indefinitely.",
+    "source": "https://github.com/aigengame/godot-agent/issues/517",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Panda source/game owner + application + independent Verifier",
+    "stages": [
+      "S10"
+    ],
+    "gates": [
+      "G-X",
+      "G-C",
+      "G-E",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE517-AC02",
+    "text": "The demo gate invokes public 2.0 Model/Experiment/artifact operations and does not use host-only schema, evaluator, player-policy, or solver semantics.",
+    "source": "https://github.com/aigengame/godot-agent/issues/517",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Panda source/game owner + application + independent Verifier",
+    "stages": [
+      "S10"
+    ],
+    "gates": [
+      "G-X",
+      "G-C",
+      "G-E",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE517-AC03",
+    "text": "Old/new parity evidence binds exact inputs, seeds, runtime profiles, Metrics, tolerances, and dispositions; the accepted cutover Verdict is independently verifiable.",
+    "source": "https://github.com/aigengame/godot-agent/issues/517",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Panda source/game owner + application + independent Verifier",
+    "stages": [
+      "S10"
+    ],
+    "gates": [
+      "G-X",
+      "G-C",
+      "G-E",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE517-AC04",
+    "text": "The embedded pipeline, isolation gate, adapters, and dual-stack references are removed after cutover while the demo's source-fidelity fixtures remain green.",
+    "source": "https://github.com/aigengame/godot-agent/issues/517",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Panda source/game owner + application + independent Verifier",
+    "stages": [
+      "S10"
+    ],
+    "gates": [
+      "G-X",
+      "G-C",
+      "G-E",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE517-AC05",
+    "text": "The demo's owning gADRs receive dated outcome notes identifying Schema 2.0 as the replacement authority.",
+    "source": "https://github.com/aigengame/godot-agent/issues/517",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Panda source/game owner + application + independent Verifier",
+    "stages": [
+      "S10"
+    ],
+    "gates": [
+      "G-X",
+      "G-C",
+      "G-E",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE517-AC06",
+    "text": "The full demo test tier and the Schema 2.0 public artifact/verification path pass at the cutover commit.",
+    "source": "https://github.com/aigengame/godot-agent/issues/517",
+    "source_updated_at": "2026-07-22T10:46:20Z",
+    "source_status": " ",
+    "owner": "Panda source/game owner + application + independent Verifier",
+    "stages": [
+      "S10"
+    ],
+    "gates": [
+      "G-X",
+      "G-C",
+      "G-E",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE745-AC01",
+    "text": "The authoritative design defines incremental Runtime creation, identity binding, interaction advancement, observation, closure, invalidation, and state-continuity semantics.",
+    "source": "https://github.com/aigengame/godot-agent/issues/745",
+    "source_updated_at": "2026-08-26T04:31:25Z",
+    "source_status": " ",
+    "owner": "Execution sessions + Runtime + HTTP",
+    "stages": [
+      "S10"
+    ],
+    "gates": [
+      "G-R",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE745-AC02",
+    "text": "Each advance request selects an admitted Operation or Event entry point and typed inputs. It cannot introduce host callbacks, arbitrary scripts, or game-specific fields.",
+    "source": "https://github.com/aigengame/godot-agent/issues/745",
+    "source_updated_at": "2026-08-26T04:31:25Z",
+    "source_status": " ",
+    "owner": "Execution sessions + Runtime + HTTP",
+    "stages": [
+      "S10"
+    ],
+    "gates": [
+      "G-R",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE745-AC03",
+    "text": "A successful advance preserves committed Runtime state and returns the standard result and observation data needed to validate that transition, without admitting a new Experiment revision or running the complete Experiment again.",
+    "source": "https://github.com/aigengame/godot-agent/issues/745",
+    "source_updated_at": "2026-08-26T04:31:25Z",
+    "source_status": " ",
+    "owner": "Execution sessions + Runtime + HTTP",
+    "stages": [
+      "S10"
+    ],
+    "gates": [
+      "G-R",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE745-AC04",
+    "text": "A refusal is atomic. Process loss invalidates the Runtime handle, and an ambiguous in-flight request is not guessed or automatically replayed.",
+    "source": "https://github.com/aigengame/godot-agent/issues/745",
+    "source_updated_at": "2026-08-26T04:31:25Z",
+    "source_status": " ",
+    "owner": "Execution sessions + Runtime + HTTP",
+    "stages": [
+      "S10"
+    ],
+    "gates": [
+      "G-R",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE745-AC05",
+    "text": "The existing complete Experiment run API and its semantics remain supported.",
+    "source": "https://github.com/aigengame/godot-agent/issues/745",
+    "source_updated_at": "2026-08-26T04:31:25Z",
+    "source_status": " ",
+    "owner": "Execution sessions + Runtime + HTTP",
+    "stages": [
+      "S10"
+    ],
+    "gates": [
+      "G-R",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE745-AC06",
+    "text": "A public HTTP end-to-end test advances one retained Runtime through multiple interactions and verifies state continuity, exact identity binding, refusal behavior, and cleanup.",
+    "source": "https://github.com/aigengame/godot-agent/issues/745",
+    "source_updated_at": "2026-08-26T04:31:25Z",
+    "source_status": " ",
+    "owner": "Execution sessions + Runtime + HTTP",
+    "stages": [
+      "S10"
+    ],
+    "gates": [
+      "G-R",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  },
+  {
+    "id": "ISSUE745-AC07",
+    "text": "The public contract remains local-only, engine-agnostic, and game-agnostic. It adds no remote deployment, authentication, distributed recovery, or playtest-specific mechanism without a separate demonstrated need.",
+    "source": "https://github.com/aigengame/godot-agent/issues/745",
+    "source_updated_at": "2026-08-26T04:31:25Z",
+    "source_status": " ",
+    "owner": "Execution sessions + Runtime + HTTP",
+    "stages": [
+      "S10"
+    ],
+    "gates": [
+      "G-R",
+      "G-I"
+    ],
+    "disposition": "retain every clause; current package/version references reconcile to selected content identity under R3, without dropping exact algorithm/policy provenance",
+    "implementation_status": "open",
+    "authority_note": "Captured requirement text is provenance. Apply bADR-0028 and current tracker amendments; obsolete execution binding deletion after closure is mandatory. Deferred formal claims retain activation gates."
+  }
+]

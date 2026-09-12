@@ -4,6 +4,14 @@ status: accepted
 
 # Provide a local HTTP execution service
 
+> **Partial supersession (2026-09-06, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md)):**
+> bADR-0028 requires the HTTP path to consume the current Standard Schema contract after
+> obsolete version selectors and execution bindings are removed. This is a coordinated
+> nested-contract migration, not a new transport authority or a cosmetic /v1 rename.
+> Protocol-neutral application ownership, process capability, loopback lifecycle, complete-run
+> behavior, and consistent active-session inputs remain. The explicit incremental lifecycle
+> work remains separately tracked in #745.
+
 Issue #679 records a missing engine- and application-agnostic interface for local interactive
 clients. These clients can use different local UI technologies, including a browser-based UI. The
 CLI is an effective human and automation boundary, but its process-per-command and

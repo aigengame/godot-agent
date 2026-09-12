@@ -1,0 +1,27 @@
+from pathlib import Path
+import os
+p=Path(os.environ['GDA_PROBE_OUT']) / 'src/gda_balancing/domain/model/_checking.py'
+s=p.read_text().replace('    _deep_freeze,\n','    _deep_freeze,\n    _FrozenDict,\n    _FrozenList,\n',1)
+pos=s.index('\ndef check_model_source(')
+s=s[:pos]+'''
+
+def _freeze_prepared(value, memo=None):
+    # Disposable trial: preserve the existing projection alias graph.
+    if memo is None:
+        memo = {}
+    identity = id(value)
+    if identity in memo:
+        return memo[identity]
+    if isinstance(value, dict):
+        result = _FrozenDict({k: _freeze_prepared(v, memo) for k, v in value.items()})
+    elif isinstance(value, list):
+        result = _FrozenList(_freeze_prepared(v, memo) for v in value)
+    elif isinstance(value, tuple):
+        result = tuple(_freeze_prepared(v, memo) for v in value)
+    else:
+        return value
+    memo[identity] = result
+    return result
+'''+s[pos:]
+s=s.replace('        prepared=_deep_freeze((','        prepared=_freeze_prepared((',1)
+p.write_text(s)

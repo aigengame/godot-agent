@@ -2,6 +2,23 @@
 
 Status: **Design authority; implementation and conformance gates remain open**
 
+**Current direction (2026-09-06):**
+[bADR-0028](badr/0028-current-language-refactor-and-pre-1.0-retirement.md) replaces internal
+release-retention and version-selection obligations with one complete current language. Formal
+compatibility is not promised before toolkit v1.0 and requires a separate decision then. After
+closing actual execution inputs, implementation must delete irrelevant whole-LDB and Build-receipt
+execution bindings, their obsolete fields/gates/propagation, and fallback reads. Closure alone is
+not completion. The [refactor plan](refactor/current-language/PLAN.md) owns the staged process,
+requirement routing, bounded evidence, and rollback. The superseded coordinate/wrapper shapes in
+this document still describe the current machine implementation until their replacement lands;
+they must not be used to preserve the old mechanism as the final target.
+
+The refactor keeps typed language, compiler and Runtime responsibilities, real execution-policy
+identity, exact content integrity, and consistent in-flight inputs. It does not activate the
+deferred authenticated-verifier work in #542–#544. Functional delivery may finish with
+`candidate`/open results under the existing PRD #534 activation policy; claim closure remains a
+separate, application-triggered gate.
+
 Standard Schema 2.0 is the language, compiler, runtime, and evidence architecture for describing
 and evaluating game-balance models. It is designed to cover RPG and Roguelike numeric systems
 without embedding either genre in the compiler or evaluator. The system is a restricted, typed,
@@ -27,7 +44,7 @@ module, or prototype may become an accidental second specification.
 | --- | --- | --- |
 | This `ARCHITECTURE.md` | Macro topology, subsystem responsibilities, cross-subsystem invariants, delivery order | Machine semantics, detailed decision rationale, acceptance status |
 | [`BALANCING-CONTEXT.md`](../BALANCING-CONTEXT.md) | Canonical domain terms and distinctions | Architecture planning or executable semantics |
-| [bADR-0012…0027](badr/) | Binding detailed decisions and their rationale | Consolidated system narrative or implementation status |
+| [bADR-0012…0028](badr/) | Binding detailed decisions and their rationale, including scoped supersession | Consolidated system narrative or implementation status |
 | [Product PRD #501](https://github.com/aigengame/godot-agent/issues/501) | `gda-balancing` product outcomes, milestones, and relationship to the `gda` family | Standard Schema 2.0 architecture details |
 | [PRD #534](https://github.com/aigengame/godot-agent/issues/534) | Product requirements, acceptance criteria, and live completion tracking | Macro architecture or machine semantics |
 | [`standard-schema-2.0/`](standard-schema-2.0/) | Acceptance artifacts, coverage matrices, and prototype evidence status | Language authority or proof by prose |
@@ -1058,6 +1075,14 @@ restores the operation's entry snapshot.
 
 ### 6.2 Identity layers
 
+**Implementation transition:** The exact wrapper inventory below is the existing implementation,
+partly superseded as a target by bADR-0028. S5a closes all runtime-consumed rules, reasons, types,
+Numeric/RNG/scheduler/effect policies and limits, then S5b requires deletion of the irrelevant
+whole-LDB/Build-receipt execution coupling. Provenance-only changes must preserve execution
+eligibility and semantic observations; changed actual execution inputs and forged content must
+still be distinguished. Do not retain obsolete schema fields, equality gates, or fallback reads
+after the dependency closure is complete. Producing receipts remain truthful provenance.
+
 Identity follows semantic responsibility rather than file location:
 
 - vector-set identity covers one canonical package-owned conformance-vector child;
@@ -1086,6 +1111,13 @@ can leave Lock and RIR bytes unchanged. The change still rebinds the Resolved Mo
 Runtime profile, and exact Experiment eligibility. Such executions are not Replay.
 
 ### 6.3 Package resolution
+
+**Accepted replacement:** One current definition per namespace replaces version selection. The
+resolver still closes declared dependencies, nominal types and capability providers, and refuses
+missing, duplicate, ambiguous or cyclic ownership. S2 first preserves the complete capability union;
+S3 deletes historical selectors and resolver branches across authored input, machine laws,
+compilation, descriptors, templates and consumers. The existing algorithm described next remains
+current implementation until that coordinated change; it is not the retained target.
 
 Model Source declares requirements; it does not select ambient installed packages. The resolver
 uses the exact LDB inventory and deterministic compatibility rules to produce one canonical Package
@@ -1804,6 +1836,26 @@ completeness, close a coverage row, or advance a delivery gate.
 
 Work proceeds through gates; later claims depend on earlier authority and conformance.
 
+**Sequencing amendment (2026-09-06):** The current-language refactor's operative order is recorded
+in the [implementation plan](refactor/current-language/PLAN.md): early unused-surface and actual
+1.x-input retirement (S1/S1b), complete capability union (S2), version-selection deletion (S3),
+request-owned compiler preparation (S4), execution-input closure followed by mandatory redundant
+binding deletion (S5a/S5b), primitive-law promotion and an early non-RPG functional witness (S6/S6b),
+then complete genre, numerical-analysis and real-consumer slices. Existing scenario and acceptance
+IDs remain routed; a narrow tracer never closes full coverage.
+
+The fixed Kernel used for an extension experiment is a conformance input. Neither Gate 5/Gate 6
+nor the former `Kernel baseline frozen` record creates an internal release-retention promise before
+the separate formal-release decision in bADR-0028. A law change requires a new exact identity and
+fresh affected evidence, not an automatic parallel compatibility implementation. Current
+collection trials have not proved the full primitive basis complete.
+
+The historical gate narrative below must also be read with PRD #534's 2026-08-21 activation
+amendment: #542–#544 are deferred future work, not prerequisites for Phase 2 functional delivery.
+Exact validators, independent local comparisons, Replay and S6b's functional non-RPG witness can
+finish with `candidate`/open results. A receipt-backed conformance claim still needs its separately
+activated trust path. Do not create authentication infrastructure merely to land a deletion.
+
 ### Gate 1 — independent Kernel/LDB authority mechanism (bounded PASS)
 
 The final architecture-level disposable probe established:
@@ -2028,6 +2080,14 @@ cross-artifact authority boundary.
 
 ## 14. Migration and compatibility
 
+**Accepted retirement:** Under bADR-0028, internal artifacts can be replaced or withdrawn without
+a historical support promise. S1b inventories the named 1.x source inputs, dispositions each by
+rewrite, retirement or bounded one-time conversion, then deletes the converter command, code,
+schemas, packaged resources and obsolete tests. Its current behavior is documented below until
+that deletion; ongoing converter availability is superseded. Unknown hypothetical inputs do not
+justify permanent retention. #517's Panda cutover must still preserve the real consumer's source
+and comparison contract before its distinct embedded pipeline is removed.
+
 Standard Schema 2.0 is a clean forward baseline because no Standard Schema product artifacts have
 been released. New models, templates, experiments, and evidence use 2.0 authority and identity from
 the start.
@@ -2073,6 +2133,7 @@ Use this map when a macro statement needs its detailed decision or live acceptan
 
 | Area | Detailed decision | Acceptance/evidence surface |
 | --- | --- | --- |
+| Current language, pre-v1.0 retirement, mandatory execution-binding deletion | [bADR-0028](badr/0028-current-language-refactor-and-pre-1.0-retirement.md) | [Refactor plan](refactor/current-language/PLAN.md), linked deletion ACs and requirement matrix |
 | Authority domains and artifact ownership | [bADR-0012](badr/0012-language-and-artifact-authority-domains.md) | PRD #534 authority criteria |
 | Compiler stages, RIR, Debug Map, Model explanation, EIR | [bADR-0013](badr/0013-compiler-stages-and-semantic-equivalence-boundary.md) | Kernel/LDB, Formula/explanation, and independent-lowerer vectors |
 | Deterministic atomic runtime and profiles | [bADR-0014](badr/0014-deterministic-atomic-event-runtime.md) | Runtime, refusal, Replay, and fault vectors |

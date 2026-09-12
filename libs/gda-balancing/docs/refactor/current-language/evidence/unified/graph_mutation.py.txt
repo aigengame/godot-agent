@@ -1,0 +1,15 @@
+import json,shutil
+from copy import deepcopy
+from pathlib import Path
+import os
+from probe import OUT,_build,graph_at,admit_authorities,diag,dump
+source=OUT/'authorities';target=OUT/'missing-dependency-authorities'
+if target.exists():shutil.rmtree(target)
+shutil.copytree(source,target)
+p=target/'packages/game-progression/game.progression@1.0.0.json'
+d=json.loads(p.read_text());d['dependencies']['required']=[r for r in d['dependencies']['required'] if r['id']!='core.quantity'];dump(p,d)
+raw,members=_build(target);(target/'language-bundle.json').write_bytes(raw)
+for p,b in members.items():p.write_bytes(b)
+k,l=graph_at(target);r=admit_authorities(k,l)
+result={'mutation':'game.progression manifest no longer declares core.quantity dependency; all content identities correctly rebuilt','admitted':r.admitted,'diagnostics':diag(r)}
+dump(OUT/'graph-mutation-results.json',result);print(json.dumps(result,indent=2))
