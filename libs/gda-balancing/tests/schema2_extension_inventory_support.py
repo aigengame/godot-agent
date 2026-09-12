@@ -2427,6 +2427,7 @@ def _template_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
     reserved: set[AuthorityToken] = set()
     roots: set[str] = set()
     variable_schemas: dict[str, _TemplateSelection] = {}
+    literal_values: dict[tuple[str, ...], list[tuple[Any, str]]] = {}
 
     def emit(token, pointer, use="reference", *, location="value", owner_law=law):
         rows.add(TokenOccurrence(token, pointer, use, owner_law, location))
@@ -2449,9 +2450,51 @@ def _template_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
     def schema_children(shape):
         return list(_same_instance_schemas(shape.value, shape.pointer))
 
+    def schema_literal(selected, value, pointer):
+        """Interpret const/enum data at its declared instance address, not by text."""
+        closed = True
+        if isinstance(value, dict):
+            for member, child in value.items():
+                children = [
+                    _TemplateSelection(
+                        "schema",
+                        fields["properties"][member],
+                        (*shape.owner, "member", member),
+                        _child(sp + "/properties", member),
+                    )
+                    for shape in selected
+                    for fields, sp in schema_children(shape)
+                    if member in fields.get("properties", {})
+                ]
+                if not children:
+                    closed = False
+                    continue
+                cp = _child(pointer, member)
+                for shape in selected:
+                    emit(field_token(shape, member), cp, location="key")
+                closed = schema_literal(children, child, cp) and closed
+        elif isinstance(value, list):
+            children = [
+                _TemplateSelection(
+                    "schema", fields["items"], (*shape.owner, "items"), sp + "/items"
+                )
+                for shape in selected
+                for fields, sp in schema_children(shape)
+                if isinstance(fields.get("items"), dict)
+            ]
+            if value and not children:
+                return False
+            for i, child in enumerate(value):
+                closed = schema_literal(children, child, f"{pointer}/{i}") and closed
+        else:
+            for shape in selected:
+                literal_values.setdefault(shape.owner, []).append((value, pointer))
+        return closed
+
     def schema_fields(shape):
         same = schema_children(shape)
         names = {name for value, _ in same for name in value.get("properties", {})}
+        closed = True
         for value, pointer in same:
             for member, child in value.get("properties", {}).items():
                 selected = field_token(shape, member)
@@ -2459,10 +2502,13 @@ def _template_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
                 emit(
                     selected, cp, "declaration", location="key", owner_law=shape.pointer
                 )
-                schema_fields(
-                    _TemplateSelection(
-                        "schema", child, (*shape.owner, "member", member), cp
+                closed = (
+                    schema_fields(
+                        _TemplateSelection(
+                            "schema", child, (*shape.owner, "member", member), cp
+                        )
                     )
+                    and closed
                 )
             for i, member in enumerate(value.get("required", [])):
                 if member not in names:
@@ -2475,14 +2521,25 @@ def _template_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
                     owner_law=shape.pointer,
                 )
             if isinstance(value.get("items"), dict):
-                schema_fields(
-                    _TemplateSelection(
-                        "schema",
-                        value["items"],
-                        (*shape.owner, "items"),
-                        pointer + "/items",
+                closed = (
+                    schema_fields(
+                        _TemplateSelection(
+                            "schema",
+                            value["items"],
+                            (*shape.owner, "items"),
+                            pointer + "/items",
+                        )
                     )
+                    and closed
                 )
+            if "const" in value:
+                closed = (
+                    schema_literal([shape], value["const"], pointer + "/const")
+                    and closed
+                )
+            for i, item in enumerate(value.get("enum", [])):
+                closed = schema_literal([shape], item, f"{pointer}/enum/{i}") and closed
+        return closed
 
     def step(selected, member, pointer):
         output = []
@@ -2795,53 +2852,41 @@ def _template_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
         for shape in selected:
             if shape.representation != "schema":
                 continue
-            for value, pointer in schema_children(shape):
-                literals = (
-                    [(value["const"], pointer + "/const")] if "const" in value else []
-                )
-                literals += [
-                    (item, f"{pointer}/enum/{i}")
-                    for i, item in enumerate(value.get("enum", []))
-                ]
-                for item, ip in literals:
-                    if not isinstance(item, str):
-                        raise InventoryRefusal(
-                            "Template inventory literal is not a name"
-                        )
-                    if role == "namespace":
-                        candidates = [
-                            AuthorityToken("namespace", (), p["id"])
-                            for p in graph["packages"]
-                            if p["id"] == item
-                        ]
-                    else:
-                        key = projections[role]["key_member"]
-                        token_role, scoped = _declared_target_role(
-                            kernel,
-                            "language_bundle." + role + ("." + key if key else ""),
-                        )
-                        candidates = []
-                        for owner, definition, _ in _authority_path_rows(
-                            kernel, graph, "language_bundle." + role
-                        ):
-                            if (definition if key is None else definition[key]) != item:
-                                continue
-                            token_owner: tuple[str, ...] = ()
-                            if scoped:
-                                if not isinstance(owner, str):
-                                    raise InventoryRefusal(
-                                        "Template inventory declaration has no namespace"
-                                    )
-                                token_owner = (owner,)
-                            candidates.append(
-                                AuthorityToken(token_role, token_owner, item)
-                            )
-                    if not candidates:
-                        raise InventoryRefusal(
-                            "Template Schema literal has no selected inventory declaration"
-                        )
-                    for token in candidates:
-                        emit(token, ip)
+            for item, ip in literal_values.get(shape.owner, []):
+                if not isinstance(item, str):
+                    raise InventoryRefusal("Template inventory literal is not a name")
+                if role == "namespace":
+                    candidates = [
+                        AuthorityToken("namespace", (), p["id"])
+                        for p in graph["packages"]
+                        if p["id"] == item
+                    ]
+                else:
+                    key = projections[role]["key_member"]
+                    token_role, scoped = _declared_target_role(
+                        kernel,
+                        "language_bundle." + role + ("." + key if key else ""),
+                    )
+                    candidates = []
+                    for owner, definition, _ in _authority_path_rows(
+                        kernel, graph, "language_bundle." + role
+                    ):
+                        if (definition if key is None else definition[key]) != item:
+                            continue
+                        token_owner: tuple[str, ...] = ()
+                        if scoped:
+                            if not isinstance(owner, str):
+                                raise InventoryRefusal(
+                                    "Template inventory declaration has no namespace"
+                                )
+                            token_owner = (owner,)
+                        candidates.append(AuthorityToken(token_role, token_owner, item))
+                if not candidates:
+                    raise InventoryRefusal(
+                        "Template Schema literal has no selected inventory declaration"
+                    )
+                for token in candidates:
+                    emit(token, ip)
 
     for _, profile, pp in _authority_path_rows(
         kernel, graph, "language_bundle.language.template_admission_profiles"
@@ -2898,8 +2943,8 @@ def _template_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
                 roles[row["role"]] = [shape]
                 if sp not in variable_schemas:
                     variable_schemas[sp] = shape
-                    roots.add(sp)
-                    schema_fields(shape)
+                    if schema_fields(shape):
+                        roots.add(sp)
             else:
                 raise InventoryRefusal(
                     "Template member is not a supported standalone Schema owner"
@@ -3091,9 +3136,9 @@ def _template_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
                     "Template primitive has no inventory interpretation"
                 )
 
-    # Exact object equality constrains actual required member names across the
-    # compared scopes. A Kernel Fact member remains fixed in any required Schema
-    # copy; unrelated equal spellings do not acquire that constraint.
+    # Exact object equality constrains declared member names across the compared
+    # scopes even when a Schema makes a member optional or locates its property
+    # under a same-instance applicator. Presence is a separate Schema constraint.
     def object_fields(shape):
         if shape.representation in {"schema", "source-schema"}:
             return {
@@ -3108,7 +3153,6 @@ def _template_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
                 )
                 for value, sp in schema_children(shape)
                 for member, child in value.get("properties", {}).items()
-                if member in value.get("required", [])
             }
         if shape.representation == "field":
             return {
@@ -3557,6 +3601,13 @@ class _Reader:
         if pointer in self.template_roots:
             # The Template pass closes the complete existing program and each
             # actual standalone member Schema, including addressed field names.
+            return True
+        if pointer in self.template_schemas:
+            self.gap(
+                pointer,
+                "/meta_format/template_admission",
+                "Template const/enum data has no declared instance field or item owner",
+            )
             return True
         if role == "language.replay_comparison_policies":
             # The independent observation-member pass closes the complete
@@ -5874,8 +5925,8 @@ def validate_extension_inventory(
     is implemented; require_complete still refuses that inventory.
     """
     validate_inventory_occurrences(kernel, graph, inventory)
-    template_expected, template_reserved, template_roots, _ = _template_inventory(
-        kernel, graph
+    template_expected, template_reserved, template_roots, template_schemas = (
+        _template_inventory(kernel, graph)
     )
     template_actual = {
         row
@@ -5883,13 +5934,19 @@ def validate_extension_inventory(
         if any(
             row.pointer.startswith(root + "/")
             and row.pointer not in {root + "/id", root + "/artifact_kind"}
-            for root in template_roots
+            for root in template_roots | template_schemas
         )
     }
     template_tokens = {row.token for row in template_expected}
     if (
         template_actual != template_expected
         or inventory.reserved & template_tokens != template_reserved
+        or {
+            gap.pointer
+            for gap in inventory.uncovered
+            if gap.pointer in template_schemas
+        }
+        != template_schemas - template_roots
     ):
         raise InventoryRefusal("Template occurrence coverage is incomplete or misowned")
     evidence_expected = set(_evidence_claim_links(kernel, graph))

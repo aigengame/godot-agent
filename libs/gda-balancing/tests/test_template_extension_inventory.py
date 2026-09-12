@@ -35,6 +35,7 @@ from schema2_extension_inventory_support import (
     read_extension_inventory,
     token_bijection_from_names,
     validate_extension_inventory,
+    validate_token_bijection,
 )
 from schema2_extension_renaming_support import _rewrite_positions
 from test_schema2_model_lowerer_conformance import _reference_check_source
@@ -503,3 +504,299 @@ def test_required_coordinate_field_rename_changes_real_template_relation(witness
         "template.default-symbols"
         in json.loads(out)["error"]["diagnostics"][0]["message"]
     )
+
+
+def _admitted_template_graph(kernel, graph):
+    authored = _graph(kernel, graph)
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, authored)
+        assert result["admitted"], result["diagnostics"]
+    context = admit_authority_context(kernel, _index(kernel, authored))
+    assert isinstance(context, AdmittedAuthorityContext)
+    return context
+
+
+def _get_rebound_release(context, seed):
+    release = deepcopy(seed)
+    for member in release["members"]:
+        member["member_schema_identity"] = wire_schema_identity_for_kind(
+            context.language_bundle, member["member_kind"]
+        )
+        if "language_bundle_identity" in member["payload"]:
+            member["payload"]["language_bundle_identity"] = context.language_bundle[
+                "content_identity"
+            ]
+    release["language_bundle_identity"] = context.language_bundle["content_identity"]
+    _reidentify_release(release)
+    descriptor = replace(
+        TEMPLATE_GET,
+        handler=template_get_handler(
+            lambda _: deepcopy(release), authority_context_provider=lambda: context
+        ),
+    )
+    code, stdout, stderr = _run(
+        ["template", "get", "--id", release["id"]], registry=(descriptor,)
+    )
+    assert stderr == ""
+    return code, json.loads(stdout)
+
+
+@pytest.mark.parametrize("keyword", ["const", "enum"])
+@pytest.mark.parametrize("location", ["plain", "root", "nested", "array"])
+def test_template_literal_keys_follow_the_public_member_schema(
+    witness, tmp_path, keyword, location
+):
+    kernel, original, baseline_inventory = witness
+    graph = deepcopy(original)
+    context = _admitted_template_graph(kernel, deepcopy(original))
+    seed = json.loads(canonical_bytes(minimal_release(context)))
+    payload = next(
+        m["payload"]
+        for m in seed["members"]
+        if m["member_kind"] == "template-documentation"
+    )
+    definition, pointer = _schemas(kernel, graph)["template-documentation"]
+    schema = definition["schema"]
+    # The scalar intentionally equals a field name: it remains literal text.
+    details_schema = {
+        "type": "object",
+        "unevaluatedProperties": False,
+        "properties": {
+            "entries": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "unevaluatedProperties": False,
+                    "properties": {"note": {"type": "string"}},
+                    "required": ["note"],
+                },
+            }
+        },
+        "required": ["entries"],
+    }
+    if location != "plain":
+        payload["details"] = {"entries": [{"note": "text"}]}
+        schema["properties"]["details"] = details_schema
+        schema["required"].append("details")
+    selected_schema, selected_value = schema, payload
+    if location in {"nested", "array"}:
+        selected_schema = selected_schema["properties"]["details"]
+        selected_value = selected_value["details"]
+    if location == "array":
+        selected_schema = selected_schema["properties"]["entries"]
+        selected_value = selected_value["entries"]
+    selected_schema[keyword] = deepcopy(
+        selected_value if keyword == "const" else [selected_value]
+    )
+    context = _admitted_template_graph(kernel, deepcopy(graph))
+    control = _get_rebound_release(context, seed)
+    assert control[0] == 0
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    assert inventory.uncovered == baseline_inventory.uncovered
+    names = {
+        token: "renamed_" + token.name
+        for token in inventory.tokens - inventory.reserved
+        if token.role == "template-field"
+        and token.owner[1] == "template-documentation"
+        and token.name in {"text", "details", "entries", "note"}
+    }
+    assert len(names) == (1 if location == "plain" else 4)
+    candidate = _scope_rename(graph, inventory, names)
+    renamed_seed = deepcopy(seed)
+    next(
+        m
+        for m in renamed_seed["members"]
+        if m["member_kind"] == "template-documentation"
+    )["payload"] = _renamed_payload(
+        payload,
+        schema,
+        ("language.artifact_wire_schemas", "template-documentation"),
+        names,
+    )
+    renamed_context = _admitted_template_graph(kernel, candidate)
+    renamed_inventory = read_extension_inventory(kernel, candidate)
+    validate_extension_inventory(kernel, candidate, renamed_inventory)
+    assert renamed_inventory.uncovered == inventory.uncovered
+    result = _get_rebound_release(renamed_context, renamed_seed)
+    (tmp_path / "public-receipt.json").write_text(
+        json.dumps(
+            {
+                "control": control,
+                "renamed": result,
+                "keyword": keyword,
+                "location": location,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    assert result[0] == 0
+    assert _get_rebound_release(renamed_context, seed)[0] == 2
+    literal_rows = [
+        row
+        for row in inventory.occurrences
+        if row.pointer.startswith(pointer + "/schema/")
+        and ("/const/" in row.pointer or "/enum/" in row.pointer)
+    ]
+    assert literal_rows and all(row.location == "key" for row in literal_rows)
+    leaf = "text" if location == "plain" else "note"
+    assert any(row.token.name == leaf for row in literal_rows)
+    selected = next(row for row in literal_rows if row.token.name == leaf)
+    for mutation in ("missing", "wrong-owner"):
+        rows = list(inventory.occurrences)
+        if mutation == "missing":
+            rows.remove(selected)
+        else:
+            rows[rows.index(selected)] = replace(
+                selected, token=replace(selected.token, owner=("other-instance",))
+            )
+        forged = replace(
+            inventory, occurrences=tuple(rows), tokens=frozenset(r.token for r in rows)
+        )
+        with pytest.raises(InventoryRefusal, match="Template occurrence coverage"):
+            validate_extension_inventory(kernel, graph, forged)
+
+
+@pytest.mark.parametrize("shape", ["optional", "oneOf", "anyOf"])
+def test_template_coordinate_relation_owns_optional_and_applicator_fields(
+    witness, shape, tmp_path
+):
+    kernel, original, baseline_inventory = witness
+    graph = deepcopy(original)
+    schemas = _schemas(kernel, graph)
+    for kind in ("template-defaults", "golden-scenario"):
+        properties = schemas[kind][0]["schema"]["properties"]
+        if kind == "template-defaults":
+            properties = properties["symbol_values"]["items"]["properties"]
+        coordinate = properties["symbol"]
+        if shape == "optional":
+            if kind == "template-defaults":
+                coordinate["required"].remove("model")
+        else:
+            coordinate[shape] = [
+                {
+                    "type": "object",
+                    "unevaluatedProperties": False,
+                    "properties": coordinate.pop("properties"),
+                }
+            ]
+    context = _admitted_template_graph(kernel, deepcopy(graph))
+    release = json.loads(canonical_bytes(minimal_release(context)))
+    assert _reference_template_admission(
+        release, context.kernel, context.language_bundle
+    ) == (True, None)
+    control = _get_rebound_release(context, release)
+    assert control[0] == 0
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    assert inventory.uncovered == baseline_inventory.uncovered
+    bound = {
+        t
+        for t in inventory.tokens
+        if t.role == "template-field"
+        and t.owner[1] in {"template-defaults", "golden-scenario"}
+        and t.name in {"model", "module", "name"}
+    }
+    assert len(bound) == 6
+    assert bound <= inventory.reserved
+    names = {t: "other_model" for t in bound if t.name == "model"}
+    with pytest.raises(InventoryRefusal, match="reserved"):
+        validate_token_bijection(
+            inventory, token_bijection_from_names(inventory, names)
+        )
+    # Force the forbidden change to retain its actual public falsifier.
+    values, keys = {}, {}
+    for row in inventory.occurrences:
+        if row.token in names:
+            (keys if row.location == "key" else values)[row.pointer] = names[row.token]
+    candidate = _rewrite_positions(graph, values, keys)
+    changed = deepcopy(release)
+    for member in changed["members"]:
+        if member["member_kind"] == "template-defaults":
+            coordinates = [row["symbol"] for row in member["payload"]["symbol_values"]]
+        elif member["member_kind"] == "golden-scenario":
+            coordinates = [member["payload"]["symbol"]]
+        else:
+            continue
+        for coordinate in coordinates:
+            coordinate["other_model"] = coordinate.pop("model")
+    renamed_context = _admitted_template_graph(kernel, candidate)
+    result = _get_rebound_release(renamed_context, changed)
+    (tmp_path / "public-receipt.json").write_text(
+        json.dumps(
+            {
+                "control": control,
+                "forced_coordinate_rename": result,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    assert result[0] == 2
+
+
+def test_template_parent_literal_retains_the_selected_nominal_value_owner(witness):
+    kernel, original, baseline_inventory = witness
+    graph = deepcopy(original)
+    context = _admitted_template_graph(kernel, deepcopy(original))
+    release = json.loads(canonical_bytes(minimal_release(context)))
+    metrics = next(
+        row["payload"]["metrics"]
+        for row in release["members"]
+        if row["member_kind"] == "experiment-template"
+    )
+    definition, pointer = _schemas(kernel, graph)["experiment-template"]
+    definition["schema"]["properties"]["metrics"]["const"] = deepcopy(metrics)
+    context = _admitted_template_graph(kernel, deepcopy(graph))
+    assert _get_rebound_release(context, release)[0] == 0
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    assert inventory.uncovered == baseline_inventory.uncovered
+    occurrences = [
+        row
+        for row in inventory.occurrences
+        if row.pointer == pointer + "/schema/properties/metrics/const/0/kind"
+        and row.location == "value"
+    ]
+    assert len(occurrences) == 1
+    assert occurrences[0].token == AuthorityToken(
+        "language.quantity.kinds", (), "scalar"
+    )
+    forged = replace(
+        inventory,
+        occurrences=tuple(
+            row for row in inventory.occurrences if row not in occurrences
+        ),
+    )
+    with pytest.raises(InventoryRefusal, match="Template occurrence coverage"):
+        validate_extension_inventory(kernel, graph, forged)
+
+
+@pytest.mark.parametrize("value", [{"undeclared": "text"}, [{"undeclared": "text"}]])
+def test_template_literal_without_an_instance_field_contract_retains_a_gap(
+    witness, value
+):
+    kernel, original, baseline_inventory = witness
+    graph = deepcopy(original)
+    definition, pointer = _schemas(kernel, graph)["template-documentation"]
+    definition["schema"]["properties"]["opaque"] = {"const": value}
+    definition["schema"]["required"].append("opaque")
+    context = _admitted_template_graph(kernel, deepcopy(graph))
+    release = json.loads(canonical_bytes(minimal_release(context)))
+    next(
+        row
+        for row in release["members"]
+        if row["member_kind"] == "template-documentation"
+    )["payload"]["opaque"] = deepcopy(value)
+    assert _get_rebound_release(context, release)[0] == 0
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    extra = set(inventory.uncovered) - set(baseline_inventory.uncovered)
+    assert len(extra) == 1
+    assert next(iter(extra)).pointer == pointer
+    assert not set(baseline_inventory.uncovered) - set(inventory.uncovered)
+    assert not any(row.token.name == "undeclared" for row in inventory.occurrences)
+    forged = replace(inventory, uncovered=baseline_inventory.uncovered)
+    with pytest.raises(InventoryRefusal, match="Template occurrence coverage"):
+        validate_extension_inventory(kernel, graph, forged)
