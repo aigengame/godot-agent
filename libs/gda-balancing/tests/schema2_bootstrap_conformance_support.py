@@ -2258,10 +2258,18 @@ def _consumer_b_path_is_declared(root: Any, dotted: Any) -> bool:
 def _consumer_b_source_equality_values(
     authorities: dict[str, Any], contract: dict[str, Any]
 ) -> list[Any] | None:
+    items = _consumer_b_source_equality_items(authorities, contract)
+    return None if items is None else [value for _, value in items]
+
+
+def _consumer_b_source_equality_items(
+    authorities: dict[str, Any], contract: dict[str, Any]
+) -> list[tuple[tuple[str | int, ...], Any]] | None:
+    """Interpret the existing equality projection with its actual addresses."""
     template = contract.get("right_template")
     if not isinstance(template, list) or not template:
         return None
-    values: list[Any] = [authorities]
+    values: list[tuple[tuple[str | int, ...], Any]] = [((), authorities)]
     for raw_segment in template:
         semantic_member: str | None = None
         if isinstance(raw_segment, str) and raw_segment:
@@ -2276,23 +2284,28 @@ def _consumer_b_source_equality_values(
             segment = ""
         else:
             return None
-        next_values: list[Any] = []
-        for value in values:
-            for candidate in value if isinstance(value, list) else [value]:
-                if semantic_member is not None and isinstance(candidate, dict):
-                    selected = [
-                        child
-                        for child in candidate.values()
-                        if isinstance(child, dict)
-                        and child.get(_SOURCE_MEMBER_KEY) == semantic_member
+        next_values: list[tuple[tuple[str | int, ...], Any]] = []
+        for path, candidate in values:
+            if semantic_member is not None and isinstance(candidate, dict):
+                selected = [
+                    ((*path, key), child)
+                    for key, child in candidate.items()
+                    if isinstance(child, dict)
+                    and child.get(_SOURCE_MEMBER_KEY) == semantic_member
+                ]
+                if len(selected) > 1:
+                    return None
+                next_values.extend(selected)
+            elif isinstance(candidate, dict) and segment in candidate:
+                child = candidate[segment]
+                next_values.extend(
+                    [
+                        ((*path, segment, index), item)
+                        for index, item in enumerate(child)
                     ]
-                    if len(selected) > 1:
-                        return None
-                    next_values.extend(selected)
-                    continue
-                if isinstance(candidate, dict) and segment in candidate:
-                    child = candidate[segment]
-                    next_values.extend(child if isinstance(child, list) else [child])
+                    if isinstance(child, list)
+                    else [((*path, segment), child)]
+                )
         if not next_values:
             return None
         values = next_values
@@ -12956,6 +12969,7 @@ __all__ = [
     "_consumer_b_project_source",
     "_consumer_b_project_source_role",
     "_consumer_b_source_equality_values",
+    "_consumer_b_source_equality_items",
     "_consumer_b_source_role_member_paths",
     "_consumer_b_reason_is_closed",
     "_consumer_b_reason_operands_close",

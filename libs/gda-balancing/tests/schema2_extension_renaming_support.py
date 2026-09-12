@@ -32,7 +32,7 @@ from schema2_extension_inventory_support import (
     validate_extension_inventory,
     validate_token_bijection,
 )
-from schema2_formula_conformance_support import render_body
+from schema2_formula_conformance_support import render_semantic_body
 
 
 def _rewrite_positions(
@@ -108,8 +108,9 @@ def _render_formulas(
         raise InventoryRefusal("renamed Formula paths do not close")
     for pointer, body in bodies.items():
         request = requests[pointer]
-        request["formula"]["expression"] = render_body(
-            body, request, language, kernel=kernel
+        parent, key = pointer.rsplit("/", 1)
+        _pointer_value(candidate, parent)[key.replace("~1", "/").replace("~0", "~")] = (
+            render_semantic_body(body, request, language, kernel=kernel)
         )
     # Independently compare the rewritten expression with the actual authored
     # body. Copying the body into the expression would hide missed occurrences.

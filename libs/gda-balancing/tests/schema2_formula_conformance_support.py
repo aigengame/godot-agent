@@ -292,9 +292,27 @@ def render_body(
     *,
     kernel: dict[str, Any],
 ) -> str:
+    return render_semantic_body(
+        normalize_source_body(body, language_bundle, kernel=kernel),
+        request,
+        language_bundle,
+        kernel=kernel,
+    )
+
+
+def render_semantic_body(
+    body: dict[str, Any],
+    request: dict[str, Any],
+    language_bundle: dict[str, Any],
+    *,
+    kernel: dict[str, Any],
+) -> str:
+    """Render B's parsed/projected semantic body without re-reading authored keys."""
     _validate_context(request, language_bundle, kernel=kernel)
     grammar, _operations = _authority(language_bundle)
-    body = normalize_source_body(body, language_bundle, kernel=kernel)
+    kind, reference, member = _inline_source_parameter(kernel)
+    if body.get("node") == kind:
+        body = {"nodes": [], "result": {"kind": kind, reference: body[member]}}
     notations = _selected_notations(request, language_bundle, kernel)
     by_coordinate = {
         (
