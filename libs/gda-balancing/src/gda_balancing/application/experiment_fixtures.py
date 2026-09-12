@@ -12,7 +12,6 @@ from gda_balancing.application.model_build import (
     build_model,
 )
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
-from gda_balancing.domain.experiment import derive_scenario_program_requirements
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.authority.graph import LanguageBundleIndex
 from gda_balancing.domain.operation_program import (
@@ -111,12 +110,6 @@ def _prepare_experiment(
     rng_algorithm = context.kernel["meta_format"]["runtime_program"]["named_rng"][
         "algorithm"
     ]
-    requirements, named_streams = derive_scenario_program_requirements(
-        rir,
-        entrypoint["id"],
-        operation["runtime_profile"],
-        rng_algorithm,
-    )
     targets_by_port = {
         row["port"]["name"]: row["operand"]["symbol"]
         for row in entrypoint["arguments"]
@@ -145,12 +138,10 @@ def _prepare_experiment(
     if result["kind"] != "symbol":
         raise RuntimeError("Experiment conformance entrypoint result is not observable")
     specification = {
-        "schema_version": "2.0.0",
         "id": f"{source_value['manifest']['id']}.conformance",
         "model": {"rir_semantic_identity": rir["semantic_identity"]},
         "runtime": {
             "profile": operation["runtime_profile"],
-            "required_evaluator": requirements,
         },
         "seed": {
             "algorithm": rng_algorithm,
@@ -170,7 +161,6 @@ def _prepare_experiment(
                     }
                 ],
                 "assignments": assignments,
-                "named_streams": named_streams,
                 "terminal_condition": {"kind": "event-count", "maximum": 1},
             }
         ],

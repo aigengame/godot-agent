@@ -729,7 +729,7 @@ def unsupported_evaluator_requirement(
     checked: CheckedExperiment, available: Mapping[str, Any]
 ) -> str | None:
     """Return the first required capability absent from a producer declaration."""
-    required = checked.value["runtime"]["required_evaluator"]
+    required = checked.required_evaluator
     for member in (
         "operation_kinds",
         "instruction_nodes",
@@ -761,5 +761,8 @@ def resolved_runtime_profile(checked: CheckedExperiment) -> PublicationMember:
                 checked, definition
             ),
             "runtime_profile": deepcopy(definition),
+            "experiment_judgments": cast(
+                JsonValue, deepcopy(checked.experiment_judgments)
+            ),
         },
     )

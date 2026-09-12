@@ -63,6 +63,11 @@ from gda_balancing.domain.runtime.projections import (
     unsupported_evaluator_requirement as _unsupported_evaluator_requirement,
 )
 
+from gda_balancing.domain.experiment_judgments import (
+    acceptance_output_role,
+    acceptance_result,
+)
+
 _INVALID_FORMULA_EVIDENCE = object()
 _EXPERIMENT_RUNTIME_REFUSAL_NAMES = frozenset(
     member.logical_name for member in EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET
@@ -2182,6 +2187,10 @@ def _metric_dataset_matches_observations(
     primary: dict[str, Any],
 ) -> bool:
     """Derive complete samples from the already validated committed evidence."""
+    metric_operators = {
+        row["metric"]: row["judgment"]["operator"]
+        for row in checked.experiment_judgments["metrics"]
+    }
     metrics = {
         _metric_definition_identity(metric): metric
         for metric in checked.value["metrics"]
@@ -2229,7 +2238,7 @@ def _metric_dataset_matches_observations(
         for scenario_id, events in scenario_events.items():
             event = observations[scenario_id, identity]
             snapshot = snapshots[event["snapshot_after_identity"]]
-            if selector["source"] == "event":
+            if metric_operators[metric["id"]] == "single-event-integer":
                 values = [
                     fact["integer"]
                     for observed_event in events
@@ -2237,7 +2246,7 @@ def _metric_dataset_matches_observations(
                     for fact in observed_event["facts"]
                     if fact["name"] == selector["member"] and fact["kind"] == "integer"
                 ]
-            else:
+            elif metric_operators[metric["id"]] == "single-terminal-integer":
                 if selector["name"] not in {"terminal", f"{scenario_id}:terminal"}:
                     continue
                 values = [
@@ -2245,6 +2254,8 @@ def _metric_dataset_matches_observations(
                     for row in snapshot["values"]
                     if row["name"] == selector["member"]
                 ]
+            else:
+                return False
             if len(values) != 1 or type(values[0]) is not int:
                 return False
             value = values[0]
@@ -2289,15 +2300,17 @@ def _metric_dataset_matches_observations(
         dataset["samples"]
     ) != canonical_bytes(cast(JsonValue, expected_samples)):
         return False
-    failed_metrics = [
-        sample["metric"] for sample in expected_samples if not sample["within_target"]
-    ]
+    accepted, failed_metrics = acceptance_result(
+        checked.experiment_judgments["acceptance"], expected_samples
+    )
+    expected_role = acceptance_output_role(checked.output_contracts, accepted)
+    expected_status = checked.output_contracts[expected_role].schema["properties"][
+        "outcome"
+    ]["const"]
     return (
-        primary_name == "experiment-verdict"
-        and primary["outcome"] == "rejected"
-        and primary["failed_metrics"] == failed_metrics
-        if failed_metrics
-        else primary_name == "evaluation-run" and primary["outcome"] == "accepted"
+        primary_name == expected_role
+        and primary["outcome"] == expected_status
+        and (not failed_metrics or primary["failed_metrics"] == failed_metrics)
     )
 
 

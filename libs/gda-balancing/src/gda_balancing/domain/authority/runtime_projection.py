@@ -83,6 +83,10 @@ def runtime_output_schema(
     kernel: dict[str, Any], protocol_role: str, artifact_kind: str
 ) -> dict[str, Any]:
     """Bind fixed framing without treating required capabilities as support."""
+    from gda_balancing.domain.authority.experiment_projection import (
+        selected_experiment_judgments_contract,
+    )
+
     meta = kernel["meta_format"]
     law = deepcopy(
         meta["language_definitions"]["wire_schema_protocol_roles"][
@@ -96,7 +100,12 @@ def runtime_output_schema(
         derived = {}
     elif protocol_role == "resolved-runtime-profile":
         part = law["resolved_profile"]
-        derived = {"runtime_profile": _active_profile_schema(kernel)}
+        derived = {
+            "runtime_profile": _active_profile_schema(kernel),
+            "experiment_judgments": _contract_schema(
+                selected_experiment_judgments_contract(kernel)
+            ),
+        }
     else:
         raise ValueError("Unknown Runtime output role")
     if set(part) != {"required_members", "field_types"}:

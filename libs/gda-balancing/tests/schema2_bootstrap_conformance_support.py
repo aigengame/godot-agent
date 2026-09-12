@@ -40,7 +40,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:7719af26efef27d068283a54195bbab7d5fddc46a2c27ea7ff872cef982c295b"
+    "sha256:da95962ff6ba89a925a3ef80925f4562e5e391c022a6c5f46f750e49b73a1622"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
@@ -2099,6 +2099,7 @@ def _consumer_b_package_semantic_projections_are_exact(
         _consumer_b_project_trace_schema(kernel, projected_language)
         _consumer_b_project_runtime_evidence_schemas(kernel, projected_language)
         _consumer_b_project_metric_outcome_schema(kernel, projected_language)
+        _consumer_b_project_experiment_input(kernel, projected_language)
         _consumer_b_project_replay_schema(kernel, projected_language)
         _consumer_b_project_rir_schema(kernel, projected_language)
     except (KeyError, TypeError, ValueError, IndexError):
@@ -3002,6 +3003,202 @@ def _consumer_b_artifact_envelope(
     return common
 
 
+def _consumer_b_experiment_judgment_schema(kernel):
+    collections = kernel["meta_format"]["language_definitions"]["collections"]
+    schemas = {}
+    for role, vocabulary in (
+        ("metric", ["single-event-integer", "single-terminal-integer"]),
+        ("acceptance", ["all-metrics-within-target"]),
+    ):
+        contract = collections[f"experiment_{role}_judgments"]
+        if contract["field_types"]["operator"] != {"enum": vocabulary}:
+            raise ValueError(
+                "Independent Experiment operator vocabulary is unsupported"
+            )
+        schemas[role] = _consumer_b_protocol_contract_schema(
+            {"type": "closed-object", "closed": True, **deepcopy(contract)}
+        )
+
+    def record(fields):
+        return {
+            "type": "object",
+            "properties": fields,
+            "required": list(fields),
+            "unevaluatedProperties": False,
+        }
+
+    return record(
+        {
+            "metrics": {
+                "type": "array",
+                "minItems": 1,
+                "items": record(
+                    {
+                        "metric": {"type": "string", "minLength": 1},
+                        "judgment": schemas["metric"],
+                    }
+                ),
+            },
+            "acceptance": schemas["acceptance"],
+        }
+    )
+
+
+def _consumer_b_experiment_input_schema(kernel):
+    meta = kernel["meta_format"]
+    protocols = meta["language_definitions"]["wire_schema_protocol_roles"]
+    compose = protocols["experiment_input_structure"]
+    if (
+        set(compose)
+        != {
+            "identity",
+            "input",
+            "scenario",
+            "metric",
+            "external_facts_minimum",
+        }
+        or compose["identity"]["projection"] != "complete-input"
+        or compose["external_facts_minimum"] != 1
+    ):
+        raise ValueError("Independent Experiment composition is incomplete")
+    _consumer_b_experiment_judgment_schema(kernel)
+    trace = _consumer_b_trace_contracts(kernel)
+    event = trace["event"]["field_types"]
+    convert = _consumer_b_protocol_contract_schema
+
+    def record(fields, required=None):
+        return {
+            "type": "object",
+            "properties": fields,
+            "required": list(fields) if required is None else list(required),
+            "unevaluatedProperties": False,
+        }
+
+    def close(contract, additions):
+        fields = {key: convert(value) for key, value in contract["field_types"].items()}
+        if fields.keys() & additions.keys() or set(fields) | set(additions) != set(
+            contract["required_members"]
+        ) | set(contract.get("optional_members", [])):
+            raise ValueError("Independent Experiment field ownership is not complete")
+        fields.update(deepcopy(additions))
+        return record(fields, contract["required_members"])
+
+    target = event["schedules"]["items"]["field_types"]["state_references"]["items"][
+        "field_types"
+    ]["target"]
+    value = event["state_after"]["items"]["field_types"]["value"]
+    assignment = {
+        "type": "array",
+        "items": record({"target": convert(target), "value": convert(value)}),
+    }
+    order = event["ordering_key"]["field_types"]
+    roots = []
+    for variant, payload in (
+        ("external_input", "facts"),
+        ("root_transition", "payload"),
+    ):
+        part = deepcopy(protocols["runtime_evidence_structure"]["event_spec"][variant])
+        part["required_members"] += ["logical_time", "priority"]
+        data = deepcopy(assignment)
+        if payload == "facts":
+            data["minItems"] = compose["external_facts_minimum"]
+        roots.append(
+            close(
+                part,
+                {
+                    payload: data,
+                    "logical_time": convert(order["logical_time"]),
+                    "priority": convert(order["priority"]),
+                },
+            )
+        )
+    scenario = close(
+        compose["scenario"],
+        {
+            "assignments": assignment,
+            "event_plan": {"type": "array", "minItems": 1, "items": {"oneOf": roots}},
+            "terminal_condition": convert(
+                trace["terminal"]["field_types"]["condition"]
+            ),
+        },
+    )
+    selector = meta["language_definitions"]["collections"][
+        "experiment_metric_judgments"
+    ]["field_types"]["selector"]
+    fields = convert(selector)["properties"]
+    sample = protocols["metric_outcome_structure"]["sample"]["field_types"]
+    observed = next(
+        v
+        for v in event["observation"]["alternatives"]
+        if v.get("type") == "closed-object"
+    )["field_types"]
+    fields["window"] = record(
+        {
+            **fields["window"]["properties"],
+            "name": convert(observed["window"]["field_types"]["name"]),
+        }
+    )
+    fields["observation"] = record(
+        {
+            **fields["observation"]["properties"],
+            "name": convert(sample["provenance"]["field_types"]["observation_name"]),
+            "member": convert(sample["member"]),
+        }
+    )
+    scalar = convert(event["facts"]["items"]["field_types"]["integer"])
+    fields.update(
+        id=convert(observed["metric"]),
+        unit=convert(sample["unit"]),
+        dimensions=convert(sample["dimensions"]),
+        target=record({"minimum": scalar, "maximum": scalar}),
+    )
+    metric = close(compose["metric"], fields)
+    text = {"type": "string", "minLength": 1}
+    result = close(
+        compose["input"],
+        {
+            "model": record(
+                {
+                    "rir_semantic_identity": convert(
+                        protocols["rir_structure"]["containers"]["envelope"][
+                            "field_types"
+                        ]["semantic_identity"]
+                    ),
+                }
+            ),
+            "runtime": record({"profile": text}),
+            "seed": record(
+                {
+                    "algorithm": {
+                        "enum": [meta["runtime_program"]["named_rng"]["algorithm"]]
+                    },
+                    "value": scalar,
+                }
+            ),
+            "scenarios": {"type": "array", "minItems": 1, "items": scenario},
+            "metrics": {"type": "array", "minItems": 1, "items": metric},
+            "acceptance": record({"policy": text}),
+        },
+    )
+    result["$schema"] = meta["language_definitions"]["collections"][
+        "artifact_wire_schemas"
+    ]["field_types"]["schema"]["dialect"]
+    return _consumer_b_order_derived_schema(kernel, result)
+
+
+def _consumer_b_project_experiment_input(kernel, language):
+    schemas = [
+        row
+        for row in language["artifact_wire_schemas"]
+        if row.get("protocol_role") == "experiment-specification"
+    ]
+    if len(schemas) != 1 or "schema" in schemas[0]:
+        raise ValueError(
+            "Independent Experiment input has a raw, missing or ambiguous Schema"
+        )
+    schemas[0]["schema"] = _consumer_b_experiment_input_schema(kernel)
+
+
 def _consumer_b_runtime_output_schema(
     kernel: dict[str, Any], protocol_role: str, artifact_kind: str
 ) -> dict[str, Any]:
@@ -3031,6 +3228,7 @@ def _consumer_b_runtime_output_schema(
             raise ValueError("Runtime container duplicates the envelope owner")
         fields[member] = convert(contract)
     if protocol_role == "resolved-runtime-profile":
+        fields["experiment_judgments"] = _consumer_b_experiment_judgment_schema(kernel)
         if "runtime_profile" in fields:
             raise ValueError("Runtime profile has two structure owners")
         active = meta["runtime_profile_definition"]["active_runtime"]
@@ -12015,6 +12213,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 _consumer_b_project_trace_schema(kernel, language)
                 _consumer_b_project_runtime_evidence_schemas(kernel, language)
                 _consumer_b_project_metric_outcome_schema(kernel, language)
+                _consumer_b_project_experiment_input(kernel, language)
                 _consumer_b_project_replay_schema(kernel, language)
                 _consumer_b_project_rir_schema(kernel, language)
             except (KeyError, TypeError, ValueError, IndexError):

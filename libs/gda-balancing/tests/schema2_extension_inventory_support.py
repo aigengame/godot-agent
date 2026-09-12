@@ -27,6 +27,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_operation_relation_is_satisfied,
     _consumer_b_package_evidence_vectors_are_closed,
     _consumer_b_project_metric_outcome_schema,
+    _consumer_b_project_experiment_input,
     _consumer_b_project_publication_schema,
     _consumer_b_project_template_schema,
     _consumer_b_project_model_schema,
@@ -194,6 +195,7 @@ def _attached_language(
         _consumer_b_project_trace_schema(dict(kernel), language)
         _consumer_b_project_runtime_evidence_schemas(dict(kernel), language)
         _consumer_b_project_metric_outcome_schema(dict(kernel), language)
+        _consumer_b_project_experiment_input(dict(kernel), language)
         _consumer_b_project_replay_schema(dict(kernel), language)
         _consumer_b_project_rir_schema(dict(kernel), language)
     except (KeyError, TypeError, ValueError, IndexError) as error:
@@ -4478,6 +4480,42 @@ class _Reader:
             # have their own independent pass. Remaining values are fixed
             # structural policy, resource limits, or identity domains.
             return True
+        if role in {
+            "language.experiment_metric_judgments",
+            "language.experiment_acceptance_judgments",
+        }:
+            collection = role.removeprefix("language.")
+            contract = self.meta["language_definitions"]["collections"][collection]
+            if not _consumer_b_definition_is_closed(value, contract, self.language):
+                raise InventoryRefusal(
+                    "Experiment judgment does not close its record owner"
+                )
+            if collection == "experiment_metric_judgments":
+
+                def labels(record, shape, path):
+                    if shape.get("type") == "non-empty-string":
+                        self.occurrence(
+                            AuthorityToken(
+                                "experiment-metric-label", tuple(path), record
+                            ),
+                            pointer + "/selector/" + "/".join(path),
+                            "declaration",
+                            "/meta_format/language_definitions/collections/"
+                            + collection
+                            + "/field_types/selector",
+                        )
+                    elif shape.get("type") == "closed-object":
+                        for member, child in shape["field_types"].items():
+                            labels(record[member], child, [*path, member])
+                    else:
+                        raise InventoryRefusal(
+                            "Metric discriminator has an unowned type"
+                        )
+
+                labels(value["selector"], contract["field_types"]["selector"], [])
+            # Operators are finite Kernel vocabulary. The acceptance operator
+            # consumes the existing Metric sample and result outcome contracts.
+            return True
         if role == "language.replay_comparison_policies":
             # The independent observation-member pass closes the complete
             # policy shape and every actual check reference before this pass.
@@ -4495,6 +4533,7 @@ class _Reader:
             "package-lock",
             "capability-manifest",
             "model-explanation",
+            "experiment-specification",
             "evaluator-capability-manifest",
             "resolved-runtime-profile",
             "metric-dataset",

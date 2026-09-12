@@ -8,7 +8,6 @@ package conformance or install game.action/game.turn as maintained authorities.
 from copy import deepcopy
 from typing import Any
 
-from gda_balancing.domain.experiment import derive_scenario_program_requirements
 from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_conformance_support import _bind_package_vector_set
 from schema2_bootstrap_production_support import _reidentify_graph_root
@@ -801,13 +800,6 @@ def specification(
         canceled_ids={"type": {"package": A, "id": "PendingIds"}, "value": []},
         status={"type": {"package": A, "id": "Outcome"}, "value": "pending"},
     )
-    reqs = [
-        derive_scenario_program_requirements(rir, e, runtime_profile, "splitmix64-v1")[
-            0
-        ]
-        for e in dict.fromkeys(entry for entry, _facts in choices)
-    ]
-    requirements = {k: sorted({x for r in reqs for x in r[k]}) for k in reqs[0]}
     metric = {
         "id": "resolved-power",
         "kind": "scalar",
@@ -826,14 +818,12 @@ def specification(
         "target": {"minimum": 0 if variant else 7, "maximum": 0 if variant else 7},
     }
     return {
-        "schema_version": "2.0.0",
         "id": "example.priority-window.variant"
         if variant
         else "example.priority-window.baseline",
         "model": {"rir_semantic_identity": rir["semantic_identity"]},
         "runtime": {
             "profile": runtime_profile,
-            "required_evaluator": requirements,
         },
         "seed": {"algorithm": "splitmix64-v1", "value": 1},
         "scenarios": [
@@ -841,7 +831,6 @@ def specification(
                 "id": "priority",
                 "event_plan": events,
                 "assignments": [value(k, v) for k, v in initial.items()],
-                "named_streams": [],
                 "terminal_condition": {"kind": "queue-drained"},
             }
         ],

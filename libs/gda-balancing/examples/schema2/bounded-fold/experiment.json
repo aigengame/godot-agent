@@ -1,41 +1,10 @@
 {
-  "schema_version": "2.0.0",
   "id": "example.bounded-fold",
   "model": {
     "rir_semantic_identity": "sha256:cc898ce62f64df33c397c62b022e556d4ec3411ed5ab99bb126a371d8cefd143"
   },
   "runtime": {
-    "profile": "standard.exact-int64-event-v1",
-    "required_evaluator": {
-      "operation_kinds": [
-        "event-program",
-        "pure-expression"
-      ],
-      "instruction_nodes": [
-        "add",
-        "constant",
-        "fold",
-        "if",
-        "less-than",
-        "list-append",
-        "multiply",
-        "write-state"
-      ],
-      "effects": [
-        "event.commit",
-        "metric.observe",
-        "snapshot.commit"
-      ],
-      "numeric_policies": [
-        "exact-int64"
-      ],
-      "rng_algorithms": [
-        "splitmix64-v1"
-      ],
-      "runtime_profiles": [
-        "standard.exact-int64-event-v1"
-      ]
-    }
+    "profile": "standard.exact-int64-event-v1"
   },
   "seed": {
     "algorithm": "splitmix64-v1",
@@ -105,7 +74,6 @@
           "value": 0
         }
       ],
-      "named_streams": [],
       "terminal_condition": {
         "kind": "event-count",
         "maximum": 1

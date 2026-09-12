@@ -7815,23 +7815,10 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     context = model_compilation_module.authority_context_for_checked(checked)
     program = admit_rir(rir, authority_context=context)
     experiment_value = {
-        "schema_version": "2.0.0",
         "id": "example.economy.purchase",
         "model": {"rir_semantic_identity": program.semantic_identity},
         "runtime": {
             "profile": "standard.exact-int64-event-v1",
-            "required_evaluator": {
-                "operation_kinds": ["event-program"],
-                "instruction_nodes": ["copy", "subtract-state"],
-                "effects": [
-                    "event.commit",
-                    "metric.observe",
-                    "snapshot.commit",
-                ],
-                "numeric_policies": ["exact-int64"],
-                "rng_algorithms": ["splitmix64-v1"],
-                "runtime_profiles": ["standard.exact-int64-event-v1"],
-            },
         },
         "seed": {"algorithm": "splitmix64-v1", "value": 20260727},
         "scenarios": [
@@ -7865,7 +7852,6 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
                         "value": 25,
                     },
                 ],
-                "named_streams": [],
                 "terminal_condition": {"kind": "event-count", "maximum": 1},
             }
         ],

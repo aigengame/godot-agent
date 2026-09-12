@@ -867,37 +867,10 @@ def _experiment(
 ) -> dict[str, Any]:
     rir = _member(build_receipt, "rir-semantic-payload")
     return {
-        "schema_version": "2.0.0",
         "id": "example.rpg-combat-cast.one-action",
         "model": {"rir_semantic_identity": rir["semantic_identity"]},
         "runtime": {
             "profile": "standard.exact-int64-event-v1",
-            "required_evaluator": {
-                "operation_kinds": ["event-fragment", "event-program"],
-                "instruction_nodes": [
-                    "add",
-                    "constant",
-                    "copy",
-                    "draw",
-                    "if",
-                    "invoke",
-                    "less-than",
-                    "less-than-or-equal",
-                    "multiply",
-                    "precondition-greater-than-or-equal",
-                    "subtract",
-                    "subtract-state",
-                ],
-                "effects": [
-                    "event.commit",
-                    "metric.observe",
-                    "rng.named-stream",
-                    "snapshot.commit",
-                ],
-                "numeric_policies": ["exact-int64"],
-                "rng_algorithms": ["splitmix64-v1"],
-                "runtime_profiles": ["standard.exact-int64-event-v1"],
-            },
         },
         "seed": {"algorithm": "splitmix64-v1", "value": 20260726},
         "scenarios": [
@@ -932,7 +905,6 @@ def _experiment(
                         ("target_health", 100),
                     )
                 ],
-                "named_streams": ["critical", "hit"],
                 "terminal_condition": {"kind": "event-count", "maximum": 1},
             }
         ],
@@ -5722,7 +5694,6 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
                     ("target_health", 100),
                 )
             ],
-            "named_streams": ["critical", "hit"],
             "terminal_condition": {"kind": "event-count", "maximum": 1},
         }
     ]

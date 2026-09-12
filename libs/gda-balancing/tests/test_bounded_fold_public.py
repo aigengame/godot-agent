@@ -45,28 +45,10 @@ def _specification(
         "ordered_value": 0,
     }
     return {
-        "schema_version": "2.0.0",
         "id": "example.bounded-fold",
         "model": {"rir_semantic_identity": rir["semantic_identity"]},
         "runtime": {
             "profile": "standard.exact-int64-event-v1",
-            "required_evaluator": {
-                "operation_kinds": ["event-program", "pure-expression"],
-                "instruction_nodes": [
-                    "add",
-                    "constant",
-                    "fold",
-                    "if",
-                    "less-than",
-                    "list-append",
-                    "multiply",
-                    "write-state",
-                ],
-                "effects": ["event.commit", "metric.observe", "snapshot.commit"],
-                "numeric_policies": ["exact-int64"],
-                "rng_algorithms": ["splitmix64-v1"],
-                "runtime_profiles": ["standard.exact-int64-event-v1"],
-            },
         },
         "seed": {"algorithm": "splitmix64-v1", "value": 20260907},
         "scenarios": [
@@ -93,7 +75,6 @@ def _specification(
                     }
                     for name, value in values.items()
                 ],
-                "named_streams": [],
                 "terminal_condition": {"kind": "event-count", "maximum": 1},
             }
         ],

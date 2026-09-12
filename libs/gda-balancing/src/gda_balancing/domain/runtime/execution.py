@@ -81,6 +81,11 @@ from gda_balancing.domain.structured_values import (
     typed_envelope_members,
 )
 
+from gda_balancing.domain.experiment_judgments import (
+    acceptance_output_role,
+    acceptance_result,
+)
+
 
 @dataclass(frozen=True)
 class EvaluationArtifacts:
@@ -474,7 +479,7 @@ def _check_evaluator_requirements(
         return _refusal(
             reason=_reason_for_signal(checked, "capability-unsupported", "resolution"),
             identity=checked.content_identity,
-            pointer=f"/runtime/required_evaluator/{member}",
+            pointer="/runtime/profile",
             message=f"Evaluator does not provide every required {member}",
         )
     return None
@@ -2625,13 +2630,16 @@ def evaluate_prepared_experiment(
         )
 
     samples: list[dict[str, JsonValue]] = []
-    for metric in checked.value["metrics"]:
+    for metric, selected_judgment in zip(
+        checked.value["metrics"], checked.experiment_judgments["metrics"], strict=True
+    ):
+        metric_operator = selected_judgment["judgment"]["operator"]
         metric_identity = _metric_definition_identity(metric)
         observation = metric["observation"]
         matched_replications = 0
         for scenario in checked.value["scenarios"]:
             matched: list[int] = []
-            if observation["source"] == "event":
+            if metric_operator == "single-event-integer":
                 for event, _event_state, outcome in scenario_event_outputs[
                     scenario["id"]
                 ]:
@@ -2645,7 +2653,7 @@ def evaluate_prepared_experiment(
                     value = facts.get(observation["member"])
                     if isinstance(value, int):
                         matched.append(value)
-            else:
+            elif metric_operator == "single-terminal-integer":
                 expected_name = observation["name"]
                 if expected_name not in {"terminal", f"{scenario['id']}:terminal"}:
                     continue
@@ -2654,6 +2662,8 @@ def evaluate_prepared_experiment(
                 )
                 if isinstance(value, int):
                     matched.append(value)
+            else:
+                raise ValueError("Unsupported admitted Metric operator")
             if len(matched) != 1:
                 return _refusal(
                     reason=_reason_for_signal(
@@ -2758,54 +2768,32 @@ def evaluate_prepared_experiment(
             },
         ),
     )
-    failed_metrics = tuple(
-        cast(str, sample["metric"])
-        for sample in samples
-        if sample["within_target"] is False
+    accepted, failed = acceptance_result(
+        checked.experiment_judgments["acceptance"], samples
     )
-    if failed_metrics:
-        primary = _artifact(
-            checked,
-            "experiment-verdict",
-            cast(
-                dict[str, JsonValue],
-                {
-                    "experiment_identity": checked.content_identity,
-                    "resolved_runtime_profile_identity": (
-                        resolved_runtime.content_identity
-                    ),
-                    "event_trace_identity": trace.content_identity,
-                    "snapshot_series_identity": snapshot_series.content_identity,
-                    "metric_dataset_identity": metric_dataset.content_identity,
-                    "root_event_map": root_event_map,
-                    "terminal_statuses": terminal_statuses,
-                    "outcome": "rejected",
-                    "failed_metrics": list(failed_metrics),
-                },
-            ),
-        )
-        primary_name = "experiment-verdict"
-    else:
-        primary = _artifact(
-            checked,
-            "evaluation-run",
-            cast(
-                dict[str, JsonValue],
-                {
-                    "experiment_identity": checked.content_identity,
-                    "resolved_runtime_profile_identity": (
-                        resolved_runtime.content_identity
-                    ),
-                    "event_trace_identity": trace.content_identity,
-                    "snapshot_series_identity": snapshot_series.content_identity,
-                    "metric_dataset_identity": metric_dataset.content_identity,
-                    "root_event_map": root_event_map,
-                    "terminal_statuses": terminal_statuses,
-                    "outcome": "accepted",
-                },
-            ),
-        )
-        primary_name = "evaluation-run"
+    primary_name = acceptance_output_role(checked.output_contracts, accepted)
+    failed_metrics = tuple(failed)
+    status = checked.output_contracts[primary_name].schema["properties"]["outcome"][
+        "const"
+    ]
+    primary = _artifact(
+        checked,
+        primary_name,
+        cast(
+            dict[str, JsonValue],
+            {
+                "experiment_identity": checked.content_identity,
+                "resolved_runtime_profile_identity": resolved_runtime.content_identity,
+                "event_trace_identity": trace.content_identity,
+                "snapshot_series_identity": snapshot_series.content_identity,
+                "metric_dataset_identity": metric_dataset.content_identity,
+                "root_event_map": root_event_map,
+                "terminal_statuses": terminal_statuses,
+                "outcome": status,
+                **({"failed_metrics": list(failed_metrics)} if failed_metrics else {}),
+            },
+        ),
+    )
     return EvaluationArtifacts(
         members={
             primary_name: primary,

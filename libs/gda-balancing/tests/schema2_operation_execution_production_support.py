@@ -13,6 +13,10 @@ from gda_balancing.domain.experiment import (
     CheckedExperiment,
     derive_scenario_program_requirements,
 )
+from gda_balancing.domain.experiment_judgments import (
+    select_acceptance_judgment,
+    select_metric_judgment,
+)
 from gda_balancing.domain.formula.inference import (
     infer_formula_operation_local_contract,
 )
@@ -622,7 +626,6 @@ def _checked_vector_experiment(
     program = resolved_harness.program
     result_name = resolved_harness.result_name
     requirements = resolved_harness.requirements
-    named_streams = resolved_harness.named_streams
     entrypoint_id = resolved_harness.entrypoint_id
     profile = cast(str, operation["runtime_profile"])
     rng_algorithm = cast(
@@ -652,10 +655,11 @@ def _checked_vector_experiment(
         }
     )
     specification = {
-        "schema_version": "2.0.0",
         "id": f"operation-execution.{vector['id']}",
         "model": {"rir_semantic_identity": program.semantic_identity},
-        "runtime": {"profile": profile, "required_evaluator": requirements},
+        "runtime": {
+            "profile": profile,
+        },
         "seed": {
             "algorithm": rng_algorithm,
             "value": vector["input"]["seed"],
@@ -674,7 +678,6 @@ def _checked_vector_experiment(
                         "payload": [],
                     }
                 ],
-                "named_streams": named_streams,
                 "terminal_condition": {"kind": "event-count", "maximum": 1},
             }
         ],
@@ -712,6 +715,22 @@ def _checked_vector_experiment(
             language_bundle=cast(dict[str, Any], context.language_bundle),
             rir=program.artifact(),
             authority_context=context,
+            required_evaluator=requirements,
+            experiment_judgments={
+                "metrics": [
+                    {
+                        "metric": row["id"],
+                        "judgment": select_metric_judgment(
+                            row, context.language_bundle["language"]
+                        ),
+                    }
+                    for row in specification["metrics"]
+                ],
+                "acceptance": select_acceptance_judgment(
+                    specification["acceptance"]["policy"],
+                    context.language_bundle["language"],
+                ),
+            },
         ),
         result_name,
     )

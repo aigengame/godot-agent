@@ -1,52 +1,10 @@
 {
-  "schema_version": "2.0.0",
   "id": "example.rpg-combat-cast.multi-time-companion",
   "model": {
     "rir_semantic_identity": "sha256:de47109c873a562818ea0f3bb2a53daa3e47f3406796332fb38a2079e942dd58"
   },
   "runtime": {
-    "profile": "standard.exact-int64-event-v1",
-    "required_evaluator": {
-      "operation_kinds": [
-        "event-fragment",
-        "event-program"
-      ],
-      "instruction_nodes": [
-        "add",
-        "cancel",
-        "constant",
-        "copy",
-        "draw",
-        "guard-block",
-        "if",
-        "invoke",
-        "less-than",
-        "less-than-or-equal",
-        "multiply",
-        "precondition-greater-than-or-equal",
-        "require",
-        "schedule",
-        "subtract",
-        "subtract-state"
-      ],
-      "effects": [
-        "event.cancel",
-        "event.commit",
-        "event.schedule",
-        "metric.observe",
-        "rng.named-stream",
-        "snapshot.commit"
-      ],
-      "numeric_policies": [
-        "exact-int64"
-      ],
-      "rng_algorithms": [
-        "splitmix64-v1"
-      ],
-      "runtime_profiles": [
-        "standard.exact-int64-event-v1"
-      ]
-    }
+    "profile": "standard.exact-int64-event-v1"
   },
   "seed": {
     "algorithm": "splitmix64-v1",
@@ -55,10 +13,6 @@
   "scenarios": [
     {
       "id": "multi-time-player-casts",
-      "named_streams": [
-        "critical",
-        "hit"
-      ],
       "terminal_condition": {
         "kind": "queue-drained"
       },

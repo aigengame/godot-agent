@@ -78,7 +78,43 @@ def _build_identity():
     return _reference_content_identity("evaluator-build-v1", sources)
 
 
-def _supported_shape(specification, rir):
+def _reference_experiment_judgments(context, specification):
+    language = context.language_bundle["language"]
+    selected = []
+    for metric in specification["metrics"]:
+        discriminator = {
+            **{
+                name: deepcopy(metric[name])
+                for name in (
+                    "kind",
+                    "aggregation",
+                    "replication",
+                    "missing",
+                    "censoring",
+                )
+            },
+            "observation": {"source": metric["observation"]["source"]},
+            "window": {"kind": metric["window"]["kind"]},
+        }
+        definitions = [
+            row
+            for row in language["experiment_metric_judgments"]
+            if row["selector"] == discriminator
+        ]
+        if len(definitions) != 1:
+            raise ValueError("Independent Metric selection is not unique")
+        selected.append({"metric": metric["id"], "judgment": deepcopy(definitions[0])})
+    acceptance = [
+        row
+        for row in language["experiment_acceptance_judgments"]
+        if row["id"] == specification["acceptance"]["policy"]
+    ]
+    if len(acceptance) != 1:
+        raise ValueError("Independent acceptance selection is not unique")
+    return {"metrics": selected, "acceptance": deepcopy(acceptance[0])}
+
+
+def _supported_shape(specification, rir, judgments):
     if len(specification["scenarios"]) != 1:
         raise IndependentRuntimeUnsupported("this checkpoint supports one Scenario")
     if rir["initialization_programs"] or rir["formula_bindings"]:
@@ -86,10 +122,6 @@ def _supported_shape(specification, rir):
             "Formula lifecycle execution is not implemented"
         )
     scenario = specification["scenarios"][0]
-    if scenario["named_streams"]:
-        raise IndependentRuntimeUnsupported(
-            "Scenario RNG continuation is not implemented"
-        )
     if any(event.get("payload") for event in scenario["event_plan"]):
         raise IndependentRuntimeUnsupported("transition payloads are not implemented")
     if scenario["terminal_condition"]["kind"] not in {"queue-drained", "event-count"}:
@@ -99,17 +131,14 @@ def _supported_shape(specification, rir):
         raise IndependentRuntimeUnsupported(
             "ambiguous display names are not implemented"
         )
-    for metric in specification["metrics"]:
+    for metric, selected in zip(
+        specification["metrics"], judgments["metrics"], strict=True
+    ):
         if not (
-            metric["kind"] == "scalar"
-            and metric["aggregation"] == "single"
-            and metric["replication"] == {"unit": "scenario"}
+            selected["judgment"]["operator"] == "single-terminal-integer"
             and metric["dimensions"] == []
-            and metric["window"] == {"kind": "scenario", "name": "terminal-event"}
-            and metric["observation"]["source"] == "snapshot"
+            and metric["window"]["name"] == "terminal-event"
             and metric["observation"]["name"] == "terminal"
-            and metric["missing"] == "refuse"
-            and metric["censoring"] == "none"
         ):
             raise IndependentRuntimeUnsupported("unsupported Metric projection")
     runtime = rir["selected_semantics"]["execution_laws"]["runtime_program"]
@@ -143,9 +172,12 @@ def _supported_shape(specification, rir):
     entrypoints = {row["id"]: row for row in rir["entrypoints"]}
     reachable = set()
     supported_effects = set()
+    required_nodes = set()
+    root_operations = []
 
     def instructions(body):
         for instruction in body:
+            required_nodes.add(instruction["node"])
             operator = operators[instruction["node"]]
             if operator not in allowed:
                 raise IndependentRuntimeUnsupported(
@@ -171,8 +203,21 @@ def _supported_shape(specification, rir):
 
     for event in scenario["event_plan"]:
         if event["kind"] == "transition-invocation":
-            visit(entrypoints[event["entrypoint"]]["operation"])
-    required = specification["runtime"]["required_evaluator"]
+            root = entrypoints[event["entrypoint"]]["operation"]
+            root_operations.append(operations[(root["package"], root["id"])])
+            visit(root)
+    required = {
+        "operation_kinds": sorted(
+            {operations[key]["operation_kind"] for key in reachable}
+        ),
+        "instruction_nodes": sorted(required_nodes),
+        "effects": sorted(
+            {effect for row in root_operations for effect in row["effects"]}
+        ),
+        "numeric_policies": sorted({row["numeric_policy"] for row in root_operations}),
+        "rng_algorithms": [specification["seed"]["algorithm"]],
+        "runtime_profiles": [specification["runtime"]["profile"]],
+    }
     missing = [
         node
         for node in required["instruction_nodes"]
@@ -212,7 +257,7 @@ def _supported_shape(specification, rir):
             raise IndependentRuntimeUnsupported(
                 f"unimplemented evaluator requirement: {member}"
             )
-    return available
+    return available, required
 
 
 def reference_runtime_artifacts(
@@ -226,7 +271,8 @@ def reference_runtime_artifacts(
     ).validate(specification)
     if specification["model"] != {"rir_semantic_identity": rir["semantic_identity"]}:
         raise ValueError("Experiment selects a different semantic program")
-    available = _supported_shape(specification, rir)
+    judgments = _reference_experiment_judgments(context, specification)
+    available, _required = _supported_shape(specification, rir, judgments)
     semantic = rir["selected_semantics"]
     runtime = semantic["execution_laws"]["runtime_program"]
     scheduler = runtime["scheduler"]
@@ -238,7 +284,10 @@ def reference_runtime_artifacts(
     )
     bounds = profile["resource_bounds"]
     experiment_identity = _reference_content_identity(
-        "experiment-specification-v2", specification
+        context.kernel["meta_format"]["language_definitions"][
+            "wire_schema_protocol_roles"
+        ]["experiment_input_structure"]["identity"]["domain"],
+        specification,
     )
     profile_domain = context.kernel["meta_format"]["runtime_profile_definition"][
         "domain"
@@ -253,6 +302,7 @@ def reference_runtime_artifacts(
                 profile_domain, profile
             ),
             "runtime_profile": deepcopy(profile),
+            "experiment_judgments": judgments,
         },
     )
     binding = {
@@ -823,8 +873,24 @@ def reference_runtime_artifacts(
             "samples": samples,
         },
     )
+    acceptance = judgments["acceptance"]
+    if (
+        acceptance["operator"] != "all-metrics-within-target"
+        or not samples
+        or any(type(row["within_target"]) is not bool for row in samples)
+    ):
+        raise ValueError("Independent acceptance has unsupported inputs or operator")
     failed = [row["metric"] for row in samples if not row["within_target"]]
-    primary_name = "experiment-verdict" if failed else "evaluation-run"
+    outcome = "rejected" if failed else "accepted"
+    outcome_roles = [
+        definition["protocol_role"]
+        for definition in context.language_bundle["language"]["artifact_wire_schemas"]
+        if definition.get("schema", {}).get("properties", {}).get("outcome")
+        == {"const": outcome}
+    ]
+    if len(outcome_roles) != 1:
+        raise ValueError("Independent acceptance has no unique outcome contract")
+    primary_name = outcome_roles[0]
     primary = _reference_artifact(
         context,
         primary_name,
@@ -834,7 +900,7 @@ def reference_runtime_artifacts(
             "snapshot_series_identity": series["content_identity"],
             "metric_dataset_identity": dataset["content_identity"],
             "terminal_statuses": statuses,
-            "outcome": "rejected" if failed else "accepted",
+            "outcome": _schema(context, primary_name)["properties"]["outcome"]["const"],
             **({"failed_metrics": failed} if failed else {}),
         },
     )
@@ -896,9 +962,11 @@ def reference_admits_runtime_artifacts(context, rir, specification, artifacts):
             if name != "evaluator-capability-manifest" and actual != expected[name]:
                 return False
         available = artifacts["evaluator-capability-manifest"]
+        _, required = _supported_shape(
+            specification, rir, _reference_experiment_judgments(context, specification)
+        )
         return all(
-            set(values) <= set(available[key])
-            for key, values in specification["runtime"]["required_evaluator"].items()
+            set(values) <= set(available[key]) for key, values in required.items()
         )
     except (KeyError, ValueError, TypeError, StopIteration, jsonschema.ValidationError):
         return False

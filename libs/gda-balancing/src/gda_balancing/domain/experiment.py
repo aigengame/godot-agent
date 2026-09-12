@@ -60,7 +60,10 @@ from gda_balancing.domain.structured_values import (
     typed_envelope_members,
 )
 
-_EXPERIMENT_IDENTITY_DOMAIN = "experiment-specification-v2"
+from gda_balancing.domain.experiment_judgments import (
+    select_acceptance_judgment,
+    select_metric_judgment,
+)
 
 _EXPERIMENT_CHECK_REFUSAL_REASONS = (
     "model.reason.source-too-large",
@@ -102,6 +105,8 @@ class CheckedExperiment:
     kernel: dict[str, Any]
     language_bundle: dict[str, Any]
     rir: dict[str, Any]
+    required_evaluator: Mapping[str, Any]
+    experiment_judgments: Mapping[str, Any]
     authority_context: AdmittedAuthorityContext | None = None
     output_contracts: Mapping[str, ArtifactContract] = field(init=False, repr=False)
     runtime_profile_identity_contract: dict[str, Any] = field(init=False, repr=False)
@@ -498,9 +503,7 @@ def _check_experiment_value(
     """Apply Experiment semantics after transport-specific ingestion."""
     kernel = context.kernel
     language_bundle = context.language_bundle
-    experiment_identity = content_identity(
-        _EXPERIMENT_IDENTITY_DOMAIN, cast(JsonValue, value)
-    )
+    experiment_identity = experiment_input_identity(value, kernel=kernel)
     schema_error = _first_schema_error(value, _experiment_schema(language_bundle))
     if schema_error is not None:
         return _refusal(
@@ -528,7 +531,6 @@ def _check_experiment_value(
         event_plan = _scenario_root_events(scenario)
         if (
             not _unique_canonical_rows(scenario["assignments"], "target")
-            or len(scenario["named_streams"]) != len(set(scenario["named_streams"]))
             or not _unique_rows(event_plan, "root_event_ref")
             or any(
                 not _unique_canonical_rows(event["facts"], "target")
@@ -553,9 +555,36 @@ def _check_experiment_value(
                 ),
                 message=(
                     "The deterministic-event-v1 slice requires unique assignments, "
-                    "unique streams, input facts and root Event references"
+                    "unique input facts and root Event references"
                 ),
             )
+    metric_judgments = []
+    for metric_index, metric in enumerate(value["metrics"]):
+        try:
+            judgment = select_metric_judgment(metric, language_bundle["language"])
+        except ValueError as error:
+            return _refusal(
+                reason=reason_by_id(
+                    language_bundle, "model.reason.resolution-binding-mismatch"
+                ),
+                identity=experiment_identity,
+                pointer=f"/metrics/{metric_index}",
+                message=str(error),
+            )
+        metric_judgments.append({"metric": metric["id"], "judgment": judgment})
+    try:
+        acceptance = select_acceptance_judgment(
+            value["acceptance"]["policy"], language_bundle["language"]
+        )
+    except ValueError as error:
+        return _refusal(
+            reason=reason_by_id(
+                language_bundle, "model.reason.resolution-binding-mismatch"
+            ),
+            identity=experiment_identity,
+            pointer="/acceptance/policy",
+            message=str(error),
+        )
     for metric_index, metric in enumerate(value["metrics"]):
         if metric["target"]["minimum"] > metric["target"]["maximum"]:
             return _refusal(
@@ -630,7 +659,6 @@ def _check_experiment_value(
     required_rng_algorithms: set[str] = set()
     for scenario_index, scenario in enumerate(value["scenarios"]):
         selected_entrypoints: list[dict[str, Any]] = []
-        required_streams: set[str] = set()
         for event_index, event in enumerate(_scenario_root_events(scenario)):
             if event["kind"] != "transition-invocation":
                 continue
@@ -659,7 +687,7 @@ def _check_experiment_value(
                     ),
                 )
             try:
-                requirements, named_streams = derive_scenario_program_requirements(
+                requirements, _ = derive_scenario_program_requirements(
                     rir,
                     event["entrypoint"],
                     required_profile,
@@ -680,7 +708,6 @@ def _check_experiment_value(
             required_effects.update(requirements["effects"])
             required_numeric_policies.update(requirements["numeric_policies"])
             required_rng_algorithms.update(requirements["rng_algorithms"])
-            required_streams.update(named_streams)
             payload_contract = cast(
                 dict[str, Any], entrypoint["event_local_payload_contract"]
             )
@@ -852,15 +879,6 @@ def _check_experiment_value(
                 pointer=f"/scenarios/{scenario_index}/assignments",
                 message="Scenario assignments do not close the Scenario Input Contract",
             )
-        if required_streams != set(scenario["named_streams"]):
-            return _refusal(
-                reason=reason_by_id(
-                    language_bundle, "model.reason.source-contract-mismatch"
-                ),
-                identity=experiment_identity,
-                pointer=f"/scenarios/{scenario_index}/named_streams",
-                message="Scenario Named streams do not exactly close operation draws",
-            )
         external_fact_targets = [
             target
             for entrypoint in selected_entrypoints
@@ -949,20 +967,6 @@ def _check_experiment_value(
         "rng_algorithms": required_rng_algorithms,
         "runtime_profiles": {required_profile},
     }
-    required_evaluator = value["runtime"]["required_evaluator"]
-    for member, expected in expected_requirements.items():
-        if set(required_evaluator[member]) != expected:
-            return _refusal(
-                reason=reason_by_id(
-                    language_bundle, "model.reason.resolution-binding-mismatch"
-                ),
-                identity=experiment_identity,
-                pointer=f"/runtime/required_evaluator/{member}",
-                message=(
-                    f"Experiment required {member} do not exactly close "
-                    "the selected program"
-                ),
-            )
     return CheckedExperiment(
         value=value,
         content_identity=experiment_identity,
@@ -970,12 +974,23 @@ def _check_experiment_value(
         language_bundle=language_bundle,
         rir=rir,
         authority_context=context,
+        required_evaluator={
+            member: sorted(values) for member, values in expected_requirements.items()
+        },
+        experiment_judgments={"metrics": metric_judgments, "acceptance": acceptance},
     )
 
 
-def experiment_input_identity(value: dict[str, Any]) -> str:
+def experiment_input_identity(
+    value: dict[str, Any], *, kernel: Mapping[str, Any]
+) -> str:
     """Bind publication retries to the exact Experiment Specification."""
-    return content_identity(_EXPERIMENT_IDENTITY_DOMAIN, cast(JsonValue, value))
+    law = kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
+        "experiment_input_structure"
+    ]["identity"]
+    if law["projection"] != "complete-input":
+        raise ValueError("Unsupported Experiment identity projection")
+    return content_identity(law["domain"], cast(JsonValue, value))
 
 
 def canonical_experiment_bytes(value: dict[str, Any]) -> bytes:

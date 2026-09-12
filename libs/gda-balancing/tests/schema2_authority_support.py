@@ -267,6 +267,18 @@ def refresh_package_semantic_closures(
                         projected.get("semantic_identity_projection")
                     ) == canonical_bytes(semantic_projection):
                         del projected["semantic_identity_projection"]
+                if (
+                    path == "language.artifact_wire_schemas"
+                    and projected.get("protocol_role") == "experiment-specification"
+                ):
+                    from gda_balancing.domain.authority.experiment_projection import (
+                        experiment_input_schema,
+                    )
+
+                    if canonical_bytes(projected.get("schema")) == canonical_bytes(
+                        experiment_input_schema(kernel)
+                    ):
+                        del projected["schema"]
                 selected.append(projected)
             updates.append((entry, selected))
     for entry, definitions in updates:

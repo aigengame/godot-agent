@@ -1,5 +1,4 @@
 {
-  "schema_version": "2.0.0",
   "id": "example.rpg-periodic-effect.snapshot",
   "model": {
     "rir_semantic_identity": "sha256:d5e53250f6400c951053ec7ea1bbcb9f1c125788b6cf830f9e8a590d4ec81c91"
@@ -9,47 +8,11 @@
     "value": 20260804
   },
   "runtime": {
-    "profile": "standard.exact-int64-event-v1",
-    "required_evaluator": {
-      "operation_kinds": [
-        "event-fragment",
-        "event-program"
-      ],
-      "instruction_nodes": [
-        "constant",
-        "copy",
-        "draw",
-        "if",
-        "less-than",
-        "schedule",
-        "subtract",
-        "subtract-state",
-        "write-state"
-      ],
-      "effects": [
-        "event.commit",
-        "event.schedule",
-        "metric.observe",
-        "rng.named-stream",
-        "snapshot.commit"
-      ],
-      "numeric_policies": [
-        "exact-int64"
-      ],
-      "rng_algorithms": [
-        "splitmix64-v1"
-      ],
-      "runtime_profiles": [
-        "standard.exact-int64-event-v1"
-      ]
-    }
+    "profile": "standard.exact-int64-event-v1"
   },
   "scenarios": [
     {
       "id": "snapshot-periodic",
-      "named_streams": [
-        "effect-instance"
-      ],
       "terminal_condition": {
         "kind": "queue-drained"
       },

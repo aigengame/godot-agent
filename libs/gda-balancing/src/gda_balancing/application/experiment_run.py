@@ -22,7 +22,6 @@ from gda_balancing.application.experiment_execution import (
 from gda_balancing.application.experiment_inputs import check_experiment_inputs
 from gda_balancing.domain.experiment import (
     CheckedExperiment,
-    experiment_input_identity,
 )
 from gda_balancing.domain.publication import (
     publication_authentication_key,
@@ -77,7 +76,7 @@ def run_experiment(
     runtime_refusal_artifact_set = resolve_artifact_set(
         checked.language_bundle, runtime_refusal_artifact_set
     )
-    input_identity = experiment_input_identity(checked.value)
+    input_identity = checked.content_identity
     authentication_key = publication_authentication_key()
     publication_contracts = select_publication_contracts(checked.language_bundle)
     recovered = recover_committed_artifact_set(

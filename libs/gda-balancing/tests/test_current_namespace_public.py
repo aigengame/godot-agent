@@ -435,25 +435,10 @@ def _members(receipt: dict[str, Any]) -> dict[str, Any]:
 
 def _experiment(rir: dict[str, Any]) -> dict[str, Any]:
     return {
-        "schema_version": "2.0.0",
         "id": "example.namespace-ownership",
         "model": {"rir_semantic_identity": rir["semantic_identity"]},
         "runtime": {
             "profile": "standard.exact-int64-event-v1",
-            "required_evaluator": {
-                "operation_kinds": ["event-program"],
-                "instruction_nodes": [
-                    "add",
-                    "copy",
-                    "invoke",
-                    "subtract-state",
-                    "write-state",
-                ],
-                "effects": deepcopy(_EFFECTS),
-                "numeric_policies": ["exact-int64"],
-                "rng_algorithms": ["splitmix64-v1"],
-                "runtime_profiles": ["standard.exact-int64-event-v1"],
-            },
         },
         "seed": {"algorithm": "splitmix64-v1", "value": 20260727},
         "scenarios": [
@@ -481,7 +466,6 @@ def _experiment(rir: dict[str, Any]) -> dict[str, Any]:
                     }
                     for name, value in (("account_balance", 100), ("price", 25))
                 ],
-                "named_streams": [],
                 "terminal_condition": {"kind": "event-count", "maximum": 2},
             }
         ],

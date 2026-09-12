@@ -1,43 +1,10 @@
 {
-  "schema_version": "2.0.0",
   "id": "example.rpg-stat-composition.golden-attack",
   "model": {
     "rir_semantic_identity": "sha256:5eeec5ebc618a529a98c01992c4c9fc67bece9dc12ca8388116ad9f6f93b0ba6"
   },
   "runtime": {
-    "profile": "standard.exact-int64-event-v1",
-    "required_evaluator": {
-      "operation_kinds": [
-        "event-fragment"
-      ],
-      "instruction_nodes": [
-        "add",
-        "constant",
-        "copy",
-        "floor-divide",
-        "if",
-        "less-than",
-        "less-than-or-equal",
-        "multiply",
-        "subtract",
-        "subtract-state"
-      ],
-      "effects": [
-        "event.commit",
-        "metric.observe",
-        "rng.named-stream",
-        "snapshot.commit"
-      ],
-      "numeric_policies": [
-        "exact-int64"
-      ],
-      "rng_algorithms": [
-        "splitmix64-v1"
-      ],
-      "runtime_profiles": [
-        "standard.exact-int64-event-v1"
-      ]
-    }
+    "profile": "standard.exact-int64-event-v1"
   },
   "seed": {
     "algorithm": "splitmix64-v1",
@@ -122,7 +89,6 @@
           "value": 120
         }
       ],
-      "named_streams": [],
       "terminal_condition": {
         "kind": "queue-drained"
       }
