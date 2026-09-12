@@ -54,9 +54,9 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_fact_is_closed,
     _consumer_b_operation_composition_subjects,
     _consumer_b_project_source,
-    _consumer_b_project_source_selector,
     _consumer_b_source_fact_transport_is_supported,
     _consumer_b_source_role_member_paths,
+    _consumer_b_source_semantic_selector,
 )
 from schema2_formula_conformance_support import normalize_source_body
 
@@ -557,6 +557,19 @@ def _reference_check_source(
         key=lambda item: tuple(str(part) for part in item.absolute_path),
     )
     reasons = {item["id"]: item for item in language["reasons"]}
+    check_selectors = [
+        (
+            check,
+            _consumer_b_source_semantic_selector(
+                source_schema,
+                [
+                    *check.get("semantic_scope_selector", []),
+                    *check["semantic_selector"],
+                ],
+            ),
+        )
+        for check in language["model_checks"]
+    ]
     if schema_errors:
         symbol_collection_paths = _consumer_b_source_role_member_paths(
             source_schema, "module", "symbols"
@@ -631,7 +644,7 @@ def _reference_check_source(
                 else [schema_error]
             )
             for preferred in selected_errors:
-                paths = [tuple(str(part) for part in preferred.absolute_path)]
+                paths = [tuple(preferred.absolute_path)]
                 if preferred.validator == "required" and isinstance(
                     preferred.instance, dict
                 ):
@@ -664,12 +677,11 @@ def _reference_check_source(
                         "type",
                         "unevaluatedProperties",
                     }:
-                        for check in language["model_checks"]:
-                            selector = tuple(
-                                [*check.get("scope_selector", []), *check["selector"]]
-                            )
+                        for check, authored_selector in check_selectors:
+                            selector = tuple(authored_selector)
                             if len(selector) == len(path) and all(
-                                expected == "*" or expected == actual
+                                (expected is None and isinstance(actual, int))
+                                or expected == actual
                                 for expected, actual in zip(selector, path, strict=True)
                             ):
                                 diagnostic = reasons[check["reason"]]["diagnostic"]
@@ -700,17 +712,15 @@ def _reference_check_source(
     diagnostics_by_stage: dict[str, list[tuple[str, str]]] = {}
     for check in language["model_checks"]:
         reason = reasons[check["reason"]]
-        authored_scope_selector = check.get("scope_selector", [])
-        authored_selector = check["selector"]
-        canonical_full_selector = _consumer_b_project_source_selector(
-            source_schema, [*authored_scope_selector, *authored_selector]
-        )
-        scope_length = len(authored_scope_selector)
-        canonical_scope_selector = canonical_full_selector[:scope_length]
-        canonical_selector = canonical_full_selector[scope_length:]
+        canonical_scope_selector = check.get("semantic_scope_selector", [])
+        canonical_selector = check["semantic_selector"]
+        canonical_full_selector = [
+            *canonical_scope_selector,
+            *canonical_selector,
+        ]
         scopes = (
             _reference_select_with_paths(canonical_source, canonical_scope_selector)
-            if authored_scope_selector
+            if canonical_scope_selector
             else [(canonical_source, ())]
         )
         for scope, scope_path in scopes:
@@ -5208,6 +5218,63 @@ def test_resolved_admission_refuses_reidentified_rir_semantic_closure_drift(tmp_
     assert result.admitted is False
 
 
+def test_independent_consumer_refuses_unowned_model_check_semantic_selectors():
+    for mutation in (
+        "old-selector",
+        "old-scope",
+        "missing",
+        "empty",
+        "unknown-leaf",
+        "unknown-scope",
+        "wildcard-on-object",
+        "member-on-array",
+        "multiple-member-owners",
+    ):
+        kernel, language_bundle = mutable_authorities()
+        language = language_bundle["language"]
+        check = language["model_checks"][0]
+        if mutation == "old-selector":
+            check["selector"] = check.pop("semantic_selector")
+        elif mutation == "old-scope":
+            scoped = next(
+                item
+                for item in language["model_checks"]
+                if "semantic_scope_selector" in item
+            )
+            scoped["scope_selector"] = scoped.pop("semantic_scope_selector")
+        elif mutation == "missing":
+            del check["semantic_selector"]
+        elif mutation == "empty":
+            check["semantic_selector"] = []
+        elif mutation == "unknown-leaf":
+            check["semantic_selector"][-1] = "unknown-member"
+        elif mutation == "unknown-scope":
+            check["semantic_scope_selector"] = ["unknown-member"]
+        elif mutation == "wildcard-on-object":
+            check["semantic_selector"] = ["schema_version", "*"]
+        elif mutation == "member-on-array":
+            check["semantic_selector"] = ["modules", "id"]
+        else:
+            source_schema = next(
+                row["schema"]
+                for row in language["wire_schemas"]
+                if row.get("protocol_role") == "model-source-package"
+            )
+            modules = source_schema["properties"]["modules"]
+            source_schema["properties"]["duplicate-modules"] = deepcopy(modules)
+            source_schema["required"].append("duplicate-modules")
+        _reidentify_language_bundle(language_bundle)
+
+        result = _consumer_b(kernel, language_bundle)
+
+        assert not result["admitted"], mutation
+        expected = ("static", "kernel.vector_mismatch", "language.definitions")
+        if mutation == "multiple-member-owners":
+            assert expected in result["diagnostics"]
+        else:
+            assert result["diagnostics"] == [expected]
+
+
 def test_model_source_routing_follows_schema_roles_without_host_tokens(
     tmp_path, monkeypatch
 ):
@@ -5234,7 +5301,7 @@ def test_model_source_routing_follows_schema_roles_without_host_tokens(
                 declaration["name"] = declaration.pop("symbol")
                 declaration["type_ref"] = declaration.pop("type")
             section["declarations"] = declarations
-        document["sections"] = sections
+        document["*"] = sections
         return document
 
     path = tmp_path / "schema-role-source.json"
@@ -5277,7 +5344,7 @@ def test_model_source_routing_follows_schema_roles_without_host_tokens(
     for role, old, new in (
         ("source", "manifest", "header"),
         ("source", "package_requirements", "dependencies"),
-        ("source", "modules", "sections"),
+        ("source", "modules", "*"),
         ("manifest", "id", "model_key"),
         ("manifest", "entry_module", "start_module"),
         ("module", "id", "module_key"),
@@ -5297,7 +5364,7 @@ def test_model_source_routing_follows_schema_roles_without_host_tokens(
                 ("manifest", "id"): ["header", "model_key"],
                 ("manifest", "entry_module"): ["header", "start_module"],
                 ("package_requirements",): ["dependencies"],
-                ("modules",): ["sections"],
+                ("modules",): ["*"],
             }
             term["path"] = source_paths.get(tuple(term["path"]), term["path"])
             return
@@ -5328,18 +5395,6 @@ def test_model_source_routing_follows_schema_roles_without_host_tokens(
         for field in recipe["fields"]:
             rewrite_relation_term(field["term"])
 
-    selector_renames = {
-        "modules": "sections",
-        "symbols": "declarations",
-        "symbol": "name",
-        "type": "type_ref",
-    }
-    for check in language["model_checks"]:
-        for member in ("scope_selector", "selector"):
-            if member in check:
-                check[member] = [
-                    selector_renames.get(item, item) for item in check[member]
-                ]
     for vector in candidate_ldb["vectors"]:
         fixture = vector.get("source_fixture")
         if not isinstance(fixture, dict):
@@ -5347,7 +5402,13 @@ def test_model_source_routing_follows_schema_roles_without_host_tokens(
         fixture["source"] = renamed_source(fixture["source"])
         if fixture["mode"] == "indexed-repeat":
             fixture["collection_path"] = [
-                selector_renames.get(item, item) for item in fixture["collection_path"]
+                {
+                    "modules": "*",
+                    "symbols": "declarations",
+                    "symbol": "name",
+                    "type": "type_ref",
+                }.get(item, item)
+                for item in fixture["collection_path"]
             ]
             fixture["index_member"] = "name"
             fixture["template"]["name"] = fixture["template"].pop("symbol")
@@ -5383,6 +5444,31 @@ def test_model_source_routing_follows_schema_roles_without_host_tokens(
     declaration = declarations[0]
     assert declaration["symbol"] == "health"
     assert "name" not in declaration
+
+    invalid_domain = deepcopy(source)
+    invalid_domain["*"][0]["declarations"][0]["domain"] = {
+        "minimum": 2,
+        "maximum": 1,
+    }
+    assert _reference_check_source(invalid_domain, kernel, candidate_ldb) == (
+        ("language.invalid_domain", "/*/0/declarations/0/domain"),
+    )
+
+    extra_authored_member = deepcopy(source)
+    extra_authored_member["*"][0]["declarations"][0]["symbol"] = "health"
+    assert _reference_check_source(extra_authored_member, kernel, candidate_ldb) == (
+        ("language.source_contract_mismatch", "/*/0/declarations/0/symbol"),
+    )
+
+    exhausted = deepcopy(source)
+    symbol = exhausted["*"][0]["declarations"][0]
+    limit = candidate_ldb["resources"]["max_symbols"]
+    exhausted["*"][0]["declarations"] = [
+        {**deepcopy(symbol), "name": f"symbol-{index}"} for index in range(limit + 1)
+    ]
+    assert _reference_check_source(exhausted, kernel, candidate_ldb) == (
+        ("language.resource_exhausted", f"/*/0/declarations/{limit}"),
+    )
 
 
 def test_schema_error_mapping_uses_the_complete_ldb_selector_path():

@@ -2733,39 +2733,50 @@ def _consumer_b_source_role_member_paths(
     return found
 
 
-def _consumer_b_project_source_selector(
+def _consumer_b_source_semantic_selector(
     schema: dict[str, Any], selector: list[str]
-) -> list[str]:
-    candidates = [schema]
-    projected: list[str] = []
+) -> list[str | None]:
+    """Resolve one semantic selector to its unique authored Source path."""
+    if not selector or not all(
+        isinstance(segment, str) and segment for segment in selector
+    ):
+        raise ValueError("independent Source semantic selector is empty")
+    candidates: list[tuple[dict[str, Any], tuple[str | None, ...]]] = [(schema, ())]
     for segment in selector:
+        selected: list[tuple[dict[str, Any], tuple[str | None, ...]]] = []
         if segment == "*":
-            candidates = [
-                items
-                for candidate in candidates
-                if isinstance((items := candidate.get("items")), dict)
+            selected = [
+                (items, (*path, None))
+                for candidate, path in candidates
+                if candidate.get("type") == "array"
+                and isinstance((items := candidate.get("items")), dict)
             ]
-            if not candidates:
+            if len(selected) != len(candidates):
                 raise ValueError("independent Source wildcard has no array owner")
-            projected.append(segment)
-            continue
-        children: list[dict[str, Any]] = []
-        semantic_members: set[str] = set()
-        for candidate in candidates:
-            for properties in _consumer_b_role_properties(candidate):
-                child = properties.get(segment)
-                if not isinstance(child, dict):
-                    continue
-                semantic_member = child.get(_SOURCE_MEMBER_KEY)
-                if not isinstance(semantic_member, str):
-                    raise ValueError("independent Source selector has no member owner")
-                children.append(child)
-                semantic_members.add(semantic_member)
-        if not children or len(semantic_members) != 1:
-            raise ValueError("independent Source selector member is ambiguous")
-        candidates = children
-        projected.append(next(iter(semantic_members)))
-    return projected
+        else:
+            selected = []
+            for candidate, path in candidates:
+                if candidate.get("type") != "object":
+                    raise ValueError(
+                        "independent Source semantic member has no object owner"
+                    )
+                for properties in _consumer_b_role_properties(candidate):
+                    selected.extend(
+                        (child, (*path, authored))
+                        for authored, child in properties.items()
+                        if isinstance(child, dict)
+                        and child.get(_SOURCE_MEMBER_KEY) == segment
+                    )
+            if not selected:
+                raise ValueError("independent Source semantic member is absent")
+        paths = {path for _candidate, path in selected}
+        if len(paths) != 1:
+            raise ValueError("independent Source semantic member is ambiguous")
+        candidates = selected
+    paths = {path for _candidate, path in candidates}
+    if len(paths) != 1:
+        raise ValueError("independent Source semantic selector is ambiguous")
+    return list(next(iter(paths)))
 
 
 def _consumer_b_semantic_property_schemas(
@@ -2993,6 +3004,14 @@ def _consumer_b_source_roles_are_closed(
         visit(source)
         if malformed or set(anchors) != set(roles):
             return False
+
+        model_checks = ldb["language"]["model_checks"]
+        for check in model_checks:
+            scope = check.get("semantic_scope_selector", [])
+            selector = check["semantic_selector"]
+            if not isinstance(scope, list) or not isinstance(selector, list):
+                return False
+            _consumer_b_source_semantic_selector(source, [*scope, *selector])
 
         formula_contract = meta["formula_resolution"]
 
@@ -13079,7 +13098,7 @@ __all__ = [
     "_consumer_b_path_is_declared",
     "_consumer_b_project_source",
     "_consumer_b_project_source_role",
-    "_consumer_b_project_source_selector",
+    "_consumer_b_source_semantic_selector",
     "_consumer_b_source_equality_values",
     "_consumer_b_source_equality_items",
     "_consumer_b_source_role_member_paths",
