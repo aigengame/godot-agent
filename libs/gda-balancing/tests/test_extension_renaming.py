@@ -150,6 +150,7 @@ def test_formula_renaming_renders_actual_ast_and_detects_a_missed_reference(
     occurrences = [o for o in inventory.occurrences if o.token == parameter]
     values = {o.pointer: "measured_value" for o in occurrences if o.location == "value"}
     keys = {}
+    pointer_edits = {}
     if rename_modules:
         modules = next(
             token
@@ -160,9 +161,15 @@ def test_formula_renaming_renders_actual_ast_and_detects_a_missed_reference(
         )
         for occurrence in inventory.occurrences:
             if occurrence.token == modules:
-                assert occurrence.location in {"key", "value"}
-                edits = keys if occurrence.location == "key" else values
-                edits[occurrence.pointer] = "opaque/modules~"
+                assert occurrence.location in {"key", "value", "json-pointer"}
+                if occurrence.location == "json-pointer":
+                    pointer_edits.setdefault(occurrence.pointer, {})[
+                        int(occurrence.projection)
+                    ] = "opaque/modules~"
+                else:
+                    edits = keys if occurrence.location == "key" else values
+                    edits[occurrence.pointer] = "opaque/modules~"
+    values.update(_json_pointer_values(graph, pointer_edits))
     candidate = _rewrite_positions(graph, values, keys)
     bodies = _formula_projections(kernel, graph)
     if not miss_ast_reference:

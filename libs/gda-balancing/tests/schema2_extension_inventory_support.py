@@ -260,13 +260,13 @@ def _inline_source_parameter(
     return parameter_kind, normalizations[0]["parameter_member"]
 
 
-def source_formula_requests(
-    kernel: Mapping[str, Any], graph: Mapping[str, Any]
+def _source_formula_requests_at(
+    kernel: Mapping[str, Any],
+    graph: Mapping[str, Any],
+    source: Mapping[str, Any],
+    root: str,
 ) -> dict[str, dict[str, Any]]:
-    """Resolve existing Formula requests keyed by their actual expression pointer."""
-    source = graph.get("source")
-    if not source:
-        return {}
+    """Resolve Formula requests at one actual authored Source address."""
     profile = _source_profile(kernel, graph)
     policies = _formula_policy_rows(kernel, graph)
     if len(policies) != 1:
@@ -275,7 +275,7 @@ def source_formula_requests(
     requests = {}
     modules = source[profile["modules_member"]]
     for mi, module in enumerate(modules):
-        mp = _child(_child("/source", profile["modules_member"]), mi)
+        mp = _child(_child(root, profile["modules_member"]), mi)
         for fi, formula in enumerate(module.get(policy["module_formulas_member"], [])):
             if "expression" not in formula:
                 continue
@@ -290,8 +290,31 @@ def source_formula_requests(
     return requests
 
 
-def _formula_projections(
+def source_formula_requests(
     kernel: Mapping[str, Any], graph: Mapping[str, Any]
+) -> dict[str, dict[str, Any]]:
+    requests = {}
+    if graph.get("source"):
+        requests.update(
+            _source_formula_requests_at(kernel, graph, graph["source"], "/source")
+        )
+    for vi, vector_set in enumerate(graph.get("vector_sets", [])):
+        for di, vector in enumerate(vector_set["vector_definitions"]):
+            if "source_fixture" in vector:
+                root = (
+                    f"/vector_sets/{vi}/vector_definitions/{di}/source_fixture/source"
+                )
+                requests.update(
+                    _source_formula_requests_at(
+                        kernel, graph, vector["source_fixture"]["source"], root
+                    )
+                )
+    return requests
+
+
+def _formula_projections(
+    kernel: Mapping[str, Any],
+    graph: Mapping[str, Any],
 ) -> dict[str, Any]:
     from schema2_formula_conformance_support import parse_canonical, render_body
 
@@ -319,6 +342,12 @@ def _formula_projections(
             ):
                 raise InventoryRefusal("Formula expression is not canonical")
         except (KeyError, TypeError, ValueError) as error:
+            if pointer.startswith("/vector_sets/"):
+                vector = _pointer_value(graph, "/".join(pointer.split("/")[:5]))
+                if vector["expect"]["outcome"] == "refused":
+                    # No AST is published when this negative input cannot be
+                    # parsed and rendered. Model coverage verifies its first fault.
+                    continue
             raise InventoryRefusal(
                 "Formula expression does not close independently"
             ) from error
@@ -3289,6 +3318,39 @@ def _same_instance_schemas(value: Any, pointer):
             yield from _same_instance_schemas(branch, child)
 
 
+def _template_exhaustion_declaration(kernel, graph):
+    """Resolve the one diagnostic declaration referenced by the Template law."""
+    name = kernel["meta_format"]["template_admission"]["resource_accounting"][
+        "exhaustion_diagnostic"
+    ]
+    projections = kernel["meta_format"]["package_release"]["semantic_closure"][
+        "projections"
+    ]
+    index, projection = next(
+        (i, p)
+        for i, p in enumerate(projections)
+        if p["authority_path"] == "diagnostics"
+    )
+    key = projection["key_member"]
+    matches = [
+        pointer
+        for _, row, pointer in _authority_path_rows(
+            kernel, graph, "language_bundle.diagnostics"
+        )
+        if row[key] == name
+    ]
+    if len(matches) != 1:
+        raise InventoryRefusal(
+            "Template exhaustion diagnostic has no unique declaration"
+        )
+    return TokenOccurrence(
+        AuthorityToken("diagnostics", (), name),
+        _child(matches[0], key),
+        "declaration",
+        f"/meta_format/package_release/semantic_closure/projections/{index}",
+    )
+
+
 def _template_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
     """Close the existing Template program and its variable member Schema owners.
 
@@ -3797,6 +3859,14 @@ def _template_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
         derived = {}
         for member in ("resource_diagnostic", "structural_diagnostic"):
             emit(AuthorityToken("diagnostics", (), profile[member]), pp + "/" + member)
+        exhaustion = meta["template_admission"]["resource_accounting"][
+            "exhaustion_diagnostic"
+        ]
+        if profile["resource_diagnostic"] != exhaustion:
+            raise InventoryRefusal(
+                "Template resource diagnostic differs from its Kernel owner"
+            )
+        reserved.add(_template_exhaustion_declaration(kernel, graph).token)
         fixed(
             profile["max_steps_path"],
             pp + "/max_steps_path",
@@ -5164,6 +5234,7 @@ class _Reader:
                 for _, _, pointer in _reason_vector_rows(self.kernel, self.graph)
             }
         )
+        handled.update(self.model_vector_roots)
         handled.update(
             pointer for _, pointer in _replay_vector_rows(self.kernel, self.graph)
         )
@@ -5727,6 +5798,16 @@ class _Reader:
                 "Source does not match its admitted closed wire schema"
             )
         self.formula_projections = _formula_projections(self.kernel, self.graph)
+        self.source_structure(source)
+
+    def source_alias(self, name, aliases, scope, pointer):
+        alias = aliases.get(name)
+        if alias is None:
+            raise InventoryRefusal(f"unresolved Source Type alias at {pointer}")
+        return alias
+
+    def source_structure(self, source: dict[str, Any]) -> None:
+        """Visit declared Source roles; the calling boundary owns admission."""
         law = "/meta_format/resolution_judgment"
         source_profile = _source_profile(self.kernel, self.graph)
         model = _at(source, source_profile["manifest_id_path"].split("."))
@@ -5799,9 +5880,12 @@ class _Reader:
                     "declaration",
                     law,
                 )
-                alias = aliases.get(symbol[source_profile["symbol_type_member"]])
-                if alias is None:
-                    raise InventoryRefusal(f"unresolved Source Type alias at {sp}")
+                alias = self.source_alias(
+                    symbol[source_profile["symbol_type_member"]],
+                    aliases,
+                    module_scope,
+                    sp,
+                )
                 self.occurrence(
                     alias,
                     _child(sp, source_profile["symbol_type_member"]),
@@ -5821,7 +5905,9 @@ class _Reader:
                     sp,
                 )
                 self.source_value_policy(symbol, sp)
-            if module.get("formulas"):
+            if module.get(
+                source_profile["formula_resolution"]["module_formulas_member"]
+            ):
                 self.formulas(source, module, mp, aliases)
         self.formula_bindings(source)
         entry = AuthorityToken(
@@ -6335,6 +6421,22 @@ class _Reader:
                 location=row.location,
                 projection=row.projection,
             )
+        from schema2_model_vector_inventory_support import model_vector_inventory
+
+        model_rows, self.model_vector_roots, model_projections, model_reserved = (
+            model_vector_inventory(self.kernel, self.graph)
+        )
+        self.formula_projections.update(model_projections)
+        self.reserved.update(model_reserved)
+        for row in model_rows:
+            self.occurrence(
+                row.token,
+                row.pointer,
+                row.use,
+                row.law,
+                location=row.location,
+                projection=row.projection,
+            )
         self.contract_vectors()
         declarations = {o.token for o in self.occurrences if o.use == "declaration"}
         free = {o.token for o in self.occurrences if o.use == "unresolved-reference"}
@@ -6399,6 +6501,14 @@ def validate_inventory_occurrences(
         (row.token, row.pointer, row.use, row.location, row.projection)
         for row in _value_vector_links(kernel, graph)
         if isinstance(row, TokenOccurrence) and row.use == "unresolved-reference"
+    )
+    from schema2_model_vector_inventory_support import model_vector_inventory
+
+    model_rows, _, _, _ = model_vector_inventory(kernel, graph)
+    expected_free.update(
+        (row.token, row.pointer, row.use, row.location, row.projection)
+        for row in model_rows
+        if row.use == "unresolved-reference"
     )
     actual_free = {row for row in positions if row[2] == "unresolved-reference"}
     if expected_free != actual_free:
@@ -7002,6 +7112,15 @@ def validate_extension_inventory(
             for root in template_roots | template_schemas
         )
     }
+    exhaustion_declaration = _template_exhaustion_declaration(kernel, graph)
+    if [
+        row
+        for row in inventory.occurrences
+        if row.token == exhaustion_declaration.token and row.use == "declaration"
+    ] != [exhaustion_declaration]:
+        raise InventoryRefusal(
+            "Template exhaustion diagnostic declaration is omitted, duplicated, or misowned"
+        )
     template_tokens = {row.token for row in template_expected}
     if (
         template_actual != template_expected
@@ -7049,6 +7168,27 @@ def validate_extension_inventory(
     } <= inventory.reserved:
         raise InventoryRefusal(
             "Replay observation reference coverage is incomplete or misowned"
+        )
+    from schema2_model_vector_inventory_support import model_vector_inventory
+
+    model_expected, model_roots, _, model_reserved = model_vector_inventory(
+        kernel, graph
+    )
+    model_actual = {
+        row
+        for row in inventory.occurrences
+        if any(
+            row.pointer.startswith(root + "/") and row.pointer != root + "/id"
+            for root in model_roots
+        )
+    }
+    if (
+        model_actual != model_expected
+        or inventory.reserved.intersection(row.token for row in model_expected)
+        != model_reserved
+    ):
+        raise InventoryRefusal(
+            "Model vector occurrence coverage is incomplete or misowned"
         )
     scheduler_rule_expected, scheduler_rule_roots = _scheduler_rule_vector_inventory(
         kernel, graph
@@ -7114,7 +7254,14 @@ def validate_extension_inventory(
             "value vector occurrence has no interpreted identity role"
         )
     if any(
-        row[3] == "json-pointer" and row not in vector_expected for row in vector_actual
+        row[3] == "json-pointer"
+        and row not in vector_expected
+        and row
+        not in {
+            (o.token, o.pointer, o.use, o.location, o.projection)
+            for o in model_expected
+        }
+        for row in vector_actual
     ):
         raise InventoryRefusal(
             "json-pointer occurrence has no declared path projection"
@@ -7850,6 +7997,35 @@ def _renamed_owner(
         target = correspondence.get(owner_token)
         return owner_token.name if target is None else target.name
 
+    if token.role.startswith("model-vector-source-"):
+        vector, *scope = token.owner
+        transported = (name(AuthorityToken("vectors", (), vector)),)
+        if not scope:
+            return transported
+        transported += (
+            name(AuthorityToken("model-vector-source-model", (vector,), scope[0])),
+        )
+        if len(scope) == 1:
+            return transported
+        transported += (
+            name(
+                AuthorityToken(
+                    "model-vector-source-module", (vector, scope[0]), scope[1]
+                )
+            ),
+        )
+        if len(scope) == 2:
+            return transported
+        if len(scope) == 3 and token.role.startswith("model-vector-source-formula-"):
+            return (
+                *transported,
+                name(
+                    AuthorityToken(
+                        "model-vector-source-formula", (vector, *scope[:2]), scope[2]
+                    )
+                ),
+            )
+        raise InventoryRefusal("unknown Model vector Source token owner")
     if token.role in {"source-field", "template-field"}:
         schema_role, schema_id, *path = token.owner
         renamed = (schema_role, name(AuthorityToken(schema_role, (), schema_id)))

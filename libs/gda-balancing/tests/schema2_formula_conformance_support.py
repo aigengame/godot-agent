@@ -20,6 +20,14 @@ from schema2_bootstrap_conformance_support import (
 )
 
 
+class FormulaReferenceFailure(ValueError):
+    """An independently observed semantic failure at a Formula interpretation site."""
+
+    def __init__(self, category: str, message: str):
+        super().__init__(message)
+        self.category = category
+
+
 def _source_definition(language_bundle: dict[str, Any]) -> dict[str, Any]:
     schemas = [
         definition
@@ -389,7 +397,7 @@ def _unquote(text: str, grammar: dict[str, Any]) -> str:
             index += 1
         return "".join(output)
     if not re.fullmatch(cast(str, grammar["bare_identifier_pattern"]), text):
-        raise ValueError("bare identifier is malformed")
+        raise FormulaReferenceFailure("notation-parse", "bare identifier is malformed")
     return text
 
 
@@ -416,7 +424,7 @@ def _parse_operand(
         return {"kind": "local", "local": name}
     if name in parameters:
         return {"kind": "parameter", "parameter": name}
-    raise ValueError("operand name is unresolved")
+    raise FormulaReferenceFailure("name-unresolved", "operand name is unresolved")
 
 
 def _source_contract(value: dict[str, Any]) -> dict[str, Any]:
@@ -552,7 +560,9 @@ def _notation_resource_usage(
                     index += 1
                 index += 1
             if index >= len(expression):
-                raise ValueError("independent quoted identifier is malformed")
+                raise FormulaReferenceFailure(
+                    "notation-parse", "independent quoted identifier is malformed"
+                )
             index += 1
         elif character in punctuation:
             index += 1
@@ -577,11 +587,15 @@ def _notation_resource_usage(
                     None,
                 )
                 if operator is None:
-                    raise ValueError("independent Formula token is unresolved")
+                    raise FormulaReferenceFailure(
+                        "notation-parse", "independent Formula token is unresolved"
+                    )
                 index += len(operator)
         count += 1
     if depth != 0:
-        raise ValueError("independent Formula grouping is unbalanced")
+        raise FormulaReferenceFailure(
+            "notation-parse", "independent Formula grouping is unbalanced"
+        )
     return count, maximum_depth
 
 
@@ -1007,7 +1021,10 @@ def parse_canonical(
         package_id = pending.pop()
         package = packages_by_id.get(package_id)
         if package is None:
-            raise ValueError("independent Formula package requirement is unresolved")
+            raise FormulaReferenceFailure(
+                "name-unresolved",
+                "independent Formula package requirement is unresolved",
+            )
         for dependency in package["dependencies"]["required"]:
             if dependency not in selected_packages:
                 selected_packages.add(dependency)
@@ -1048,16 +1065,26 @@ def parse_canonical(
             )
     lines = expression.split("\n")
     if len(expression.encode("utf-8")) > grammar["max_expression_bytes"]:
-        raise ValueError("independent Formula expression exceeds its byte bound")
+        raise FormulaReferenceFailure(
+            "notation-resource", "independent Formula expression exceeds its byte bound"
+        )
     token_count, group_depth = _notation_resource_usage(
         expression, grammar, request, language_bundle, kernel
     )
     if token_count > grammar["max_tokens"]:
-        raise ValueError("independent Formula expression exceeds its token bound")
+        raise FormulaReferenceFailure(
+            "notation-resource",
+            "independent Formula expression exceeds its token bound",
+        )
     if group_depth > grammar["max_group_depth"]:
-        raise ValueError("independent Formula expression exceeds its group-depth bound")
+        raise FormulaReferenceFailure(
+            "notation-resource",
+            "independent Formula expression exceeds its group-depth bound",
+        )
     if len(lines) - 1 > formula_policy["max_nodes_per_formula"]:
-        raise ValueError("independent Formula expression exceeds its node bound")
+        raise FormulaReferenceFailure(
+            "notation-resource", "independent Formula expression exceeds its node bound"
+        )
     notations = _selected_notations(request, language_bundle, kernel)
     functions = {
         notation["name"]: (operation, notation)
@@ -1084,7 +1111,9 @@ def parse_canonical(
                 (cast(str, operand["module"]), cast(str, operand["symbol"]))
             )
             if contract is None:
-                raise ValueError("independent Symbol contract is unresolved")
+                raise FormulaReferenceFailure(
+                    "name-unresolved", "independent Symbol contract is unresolved"
+                )
             return operand, contract
         return operand, None
 
@@ -1096,11 +1125,15 @@ def parse_canonical(
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         ports = cast(list[str], notation["ordered_ports"])
         if len(ports) != len(values):
-            raise ValueError("independent Operation arity is malformed")
+            raise FormulaReferenceFailure(
+                "type-mismatch", "independent Operation arity is malformed"
+            )
         operands = [typed_operand(value) for value in values]
         formals = {row["id"]: row for row in operation["inputs"]}
         if set(ports) != set(formals) or len(formals) != len(operation["inputs"]):
-            raise ValueError("independent Operation port contract is incompatible")
+            raise FormulaReferenceFailure(
+                "type-mismatch", "independent Operation port contract is incompatible"
+            )
         typed_operands = []
         for port, (operand, contract) in zip(ports, operands, strict=True):
             if contract is None and operand.get("kind") == "literal":
@@ -1134,8 +1167,9 @@ def parse_canonical(
                     == (matches[0]["type"]["package"], matches[0]["type"]["id"])
                 ]
                 if len(matches) != 1 or len(aliases) != 1:
-                    raise ValueError(
-                        "independent Operation literal contract is incompatible"
+                    raise FormulaReferenceFailure(
+                        "type-mismatch",
+                        "independent Operation literal contract is incompatible",
                     )
                 # Generic actual formals retain the existing contextual anchor.
                 # Only an explicit interval owner narrows a literal operand.
@@ -1155,7 +1189,10 @@ def parse_canonical(
                         "domain": {"minimum": literal, "maximum": literal},
                     }
             if not _operation_contract_matches(contract, formals[port], imports):
-                raise ValueError("independent Operation port contract is incompatible")
+                raise FormulaReferenceFailure(
+                    "type-mismatch",
+                    "independent Operation port contract is incompatible",
+                )
             typed_operands.append((operand, contract))
         result = _infer_result(
             operation,
@@ -1204,10 +1241,14 @@ def parse_canonical(
                 or not isinstance(domain.get("maximum"), int)
                 or not domain["minimum"] <= value <= domain["maximum"]
             ):
-                raise ValueError("independent literal result is incompatible")
+                raise FormulaReferenceFailure(
+                    "type-mismatch", "independent literal result is incompatible"
+                )
             result_contract = expected
         if result_contract != expected:
-            raise ValueError("independent Formula result contract is incompatible")
+            raise FormulaReferenceFailure(
+                "type-mismatch", "independent Formula result contract is incompatible"
+            )
         parameter_kind, parameter_reference, source_member = _inline_source_parameter(
             formula_policy, kernel
         )
@@ -1218,16 +1259,22 @@ def parse_canonical(
     for line in lines[:-1]:
         binding_prefix = grammar["binding_keyword"] + " "
         if not line.startswith(binding_prefix) or not line.endswith(";"):
-            raise ValueError("canonical binding line is malformed")
+            raise FormulaReferenceFailure(
+                "notation-parse", "canonical binding line is malformed"
+            )
         assignment = _split_outside(
             line[len(binding_prefix) : -1], " = ", quote, escape
         )
         if len(assignment) != 2:
-            raise ValueError("canonical binding assignment is malformed")
+            raise FormulaReferenceFailure(
+                "notation-parse", "canonical binding assignment is malformed"
+            )
         local = _unquote(assignment[0], grammar)
         rhs = assignment[1]
         if local in locals_ or local in parameters:
-            raise ValueError("independent binding local is ambiguous")
+            raise FormulaReferenceFailure(
+                "name-ambiguity", "independent binding local is ambiguous"
+            )
         if rhs.startswith("if "):
             branches = _split_outside(rhs[3:], " then ", quote, escape)
             tails = (
@@ -1236,7 +1283,9 @@ def parse_canonical(
                 else []
             )
             if len(tails) != 2:
-                raise ValueError("conditional is malformed")
+                raise FormulaReferenceFailure(
+                    "notation-parse", "conditional is malformed"
+                )
             condition, condition_contract = typed_operand(branches[0])
             when_true, true_contract = typed_operand(tails[0])
             when_false, false_contract = typed_operand(tails[1])
@@ -1247,7 +1296,9 @@ def parse_canonical(
                 or true_contract is None
                 or true_contract != false_contract
             ):
-                raise ValueError("independent conditional contract is incompatible")
+                raise FormulaReferenceFailure(
+                    "type-mismatch", "independent conditional contract is incompatible"
+                )
             node = {
                 "id": local,
                 "node": "conditional",
@@ -1271,7 +1322,9 @@ def parse_canonical(
             else:
                 coordinate = _split_outside(head, ".", quote, escape)
                 if len(coordinate) != 2:
-                    raise ValueError("call coordinate is malformed")
+                    raise FormulaReferenceFailure(
+                        "notation-parse", "call coordinate is malformed"
+                    )
                 named = [
                     _split_outside(value, " = ", quote, escape) for value in arguments
                 ]
@@ -1279,7 +1332,10 @@ def parse_canonical(
                     (_unquote(coordinate[0], grammar), _unquote(coordinate[1], grammar))
                 )
                 if resolved_declaration is None:
-                    raise ValueError("independent Formula coordinate is unresolved")
+                    raise FormulaReferenceFailure(
+                        "name-unresolved",
+                        "independent Formula coordinate is unresolved",
+                    )
                 declaration, declaration_imports = resolved_declaration
                 expected_parameters = {
                     row["id"]: _source_contract(row)
@@ -1299,7 +1355,9 @@ def parse_canonical(
                     )
                     for parameter, (_operand, contract) in parsed_arguments.items()
                 ):
-                    raise ValueError("independent Formula argument is incompatible")
+                    raise FormulaReferenceFailure(
+                        "type-mismatch", "independent Formula argument is incompatible"
+                    )
                 node = {
                     "id": local,
                     "node": "formula-call",
@@ -1347,30 +1405,46 @@ def parse_canonical(
         _source_contract(request["formula"]["result"]),
         imports,
     ):
-        raise ValueError("independent Formula result contract is incompatible")
+        raise FormulaReferenceFailure(
+            "type-mismatch", "independent Formula result contract is incompatible"
+        )
     return {
         "nodes": nodes,
         "result": result_operand,
     }
 
 
-def admit_pair(
+def pair_refusal(
     request: dict[str, Any], language_bundle: dict[str, Any], *, kernel: dict[str, Any]
-) -> bool:
+) -> tuple[str | None, str] | None:
+    """Independently preserve the renderer-first pair admission fault boundary."""
     formula = request.get("formula")
     if (
         not isinstance(formula, dict)
         or not isinstance(formula.get("body"), dict)
         or not isinstance(formula.get("expression"), str)
     ):
-        return False
-    body = cast(dict[str, Any], formula["body"])
-    expression = cast(str, formula["expression"])
+        return None, "body"
+    body, expression = formula["body"], formula["expression"]
+    member = "body"
     try:
         rendered = render_body(body, request, language_bundle, kernel=kernel)
+        member = "expression"
+        if rendered != expression:
+            return "notation-mismatch", member
         parsed = parse_canonical(expression, request, language_bundle, kernel=kernel)
+        if canonical_bytes(cast(JsonValue, parsed)) != canonical_bytes(
+            cast(JsonValue, body)
+        ):
+            return "notation-mismatch", member
+    except FormulaReferenceFailure as error:
+        return error.category, member
     except (KeyError, TypeError, ValueError):
-        return False
-    return expression == rendered and canonical_bytes(
-        cast(JsonValue, parsed)
-    ) == canonical_bytes(cast(JsonValue, body))
+        return None, member
+    return None
+
+
+def admit_pair(
+    request: dict[str, Any], language_bundle: dict[str, Any], *, kernel: dict[str, Any]
+) -> bool:
+    return pair_refusal(request, language_bundle, kernel=kernel) is None

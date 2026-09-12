@@ -104,7 +104,7 @@ def _render_formulas(
 ) -> None:
     language = _attached_language(kernel, candidate)
     requests = source_formula_requests(kernel, candidate)
-    if set(bodies) != set(requests):
+    if not set(bodies) <= set(requests):
         raise InventoryRefusal("renamed Formula paths do not close")
     for pointer, body in bodies.items():
         request = requests[pointer]
@@ -113,7 +113,24 @@ def _render_formulas(
         )
     # Independently compare the rewritten expression with the actual authored
     # body. Copying the body into the expression would hide missed occurrences.
-    _formula_projections(kernel, candidate)
+    actual = _formula_projections(kernel, candidate)
+    if actual != bodies:
+        raise InventoryRefusal(
+            "renamed Formula projection does not close independently"
+        )
+    if set(requests) != set(bodies):
+        from schema2_model_vector_inventory_support import model_vector_inventory
+
+        # A rejected Model fixture can have an uninterpreted malformed expression.
+        # Reproduce its exact first fault before preserving those authored bytes.
+        _, roots, interpreted, _ = model_vector_inventory(kernel, candidate)
+        if any(
+            not any(pointer.startswith(root + "/") for root in roots)
+            for pointer in set(requests) - set(bodies)
+        ) or not set(interpreted) <= set(bodies):
+            raise InventoryRefusal(
+                "missing Formula projection has no negative Model owner"
+            )
 
 
 def _reseal_authored_graph(kernel: dict[str, Any], graph: dict[str, Any]) -> None:

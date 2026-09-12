@@ -1,5 +1,7 @@
 """Public Formula notation conversion for Standard Schema 2.0 (#606)."""
 
+from gda_balancing.domain.authority.context import packaged_authority_context
+
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -35,14 +37,21 @@ def _quantity_contract(identifier: str) -> dict[str, object]:
 
 
 def test_contextual_reason_is_independent_of_human_message_wording() -> None:
+    context = packaged_authority_context()
     error = formula_notation_module._FormulaContextError(
-        "model.reason.formula-type-mismatch",
+        "type-mismatch",
         "This reworded message says unresolved, ambiguous, and duplicate.",
     )
-
-    refusal = formula_notation_module._contextual_refusal(error)
-
-    assert refusal.reason_id == "model.reason.formula-type-mismatch"
+    refusal = formula_notation_module._contextual_refusal(error, context)
+    profile = next(
+        row
+        for row in context.language_bundle["language"]["resolution_profiles"]
+        if row["default"]
+    )
+    assert (
+        refusal.reason_id
+        == profile["formula_resolution"]["refusal_reasons"]["type-mismatch"]
+    )
 
 
 def _boolean_contract(identifier: str) -> dict[str, object]:

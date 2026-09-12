@@ -44,7 +44,6 @@ from gda_balancing.domain.model._resolution import (
     _resolution_profile,
     _schema_error_diagnostics,
     _strict_object,
-    _unique_reason,
 )
 from gda_balancing.domain.model._preparation import _TypedHIR
 from gda_balancing.domain.model._lowering import (
@@ -83,21 +82,15 @@ def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
 
 
 def _model_source_byte_bound(ldb: dict[str, Any]) -> int:
-    source_size_reason = _unique_reason(
-        ldb,
-        stage="ingress",
-        operation="greater-than",
-        limit_path="resources.max_source_bytes",
+    source_size_reason = reason_by_id(
+        ldb, _resolution_profile(ldb)["source_byte_reason"]
     )
     return _path_value(ldb, cast(str, source_size_reason["predicate"]["limit_path"]))
 
 
 def _model_source_too_large_refusal(ldb: dict[str, Any]) -> Schema2RefusalReport:
-    source_size_reason = _unique_reason(
-        ldb,
-        stage="ingress",
-        operation="greater-than",
-        limit_path="resources.max_source_bytes",
+    source_size_reason = reason_by_id(
+        ldb, _resolution_profile(ldb)["source_byte_reason"]
     )
     return _refusal(
         cast(str, source_size_reason["diagnostic"]),
@@ -370,11 +363,8 @@ def _check_model_source_bytes(
             projection_budget.consume,
         )
     except _RuntimeProjectionResourceExhausted:
-        resource_reason = _unique_reason(
-            ldb,
-            stage="static",
-            operation="greater-than",
-            limit_path="resources.max_runtime_projection_steps",
+        resource_reason = reason_by_id(
+            ldb, _model_lowering(ldb)["runtime_projection"]["resource_reason"]
         )
         return _refusal(
             cast(str, resource_reason["diagnostic"]),

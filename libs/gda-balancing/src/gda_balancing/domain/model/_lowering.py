@@ -57,7 +57,6 @@ from gda_balancing.domain.authority.package_semantics import (
 from gda_balancing.domain.model._resolution import (
     CheckedModel,
     ModelSourceContext,
-    _FORMULA_REASON,
     _formula_contexts,
     _formula_policy,
     _language,
@@ -404,6 +403,7 @@ def _formula_contract_mismatch_reason(
     target_contract: dict[str, Any],
     *,
     operation: bool,
+    reasons: dict[str, str],
 ) -> str | None:
     if operation:
         formula_type = formula_contract.get("type_identity")
@@ -427,13 +427,13 @@ def _formula_contract_mismatch_reason(
             and formula_contract.get("domain") == target_contract.get("domain")
         )
     if not type_matches:
-        return _FORMULA_REASON["type-mismatch"]
+        return reasons["type-mismatch"]
     if formula_contract.get("kind") != target_contract.get("kind"):
-        return _FORMULA_REASON["kind-mismatch"]
+        return reasons["kind-mismatch"]
     if formula_contract.get("unit") != target_contract.get("unit"):
-        return _FORMULA_REASON["unit-mismatch"]
+        return reasons["unit-mismatch"]
     if formula_contract.get("numeric_policy") != target_contract.get("numeric_policy"):
-        return _FORMULA_REASON["numeric-profile-mismatch"]
+        return reasons["numeric-profile-mismatch"]
     return None
 
 
@@ -761,7 +761,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 int, policy["max_nodes_per_formula"]
             ):
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["resource-exhausted"],
+                    policy["refusal_reasons"]["resource-exhausted"],
                     failure_context[0],
                     "Formula body exceeds its admitted node bound",
                 )
@@ -820,7 +820,7 @@ def _resolved_formula_programs_and_bindings_impl(
     def visit(key: tuple[str, str]) -> None:
         if key in visiting:
             raise _FormulaResolutionError(
-                _FORMULA_REASON["cycle"],
+                policy["refusal_reasons"]["cycle"],
                 f"{formula_pointers[key]}/body",
                 "Formula call graph contains a cycle",
             )
@@ -943,7 +943,7 @@ def _resolved_formula_programs_and_bindings_impl(
                     or operation.get("effects") != []
                 ):
                     raise _FormulaResolutionError(
-                        _FORMULA_REASON["purity-mismatch"],
+                        policy["refusal_reasons"]["purity-mismatch"],
                         formula_pointers[key],
                         "Formula operation call is unresolved or effectful",
                     )
@@ -1100,7 +1100,7 @@ def _resolved_formula_programs_and_bindings_impl(
                     )
                 ):
                     raise _FormulaResolutionError(
-                        _FORMULA_REASON["type-mismatch"],
+                        policy["refusal_reasons"]["type-mismatch"],
                         formula_pointers[key],
                         "Formula conditional requires the Kernel Boolean contract",
                     )
@@ -1217,7 +1217,7 @@ def _resolved_formula_programs_and_bindings_impl(
         key = pending.pop()
         if key not in resolved_by_key:
             raise _FormulaResolutionError(
-                _FORMULA_REASON["binding-missing"],
+                policy["refusal_reasons"]["binding-missing"],
                 binding_pointer_by_formula[key],
                 "Formula binding names no declaration",
             )
@@ -1346,9 +1346,9 @@ def _resolved_formula_programs_and_bindings_impl(
             or set(binding_parameter_ids) != set(binding_parameters)
         ):
             reason = (
-                _FORMULA_REASON["binding-duplicate"]
+                policy["refusal_reasons"]["binding-duplicate"]
                 if len(binding_parameter_ids) != len(set(binding_parameter_ids))
-                else _FORMULA_REASON["binding-missing"]
+                else policy["refusal_reasons"]["binding-missing"]
             )
             raise _FormulaResolutionError(
                 reason,
@@ -1364,13 +1364,13 @@ def _resolved_formula_programs_and_bindings_impl(
             site_declaration = declarations_by_source.get(site_key)
             if site_declaration is None or site_declaration.get("role") != "derived":
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["unreachable"],
+                    policy["refusal_reasons"]["unreachable"],
                     f"{binding_pointer}/site",
                     "Formula binding site is not a reachable derived Symbol",
                 )
             if site_key in bound_derived_sites:
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["binding-duplicate"],
+                    policy["refusal_reasons"]["binding-duplicate"],
                     f"{binding_pointer}/site",
                     "Formula derived Symbol is bound more than once",
                 )
@@ -1378,6 +1378,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 cast(dict[str, Any], formula["result"]),
                 site_declaration,
                 operation=False,
+                reasons=policy["refusal_reasons"],
             )
             if mismatch_reason is not None:
                 raise _FormulaResolutionError(
@@ -1418,13 +1419,13 @@ def _resolved_formula_programs_and_bindings_impl(
             selected_slot = selected_slots.get(slot_key)
             if selected_slot is None:
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["unreachable"],
+                    policy["refusal_reasons"]["unreachable"],
                     f"{binding_pointer}/site",
                     "Formula binding site is not a selected Operation slot",
                 )
             if slot_key in bound_operation_slots:
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["binding-duplicate"],
+                    policy["refusal_reasons"]["binding-duplicate"],
                     f"{binding_pointer}/site",
                     "Formula Operation slot is bound more than once",
                 )
@@ -1438,7 +1439,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 ]
             ):
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["context-mismatch"],
+                    policy["refusal_reasons"]["context-mismatch"],
                     f"{binding_pointer}/site",
                     "Formula Operation slot uses no admitted Runtime context",
                 )
@@ -1459,7 +1460,7 @@ def _resolved_formula_programs_and_bindings_impl(
                     or slot_parameter is None
                 ):
                     raise _FormulaResolutionError(
-                        _FORMULA_REASON["binding-missing"],
+                        policy["refusal_reasons"]["binding-missing"],
                         f"{binding_pointer}/arguments/{len(arguments)}/operand",
                         "Formula Operation-slot argument is unresolved",
                     )
@@ -1467,6 +1468,7 @@ def _resolved_formula_programs_and_bindings_impl(
                     binding_parameters[parameter_id],
                     slot_parameter,
                     operation=True,
+                    reasons=policy["refusal_reasons"],
                 )
                 if mismatch_reason is not None:
                     raise _FormulaResolutionError(
@@ -1479,7 +1481,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 )
                 if len(projected_parameters) != len(concrete_calls):
                     raise _FormulaResolutionError(
-                        _FORMULA_REASON["type-mismatch"],
+                        policy["refusal_reasons"]["type-mismatch"],
                         f"{binding_pointer}/arguments/{len(arguments)}/operand",
                         "Formula Operation-slot call-site projection is incomplete",
                     )
@@ -1487,7 +1489,7 @@ def _resolved_formula_programs_and_bindings_impl(
                     actual_contract = parameter_projection.get(slot_parameter_id)
                     if not isinstance(actual_contract, dict):
                         raise _FormulaResolutionError(
-                            _FORMULA_REASON["type-mismatch"],
+                            policy["refusal_reasons"]["type-mismatch"],
                             f"{binding_pointer}/arguments/{len(arguments)}/operand",
                             "Formula slot source is unresolved",
                         )
@@ -1495,7 +1497,7 @@ def _resolved_formula_programs_and_bindings_impl(
                         binding_parameters[parameter_id], actual_contract
                     ):
                         raise _FormulaResolutionError(
-                            _FORMULA_REASON["type-mismatch"],
+                            policy["refusal_reasons"]["type-mismatch"],
                             f"{binding_pointer}/arguments/{len(arguments)}/operand",
                             "Formula Operation-slot parameter does not cover its "
                             "concrete call-site domain",
@@ -1522,6 +1524,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 cast(dict[str, Any], formula["result"]),
                 cast(dict[str, Any], slot["result"]),
                 operation=True,
+                reasons=policy["refusal_reasons"],
             )
             if mismatch_reason is not None:
                 raise _FormulaResolutionError(
@@ -1535,7 +1538,7 @@ def _resolved_formula_programs_and_bindings_impl(
                     call_result, cast(dict[str, Any], formula["result"])
                 ):
                     raise _FormulaResolutionError(
-                        _FORMULA_REASON["type-mismatch"],
+                        policy["refusal_reasons"]["type-mismatch"],
                         f"{binding_pointer}/formula",
                         "Formula Operation-slot result exceeds its concrete "
                         "call-site domain",
@@ -1545,7 +1548,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 cast(list[str], slot["permitted_refusals"])
             ):
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["refusal-widening"],
+                    policy["refusal_reasons"]["refusal-widening"],
                     f"{binding_pointer}/formula",
                     "Formula closure widens its Operation-slot refusals",
                 )
@@ -1553,7 +1556,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 cast(list[str], closure["operation_dependencies"])
             ):
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["cycle"],
+                    policy["refusal_reasons"]["cycle"],
                     f"{binding_pointer}/formula",
                     "Formula closure cycles through its Operation slot",
                 )
@@ -1564,7 +1567,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 int, closure["termination_measure"]
             ) > cast(int, slot["termination_measure"]):
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["resource-exhausted"],
+                    policy["refusal_reasons"]["resource-exhausted"],
                     f"{binding_pointer}/formula",
                     "Formula closure exceeds its Operation-slot resource contract",
                 )
@@ -1617,7 +1620,7 @@ def _resolved_formula_programs_and_bindings_impl(
             )
     if bound_operation_slots != set(selected_slots):
         raise _FormulaResolutionError(
-            _FORMULA_REASON["binding-missing"],
+            policy["refusal_reasons"]["binding-missing"],
             _pointer([profile["entrypoints_member"], 0, "operation"]),
             "every selected Operation Formula slot requires exactly one binding",
         )
@@ -1632,7 +1635,7 @@ def _resolved_formula_programs_and_bindings_impl(
         != bound_derived_sites
     ):
         raise _FormulaResolutionError(
-            _FORMULA_REASON["unreachable"],
+            policy["refusal_reasons"]["unreachable"],
             next(
                 (
                     _pointer([bindings_member, index, binding_site_member])
@@ -1705,7 +1708,7 @@ def _resolved_formula_programs_and_bindings(
         if failure_context:
             message = str(error)
             if "incompatible" in message or "does not match" in message:
-                reason_id = _FORMULA_REASON["type-mismatch"]
+                reason_id = policy["refusal_reasons"]["type-mismatch"]
             else:
                 reason_id = cast(
                     str,

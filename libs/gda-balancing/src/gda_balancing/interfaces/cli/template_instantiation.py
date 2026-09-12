@@ -20,7 +20,7 @@ from gda_balancing.domain.authority.context import (
     packaged_authority_context,
 )
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.domain.model import MODEL_REFUSAL_CATALOG
+from gda_balancing.domain.model import model_refusal_catalog
 from gda_balancing.interfaces.cli.surface import descriptor_identity
 
 
@@ -128,7 +128,7 @@ TEMPLATE_INSTANTIATE = CommandDescriptor(
     artifact_set=_TEMPLATE_INSTANTIATE_ARTIFACT_SET,
     schema_major=2,
     structured_params=True,
-    refusal_catalog=MODEL_REFUSAL_CATALOG,
+    refusal_catalog_provider=model_refusal_catalog,
     usage_codes=(
         "argument_conflict",
         "invalid_argument",

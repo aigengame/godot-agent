@@ -1,5 +1,7 @@
 """Canonical Formula body and mathematical-notation conversion."""
 
+from gda_balancing.domain.diagnostics import source_resolution_profile
+
 import json
 from copy import deepcopy
 from dataclasses import dataclass
@@ -51,7 +53,7 @@ def render_formula_request(
     formula = request.get("formula")
     if not isinstance(formula, dict) or not isinstance(formula.get("body"), dict):
         raise notation.FormulaNotationRefusal(
-            "model.reason.source-contract-mismatch",
+            source_resolution_profile(context.language_bundle)["structural_reason"],
             "Formula render request has no structured body",
         )
     body = cast(dict[str, Any], formula["body"])

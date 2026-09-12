@@ -17,7 +17,7 @@ from gda_balancing.domain.diagnostics import (
 )
 from gda_balancing.domain.evidence_verification import EvidenceCandidate
 from gda_balancing.domain.experiment import experiment_check_refusal_reasons
-from gda_balancing.domain.model import MODEL_REFUSAL_CATALOG
+from gda_balancing.domain.model import model_refusal_catalog
 from gda_balancing.infrastructure.input_bytes import InputReadError
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.interfaces.cli.descriptors import (
@@ -68,7 +68,7 @@ def _refusal_catalog() -> tuple[tuple[str, str], ...]:
     return tuple(
         sorted(
             set(BOOTSTRAP_REFUSAL_CATALOG)
-            | set(MODEL_REFUSAL_CATALOG)
+            | set(model_refusal_catalog())
             | set(
                 refusal_catalog_for_reasons(
                     experiment_check_refusal_reasons() + _EVIDENCE_REFUSAL_REASONS

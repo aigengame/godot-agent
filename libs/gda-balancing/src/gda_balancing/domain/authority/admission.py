@@ -85,7 +85,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:da95962ff6ba89a925a3ef80925f4562e5e391c022a6c5f46f750e49b73a1622"
+    "sha256:aa6af93ac0d137ffb8eb33addf8244e85a3dc2c58c29f92955d47e4e579a41a0"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1238,6 +1238,7 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
         != {
             "closed",
             "parse_reason_stage",
+            "source_byte_ingress",
             "input",
             "operations",
             "result",
@@ -1250,6 +1251,15 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
         }
         or contract.get("closed") is not True
         or contract.get("parse_reason_stage") != "parse"
+        or contract.get("source_byte_ingress")
+        != {
+            "limit_member": "max_source_bytes",
+            "exhaustion_reason": {
+                "stage": "ingress",
+                "operation": "greater-than",
+                "limit_path": "resources.max_source_bytes",
+            },
+        }
     ):
         return False
     stages = contract.get("stage_order")
@@ -2189,6 +2199,7 @@ def _runtime_projection_is_closed(
         not isinstance(profile, dict)
         or set(profile)
         != {
+            "resource_reason",
             "collections",
             "seeds",
             "edges",
@@ -2780,45 +2791,23 @@ def _language_definitions_are_closed(
         and isinstance(item.get("id"), str)
         and isinstance(item.get("stage"), str)
     }
-    accounting = (
-        resolution_contract.get("resource_accounting")
-        if isinstance(resolution_contract, dict)
-        else None
-    )
-    exhaustion_reason = (
-        accounting.get("exhaustion_reason") if isinstance(accounting, dict) else None
-    )
-    resource_reasons = [
-        item
-        for item in cast(list[dict[str, Any]], language.get("reasons", []))
-        if isinstance(exhaustion_reason, dict)
-        and item.get("stage") == exhaustion_reason.get("stage")
-        and isinstance(item.get("predicate"), dict)
-        and item["predicate"].get("operation") == exhaustion_reason.get("operation")
-        and item["predicate"].get("limit_path") == exhaustion_reason.get("limit_path")
-    ]
     runtime_projection_contract = meta_format.get("runtime_projection")
-    runtime_accounting = (
-        runtime_projection_contract.get("resource_accounting")
-        if isinstance(runtime_projection_contract, dict)
-        else None
-    )
-    runtime_exhaustion_reason = (
-        runtime_accounting.get("exhaustion_reason")
-        if isinstance(runtime_accounting, dict)
-        else None
-    )
-    runtime_resource_reasons = [
-        item
-        for item in cast(list[dict[str, Any]], language.get("reasons", []))
-        if isinstance(runtime_exhaustion_reason, dict)
-        and item.get("stage") == runtime_exhaustion_reason.get("stage")
-        and isinstance(item.get("predicate"), dict)
-        and item["predicate"].get("operation")
-        == runtime_exhaustion_reason.get("operation")
-        and item["predicate"].get("limit_path")
-        == runtime_exhaustion_reason.get("limit_path")
-    ]
+    reason_rows = {item["id"]: item for item in language.get("reasons", [])}
+
+    def resource_reference(reference: Any, owner: Any) -> bool:
+        reason = reason_rows.get(reference) if isinstance(reference, str) else None
+        expected = owner.get("exhaustion_reason") if isinstance(owner, dict) else None
+        return (
+            isinstance(reason, dict)
+            and isinstance(expected, dict)
+            and reason.get("stage") == expected.get("stage")
+            and isinstance(reason.get("predicate"), dict)
+            and all(
+                reason["predicate"].get(key) == expected.get(key)
+                for key in ("operation", "limit_path")
+            )
+        )
+
     if (
         len(profiles_by_id) != len(profiles)
         or not isinstance(resolution_contract, dict)
@@ -2826,13 +2815,33 @@ def _language_definitions_are_closed(
         or not isinstance(operation_specs, list)
         or not operation_specs
         or len(operations_by_id) != len(operation_specs)
-        or len(resource_reasons) != 1
-        or len(runtime_resource_reasons) != 1
         or len([profile for profile in profiles if profile.get("default") is True]) != 1
     ):
         return False
     for profile in profiles:
         chain = profile.get("judgment_chain")
+        formula_reasons = profile.get("formula_resolution", {}).get("refusal_reasons")
+        if (
+            not resource_reference(
+                profile.get("source_byte_reason"),
+                resolution_contract.get("source_byte_ingress"),
+            )
+            or not resource_reference(
+                profile.get("resource_reason"),
+                resolution_contract.get("resource_accounting"),
+            )
+            or not isinstance(formula_reasons, dict)
+            or any(
+                reason_stages.get(reference)
+                != (
+                    "parse"
+                    if category in {"notation-parse", "notation-resource"}
+                    else "static"
+                )
+                for category, reference in formula_reasons.items()
+            )
+        ):
+            return False
         if (
             reason_stages.get(profile.get("parse_reason"))
             != resolution_contract["parse_reason_stage"]
@@ -2856,6 +2865,14 @@ def _language_definitions_are_closed(
             return False
     for lowering in lowerings:
         if not isinstance(lowering, dict):
+            return False
+        projection = lowering.get("runtime_projection")
+        if not isinstance(projection, dict) or not resource_reference(
+            projection.get("resource_reason"),
+            runtime_projection_contract.get("resource_accounting")
+            if isinstance(runtime_projection_contract, dict)
+            else None,
+        ):
             return False
         equalities = lowering.get("output_equalities")
         profile_id = lowering.get("resolution_profile")

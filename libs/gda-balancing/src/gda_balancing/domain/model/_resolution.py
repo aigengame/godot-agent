@@ -32,7 +32,6 @@ from gda_balancing.domain.diagnostics import (
     bound_diagnostics,
     reason_by_id,
     refusal_catalog_for_reasons,
-    source_parse_reason,
 )
 from gda_balancing.domain.formula.notation import (
     FormulaPairRefusal,
@@ -71,41 +70,26 @@ def _normalized_absolute_path(value: str) -> Path:
     return path
 
 
-_FORMULA_REASON = {
-    "binding-missing": "model.reason.formula-binding-missing",
-    "binding-duplicate": "model.reason.formula-binding-duplicate",
-    "type-mismatch": "model.reason.formula-type-mismatch",
-    "kind-mismatch": "model.reason.formula-kind-mismatch",
-    "unit-mismatch": "model.reason.formula-unit-mismatch",
-    "numeric-profile-mismatch": "model.reason.formula-numeric-profile-mismatch",
-    "purity-mismatch": "model.reason.formula-purity-mismatch",
-    "context-mismatch": "model.reason.formula-context-mismatch",
-    "unreachable": "model.reason.formula-unreachable",
-    "refusal-widening": "model.reason.formula-refusal-widening",
-    "resource-exhausted": "model.reason.formula-resource-exhausted",
-    "cycle": "model.reason.formula-cycle",
-    "notation-mismatch": "model.reason.formula-notation-mismatch",
-}
-
-
-MODEL_REFUSAL_REASONS = (
-    "model.reason.source-too-large",
-    cast(str, source_parse_reason(packaged_authority_context().language_bundle)["id"]),
-    "model.reason.source-contract-mismatch",
-    "quantity.reason.invalid-domain",
-    "quantity.reason.unknown-kind",
-    "quantity.reason.unknown-unit",
-    "model.reason.duplicate-symbol",
-    "quantity.reason.resource-exhausted",
-    "model.reason.resolution-resource-exhausted",
-    "model.reason.runtime-projection-resource-exhausted",
-    "model.reason.unresolved-name",
-    "model.reason.name-ambiguity",
-    "model.reason.package-unavailable",
-    "model.reason.resolution-ambiguity",
-    *_FORMULA_REASON.values(),
-)
-MODEL_REFUSAL_CATALOG = refusal_catalog_for_reasons(MODEL_REFUSAL_REASONS)
+def model_refusal_catalog(
+    language_bundle: dict[str, Any] | None = None,
+) -> tuple[tuple[str, str], ...]:
+    """Project only the selected Model pipeline's declared refusal owners."""
+    if language_bundle is None:
+        language_bundle = packaged_authority_context().language_bundle
+    profile = _resolution_profile(language_bundle)
+    lowering = _model_lowering(language_bundle)
+    reason_ids = [
+        profile["source_byte_reason"],
+        profile["parse_reason"],
+        profile["structural_reason"],
+        profile["resource_reason"],
+        lowering["runtime_projection"]["resource_reason"],
+        lowering["admission_reason"],
+        *(row["reason"] for row in profile["judgment_chain"]),
+        *(row["reason"] for row in _language(language_bundle)["model_checks"]),
+        *profile["formula_resolution"]["refusal_reasons"].values(),
+    ]
+    return refusal_catalog_for_reasons(dict.fromkeys(reason_ids), language_bundle)
 
 
 @dataclass(frozen=True)
@@ -442,28 +426,6 @@ def _reason_matches(
     if operation == "not-equal":
         return len(values) == 2 and values[0] != values[1]
     raise ValueError(f"unknown admitted reason operation: {operation}")
-
-
-def _unique_reason(
-    language_bundle: dict[str, Any],
-    *,
-    stage: str,
-    operation: str,
-    limit_path: str | None = None,
-) -> dict[str, Any]:
-    matches = []
-    for reason in cast(list[dict[str, Any]], _language(language_bundle)["reasons"]):
-        predicate = cast(dict[str, Any], reason["predicate"])
-        if reason["stage"] != stage or predicate["operation"] != operation:
-            continue
-        if limit_path is not None and predicate.get("limit_path") != limit_path:
-            continue
-        matches.append(reason)
-    if len(matches) != 1:
-        raise ValueError(
-            "the admitted Model Source boundary requires one matching diagnostic reason"
-        )
-    return matches[0]
 
 
 def _model_check_diagnostics(
@@ -925,12 +887,7 @@ def _resolution_diagnostics(
         item["id"]: item
         for item in cast(list[dict[str, Any]], resolution_contract["operations"])
     }
-    resource_reason = _unique_reason(
-        language_bundle,
-        stage="static",
-        operation="greater-than",
-        limit_path="resources.max_rule_match_steps",
-    )
+    resource_reason = reason_by_id(language_bundle, profile["resource_reason"])
     budget = _ResolutionBudget(
         cast(
             int,

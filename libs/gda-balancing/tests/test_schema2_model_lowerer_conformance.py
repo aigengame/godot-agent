@@ -85,6 +85,11 @@ class _ReferenceSourceFactError(ValueError):
         self.pointer = pointer
 
 
+class _ReferenceFormulaPairsError(Exception):
+    def __init__(self, diagnostics: tuple[tuple[str, str], ...]):
+        self.diagnostics = diagnostics
+
+
 class _ReferenceFormulaError(ValueError):
     def __init__(self, reason_id: str, pointer: str, message: str):
         super().__init__(message)
@@ -734,14 +739,11 @@ def _reference_check_source(
                 (code, _reference_pointer(list(location)))
             )
 
-    resource_reasons = [
-        reason
-        for reason in reasons.values()
-        if reason["predicate"].get("limit_path") == "resources.max_rule_match_steps"
-    ]
-    assert len(resource_reasons) == 1
-    resource_diagnostic = resource_reasons[0]["diagnostic"]
-    step_limit = language_bundle["resources"]["max_rule_match_steps"]
+    resource_reason = reasons[profile["resource_reason"]]
+    resource_diagnostic = resource_reason["diagnostic"]
+    step_limit = _exact_path(
+        language_bundle, resource_reason["predicate"]["limit_path"]
+    )
     base_steps = 0
 
     class BudgetExhausted(Exception):
@@ -953,14 +955,8 @@ def _reference_check_source(
     try:
         _reference_semantic_artifacts(checked)
     except _ReferenceRuntimeProjectionExhausted:
-        runtime_reasons = [
-            reason
-            for reason in reasons.values()
-            if reason["predicate"].get("limit_path")
-            == "resources.max_runtime_projection_steps"
-        ]
-        assert len(runtime_reasons) == 1
-        return ((runtime_reasons[0]["diagnostic"], ""),)
+        reason = reasons[lowering["runtime_projection"]["resource_reason"]]
+        return ((reason["diagnostic"], ""),)
     except (_ReferenceEntrypointError, _ReferenceSourceFactError) as error:
         return (
             (
@@ -968,6 +964,8 @@ def _reference_check_source(
                 error.pointer,
             ),
         )
+    except _ReferenceFormulaPairsError as error:
+        return error.diagnostics
     except _ReferenceFormulaError as error:
         return ((reasons[error.reason_id]["diagnostic"], error.pointer),)
     except (KeyError, ValueError) as error:
@@ -996,8 +994,16 @@ def _renamed_reason_authorities(
     for profile in language["resolution_profiles"]:
         if profile["structural_reason"] == reason_id:
             profile["structural_reason"] = renamed_reason
-        if profile["parse_reason"] == reason_id:
-            profile["parse_reason"] = renamed_reason
+        for member in ("parse_reason", "source_byte_reason", "resource_reason"):
+            if profile[member] == reason_id:
+                profile[member] = renamed_reason
+        for category, reference in profile["formula_resolution"][
+            "refusal_reasons"
+        ].items():
+            if reference == reason_id:
+                profile["formula_resolution"]["refusal_reasons"][category] = (
+                    renamed_reason
+                )
         for judgment in profile["judgment_chain"]:
             if judgment["reason"] == reason_id:
                 judgment["reason"] = renamed_reason
@@ -1010,6 +1016,8 @@ def _renamed_reason_authorities(
             if judgment["diagnostic"] == diagnostic:
                 judgment["diagnostic"] = renamed_diagnostic
     for lowering in language["model_lowerings"]:
+        if lowering["runtime_projection"]["resource_reason"] == reason_id:
+            lowering["runtime_projection"]["resource_reason"] = renamed_reason
         if lowering["admission_reason"] == reason_id:
             lowering["admission_reason"] = renamed_reason
     next(item for item in candidate_ldb["diagnostics"] if item["code"] == diagnostic)[
@@ -1826,7 +1834,7 @@ def _reference_formulas_and_bindings(
                     )
                 except ValueError as error:
                     raise _ReferenceFormulaError(
-                        "model.reason.formula-type-mismatch",
+                        policy["refusal_reasons"]["type-mismatch"],
                         f"{prototype['pointer']}/expression",
                         str(error),
                     ) from error
@@ -1941,7 +1949,7 @@ def _reference_formulas_and_bindings(
         key = pending.pop()
         if key not in resolved:
             raise _ReferenceFormulaError(
-                "model.reason.formula-binding-missing",
+                policy["refusal_reasons"]["binding-missing"],
                 binding_pointers[key],
                 "Formula binding names no declaration",
             )
@@ -1983,7 +1991,7 @@ def _reference_formulas_and_bindings(
         )
         if formula_key not in resolved:
             raise _ReferenceFormulaError(
-                "model.reason.formula-binding-missing",
+                policy["refusal_reasons"]["binding-missing"],
                 _reference_pointer(
                     [
                         policy["bindings_member"],
@@ -2004,9 +2012,9 @@ def _reference_formulas_and_bindings(
             if key not in slots or key in bound_slots:
                 raise _ReferenceFormulaError(
                     (
-                        "model.reason.formula-binding-duplicate"
+                        policy["refusal_reasons"]["binding-duplicate"]
                         if key in bound_slots
-                        else "model.reason.formula-unreachable"
+                        else policy["refusal_reasons"]["unreachable"]
                     ),
                     _reference_pointer(
                         [
@@ -2023,7 +2031,7 @@ def _reference_formulas_and_bindings(
             ]["lifecycle_roles"]["active"]
             if slot.get("context") != formula_contexts[active]:
                 raise _ReferenceFormulaError(
-                    "model.reason.formula-context-mismatch",
+                    policy["refusal_reasons"]["context-mismatch"],
                     _reference_pointer(
                         [
                             policy["bindings_member"],
@@ -2116,7 +2124,7 @@ def _reference_formulas_and_bindings(
     bindings.sort(key=lambda item: item["identity"])
     if bound_slots != set(slots):
         raise _ReferenceFormulaError(
-            "model.reason.formula-binding-missing",
+            policy["refusal_reasons"]["binding-missing"],
             _reference_pointer([profile["entrypoints_member"], 0, "operation"]),
             "every selected Operation Formula slot requires exactly one binding",
         )
@@ -2821,6 +2829,55 @@ def _reference_rir(
         declarations,
         lock,
     )
+    from schema2_formula_conformance_support import pair_refusal
+
+    profile = next(
+        row
+        for row in language["resolution_profiles"]
+        if row["id"] == lowering["resolution_profile"]
+    )
+    policy = profile["formula_resolution"]
+    reasons = {row["id"]: row for row in language["reasons"]}
+    modules = checked.source[profile["modules_member"]]
+    pair_diagnostics = []
+    for mi, module in enumerate(modules):
+        for fi, formula in enumerate(module.get(policy["module_formulas_member"], [])):
+            request = {
+                "schema_version": checked.source[profile["schema_version_member"]],
+                "package_requirements": checked.source[profile["requirements_member"]],
+                "modules": modules,
+                "module": module,
+                "formula": formula,
+            }
+            failure = pair_refusal(
+                request, checked.language_bundle, kernel=checked.kernel
+            )
+            if failure is not None:
+                category, member = failure
+                reason_id = (
+                    profile["structural_reason"]
+                    if category is None
+                    else policy["refusal_reasons"][category]
+                )
+                pair_diagnostics.append(
+                    (
+                        reasons[reason_id]["diagnostic"],
+                        _reference_pointer(
+                            [
+                                profile["modules_member"],
+                                mi,
+                                policy["module_formulas_member"],
+                                fi,
+                                member,
+                            ]
+                        ),
+                    )
+                )
+    if pair_diagnostics:
+        ordered = sorted(set(pair_diagnostics), key=lambda row: (row[1], row[0]))
+        raise _ReferenceFormulaPairsError(
+            tuple(ordered[: checked.language_bundle["resources"]["max_diagnostics"]])
+        )
     accounting = checked.kernel["meta_format"]["runtime_projection"][
         "resource_accounting"
     ]

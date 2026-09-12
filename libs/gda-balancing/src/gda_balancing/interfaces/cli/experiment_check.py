@@ -63,7 +63,9 @@ EXPERIMENT_CHECK = CommandDescriptor(
     positional_field="specification",
     schema_major=2,
     structured_params=True,
-    refusal_catalog=refusal_catalog_for_reasons(experiment_check_refusal_reasons()),
+    refusal_catalog_provider=lambda: refusal_catalog_for_reasons(
+        experiment_check_refusal_reasons()
+    ),
     usage_codes=(
         "argument_conflict",
         "invalid_argument",

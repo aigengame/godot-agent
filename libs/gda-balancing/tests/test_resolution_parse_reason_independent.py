@@ -105,7 +105,7 @@ def test_resolution_parse_stage_has_one_supported_primitive_owner():
         assert not _consumer_b_resolution_contract_is_closed(changed)
 
 
-def test_parse_reason_inventory_uses_declared_reference_and_keeps_unclosed_profile():
+def test_parse_reason_inventory_uses_declared_reference_in_the_closed_profile():
     kernel, index = mutable_authorities()
     graph = _authored(index)
     inventory = read_extension_inventory(kernel, graph)
@@ -120,7 +120,7 @@ def test_parse_reason_inventory_uses_declared_reference_and_keeps_unclosed_profi
     assert occurrence.use == "reference"
     assert occurrence.law.startswith("/admission/laws/")
     assert token in inventory.tokens - inventory.reserved
-    assert any(
+    assert not any(
         gap.pointer == occurrence.pointer.removesuffix("/parse_reason")
         for gap in inventory.uncovered
     )

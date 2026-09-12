@@ -1,6 +1,6 @@
 """Schema 2.0 Formula notation conversion commands."""
 
-from typing import Any, cast
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -15,7 +15,7 @@ from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.domain.diagnostics import (
     refusal_catalog_for_reasons,
-    source_parse_reason,
+    source_resolution_profile,
 )
 from gda_balancing.domain.wire_schema import wire_schema_definition_for_role
 
@@ -170,6 +170,23 @@ _REFUSING_RENDER_REQUEST = """{
 }"""
 
 
+def _refusal_catalog(*, parsing: bool) -> tuple[tuple[str, str], ...]:
+    context = packaged_authority_context()
+    profile = source_resolution_profile(context.language_bundle)
+    reasons = profile["formula_resolution"]["refusal_reasons"]
+    categories = ["name-unresolved", "name-ambiguity", "type-mismatch"]
+    if parsing:
+        categories.extend(["notation-parse", "notation-resource"])
+    else:
+        categories.append("notation-mismatch")
+    selected = [
+        profile[member]
+        for member in ("parse_reason", "source_byte_reason", "structural_reason")
+    ]
+    selected.extend(reasons[category] for category in categories)
+    return refusal_catalog_for_reasons(dict.fromkeys(selected), context.language_bundle)
+
+
 FORMULA_PARSE = CommandDescriptor(
     group="formula",
     command="parse",
@@ -185,21 +202,7 @@ FORMULA_PARSE = CommandDescriptor(
     schema_major=2,
     structured_params=True,
     success_schema=_formula_conversion_result_schema,
-    refusal_catalog=refusal_catalog_for_reasons(
-        (
-            "formula.reason.notation-parse-failure",
-            "formula.reason.notation-resource-exhausted",
-            "model.reason.unresolved-name",
-            "model.reason.name-ambiguity",
-            "model.reason.formula-type-mismatch",
-            cast(
-                str,
-                source_parse_reason(packaged_authority_context().language_bundle)["id"],
-            ),
-            "model.reason.source-too-large",
-            "model.reason.source-contract-mismatch",
-        )
-    ),
+    refusal_catalog_provider=lambda: _refusal_catalog(parsing=True),
     usage_codes=(
         "invalid_argument",
         "unknown_argument",
@@ -223,20 +226,7 @@ FORMULA_RENDER = CommandDescriptor(
     schema_major=2,
     structured_params=True,
     success_schema=_formula_conversion_result_schema,
-    refusal_catalog=refusal_catalog_for_reasons(
-        (
-            "model.reason.unresolved-name",
-            "model.reason.name-ambiguity",
-            "model.reason.formula-notation-mismatch",
-            "model.reason.formula-type-mismatch",
-            cast(
-                str,
-                source_parse_reason(packaged_authority_context().language_bundle)["id"],
-            ),
-            "model.reason.source-too-large",
-            "model.reason.source-contract-mismatch",
-        )
-    ),
+    refusal_catalog_provider=lambda: _refusal_catalog(parsing=False),
     usage_codes=(
         "invalid_argument",
         "unknown_argument",

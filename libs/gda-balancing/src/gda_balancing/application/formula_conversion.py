@@ -1,5 +1,7 @@
 """Formula notation conversion use cases."""
 
+from gda_balancing.domain.diagnostics import source_resolution_profile
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, cast
@@ -45,7 +47,7 @@ def _convert_formula(
         data = read_bounded_input(source, max_bytes)
     except InputTooLargeError:
         refusal = notation.FormulaNotationRefusal(
-            "model.reason.source-too-large",
+            source_resolution_profile(context.language_bundle)["source_byte_reason"],
             "Formula conversion request exceeds the admitted ingress bound",
         )
         return formula_refusal_report(

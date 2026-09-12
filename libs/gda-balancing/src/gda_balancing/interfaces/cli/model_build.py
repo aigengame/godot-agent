@@ -13,7 +13,7 @@ from gda_balancing.interfaces.cli.artifact_set import ArtifactSetMemberLocator
 from gda_balancing.interfaces.cli.model_fixtures import VALID_MODEL_SOURCE
 from gda_balancing.interfaces.cli.path_contracts import reject_input_aliasing
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.domain.model import MODEL_REFUSAL_CATALOG
+from gda_balancing.domain.model import model_refusal_catalog
 from gda_balancing.interfaces.cli.surface import descriptor_identity
 
 
@@ -84,7 +84,7 @@ MODEL_BUILD = CommandDescriptor(
     artifact_set=MODEL_BUILD_ARTIFACT_SET,
     schema_major=2,
     structured_params=True,
-    refusal_catalog=MODEL_REFUSAL_CATALOG,
+    refusal_catalog_provider=model_refusal_catalog,
     usage_codes=(
         "argument_conflict",
         "invalid_argument",

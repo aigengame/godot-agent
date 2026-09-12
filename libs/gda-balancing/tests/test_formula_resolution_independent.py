@@ -10,7 +10,8 @@ from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     admit_authority_context,
 )
-from gda_balancing.domain.model import admit_resolved_model
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.model import admit_resolved_model, check_model_source_value
 from gda_balancing.domain.model._resolution import ModelSourceContext
 from schema2_bootstrap_conformance_support import (
     _consumer_b,
@@ -54,17 +55,30 @@ def test_independent_inline_model_compilation_exchanges_four_public_artifacts(
             formula["body"] = normalize_source_body(
                 formula["body"], index, kernel=kernel
             )
+    # A bare parameter expression parses to the inline Source representation.
+    # Replacing only its authored body with an explicit program is not a canonical pair.
     program_checked = _reference_check_source(program_source, kernel, index)
-    assert isinstance(program_checked, ModelSourceContext), program_checked
-    program_artifacts = _reference_semantic_artifacts(program_checked)
-    assert len(program_artifacts) == 4
+    program_a = check_model_source_value(program_source, authority_context=context)
+    reason = _profile(authored)["formula_resolution"]["refusal_reasons"][
+        "notation-mismatch"
+    ]
+    code = next(
+        row["diagnostic"] for row in index["language"]["reasons"] if row["id"] == reason
+    )
+    expected = ((code, "/modules/0/formulas/0/expression"),)
+    assert program_checked == expected
+    assert isinstance(program_a, Schema2RefusalReport)
+    assert (
+        tuple(
+            (diagnostic.code, diagnostic.primary.model_dump()["pointer"])
+            for diagnostic in program_a.diagnostics
+        )
+        == expected
+    )
     checked = _reference_check_source(source, kernel, index)
     assert isinstance(checked, ModelSourceContext), checked
     reference = _reference_semantic_artifacts(checked)
     assert len(reference) == 4
-    assert _encoded(reference["rir-semantic-payload"]) == _encoded(
-        program_artifacts["rir-semantic-payload"]
-    )
 
     public = _PublicCandidate(tmp_path / "public", authorities=(kernel, graph))
     public.write_source(source)
@@ -140,8 +154,8 @@ def test_independent_inline_model_compilation_exchanges_four_public_artifacts(
                 "four_artifact_roles": list(reference),
                 "four_artifact_canonical_equal": True,
                 "mutual_admission": True,
-                "explicit_program_control_four_artifacts": True,
-                "explicit_program_control_RIR_equal": True,
+                "noncanonical_program_control_refusal": list(expected),
+                "noncanonical_program_control_A_B_equal": True,
             },
             indent=2,
         )

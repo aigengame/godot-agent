@@ -37,6 +37,7 @@ from gda_balancing.domain.diagnostics import (
     Schema2RefusalReport,
     reason_by_id,
     source_parse_reason,
+    source_resolution_profile,
 )
 from gda_balancing.infrastructure.input_bytes import (
     read_bounded_input_with_sha256,
@@ -65,10 +66,7 @@ from gda_balancing.domain.experiment_judgments import (
 )
 
 _EXPERIMENT_CHECK_REFUSAL_REASONS = (
-    "model.reason.source-too-large",
-    "model.reason.source-contract-mismatch",
     "quantity.reason.invalid-domain",
-    "model.reason.resolved-authority-mismatch",
     "model.reason.resolution-binding-mismatch",
 )
 
@@ -81,7 +79,20 @@ def experiment_check_refusal_reasons() -> tuple[str, ...]:
     ]["roots"]
     reasons = context.language_bundle["language"]["reasons"]
     selected: list[str] = list(_EXPERIMENT_CHECK_REFUSAL_REASONS)
-    selected.insert(1, cast(str, source_parse_reason(context.language_bundle)["id"]))
+    profile = source_resolution_profile(context.language_bundle)
+    lowering = next(
+        row
+        for row in context.language_bundle["language"]["model_lowerings"]
+        if row["id"] == profile["model_lowering"]
+    )
+    selected.extend(
+        [
+            profile["parse_reason"],
+            profile["source_byte_reason"],
+            profile["structural_reason"],
+            lowering["admission_reason"],
+        ]
+    )
     for root in roots:
         if root["when"] != "typed-values":
             continue
@@ -423,7 +434,10 @@ def check_experiment(
     if observation.data is None:
         return _refusal(
             reason=reason_by_id(
-                context.language_bundle, "model.reason.source-too-large"
+                context.language_bundle,
+                source_resolution_profile(context.language_bundle)[
+                    "source_byte_reason"
+                ],
             ),
             identity=f"sha256:{observation.sha256}",
             pointer="",
@@ -466,7 +480,10 @@ def check_experiment_value(
     if len(data) > cast(int, context.language_bundle["resources"]["max_source_bytes"]):
         return _refusal(
             reason=reason_by_id(
-                context.language_bundle, "model.reason.source-too-large"
+                context.language_bundle,
+                source_resolution_profile(context.language_bundle)[
+                    "source_byte_reason"
+                ],
             ),
             identity=f"sha256:{hashlib.sha256(data).hexdigest()}",
             pointer="",
@@ -497,7 +514,8 @@ def _check_experiment_value(
     if schema_error is not None:
         return _refusal(
             reason=reason_by_id(
-                language_bundle, "model.reason.source-contract-mismatch"
+                language_bundle,
+                source_resolution_profile(language_bundle)["structural_reason"],
             ),
             identity=experiment_identity,
             pointer=_schema_error_pointer(schema_error),
@@ -510,7 +528,8 @@ def _check_experiment_value(
         if not _unique_rows(collection, member):
             return _refusal(
                 reason=reason_by_id(
-                    language_bundle, "model.reason.source-contract-mismatch"
+                    language_bundle,
+                    source_resolution_profile(language_bundle)["structural_reason"],
                 ),
                 identity=experiment_identity,
                 pointer="",
@@ -534,7 +553,8 @@ def _check_experiment_value(
         ):
             return _refusal(
                 reason=reason_by_id(
-                    language_bundle, "model.reason.source-contract-mismatch"
+                    language_bundle,
+                    source_resolution_profile(language_bundle)["structural_reason"],
                 ),
                 identity=experiment_identity,
                 pointer=(
@@ -578,7 +598,8 @@ def _check_experiment_value(
         if metric["target"]["minimum"] > metric["target"]["maximum"]:
             return _refusal(
                 reason=reason_by_id(
-                    language_bundle, "model.reason.source-contract-mismatch"
+                    language_bundle,
+                    source_resolution_profile(language_bundle)["structural_reason"],
                 ),
                 identity=experiment_identity,
                 pointer=f"/metrics/{metric_index}/target",
@@ -588,7 +609,13 @@ def _check_experiment_value(
     if value["model"]["rir_semantic_identity"] != program.semantic_identity:
         return _refusal(
             reason=reason_by_id(
-                language_bundle, "model.reason.resolved-authority-mismatch"
+                language_bundle,
+                next(
+                    row
+                    for row in language_bundle["language"]["model_lowerings"]
+                    if row["id"]
+                    == source_resolution_profile(language_bundle)["model_lowering"]
+                )["admission_reason"],
             ),
             identity=experiment_identity,
             pointer="/model/rir_semantic_identity",
@@ -628,7 +655,8 @@ def _check_experiment_value(
         if not _external_input_plan_is_admitted(scenario, scheduler):
             return _refusal(
                 reason=reason_by_id(
-                    language_bundle, "model.reason.source-contract-mismatch"
+                    language_bundle,
+                    source_resolution_profile(language_bundle)["structural_reason"],
                 ),
                 identity=experiment_identity,
                 pointer=f"/scenarios/{scenario_index}",
@@ -708,7 +736,8 @@ def _check_experiment_value(
             if not _unique_canonical_rows(payload, "target"):
                 return _refusal(
                     reason=reason_by_id(
-                        language_bundle, "model.reason.source-contract-mismatch"
+                        language_bundle,
+                        source_resolution_profile(language_bundle)["structural_reason"],
                     ),
                     identity=experiment_identity,
                     pointer=payload_pointer,
@@ -732,7 +761,8 @@ def _check_experiment_value(
             ):
                 return _refusal(
                     reason=reason_by_id(
-                        language_bundle, "model.reason.source-contract-mismatch"
+                        language_bundle,
+                        source_resolution_profile(language_bundle)["structural_reason"],
                     ),
                     identity=experiment_identity,
                     pointer=payload_pointer,
@@ -785,7 +815,8 @@ def _check_experiment_value(
             ):
                 return _refusal(
                     reason=reason_by_id(
-                        language_bundle, "model.reason.source-contract-mismatch"
+                        language_bundle,
+                        source_resolution_profile(language_bundle)["structural_reason"],
                     ),
                     identity=experiment_identity,
                     pointer=reference_pointer,
@@ -841,7 +872,8 @@ def _check_experiment_value(
         except ValueError as err:
             return _refusal(
                 reason=reason_by_id(
-                    language_bundle, "model.reason.source-contract-mismatch"
+                    language_bundle,
+                    source_resolution_profile(language_bundle)["structural_reason"],
                 ),
                 identity=experiment_identity,
                 pointer=f"/scenarios/{scenario_index}/assignments",
@@ -862,7 +894,8 @@ def _check_experiment_value(
         if not required <= provided.keys() or not provided.keys() <= allowed.keys():
             return _refusal(
                 reason=reason_by_id(
-                    language_bundle, "model.reason.source-contract-mismatch"
+                    language_bundle,
+                    source_resolution_profile(language_bundle)["structural_reason"],
                 ),
                 identity=experiment_identity,
                 pointer=f"/scenarios/{scenario_index}/assignments",
@@ -884,7 +917,8 @@ def _check_experiment_value(
         except ValueError as err:
             return _refusal(
                 reason=reason_by_id(
-                    language_bundle, "model.reason.source-contract-mismatch"
+                    language_bundle,
+                    source_resolution_profile(language_bundle)["structural_reason"],
                 ),
                 identity=experiment_identity,
                 pointer=f"/scenarios/{scenario_index}/event_plan",
@@ -923,7 +957,10 @@ def _check_experiment_value(
                 if target_contract is None:
                     return _refusal(
                         reason=reason_by_id(
-                            language_bundle, "model.reason.source-contract-mismatch"
+                            language_bundle,
+                            source_resolution_profile(language_bundle)[
+                                "structural_reason"
+                            ],
                         ),
                         identity=experiment_identity,
                         pointer=f"{pointer}/target",

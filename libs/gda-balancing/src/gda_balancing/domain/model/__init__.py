@@ -21,14 +21,14 @@ from ._inspection_types import ModelInspectAdmissionError
 from ._lowering import checked_model_template_facts
 from ._resolution import (
     MODEL_INSPECT_REFUSAL_CATALOG,
-    MODEL_REFUSAL_CATALOG,
+    model_refusal_catalog,
     CheckedModel,
     model_source_identity_domain,
 )
 
 __all__ = (
     "MODEL_INSPECT_REFUSAL_CATALOG",
-    "MODEL_REFUSAL_CATALOG",
+    "model_refusal_catalog",
     "CheckedModel",
     "CompiledArtifactAdmissionError",
     "AdmittedRir",
