@@ -1096,14 +1096,6 @@ def _source_address_links(
                     )
             return address
 
-        for lowering, lp in lowerings:
-            endpoint = yield from selector(
-                lowering["source_selector"], lp + "/source_selector"
-            )
-            if endpoint != symbol_object:
-                raise InventoryRefusal(
-                    "Source lowering selector does not select its profile's Symbols"
-                )
         for _, check, cp in _authority_path_rows(
             kernel, graph, "language_bundle.language.model_checks"
         ):

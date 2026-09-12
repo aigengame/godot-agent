@@ -105,9 +105,6 @@ def test_source_entrypoints_coherent_rename_reaches_public_and_independent_compi
         ):
             if term.get("root") == "source" and term["path"]:
                 term["path"][0] = names.get(term["path"][0], term["path"][0])
-    for lowering in _definitions(authored, "language.model_lowerings"):
-        selector = lowering["source_selector"]
-        selector[0] = names.get(selector[0], selector[0])
     for check in _definitions(authored, "language.model_checks"):
         for member in ("selector", "scope_selector"):
             if check.get(member):

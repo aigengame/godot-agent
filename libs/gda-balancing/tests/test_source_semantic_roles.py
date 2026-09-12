@@ -492,3 +492,19 @@ def test_source_semantic_keywords_have_no_parallel_metadata_selector():
     ]["field_types"]["schema"]["allowed_keywords"]
     assert {"semantic_role", "semantic_member"} <= set(keywords)
     assert _consumer_a(kernel, language)["admitted"]
+
+
+def test_retired_lowering_source_selector_cannot_reintroduce_an_address_owner():
+    kernel, language = mutable_authorities()
+    assert _consumer_a(kernel, language)["admitted"]
+    authored = _authored(language)
+    lowering = next(
+        definition
+        for package in authored["packages"]
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.model_lowerings"
+        for definition in closure["definitions"]
+    )
+    lowering["source_selector"] = ["modules", "*", "symbols", "*"]
+    result = _consumer_a(kernel, _graph(kernel, authored))
+    assert not result["admitted"], result

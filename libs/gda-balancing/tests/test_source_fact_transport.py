@@ -98,10 +98,6 @@ def _fixture(mutation=None, *, renamed=False, input_member=None):
                 term = field["term"]
                 if term.get("root") == "binding" and term.get("binding") == "symbol":
                     term["path"] = [names[part] for part in term["path"]]
-        for lowering in _definitions(authored, "language.model_lowerings"):
-            lowering["source_selector"] = [
-                names.get(part, part) for part in lowering["source_selector"]
-            ]
         for check in checks:
             for field in ("selector", "scope_selector"):
                 if field in check:

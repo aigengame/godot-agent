@@ -2055,9 +2055,6 @@ def test_inventory_consumes_the_complete_declared_source_module_mapping():
                                 original
                             ]:
                                 term["path"][0] = renamed
-                elif role == "language.model_lowerings":
-                    if row["source_selector"][:1] == [original]:
-                        row["source_selector"][0] = renamed
                 elif role == "language.model_checks":
                     for member in ("selector", "scope_selector"):
                         if row.get(member, [])[:1] == [original]:
@@ -2090,7 +2087,6 @@ def test_inventory_consumes_the_complete_declared_source_module_mapping():
         "source-field", ("language.wire_schemas", "model-source-package"), renamed
     )
     references = [o for o in inventory.occurrences if o.token == token]
-    assert len([o for o in references if o.pointer.endswith("/source_selector/0")]) == 1
     assert (
         len(
             [

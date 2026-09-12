@@ -70,7 +70,6 @@ from gda_balancing.domain.model._resolution import (
     _pointer,
     _resolution_profile,
     _selected_source_operation_coordinates,
-    _selected_values,
 )
 from gda_balancing.domain.model._operation_call_domain_adapters import (
     build_operation_call_domain_input,
@@ -285,14 +284,7 @@ def _resolved_source_symbols(
     packages = {
         item["id"]: item for item in cast(list[dict[str, Any]], language["packages"])
     }
-    selected_source_rows = {
-        pointer: value
-        for value, pointer in _selected_values(
-            source, cast(list[str], lowering["source_selector"])
-        )
-    }
     rows: list[tuple[dict[str, Any], tuple[object, ...]]] = []
-    resolved_source_pointers: set[tuple[object, ...]] = set()
     module_ids: set[str] = set()
     resolved_names: set[tuple[str, str, str]] = set()
     for module_index, module in enumerate(
@@ -329,11 +321,6 @@ def _resolved_source_symbols(
                 symbols_member,
                 symbol_index,
             )
-            if source_pointer not in selected_source_rows:
-                continue
-            if selected_source_rows[source_pointer] is not source_symbol:
-                raise ValueError("model lowering source selection was ambiguous")
-            resolved_source_pointers.add(source_pointer)
             alias = source_symbol[source_type_member]
             imported = imports.get(alias)
             if imported is None:
@@ -385,10 +372,6 @@ def _resolved_source_symbols(
                     source_pointer,
                 )
             )
-    if set(selected_source_rows) != resolved_source_pointers:
-        raise ValueError(
-            "model lowering source selector is outside the resolution profile"
-        )
     entry_module = _path_value(source, "manifest.entry_module")
     if entry_module not in module_ids:
         raise ValueError("manifest entry_module does not name a module")
