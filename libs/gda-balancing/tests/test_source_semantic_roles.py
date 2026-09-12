@@ -394,3 +394,16 @@ def test_retired_source_selector_cannot_reintroduce_a_second_address_owner(
     owner[member] = deepcopy(old_value)
     result = _consumer_a(kernel, _graph(kernel, authored))
     assert not result["admitted"], result
+
+
+def test_source_semantic_keywords_have_no_parallel_metadata_selector():
+    kernel, language = mutable_authorities()
+    law = kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
+        "source_notation"
+    ]["semantic_roles"]
+    assert set(law) == {"root", "roles", "children"}
+    keywords = kernel["meta_format"]["language_definitions"]["collections"][
+        "wire_schemas"
+    ]["field_types"]["schema"]["allowed_keywords"]
+    assert {"semantic_role", "semantic_member"} <= set(keywords)
+    assert _consumer_a(kernel, language)["admitted"]
