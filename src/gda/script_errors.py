@@ -50,22 +50,42 @@ raised while GDScript is on the stack — a script's bad ``get_node()`` prints
 full backtrace, and that is the engine's failure, not the project's report.
 
 **The set holds ONE warning, and the rule is what admits it** (#844). Godot
-reports a leak at engine exit twice, and one of the two records is a
-``WARN_PRINT``, so recognizing it widens the set past the ``ERROR`` /
-``SCRIPT ERROR`` levels it held until now. Against the three criteria: (1) both
-sentences are C++ format-string literals — ``ObjectDB instances leaked at exit``
-(``ObjectDB::cleanup``, ``core/object/object.cpp``) and ``<n> resources still in
-use at exit`` (``ResourceCache::clear``, ``core/io/resource.cpp``) — so nothing
-keys on project prose, and a project ``push_warning`` that spells the same words
-is skipped like every other project warning; (2) the record says what became of
-the objects and resources of the run the script owned — a one-shot ``--script``
-process ended with them still alive — which an agent branches on (a strict gate,
-a soak or lifecycle test), where a leak that only sat inside the raw stderr
-string made the production add "stderr must be empty" as its own gate
-(GDA-DF-063); (3) the kind states that the script RAN, because the engine prints
-these AFTER the run: it stays out of ``_ENTRY_FAILURE_PRECEDENCE`` and names no
-resource, so it can never decide an entry verdict. What stays skipped is the
-warning LEVEL, not merely this one sentence of it.
+reports leaked OBJECTS and RESOURCES at engine exit with two records, and this
+set recognizes those two; one of them is a ``WARN_PRINT``, so recognizing it
+widens the set past the ``ERROR`` / ``SCRIPT ERROR`` levels it held until now.
+Against the three criteria: (1) both sentences are C++ format-string literals —
+``ObjectDB instances leaked at exit`` (``ObjectDB::cleanup``,
+``core/object/object.cpp``) and ``<n> resources still in use at exit``
+(``ResourceCache::clear``, ``core/io/resource.cpp``) — so nothing keys on project
+prose, and a project ``push_warning`` that spells the same words is skipped like
+every other project warning. That guard covers the ``push_warning`` /
+``push_error`` BUILTIN paths, which is where a project reports something; a
+script that writes the sentence straight to stderr with ``printerr`` is not keyed
+out, the same pre-existing opening every recognized sentence has (a ``printerr``
+of ``Failed loading resource: …`` already reads as ``resource_load_failed``),
+with one new consequence worth naming: forging THIS kind flips ``--strict``
+without having to look like an entry-load failure. (2) The record says what
+became of the objects and resources of the process this run was — it ended with
+them still alive — which an agent branches on (a strict gate, a soak or lifecycle
+test), where a leak that only sat inside the raw stderr string made the
+production add "stderr must be empty" as its own gate (GDA-DF-063). (3) The kind
+states that the script RAN, because the engine prints these AFTER the run: it
+stays out of ``_ENTRY_FAILURE_PRECEDENCE`` and names no resource, so it can never
+decide an entry verdict. What stays skipped is the warning LEVEL, not merely this
+one sentence of it.
+
+**What is deliberately NOT in the set: the RID leak reports** (PR #964 review).
+The two records above are not everything Godot says about leaks at exit — it also
+reports leaked RIDs, from at least two further sites and in more shapes
+(``WARNING: 1 RID of type "Canvas" was leaked.`` / ``<n> RIDs of type … were
+leaked.``, ``servers/rendering/renderer_canvas_cull.cpp``; and ``ERROR: <n> RID
+allocations of type '<name>' were leaked at exit.``,
+``core/templates/rid_owner.h``, which is not behind ``DEBUG_ENABLED``). A run
+that leaks only RIDs is therefore a clean ``script run --strict`` with an empty
+``diagnostics``. That is a closed set doing its job rather than an oversight:
+what may enter is the admission question above, #844 answered it for these two
+records, and the RID family — more sites, more spellings, a different subject —
+is its own question for whoever needs it.
 
 **Resource identity is canonical, on both sides of every comparison.** Godot
 canonicalizes a ``res://`` path before reporting it, so an entry script invoked as
@@ -328,8 +348,9 @@ class ScriptErrorKind(str, Enum):
     #: or ``<n> resources still in use at exit``, whose count stays in the message.
     #: A shutdown record, so like ``RUNTIME_ERROR`` and ``PUSH_ERROR`` it says the
     #: script RAN — it is printed after the run — and it names no resource, so it
-    #: can never decide an entry verdict. What it reports is the fate of the run's
-    #: own objects, which a soak or lifecycle gate branches on (#844).
+    #: can never decide an entry verdict. What it reports is the fate of the whole
+    #: PROCESS's objects — an autoload's leak reads like the script's own — which a
+    #: soak or lifecycle gate branches on (#844).
     SHUTDOWN_LEAK = "shutdown_leak"
     #: A script binding the engine refused at assignment time: a compiled script
     #: whose native base cannot bind the object it was assigned to (e.g. an

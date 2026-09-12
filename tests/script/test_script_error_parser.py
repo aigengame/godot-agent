@@ -861,6 +861,25 @@ def test_an_ordinary_engine_warning_is_still_skipped():
     assert parse_script_errors(stderr) == []
 
 
+def test_the_leak_wording_inside_another_sentence_is_not_a_leak():
+    # The ANCHORING is what keeps this extension keyed on the engine's own format
+    # strings (PR #964 review): both patterns match from the start of the record's
+    # message, so the words have to BE the sentence rather than appear in one.
+    # Unanchored, a record that merely quotes the wording — a suite reporting on an
+    # earlier run, a log line echoed back — would be read as a leak and, under
+    # --strict, would fail a run that never leaked.
+    stderr = (
+        "ERROR: Suite finished; the last run said 1 resources still in use at "
+        "exit.\n"
+        "   at: check (res://suite.gd:12)\n"
+        "WARNING: the previous run said ObjectDB instances leaked at exit (run "
+        "with --verbose for details).\n"
+        "   at: report (res://suite.gd:20)\n"
+    )
+
+    assert parse_script_errors(stderr) == []
+
+
 def test_leaked_at_exit_reports_the_first_leak_record():
     # The read the --strict rule and its message branch share, so both cannot
     # disagree about whether a run leaked.

@@ -1059,6 +1059,12 @@ def script_exit_status_failure(
     is the more specific one and the leak is on ``evidence`` and in ``diagnostics``
     either way.
 
+    The leak sentence does NOT attribute the leak to the named script (PR #964
+    review): the engine reports what the whole PROCESS still held when it exited,
+    which includes the project's autoloads, so the message says the engine reported
+    a leak rather than that this script leaked. The script is still named — it is
+    the run the caller asked for — but as the subject of the run, not of the leak.
+
     The evidence the caller needs is preserved: the status stays readable in the
     message, and ``diagnostics`` carries BOTH of the script's streams under fixed
     labels. Carrying stderr alone would defeat the flag's own use case — a GDScript
@@ -1079,7 +1085,7 @@ def script_exit_status_failure(
     leak = leaked_at_exit(script_errors) if exit_status == 0 else None
     message = f"script run --strict: {script} exited with status {exit_status}"
     if leak is not None:
-        message = f"{message} but leaked at exit — {leak.message}"
+        message = f"{message}, but the engine reported a leak at exit — {leak.message}"
     return make_failure(
         "script_failed",
         message,

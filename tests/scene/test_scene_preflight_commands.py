@@ -33,6 +33,17 @@ READY_STDERR = (
 )
 
 
+# The engine's exit-time leak pair, recorded from Godot 4.6.3 (#844). It is printed
+# when the process shuts down — after the scene came up and after the op reported —
+# and the leak can belong to anything the process held, an autoload included.
+LEAK_STDERR = (
+    "WARNING: ObjectDB instances leaked at exit (run with --verbose for details).\n"
+    "   at: cleanup (core/object/object.cpp:2663)\n"
+    "ERROR: 1 resources still in use at exit (run with --verbose for details).\n"
+    "   at: clear (core/io/resource.cpp:810)\n"
+)
+
+
 def _patch_launch(monkeypatch, result: RunResult) -> list:
     calls: list = []
 
@@ -101,6 +112,53 @@ def test_a_script_error_during_startup_is_reported_though_the_scene_reached_read
             "path": "res://encounter.gd",
             "line": 12,
         }
+    ]
+
+
+def test_an_exit_time_leak_is_reported_but_does_not_gate_started(monkeypatch, tmp_path):
+    # #844 with the boundary the PR #964 review drew: the leak is DATA on this
+    # channel. `started` asks how the boot went, and this record is printed after
+    # the run about the whole process — a scene whose nodes carry no script at all
+    # would otherwise read `started: false` because an autoload leaked.
+    project = minimal_project(tmp_path)
+    _patch_launch(monkeypatch, RunResult(stdout=READY, stderr=LEAK_STDERR, exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        ["scene", "preflight", "res://main.tscn", "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["status"] == "ready"
+    assert data["started"] is True
+    assert [d["kind"] for d in data["diagnostics"]] == [
+        "shutdown_leak",
+        "shutdown_leak",
+    ]
+
+
+def test_a_leak_beside_a_startup_error_still_gates_started(monkeypatch, tmp_path):
+    # The exclusion is by KIND, not by "some diagnostic was recognized": an error
+    # raised while the scene started keeps its say, and both records are reported.
+    project = minimal_project(tmp_path)
+    _patch_launch(
+        monkeypatch,
+        RunResult(stdout=READY, stderr=READY_STDERR + LEAK_STDERR, exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["scene", "preflight", "res://main.tscn", "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["started"] is False
+    assert [d["kind"] for d in data["diagnostics"]] == [
+        "runtime_error",
+        "shutdown_leak",
+        "shutdown_leak",
     ]
 
 
@@ -494,6 +552,35 @@ def test_a_quit_after_readiness_still_combines_the_captured_diagnostics(
     assert data["status"] == "ready"
     assert data["started"] is False
     assert data["diagnostics"][0]["kind"] == "incompatible_script"
+
+
+def test_the_splash_quit_route_reads_a_leak_the_same_way(monkeypatch, tmp_path):
+    # The second derivation of `started` (#844, PR #964 review): a scene that quits
+    # after the readiness line and leaks at exit must answer exactly as the ordinary
+    # verdict does, or the field would mean two things by which route produced it.
+    project = minimal_project(tmp_path)
+    _patch_launch(
+        monkeypatch,
+        RunResult(
+            stdout="<<<GDA:PREFLIGHT-READY>>>\n",
+            stderr=LEAK_STDERR,
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["scene", "preflight", "res://main.tscn", "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["status"] == "ready"
+    assert data["started"] is True
+    assert [d["kind"] for d in data["diagnostics"]] == [
+        "shutdown_leak",
+        "shutdown_leak",
+    ]
 
 
 def test_a_payload_that_died_without_reporting_is_still_the_generic_failure(

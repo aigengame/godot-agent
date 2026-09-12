@@ -54,7 +54,12 @@ from gda.render import (
     render_node_tree,
 )
 from gda.runner import LaunchFailure, LaunchFn, RunResult, launch, sentinel_args
-from gda.script_errors import ScriptError, parse_script_errors, script_error_line
+from gda.script_errors import (
+    ScriptError,
+    ScriptErrorKind,
+    parse_script_errors,
+    script_error_line,
+)
 
 
 def derive_scene_root_name(path: str) -> str:
@@ -684,6 +689,11 @@ class ScenePreflightResult(BaseModel):
     can reach ``ready`` and still be broken — that is the case static validation
     misses and this command exists for — so ``started`` requires both.
 
+    ``diagnostics`` carries one KIND of record that is not about the boot, and
+    ``started`` therefore excludes it (#844): a ``SHUTDOWN_LEAK``, which the engine
+    prints after the run and about the whole process. It is reported and never
+    gates — see :func:`_startup_was_clean` for why.
+
     The ``timeout`` verdict carries a third thing, and only that verdict does:
     ``elapsed_seconds`` beside ``timeout_seconds`` (#787). They are the same pair of
     numbers the shared ``launch_timeout`` envelope reports on every other channel —
@@ -700,8 +710,11 @@ class ScenePreflightResult(BaseModel):
     started: bool = Field(
         description=(
             "The single verdict: true only when status is 'ready' AND no script "
-            "error was recognized. Derived from the two fields below, carried so a "
-            "gate reads one boolean; branch on 'status' when the reason matters."
+            "error was recognized WHILE the scene started. Derived from the two "
+            "fields below, carried so a gate reads one boolean; branch on 'status' "
+            "when the reason matters. An exit-time record ('shutdown_leak') is "
+            "reported in 'diagnostics' and does NOT gate this: the engine prints "
+            "it after the run, about the whole process."
         )
     )
     status: SceneStartupStatus = Field(
@@ -1090,6 +1103,26 @@ def run_scene_preflight_operation(
     return outcome
 
 
+def _startup_was_clean(diagnostics: list[ScriptError]) -> bool:
+    """Did the engine's error stream stay clean WHILE the scene started (#844)?
+
+    The half of ``started`` that reads the diagnostics. It asks about the BOOT,
+    which is what that field and the published ``diagnostics`` description say it
+    asks ("what the engine complained about while it did"), so a ``SHUTDOWN_LEAK``
+    record does not gate it: the engine prints that one after the run, when it
+    destroys what the whole PROCESS still held. Letting it gate produced a false
+    negative with no script in sight — a scene whose nodes carry no script at all
+    read ``started: false`` because one of the project's autoloads leaked at exit.
+    The record is still REPORTED in ``diagnostics``, which is all #844 asks of this
+    command.
+
+    Both derivations of ``started`` ask through here — the ordinary verdict and the
+    splash-quit route in :func:`_ended_before_the_verdict` — so the field cannot
+    come to mean two things by which route produced it.
+    """
+    return all(d.kind is ScriptErrorKind.SHUTDOWN_LEAK for d in diagnostics)
+
+
 def _preflight_verdict(
     raw: RunResult,
     params: ScenePreflightParams,
@@ -1142,9 +1175,13 @@ def _preflight_verdict(
     return ScenePreflightResult(
         path=outcome.path,
         # BOTH halves, which is the contract: the engine's readiness and gda's
-        # reading of the error stream. Either one alone reports a broken scene as
+        # reading of the error stream — of what it said WHILE starting
+        # (:func:`_startup_was_clean`). Either half alone reports a broken scene as
         # started.
-        started=outcome.status is SceneStartupStatus.READY and not diagnostics,
+        started=(
+            outcome.status is SceneStartupStatus.READY
+            and _startup_was_clean(diagnostics)
+        ),
         status=outcome.status,
         diagnostics=diagnostics,
         project_root=str(root) if root is not None else None,
@@ -1187,10 +1224,11 @@ def _ended_before_the_verdict(
     ahead of the result sentinel. A quit that lands AFTER that line — a ``_ready``
     calling ``get_tree().quit()``, the splash-scene shape — ended a run whose
     startup verdict already exists, so it is reported as ``status=ready``, with
-    ``started`` still combining the captured diagnostics as everywhere else. A
-    quit with no evidence line means gda saw the scene neither reach ready nor
-    fail to; inventing a verdict there would be the phantom success this command
-    exists to prevent, so that stays an operation failure.
+    ``started`` still combining the captured startup diagnostics as everywhere else
+    (:func:`_startup_was_clean`). A quit with no evidence line means gda saw the
+    scene neither reach ready nor fail to; inventing a verdict there would be the
+    phantom success this command exists to prevent, so that stays an operation
+    failure.
     """
     if raw.launch_failure is not None or raw.exit_code != 0:
         return None
@@ -1206,8 +1244,9 @@ def _ended_before_the_verdict(
         return ScenePreflightResult(
             path=params.path,
             # The same two halves as the ordinary result: readiness is proven by
-            # the evidence line, so only the captured diagnostics can gate it.
-            started=not diagnostics,
+            # the evidence line, so only the captured startup diagnostics can gate
+            # it — through the same reading, so this route cannot answer differently.
+            started=_startup_was_clean(diagnostics),
             status=SceneStartupStatus.READY,
             diagnostics=diagnostics,
             project_root=str(root) if root is not None else None,
@@ -1497,10 +1536,12 @@ def preflight_scene(
     keeps it alive for --frames idle frames, and reports 'status': 'ready',
     'not_ready' or 'timeout', plus the script errors gda recognized in the engine's
     error stream while it started. Read 'started' for the one-boolean gate: it is
-    true only when the scene reached _ready AND nothing was recognized on stderr.
-    A scene that ends with objects or resources still alive is recognized too — the
-    engine reports that leak when it exits, so the run carries a 'shutdown_leak'
-    diagnostic and 'started' is false even though 'status' is 'ready'.
+    true only when the scene reached _ready AND nothing was recognized on stderr
+    while it started. A run that ends with objects or resources still alive is
+    recognized too — the engine reports that leak when it exits, so the run carries
+    a 'shutdown_leak' diagnostic. It does NOT gate 'started': the record is about
+    the whole process after the run (an autoload's leak reads the same as the
+    scene's own), while 'started' answers how the boot went.
 
     A scene that does not start is a SUCCESSFUL operation — exit 0 with the verdict,
     the 'timeout' one included, because "it did not come up within the bound" is the

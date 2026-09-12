@@ -847,7 +847,9 @@ def test_strict_fails_a_zero_exit_that_leaked_at_exit():
     assert outcome.error.code == "script_failed"
     assert outcome.exit_code == EXIT_OPERATION
     assert "status 0" in outcome.error.message
-    assert "leaked at exit" in outcome.error.message
+    # The gda-authored half does not blame the SCRIPT: the engine reports what the
+    # whole process still held, an autoload's objects included (PR #964 review).
+    assert "the engine reported a leak at exit" in outcome.error.message
     assert "ObjectDB instances leaked at exit" in outcome.error.message
     # No new evidence field and no new producer: the leak rides the key this
     # envelope already carries, typed as the records the parser read.
@@ -893,7 +895,7 @@ def test_strict_names_the_status_when_a_leaking_run_also_chose_a_non_zero_one():
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "script_failed"
     assert "status 2" in outcome.error.message
-    assert "leaked at exit" not in outcome.error.message
+    assert "the engine reported a leak at exit" not in outcome.error.message
     evidence = outcome.error.evidence
     assert evidence is not None
     assert evidence.exit_status == 2

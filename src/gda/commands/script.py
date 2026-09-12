@@ -769,10 +769,13 @@ class ScriptRunParams(BaseModel):
             "Treat a failed run as a gda failure: emit the error envelope with code "
             "'script_failed' and exit 4, instead of the default passthrough "
             "success. TWO triggers, either one enough: the script exited non-zero, "
-            "or the engine reported a leak at exit (a 'shutdown_leak' diagnostic), "
-            "which a status-only gate cannot see because the script can choose 0 "
-            "and still leave its objects alive. Opt-in, for shell '&&' chains and "
-            "CI gates that key on the process exit code. The envelope keeps the "
+            "or the engine reported leaked objects or resources at exit (a "
+            "'shutdown_leak' diagnostic), which a status-only gate cannot see "
+            "because the script can choose 0 and still leave objects alive. That "
+            "leak is the PROCESS's — an autoload's counts too, and the engine's "
+            "other leak reports (RIDs) are not recognized at all. Opt-in, for "
+            "shell '&&' chains and CI gates that key on the process exit code. "
+            "The envelope keeps the "
             "evidence, typed and as prose: 'evidence.exit_status' is the CHILD's "
             "status (gda's own exit code stays 4) and 'evidence.script_errors' the "
             "parsed errors, while the message names the status — and, for a "
@@ -1713,8 +1716,9 @@ def run_script_run_operation(
     # The script RAN. Its own status is data by default (the ADR-0031 crux) and a
     # gda failure only when the caller opted in with --strict — which since #844
     # fails on EITHER of two triggers, because a status-only gate cannot see the
-    # second: a script can print its results, choose 0, and still leave its objects
-    # and resources alive, which the engine reports only at exit (GDA-DF-063). The
+    # second: a script can print its results, choose 0, and still leave objects and
+    # resources alive, which the engine reports only at exit (GDA-DF-063) — and
+    # reports for the whole PROCESS, so an autoload's leak trips the same gate. The
     # leak read is the parser's own (:func:`gda.script_errors.leaked_at_exit`) over
     # the diagnostics already parsed above — no second reading of the stderr.
     if strict and (raw.exit_code != 0 or leaked_at_exit(diagnostics) is not None):
@@ -2643,9 +2647,11 @@ def run_script(
         False,
         "--strict",
         help=(
-            "Fail when the script exits non-zero, OR when the engine reports a leak "
-            "at exit (a 'shutdown_leak' diagnostic — a script can exit 0 and still "
-            "leave its objects alive): emit the 'script_failed' error envelope and "
+            "Fail when the script exits non-zero, OR when the engine reports "
+            "leaked objects or resources at exit (a 'shutdown_leak' diagnostic — a "
+            "script can exit 0 and still leave objects alive; the leak is the "
+            "PROCESS's, an autoload's included, and the engine's RID leak reports "
+            "are not recognized): emit the 'script_failed' error envelope and "
             "exit 4 instead of the default passthrough success. For shell '&&' "
             "chains and CI gates. The envelope carries the child's status as "
             "'evidence.exit_status' and the parsed errors as "
@@ -2723,7 +2729,8 @@ def run_script(
     shell ``&&`` chain or CI gate stops on it; that envelope carries the script's
     own stdout and stderr in its ``diagnostics``. Under ``--strict`` a run fails on
     either of two triggers: the non-zero status, or a ``shutdown_leak`` diagnostic —
-    the engine reporting at exit that the run left objects or resources alive, which
+    the engine reporting at exit that the PROCESS left objects or resources alive
+    (an autoload's leak counts, and its RID leak reports are not recognized), which
     a status-only gate cannot see. Without ``--strict`` that diagnostic stays data
     on the successful result, like every other error the script survived.
 

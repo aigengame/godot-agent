@@ -794,7 +794,7 @@ def test_script_run_strict_fails_a_leaking_run_that_exited_zero(godot_project):
     assert err["code"] == "script_failed"
     assert err["category"] == "operation"
     assert "status 0" in err["message"]
-    assert "leaked at exit" in err["message"]
+    assert "the engine reported a leak at exit" in err["message"]
     # The evidence keys are the ones this producer already carried (#687): the
     # CHILD's status, and the parsed records. No new key, no new producer.
     assert set(err["evidence"]) == {"exit_status", "script_errors"}

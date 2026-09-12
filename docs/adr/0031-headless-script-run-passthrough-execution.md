@@ -614,14 +614,19 @@ added incrementally under ADR-0025 if a concrete need appears.
 >
 > **What this costs the parser, and what it does not.** Recognition is
 > `gda.script_errors`', so `scene preflight` reports the same kind from the same
-> reading of the same stderr — a scene that comes up and leaks reads `status:
-> ready` with `started: false`, which is that command's existing rule ("ready AND
-> nothing recognized") applied to a record about how the run ENDED. The widening
-> admits the closed set's FIRST warning record, argued in that module against #722's
-> three admission criteria: the two sentences are C++ format-string literals, the
-> record says what became of the objects of the run the script owned, and the kind
-> states that the script RAN — so it stays out of the entry-failure precedence and,
-> naming no resource, could not decide an entry verdict even if it were in it. The
-> warning LEVEL is still skipped; a project `push_warning` that spells the same
-> words is not a leak. No new `Gda error code`, no new `FailureEvidence` field, no
-> change to ADR-0002's registry.
+> reading of the same stderr — but as DATA only: the record lands in that command's
+> `diagnostics` and does NOT gate its `started` verdict. `started` answers how the
+> boot went, while the engine prints this record after the run and about the whole
+> PROCESS, so an autoload's leak reads exactly like the scene's own; gating on it
+> would report a scene whose nodes carry no script at all as not started. The
+> widening admits the closed set's FIRST warning record, argued in that module
+> against #722's three admission criteria: the two sentences are C++ format-string
+> literals, the record says what became of the objects and resources of the process
+> this run was, and the kind states that the script RAN — so it stays out of the
+> entry-failure precedence and, naming no resource, could not decide an entry
+> verdict even if it were in it. The warning LEVEL is still skipped; a project
+> `push_warning` that spells the same words is not a leak. The set stays CLOSED at
+> those two records: the engine's other exit-time leak family, the RID reports, is
+> deliberately outside it, so a run that leaks only RIDs is a clean `--strict`. No
+> new `Gda error code`, no new `FailureEvidence` field, no change to ADR-0002's
+> registry.
