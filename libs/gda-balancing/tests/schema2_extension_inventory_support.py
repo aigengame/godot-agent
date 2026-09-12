@@ -3796,11 +3796,23 @@ class _Reader:
         location: str = "value",
         projection: str = "",
     ) -> None:
-        if not isinstance(token.name, str) or not token.name:
-            raise InventoryRefusal(f"invalid token at {pointer}")
         if token.role != "source-field":
             pointer = _source_pointer(self.source_projection, pointer)
-        occurrence = TokenOccurrence(token, pointer, use, law, location, projection)
+        self.record_occurrence(
+            TokenOccurrence(token, pointer, use, law, location, projection)
+        )
+
+    def record_occurrence(self, occurrence: TokenOccurrence) -> None:
+        """Store an occurrence whose address already belongs to authored bytes."""
+        token, pointer, use, location, projection = (
+            occurrence.token,
+            occurrence.pointer,
+            occurrence.use,
+            occurrence.location,
+            occurrence.projection,
+        )
+        if not isinstance(token.name, str) or not token.name:
+            raise InventoryRefusal(f"invalid token at {pointer}")
         if (
             _occurrence_value(self.graph, occurrence, self.formula_projections)
             != token.name
@@ -5900,14 +5912,7 @@ class _Reader:
         for row in _close_projection_occurrences(
             self.graph, self.occurrences, self.relation_projections
         ):
-            self.occurrence(
-                row.token,
-                row.pointer,
-                row.use,
-                row.law,
-                location=row.location,
-                projection=row.projection,
-            )
+            self.record_occurrence(row)
         self.contract_vectors()
         declarations = {o.token for o in self.occurrences if o.use == "declaration"}
         free = {o.token for o in self.occurrences if o.use == "unresolved-reference"}

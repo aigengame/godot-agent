@@ -43,7 +43,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:12ae7cecaca8f06d1dbdef0ae3ad276ab9d13624d34f2f165830a0c845feb1e6"
+    "sha256:4f98b4d11411a1d2134fd7f7441b9e9ecb5d9033d04ef74a4003152fa8d343c1"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
