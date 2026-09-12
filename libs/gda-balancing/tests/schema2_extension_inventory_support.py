@@ -26,6 +26,9 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_project_rir_schema,
     _consumer_b_project_trace_schema,
     _consumer_b_replay_comparison_vector_is_closed,
+    _consumer_b_package_evidence_vector_header_is_closed,
+    _consumer_b_scheduler_scenario_vector_is_closed,
+    _consumer_b_vector_header_is_closed,
     _consumer_b_relation_paths_are_typed,
     _consumer_b_source_fact_transport_is_supported,
     _consumer_b_template_admission_is_closed,
@@ -1088,6 +1091,204 @@ def _source_address_links(
                 check.get("scope_selector", []), cp + "/scope_selector"
             )
             yield from selector(check["selector"], cp + "/selector", prefix)
+
+
+def _scheduler_rule_vector_inventory(
+    kernel: Mapping[str, Any], graph: Mapping[str, Any]
+) -> tuple[set[TokenOccurrence], set[str]]:
+    """Interpret only scheduler identities and selected rule Fact contracts.
+
+    Admission of these shapes does not execute their numeric oracles. The
+    maintenance harness still checks scheduler observations and rule results.
+    """
+    meta = kernel["meta_format"]
+    language = _attached_language(kernel, graph)
+    rules = {row["id"]: row for row in language["language"]["rules"]}
+    facts = {
+        row["kind"]: meta["fact"]["field_contracts"][row["field_contract"]]
+        for row in meta["fact"]["schemas"]
+    }
+    scheduler = meta["runtime_program"]["scheduler"]
+    phases = set(
+        next(row["rank"] for row in scheduler["ordering"] if row["member"] == "phase")
+    )
+    scheduler_kind = next(
+        row
+        for row in meta["package_vector"]["kinds"]
+        if row["id"] == "scheduler-scenario"
+    )
+    rows: set[TokenOccurrence] = set()
+    roots: set[str] = set()
+
+    def emit(role, scope, value, pointer, use, law):
+        rows.add(TokenOccurrence(AuthorityToken(role, scope, value), pointer, use, law))
+
+    def fact_fields(value, contracts, pointer):
+        # The actual Fact contract supplies each address and reference role.
+        # Canonical data and nonempty-string coordinates are deliberately opaque.
+        for field, contract in contracts.items():
+            fp = _child(pointer, field)
+            kind = contract.get("type")
+            if kind == "inventory-member":
+                role, scoped = _declared_target_role(
+                    kernel, "language_bundle." + contract["path"]
+                )
+                if scoped:
+                    raise InventoryRefusal(
+                        "rule Fact has an unqualified scoped reference"
+                    )
+                emit(role, (), value[field], fp, "reference", "/meta_format/fact")
+            elif kind == "closed-object":
+                fact_fields(value[field], contract["field_types"], fp)
+            elif (
+                kind
+                not in {"non-empty-string", "canonical-value", "closed-int64-interval"}
+                and "const" not in contract
+                and "enum" not in contract
+            ):
+                raise InventoryRefusal("rule Fact field has no interpreted role")
+
+    for vi, vector_set in enumerate(graph.get("vector_sets", [])):
+        for di, vector in enumerate(vector_set["vector_definitions"]):
+            pointer = f"/vector_sets/{vi}/vector_definitions/{di}"
+            if vector.get("kind") == "scheduler-scenario":
+                law = "/meta_format/package_vector/kinds/" + str(
+                    meta["package_vector"]["kinds"].index(scheduler_kind)
+                )
+                if not _consumer_b_package_evidence_vector_header_is_closed(
+                    vector, meta["package_vector"]
+                ) or not _consumer_b_scheduler_scenario_vector_is_closed(
+                    vector, scheduler_kind, phases
+                ):
+                    raise InventoryRefusal(
+                        "scheduler vector does not close its declared shape"
+                    )
+                scope = (vector["id"],)
+                inp, expect = vector["input"], vector["expect"]
+                for i, state in enumerate(inp["initial_states"]):
+                    emit(
+                        "scheduler-scenario",
+                        scope,
+                        state["scenario"],
+                        f"{pointer}/input/initial_states/{i}/scenario",
+                        "declaration",
+                        law,
+                    )
+                for i, event in enumerate(inp["events"]):
+                    ep = f"{pointer}/input/events/{i}"
+                    emit(
+                        "scheduler-event",
+                        scope,
+                        event["id"],
+                        ep + "/id",
+                        "declaration",
+                        law,
+                    )
+                    emit(
+                        "scheduler-scenario",
+                        scope,
+                        event["scenario"],
+                        ep + "/scenario",
+                        "reference",
+                        law,
+                    )
+                    if event["parent_id"] is not None:
+                        emit(
+                            "scheduler-event",
+                            scope,
+                            event["parent_id"],
+                            ep + "/parent_id",
+                            "reference",
+                            law,
+                        )
+                for i, event in enumerate(expect["event_order"]):
+                    emit(
+                        "scheduler-event",
+                        scope,
+                        event,
+                        f"{pointer}/expect/event_order/{i}",
+                        "reference",
+                        law,
+                    )
+                for i, observation in enumerate(expect["observations"]):
+                    op = f"{pointer}/expect/observations/{i}"
+                    emit(
+                        "scheduler-event",
+                        scope,
+                        observation["event_id"],
+                        op + "/event_id",
+                        "reference",
+                        law,
+                    )
+                    emit(
+                        "scheduler-scenario",
+                        scope,
+                        observation["scenario"],
+                        op + "/scenario",
+                        "reference",
+                        law,
+                    )
+                for i, state in enumerate(expect["terminal_states"]):
+                    emit(
+                        "scheduler-scenario",
+                        scope,
+                        state["scenario"],
+                        f"{pointer}/expect/terminal_states/{i}/scenario",
+                        "reference",
+                        law,
+                    )
+            elif "rule" in vector:
+                if not _consumer_b_vector_header_is_closed(vector, meta, language):
+                    raise InventoryRefusal(
+                        "rule vector does not close its declared Fact shape"
+                    )
+                invocation = vector["input"]
+                matches = [
+                    rule
+                    for rule in rules.values()
+                    if rule["phase"] == invocation["phase"]
+                    and rule["judgment"] == invocation["judgment"]
+                    and [row["fact_kind"] for row in rule["premises"]]
+                    == [fact["kind"] for fact in invocation["facts"]]
+                ]
+                if (
+                    len(matches) != 1
+                    or matches[0]["id"] != vector["rule"]
+                    or matches[0]["conclusion"]["fact_kind"] != vector["expect"]["kind"]
+                ):
+                    raise InventoryRefusal(
+                        "rule vector does not select its declared rule"
+                    )
+                emit(
+                    "language.rules",
+                    (),
+                    vector["rule"],
+                    pointer + "/rule",
+                    "reference",
+                    "/meta_format/rule_selection",
+                )
+                emit(
+                    "rule-judgment",
+                    (),
+                    invocation["judgment"],
+                    pointer + "/input/judgment",
+                    "reference",
+                    "/meta_format/rule_selection",
+                )
+                for i, fact in enumerate(invocation["facts"]):
+                    fact_fields(
+                        fact["fields"],
+                        facts[fact["kind"]],
+                        f"{pointer}/input/facts/{i}/fields",
+                    )
+                fact = vector["expect"]
+                fact_fields(
+                    fact["fields"], facts[fact["kind"]], pointer + "/expect/fields"
+                )
+            else:
+                continue
+            roots.add(pointer)
+    return rows, roots
 
 
 def _reason_vector_rows(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
@@ -4328,9 +4529,14 @@ class _Reader:
                 )
 
     def contract_vectors(self) -> None:
-        handled = self.relation_vectors | {
-            pointer for _, _, pointer in _reason_vector_rows(self.kernel, self.graph)
-        }
+        handled = (
+            self.relation_vectors
+            | self.scheduler_rule_roots
+            | {
+                pointer
+                for _, _, pointer in _reason_vector_rows(self.kernel, self.graph)
+            }
+        )
         handled.update(
             pointer for _, pointer in _replay_vector_rows(self.kernel, self.graph)
         )
@@ -5448,6 +5654,11 @@ class _Reader:
             if token.role.startswith("kernel."):
                 self.reserved.add(token)
         self.packages()
+        vector_links, self.scheduler_rule_roots = _scheduler_rule_vector_inventory(
+            self.kernel, self.graph
+        )
+        for row in vector_links:
+            self.occurrence(row.token, row.pointer, row.use, row.law)
         self.rule_chain_links()
         self.assignment_policies()
         self.formula_aliases()
@@ -6109,6 +6320,24 @@ def validate_extension_inventory(
     } <= inventory.reserved:
         raise InventoryRefusal(
             "Replay observation reference coverage is incomplete or misowned"
+        )
+    scheduler_rule_expected, scheduler_rule_roots = _scheduler_rule_vector_inventory(
+        kernel, graph
+    )
+    scheduler_rule_actual = {
+        row
+        for row in inventory.occurrences
+        if any(
+            row.pointer.startswith(root + "/") and row.pointer != root + "/id"
+            for root in scheduler_rule_roots
+        )
+    }
+    if (
+        scheduler_rule_actual != scheduler_rule_expected
+        or inventory.reserved.intersection(row.token for row in scheduler_rule_expected)
+    ):
+        raise InventoryRefusal(
+            "scheduler/rule vector coverage is incomplete or misowned"
         )
     _verify_constructor_address_coverage(kernel, graph, inventory)
     operation_expected = {
@@ -6912,7 +7141,12 @@ def _renamed_owner(
                     "anonymous Type owner has an unknown structural step"
                 )
         return transported
-    if token.role in {"vector-local", "vector-site"}:
+    if token.role in {
+        "vector-local",
+        "vector-site",
+        "scheduler-event",
+        "scheduler-scenario",
+    }:
         return (name(AuthorityToken("vectors", (), token.owner[0])),)
     if token.role == "claim-vector":
         return (
