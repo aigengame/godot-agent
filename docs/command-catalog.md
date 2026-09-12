@@ -1717,10 +1717,13 @@ re-derives every verdict from a running engine.
   decision put it on the existing command — no third near-homonym). With
   `--frames N`, the harness reads every selected engine monitor once per frame
   over the window. All monitors are read when no `--monitor` is given. The
-  harness returns only the raw timestamped samples. The CLI computes the
+  harness returns only the sampled window, stored and sent COLUMN-wise — one
+  packed array per monitor plus one of timestamps, the frame index positional
+  (#846) — with the bytes it retained for it. The CLI computes the
   statistics — count, min, max, mean, p50, p95 per monitor; percentiles are
   nearest-rank — because the command is a recipe (ADR-0023, the `screen`
-  pattern). With `--budget FILE`, the CLI also evaluates one pass/fail verdict
+  pattern), and rebuilds the per-frame rows from the columns when they are
+  asked for. With `--budget FILE`, the CLI also evaluates one pass/fail verdict
   per budgeted monitor, plus an overall `passed`. A failed budget is data: the
   command still exits 0. The budget file is a JSON object of
   `{monitor: {stat, min?, max?}}` entries. `stat` is required (one of min, max,
@@ -1733,9 +1736,29 @@ re-derives every verdict from a running engine.
   a self-consistent reply for a different window or selection classifies as
   `contract_violation`. The `--frames` bound inherits the same 1..600
   per-window ceiling, stated in help and echoed as `max_frames` in the result.
-  The result names its mode (`kind: snapshot | window`); `--monitor` and
-  `--budget` require `--frames`, and the no-flag snapshot behavior is
+  The result names its mode (`kind: snapshot | window`); `--monitor`,
+  `--summary` and `--budget` require `--frames`, and the no-flag snapshot
+  behavior is unchanged.
+  A window ALLOCATES inside the game it measures, so it discloses that cost
+  rather than leaving it to be read as a leak (#846). `collector_bytes` reports
+  what the harness's sampler retained — 8 bytes per stored value, over one
+  column per sampled monitor plus one of timestamps — so a window's own
+  `static_memory` rise is attributable: a rise of about `collector_bytes` is the
+  observer, a rise well past it is the game. `--summary` (the spelling and
+  meaning `screen frames --summary` has) leaves the per-frame rows out of the
+  RESULT — `samples: null`, `samples_omitted: true` — while the window is still
+  sampled in full, so the statistics, the budget verdicts and `collector_bytes`
+  are the same and the result stops growing with `--frames`. Measured on a real
+  session over all 16 monitors, a 600-frame window is 1,667 bytes with
+  `--summary` against 259,569 with its rows. Both forms are admitted by the
+  published window schema; `collector_bytes` and `samples_omitted` are null in
+  snapshot mode, which retains nothing. The number covers the COLUMNS, which are
+  what grows with the frame count; the shared multi-frame base's own per-frame
+  accumulator is not counted, because it belongs to that base and #846 leaves it
   unchanged.
+  The reply shape this replaced (one Dictionary per frame) is NOT decoded: live
+  commands target the harness bundled with the running gda (ADR-0018's
+  2026-09-08 note), so an old reply is `contract_violation`.
 - **`diag` (diagnostics):** runtime errors of the running game (shipped, #224; callstacks #283). `gda diag errors`
   reads the running game's runtime errors as structured `{level, message, function?, file?, line?, callstack}`
   (warnings included, distinguished by `level`), with `--limit N`. `callstack` is an ordered
