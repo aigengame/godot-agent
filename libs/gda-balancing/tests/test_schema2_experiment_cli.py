@@ -2448,15 +2448,6 @@ def _write_scheduled_experiment(tmp_path, run_cli) -> tuple[Path, Path]:
             }
         )
     ]
-    requirements, _named_streams = (
-        experiment_admission_module.derive_scenario_program_requirements(
-            _member(build_receipt, "rir-semantic-payload"),
-            entrypoint_id="combat.plan-casts",
-            runtime_profile=specification["runtime"]["profile"],
-            rng_algorithm=specification["seed"]["algorithm"],
-        )
-    )
-    specification["runtime"]["required_evaluator"] = requirements
     specification_path = tmp_path / "scheduled-combat-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
     return specification_path, _rir_path(build_receipt)
@@ -2602,19 +2593,15 @@ def test_scheduled_events_resolve_state_from_the_latest_committed_snapshot(
         if row["definition"]["id"] == "game.combat.plan-casts-v1"
     )
     plan["body"] = [row for row in plan["body"] if row["node"] != "cancel"]
-    checked_value = deepcopy(checked.value)
-    requirements, _named_streams = (
-        experiment_admission_module.derive_scenario_program_requirements(
-            rir,
-            entrypoint_id="combat.plan-casts",
-            runtime_profile=checked_value["runtime"]["profile"],
-            rng_algorithm=checked_value["seed"]["algorithm"],
-        )
+    requirements, _ = experiment_admission_module.derive_scenario_program_requirements(
+        rir,
+        entrypoint_id="combat.plan-casts",
+        runtime_profile=checked.value["runtime"]["profile"],
+        rng_algorithm=checked.value["seed"]["algorithm"],
     )
-    checked_value["runtime"]["required_evaluator"] = requirements
 
     artifacts = experiment_runtime_module.evaluate_experiment(
-        replace(checked, value=checked_value, rir=rir)
+        replace(checked, rir=rir, required_evaluator=requirements)
     )
 
     assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
@@ -2913,6 +2900,7 @@ def test_kernel_closes_runtime_configuration_transition_and_public_step():
     runtime_program = kernel["meta_format"]["runtime_program"]
 
     assert runtime_program["runtime_configuration"] == {
+        "formula_initialization_phase": "initialization",
         "lifecycle_roles": {
             "active": "event",
             "ready": "step",
@@ -3367,7 +3355,7 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
         for row in rir["selected_semantics"]["runtime_profiles"]
         if row["id"] == "standard.exact-int64-event-v1"
     )
-    runtime_profile["resource_bounds"]["max_event_steps"] = 0
+    runtime_profile["resource_bounds"]["max_event_steps"] = 1
     checked = replace(checked, rir=rir)
     prepared = experiment_runtime_module.prepare_experiment(checked)
     assert isinstance(prepared, experiment_runtime_module.PreparedExperiment)
@@ -3382,7 +3370,7 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
     values = {name: deepcopy(member.value) for name, member in members.items()}
     audit = values["runtime-terminal-audit"]
     assert audit["refusing_event"]["reason"] == "runtime.step_limit_exceeded"
-    assert audit["budget_counters"]["event_steps"] > 0
+    assert audit["budget_counters"]["event_steps"] == 2
     assert experiment_artifacts_module.validate_experiment_artifact_set(checked, values)
 
     replay_rir = deepcopy(checked.rir)
@@ -4138,7 +4126,25 @@ def test_scheduler_refusal_variants_preserve_the_pre_event_prefix(
         runtime_profile["resource_bounds"]["max_queue_events"] = 1
     elif mutation == "zero-time-depth":
         schedules[0]["logical_time"] = 0
-        runtime_profile["resource_bounds"]["max_zero_time_depth"] = 0
+        runtime_profile["resource_bounds"]["max_zero_time_depth"] = 1
+        child = next(
+            row["definition"]
+            for row in rir["selected_semantics"]["operations"]
+            if row["definition"]["id"] == "game.combat.cast-v1"
+        )
+        grandchild = deepcopy(schedules[0])
+        grandchild["site"] = "schedule-depth-two"
+        grandchild["arguments"] = [
+            {"port": row["port"], "operand": {"kind": "port", "port": row["port"]}}
+            for row in grandchild["arguments"]
+        ]
+        child["body"].insert(0, grandchild)
+        rir["call_sites"] = model_lowering_module._resolved_call_sites(
+            checked.kernel,
+            rir["selected_semantics"],
+            language_bundle=checked.language_bundle,
+            declarations=rir["declarations"],
+        )
     elif mutation == "event-limit":
         runtime_profile["resource_bounds"]["max_total_events"] = 1
     else:
@@ -4153,7 +4159,18 @@ def test_scheduler_refusal_variants_preserve_the_pre_event_prefix(
 
     assert isinstance(result, experiment_runtime_module.RuntimeRefusalOutcome)
     assert result.report.diagnostics[0].code == expected_code
-    assert result.committed_trace_prefix == ()
+    if mutation == "zero-time-depth":
+        assert len(result.committed_trace_prefix) == 1
+        committed = result.committed_trace_prefix[0]
+        assert committed["outcome"] == {"id": "planned", "kind": "success"}
+        assert committed["state_before"] == committed["state_after"]
+        assert result.refusing_event_spec["zero_time_depth"] == 1
+        assert result.refusing_ordering_key["logical_time"] == 0
+        assert result.refusing_operation == "game.combat.cast-v1"
+        assert result.refusing_instruction_index == 0
+        assert result.state_before == {"actor_mana": 30, "target_health": 100}
+    else:
+        assert result.committed_trace_prefix == ()
     assert result.state_after == result.state_before
 
 
@@ -4208,7 +4225,26 @@ def test_periodic_scheduler_refusals_publish_through_the_public_run_command(
         first_schedule["logical_time"] = 1 << 63
     elif mutation == "zero-time-depth":
         first_schedule["logical_time"] = 0
-        runtime_profile["resource_bounds"]["max_zero_time_depth"] = 0
+        runtime_profile["resource_bounds"]["max_zero_time_depth"] = 1
+        child = next(
+            row["definition"]
+            for row in rir["selected_semantics"]["operations"]
+            if row["definition"]["id"] == "game.effect.tick-snapshot-periodic-v1"
+        )
+        grandchild = deepcopy(first_schedule)
+        grandchild["site"] = "schedule-depth-two"
+        grandchild["arguments"] = [
+            {"port": row["port"], "operand": {"kind": "port", "port": row["port"]}}
+            for row in grandchild["arguments"]
+        ]
+        child["body"].append(grandchild)
+        child["resource_bounds"]["max_steps"] = 2
+        rir["call_sites"] = model_lowering_module._resolved_call_sites(
+            checked.kernel,
+            rir["selected_semantics"],
+            language_bundle=checked.language_bundle,
+            declarations=rir["declarations"],
+        )
     else:
         runtime_profile["resource_bounds"]["max_total_events"] = 1
 
@@ -4242,9 +4278,24 @@ def test_periodic_scheduler_refusals_publish_through_the_public_run_command(
     assert error["stage"] == "runtime"
     assert [row["code"] for row in error["diagnostics"]] == [expected_code]
     audit = _member(error["terminal_audit"], "runtime-terminal-audit")
-    assert audit["refusing_event"]["operation"] == (
-        "game.effect.apply-snapshot-periodic-v1"
-    )
+    if mutation == "zero-time-depth":
+        assert audit["refusing_event"]["operation"] == (
+            "game.effect.tick-snapshot-periodic-v1"
+        )
+        assert len(audit["committed_trace_prefix"]) == 1
+        assert audit["committed_trace_prefix"][0]["outcome"]["id"] == "applied"
+        assert audit["refusing_event"]["event_spec"]["zero_time_depth"] == 1
+        assert audit["refusing_event"]["ordering_key"]["logical_time"] == 0
+        assert audit["refusing_event"]["instruction_index"] == 1
+        state_before = {
+            row["name"]: row["value"] for row in audit["rollback"]["state_before"]
+        }
+        assert state_before["effect_active"] == 1
+        assert state_before["effect_instance_id"] > 0
+    else:
+        assert audit["refusing_event"]["operation"] == (
+            "game.effect.apply-snapshot-periodic-v1"
+        )
     assert audit["refusing_event"]["reason"] == expected_code
     assert audit["rollback"]["committed"] is False
     assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
@@ -4324,7 +4375,7 @@ def test_authored_roots_are_admitted_against_runtime_bounds_before_dispatch(
     scenario = specification["scenarios"][0]
     second = deepcopy(scenario["event_plan"][0])
     second["root_event_ref"] = "second-cast"
-    second["logical_time"] = 1
+    second["logical_time"] = 2
     scenario["event_plan"].append(second)
     scenario["terminal_condition"] = {"kind": "event-count", "maximum": 2}
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
@@ -4338,7 +4389,7 @@ def test_authored_roots_are_admitted_against_runtime_bounds_before_dispatch(
         for row in rir["selected_semantics"]["runtime_profiles"]
         if row["id"] == "standard.exact-int64-event-v1"
     )
-    runtime_profile["resource_bounds"][bound] = 0 if bound == "max_logical_time" else 1
+    runtime_profile["resource_bounds"][bound] = 1
 
     result = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
 
@@ -4375,7 +4426,9 @@ def test_complete_root_map_is_allocated_before_the_first_scenario_dispatch(
     checked = replace(
         checked,
         value=value,
-        content_identity=experiment_admission_module.experiment_input_identity(value),
+        content_identity=experiment_admission_module.experiment_input_identity(
+            value, kernel=checked.kernel
+        ),
         rir=rir,
     )
 
@@ -5099,13 +5152,6 @@ def test_public_build_and_run_reaches_a_boolean_conditional_formula(tmp_path, ru
     _member(build_receipt, "build-receipt")
     rir_path = _rir_path(build_receipt)
     specification = _experiment(build_receipt=build_receipt, base_damage=24)
-    requirements, _ = experiment_admission_module.derive_scenario_program_requirements(
-        rir,
-        entrypoint_id="combat.cast",
-        runtime_profile=specification["runtime"]["profile"],
-        rng_algorithm=specification["seed"]["algorithm"],
-    )
-    specification["runtime"]["required_evaluator"] = requirements
     specification_path = tmp_path / "conditional-formula-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
@@ -5562,15 +5608,6 @@ def test_event_formula_adds_its_symbol_to_the_scenario_input_contract(
             "value": 31,
         }
     )
-    requirements, _named_streams = (
-        experiment_admission_module.derive_scenario_program_requirements(
-            _member(build_receipt, "rir-semantic-payload"),
-            entrypoint_id=specification["scenarios"][0]["event_plan"][0]["entrypoint"],
-            runtime_profile=specification["runtime"]["profile"],
-            rng_algorithm=specification["seed"]["algorithm"],
-        )
-    )
-    specification["runtime"]["required_evaluator"] = requirements
     spec_path = tmp_path / "event-symbol-formula-experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
     checked = experiment_admission_module.check_experiment(
@@ -6241,9 +6278,12 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
         and baseline_resolved["content_identity"]
         != renamed_resolved["content_identity"]
     )
+    kernel = _admitted_program(_rir_path(baseline_build))[0].kernel
     assert experiment_admission_module.experiment_input_identity(
-        baseline_spec
-    ) != experiment_admission_module.experiment_input_identity(renamed_spec)
+        baseline_spec, kernel=kernel
+    ) != experiment_admission_module.experiment_input_identity(
+        renamed_spec, kernel=kernel
+    )
     assert all(
         baseline_artifacts[name]["content_identity"]
         != renamed_artifacts[name]["content_identity"]
@@ -7613,12 +7653,10 @@ def test_runtime_classifies_value_nodes_by_the_kernel_family(
 def test_experiment_check_refuses_duplicate_json_keys(tmp_path, run_cli):
     specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     text = specification.read_text(encoding="utf-8")
+    identity_member = f'"id": {json.dumps(json.loads(text)["id"])},'
+    assert text.count(identity_member) == 1
     specification.write_text(
-        text.replace(
-            '"schema_version": "2.0.0",',
-            '"schema_version": "2.0.0", "schema_version": "2.0.0",',
-            1,
-        ),
+        text.replace(identity_member, f"{identity_member} {identity_member}", 1),
         encoding="utf-8",
     )
 
@@ -7700,18 +7738,29 @@ def test_experiment_refuses_removed_top_level_external_inputs_member(tmp_path, r
 def test_required_evaluator_must_exactly_close_the_selected_program(tmp_path, run_cli):
     specification, rir_path = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
-    value["runtime"]["required_evaluator"]["instruction_nodes"].remove("multiply")
-    specification.write_text(json.dumps(value), encoding="utf-8")
+    assert set(value["runtime"]) == {"profile"}
 
     exit_code, stdout, stderr = run_cli(
         ["experiment", "check", str(specification), "--rir", str(rir_path)]
     )
 
-    assert (exit_code, stderr) == (2, "")
-    error = json.loads(stdout)["error"]
-    assert error["stage"] == "resolution"
-    assert error["diagnostics"][0]["primary"]["pointer"] == (
-        "/runtime/required_evaluator/instruction_nodes"
+    assert (exit_code, stderr) == (0, ""), stdout
+    checked = experiment_admission_module.check_experiment(
+        str(specification), _admitted_program(rir_path)[1]
+    )
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
+    entrypoints = {row["id"]: row for row in checked.rir["entrypoints"]}
+    event = runtime_projection_module.scenario_transition_events(
+        checked.value["scenarios"][0]
+    )[0]
+    projected = program_reachability_module.project_reachable_program_structure(
+        checked.rir,
+        [entrypoints[event["entrypoint"]]],
+        runtime=runtime_projection_module.runtime_contract(checked),
+    )
+    assert "multiply" in checked.required_evaluator["instruction_nodes"]
+    assert set(checked.required_evaluator["instruction_nodes"]) == (
+        projected.runtime_node_ids
     )
 
 
@@ -7837,18 +7886,14 @@ def test_experiment_keeps_required_and_supported_evaluator_policies_separate(
         for row in projected.formula_programs[phase][0]["body"]
     }
 
-    requirements, _named_streams = (
-        experiment_admission_module.derive_scenario_program_requirements(
-            mutated_rir,
-            event["entrypoint"],
-            checked.value["runtime"]["profile"],
-            checked.value["seed"]["algorithm"],
-        )
+    requirements, _ = experiment_admission_module.derive_scenario_program_requirements(
+        mutated_rir,
+        event["entrypoint"],
+        checked.value["runtime"]["profile"],
+        checked.value["seed"]["algorithm"],
     )
     assert added_node in requirements["instruction_nodes"]
-    mutated_value = deepcopy(checked.value)
-    mutated_value["runtime"]["required_evaluator"] = requirements
-    mutated_checked = replace(checked, rir=mutated_rir, value=mutated_value)
+    mutated_checked = replace(checked, rir=mutated_rir, required_evaluator=requirements)
     assert (
         added_node
         in runtime_projection_module.evaluator_manifest(mutated_checked).value[
@@ -7867,7 +7912,7 @@ def test_experiment_keeps_required_and_supported_evaluator_policies_separate(
     assert refused.stage == "resolution"
     primary = refused.diagnostics[0].primary
     assert isinstance(primary, ArtifactLocation)
-    assert primary.pointer == "/runtime/required_evaluator/instruction_nodes"
+    assert primary.pointer == "/runtime/profile"
 
 
 def test_evaluator_build_identity_covers_only_domain_implementation(monkeypatch):
@@ -8559,7 +8604,9 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
     candidate = replace(
         checked,
         value=value,
-        content_identity=experiment_admission_module.experiment_input_identity(value),
+        content_identity=experiment_admission_module.experiment_input_identity(
+            value, kernel=checked.kernel
+        ),
         rir=rir,
     )
 
@@ -8800,12 +8847,12 @@ def test_ordered_writable_alias_write_is_visible_to_later_child_call(
             }
         )
     ]
-    candidate = replace(
-        checked,
-        value=value,
-        content_identity=experiment_admission_module.experiment_input_identity(value),
-        rir=rir,
+    specification_path.write_text(json.dumps(value), encoding="utf-8")
+    candidate = experiment_admission_module.check_experiment(
+        str(specification_path), _admitted_program(rir_path)[1]
     )
+    assert isinstance(candidate, experiment_admission_module.CheckedExperiment)
+    candidate = replace(candidate, rir=rir)
 
     production = experiment_runtime_module.evaluate_experiment(candidate)
 
