@@ -1,5 +1,6 @@
 """Owner and occurrence coverage for the evolving extension conformance reader."""
 
+from collections import Counter
 from copy import deepcopy
 from dataclasses import replace
 import json
@@ -13,6 +14,8 @@ from schema2_bootstrap_production_support import _consumer_a
 from schema2_extension_inventory_support import (
     AuthorityToken,
     InventoryRefusal,
+    TokenOccurrence,
+    _authority_path_rows,
     read_extension_inventory,
     source_formula_requests,
     token_bijection_from_names,
@@ -995,6 +998,210 @@ def test_formula_reference_coverage_refuses_erased_or_misowned_text_occurrences(
         )
         with pytest.raises(InventoryRefusal, match="Formula .*coverage"):
             validate_extension_inventory(kernel, graph, candidate)
+
+
+@pytest.mark.parametrize("renamed", [False, True], ids=["original", "renamed"])
+def test_formula_inventory_uses_the_actual_inline_source_selector(renamed):
+    from schema2_extension_renaming_support import _reseal_authored_graph
+    from test_formula_inline_resolution import _inline_case, _profile
+    from test_trace_protocol_structure import _graph
+
+    kernel, authored, source = _inline_case(renamed)
+    _reseal_authored_graph(kernel, authored)
+    graph = {
+        "packages": authored["packages"],
+        "ldb_root": authored["ldb_root"],
+        "vector_sets": authored["vector_sets"],
+        "source": source,
+    }
+    authority_graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, authority_graph)
+        assert result["admitted"], (consumer.__name__, result["diagnostics"])
+    selector = _profile(authored)["formula_resolution"]["inline_body_normalizations"][
+        0
+    ]["parameter_member"]
+
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+
+    scope = (source["manifest"]["id"], source["modules"][0]["id"], "rare-threshold")
+    parameter = AuthorityToken("source-formula-parameter", scope, "rare_weight")
+    body_occurrences = [
+        row
+        for row in inventory.occurrences
+        if row.token == parameter and "/body/" in row.pointer
+    ]
+    assert [row.pointer.rsplit("/", 1)[-1] for row in body_occurrences] == [selector]
+    selector_occurrence = next(
+        row
+        for row in inventory.occurrences
+        if row.pointer.endswith(
+            "/formula_resolution/inline_body_normalizations/0/parameter_member"
+        )
+        and row.token.role == "source-field"
+    )
+    assert selector_occurrence.token.name == selector
+    assert selector_occurrence.token not in inventory.reserved
+    assert any(
+        row.token == selector_occurrence.token
+        and row.use == "declaration"
+        and row.location == "key"
+        for row in inventory.occurrences
+    )
+    assert any(
+        row.token == selector_occurrence.token
+        and row.use == "reference"
+        and row.location == "key"
+        and row.pointer.startswith("/source/")
+        for row in inventory.occurrences
+    )
+
+
+def test_resolution_inventory_closes_every_actual_source_selector(witness):
+    kernel, graph, inventory = witness
+    profile, profile_root = next(
+        (definition, pointer)
+        for _, definition, pointer in _authority_path_rows(
+            kernel, graph, "language_bundle.language.resolution_profiles"
+        )
+        if definition["default"] is True
+    )
+    selector_suffixes = {
+        "/entrypoints_member",
+        "/manifest_entry_module_path",
+        "/manifest_id_path",
+        "/import_alias_member",
+        "/import_package_member",
+        "/import_symbol_member",
+        "/imports_member",
+        "/module_id_member",
+        "/modules_member",
+        "/requirements_member",
+        "/schema_version_member",
+        "/symbol_name_member",
+        "/symbol_type_member",
+        "/symbols_member",
+        "/formula_resolution/binding_arguments_member",
+        "/formula_resolution/binding_formula_member",
+        "/formula_resolution/binding_operand_member",
+        "/formula_resolution/binding_parameter_member",
+        "/formula_resolution/binding_site_member",
+        "/formula_resolution/bindings_member",
+        "/formula_resolution/body_nodes_member",
+        "/formula_resolution/body_result_member",
+        "/formula_resolution/formula_body_member",
+        "/formula_resolution/formula_id_member",
+        "/formula_resolution/formula_parameters_member",
+        "/formula_resolution/formula_result_member",
+        "/formula_resolution/inline_body_normalizations/0/parameter_member",
+        "/formula_resolution/module_formulas_member",
+        "/formula_resolution/node_id_member",
+        "/formula_resolution/parameter_id_member",
+    }
+    selected = {
+        row.pointer.removeprefix(profile_root)
+        for row in inventory.occurrences
+        if row.token.role == "source-field"
+        and row.pointer.startswith(profile_root + "/")
+    }
+    assert selector_suffixes <= selected
+    fixed_selector_pointers = {profile_root + "/symbol_fact_member"}
+    fixed_selector_pointers.update(
+        f"{profile_root}/judgment_chain/{index}/operation"
+        for index in range(len(profile["judgment_chain"]))
+    )
+    formula = profile["formula_resolution"]
+    fixed_selector_pointers.update(
+        f"{profile_root}/formula_resolution/fixed_value_type_aliases/{index}/contract"
+        for index in range(len(formula["fixed_value_type_aliases"]))
+    )
+    for index, row in enumerate(
+        formula["notation_conversion"]["local_result_inference"]
+    ):
+        prefix = (
+            f"{profile_root}/formula_resolution/notation_conversion/"
+            f"local_result_inference/{index}"
+        )
+        fixed_selector_pointers.update({prefix + "/node", prefix + "/rule"})
+        fixed_selector_pointers.update(
+            prefix + "/" + member
+            for member in ("target_member", "source_member", "literal_member")
+            if member in row
+        )
+        fixed_selector_pointers.update(
+            f"{prefix}/operand_members/{operand_index}"
+            for operand_index in range(len(row.get("operand_members", [])))
+        )
+    for pointer in fixed_selector_pointers:
+        occurrences = [
+            row
+            for row in inventory.occurrences
+            if row.pointer == pointer and row.token.role.startswith("kernel.")
+        ]
+        assert occurrences
+        assert all(row.token in inventory.reserved for row in occurrences)
+    assert Counter(gap.reason for gap in inventory.uncovered) == Counter(
+        {
+            "nested language.artifact_wire_schemas roles are not yet traversed": 12,
+            "nested language.wire_schemas roles are not yet traversed": 1,
+            "remaining vector families: source-or-rule-or-reason": 1,
+        }
+    )
+    assert all(token.name != "operation_result_source" for token in inventory.tokens)
+    assert all(
+        row.token.name != "operation_result_source" for row in inventory.occurrences
+    )
+    assert all(token.name != "operation_result_source" for token in inventory.reserved)
+
+
+@pytest.mark.parametrize("mutation", ["omission", "extra", "misowner"])
+def test_resolution_selector_coverage_refuses_incomplete_or_misowned_inventory(
+    witness, mutation
+):
+    kernel, graph, inventory = witness
+    inline = next(
+        row
+        for row in inventory.occurrences
+        if row.token.role == "source-field"
+        and row.pointer.endswith(
+            "/formula_resolution/inline_body_normalizations/0/parameter_member"
+        )
+    )
+    rows = tuple(row for row in inventory.occurrences if row != inline)
+    if mutation == "extra":
+        symbol = next(
+            row.token
+            for row in inventory.occurrences
+            if row.token.role == "source-field"
+            and row.pointer.endswith("/symbol_name_member")
+        )
+        profile_root = inline.pointer.split("/formula_resolution", 1)[0]
+        rows = (
+            *inventory.occurrences,
+            TokenOccurrence(
+                symbol,
+                profile_root + "/symbol_fact_member",
+                "reference",
+                "/meta_format/language_definitions/collections/resolution_profiles",
+            ),
+        )
+    elif mutation == "misowner":
+        other = next(
+            token
+            for token in inventory.tokens
+            if token.role == "source-field"
+            and token.name == inline.token.name
+            and token.owner != inline.token.owner
+        )
+        rows = (*rows, replace(inline, token=other))
+    candidate = replace(
+        inventory,
+        occurrences=rows,
+        tokens=frozenset(row.token for row in rows),
+    )
+    with pytest.raises(InventoryRefusal, match="Source field address"):
+        validate_extension_inventory(kernel, graph, candidate)
 
 
 @pytest.mark.parametrize(

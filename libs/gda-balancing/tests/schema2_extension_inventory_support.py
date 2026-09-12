@@ -20,6 +20,8 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_fact_contract_at_path,
     _consumer_b_evidence_claim_kinds_are_closed,
     _consumer_b_evaluate_structured_value_vector,
+    _consumer_b_formula_resolution_is_closed,
+    _consumer_b_inline_parameter_operand,
     _consumer_b_value_program_instruction_is_closed,
     _consumer_b_operation_composition_subjects,
     _consumer_b_operation_relation_is_satisfied,
@@ -224,6 +226,32 @@ def _formula_policy_rows(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
         )
         if profile.get("default") is True
     ]
+
+
+def _inline_source_parameter(
+    kernel: Mapping[str, Any], policy: Mapping[str, Any]
+) -> tuple[str, str]:
+    """Resolve the Source member selector against the fixed Kernel operand kind."""
+    normalizations = policy.get("inline_body_normalizations")
+    if (
+        not isinstance(normalizations, list)
+        or len(normalizations) != 1
+        or not isinstance(normalizations[0], dict)
+        or set(normalizations[0]) != {"parameter_member"}
+        or not isinstance(normalizations[0]["parameter_member"], str)
+        or not normalizations[0]["parameter_member"]
+        or normalizations[0]["parameter_member"] == "node"
+    ):
+        raise InventoryRefusal("Formula inline Source selector is malformed")
+    try:
+        parameter_kind, _parameter_reference = _consumer_b_inline_parameter_operand(
+            dict(kernel["meta_format"])
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise InventoryRefusal(
+            "Kernel Formula parameter operand is malformed"
+        ) from error
+    return parameter_kind, normalizations[0]["parameter_member"]
 
 
 def source_formula_requests(
@@ -810,6 +838,8 @@ def _source_address_links(
     language = _attached_language(kernel, graph)
     resolution = kernel["meta_format"]["resolution_judgment"]
     law = "/meta_format/resolution_judgment/relation_recipe_format"
+    if not _consumer_b_formula_resolution_is_closed(language, kernel["meta_format"]):
+        raise InventoryRefusal("Formula Source selectors do not close their Schema")
 
     def pointer(root: str, path: Sequence[str | int]) -> str:
         for member in path:
@@ -992,6 +1022,117 @@ def _source_address_links(
                     )
             else:
                 raise InventoryRefusal("unknown Source address projection")
+
+        formula = profile["formula_resolution"]
+        _parameter_kind, inline_parameter_member = _inline_source_parameter(
+            kernel, formula
+        )
+        formula_pointer = pp + "/formula_resolution"
+
+        def property_address(owner: tuple[str | int, ...], name: str):
+            return (*owner, "properties", name)
+
+        def items(owner: tuple[str | int, ...]):
+            return (*owner, "items")
+
+        module = items(property_address((), profile["modules_member"]))
+        declaration = items(property_address(module, formula["module_formulas_member"]))
+        parameter = items(
+            property_address(declaration, formula["formula_parameters_member"])
+        )
+        body = property_address(declaration, formula["formula_body_member"])
+        nodes = items(property_address(body, formula["body_nodes_member"]))
+        binding = items(property_address((), formula["bindings_member"]))
+        argument = items(property_address(binding, formula["binding_arguments_member"]))
+        formula_selectors = {
+            ("binding_arguments_member",): property_address(
+                binding, formula["binding_arguments_member"]
+            ),
+            ("binding_formula_member",): property_address(
+                binding, formula["binding_formula_member"]
+            ),
+            ("binding_operand_member",): property_address(
+                argument, formula["binding_operand_member"]
+            ),
+            ("binding_parameter_member",): property_address(
+                argument, formula["binding_parameter_member"]
+            ),
+            ("binding_site_member",): property_address(
+                binding, formula["binding_site_member"]
+            ),
+            ("bindings_member",): property_address((), formula["bindings_member"]),
+            ("body_nodes_member",): property_address(
+                body, formula["body_nodes_member"]
+            ),
+            ("body_result_member",): property_address(
+                body, formula["body_result_member"]
+            ),
+            ("formula_body_member",): property_address(
+                declaration, formula["formula_body_member"]
+            ),
+            ("formula_id_member",): property_address(
+                declaration, formula["formula_id_member"]
+            ),
+            ("formula_parameters_member",): property_address(
+                declaration, formula["formula_parameters_member"]
+            ),
+            ("formula_result_member",): property_address(
+                declaration, formula["formula_result_member"]
+            ),
+            ("inline_body_normalizations", 0, "parameter_member"): property_address(
+                body, inline_parameter_member
+            ),
+            ("module_formulas_member",): property_address(
+                module, formula["module_formulas_member"]
+            ),
+            ("node_id_member",): property_address(nodes, formula["node_id_member"]),
+            ("parameter_id_member",): property_address(
+                parameter, formula["parameter_id_member"]
+            ),
+        }
+        profile_selectors = {
+            ("entrypoints_member",): property_address(
+                (), profile["entrypoints_member"]
+            ),
+            ("schema_version_member",): property_address(
+                (), profile["schema_version_member"]
+            ),
+        }
+        profile_selector_law = (
+            "/meta_format/language_definitions/collections/resolution_profiles"
+        )
+        formula_selector_law = (
+            "/meta_format/language_definitions/collections/resolution_profiles"
+            "/field_types/formula_resolution"
+        )
+        for selector_path, address in profile_selectors.items():
+            if not address_schemas(address):
+                raise InventoryRefusal(
+                    "Resolution Source selector has no Schema field owner"
+                )
+            yield (
+                token(address),
+                pointer(pp, selector_path),
+                "reference",
+                "value",
+                "",
+                profile_selector_law,
+            )
+            yield from schema_links(address, profile_selector_law)
+        for selector_path, address in formula_selectors.items():
+            if not address_schemas(address):
+                raise InventoryRefusal(
+                    "Formula Source selector has no Schema field owner"
+                )
+            yield (
+                token(address),
+                pointer(formula_pointer, selector_path),
+                "reference",
+                "value",
+                "",
+                formula_selector_law,
+            )
+            yield from schema_links(address, formula_selector_law)
 
         known_addresses = set(addresses.values())
         symbol_address = profile_addresses["symbol_name_member"]
@@ -1830,6 +1971,150 @@ def _resolution_binding_links(kernel: Mapping[str, Any], graph: Mapping[str, Any
                     "/meta_format/resolution_judgment/relation_schemas",
                 )
                 yield from term(field["term"], fp + "/term")
+
+
+def _resolution_policy_fixed_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    """Bind authored Resolution selectors to their fixed Kernel owners."""
+    meta = kernel["meta_format"]
+    operations = {row["id"] for row in meta["resolution_judgment"]["operations"]}
+    formula_contract = meta["formula_resolution"]
+    runtime = meta["runtime_program"]
+    nodes = {row["id"]: row for row in runtime["nodes"]}
+    fact_schemas = {row["kind"]: row for row in meta["fact"]["schemas"]}
+    fact_contracts = meta["fact"]["field_contracts"]
+    lowerings = list(
+        _authority_path_rows(kernel, graph, "language_bundle.language.model_lowerings")
+    )
+    law = "/meta_format/language_definitions/collections/resolution_profiles"
+    for _, profile, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.resolution_profiles"
+    ):
+        for i, judgment in enumerate(profile["judgment_chain"]):
+            operation = judgment["operation"]
+            if operation not in operations:
+                raise InventoryRefusal(
+                    "Resolution judgment has no fixed Kernel operation owner"
+                )
+            yield (
+                AuthorityToken(
+                    "kernel.meta_format.resolution_judgment.operations",
+                    (),
+                    operation,
+                ),
+                f"{pointer}/judgment_chain/{i}/operation",
+                "reference",
+                law,
+            )
+
+        selected = [
+            lowering
+            for _, lowering, _ in lowerings
+            if lowering["resolution_profile"] == profile["id"]
+        ]
+        if not selected:
+            raise InventoryRefusal("Resolution profile has no Model lowering owner")
+        fact_member = profile["symbol_fact_member"]
+        field_contract_names: set[str] = set()
+        for lowering in selected:
+            for member in ("initial_fact_kind", "structured_initial_fact_kind"):
+                schema = fact_schemas.get(lowering[member])
+                if schema is None:
+                    raise InventoryRefusal(
+                        "Resolution Symbol selector has no initial Fact Schema"
+                    )
+                field_contract_names.add(schema["field_contract"])
+        for field_contract in sorted(field_contract_names):
+            if fact_member not in fact_contracts[field_contract]:
+                raise InventoryRefusal(
+                    "Resolution Symbol selector has no fixed Fact field owner"
+                )
+            yield (
+                AuthorityToken(
+                    "kernel.meta_format.fact.field_contracts",
+                    (field_contract,),
+                    fact_member,
+                ),
+                pointer + "/symbol_fact_member",
+                "reference",
+                law,
+            )
+
+        formula = profile["formula_resolution"]
+        formula_pointer = pointer + "/formula_resolution"
+        for i, alias in enumerate(formula["fixed_value_type_aliases"]):
+            contract = alias["contract"]
+            if contract not in runtime["fixed_value_contracts"]:
+                raise InventoryRefusal(
+                    "Formula fixed alias has no Kernel value contract owner"
+                )
+            yield (
+                AuthorityToken(
+                    "kernel.meta_format.runtime_program.fixed_value_contracts",
+                    (),
+                    contract,
+                ),
+                f"{formula_pointer}/fixed_value_type_aliases/{i}/contract",
+                "reference",
+                law,
+            )
+
+        inference = formula["notation_conversion"]["local_result_inference"]
+        for i, row in enumerate(inference):
+            row_pointer = (
+                f"{formula_pointer}/notation_conversion/local_result_inference/{i}"
+            )
+            node = nodes.get(row["node"])
+            if node is None:
+                raise InventoryRefusal(
+                    "Formula inference selector has no Kernel runtime node owner"
+                )
+            yield (
+                AuthorityToken(
+                    "kernel.meta_format.runtime_program.nodes", (), row["node"]
+                ),
+                row_pointer + "/node",
+                "reference",
+                law,
+            )
+            rule = row["rule"]
+            if rule not in formula_contract["inference_operators"]:
+                raise InventoryRefusal(
+                    "Formula inference rule has no Kernel operator owner"
+                )
+            yield (
+                AuthorityToken(
+                    "kernel.meta_format.formula_resolution.inference_operators",
+                    (),
+                    rule,
+                ),
+                row_pointer + "/rule",
+                "reference",
+                law,
+            )
+            selectors = [
+                (member, row[member])
+                for member in ("target_member", "source_member", "literal_member")
+                if member in row
+            ]
+            selectors.extend(
+                (f"operand_members/{index}", member)
+                for index, member in enumerate(row.get("operand_members", []))
+            )
+            for member_path, selected_member in selectors:
+                if selected_member not in node["required_members"]:
+                    raise InventoryRefusal(
+                        "Formula inference selector has no Kernel node member owner"
+                    )
+                yield (
+                    AuthorityToken(
+                        "kernel.meta_format.runtime_program.node_member",
+                        (node["id"],),
+                        selected_member,
+                    ),
+                    row_pointer + "/" + member_path,
+                    "reference",
+                    law,
+                )
 
 
 def _close_projection_occurrences(graph, occurrences, projections):
@@ -4176,6 +4461,19 @@ class _Reader:
         if role == "language.model_lowerings":
             # All remaining fields have their existing typed lowering owner.
             return True
+        if role == "language.resolution_profiles":
+            contract = self.meta["language_definitions"]["collections"][
+                "resolution_profiles"
+            ]
+            if not _consumer_b_definition_is_closed(value, contract, self.language):
+                raise InventoryRefusal(
+                    "Resolution profile does not close its Kernel and Source contracts"
+                )
+            # Source field selectors are closed by _source_address_links;
+            # relation bindings, judgment references, and Formula aliases each
+            # have their own independent pass. Remaining values are fixed
+            # structural policy, resource limits, or identity domains.
+            return True
         if role == "language.replay_comparison_policies":
             # The independent observation-member pass closes the complete
             # policy shape and every actual check reference before this pass.
@@ -5659,15 +5957,12 @@ class _Reader:
             elif type(value["value"]) is not int:
                 raise InventoryRefusal("unknown Formula literal payload")
 
-        normalizations = policy["inline_body_normalizations"]
-        inline = next(
-            (row for row in normalizations if body.get("node") == row["node"]), None
-        )
-        if inline is not None:
-            token = parameters.get(body[inline["parameter_member"]])
+        parameter_kind, source_member = _inline_source_parameter(self.kernel, policy)
+        if body.get("node") == parameter_kind:
+            token = parameters.get(body[source_member])
             if token is None:
                 raise InventoryRefusal("unknown inline Formula parameter")
-            emit(token, "/" + inline["parameter_member"])
+            emit(token, "/" + source_member)
             return
         for ni, node in enumerate(body[policy["body_nodes_member"]]):
             np = f"/{policy['body_nodes_member']}/{ni}"
@@ -5915,6 +6210,11 @@ class _Reader:
             self.occurrence(token, pointer, use, law)
             if token.role.startswith("kernel."):
                 self.reserved.add(token)
+        for token, pointer, use, law in _resolution_policy_fixed_links(
+            self.kernel, self.graph
+        ):
+            self.occurrence(token, pointer, use, law)
+            self.reserved.add(token)
         self.packages()
         vector_links, self.scheduler_rule_roots = _scheduler_rule_vector_inventory(
             self.kernel, self.graph
@@ -6293,6 +6593,9 @@ def _verify_formula_coverage(
         return
     projections = _formula_projections(kernel, graph)
     source_profile = _source_profile(kernel, graph)
+    parameter_kind, source_member = _inline_source_parameter(
+        kernel, source_profile["formula_resolution"]
+    )
     model = _at(source, source_profile["manifest_id_path"].split("."))
     bindings_member = source_profile["formula_resolution"]["bindings_member"]
     for i, binding in enumerate(source.get(bindings_member, [])):
@@ -6407,12 +6710,12 @@ def _verify_formula_coverage(
                         )
                     )
 
-                if body.get("node") == "parameter":
+                if body.get("node") == parameter_kind:
                     needed(
                         AuthorityToken(
-                            "source-formula-parameter", fs, body["parameter"]
+                            "source-formula-parameter", fs, body[source_member]
                         ),
-                        "/parameter",
+                        "/" + source_member,
                     )
                     continue
                 references = [(body["result"], "/result")]
@@ -6738,6 +7041,31 @@ def validate_extension_inventory(
         raise InventoryRefusal(
             "Source field address coverage is incomplete or misowned"
         )
+    profile_roots = {
+        pointer
+        for _, _, pointer in _authority_path_rows(
+            kernel, graph, "language_bundle.language.resolution_profiles"
+        )
+    }
+    profile_expected = {
+        row
+        for row in address_expected
+        if any(
+            row[1] == root or row[1].startswith(root + "/") for root in profile_roots
+        )
+    }
+    profile_actual = {
+        row
+        for row in address_actual
+        if row[0].role == "source-field"
+        and any(
+            row[1] == root or row[1].startswith(root + "/") for root in profile_roots
+        )
+    }
+    if profile_actual != profile_expected:
+        raise InventoryRefusal(
+            "Source field address occurrence is extra, incomplete, or misowned"
+        )
     source_fields = {row[0] for row in address_expected}
     if inventory.reserved & source_fields != copied_fields:
         raise InventoryRefusal("Source copied/adapted field ownership is misclassified")
@@ -6942,6 +7270,10 @@ def validate_extension_inventory(
         required.add((token, pointer, use))
         if token.role.startswith("kernel.") and token not in inventory.reserved:
             raise InventoryRefusal("Kernel relation role was made renameable")
+    for token, pointer, use, _ in _resolution_policy_fixed_links(kernel, graph):
+        required.add((token, pointer, use))
+        if token not in inventory.reserved:
+            raise InventoryRefusal("Kernel Resolution selector was made renameable")
     lowering_rows = list(
         _authority_path_rows(kernel, graph, "language_bundle.language.model_lowerings")
     )
