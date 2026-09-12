@@ -2728,6 +2728,41 @@ def _consumer_b_source_role_member_paths(
     return found
 
 
+def _consumer_b_project_source_selector(
+    schema: dict[str, Any], selector: list[str]
+) -> list[str]:
+    candidates = [schema]
+    projected: list[str] = []
+    for segment in selector:
+        if segment == "*":
+            candidates = [
+                items
+                for candidate in candidates
+                if isinstance((items := candidate.get("items")), dict)
+            ]
+            if not candidates:
+                raise ValueError("independent Source wildcard has no array owner")
+            projected.append(segment)
+            continue
+        children: list[dict[str, Any]] = []
+        semantic_members: set[str] = set()
+        for candidate in candidates:
+            for properties in _consumer_b_role_properties(candidate):
+                child = properties.get(segment)
+                if not isinstance(child, dict):
+                    continue
+                semantic_member = child.get(_SOURCE_MEMBER_KEY)
+                if not isinstance(semantic_member, str):
+                    raise ValueError("independent Source selector has no member owner")
+                children.append(child)
+                semantic_members.add(semantic_member)
+        if not children or len(semantic_members) != 1:
+            raise ValueError("independent Source selector member is ambiguous")
+        candidates = children
+        projected.append(next(iter(semantic_members)))
+    return projected
+
+
 def _consumer_b_semantic_property_schemas(
     schema: dict[str, Any], member: str
 ) -> list[dict[str, Any]]:
@@ -2741,6 +2776,42 @@ def _consumer_b_semantic_property_schemas(
             ):
                 selected.append(child)
     return selected
+
+
+def _consumer_b_native_source_member_is_closed(
+    fields: list[dict[str, Any]], law: str, meta: Mapping[str, Any]
+) -> bool:
+    if law != "closed-interval":
+        return True
+    range_members = meta["literal_typing"]["range_members"]
+    if (
+        not isinstance(range_members, dict)
+        or not range_members
+        or not all(
+            isinstance(member, str) and member for member in range_members.values()
+        )
+        or len(set(range_members.values())) != len(range_members)
+    ):
+        return False
+    expected = set(range_members.values())
+    declared = [field for field in fields if "properties" in field]
+    return bool(declared) and all(
+        field.get("type") == "object"
+        and field.get("unevaluatedProperties") is False
+        and set(field)
+        == {
+            _SOURCE_MEMBER_KEY,
+            "properties",
+            "required",
+            "type",
+            "unevaluatedProperties",
+        }
+        and isinstance(field.get("properties"), dict)
+        and set(field["properties"]) == expected
+        and set(field.get("required", [])) == expected
+        and all(child == {"type": "integer"} for child in field["properties"].values())
+        for field in declared
+    )
 
 
 def _consumer_b_source_roles_are_closed(
@@ -2869,6 +2940,13 @@ def _consumer_b_source_roles_are_closed(
                     fields = _consumer_b_semantic_property_schemas(value, member)
                     if not fields or any(
                         field.get("const") != expected for field in fields
+                    ):
+                        malformed = True
+                        return
+                for member, law in roles[explicit].get("native_members", {}).items():
+                    fields = _consumer_b_semantic_property_schemas(value, member)
+                    if not fields or not _consumer_b_native_source_member_is_closed(
+                        fields, law, meta
                     ):
                         malformed = True
                         return
@@ -12968,6 +13046,7 @@ __all__ = [
     "_consumer_b_path_is_declared",
     "_consumer_b_project_source",
     "_consumer_b_project_source_role",
+    "_consumer_b_project_source_selector",
     "_consumer_b_source_equality_values",
     "_consumer_b_source_equality_items",
     "_consumer_b_source_role_member_paths",

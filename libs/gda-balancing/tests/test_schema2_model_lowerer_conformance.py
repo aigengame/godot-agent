@@ -54,6 +54,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_fact_is_closed,
     _consumer_b_operation_composition_subjects,
     _consumer_b_project_source,
+    _consumer_b_project_source_selector,
     _consumer_b_source_fact_transport_is_supported,
 )
 from schema2_formula_conformance_support import normalize_source_body
@@ -687,15 +688,23 @@ def _reference_check_source(
     diagnostics_by_stage: dict[str, list[tuple[str, str]]] = {}
     for check in language["model_checks"]:
         reason = reasons[check["reason"]]
+        authored_scope_selector = check.get("scope_selector", [])
+        authored_selector = check["selector"]
+        canonical_full_selector = _consumer_b_project_source_selector(
+            source_schema, [*authored_scope_selector, *authored_selector]
+        )
+        scope_length = len(authored_scope_selector)
+        canonical_scope_selector = canonical_full_selector[:scope_length]
+        canonical_selector = canonical_full_selector[scope_length:]
         scopes = (
-            _reference_select_with_paths(canonical_source, check["scope_selector"])
-            if "scope_selector" in check
+            _reference_select_with_paths(canonical_source, canonical_scope_selector)
+            if authored_scope_selector
             else [(canonical_source, ())]
         )
         for scope, scope_path in scopes:
             selected = _reference_select_with_paths(
                 scope,
-                check["selector"],
+                canonical_selector,
                 scope_path,
             )
             values = [value for value, _path in selected]
@@ -731,10 +740,12 @@ def _reference_check_source(
                 location = (
                     selected[limit][1]
                     if len(selected) > limit
-                    else tuple(check["selector"])
+                    else tuple(canonical_full_selector)
                 )
             else:
-                location = selected[0][1] if selected else tuple(check["selector"])
+                location = (
+                    selected[0][1] if selected else tuple(canonical_full_selector)
+                )
             diagnostics_by_stage.setdefault(reason["stage"], []).append(
                 (code, authored_pointer(location))
             )
@@ -5305,7 +5316,18 @@ def test_model_source_routing_follows_schema_roles_without_host_tokens(
         for field in recipe["fields"]:
             rewrite_relation_term(field["term"])
 
-    selector_renames = {"modules": "sections", "symbols": "declarations"}
+    selector_renames = {
+        "modules": "sections",
+        "symbols": "declarations",
+        "symbol": "name",
+        "type": "type_ref",
+    }
+    for check in language["model_checks"]:
+        for member in ("scope_selector", "selector"):
+            if member in check:
+                check[member] = [
+                    selector_renames.get(item, item) for item in check[member]
+                ]
     for vector in candidate_ldb["vectors"]:
         fixture = vector.get("source_fixture")
         if not isinstance(fixture, dict):
