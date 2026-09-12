@@ -85,7 +85,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:3108d20a2227c410bf8f9ea862bfc67f2adc0bd350070fe67cc336873ac68a0e"
+    "sha256:0780866300dbfe5f371ce42c45364fe3723a95a3d7cdde0e42d7882fff7c2fed"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",

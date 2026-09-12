@@ -103,7 +103,7 @@ def test_runtime_wire_is_independent_and_inventory_closes_exactly_two_rows(
     assert result["admitted"], result
     inventory = read_extension_inventory(kernel, authored)
     validate_extension_inventory(kernel, authored, inventory)
-    assert len(inventory.uncovered) == 11
+    assert len(inventory.uncovered) == 6
     assert not any(
         gap.pointer
         in {

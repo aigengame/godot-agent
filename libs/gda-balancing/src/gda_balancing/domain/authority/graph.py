@@ -35,6 +35,7 @@ def project_artifact_protocols(
         project_metric_outcome_schemas,
     )
 
+    from gda_balancing.domain.authority.model_projection import project_model_protocols
     from gda_balancing.domain.authority.runtime_projection import (
         project_runtime_outputs,
     )
@@ -43,6 +44,7 @@ def project_artifact_protocols(
     )
 
     try:
+        project_model_protocols(kernel, language)
         project_runtime_outputs(kernel, language)
         project_template_protocol(kernel, language)
         project_trace_schema(kernel, language)

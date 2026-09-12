@@ -100,6 +100,11 @@ def refresh_package_semantic_closures(
                     "artifact-set-manifest",
                     "publication-index",
                     "replay-comparison",
+                    "build-receipt",
+                    "resolution-receipt",
+                    "resolved-model",
+                    "model-build-command-input",
+                    "debug-map",
                     "evaluator-capability-manifest",
                     "resolved-runtime-profile",
                     "snapshot-series",
@@ -133,6 +138,9 @@ def refresh_package_semantic_closures(
                         replay_comparison_schema,
                     )
 
+                    from gda_balancing.domain.authority.model_projection import (
+                        model_protocol_schema,
+                    )
                     from gda_balancing.domain.authority.runtime_evidence_projection import (
                         runtime_evidence_protocol_schema,
                     )
@@ -163,6 +171,17 @@ def refresh_package_semantic_closures(
                             "template-instantiation-receipt",
                         }:
                             expected_schema = template_protocol_schema(
+                                kernel,
+                                projected["protocol_role"],
+                                contracts[0]["artifact_kind"],
+                            )
+                        elif (
+                            projected["protocol_role"]
+                            in kernel["meta_format"]["language_definitions"][
+                                "wire_schema_protocol_roles"
+                            ]["model_structure"]["containers"]
+                        ):
+                            expected_schema = model_protocol_schema(
                                 kernel,
                                 projected["protocol_role"],
                                 contracts[0]["artifact_kind"],

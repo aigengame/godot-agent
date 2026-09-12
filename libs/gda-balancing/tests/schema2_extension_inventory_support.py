@@ -29,6 +29,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_project_metric_outcome_schema,
     _consumer_b_project_publication_schema,
     _consumer_b_project_template_schema,
+    _consumer_b_project_model_schema,
     _consumer_b_project_runtime_outputs,
     _consumer_b_project_rir_schema,
     _consumer_b_project_replay_schema,
@@ -186,6 +187,7 @@ def _attached_language(
     for collection in ("artifact_wire_schemas", "artifact_contracts"):
         language[collection] = [dict(row) for row in language[collection]]
     try:
+        _consumer_b_project_model_schema(dict(kernel), language)
         _consumer_b_project_runtime_outputs(dict(kernel), language)
         _consumer_b_project_template_schema(dict(kernel), language)
         _consumer_b_project_publication_schema(dict(kernel), language)
@@ -4485,6 +4487,11 @@ class _Reader:
             # eligibility; local vector names have their claim as lexical owner.
             return True
         if role == "language.artifact_wire_schemas" and value.get("protocol_role") in {
+            "build-receipt",
+            "resolution-receipt",
+            "resolved-model",
+            "model-build-command-input",
+            "debug-map",
             "evaluator-capability-manifest",
             "resolved-runtime-profile",
             "metric-dataset",

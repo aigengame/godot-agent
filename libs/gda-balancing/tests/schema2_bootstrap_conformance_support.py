@@ -40,7 +40,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:3108d20a2227c410bf8f9ea862bfc67f2adc0bd350070fe67cc336873ac68a0e"
+    "sha256:0780866300dbfe5f371ce42c45364fe3723a95a3d7cdde0e42d7882fff7c2fed"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
@@ -2092,6 +2092,7 @@ def _consumer_b_package_semantic_projections_are_exact(
             for definition in entry["definitions"]
         ]
     try:
+        _consumer_b_project_model_schema(kernel, projected_language)
         _consumer_b_project_runtime_outputs(kernel, projected_language)
         _consumer_b_project_template_schema(kernel, projected_language)
         _consumer_b_project_publication_schema(kernel, projected_language)
@@ -3136,6 +3137,73 @@ def _consumer_b_project_runtime_outputs(
             raise ValueError("Runtime output has an ambiguous or authored structure")
         definition["schema"] = _consumer_b_runtime_output_schema(
             kernel, role, bindings[0]["artifact_kind"]
+        )
+
+
+def _consumer_b_model_schema(
+    kernel: dict[str, Any], role: str, artifact_kind: str
+) -> dict[str, Any]:
+    """Independently derive Model framing without consulting A's projector."""
+    meta = kernel["meta_format"]
+    shape = deepcopy(
+        meta["language_definitions"]["wire_schema_protocol_roles"]["model_structure"]
+    )
+    if set(shape) != {"containers", "debug_entry"}:
+        raise ValueError("Model structure has unknown parts")
+    container = shape["containers"][role]
+    if set(container) != {"required_members", "field_types"}:
+        raise ValueError("Model container is not closed")
+    common = _consumer_b_artifact_envelope(
+        kernel, {"required_members": [], "field_types": {}}, artifact_kind
+    )
+    fields = common["field_types"]
+    if set(fields) & set(container["field_types"]):
+        raise ValueError("Model fields have duplicate owners")
+    fields.update(container["field_types"])
+    if role == "debug-map":
+        if "entries" in fields:
+            raise ValueError("Debug entries have a duplicate owner")
+        fields["entries"] = {"type": "list-of", "items": shape["debug_entry"]}
+    required = container["required_members"]
+    if (
+        not isinstance(required, list)
+        or not all(isinstance(name, str) for name in required)
+        or len(required) != len(set(required))
+        or set(required) != set(fields)
+    ):
+        raise ValueError("Model required members are incomplete")
+    return {
+        "$schema": meta["language_definitions"]["collections"]["artifact_wire_schemas"][
+            "field_types"
+        ]["schema"]["dialect"],
+        **_consumer_b_protocol_contract_schema(
+            {**common, "required_members": required, "field_types": fields}
+        ),
+    }
+
+
+def _consumer_b_project_model_schema(kernel, language):
+    structure = kernel["meta_format"]["language_definitions"][
+        "wire_schema_protocol_roles"
+    ]["model_structure"]
+    for role in structure["containers"]:
+        matches = [
+            row
+            for row in language["artifact_wire_schemas"]
+            if row.get("protocol_role") == role
+        ]
+        if len(matches) != 1:
+            raise ValueError("Model protocol role is missing or ambiguous")
+        definition = matches[0]
+        contracts = [
+            row
+            for row in language["artifact_contracts"]
+            if row["schema_kind"] == definition["artifact_kind"]
+        ]
+        if len(contracts) != 1 or "schema" in definition:
+            raise ValueError("Model binding has an ambiguous or authored owner")
+        definition["schema"] = _consumer_b_model_schema(
+            kernel, role, contracts[0]["artifact_kind"]
         )
 
 
@@ -11615,6 +11683,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 )
             protocol_projection_failed = False
             try:
+                _consumer_b_project_model_schema(kernel, language)
                 _consumer_b_project_runtime_outputs(kernel, language)
                 _consumer_b_project_template_schema(kernel, language)
                 _consumer_b_project_publication_schema(kernel, language)
