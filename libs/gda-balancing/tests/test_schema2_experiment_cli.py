@@ -2593,7 +2593,7 @@ def test_scheduled_events_resolve_state_from_the_latest_committed_snapshot(
         if row["definition"]["id"] == "game.combat.plan-casts-v1"
     )
     plan["body"] = [row for row in plan["body"] if row["node"] != "cancel"]
-    requirements, _ = experiment_admission_module.derive_scenario_program_requirements(
+    requirements = experiment_admission_module.derive_scenario_program_requirements(
         rir,
         entrypoint_id="combat.plan-casts",
         runtime_profile=checked.value["runtime"]["profile"],
@@ -7886,7 +7886,7 @@ def test_experiment_keeps_required_and_supported_evaluator_policies_separate(
         for row in projected.formula_programs[phase][0]["body"]
     }
 
-    requirements, _ = experiment_admission_module.derive_scenario_program_requirements(
+    requirements = experiment_admission_module.derive_scenario_program_requirements(
         mutated_rir,
         event["entrypoint"],
         checked.value["runtime"]["profile"],

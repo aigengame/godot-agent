@@ -80,14 +80,14 @@ def _checked(context, operation, *, items=(1,), root="root/~@0", count=0, thresh
     assert isinstance(model, CheckedModel), model
     artifacts = compile_checked_model(model)
     program = admit_rir(artifacts["rir-semantic-payload"], authority_context=context)
-    requirements, streams = derive_scenario_program_requirements(
+    requirements = derive_scenario_program_requirements(
         program.artifact(),
         root,
         operation["runtime_profile"],
         context.kernel["meta_format"]["runtime_program"]["named_rng"]["algorithm"],
     )
     harness = OperationExecutionHarness(
-        coordinate, source, program, result_name, requirements, streams, root
+        coordinate, source, program, result_name, requirements, root
     )
     values = {
         "items": {**_LIST, "value": list(items)},

@@ -44,7 +44,6 @@ from gda_balancing.infrastructure.input_bytes import (
 from gda_balancing.domain.model import AdmittedRir
 from gda_balancing.domain.operation_program import (
     operation_coordinate,
-    operation_body_instructions,
     selected_operation_index,
 )
 from gda_balancing.domain.program_reachability import (
@@ -367,7 +366,7 @@ def derive_scenario_program_requirements(
     entrypoint_id: str,
     runtime_profile: str,
     rng_algorithm: str,
-) -> tuple[dict[str, list[str]], list[str]]:
+) -> dict[str, list[str]]:
     """Project one Scenario's evaluator contract from its admitted RIR."""
     selected = cast(dict[str, Any], rir["selected_semantics"])
     operations = selected_operation_index(selected)
@@ -406,17 +405,7 @@ def derive_scenario_program_requirements(
         "rng_algorithms": [rng_algorithm],
         "runtime_profiles": [runtime_profile],
     }
-    named_streams = sorted(
-        {
-            instruction["stream"]
-            for reachable_operation in reachable_operations
-            for instruction in operation_body_instructions(
-                cast(list[dict[str, Any]], reachable_operation["body"])
-            )
-            if instruction["node"] == "draw"
-        }
-    )
-    return requirements, named_streams
+    return requirements
 
 
 def check_experiment(
@@ -687,7 +676,7 @@ def _check_experiment_value(
                     ),
                 )
             try:
-                requirements, _ = derive_scenario_program_requirements(
+                requirements = derive_scenario_program_requirements(
                     rir,
                     event["entrypoint"],
                     required_profile,

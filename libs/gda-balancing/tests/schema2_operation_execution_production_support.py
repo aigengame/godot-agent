@@ -48,7 +48,6 @@ class OperationExecutionHarness:
     program: AdmittedRir
     result_name: str
     requirements: dict[str, list[str]]
-    named_streams: list[str]
     entrypoint_id: str
 
 
@@ -592,7 +591,7 @@ def compile_operation_execution_harness(
         str,
         context.kernel["meta_format"]["runtime_program"]["named_rng"]["algorithm"],
     )
-    requirements, named_streams = derive_scenario_program_requirements(
+    requirements = derive_scenario_program_requirements(
         rir,
         entrypoint_id,
         profile,
@@ -604,7 +603,6 @@ def compile_operation_execution_harness(
         program=program,
         result_name=result_name,
         requirements=requirements,
-        named_streams=named_streams,
         entrypoint_id=entrypoint_id,
     )
 
