@@ -1,10 +1,11 @@
-"""Source transport addresses belong to the selected Resolution profile."""
+"""Source annotations own addresses; JSON Schema owns required input fields."""
 
 import json
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
+import jsonschema
 
 from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_conformance_support import _consumer_b, _encoded
@@ -21,18 +22,20 @@ def _source_schema(graph):
     )
 
 
-def test_source_entrypoint_schema_cannot_drift_from_its_selected_address():
+@pytest.mark.parametrize("mutation", ["missing", "unknown", "wrong-owner"])
+def test_source_entrypoint_annotation_must_keep_its_contextual_owner(mutation):
     kernel, index = mutable_authorities()
     authored = _authored(index)
     original = _graph(kernel, authored)
     for consumer in (_consumer_a, _consumer_b):
         assert consumer(kernel, original)["admitted"]
-    schema = _source_schema(authored)
-    schema["properties"]["opaque_entrypoints"] = schema["properties"].pop("entrypoints")
-    schema["required"] = [
-        "opaque_entrypoints" if field == "entrypoints" else field
-        for field in schema["required"]
-    ]
+    entrypoint = _source_schema(authored)["properties"]["entrypoints"]["items"]
+    if mutation == "missing":
+        del entrypoint["semantic_role"]
+    else:
+        entrypoint["semantic_role"] = (
+            "unknown-entrypoint" if mutation == "unknown" else "module"
+        )
     candidate = _graph(kernel, authored)
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, candidate)
@@ -83,20 +86,6 @@ def test_source_entrypoints_coherent_rename_reaches_public_and_independent_compi
     for original, renamed in names.items():
         schema["properties"][renamed] = schema["properties"].pop(original)
     schema["required"] = [names.get(name, name) for name in schema["required"]]
-    for member in (
-        "entrypoints_member",
-        "schema_version_member",
-        "modules_member",
-        "requirements_member",
-    ):
-        profile[member] = names.get(profile[member], profile[member])
-    for member in ("manifest_id_path", "manifest_entry_module_path"):
-        root, *tail = str(profile[member]).split(".")
-        profile[member] = ".".join([names.get(root, root), *tail])
-    policy = profile["formula_resolution"]
-    policy["bindings_member"] = names.get(
-        policy["bindings_member"], policy["bindings_member"]
-    )
     for recipe in profile["relation_recipes"]:
         for term in (
             [row["source"] for row in recipe["bindings"]]
@@ -165,29 +154,27 @@ def test_source_entrypoints_coherent_rename_reaches_public_and_independent_compi
         },
         authority_context=context,
     ).admitted
-    binding_reference = source[policy["bindings_member"]][0][
-        policy["binding_formula_member"]
-    ]
+    bindings_member = names.get("formula_bindings", "formula_bindings")
+    entrypoints_member = names["entrypoints"]
+    binding_reference = source[bindings_member][0]["formula"]
     original_formula = binding_reference["id"]
     binding_reference["id"] = "missing-formula"
     public.write_source(source)
     refused = public.cli("model", "check", str(public.source), success=False)
     binding_pointer = (
-        "/"
-        + policy["bindings_member"].replace("~", "~0").replace("/", "~1")
-        + "/0/formula"
+        "/" + bindings_member.replace("~", "~0").replace("/", "~1") + "/0/formula"
     )
     assert refused["error"]["diagnostics"][0]["primary"]["pointer"] == binding_pointer
     reference_refusal = _reference_check_source(source, kernel, index)
     assert isinstance(reference_refusal, tuple)
     assert reference_refusal[0][1] == binding_pointer
     binding_reference["id"] = original_formula
-    source[profile["entrypoints_member"]][0]["operation"]["id"] = "missing-operation"
+    source[entrypoints_member][0]["operation"]["id"] = "missing-operation"
     public.write_source(source)
     refused = public.cli("model", "check", str(public.source), success=False)
     expected_pointer = (
         "/"
-        + profile["entrypoints_member"].replace("~", "~0").replace("/", "~1")
+        + entrypoints_member.replace("~", "~0").replace("/", "~1")
         + "/0/operation/id"
     )
     assert refused["error"]["diagnostics"][0]["primary"]["pointer"] == expected_pointer
@@ -211,33 +198,59 @@ def test_retired_signed_integer_context_cannot_reenter_resealed_source_grammar()
         assert not result["admitted"], result
 
 
-@pytest.mark.parametrize("member", ["entrypoints_member", "schema_version_member"])
-@pytest.mark.parametrize(
-    "mutation", ["missing", "extra", "unknown", "wrong-type", "optional"]
-)
-def test_source_root_selectors_are_complete_and_schema_related(member, mutation):
+@pytest.mark.parametrize("member", ["entrypoints", "schema_version"])
+@pytest.mark.parametrize("mutation", ["missing", "duplicate", "unknown"])
+def test_source_root_annotations_are_complete_and_unambiguous(member, mutation):
     kernel, index = mutable_authorities()
     authored = _authored(index)
-    profile = _profile(authored)
     schema = _source_schema(authored)
-    selected = profile[member]
+    selected = schema["properties"][member]
     if mutation == "missing":
-        del profile[member]
-    elif mutation == "extra":
-        profile[member + "_fallback"] = selected
-    elif mutation == "unknown":
-        profile[member] = "not-declared"
-    elif mutation == "wrong-type":
-        schema["properties"][selected] = {"type": "boolean"}
+        del selected["semantic_member"]
+    elif mutation == "duplicate":
+        schema["properties"]["manifest"]["semantic_member"] = selected[
+            "semantic_member"
+        ]
     else:
-        schema["required"].remove(selected)
+        selected["semantic_member"] = "not-declared"
     graph = _graph(kernel, authored)
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, graph)
         assert not result["admitted"], (consumer.__name__, result)
 
 
-def test_template_instantiation_updates_the_profile_owned_manifest_identity():
+@pytest.mark.parametrize("member", ["entrypoints", "schema_version"])
+def test_source_missing_required_input_is_refused_by_schema_and_public_check(
+    tmp_path, member
+):
+    from test_current_namespace_public import _PublicCandidate
+    from test_schema2_model_lowerer_conformance import _reference_check_source
+
+    kernel, language = mutable_authorities()
+    authored = _authored(language)
+    graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        assert consumer(kernel, graph)["admitted"]
+    source = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text()
+    )
+    validator = jsonschema.Draft202012Validator(_source_schema(authored))
+    validator.validate(source)
+    del source[member]
+    with pytest.raises(jsonschema.ValidationError) as error:
+        validator.validate(source)
+    assert error.value.validator == "required"
+    public = _PublicCandidate(tmp_path, authorities=(kernel, graph))
+    public.write_source(source)
+    refused = public.cli("model", "check", str(public.source), success=False)
+    assert refused["error"]["stage"] == "static"
+    assert isinstance(_reference_check_source(source, kernel, language), tuple)
+
+
+def test_template_instantiation_updates_the_annotation_owned_manifest_identity():
     from gda_balancing.domain.authority.context import (
         AdmittedAuthorityContext,
         admit_authority_context,
@@ -254,8 +267,6 @@ def test_template_instantiation_updates_the_profile_owned_manifest_identity():
     kernel, language = mutable_authorities()
     authored = _authored(language)
     profile = _profile(authored)
-    profile["manifest_id_path"] = "opaque_header.opaque_id"
-    profile["manifest_entry_module_path"] = "opaque_header.entry_module"
     schema = _source_schema(authored)
     header = schema["properties"].pop("manifest")
     schema["properties"]["opaque_header"] = header
