@@ -21,6 +21,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_value_program_instruction_is_closed,
     _consumer_b_operation_composition_subjects,
     _consumer_b_operation_relation_is_satisfied,
+    _consumer_b_package_evidence_vectors_are_closed,
     _consumer_b_project_publication_schema,
     _consumer_b_project_rir_schema,
     _consumer_b_project_trace_schema,
@@ -2012,6 +2013,119 @@ def _typed_value_links(
         # Key contents remain canonical instance data, including invalid patterns.
     else:
         raise InventoryRefusal(f"unknown typed value law at {pointer}")
+
+
+def _operation_vector_rows(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    """Select package-owned vectors after the existing independent type check."""
+    contract = kernel["meta_format"]["package_vector"]
+    kind = next(row for row in contract["kinds"] if row["id"] == "operation-execution")
+    packages = {row["id"]: row for row in graph["packages"]}
+    runtime = kernel["meta_format"]["runtime_program"]
+    language = None
+    for vi, vector_set in enumerate(graph.get("vector_sets", [])):
+        if not any(
+            v.get("kind") == kind["id"] for v in vector_set["vector_definitions"]
+        ):
+            continue
+        package = packages[vector_set["package_id"]]
+        if language is None:
+            language = _attached_language(kernel, graph)
+        if not _consumer_b_package_evidence_vectors_are_closed(
+            package,
+            vector_set,
+            contract,
+            runtime["named_rng"]["candidate_encoding"],
+            runtime,
+            dict(kernel),
+            language,
+        ):
+            raise InventoryRefusal(
+                "Operation vectors do not close their selected contracts"
+            )
+        operations = {
+            row["id"]: row
+            for closure in package["semantic_closure"]
+            if closure["authority_path"] == "language.operations"
+            for row in closure["definitions"]
+        }
+        for di, vector in enumerate(vector_set["vector_definitions"]):
+            if vector.get("kind") == kind["id"]:
+                yield (
+                    package["id"],
+                    operations[vector["operation"]],
+                    vector,
+                    kind,
+                    (f"/vector_sets/{vi}/vector_definitions/{di}"),
+                )
+
+
+def _operation_vector_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    """Follow formal value owners; never execute or rewrite numeric expectations."""
+    types, constructors = _typed_context(kernel, graph)
+    envelope = kernel["meta_format"]["literal_typing"]["typed_envelope_profile"]
+    tm, vm = envelope["type_member"], envelope["value_member"]
+
+    def value_links(formal, value, pointer):
+        # Only a selected nominal formal grants the envelope meaning. A scalar,
+        # Boolean, Unit or canonical Ref key never becomes a Type by its shape.
+        if formal.get("value_kind") == "nominal-structured":
+            yield from _type_links(value[tm], _child(pointer, tm), constructors)
+            yield from _typed_value_links(
+                formal["type"], value[vm], _child(pointer, vm), types, constructors
+            )
+
+    for owner, operation, vector, shape, pointer in _operation_vector_rows(
+        kernel, graph
+    ):
+        law = "/meta_format/package_vector/kinds/" + str(
+            kernel["meta_format"]["package_vector"]["kinds"].index(shape)
+        )
+        scope = (owner, operation["id"])
+        yield TokenOccurrence(
+            AuthorityToken("language.operations", (owner,), operation["id"]),
+            pointer + "/operation",
+            "reference",
+            law,
+        )
+        for member, values, formals in (
+            ("input/values", vector["input"]["values"], operation["inputs"]),
+            (
+                "expect/state_after",
+                vector["expect"]["state_after"],
+                [row for row in operation["inputs"] if row["access"] == "read-write"],
+            ),
+        ):
+            for i, (value, formal) in enumerate(zip(values, formals, strict=True)):
+                vp = f"{pointer}/{member}/{i}"
+                yield TokenOccurrence(
+                    AuthorityToken("operation-port", scope, formal["id"]),
+                    vp + "/name",
+                    "reference",
+                    law,
+                )
+                yield from value_links(formal, value["value"], vp + "/value")
+        completion = vector["expect"]["completion"]
+        if completion["kind"] == "outcome":
+            token = AuthorityToken("operation-outcome", scope, completion["id"])
+            member = "id"
+        else:
+            token = AuthorityToken("language.reasons", (), completion["reason"])
+            member = "reason"
+        yield TokenOccurrence(
+            token, pointer + "/expect/completion/" + member, "reference", law
+        )
+        result = vector["expect"]["result"]
+        if result["kind"] == "value":
+            yield from value_links(
+                operation["result"], result["value"], pointer + "/expect/result/value"
+            )
+        for i, draw in enumerate(vector["expect"]["rng_draws"]):
+            yield TokenOccurrence(
+                AuthorityToken("named-stream", (), draw["stream"]),
+                f"{pointer}/expect/rng_draws/{i}/stream",
+                "reference",
+                "/meta_format/runtime_program/named_rng/stream_derivation",
+            )
 
 
 def _value_vector_rows(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
@@ -4222,6 +4336,14 @@ class _Reader:
         )
         handled.update(
             pointer
+            for *_, pointer in _operation_vector_rows(self.kernel, self.graph)
+            if not any(
+                gap.pointer == pointer or gap.pointer.startswith(pointer + "/")
+                for gap in self.uncovered
+            )
+        )
+        handled.update(
+            pointer
             for _, _, pointer in _value_vector_rows(self.kernel, self.graph)
             if not any(
                 gap.pointer == pointer or gap.pointer.startswith(pointer + "/")
@@ -5332,7 +5454,10 @@ class _Reader:
         self.source()
         for token, pointer, use, law in _reason_vector_links(self.kernel, self.graph):
             self.occurrence(token, pointer, use, law)
-        for row in _value_vector_links(self.kernel, self.graph):
+        for row in (
+            *_value_vector_links(self.kernel, self.graph),
+            *_operation_vector_links(self.kernel, self.graph),
+        ):
             if isinstance(row, UncoveredRole):
                 self.uncovered.add(row)
             else:
@@ -5986,6 +6111,24 @@ def validate_extension_inventory(
             "Replay observation reference coverage is incomplete or misowned"
         )
     _verify_constructor_address_coverage(kernel, graph, inventory)
+    operation_expected = {
+        row
+        for row in _operation_vector_links(kernel, graph)
+        if isinstance(row, TokenOccurrence)
+    }
+    operation_roots = {pointer for *_, pointer in _operation_vector_rows(kernel, graph)}
+    operation_actual = {
+        row
+        for row in inventory.occurrences
+        if any(
+            row.pointer.startswith(root + "/") and row.pointer != root + "/id"
+            for root in operation_roots
+        )
+    }
+    if operation_actual != operation_expected:
+        raise InventoryRefusal(
+            "Operation vector occurrence coverage is incomplete or misowned"
+        )
     vector_expected = {
         (row.token, row.pointer, row.use, row.location, row.projection)
         for row in _value_vector_links(kernel, graph)
