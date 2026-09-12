@@ -1142,7 +1142,6 @@ def test_resolution_inventory_closes_every_actual_source_selector(witness):
         assert all(row.token in inventory.reserved for row in occurrences)
     assert Counter(gap.reason for gap in inventory.uncovered) == Counter(
         {
-            "nested language.artifact_wire_schemas roles are not yet traversed": 8,
             "nested language.wire_schemas roles are not yet traversed": 1,
             "remaining vector families: source-or-rule-or-reason": 1,
         }
@@ -2001,14 +2000,6 @@ def test_protocol_roles_do_not_merge_wire_schema_and_producer_kind_identities():
                         and original == "debug-map"
                     ):
                         row["schema_kind"] = "opaque.schema"
-                    if (
-                        role == "language.artifact_wire_schemas"
-                        and original == "debug-map"
-                    ):
-                        row["schema"]["properties"]["artifact_kind"]["const"] = (
-                            "opaque.producer"
-                        )
-                        row["schema"]["properties"]["artifact_kind"]["type"] = "string"
                 elif role == "language.template_admission_profiles":
                     for member in row["member_roles"]:
                         if member["member_kind"] == "model-source-package":
@@ -2050,7 +2041,8 @@ def test_protocol_roles_do_not_merge_wire_schema_and_producer_kind_identities():
     assert schema in inventory.tokens - inventory.reserved
     assert any(
         o.token == producer
-        and o.pointer.endswith("/schema/properties/artifact_kind/const")
+        and o.use == "declaration"
+        and o.pointer.endswith("/artifact_kind")
         for o in inventory.occurrences
     )
     link = next(
@@ -2083,8 +2075,8 @@ def test_protocol_roles_do_not_merge_wire_schema_and_producer_kind_identities():
                 ),
             ),
         )
-    # The authority boundary is covered; arbitrary nested schema semantics
-    # remain an explicit obligation rather than being waived by role binding.
+    # Source and vector obligations remain open; this fixed artifact container
+    # has one machine owner and no duplicate authored-schema gap.
     assert inventory.uncovered
     contract_gaps = [
         gap for gap in inventory.uncovered if "artifact_contracts" in gap.law
@@ -2095,7 +2087,7 @@ def test_protocol_roles_do_not_merge_wire_schema_and_producer_kind_identities():
         for o in inventory.occurrences
         if o.token == schema and o.use == "declaration"
     )
-    assert any(gap.pointer == schema_declaration for gap in inventory.uncovered)
+    assert not any(gap.pointer == schema_declaration for gap in inventory.uncovered)
 
 
 def test_typed_source_selector_publishes_only_complete_schema_addresses(witness):

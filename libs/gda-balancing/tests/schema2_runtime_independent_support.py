@@ -883,10 +883,11 @@ def reference_runtime_artifacts(
     failed = [row["metric"] for row in samples if not row["within_target"]]
     outcome = "rejected" if failed else "accepted"
     outcome_roles = [
-        definition["protocol_role"]
-        for definition in context.language_bundle["language"]["artifact_wire_schemas"]
-        if definition.get("schema", {}).get("properties", {}).get("outcome")
-        == {"const": outcome}
+        role
+        for role in context.kernel["meta_format"]["language_definitions"][
+            "wire_schema_protocol_roles"
+        ]["metric_outcome_structure"]["outcomes"]
+        if _schema(context, role)["properties"]["outcome"] == {"const": outcome}
     ]
     if len(outcome_roles) != 1:
         raise ValueError("Independent acceptance has no unique outcome contract")

@@ -479,3 +479,79 @@ def test_metric_label_coverage_cannot_be_dropped_or_misowned(
         candidate = replace(inventory, reserved=inventory.reserved | {token})
     with pytest.raises(InventoryRefusal):
         validate_extension_inventory(kernel, deepcopy(graph), candidate)
+
+
+@pytest.mark.parametrize("outcome,order", [("accepted", 1234), ("rejected", 1235)])
+def test_independent_acceptance_ignores_unrelated_role_free_schema(
+    program_data, outcome, order
+):
+    kernel, original, rir = program_data
+    authored = deepcopy(original)
+    owner = next(p for p in authored["packages"] if p["id"] == "standard.schema")
+    contracts = next(
+        c
+        for c in owner["semantic_closure"]
+        if c["authority_path"] == "language.artifact_contracts"
+    )["definitions"]
+    schemas = next(
+        c
+        for c in owner["semantic_closure"]
+        if c["authority_path"] == "language.artifact_wire_schemas"
+    )["definitions"]
+    existing = next(
+        row for row in schemas if row.get("protocol_role") == "capability-manifest"
+    )
+    contract = deepcopy(
+        next(
+            row for row in contracts if row["schema_kind"] == existing["artifact_kind"]
+        )
+    )
+    contract.update(
+        artifact_kind="extension.unrelated-outcome",
+        schema_kind="extension.unrelated-outcome-schema",
+        identity_domain="extension-outcome-v1",
+        wire_schema_identity_domain="extension-outcome-wire-v1",
+    )
+    # This extension is an ordinary schema, without any protocol role. Its payload
+    # legitimately has a property whose value coincides with the outcome token.
+    language = _index(kernel, _graph(kernel, deepcopy(original)))
+    schema = deepcopy(
+        next(
+            row
+            for row in language["language"]["artifact_wire_schemas"]
+            if row.get("protocol_role") == "capability-manifest"
+        )
+    )
+    del schema["protocol_role"]
+    schema["artifact_kind"] = contract["schema_kind"]
+    props = schema["schema"]["properties"]
+    schema["schema"]["properties"] = {
+        key: deepcopy(props[key])
+        for key in (
+            "artifact_kind",
+            "artifact_version",
+            "wire_schema_identity",
+            "content_identity",
+        )
+    }
+    props = schema["schema"]["properties"]
+    props["artifact_kind"]["const"] = contract["artifact_kind"]
+    props["outcome"] = {"const": outcome}
+    schema["schema"]["required"] = list(props)
+    contracts.append(contract)
+    schemas.append(schema)
+    owner["exports"]["artifact_contracts"].append(contract["artifact_kind"])
+    owner["exports"]["artifact_wire_schemas"].append(schema["artifact_kind"])
+    specification = _spec(rir, order=order)
+    checked, _, language = _checked(kernel, authored, rir, specification)
+    assert isinstance(checked, CheckedExperiment)
+    produced = evaluate_experiment(checked)
+    assert isinstance(produced, EvaluationArtifacts)
+    assert produced.accepted is (order == 1234)
+    artifacts = {role: dict(member.value) for role, member in produced.members.items()}
+    assert validate_experiment_artifact_set(checked, artifacts)
+    reference = _reference_check_source(_source(), kernel, language)
+    assert not isinstance(reference, tuple)
+    independently_produced = reference_runtime_artifacts(reference, rir, specification)
+    assert validate_experiment_artifact_set(checked, independently_produced)
+    assert reference_admits_runtime_artifacts(reference, rir, specification, artifacts)

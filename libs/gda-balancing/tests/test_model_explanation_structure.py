@@ -289,5 +289,5 @@ def test_explanation_inventory_retires_only_its_physical_schema_gap():
     inventory = read_extension_inventory(kernel, graph)
     validate_extension_inventory(kernel, graph, inventory)
     assert graph == before
-    assert len(inventory.uncovered) == 3
+    assert len(inventory.uncovered) == 2
     assert {gap.pointer for gap in inventory.uncovered} == REMAINING_GAPS

@@ -309,7 +309,7 @@ def test_namespace_inventory_removes_only_lock_and_capability_schema_rows():
     inventory = read_extension_inventory(kernel, graph)
     validate_extension_inventory(kernel, graph, inventory)
     assert graph == before
-    assert len(inventory.uncovered) == 3
+    assert len(inventory.uncovered) == 2
     assert {row.pointer for row in inventory.uncovered} == REMAINING_GAPS
 
 
