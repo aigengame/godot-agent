@@ -788,10 +788,11 @@ def _asset_res_path(project: Path, raw: str) -> "str | Failure":
     # normalization RULE — `project_absolute` — and both sites call it, so the only
     # cost of asking twice is a second `Path.cwd()` (#807 review).
     project_abs = project_absolute(project)
-    # ONE call for ownership-then-containment and both refusal envelopes (#802).
-    # What used to stand here — the two probes, their order, the four coordinates
-    # and the resolved root each refusal reports — now lives on ADR-0006's path
-    # authority, so this gate keeps only what is genuinely about ASSETS.
+    # ONE call for ownership, then containment, then the spelling, and all three
+    # refusal envelopes (#802, #845). What used to stand here — the two probes,
+    # their order, the four coordinates and the resolved root each refusal reports
+    # — now lives on ADR-0006's path authority, so this gate keeps only what is
+    # genuinely about ASSETS.
     refusal = containment_refusal(raw, project)
     if refusal is not None:
         return refusal

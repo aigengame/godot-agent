@@ -48,6 +48,7 @@ from gda.commands.script import (
 from gda.errors import Failure, containment_refusal
 from gda.project import (
     PROJECT_MARKER,
+    case_mismatch,
     owning_project,
     path_outside_project,
 )
@@ -428,6 +429,41 @@ def test_ownership_wins_when_both_halves_of_the_gate_fire(project, monorepo):
         ), name
     values = list(envelopes.values())
     assert values[1:] == values[:-1]
+
+
+def test_containment_wins_when_the_spelling_half_fires_too(project, monorepo):
+    # The sibling of the pin above, for the arm #845 added. The gate asks the
+    # spelling LAST because it is the least specific of the three: whether this
+    # project stores an entry under another case means something only once the
+    # target is established as this project's to serve.
+    #
+    # This target fires both arms at once. `addons/plain` links to a sibling tree,
+    # so the `..` RESOLVES out of the project and containment refuses it, while the
+    # LEXICAL reading of the same spelling collapses to `addons/shared.gd`, which
+    # this project does store — under another case. Containment must win: the file
+    # the call actually reaches is `libs/shared.gd`, so a `path_case_mismatch`
+    # naming `res://addons/Shared.gd` would send the caller to a DIFFERENT file
+    # instead of saying that the target left the project.
+    #
+    # `script run` is absent for the reason the normalization pin below states: it
+    # reaches the gate with a canonical `res://` address, whose collapsed spelling
+    # carries no `..` at all, so its containment half is inert by construction.
+    (monorepo / "shared.gd").write_text("extends Node\n", encoding="utf-8")
+    (project / "addons" / "Shared.gd").write_text("extends Node\n", encoding="utf-8")
+    target = "addons/plain/../shared.gd"
+    assert owning_project(target, project) is None, "ownership half is silent"
+    assert path_outside_project(target, project) is not None, "containment half fires"
+    assert case_mismatch(target, project) is not None, "spelling half too"
+
+    refusal = containment_refusal(target, project)
+    assert refusal is not None
+    assert refusal.error.code == "target_outside_project"
+    outcome = _script_validate_recipe(
+        ScriptValidateParams(paths=[target]), project=project, godot=None
+    )
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "target_outside_project", "script validate"
+    assert _refused_as_outside(_import_verdict(project, target)), "resource import"
 
 
 def test_the_gate_reads_the_project_as_spelled_rather_than_pre_resolved(

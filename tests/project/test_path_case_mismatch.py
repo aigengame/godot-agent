@@ -132,6 +132,13 @@ def test_a_name_no_entry_matches_is_left_to_the_operation(project):
     # reports its own `path_not_found`.
     assert case_mismatch("res://content/absent.gd", project) is None
     assert case_mismatch("res://absent/combat_session.gd", project) is None
+    # ...and the shape where the early return actually decides something: a
+    # mis-cased DIRECTORY with an absent leaf. Some components DO name an entry, so
+    # a walk that carried the requested spelling forward for the one that does not
+    # would answer `path_case_mismatch` and offer `res://content/absent.gd` as the
+    # "stored" spelling of a file that exists under neither case — a false
+    # correction in place of the true `path_not_found`.
+    assert case_mismatch("res://Content/absent.gd", project) is None
 
 
 def test_the_project_root_itself_is_not_compared(project):
@@ -167,6 +174,24 @@ def test_a_case_sensitive_host_reports_the_mismatch_rather_than_a_missing_file(p
     error = _refusal(project, "script", "validate", f"res://{REQUESTED_SCRIPT}")
 
     assert error["code"] == "path_case_mismatch"
+
+
+def test_a_case_sensitive_host_answers_with_the_spelling_the_caller_named(project):
+    if _case_insensitive(project):
+        pytest.skip("this host's filesystem cannot hold both spellings at once")
+
+    # The other thing only a case-sensitive filesystem can state: it holds `content`
+    # and `Content` as two SEPARATE directories, so both spellings name a file that
+    # really opens and neither is a mistake. `_stored_entry` prefers the exact match
+    # for exactly this case; without that preference `os.listdir` order picks the
+    # answer, and one of the two callers is refused with a "stored" spelling for a
+    # file that exists precisely as they asked for it.
+    other = project / "Content"
+    other.mkdir()
+    (other / Path(STORED_SCRIPT).name).write_text("extends Node\n", encoding="utf-8")
+
+    assert case_mismatch(f"res://{STORED_SCRIPT}", project) is None
+    assert case_mismatch(f"res://{REQUESTED_SCRIPT}", project) is None
 
 
 # --- the three commands the gate protects, and the rest of the surface ---------

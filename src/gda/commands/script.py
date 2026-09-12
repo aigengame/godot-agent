@@ -2263,9 +2263,10 @@ def _script_validate_recipe(
     # `project_absolute` differs only in staying total on an unresolvable `~user`.
     root = None if project is None else project_absolute(project).resolve()
     for path in params.paths:
-        # ONE call for both halves and their ordering (#802): the gate on ADR-0006's
-        # path authority owns them, so this recipe states only WHICH targets it is
-        # asking about — the batch, in requested order, first offender wins.
+        # ONE call for all three arms and their ordering (#802, #845): the gate on
+        # ADR-0006's path authority owns them, so this recipe states only WHICH
+        # targets it is asking about — the batch, in requested order, first
+        # offender wins.
         refusal = containment_refusal(path, project)
         if refusal is not None:
             return refusal

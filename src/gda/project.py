@@ -31,13 +31,12 @@ stderr parser that first needed one (:mod:`gda.script_errors`, now a consumer).
 Since #802 the authority owns the **decision** as well as the primitives:
 :func:`containment_violation` is the whole ordered composition — normalize the
 project, ask ownership, ask containment, ask the spelling (:func:`case_mismatch`,
-#845), report whichever half fired with its coordinates. The ENVELOPES stay with
-the taxonomy: `gda.errors.containment_refusal`
-maps the decision to the two refusals, so a command module states only WHICH
-target it is asking about while the dependency direction stays
-``errors -> foundation`` (ADR-0040 §5; #807 review — the composition briefly
-lived here whole and needed a deferred ``gda.errors`` import to hide the
-inverted edge).
+#845), report whichever arm fired with its coordinates. The ENVELOPES stay with
+the taxonomy: `gda.errors.containment_refusal` maps the decision to the three
+refusals, so a command module states only WHICH target it is asking about while
+the dependency direction stays ``errors -> foundation`` (ADR-0040 §5; #807 review
+— the composition briefly lived here whole and needed a deferred ``gda.errors``
+import to hide the inverted edge).
 """
 
 import os
@@ -584,7 +583,7 @@ def _stored_entry(directory: Path, name: str) -> str | None:
 def case_mismatch(target: str, project: Path) -> CaseMismatchViolation | None:
     """``target``'s stored spelling when it differs from the requested one (#845).
 
-    The third half of the target decision, and the one neither containment nor
+    The third arm of the target decision, and the one neither containment nor
     ownership can see: a path that names the project's own file with the wrong CASE.
     On a case-insensitive filesystem the engine opens it and only WARNS
     (``FileAccessUnix``'s "Case mismatch opening requested file … This file will not

@@ -976,18 +976,17 @@ def path_case_mismatch_failure(requested: str, stored: str) -> Failure:
 
 
 def containment_refusal(target: str, project: Path | None) -> Failure | None:
-    """The refusal when ``target`` does not belong to ``project`` — or ``None`` (#802).
+    """The refusal when ``target`` is not ``project``'s to serve as spelled (#802).
 
     THE gate the three path-taking commands call — ``script validate`` per batch
     entry, ``script run`` for its entry script, ``resource import`` per asset. The
     DECISION is not made here: :func:`gda.project.containment_violation` owns the
-    ordering (ownership, then containment, then the spelling), the normalization,
-    and the coordinates; this
-    function maps each half of its answer to the envelope the taxonomy owns. The
-    split follows ADR-0040 §5 — the taxonomy reaches DOWN to the path authority,
-    never the reverse; the composition briefly lived whole on ``gda.project`` and
-    needed a deferred import of this module to hide the inverted edge (#807
-    review).
+    ordering (ownership, then containment, then the spelling), the normalization
+    and the coordinates; this function maps each arm of its answer to the envelope
+    the taxonomy owns. The split follows ADR-0040 §5 — the taxonomy reaches DOWN to
+    the path authority, never the reverse; the composition briefly lived whole on
+    ``gda.project`` and needed a deferred import of this module to hide the
+    inverted edge (#807 review).
 
     One builder of the same code stays outside the gate, deliberately:
     :func:`script_escapes_project_failure`, ``script run``'s pre-resolution address
