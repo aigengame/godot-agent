@@ -18,7 +18,6 @@ from schema2_extension_inventory_support import (
 )
 from schema2_extension_renaming_support import (
     _json_pointer_values,
-    _member_path_values,
     _renamed_pointer,
     _render_formulas,
     _reseal_authored_graph,
@@ -74,26 +73,20 @@ def test_positions_decode_json_pointer_escapes_and_array_indices():
     ) == {"outer": [{"inner": "changed"}, "user text"]}
 
 
-def test_member_paths_rename_segments_without_changing_equal_user_data(authored_graph):
-    _, graph = authored_graph
-    profile = next(
-        (definition, f"/packages/{pi}/semantic_closure/{ci}/definitions/{di}")
-        for pi, package in enumerate(graph["packages"])
-        for ci, closure in enumerate(package["semantic_closure"])
-        if closure["authority_path"] == "language.resolution_profiles"
-        for di, definition in enumerate(closure["definitions"])
-        if definition["default"]
-    )
-    path = profile[1] + "/manifest_id_path"
-    original = profile[0]["manifest_id_path"]
-    outer, inner = original.split(".")
-    # A segment swap must use the original addresses, not sequential text replace.
-    values = _member_path_values(graph, {path: {0: inner, 1: outer}})
-    assert values == {path: f"{inner}.{outer}"}
-    assert profile[0]["manifest_id_path"] == original
+def test_dotted_keys_are_opaque_json_pointer_segments():
+    original = {
+        "outer.key": {"inner.key/~": "same.value"},
+        "notes": "outer.key.inner.key/~",
+    }
     assert _rewrite_positions(
-        {"path": original, "notes": original}, values={"/path": values[path]}, keys={}
-    ) == {"path": f"{inner}.{outer}", "notes": original}
+        original,
+        {"/outer.key/inner.key~1~0": "changed.value"},
+        {"/outer.key": "inner.key/~", "/outer.key/inner.key~1~0": "outer.key"},
+    ) == {
+        "inner.key/~": {"outer.key": "changed.value"},
+        "notes": "outer.key.inner.key/~",
+    }
+    assert original["outer.key"]["inner.key/~"] == "same.value"
 
 
 def test_diagnostic_pointer_keeps_all_renamed_segments_and_equal_user_text():

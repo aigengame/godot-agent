@@ -1410,10 +1410,13 @@ def test_source_value_policy_uses_its_scalar_wire_contract(witness):
     assert isinstance(checked, CheckedModel), checked
     inventory = read_extension_inventory(kernel, candidate)
     validate_extension_inventory(kernel, candidate, inventory)
-    assert not any(
-        o.pointer.startswith("/source/modules/0/symbols/2/value_policy/value")
-        for o in inventory.occurrences
+    payload = "/source/modules/0/symbols/2/value_policy/value"
+    positions = [o for o in inventory.occurrences if o.pointer == payload]
+    assert positions and all(
+        o.location == "key" and o.token.role == "source-field" for o in positions
     )
+    assert not any(o.pointer.startswith(payload + "/") for o in inventory.occurrences)
+    assert symbol["value_policy"]["value"] == 3
 
     # These could be ordinary Record field names elsewhere. This position is
     # closed by the admitted Source schema to an integer, never an envelope.
@@ -1701,7 +1704,10 @@ def test_contract_vector_expected_values_inherit_only_declared_projection_roles(
     )
     assert isinstance(numeric["expect"], int)
     numeric["expect"] += 1
-    with pytest.raises(InventoryRefusal, match="expected subtree"):
+    with pytest.raises(
+        InventoryRefusal,
+        match="Operation vectors do not close their selected contracts",
+    ):
         read_extension_inventory(kernel, changed)
 
 
@@ -1973,37 +1979,21 @@ def test_typed_source_selector_publishes_only_complete_schema_addresses(witness)
             validate_extension_inventory(kernel, graph, candidate)
 
 
-def test_dot_path_renaming_limits_only_its_actual_member_tokens(witness):
+def test_source_key_names_have_no_retired_dot_path_restriction(witness):
     kernel, graph, inventory = witness
-    projected = next(o for o in inventory.occurrences if o.location == "member-path")
     sources = sorted(inventory.tokens - inventory.reserved)
     names = {token: f"renamed_{index}" for index, token in enumerate(sources)}
-    names[projected.token] = "cannot.encode"
-    with pytest.raises(InventoryRefusal, match="declared dot-path"):
-        validate_token_bijection(
-            inventory, token_bijection_from_names(inventory, names)
-        )
-    names[projected.token] = "encodable"
-    namespace = next(token for token in sources if token.role == "namespace")
-    names[namespace] = "still.valid.namespace"
+    field = next(token for token in sources if token.role == "source-field")
+    names[field] = "valid.dotted/key~"
     with pytest.raises(InventoryRefusal, match="uncovered semantic role"):
         validate_token_bijection(
             inventory, token_bijection_from_names(inventory, names)
         )
-    omitted = replace(
-        inventory, occurrences=tuple(o for o in inventory.occurrences if o != projected)
-    )
-    with pytest.raises(InventoryRefusal, match="address coverage"):
-        validate_extension_inventory(kernel, graph, omitted)
     ordinary = next(
-        o
-        for o in inventory.occurrences
-        if o.token.name == "debug-map"
-        and o.location == "value"
-        and o.pointer.endswith("/schema_kind")
+        o for o in inventory.occurrences if o.location == "value" and not o.projection
     )
     forged = replace(ordinary, location="member-path", projection="0")
-    with pytest.raises(InventoryRefusal, match="no declared address projection"):
+    with pytest.raises(InventoryRefusal, match="invalid token occurrence pointer"):
         validate_extension_inventory(
             kernel,
             graph,
@@ -2011,7 +2001,8 @@ def test_dot_path_renaming_limits_only_its_actual_member_tokens(witness):
         )
 
 
-def test_inventory_consumes_the_complete_declared_source_module_mapping():
+@pytest.mark.parametrize("renamed", ["opaque_modules", "source.modules/~"])
+def test_inventory_consumes_the_complete_declared_source_module_mapping(renamed):
     from gda_balancing.domain.authority.context import (
         AdmittedAuthorityContext,
         admit_authority_context,
@@ -2025,7 +2016,7 @@ def test_inventory_consumes_the_complete_declared_source_module_mapping():
     from schema2_bootstrap_production_support import _reidentify_graph_root
 
     kernel, language = mutable_authorities()
-    original, renamed = "modules", "opaque_modules"
+    original = "modules"
     for package in language["language"]["packages"]:
         for closure in package["semantic_closure"]:
             role = closure["authority_path"]
@@ -2041,7 +2032,6 @@ def test_inventory_consumes_the_complete_declared_source_module_mapping():
                         for name in schema["required"]
                     ]
                 elif role == "language.resolution_profiles":
-                    row["modules_member"] = renamed
                     for recipe in row["relation_recipes"]:
                         terms = [binding["source"] for binding in recipe["bindings"]]
                         terms.extend(field["term"] for field in recipe["fields"])
@@ -2098,7 +2088,8 @@ def test_inventory_consumes_the_complete_declared_source_module_mapping():
         == 5
     )
     assert any(
-        o.pointer == "/source/opaque_modules" and o.location == "key"
+        o.pointer == "/source/" + renamed.replace("~", "~0").replace("/", "~1")
+        and o.location == "key"
         for o in references
     )
     assert not any(
@@ -2113,7 +2104,12 @@ def test_inventory_consumes_the_complete_declared_source_module_mapping():
     formula_source[renamed] = formula_source.pop(original)
     requests = source_formula_requests(kernel, {**graph, "source": formula_source})
     assert requests
-    assert all(pointer.startswith("/source/opaque_modules/") for pointer in requests)
+    assert all(
+        pointer.startswith(
+            "/source/" + renamed.replace("~", "~0").replace("/", "~1") + "/"
+        )
+        for pointer in requests
+    )
     assert all(
         request["modules"] == formula_source[renamed] for request in requests.values()
     )

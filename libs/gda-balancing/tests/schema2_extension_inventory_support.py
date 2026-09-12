@@ -130,14 +130,6 @@ def _occurrence_value(
         return _pointer_value(
             formula_projections[occurrence.pointer], occurrence.projection
         )
-    if occurrence.location == "member-path":
-        value = _pointer_value(graph, occurrence.pointer)
-        if not isinstance(value, str) or not occurrence.projection.isdecimal():
-            raise InventoryRefusal("invalid dot-path projection")
-        index = int(occurrence.projection)
-        if str(index) != occurrence.projection:
-            raise InventoryRefusal("noncanonical dot-path projection")
-        return value.split(".")[index]
     if occurrence.location == "json-pointer":
         if (
             not occurrence.projection.isdecimal()
@@ -6010,10 +6002,6 @@ def validate_token_bijection(
     shared_positions: dict[tuple[str, str, str], set[str]] = {}
     for occurrence in inventory.occurrences:
         target = correspondence.get(occurrence.token, occurrence.token)
-        if occurrence.location == "member-path" and "." in target.name:
-            raise InventoryRefusal(
-                "renamed member cannot be represented by the declared dot-path"
-            )
         position = (occurrence.pointer, occurrence.location, occurrence.projection)
         shared_positions.setdefault(position, set()).add(target.name)
     if any(len(names) != 1 for names in shared_positions.values()):
@@ -6705,13 +6693,6 @@ def validate_extension_inventory(
         for row in address_actual
     ):
         raise InventoryRefusal("Source field address occurrence has a wrong owner")
-    if any(
-        row[3] == "member-path" and row not in address_expected
-        for row in address_actual
-    ):
-        raise InventoryRefusal(
-            "member-path occurrence has no declared address projection"
-        )
     source_format_role = _source_format_role(kernel, graph)
     _verify_formula_coverage(kernel, graph, inventory)
     rule_required = set()

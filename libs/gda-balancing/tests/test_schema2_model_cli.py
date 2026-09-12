@@ -692,8 +692,9 @@ def test_formula_parameter_sugar_normalizes_to_same_formula_and_rir_through_conv
         == "/modules/0/formulas/0/expression"
     )
     assert isinstance(checked_sugar, model_module.CheckedModel)
-    policy = model_module._formula_policy(checked_sugar.language_bundle)
-    assert policy["inline_body_normalizations"] == [{"parameter_member": "parameter"}]
+    assert checked_sugar.source_projection.value["modules"][0]["formulas"][0][
+        "body"
+    ] == {"node": "parameter", "parameter": "base"}
     context = checked_sugar.authority_context
     assert isinstance(context, authority_module.AdmittedAuthorityContext)
     program_body = program_source["modules"][0]["formulas"][0]["body"]

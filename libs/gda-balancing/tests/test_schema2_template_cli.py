@@ -52,7 +52,6 @@ from schema2_bootstrap_conformance_support import (
 )
 from test_schema2_model_lowerer_conformance import (
     _reference_check_source,
-    _reference_lowering,
     _reference_resolved_symbols,
 )
 
@@ -523,18 +522,11 @@ def _reference_template_model_results(checked: ModelSourceContext, results):
     """
     if not _consumer_b_template_model_results_are_supported(results):
         raise ValueError("unsupported Template Model result origins")
-    language = checked.language_bundle["language"]
-    lowering = _reference_lowering(language)
-    profile = next(
-        row
-        for row in language["resolution_profiles"]
-        if row["id"] == lowering["resolution_profile"]
-    )
     projected = {}
     for name, contract in results.items():
         match contract["origin"]:
             case "selected-resolution-requirements":
-                value = checked.source[profile["requirements_member"]]
+                value = checked.source_projection.value["package_requirements"]
             case "admitted-namespace-selection":
                 value = [
                     package.namespace
