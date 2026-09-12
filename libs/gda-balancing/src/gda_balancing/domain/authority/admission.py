@@ -14,6 +14,8 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any, cast
 
+from gda_balancing.domain.formula._source_body import inline_parameter_contract
+
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.domain.authority.rir_projection import rir_collection_output
 from gda_balancing.domain.authority.graph import (
@@ -83,7 +85,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:6cc472ff54bdb5014e7e855c7af16d362f2143601aa74c21a2182e0191ac81aa"
+    "sha256:09d710e08ff38ef03f218e187f26cf306094671dfbcac96d8078f9a7b05a7467"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -501,13 +503,12 @@ def _formula_resolution_is_closed(
                 return False
             program, inline = programs[0], inlines[0]
             inline_nodes = variants(inline, "node")
-            normalizations = policy["inline_body_normalizations"]
-            if len(normalizations) != len(inline_nodes):
+            normalization = inline_parameter_contract(policy, {"meta_format": meta})
+            if set(inline_nodes) != {normalization.kind}:
                 return False
-            for row in normalizations:
-                if row["node"] != "parameter" or row["result_kind"] != "parameter":
-                    return False
-                member(inline_nodes[row["node"]], row["parameter_member"], "string")
+            member(
+                inline_nodes[normalization.kind], normalization.source_member, "string"
+            )
             body_nodes = variants(
                 member(program, policy["body_nodes_member"], "array")["items"], "node"
             )
@@ -581,10 +582,14 @@ def _formula_resolution_is_closed(
                     return False
                 typing = node["result"]["typing"]
                 if node["semantics"]["operator"] == "integer-compare":
-                    if node["semantics"].get("comparison") != "less-than" or typing != {
-                        "kind": "fixed",
-                        "contract": conversion["condition_contract"],
-                    }:
+                    if (
+                        node["semantics"].get("comparison") != "less-than"
+                        or not isinstance(typing, dict)
+                        or set(typing) != {"kind", "contract"}
+                        or typing.get("kind") != "fixed"
+                        or runtime["fixed_value_contracts"].get(typing.get("contract"))
+                        != runtime["fixed_value_contracts"]["kernel-boolean"]
+                    ):
                         return False
                     if {"kind": "runtime-numeric", "members": selected} not in node[
                         "operand_constraints"

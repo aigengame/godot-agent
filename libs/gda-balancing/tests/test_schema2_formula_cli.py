@@ -1114,15 +1114,12 @@ def test_standard_compiler_owns_formula_notation_contextual_policy(run_cli) -> N
         if definition["id"] == "exact-import-resolution-v1"
     )
     conversion = profile["formula_resolution"]["notation_conversion"]
-    assert conversion["condition_contract"] == "kernel-boolean"
-    assert conversion["formula_argument_compatibility"] == "exact-resolved-contract"
-    assert conversion["formula_result_compatibility"] == "exact-resolved-contract"
-    assert conversion["literal_typing"] == "selected-unique-formal-match"
-    assert conversion["literal_result_inference"] == "contextual-anchor"
-    assert conversion["operation_argument_compatibility"] == "exact-operation-formal"
-    assert conversion["symbol_resolution"] == "exact-module-coordinate"
+    assert set(conversion) == {
+        "infix_parser",
+        "local_result_inference",
+        "operation_result_source",
+    }
     assert conversion["infix_parser"] == {
-        "algorithm": "shunting-yard",
         "generated_local_separator": "__notation_",
     }
     assert {

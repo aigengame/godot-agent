@@ -26,6 +26,7 @@ from gda_balancing.domain.canonical import (
 from gda_balancing.domain.diagnostics import (
     reason_by_id,
 )
+from gda_balancing.domain.formula._source_body import inline_parameter_contract
 from gda_balancing.domain.formula.notation import (
     FormulaNotationRefusal,
     FormulaPairRefusal,
@@ -1635,20 +1636,19 @@ def _notation_operand_projection(operand: dict[str, Any]) -> dict[str, JsonValue
     return {"kind": cast(str, kind), member: cast(JsonValue, operand[member])}
 
 
-def _rir_notation_body_projection(body: dict[str, Any]) -> dict[str, JsonValue]:
+def _rir_notation_body_projection(
+    body: dict[str, Any], authority_context: AdmittedAuthorityContext
+) -> dict[str, JsonValue]:
     nodes = body.get("nodes")
     result = body.get("result")
     if not isinstance(nodes, list) or not isinstance(result, dict):
         raise ValueError("RIR Formula body has no program projection")
-    if (
-        not nodes
-        and result.get("kind") == "parameter"
-        and isinstance(result.get("parameter"), str)
-    ):
-        return {
-            "node": "parameter",
-            "parameter": cast(str, result["parameter"]),
-        }
+    inline = inline_parameter_contract(
+        _formula_policy(authority_context.language_bundle), authority_context.kernel
+    )
+    inline_body = inline.source_body(_notation_operand_projection(result))
+    if not nodes and inline_body is not None:
+        return inline_body
     projected_nodes: list[dict[str, JsonValue]] = []
     for node in cast(list[dict[str, Any]], nodes):
         kind = node.get("node")
@@ -1765,7 +1765,8 @@ def _formula_pairs_are_admitted(
                     },
                     authority_context,
                     canonical_body=cast(
-                        dict[str, Any], _rir_notation_body_projection(body)
+                        dict[str, Any],
+                        _rir_notation_body_projection(body, authority_context),
                     ),
                     operation_coordinates=(
                         frozenset(

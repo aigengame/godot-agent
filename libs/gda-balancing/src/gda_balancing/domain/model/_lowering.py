@@ -5,6 +5,8 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, cast
 
+from gda_balancing.domain.formula._source_body import inline_parameter_contract
+
 
 from gda_balancing.domain.artifacts import (
     artifact_contract_for_role,
@@ -1755,7 +1757,7 @@ def _resolved_formulas_and_bindings(
     )
     normalized_source = deepcopy(checked.source)
     changed = False
-    normalizations = cast(list[dict[str, str]], policy["inline_body_normalizations"])
+    inline = inline_parameter_contract(policy, checked.kernel)
     for module in cast(
         list[dict[str, Any]],
         normalized_source[cast(str, profile["modules_member"])],
@@ -1767,22 +1769,13 @@ def _resolved_formulas_and_bindings(
             body = formula.get(cast(str, policy["formula_body_member"]))
             if not isinstance(body, dict):
                 continue
-            for normalization in normalizations:
-                parameter_member = normalization["parameter_member"]
-                if (
-                    set(body) != {"node", parameter_member}
-                    or body.get("node") != (normalization["node"])
-                ):
-                    continue
+            operand = inline.operand(body)
+            if operand is not None:
                 formula[cast(str, policy["formula_body_member"])] = {
                     cast(str, policy["body_nodes_member"]): [],
-                    cast(str, policy["body_result_member"]): {
-                        "kind": normalization["result_kind"],
-                        parameter_member: body[parameter_member],
-                    },
+                    cast(str, policy["body_result_member"]): operand,
                 }
                 changed = True
-                break
     normalized = (
         ModelSourceContext(
             source=normalized_source,

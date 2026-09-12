@@ -158,7 +158,6 @@ def infer_formula_operation_local_contract(
                 not isinstance(operand_members, list)
                 or len(operand_members) != 2
                 or not all(isinstance(member, str) for member in operand_members)
-                or conversion_policy.get("condition_contract") != "kernel-boolean"
             ):
                 raise ValueError("Formula comparison inference policy is malformed")
             operands = [instruction.get(member) for member in operand_members]

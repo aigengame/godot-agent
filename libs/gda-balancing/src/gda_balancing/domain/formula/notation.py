@@ -11,6 +11,7 @@ import jsonschema
 
 from gda_balancing.domain.authority.context import AdmittedAuthorityContext
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
+from gda_balancing.domain.formula._source_body import inline_parameter_contract
 from gda_balancing.domain.formula.types import (
     formula_contract_from_operation,
     formula_contract_matches,
@@ -508,6 +509,7 @@ class _FormulaParser:
             raise ValueError("Formula conversion source schema version is unavailable")
         self.profile = _formula_resolution_profile(authority_context)
         self.policy = _formula_policy(authority_context)
+        self.inline = inline_parameter_contract(self.policy, authority_context.kernel)
         self.conversion_policy = cast(
             dict[str, Any], self.policy["notation_conversion"]
         )
@@ -1190,14 +1192,6 @@ class _FormulaParser:
             (contract for _operand, contract in operands if isinstance(contract, dict)),
             self.resolve_contract(fallback),
         )
-        if (
-            self.conversion_policy.get("literal_result_inference")
-            != "contextual-anchor"
-        ):
-            raise _FormulaContextError(
-                "model.reason.formula-type-mismatch",
-                "Formula literal result-inference policy is malformed",
-            )
         contracts = [
             cast(dict[str, Any], contract or anchor) for _operand, contract in operands
         ]
@@ -1243,8 +1237,9 @@ class _FormulaParser:
             contract,
             self.result_contract,
         )
-        if not nodes and result.get("kind") == "parameter":
-            return {"node": "parameter", "parameter": result["parameter"]}
+        inline_body = self.inline.source_body(result)
+        if not nodes and inline_body is not None:
+            return inline_body
         return {"nodes": nodes, "result": result}
 
 
@@ -1445,8 +1440,12 @@ def _render_formula_body(
     grammar, notation_schema, operation_source = _notation_authority(authority_context)
     if not isinstance(body, dict):
         raise ValueError("Formula body must be an object")
-    if set(body) == {"node", "parameter"} and body.get("node") == "parameter":
-        return _identifier(body.get("parameter"), grammar)
+    inline = inline_parameter_contract(
+        _formula_policy(authority_context), authority_context.kernel
+    )
+    operand = inline.operand(body)
+    if operand is not None:
+        return _render_operand(operand, grammar)
     nodes = body.get("nodes")
     result = body.get("result")
     if not isinstance(nodes, list) or not isinstance(result, dict):
