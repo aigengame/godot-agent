@@ -63,7 +63,7 @@ from gda.models import (
 from gda.parser import parse_result
 from gda.project import ForeignOwnerViolation, containment_violation
 from gda.runner import DEFAULT_TIMEOUT_LABEL, LaunchFailure, RunResult
-from gda.script_errors import ScriptError, script_error_line
+from gda.script_errors import ScriptError, leaked_at_exit, script_error_line
 
 # The minimum supported Godot version (ADR-0003): the floor where the modern
 # features gda relies on exist. Resolved from the version gda info reports; the
@@ -1038,7 +1038,7 @@ def script_exit_status_failure(
     stderr: str,
     script_errors: Sequence[ScriptError],
 ) -> Failure:
-    """The ``script run --strict`` verdict for a non-zero script exit (#651).
+    """The ``script run --strict`` verdict for a failed run: a status, or a leak (#651).
 
     Opt-in only. The default remains ADR-0031's passthrough — a deliberate
     ``quit(1)`` is data the agent reads — so ``--strict`` is how a caller says "for
@@ -1047,6 +1047,23 @@ def script_exit_status_failure(
     NOT propagated as the process exit code; it is mapped onto the registered
     ``script_failed``/exit ``4`` so a script's ``quit(3)`` cannot alias an unrelated
     registry code (``EXIT_VERSION``).
+
+    ONE verdict with TWO triggers since #844, which is why this builder gained a
+    message branch instead of a sibling: the caller asked the same question — "did
+    this run pass?" — and gets the same registered code, the same evidence keys and
+    the same producer, so nothing new joins ADR-0004's evidence axis. The second
+    trigger is a run the engine reported LEAKING at exit; ``exit_status`` is then
+    ``0``, so the message must say what a zero status cannot, and it quotes the
+    engine's own sentence the way the never-ran verdict above quotes its detail. The
+    status keeps the message when the run has both, because the script's own answer
+    is the more specific one and the leak is on ``evidence`` and in ``diagnostics``
+    either way.
+
+    The leak sentence does NOT attribute the leak to the named script (PR #964
+    review): the engine reports what the whole PROCESS still held when it exited,
+    which includes the project's autoloads, so the message says the engine reported
+    a leak rather than that this script leaked. The script is still named — it is
+    the run the caller asked for — but as the subject of the run, not of the leak.
 
     The evidence the caller needs is preserved: the status stays readable in the
     message, and ``diagnostics`` carries BOTH of the script's streams under fixed
@@ -1062,9 +1079,16 @@ def script_exit_status_failure(
     process still exits ``4``, since a script's ``quit(3)`` must not alias a registry
     exit code.
     """
+    # The read is the parser's, not a second one: `leaked_at_exit` is what the
+    # strict rule itself calls, so the verdict and the sentence explaining it
+    # cannot disagree about whether the run leaked.
+    leak = leaked_at_exit(script_errors) if exit_status == 0 else None
+    message = f"script run --strict: {script} exited with status {exit_status}"
+    if leak is not None:
+        message = f"{message}, but the engine reported a leak at exit — {leak.message}"
     return make_failure(
         "script_failed",
-        f"script run --strict: {script} exited with status {exit_status}",
+        message,
         _labelled_script_output(stdout, stderr),
         evidence=FailureEvidence(
             exit_status=exit_status,

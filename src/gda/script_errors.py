@@ -21,13 +21,19 @@ Consumers (the reason this is a module and not a helper inside one command):
   ``diagnostics`` it carries on its result;
 - the ``script run`` timeout path (#655) — the same diagnostics from the partial
   stderr captured before the timeout;
-- the scene-startup preflight (#664) — the same script errors from a scene launch.
+- the scene-startup preflight (#664) — the same script errors from a scene launch;
+- the daemon's readiness boundary (#848) — the same script errors, read off the
+  Session log instead of a captured stderr, so ``daemon wait-ready`` and ``daemon
+  status`` can say a serving session started degraded. The first consumer that is
+  not a one-shot launch, which is why "pure function of the stderr text" below is
+  worth keeping: the text's SOURCE is the caller's business, not this module's.
 
 Everything here is a **pure function of the stderr text**: no engine, no I/O.
 Recognition is deliberately closed — only the records below are classified, so
 ``diagnostics`` stays a curated high-signal list rather than a re-encoding of the
 whole error stream (the verbatim stream is preserved separately by each caller).
-An unrecognized error or warning is skipped and never raises.
+An unrecognized error is skipped and never raises, and so is every warning except
+the ONE the set now admits (the shutdown leak below, #844).
 
 **What may enter the closed set** (#722, the rule the set is widened by — stated
 once here because widening it changes what EVERY launch-backed channel reports,
@@ -47,6 +53,44 @@ The rule is what rules out the tempting shortcut for ``push_error``: "any
 raised while GDScript is on the stack — a script's bad ``get_node()`` prints
 ``ERROR: Node not found: … / at: get_node (scene/main/node.cpp:1961)`` with a
 full backtrace, and that is the engine's failure, not the project's report.
+
+**The set holds ONE warning, and the rule is what admits it** (#844). Godot
+reports leaked OBJECTS and RESOURCES at engine exit with two records, and this
+set recognizes those two; one of them is a ``WARN_PRINT``, so recognizing it
+widens the set past the ``ERROR`` / ``SCRIPT ERROR`` levels it held until now.
+Against the three criteria: (1) both sentences are C++ format-string literals —
+``ObjectDB instances leaked at exit`` (``ObjectDB::cleanup``,
+``core/object/object.cpp``) and ``<n> resources still in use at exit``
+(``ResourceCache::clear``, ``core/io/resource.cpp``) — so nothing keys on project
+prose, and a project ``push_warning`` that spells the same words is skipped like
+every other project warning. That guard covers the ``push_warning`` /
+``push_error`` BUILTIN paths, which is where a project reports something; a
+script that writes the sentence straight to stderr with ``printerr`` is not keyed
+out, the same pre-existing opening every recognized sentence has (a ``printerr``
+of ``Failed loading resource: …`` already reads as ``resource_load_failed``),
+with one new consequence worth naming: forging THIS kind flips ``--strict``
+without having to look like an entry-load failure. (2) The record says what
+became of the objects and resources of the process this run was — it ended with
+them still alive — which an agent branches on (a strict gate, a soak or lifecycle
+test), where a leak that only sat inside the raw stderr string made the
+production add "stderr must be empty" as its own gate (GDA-DF-063). (3) The kind
+states that the script RAN, because the engine prints these AFTER the run: it
+stays out of ``_ENTRY_FAILURE_PRECEDENCE`` and names no resource, so it can never
+decide an entry verdict. What stays skipped is the warning LEVEL, not merely this
+one sentence of it.
+
+**What is deliberately NOT in the set: the RID leak reports** (PR #964 review).
+The two records above are not everything Godot says about leaks at exit — it also
+reports leaked RIDs, from at least two further sites and in more shapes
+(``WARNING: 1 RID of type "Canvas" was leaked.`` / ``<n> RIDs of type … were
+leaked.``, ``servers/rendering/renderer_canvas_cull.cpp``; and ``ERROR: <n> RID
+allocations of type '<name>' were leaked at exit.``,
+``core/templates/rid_owner.h``, which is not behind ``DEBUG_ENABLED``). A run
+that leaks only RIDs is therefore a clean ``script run --strict`` with an empty
+``diagnostics``. That is a closed set doing its job rather than an oversight:
+what may enter is the admission question above, #844 answered it for these two
+records, and the RID family — more sites, more spellings, a different subject —
+is its own question for whoever needs it.
 
 **Resource identity is canonical, on both sides of every comparison.** Godot
 canonicalizes a ``res://`` path before reporting it, so an entry script invoked as
@@ -71,6 +115,12 @@ The recognized sentences, verbatim from Godot 4.6.3::
     ERROR: Failed loading resource: res://missing.tres.
     ERROR: Script inherits from native type 'Resource', so it can't be assigned to an object of type 'Node2D'.
     ERROR: Cannot set object script. Parameter should be null or a reference to a valid script.
+
+plus the two the engine prints at SHUTDOWN, the second of which is the one
+warning in the set (#844)::
+
+    ERROR: 1 resources still in use at exit (run with --verbose for details).
+    WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
 
 and one record recognized by its FRAME rather than its sentence, because its
 sentence is whatever the project wrote (#722)::
@@ -215,6 +265,33 @@ _CANNOT_OPEN_FILE = re.compile(r"^Cannot open file '(?P<path>[^']*)'")
 # cannot reach this regex.
 _FAILED_LOADING_RESOURCE = re.compile(r"^Failed loading resource: (?P<path>.+)\.$")
 
+# The two records Godot prints at ENGINE SHUTDOWN when the run ended with objects
+# or resources still alive (#844). Both are engine-fixed format strings and
+# neither names a res:// resource, so a diagnostic built from them carries the
+# sentence — the resources count included — and honestly no path.
+#
+# `ERROR: <n> resources still in use at exit[.| (run with --verbose for
+# details).]` — `ResourceCache::clear` (`core/io/resource.cpp`, Godot 4.4 through
+# 4.6.3). The engine writes the sentence two ways, picking the tail on
+# `is_stdout_verbose()`, so the pattern keys on the words before it (both
+# spellings recorded from real runs in tests/script/test_script_error_parser.py).
+_RESOURCES_LEAKED = re.compile(r"^\d+ resources still in use at exit\b")
+
+# `WARNING: ObjectDB instances leaked at exit (run with --verbose for details).` —
+# `ObjectDB::cleanup` (`core/object/object.cpp`, Godot 4.4 through 4.6.3). This
+# one is a WARN_PRINT and carries NO count: the engine names the number only under
+# `--verbose`, in the per-instance lines it prints after it.
+_OBJECTDB_LEAKED = re.compile(r"^ObjectDB instances leaked at exit\b")
+
+# The ``at:`` frame function of GDScript's ``push_warning()`` builtin, the mirror
+# of ``_PUSH_ERROR_FUNCTION`` above (`VariantUtilityFunctions::push_warning` ->
+# `WARN_PRINT`, `core/variant/variant_utility.cpp`). It is what keeps the set's one
+# warning keyed on the ENGINE: a project warning is skipped before any sentence is
+# read, so prose that spells the engine's leak sentence cannot become a leak. The
+# error level needs no such guard — `_push_error` already claims a project-raised
+# record before the sentence patterns see it.
+_PUSH_WARNING_FUNCTION = "push_warning"
+
 
 # WHY the prose below is a comment and not this enum's docstring (#687): a model
 # or enum docstring becomes its schema ``description``, and since the ADR-0004
@@ -223,13 +300,14 @@ _FAILED_LOADING_RESOURCE = re.compile(r"^Failed loading resource: (?P<path>.+)\.
 # that already carry it. The same rule `EnvironmentProbe` states in `gda.models`:
 # rationale lives beside the code, only the contract goes in the schema.
 #
-# A closed, public enum. Every kind except ``RUNTIME_ERROR``, ``PUSH_ERROR`` and
-# ``INCOMPATIBLE_SCRIPT`` reports that the named resource could NOT be loaded or
-# run; ``RUNTIME_ERROR`` reports an error raised by a script that was already
-# executing, ``PUSH_ERROR`` reports an invariant the project itself rejected while
-# running, and ``INCOMPATIBLE_SCRIPT`` reports a binding the engine refused — a
-# compiled script whose base cannot bind its object, or a bound value that is not a
-# Script at all (it names no resource either way).
+# A closed, public enum. Every kind except ``RUNTIME_ERROR``, ``PUSH_ERROR``,
+# ``INCOMPATIBLE_SCRIPT`` and ``SHUTDOWN_LEAK`` reports that the named resource
+# could NOT be loaded or run; ``RUNTIME_ERROR`` reports an error raised by a script
+# that was already executing, ``PUSH_ERROR`` reports an invariant the project itself
+# rejected while running, ``INCOMPATIBLE_SCRIPT`` reports a binding the engine
+# refused — a compiled script whose base cannot bind its object, or a bound value
+# that is not a Script at all (it names no resource either way) — and
+# ``SHUTDOWN_LEAK`` reports what the engine found still alive when it exited.
 #
 # Whether such a failure ended the *run* depends on WHICH resource it names: a load
 # failure naming the entry script means the run never happened, while the same
@@ -270,6 +348,15 @@ class ScriptErrorKind(str, Enum):
     #: (e.g. a ``.tres``), but the engine reports a missing script this way too,
     #: beside its more specific sentence.
     RESOURCE_LOAD_FAILED = "resource_load_failed"
+    #: The engine reported at ENGINE EXIT that the run left objects or resources
+    #: alive: ``ObjectDB instances leaked at exit`` (the closed set's one warning)
+    #: or ``<n> resources still in use at exit``, whose count stays in the message.
+    #: A shutdown record, so like ``RUNTIME_ERROR`` and ``PUSH_ERROR`` it says the
+    #: script RAN — it is printed after the run — and it names no resource, so it
+    #: can never decide an entry verdict. What it reports is the fate of the whole
+    #: PROCESS's objects — an autoload's leak reads like the script's own — which a
+    #: soak or lifecycle gate branches on (#844).
+    SHUTDOWN_LEAK = "shutdown_leak"
     #: A script binding the engine refused at assignment time: a compiled script
     #: whose native base cannot bind the object it was assigned to (e.g. an
     #: ``extends Resource`` script on a ``Node2D``), or a bound value that is not
@@ -300,9 +387,12 @@ class ScriptErrorKind(str, Enum):
 #: 6. ``NOT_A_MAIN_LOOP`` — last because it is only reachable by a script that
 #:    already existed AND compiled; it is a refusal, not a load failure.
 #:
-#: ``RUNTIME_ERROR`` and ``PUSH_ERROR`` are absent by construction: both prove the
-#: script DID run — the first because the engine raised the error inside it, the
-#: second because the project's own code called ``push_error`` from it.
+#: ``RUNTIME_ERROR``, ``PUSH_ERROR`` and ``SHUTDOWN_LEAK`` are absent by
+#: construction: all three prove the script DID run — the first because the engine
+#: raised the error inside it, the second because the project's own code called
+#: ``push_error`` from it, the third because the engine printed it at exit, after
+#: the run. The last also names no resource, so it could not match an entry even if
+#: it were listed here.
 _ENTRY_FAILURE_PRECEDENCE = (
     ScriptErrorKind.SCRIPT_MISSING,
     ScriptErrorKind.COMPILE_FAILED,
@@ -346,11 +436,13 @@ class ScriptError(BaseModel):
 
     kind: ScriptErrorKind = Field(
         description=(
-            "Which known engine failure this line reports. 'runtime_error' and "
-            "'push_error' say the script RAN (the second is the project's own "
-            "push_error(), which it survived); 'incompatible_script' is a binding "
-            "the engine refused and names no path; the rest say the named resource "
-            "could not be loaded or run. Whether the RUN failed depends on whether "
+            "Which known engine failure this line reports. 'runtime_error', "
+            "'push_error' and 'shutdown_leak' say the script RAN (the second is the "
+            "project's own push_error(), which it survived; the third is the "
+            "engine's exit-time leak report, which names no path); "
+            "'incompatible_script' is a binding the engine refused and names no "
+            "path; the rest say the named resource could not be loaded or run. "
+            "Whether the RUN failed depends on whether "
             "'path' is the entry script: a load failure naming something the running "
             "script merely tried to load is not a failed run."
         )
@@ -380,12 +472,13 @@ class ScriptError(BaseModel):
 def script_error_line(error: ScriptError) -> str:
     """``<kind>: <path>:<line>: <message>``, dropping the parts the engine did not give.
 
-    The ONE text form of a recognized script error, so the four places that write
+    The ONE text form of a recognized script error, so the five places that write
     one — ``script run``'s passed-through diagnostics, ``scene preflight``'s startup
     diagnostics, the ``diagnostics`` prose of the two gda-ended ``script run``
-    failures (:mod:`gda.errors`), and the human failure channel's ``evidence`` block
-    — cannot drift into four spellings of the same line. Each site adds only its own
-    indent or prefix.
+    failures (:mod:`gda.errors`), the human failure channel's ``evidence`` block, and
+    the daemon readiness renderers that ``daemon wait-ready`` and ``daemon status``
+    share (#848) — cannot drift into five spellings of the same line. Each site adds
+    only its own indent or prefix.
 
     It lives HERE rather than in :mod:`gda.render` (#687 review). It is a lexical
     projection of a type this module owns, and one of its consumers is
@@ -413,9 +506,9 @@ def parse_script_errors(stderr: str) -> list[ScriptError]:
     """Recognized script errors from an engine stderr capture, in emission order.
 
     Pure and best-effort: an error the engine formats in a way this module does
-    not recognize — and every warning — is skipped rather than guessed at, and
-    malformed input yields ``[]`` instead of raising. Callers keep the verbatim
-    stderr, so nothing is lost by the narrow recognition.
+    not recognize — and every warning except the shutdown leak (#844) — is skipped
+    rather than guessed at, and malformed input yields ``[]`` instead of raising.
+    Callers keep the verbatim stderr, so nothing is lost by the narrow recognition.
     """
     errors: list[ScriptError] = []
     for record in parse_errors(stderr):
@@ -458,6 +551,26 @@ def entry_load_failure(
     return None
 
 
+def leaked_at_exit(errors: Sequence[ScriptError]) -> ScriptError | None:
+    """The first shutdown-leak record in ``errors``, or ``None`` (#844).
+
+    The companion of :func:`entry_load_failure` at the OTHER end of a run: that one
+    answers "did the entry script ever start", this one "did the run end with the
+    engine still holding its objects". Both are a reading of the same parsed list,
+    kept here so the two consumers of this one — ``script run --strict``'s verdict
+    and the message that verdict carries (:mod:`gda.errors`) — cannot disagree about
+    whether a run leaked.
+
+    It returns the RECORD, not a boolean, because the message quotes the engine's
+    own sentence; the first is the one to quote, since the engine prints the ObjectDB
+    record before the resources record and a caller reads them in emission order.
+    """
+    for error in errors:
+        if error.kind is ScriptErrorKind.SHUTDOWN_LEAK:
+            return error
+    return None
+
+
 def _matches(path: str | None, entry: str) -> bool:
     """Does a diagnostic's path name the (already canonical) entry script?"""
     return path is not None and canonical_res_path(path) == entry
@@ -469,10 +582,19 @@ def _classify(record: dict) -> ScriptError | None:
     message = record.get("message") or ""
     if level == "script_error":
         return _script_error(record, message)
+    if level == "warning":
+        # The ONE warning the closed set admits (#844), and the project cannot
+        # spell it: a `push_warning` record is skipped by its FRAME before its
+        # prose is read, which is how the error level protects its own sentences
+        # (`_push_error` claims a project-raised record first). Every other
+        # warning says nothing about a script's fate and is skipped as before.
+        if record.get("function") == _PUSH_WARNING_FUNCTION:
+            return None
+        if _OBJECTDB_LEAKED.match(message) is not None:
+            return ScriptError(kind=ScriptErrorKind.SHUTDOWN_LEAK, message=message)
+        return None
     if level != "error":
-        # Warnings and the other engine levels say nothing about a script's fate.
-        # `push_warning` lands here: the project chose the advisory severity, and
-        # gda does not promote it (#722).
+        # The remaining engine levels say nothing about a script's fate.
         return None
     # Checked BEFORE the sentence patterns, and kept out of :func:`_engine_error`
     # on purpose: this record is recognized by its FRAME, while every sentence
@@ -483,6 +605,12 @@ def _classify(record: dict) -> ScriptError | None:
     push_error = _push_error(record, message)
     if push_error is not None:
         return push_error
+    # The error half of the shutdown pair (#844), checked here rather than in
+    # :func:`_engine_error`: that function reports on a resource the run tried to
+    # LOAD and names it, while this record reports what the engine still held when
+    # it exited and names nothing.
+    if _RESOURCES_LEAKED.match(message) is not None:
+        return ScriptError(kind=ScriptErrorKind.SHUTDOWN_LEAK, message=message)
     return _engine_error(message)
 
 

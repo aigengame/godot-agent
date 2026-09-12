@@ -516,6 +516,17 @@ ERROR: Can't load the script "res://tests/logic.gd" as it doesn't inherit from S
    at: start (main/main.cpp:4286)
 """
 
+# The engine's two exit-time leak records, captured VERBATIM from Godot 4.6.3
+# running a script that leaves a RefCounted cycle and a loaded .tres alive at
+# its quit(0) — the GDA-DF-063 shape (#844). Note the exit status the tests pair
+# it with: the engine exits 0, which is why --strict could not see it.
+SHUTDOWN_LEAK_STDERR = """\
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2663)
+ERROR: 1 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)
+"""
+
 
 def test_missing_entry_script_is_a_failure_despite_the_zero_exit():
     # GDA-DF-032: the engine exits 0 for a script that does not exist. The verdict
@@ -813,6 +824,24 @@ def test_strict_leaves_a_zero_exit_a_success():
     assert outcome.exit_status == 0
 
 
+def test_strict_leaves_a_surviving_runtime_error_a_success():
+    # THE boundary of the #844 widening, which nothing else pins (PR #964 review):
+    # --strict has exactly TWO triggers, and "the engine printed an error" is not
+    # one of them. A runtime error the script SURVIVED is data on a successful
+    # result (ADR-0031, #651) — the case above uses an empty stderr, so it cannot
+    # tell a two-trigger gate from a general "any recognized diagnostic fails"
+    # rule, which would silently invert the decided default for every push_error
+    # run. The leak is the one record that is not about the run's own control flow.
+    outcome, _ = _run(
+        RunResult(stdout="all green\n", stderr=RUNTIME_ERROR_STDERR, exit_code=0),
+        strict=True,
+    )
+
+    assert isinstance(outcome, ScriptRunResult)
+    assert outcome.exit_status == 0
+    assert [d.kind.value for d in outcome.diagnostics] == ["runtime_error"]
+
+
 def test_the_default_still_passes_a_non_zero_exit_through():
     # The contract ADR-0031 recorded is unchanged without --strict: this is the guard
     # that the #651 opt-in did not quietly flip the default.
@@ -820,6 +849,92 @@ def test_the_default_still_passes_a_non_zero_exit_through():
 
     assert isinstance(outcome, ScriptRunResult)
     assert outcome.exit_status == 1
+
+
+def test_strict_fails_a_zero_exit_that_leaked_at_exit():
+    # THE widening (#844): the script chose 0 and the engine then reported the run
+    # leaking, so a status-only gate passed a run the engine says did not clean up.
+    # Under --strict that is the same registered script_failed envelope, and the
+    # message says WHY the gate fired on a zero status by quoting the engine.
+    outcome, _ = _run(
+        RunResult(stdout="all green\n", stderr=SHUTDOWN_LEAK_STDERR, exit_code=0),
+        strict=True,
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "script_failed"
+    assert outcome.exit_code == EXIT_OPERATION
+    assert "status 0" in outcome.error.message
+    # The gda-authored half does not blame the SCRIPT: the engine reports what the
+    # whole process still held, an autoload's objects included (PR #964 review).
+    assert "the engine reported a leak at exit" in outcome.error.message
+    assert "ObjectDB instances leaked at exit" in outcome.error.message
+    # No new evidence field and no new producer: the leak rides the key this
+    # envelope already carries, typed as the records the parser read.
+    evidence = outcome.error.evidence
+    assert evidence is not None
+    assert evidence.exit_status == 0
+    assert evidence.script_errors is not None
+    assert [e.kind.value for e in evidence.script_errors] == [
+        "shutdown_leak",
+        "shutdown_leak",
+    ]
+    assert set(evidence.model_dump(exclude_none=True)) == {
+        "exit_status",
+        "script_errors",
+    }
+
+
+def test_a_leak_without_strict_stays_data_on_the_success_result():
+    # The default is untouched (ADR-0031): a run the script survived is data, so
+    # the leak is a diagnostic on a SUCCESS carrying the script's own zero status.
+    # --strict is what turns that data into a verdict.
+    outcome, _ = _run(
+        RunResult(stdout="all green\n", stderr=SHUTDOWN_LEAK_STDERR, exit_code=0)
+    )
+
+    assert isinstance(outcome, ScriptRunResult)
+    assert outcome.exit_status == 0
+    assert [d.kind.value for d in outcome.diagnostics] == [
+        "shutdown_leak",
+        "shutdown_leak",
+    ]
+
+
+def test_strict_names_the_status_when_a_leaking_run_also_chose_a_non_zero_one():
+    # Both triggers at once. The status is the older and more specific answer — the
+    # script itself said it failed — so it stays the message, and the leak is on the
+    # evidence and in the diagnostics rather than being announced twice.
+    outcome, _ = _run(
+        RunResult(stdout="1 failed\n", stderr=SHUTDOWN_LEAK_STDERR, exit_code=2),
+        strict=True,
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "script_failed"
+    assert "status 2" in outcome.error.message
+    assert "the engine reported a leak at exit" not in outcome.error.message
+    evidence = outcome.error.evidence
+    assert evidence is not None
+    assert evidence.exit_status == 2
+    assert evidence.script_errors is not None
+    assert [e.kind.value for e in evidence.script_errors] == [
+        "shutdown_leak",
+        "shutdown_leak",
+    ]
+
+
+def test_a_run_that_leaked_still_reports_a_never_ran_verdict_first():
+    # Precedence, not a race: a script that never started cannot have leaked
+    # anything of its own, so the entry verdict is decided before the strict rule
+    # is consulted at all — the same guard the non-zero arm has below.
+    outcome, _ = _run(
+        RunResult(stdout="", stderr=MISSING_STDERR + SHUTDOWN_LEAK_STDERR, exit_code=0),
+        strict=True,
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "script_not_found"
 
 
 def test_strict_does_not_shadow_the_never_ran_verdict():
