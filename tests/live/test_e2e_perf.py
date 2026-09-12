@@ -14,7 +14,9 @@ import os
 
 import pytest
 
-from tests.support import Gda
+from gda.commands.perf import PERF_MONITOR_NAMES
+
+from tests.support import Gda, PERF_PACKED_VALUE_BYTES
 
 from tests.conftest import LIVE_MAIN_TSCN, LIVE_PROJECT_GODOT
 
@@ -282,5 +284,89 @@ def test_perf_monitors_window_collects_bounded_stats_and_verdicts(
         snap = json.loads(snapshot.stdout)
         assert snap["kind"] == "snapshot"
         assert "fps" in snap["monitors"]
+    finally:
+        run("daemon", "stop")
+
+
+# The ceiling `perf monitors --frames 600 --summary --json` must stay under
+# (#846). Measured on a real session over ALL 16 monitors (Godot 4.6.3, macOS,
+# 2026-09-12): the compact result is the statistics block plus the mode fields,
+# so its size follows the MONITOR count and not the frame count — 1,667 bytes at
+# 600 frames, against 259,569 for the same window with its rows. The bound is
+# ~4.9x the measured size, headroom for a widened monitor table but far below
+# anything that grows with `--frames`: a result that started carrying per-frame
+# data again fails here.
+SUMMARY_RESULT_BYTE_BOUND = 8192
+
+
+@pytest.mark.e2e
+def test_a_600_frame_summary_window_stays_compact_and_reports_its_own_cost(
+    tmp_path, daemon_runtime_dir
+):
+    # #846's live regression: a real daemon -> engine session -> a 600-frame
+    # window over EVERY monitor, the size that made the dogfooding client
+    # truncate the result. `--summary` returns the same statistics without the
+    # rows, the result stays under a pinned byte bound, and `collector_bytes`
+    # reports what the observer itself retained inside the game — the number a
+    # `static_memory` rise has to be read against.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(LIVE_MAIN_TSCN, encoding="utf-8")
+
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        summary = run("perf", "monitors", "--frames", "600", "--summary")
+        assert summary.returncode == 0, summary.stdout + summary.stderr
+        data = json.loads(summary.stdout)
+
+        # The compact window: every aggregate, no rows, and it says so.
+        assert data["kind"] == "window"
+        assert data["frames"] == 600
+        assert data["samples"] is None
+        assert data["samples_omitted"] is True
+        assert set(data["stats"]) == set(PERF_MONITOR_NAMES)
+        assert all(stats["count"] == 600 for stats in data["stats"].values())
+        assert data["budget"] is None and data["passed"] is None
+
+        # The observer's own footprint, as the real harness computed it: one
+        # packed column per monitor plus one of timestamps, 8 bytes per value.
+        assert data["collector_bytes"] == (
+            600 * (len(PERF_MONITOR_NAMES) + 1) * PERF_PACKED_VALUE_BYTES
+        )
+
+        # The bound the PR states: the result no longer grows with --frames.
+        size = len(summary.stdout.encode("utf-8"))
+        assert size <= SUMMARY_RESULT_BYTE_BOUND, size
+
+        # The default is unchanged, and is what the bound exists to contrast
+        # with: the same window WITH its rows is far larger and carries them.
+        full = run("perf", "monitors", "--frames", "600")
+        assert full.returncode == 0, full.stdout + full.stderr
+        rows = json.loads(full.stdout)
+        assert rows["samples_omitted"] is False
+        assert len(rows["samples"]) == 600
+        assert [row["frame"] for row in rows["samples"]] == list(range(600))
+        assert set(rows["samples"][0]["values"]) == set(PERF_MONITOR_NAMES)
+        # The timestamp column is the engine's clock, not a constant: only a
+        # real session can show that, because every unit fake is CLI-side.
+        assert rows["samples"][-1]["timestamp"] > rows["samples"][0]["timestamp"]
+        assert rows["collector_bytes"] == data["collector_bytes"]
+        assert len(full.stdout.encode("utf-8")) > SUMMARY_RESULT_BYTE_BOUND
+
+        # The shared window base is untouched: the sibling op that runs on it
+        # still collects its own per-frame timeline over the same session.
+        timeline = run(
+            "perf",
+            "monitor",
+            "/root/Main/Player",
+            "--property",
+            "position",
+            "--frames",
+            "5",
+        )
+        assert timeline.returncode == 0, timeline.stdout + timeline.stderr
+        assert len(json.loads(timeline.stdout)["samples"]) == 5
     finally:
         run("daemon", "stop")

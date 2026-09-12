@@ -20,10 +20,12 @@ from tests.support import (
     PERF_MONITOR_PROPERTY_RESULT,
     PERF_MONITOR_SIGNAL_RESULT,
     PERF_MONITORS_RESULT,
+    PERF_PACKED_VALUE_BYTES,
     PERF_SAMPLE_REPLY,
     assert_no_pydantic_dump,
     error_sentinel,
     inject_live_runner,
+    perf_sample_reply,
     perf_sample_reply_all_monitors,
     plain_text,
     sentinel,
@@ -881,22 +883,25 @@ def test_perf_monitors_window_malformed_reply_is_a_contract_violation(
 ):
     # The wire reply's SELF-consistency is validated (the #732 lesson): a
     # drifted harness must classify as contract_violation, never produce
-    # statistics over partial or disordered data.
+    # statistics over partial data.
+    columns = PERF_SAMPLE_REPLY["values"]
     malformed = [
         {**PERF_SAMPLE_REPLY, "kind": "wrong"},
         {**PERF_SAMPLE_REPLY, "frames": 4},
+        # A timestamp column that does not span the declared window.
+        {**PERF_SAMPLE_REPLY, "timestamps": PERF_SAMPLE_REPLY["timestamps"][:4]},
+        # A value column short of one frame (#846: the packed twin of the
+        # partial-row arm this replaced).
         {
             **PERF_SAMPLE_REPLY,
-            "samples": PERF_SAMPLE_REPLY["samples"][:4]
-            + [{"frame": 4, "timestamp": 164, "values": {"fps": 60.0}}],
+            "values": {**columns, "fps": columns["fps"][:4]},
         },
-        # The right rows in the wrong order (#735 review).
-        {
-            **PERF_SAMPLE_REPLY,
-            "samples": [PERF_SAMPLE_REPLY["samples"][0]] * 5,
-        },
+        # Columns that are not the declared monitors.
+        {**PERF_SAMPLE_REPLY, "values": {"fps": columns["fps"]}},
         # A duplicated monitor declaration (#735 review).
         {**PERF_SAMPLE_REPLY, "monitors": ["fps", "fps"]},
+        # No disclosure of what the observer retained.
+        {k: v for k, v in PERF_SAMPLE_REPLY.items() if k != "collector_bytes"},
     ]
     for payload in malformed:
         inject_live_runner(
@@ -945,6 +950,393 @@ def test_perf_monitors_window_with_no_daemon_reports_daemon_not_running(
     assert json.loads(result.stdout)["error"]["code"] == "daemon_not_running"
 
 
+# --- perf monitors --frames: the packed window, --summary, collector_bytes (#846) ---
+
+
+# ONE window in the shape the harness returned BEFORE #846: a Dictionary per
+# frame, carrying its own frame index, its timestamp, and a name->value map. The
+# values are chosen to be discriminating rather than captured from a session (see
+# RECORDED_AGGREGATES). It is INPUT to nothing — the CLI does not decode this
+# shape any more, and a reply in it is contract drift (ADR-0018's 2026-09-08
+# current-harness note; the arm below pins that) — it is kept here as the
+# auditable SOURCE of the aggregates pinned beside it.
+RECORDED_DICTIONARY_WINDOW = {
+    "kind": "sample",
+    "frames": 20,
+    "monitors": ["fps", "static_memory"],
+    "samples": [
+        {
+            "frame": 0,
+            "timestamp": 100,
+            "values": {"fps": 59.5, "static_memory": 1048576.0},
+        },
+        {
+            "frame": 1,
+            "timestamp": 116,
+            "values": {"fps": 61.25, "static_memory": 1051136.0},
+        },
+        {
+            "frame": 2,
+            "timestamp": 132,
+            "values": {"fps": 58.0, "static_memory": 1053696.0},
+        },
+        {
+            "frame": 3,
+            "timestamp": 148,
+            "values": {"fps": 60.75, "static_memory": 1054720.0},
+        },
+        {
+            "frame": 4,
+            "timestamp": 164,
+            "values": {"fps": 57.5, "static_memory": 1057280.0},
+        },
+        {
+            "frame": 5,
+            "timestamp": 180,
+            "values": {"fps": 62.0, "static_memory": 1059840.0},
+        },
+        {
+            "frame": 6,
+            "timestamp": 196,
+            "values": {"fps": 60.0, "static_memory": 1060864.0},
+        },
+        {
+            "frame": 7,
+            "timestamp": 212,
+            "values": {"fps": 59.0, "static_memory": 1063424.0},
+        },
+        {
+            "frame": 8,
+            "timestamp": 228,
+            "values": {"fps": 63.5, "static_memory": 1065984.0},
+        },
+        {
+            "frame": 9,
+            "timestamp": 244,
+            "values": {"fps": 58.25, "static_memory": 1067008.0},
+        },
+        {
+            "frame": 10,
+            "timestamp": 260,
+            "values": {"fps": 61.0, "static_memory": 1069568.0},
+        },
+        {
+            "frame": 11,
+            "timestamp": 276,
+            "values": {"fps": 60.5, "static_memory": 1072128.0},
+        },
+        {
+            "frame": 12,
+            "timestamp": 292,
+            "values": {"fps": 56.75, "static_memory": 1073152.0},
+        },
+        {
+            "frame": 13,
+            "timestamp": 308,
+            "values": {"fps": 64.0, "static_memory": 1075712.0},
+        },
+        {
+            "frame": 14,
+            "timestamp": 324,
+            "values": {"fps": 59.75, "static_memory": 1078272.0},
+        },
+        {
+            "frame": 15,
+            "timestamp": 340,
+            "values": {"fps": 62.5, "static_memory": 1079296.0},
+        },
+        {
+            "frame": 16,
+            "timestamp": 356,
+            "values": {"fps": 57.0, "static_memory": 1081856.0},
+        },
+        {
+            "frame": 17,
+            "timestamp": 372,
+            "values": {"fps": 61.75, "static_memory": 1084416.0},
+        },
+        {
+            "frame": 18,
+            "timestamp": 388,
+            "values": {"fps": 60.25, "static_memory": 1085440.0},
+        },
+        {
+            "frame": 19,
+            "timestamp": 404,
+            "values": {"fps": 58.5, "static_memory": 1088000.0},
+        },
+    ],
+}
+
+# What the CLI's aggregation produced over that window, recorded by running the
+# PRE-#846 aggregation (`_stats_over` over the dictionary rows, at b7c485693)
+# and pinned here as literals. Discriminating on purpose: the means are not
+# sampled values (60.0875, 1068518.4), p50 is not the mean, and p95 is the
+# second-largest rather than the max — so a projection that lost, reordered, or
+# truncated a column could not reproduce them by accident.
+RECORDED_AGGREGATES = {
+    "fps": {
+        "count": 20,
+        "min": 56.75,
+        "max": 64.0,
+        "mean": 60.0875,
+        "p50": 60.0,
+        "p95": 63.5,
+    },
+    "static_memory": {
+        "count": 20,
+        "min": 1048576.0,
+        "max": 1088000.0,
+        "mean": 1068518.4,
+        "p50": 1067008.0,
+        "p95": 1085440.0,
+    },
+}
+
+
+def _packed_recording() -> dict:
+    """``RECORDED_DICTIONARY_WINDOW``'s values, in the PACKED wire shape (#846)."""
+    rows = RECORDED_DICTIONARY_WINDOW["samples"]
+    return perf_sample_reply(
+        [row["timestamp"] for row in rows],
+        {
+            name: [row["values"][name] for row in rows]
+            for name in RECORDED_DICTIONARY_WINDOW["monitors"]
+        },
+    )
+
+
+def _recorded_window(monkeypatch, tmp_path, *args):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(_packed_recording()), stderr="", exit_code=0),
+    )
+    return _window(
+        tmp_path,
+        "--frames",
+        "20",
+        "--monitor",
+        "fps",
+        "--monitor",
+        "static_memory",
+        *args,
+    )
+
+
+def test_the_packed_aggregation_equals_the_recorded_dictionary_aggregates(
+    monkeypatch, tmp_path
+):
+    # #846 AC2. The window's storage changed shape; its STATISTICS must not.
+    # Two live windows are never equal, so the equality is proven on a recording:
+    # the aggregates above were produced by the pre-#846 aggregation over the
+    # dictionary-shaped rows, and the CLI now reaches them from the packed
+    # columns carrying the same values. The old shape is not fed to the CLI —
+    # it is not a supported input (see the arm below).
+    result = _recorded_window(monkeypatch, tmp_path)
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["stats"] == RECORDED_AGGREGATES
+
+
+def test_the_previous_dictionary_reply_shape_is_contract_drift(monkeypatch, tmp_path):
+    # The CLI targets the harness bundled with it (ADR-0018's 2026-09-08
+    # current-harness note): a mixed-version session is not a compatibility
+    # target, so the reply shape #846 replaced is refused rather than decoded.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(RECORDED_DICTIONARY_WINDOW), stderr="", exit_code=0),
+    )
+
+    result = _window(
+        tmp_path, "--frames", "20", "--monitor", "fps", "--monitor", "static_memory"
+    )
+
+    assert json.loads(result.stdout)["error"]["code"] == "contract_violation", (
+        result.stdout
+    )
+
+
+def test_the_rebuilt_rows_carry_the_recorded_window_frame_by_frame(
+    monkeypatch, tmp_path
+):
+    # The packed columns are the storage; the per-frame rows are a projection of
+    # them. Without --summary the projection is published, and it must be the
+    # recorded window row for row — the frame index positional, the timestamp
+    # from its own column, every selected monitor's value at that index.
+    result = _recorded_window(monkeypatch, tmp_path)
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["samples"] == RECORDED_DICTIONARY_WINDOW["samples"]
+
+
+def test_a_window_reports_what_the_observer_retained(monkeypatch, tmp_path):
+    # The observer discloses its own footprint (#846): 8 bytes per stored value,
+    # over one column per sampled monitor plus one of timestamps. 20 frames x
+    # (2 monitors + 1 timestamp column) x 8 = 480 bytes.
+    result = _recorded_window(monkeypatch, tmp_path)
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["collector_bytes"] == 20 * 3 * PERF_PACKED_VALUE_BYTES == 480
+    # It is the HARNESS's number, relayed — not one the CLI recomputes from the
+    # request — so a harness reporting a different retention is believed.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel({**_packed_recording(), "collector_bytes": 4096}),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    relayed = _window(
+        tmp_path, "--frames", "20", "--monitor", "fps", "--monitor", "static_memory"
+    )
+    assert json.loads(relayed.stdout)["collector_bytes"] == 4096
+
+
+def test_a_snapshot_reports_no_retention_at_all(monkeypatch, tmp_path):
+    # A snapshot reads one frame and keeps nothing, so both window-only
+    # disclosures are null rather than a zero nobody measured.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(PERF_MONITORS_RESULT), stderr="", exit_code=0),
+    )
+
+    result = _window(tmp_path)
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["kind"] == "snapshot"
+    assert data["collector_bytes"] is None
+    assert data["samples_omitted"] is None
+
+
+def test_summary_omits_the_rows_and_keeps_every_other_window_field(
+    monkeypatch, tmp_path
+):
+    # #846 AC1. --summary changes ONE thing: the per-frame rows are left out.
+    # The window is still sampled in full, so the statistics are the recorded
+    # ones and the retained bytes are unchanged.
+    with_rows = _recorded_window(monkeypatch, tmp_path)
+    summarized = _recorded_window(monkeypatch, tmp_path, "--summary")
+
+    assert summarized.exit_code == 0, summarized.stdout + summarized.stderr
+    compact = json.loads(summarized.stdout)
+    full = json.loads(with_rows.stdout)
+    assert compact["samples"] is None
+    assert compact["samples_omitted"] is True
+    assert full["samples_omitted"] is False
+    assert compact["stats"] == RECORDED_AGGREGATES
+    assert compact["collector_bytes"] == full["collector_bytes"]
+    assert {k: v for k, v in compact.items() if k != "samples"} == {
+        **{k: v for k, v in full.items() if k != "samples"},
+        "samples_omitted": True,
+    }
+    # And the point of the flag: the compact envelope does not grow with frames.
+    assert len(summarized.stdout) < len(with_rows.stdout)
+
+
+def test_summary_keeps_the_budget_verdicts(monkeypatch, tmp_path):
+    # The budget gates the window's statistics, which --summary does not touch,
+    # so the verdicts and the overall `passed` travel with the compact form too.
+    budget = tmp_path / "summary-budget.json"
+    budget.write_text(
+        json.dumps(
+            {
+                "fps": {"stat": "p50", "min": 60.0},
+                "static_memory": {"stat": "max", "max": 1000.0},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = _recorded_window(
+        monkeypatch, tmp_path, "--summary", "--budget", str(budget)
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["samples"] is None and data["samples_omitted"] is True
+    assert data["budget"]["fps"]["passed"] is True
+    assert data["budget"]["static_memory"]["passed"] is False
+    assert data["passed"] is False
+
+
+def test_summary_requires_frames(monkeypatch, tmp_path):
+    # Like --monitor and --budget: a compaction with no window to compact is
+    # refused BY NAME rather than silently ignored. The rule lives on the params
+    # model, so the argv path refuses it as usage and --params-json reaches the
+    # same verdict structurally.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
+    )
+
+    argv = _window(tmp_path, "--summary")
+    params_json = CliRunner().invoke(
+        app,
+        [
+            "perf",
+            "monitors",
+            "--params-json",
+            '{"summary": true}',
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert argv.exit_code == 2, argv.stdout + argv.stderr
+    assert "summary" in plain_text(argv.stderr)
+    assert json.loads(params_json.stdout)["error"]["code"] == "invalid_params"
+    assert "summary" in json.loads(params_json.stdout)["error"]["message"]
+    assert fake.calls == []
+
+
+def test_summary_sends_the_harness_the_same_request(monkeypatch, tmp_path):
+    # --summary is a RESULT projection, not a sampling mode: the harness still
+    # collects and returns the whole window, so the wire request is unchanged
+    # and the compaction happens CLI-side.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(PERF_SAMPLE_REPLY), stderr="", exit_code=0),
+    )
+
+    result = _window(
+        tmp_path,
+        "--frames",
+        "5",
+        "--monitor",
+        "fps",
+        "--monitor",
+        "draw_calls",
+        "--summary",
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert fake.calls == [
+        ("perf-sample", {"frames": 5, "monitors": ["fps", "draw_calls"]})
+    ]
+
+
+def test_perf_monitors_help_states_the_observer_cost_and_summary():
+    # The help must say that a long window allocates INSIDE the game and how to
+    # read the disclosure against static_memory (#846's help requirement).
+    result = CliRunner().invoke(app, ["perf", "monitors", "--help"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    flat = re.sub(r"\s+", " ", plain_text(result.stdout))
+    assert "--summary" in flat
+    assert "samples_omitted" in flat
+    assert "collector_bytes" in flat
+    assert "static_memory" in flat
+    # And it must say what that number is NOT: a lower bound, read by order of
+    # magnitude, so the help does not point a caller at a false game leak
+    # (round 1 measured the observer's own rise at about 1.4x the figure).
+    assert "LOWER bound" in flat
+    assert "ORDER OF MAGNITUDE" in flat
+
+
 def test_perf_monitors_schema_and_models_reach_the_same_verdict():
     # The #735 recheck's hard finding: the published contracts must not be
     # wider than the runtime ABI (ADR-0015 input / ADR-0004 output — gda-mcp
@@ -987,7 +1379,10 @@ def test_perf_monitors_schema_and_models_reach_the_same_verdict():
             }
         },
         "samples": [{"frame": 0, "timestamp": 100, "values": {"fps": 60.0}}],
+        "samples_omitted": False,
+        "collector_bytes": 16,
     }
+    summarized = {**window, "samples": None, "samples_omitted": True}
     input_corpus = [
         {},  # the bare snapshot request
         {"frames": 5},
@@ -1009,6 +1404,15 @@ def test_perf_monitors_schema_and_models_reach_the_same_verdict():
         {"frames": 0},
         {"frames": -1},
         {"frames": 601},
+        # #846: 'summary' compacts a WINDOW, so it needs one to compact — and a
+        # default-valued summary with no window is still just a snapshot request.
+        {"frames": 5, "summary": True},
+        {"summary": True},
+        {"summary": False},
+        # The lax-coercion pair, the shape recheck 2 caught on `frames`: the
+        # published contract says boolean, so the ABI must not admit these.
+        {"frames": 5, "summary": "yes"},
+        {"frames": 5, "summary": 1},
     ]
     output_corpus = [
         snapshot,
@@ -1020,6 +1424,21 @@ def test_perf_monitors_schema_and_models_reach_the_same_verdict():
         {**window, "timestamp": 12345},
         # A window whose budget travels without its overall verdict.
         {**window, "budget": {}, "passed": None},
+        # #846: both window forms, and the two ways to claim only one of them.
+        summarized,
+        {**window, "samples": None},
+        {**summarized, "samples": window["samples"]},
+        # A window that discloses neither what it kept nor what it retained.
+        {k: v for k, v in window.items() if k != "samples_omitted"},
+        {k: v for k, v in window.items() if k != "collector_bytes"},
+        # A snapshot cannot borrow the window-only disclosures — either of
+        # them: the schema pins both to null, and round 1 showed the pair was
+        # only half covered here.
+        {**snapshot, "collector_bytes": 16},
+        {**snapshot, "samples_omitted": False},
+        # A published `minimum: 0` that no instance exercises: a negative
+        # retention figure is not a fact any window can report.
+        {**window, "collector_bytes": -1},
     ]
     for instance in input_corpus:
         assert schema_ok(doc["input"], instance) == model_ok(
@@ -1041,3 +1460,16 @@ def test_perf_monitors_schema_and_models_reach_the_same_verdict():
     assert not schema_ok(doc["input"], {"frames": 601})
     assert not schema_ok(doc["output"], {"kind": "snapshot"})
     assert not schema_ok(doc["output"], {**snapshot, "stats": window["stats"]})
+    # #846: the window branch admits BOTH forms, and neither half-claim.
+    assert schema_ok(doc["output"], summarized)
+    assert not schema_ok(doc["output"], {**window, "samples": None})
+    assert not schema_ok(doc["output"], {**summarized, "samples": window["samples"]})
+    assert not schema_ok(doc["input"], {"summary": True})
+    assert not model_ok(PerfMonitorsParams, {"frames": 5, "summary": "yes"})
+    assert not model_ok(PerfMonitorsParams, {"frames": 5, "summary": 1})
+    # #846, round 1: `collector_bytes`' published `minimum: 0` is derived from
+    # the model's `ge=0`, so dropping the bound moves BOTH halves together and
+    # parity alone stays silent. The published fact needs its own one-sided
+    # assertion, the same reason recheck 3's range keywords have one.
+    assert not schema_ok(doc["output"], {**window, "collector_bytes": -1})
+    assert not model_ok(PerfMonitorsResult, {**window, "collector_bytes": -1})

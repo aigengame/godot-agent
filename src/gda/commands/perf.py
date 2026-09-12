@@ -18,8 +18,9 @@ the engine's ``Performance`` counters in one frame; with ``--frames N`` it
 samples the selected monitors once per frame over a bounded window, and the
 CLI computes aggregate statistics plus — with a budget file — per-monitor
 pass/fail verdicts. That window mode runs as a CLI-side recipe (ADR-0023, the
-``screen`` pattern): the harness returns only the raw timestamped samples, and
-the numeric semantics stay unit-testable without an engine. ``perf monitor``
+``screen`` pattern): the harness returns only the sampled window — packed
+column-wise, with the bytes it retained for it (#846) — and the numeric
+semantics stay unit-testable without an engine. ``perf monitor``
 collects a per-frame property/signal timeline for ONE NODE over N frames (the
 time-windowed multi-frame harness base, ADR-0020).
 """
@@ -305,6 +306,16 @@ _PERF_MONITORS_MODE_SCHEMA: dict[str, Any] = {
                 "properties": {"frames": {"type": "integer"}},
             },
         },
+        {
+            "if": {
+                "required": ["summary"],
+                "properties": {"summary": {"const": True}},
+            },
+            "then": {
+                "required": ["frames"],
+                "properties": {"frames": {"type": "integer"}},
+            },
+        },
     ]
 }
 
@@ -320,11 +331,11 @@ class PerfMonitorsParams(RelayedLiveParams):
     returns the raw timestamped samples; the CLI computes the aggregate
     statistics and, when ``budget`` is supplied, the per-monitor pass/fail
     verdicts. An empty ``monitors`` selection samples ALL monitors;
-    ``monitors`` and ``budget`` require ``frames`` (refused by name otherwise —
-    a silently inert selection would be worse; the rule is also PUBLISHED as
-    schema conditionals, so a client validating against ``--schema`` reaches
-    the same verdict). Monitor names and the ``frames`` bound are enforced
-    model-side (ADR-0015).
+    ``monitors``, ``summary`` and ``budget`` require ``frames`` (refused by
+    name otherwise — a silently inert selection would be worse; the rule is
+    also PUBLISHED as schema conditionals, so a client validating against
+    ``--schema`` reaches the same verdict). Monitor names and the ``frames``
+    bound are enforced model-side (ADR-0015).
     """
 
     model_config = ConfigDict(json_schema_extra=_PERF_MONITORS_MODE_SCHEMA)
@@ -335,6 +346,25 @@ class PerfMonitorsParams(RelayedLiveParams):
         description=(
             "The performance monitors to sample (repeatable; window mode only); "
             f"empty samples ALL monitors. Known names: {', '.join(PERF_MONITOR_NAMES)}."
+        ),
+    )
+    summary: bool = Field(
+        default=False,
+        # STRICT, like PerfBudget's bounds: pydantic's lax bool would admit
+        # "yes" and 1, which the published `{"type": "boolean"}` refuses. The
+        # ABI --params-json accepts must not be wider than the contract
+        # --schema publishes (ADR-0015, the #735 recheck-2 finding for
+        # `frames`), and the parity corpus in tests/live/test_perf_commands.py
+        # is what catches a drift.
+        strict=True,
+        description=(
+            "Return the COMPACT window result (#846; the spelling and meaning "
+            "'screen frames --summary' has): the window is still sampled in "
+            "full and the statistics, the budget verdicts and 'collector_bytes' "
+            "are unchanged, but the per-frame 'samples' rows are left out "
+            "('samples': null, 'samples_omitted': true) — so the result does "
+            "not grow with the frame count. Window mode only. Default false "
+            "returns the rows."
         ),
     )
     budget: Optional[NormalizedPath] = Field(
@@ -359,6 +389,11 @@ class PerfMonitorsParams(RelayedLiveParams):
         if self.frames is None and self.budget is not None:
             raise ValueError(
                 "'budget' gates a WINDOW's statistics; pass 'frames' to open one."
+            )
+        if self.frames is None and self.summary:
+            raise ValueError(
+                "'summary' compacts a WINDOW's result; pass 'frames' to open "
+                "one (a snapshot carries no per-frame rows to omit)."
             )
         # An unknown name is refused by the PerfMonitorName enum itself (one
         # schema-derived authority), so no name check is repeated here.
@@ -505,12 +540,22 @@ _PERF_MONITORS_RESULT_MODE_SCHEMA: dict[str, Any] = {
                 "max_frames": {"type": "null"},
                 "stats": {"type": "null"},
                 "samples": {"type": "null"},
+                "samples_omitted": {"type": "null"},
+                "collector_bytes": {"type": "null"},
                 "budget": {"type": "null"},
                 "passed": {"type": "null"},
             },
         },
         {
-            "required": ["kind", "frames", "max_frames", "stats", "samples"],
+            "required": [
+                "kind",
+                "frames",
+                "max_frames",
+                "stats",
+                "samples",
+                "samples_omitted",
+                "collector_bytes",
+            ],
             "properties": {
                 "kind": {"const": "window"},
                 "timestamp": {"type": "null"},
@@ -518,7 +563,9 @@ _PERF_MONITORS_RESULT_MODE_SCHEMA: dict[str, Any] = {
                 "frames": {"type": "integer"},
                 "max_frames": {"type": "integer"},
                 "stats": {"type": "object"},
-                "samples": {"type": "array"},
+                "samples": {"type": ["array", "null"]},
+                "samples_omitted": {"type": "boolean"},
+                "collector_bytes": {"type": "integer"},
             },
             "allOf": [
                 {
@@ -541,6 +588,20 @@ _PERF_MONITORS_RESULT_MODE_SCHEMA: dict[str, Any] = {
                         "properties": {"budget": {"type": "object"}},
                     },
                 },
+                {
+                    "if": {
+                        "required": ["samples_omitted"],
+                        "properties": {"samples_omitted": {"const": True}},
+                    },
+                    "then": {"properties": {"samples": {"type": "null"}}},
+                },
+                {
+                    "if": {
+                        "required": ["samples_omitted"],
+                        "properties": {"samples_omitted": {"const": False}},
+                    },
+                    "then": {"properties": {"samples": {"type": "array"}}},
+                },
             ],
         },
     ]
@@ -554,12 +615,19 @@ class PerfMonitorsResult(BaseModel):
     ``timestamp`` + ``monitors`` — the original one-frame shape, values mutually
     coherent. A ``window`` carries ``frames`` (sampled), ``max_frames`` (the
     per-window ceiling the bound inherits), ``stats`` (aggregates per monitor),
-    ``samples`` (the raw timestamped rows the aggregates were computed from),
-    and — with a budget — ``budget`` verdicts plus the overall ``passed``. Each
-    mode's field set is VALIDATED, not merely described — a payload mixing the
-    modes fails output validation rather than passing through — and the same
-    split is PUBLISHED as schema, so a client checking ``--schema`` (or the
-    gda-mcp wire schema derived from it) reaches the verdict the runtime does.
+    ``samples`` (the timestamped rows the window was sampled over),
+    ``samples_omitted`` and ``collector_bytes`` (#846), and — with a budget —
+    ``budget`` verdicts plus the overall ``passed``. ``--summary`` sets
+    ``samples_omitted`` and drops the rows, leaving every other window field
+    describing the same full window; ``collector_bytes`` reports the logical
+    size of what the harness's sampler retained for it — a lower bound on the
+    observer's own footprint, so a ``static_memory`` rise is attributable by
+    order of magnitude rather than read as a game leak. Each mode's field set is
+    VALIDATED, not merely described — a payload mixing the modes, or one
+    dropping the rows without saying so, fails output validation rather than
+    passing through — and the same split is PUBLISHED as schema, so a client
+    checking ``--schema`` (or the gda-mcp wire schema derived from it) reaches
+    the verdict the runtime does.
     """
 
     model_config = ConfigDict(json_schema_extra=_PERF_MONITORS_RESULT_MODE_SCHEMA)
@@ -602,7 +670,35 @@ class PerfMonitorsResult(BaseModel):
     )
     samples: list[PerfSampleFrame] | None = Field(
         default=None,
-        description=("The raw timestamped per-frame samples; null in snapshot mode."),
+        description=(
+            "The raw timestamped per-frame samples; null in snapshot mode, and "
+            "null in window mode with --summary, which omits the rows without "
+            "shortening the window (see samples_omitted)."
+        ),
+    )
+    samples_omitted: bool | None = Field(
+        default=None,
+        description=(
+            "Whether --summary left the per-frame rows out of THIS result "
+            "(#846); null in snapshot mode. True means the window was sampled "
+            "in full and only the rows are absent, so 'stats', 'budget' and "
+            "'collector_bytes' describe every frame; 'samples' is then null."
+        ),
+    )
+    collector_bytes: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "The LOGICAL size of what the gda harness's sampler retained for "
+            "this window (#846): 8 bytes per stored value, over one packed "
+            "column per sampled monitor plus one packed column of timestamps. "
+            "It is a LOWER bound on the in-game cost — a packed column "
+            "over-allocates as it grows, and the shared window base's own "
+            "per-frame accumulator is outside it. Null in snapshot mode, which "
+            "retains nothing. Read the window's own 'static_memory' rise "
+            "against it by order of magnitude: a few times this number is "
+            "still the observer, an order of magnitude past it is the game."
+        ),
     )
     budget: dict[str, PerfBudgetVerdict] | None = Field(
         default=None,
@@ -624,18 +720,32 @@ class PerfMonitorsResult(BaseModel):
     @model_validator(mode="after")
     def _mode_fields(self) -> "PerfMonitorsResult":
         snapshot_fields = (self.timestamp, self.monitors)
-        window_fields = (self.frames, self.max_frames, self.stats, self.samples)
+        window_fields = (
+            self.frames,
+            self.max_frames,
+            self.stats,
+            self.samples_omitted,
+            self.collector_bytes,
+        )
         if self.kind == "snapshot":
             if any(field is None for field in snapshot_fields):
                 raise ValueError("a snapshot carries 'timestamp' and 'monitors'.")
             if any(field is not None for field in window_fields) or (
-                self.budget is not None or self.passed is not None
+                self.samples is not None
+                or self.budget is not None
+                or self.passed is not None
             ):
                 raise ValueError("a snapshot carries no window fields.")
         else:
             if any(field is None for field in window_fields):
                 raise ValueError(
-                    "a window carries 'frames', 'max_frames', 'stats', and 'samples'."
+                    "a window carries 'frames', 'max_frames', 'stats', "
+                    "'samples_omitted', and 'collector_bytes'."
+                )
+            if (self.samples is None) != self.samples_omitted:
+                raise ValueError(
+                    "a window carries its per-frame 'samples' rows unless "
+                    "'samples_omitted' is true, which is the only way they are absent."
                 )
             if any(field is not None for field in snapshot_fields):
                 raise ValueError("a window carries no snapshot fields.")
@@ -670,37 +780,51 @@ class _SnapshotReply(BaseModel):
 
 
 class _SampleReply(BaseModel):
-    """The wire shape ``perf-sample`` returns: the raw samples, pre-statistics.
+    """The wire shape ``perf-sample`` returns: the PACKED window, pre-statistics.
 
     Not the public result — the recipe assembles :class:`PerfMonitorsResult`
-    CLI-side. The reply's SELF-consistency is validated here (the #732 lesson):
-    the declared window length matches the rows, the rows are exactly frames
-    0..N-1 in order, the declared monitors are unique, and every row carries
-    exactly them — so a drifted harness classifies as ``contract_violation``
-    instead of producing statistics over partial data. Correlation with the
-    REQUEST (the frame count and selection actually asked for) is the recipe's
-    check, since only it holds the params.
+    CLI-side, rebuilding the per-frame rows from the columns when they are
+    asked for. The window arrives COLUMN-wise (#846): one value column per
+    monitor plus one column of timestamps, all of length ``frames``, with the
+    frame index positional (entry *i* is frame *i*) rather than transmitted.
+    ``collector_bytes`` is what the harness's sampler retained for it.
+
+    The dictionary-per-frame shape this replaced is NOT accepted here and is not
+    decoded anywhere: live commands target the harness bundled with the running
+    gda (ADR-0018's 2026-09-08 note), so an old reply is contract drift, and it
+    fails validation as one.
+
+    The reply's SELF-consistency is validated here (the #732 lesson): the
+    declared window length matches the timestamp column, the declared monitors
+    are unique, the value columns are exactly those monitors, and every column
+    is one value per frame — so a drifted harness classifies as
+    ``contract_violation`` instead of producing statistics over partial data.
+    Correlation with the REQUEST (the frame count and selection actually asked
+    for) is the recipe's check, since only it holds the params.
     """
 
     kind: Literal["sample"]
     frames: int = Field(ge=1)
     monitors: list[str] = Field(min_length=1)
-    samples: list[PerfSampleFrame]
+    timestamps: list[int]
+    values: dict[str, list[float]]
+    collector_bytes: int = Field(ge=0)
 
     @model_validator(mode="after")
     def _coherent(self) -> "_SampleReply":
-        if self.frames != len(self.samples):
-            raise ValueError("frames must equal the number of sample rows.")
-        if [sample.frame for sample in self.samples] != list(range(self.frames)):
-            raise ValueError("sample rows must be exactly frames 0..N-1, in order.")
+        if self.frames != len(self.timestamps):
+            raise ValueError("frames must equal the number of timestamps.")
         if len(set(self.monitors)) != len(self.monitors):
             raise ValueError("the declared monitors must be unique.")
-        declared = set(self.monitors)
-        for sample in self.samples:
-            if set(sample.values) != declared:
-                raise ValueError(
-                    "every sample row carries exactly the declared monitors."
-                )
+        if set(self.values) != set(self.monitors):
+            raise ValueError("the value columns must be exactly the declared monitors.")
+        short = sorted(
+            name for name, column in self.values.items() if len(column) != self.frames
+        )
+        if short:
+            raise ValueError(
+                f"every monitor's column carries one value per frame; {short} did not."
+            )
         return self
 
 
@@ -913,10 +1037,24 @@ def run_perf_monitors_operation(
             f"selecting {expected}.",
             "",
         )
-    stats = {
-        name: _stats_over([sample.values[name] for sample in reply.samples])
-        for name in reply.monitors
-    }
+    # One aggregation over the reply's columns — the shape the values are already
+    # stored in, so the statistics never need the per-frame rows built (#846).
+    stats = {name: _stats_over(reply.values[name]) for name in reply.monitors}
+    # The rows, on the other hand, are a PROJECTION of those columns, rebuilt
+    # only when the caller wants them: --summary keeps the whole window sampled
+    # and leaves them out, so the result stops growing with the frame count.
+    samples = (
+        None
+        if params.summary
+        else [
+            PerfSampleFrame(
+                frame=index,
+                timestamp=reply.timestamps[index],
+                values={name: reply.values[name][index] for name in reply.monitors},
+            )
+            for index in range(reply.frames)
+        ]
+    )
     budget_verdicts: dict[str, PerfBudgetVerdict] | None = None
     passed: bool | None = None
     if budgets is not None:
@@ -926,7 +1064,9 @@ def run_perf_monitors_operation(
         frames=reply.frames,
         max_frames=MAX_WINDOW_FRAMES,
         stats=stats,
-        samples=reply.samples,
+        samples=samples,
+        samples_omitted=params.summary,
+        collector_bytes=reply.collector_bytes,
         budget=budget_verdicts,
         passed=passed,
     )
@@ -943,7 +1083,9 @@ def render_perf_monitors(outcome: "PerfMonitorsResult") -> str:
 
     Snapshot mode (#223): a flat list of the running game's monitors, sorted by
     name, headed by the snapshot timestamp. Window mode (#662): one statistics
-    line per monitor, plus the budget verdicts when a budget was supplied.
+    line per monitor, plus the budget verdicts when a budget was supplied. The
+    window header also states what the observer itself retained and whether the
+    per-frame rows were omitted (#846).
     """
     if outcome.kind == "snapshot":
         assert outcome.monitors is not None  # the mode validator guarantees it
@@ -954,9 +1096,11 @@ def render_perf_monitors(outcome: "PerfMonitorsResult") -> str:
         ]
         return "\n".join([header, *lines])
     assert outcome.stats is not None  # the mode validator guarantees it
+    rows = "samples omitted" if outcome.samples_omitted else "samples kept"
     header = (
         f"perf window: {outcome.frames} frames, {len(outcome.stats)} monitors "
-        f"(ceiling {outcome.max_frames})"
+        f"(ceiling {outcome.max_frames}, collector ~{outcome.collector_bytes} "
+        f"bytes, {rows})"
     )
     lines = [
         f"  {name}: mean {format_value(stats.mean)}, p50 {format_value(stats.p50)}, "
@@ -1056,6 +1200,16 @@ def perf_monitors(
             "dispatch."
         ),
     ),
+    summary: bool = typer.Option(
+        False,
+        "--summary",
+        help=(
+            "Return the compact window result (window mode only): the window "
+            "is still sampled in full, but the per-frame samples are left out "
+            "(`samples: null`, `samples_omitted: true`), so the result does "
+            "not grow with --frames."
+        ),
+    ),
     budget: Optional[str] = typer.Option(
         None,
         "--budget",
@@ -1083,8 +1237,22 @@ def perf_monitors(
     per-window ceiling stated above) and the CLI computes count, min, max,
     mean, p50, and p95 per monitor (percentiles are nearest-rank), plus — with
     `--budget` — a per-monitor pass/fail verdict and an overall `passed`.
-    `--monitor` and `--budget` require `--frames`. Live ops need a running
-    daemon: with none, it reports `daemon_not_running`.
+    `--monitor`, `--summary` and `--budget` require `--frames`. Live ops need a
+    running daemon: with none, it reports `daemon_not_running`.
+
+    A long window ALLOCATES on the engine side: the gda harness keeps the whole
+    window, so every frame you ask for costs memory inside the game you are
+    measuring. `collector_bytes` states the LOGICAL size of what the sampler
+    kept — 8 bytes per stored value, over one column per sampled monitor plus
+    one of timestamps. That is a LOWER bound on the in-game cost, not the whole
+    of it: a packed column over-allocates as it grows, and the shared window
+    base accumulates one entry per frame that this number does not count. So
+    read a window's own `static_memory` rise against it by ORDER OF MAGNITUDE,
+    not as an equality — a rise of a few times `collector_bytes` is still the
+    observer, a rise an order of magnitude past it is the game. `--summary`
+    does not change that number; it keeps the full window and only leaves the
+    per-frame rows out of the RESULT (`samples: null`, `samples_omitted:
+    true`), which is what keeps a 600-frame window's output small.
 
     A value the engine reports crosses the wire at full binary64 precision — the
     reply is serialized with Godot's full-precision JSON writer, so a small or
@@ -1099,7 +1267,11 @@ def perf_monitors(
     negative-zero residual does not apply, so a -0.0 stays -0.0 (#752).
     """
     params = params_or_bad_parameter(
-        PerfMonitorsParams, frames=frames, monitors=monitors, budget=budget
+        PerfMonitorsParams,
+        frames=frames,
+        monitors=monitors,
+        summary=summary,
+        budget=budget,
     )
     dispatch_recipe(
         PERF_MONITORS_COMMAND,

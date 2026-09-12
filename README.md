@@ -508,7 +508,7 @@ gda restores the explicit lines it drops and reports the rest on the result.
 
 | Command | What it does |
 | ------- | ------------ |
-| `perf monitors` | Snapshot the engine's counters — or, with `--frames`, sample a window with statistics and budget verdicts. |
+| `perf monitors` | Snapshot the engine's counters — or, with `--frames`, sample a window with statistics and budget verdicts (`--summary` omits the per-frame samples). |
 | `perf monitor` | Sample a node property or signal over a frame window (timeline). |
 
 **`input`** — input simulation

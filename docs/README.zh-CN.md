@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=8c2f2dce0229e2a816eb45186888fd06c25af9cabfaf1b84f18cd1a254163f00 -->
+<!-- gda-readme-i18n: source=README.md sha256=162391ef0203b4ce659bc367ccda6731673a27594f6356d8eb9774aa80020f1f -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -499,7 +499,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `perf monitors` | 对引擎计数器拍快照——或配合 `--frames` 在一个帧窗口内采样，输出聚合统计与预算判定。 |
+| `perf monitors` | 对引擎计数器拍快照——或配合 `--frames` 在一个帧窗口内采样，输出聚合统计与预算判定（`--summary` 省略逐帧采样数据）。 |
 | `perf monitor` | 在一个帧窗口内对某个节点属性或信号采样（时间线）。 |
 
 **`input`** — 输入模拟
