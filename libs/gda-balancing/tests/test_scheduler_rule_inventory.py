@@ -74,9 +74,7 @@ def test_all_twelve_vectors_have_complete_scoped_references(witness):
     reasons = [
         gap.reason for gap in inventory.uncovered if gap.pointer == "/vector_sets"
     ]
-    assert reasons == [
-        "remaining vector families: operation-execution, source-or-rule-or-reason"
-    ]
+    assert reasons == ["remaining vector families: source-or-rule-or-reason"]
     assert inventory.uncovered  # Source Model vectors and other owners remain open.
 
 
