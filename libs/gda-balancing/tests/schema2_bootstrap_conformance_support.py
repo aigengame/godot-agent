@@ -20,6 +20,9 @@ from copy import deepcopy
 from collections.abc import Mapping, Sequence
 
 
+from dataclasses import dataclass
+
+
 from functools import cache
 
 
@@ -40,7 +43,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:6d15879e283ef18eabc20fb52a929484ce314e3ef9085e7db3882c7f3e551442"
+    "sha256:12ae7cecaca8f06d1dbdef0ae3ad276ab9d13624d34f2f165830a0c845feb1e6"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
@@ -2252,87 +2255,48 @@ def _consumer_b_path_is_declared(root: Any, dotted: Any) -> bool:
     return walk(root, dotted.split("."))
 
 
-def _consumer_b_profiled_equality_values(
+def _consumer_b_source_equality_values(
     authorities: dict[str, Any], contract: dict[str, Any]
 ) -> list[Any] | None:
-    profile_contract = contract.get("profile")
     template = contract.get("right_template")
-    expected_profile_members = {
-        "owner_profile_member",
-        "owners",
-        "profile_key_member",
-        "profiles",
-    }
-    if (
-        not isinstance(profile_contract, dict)
-        or set(profile_contract) != expected_profile_members
-        or not isinstance(template, list)
-        or not template
-    ):
+    if not isinstance(template, list) or not template:
         return None
-    owners_path = profile_contract.get("owners")
-    profiles_path = profile_contract.get("profiles")
-    owner_member = profile_contract.get("owner_profile_member")
-    key_member = profile_contract.get("profile_key_member")
-    if (
-        not _consumer_b_path_is_declared(authorities, owners_path)
-        or not _consumer_b_path_is_declared(authorities, profiles_path)
-        or not isinstance(owner_member, str)
-        or not owner_member
-        or not isinstance(key_member, str)
-        or not key_member
-    ):
-        return None
-    owners = _project(authorities, owners_path)
-    profiles = _project(authorities, profiles_path)
-    profile_index: dict[Any, dict[str, Any]] = {}
-    for profile in profiles:
-        if (
-            not isinstance(profile, dict)
-            or key_member not in profile
-            or profile[key_member] in profile_index
+    values: list[Any] = [authorities]
+    for raw_segment in template:
+        semantic_member: str | None = None
+        if isinstance(raw_segment, str) and raw_segment:
+            segment = raw_segment
+        elif (
+            isinstance(raw_segment, dict)
+            and set(raw_segment) == {"source_member"}
+            and isinstance(raw_segment["source_member"], str)
+            and raw_segment["source_member"]
         ):
+            semantic_member = raw_segment["source_member"]
+            segment = ""
+        else:
             return None
-        profile_index[profile[key_member]] = profile
-    selected: list[dict[str, Any]] = []
-    for owner in owners:
-        if not isinstance(owner, dict) or owner.get(owner_member) not in profile_index:
+        next_values: list[Any] = []
+        for value in values:
+            for candidate in value if isinstance(value, list) else [value]:
+                if semantic_member is not None and isinstance(candidate, dict):
+                    selected = [
+                        child
+                        for child in candidate.values()
+                        if isinstance(child, dict)
+                        and child.get(_SOURCE_MEMBER_KEY) == semantic_member
+                    ]
+                    if len(selected) > 1:
+                        return None
+                    next_values.extend(selected)
+                    continue
+                if isinstance(candidate, dict) and segment in candidate:
+                    child = candidate[segment]
+                    next_values.extend(child if isinstance(child, list) else [child])
+        if not next_values:
             return None
-        profile = profile_index[owner[owner_member]]
-        if profile not in selected:
-            selected.append(profile)
-    if not selected:
-        return None
-
-    projected: list[Any] = []
-    for profile in selected:
-        values: list[Any] = [authorities]
-        for raw_segment in template:
-            if isinstance(raw_segment, str) and raw_segment:
-                segment = raw_segment
-            elif (
-                isinstance(raw_segment, dict)
-                and set(raw_segment) == {"profile_member"}
-                and isinstance(raw_segment["profile_member"], str)
-                and isinstance(profile.get(raw_segment["profile_member"]), str)
-                and profile[raw_segment["profile_member"]]
-            ):
-                segment = profile[raw_segment["profile_member"]]
-            else:
-                return None
-            next_values: list[Any] = []
-            for value in values:
-                for candidate in value if isinstance(value, list) else [value]:
-                    if isinstance(candidate, dict) and segment in candidate:
-                        child = candidate[segment]
-                        next_values.extend(
-                            child if isinstance(child, list) else [child]
-                        )
-            if not next_values:
-                return None
-            values = next_values
-        projected.extend(values)
-    return projected
+        values = next_values
+    return values
 
 
 def _consumer_b_exact_path(root: Any, dotted: Any) -> tuple[bool, Any]:
@@ -2475,13 +2439,11 @@ def _consumer_b_formula_resolution_contract_is_supported(value: Any) -> bool:
         == [
             {
                 "node": "formula-call",
-                "member": "formula",
-                "coordinate_members": ["module", "id"],
+                "role": "formula-coordinate",
             },
             {
                 "node": "operation-call",
-                "member": "operation",
-                "coordinate_members": ["package", "id"],
+                "role": "operation-coordinate",
             },
         ]
         and value["inference_operators"]
@@ -2546,126 +2508,10 @@ def _consumer_b_formula_resolution_is_closed(
     if not _consumer_b_formula_resolution_contract_is_supported(contract):
         return False
     contract = cast(dict[str, Any], contract)
-
-    def field(
-        schema: Any, key: str, kind: str | None = None, *, optional: bool = False
-    ) -> Any:
-        result = _consumer_b_schema_path(schema, [key])
-        if result is None or (not optional and key not in schema.get("required", [])):
-            raise ValueError("missing Formula selector")
-        if kind is not None and _consumer_b_kind(result, schema=True) != kind:
-            raise ValueError("wrong Formula selector type")
-        return result
-
-    def choices(schema: Any, key: str) -> dict[str, Any]:
-        rows = schema["oneOf"]
-        selected: dict[str, Any] = {}
-        for row in rows:
-            tag = field(row, key)["const"]
-            if tag in selected:
-                raise ValueError("duplicate Formula alternative")
-            selected[tag] = row
-        return selected
-
     try:
-        source_rows = [
-            row
-            for row in ldb["language"]["wire_schemas"]
-            if row.get("protocol_role") == contract["source_protocol_role"]
-        ]
-        if len(source_rows) != 1:
-            return False
-        source = source_rows[0]["schema"]
         runtime = meta["runtime_program"]
         for profile in ldb["language"]["resolution_profiles"]:
             formula = profile["formula_resolution"]
-            field(source, profile["entrypoints_member"], "array")
-            field(source, profile["schema_version_member"], "string")
-            module = field(source, profile["modules_member"], "array")["items"]
-            declaration = field(
-                module, formula["module_formulas_member"], "array", optional=True
-            )["items"]
-            for parent, selector in (
-                (declaration, "formula_id_member"),
-                (
-                    field(declaration, formula["formula_parameters_member"], "array")[
-                        "items"
-                    ],
-                    "parameter_id_member",
-                ),
-            ):
-                field(parent, formula[selector], "string")
-            field(declaration, formula["formula_result_member"])
-            body_forms = field(declaration, formula["formula_body_member"])["oneOf"]
-            if len(body_forms) != 2:
-                return False
-            body = None
-            inline = None
-            for form in body_forms:
-                if form.get("type") == "object":
-                    if body is not None:
-                        return False
-                    body = form
-                elif "oneOf" in form:
-                    if inline is not None:
-                        return False
-                    inline = form
-                else:
-                    return False
-            if body is None or inline is None:
-                return False
-            inline_forms = choices(inline, "node")
-            parameter_kind, _parameter_reference = _consumer_b_inline_parameter_operand(
-                meta
-            )
-            normalizations = formula["inline_body_normalizations"]
-            if len(normalizations) != 1 or set(inline_forms) != {parameter_kind}:
-                return False
-            for normalization in normalizations:
-                if (
-                    set(normalization) != {"parameter_member"}
-                    or normalization["parameter_member"] == "node"
-                    or set(inline_forms[parameter_kind]["properties"])
-                    != {"node", normalization["parameter_member"]}
-                ):
-                    return False
-                field(
-                    inline_forms[parameter_kind],
-                    normalization["parameter_member"],
-                    "string",
-                )
-            instructions = choices(
-                field(body, formula["body_nodes_member"], "array")["items"], "node"
-            )
-            if set(instructions) != set(contract["body_nodes"]) or set(
-                choices(field(body, formula["body_result_member"]), "kind")
-            ) != set(contract["operand_kinds"]):
-                return False
-            for instruction in instructions.values():
-                field(instruction, formula["node_id_member"], "string")
-            for call in contract["static_callees"]:
-                coordinate = field(instructions[call["node"]], call["member"], "object")
-                if set(coordinate["properties"]) != set(call["coordinate_members"]):
-                    return False
-                for name in call["coordinate_members"]:
-                    field(coordinate, name, "string")
-            binding = field(source, formula["bindings_member"], "array", optional=True)[
-                "items"
-            ]
-            if set(
-                choices(field(binding, formula["binding_site_member"]), "kind")
-            ) != set(contract["binding_sites"]):
-                return False
-            binding_coordinate = field(
-                binding, formula["binding_formula_member"], "object"
-            )
-            for key in contract["static_callees"][0]["coordinate_members"]:
-                field(binding_coordinate, key, "string")
-            actual = field(binding, formula["binding_arguments_member"], "array")[
-                "items"
-            ]
-            field(actual, formula["binding_parameter_member"], "string")
-            field(actual, formula["binding_operand_member"])
             aliases: set[str] = set()
             for row in formula["fixed_value_type_aliases"]:
                 if (
@@ -2754,7 +2600,8 @@ def _consumer_b_formula_resolution_is_closed(
 def _consumer_b_source_notation_contract_is_supported(value: Any) -> bool:
     return (
         isinstance(value, dict)
-        and set(value) == {"role", "required_members", "operation_source"}
+        and set(value)
+        == {"role", "required_members", "operation_source", "semantic_roles"}
         and value["role"] == "model-source-package"
         and value["required_members"]
         == ["formula_grammar", "operation_notation_schema"]
@@ -2764,7 +2611,540 @@ def _consumer_b_source_notation_contract_is_supported(value: Any) -> bool:
             isinstance(member, str) and member
             for member in value["operation_source"].values()
         )
+        and isinstance(value["semantic_roles"], dict)
     )
+
+
+_SOURCE_ROLE_KEY = "semantic_role"
+_SOURCE_MEMBER_KEY = "semantic_member"
+
+
+@dataclass(frozen=True)
+class _ConsumerBSourceProjection:
+    value: dict[str, Any]
+    authored_paths: dict[str, str]
+    authored_source: dict[str, Any]
+
+
+def _consumer_b_source_definition(
+    language_bundle: Mapping[str, Any], protocol_role: str
+) -> dict[str, Any]:
+    language = language_bundle.get("language")
+    rows = language.get("wire_schemas") if isinstance(language, Mapping) else None
+    selected = [
+        row
+        for row in rows or []
+        if isinstance(row, dict) and row.get("protocol_role") == protocol_role
+    ]
+    if len(selected) != 1:
+        raise ValueError("independent Source schema is not unique")
+    return selected[0]
+
+
+def _consumer_b_source_role_contract(
+    kernel: Mapping[str, Any],
+) -> dict[str, Any]:
+    try:
+        contract = kernel["meta_format"]["language_definitions"][
+            "wire_schema_protocol_roles"
+        ]["source_notation"]["semantic_roles"]
+    except (KeyError, TypeError) as error:
+        raise ValueError("independent Source role contract is absent") from error
+    if not isinstance(contract, dict):
+        raise ValueError("independent Source role contract is malformed")
+    return contract
+
+
+def _consumer_b_schema_entry_roles(schema: Any) -> set[str]:
+    if not isinstance(schema, dict):
+        return set()
+    role = schema.get(_SOURCE_ROLE_KEY)
+    if isinstance(role, str):
+        return {role}
+    return {
+        role
+        for branch in schema.get("oneOf", [])
+        for role in _consumer_b_schema_entry_roles(branch)
+    }
+
+
+def _consumer_b_role_properties(schema: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = [schema]
+    rows.extend(
+        branch
+        for branch in schema.get("oneOf", [])
+        if isinstance(branch, dict) and _SOURCE_ROLE_KEY not in branch
+    )
+    return [
+        properties
+        for row in rows
+        if isinstance((properties := row.get("properties")), dict)
+    ]
+
+
+def _consumer_b_source_role_member_paths(
+    schema: dict[str, Any], role: str, member: str
+) -> set[tuple[str, ...]]:
+    found: set[tuple[str, ...]] = set()
+
+    def visit(
+        candidate: Any,
+        path: tuple[str, ...],
+        inherited: str | None = None,
+    ) -> None:
+        if not isinstance(candidate, dict):
+            return
+        explicit = candidate.get(_SOURCE_ROLE_KEY)
+        current = explicit if isinstance(explicit, str) else inherited
+        if explicit == role:
+            for properties in _consumer_b_role_properties(candidate):
+                for authored, child in properties.items():
+                    if (
+                        isinstance(child, dict)
+                        and child.get(_SOURCE_MEMBER_KEY) == member
+                    ):
+                        found.add((*path, authored))
+        for authored, child in candidate.get("properties", {}).items():
+            visit(child, (*path, authored))
+        if "items" in candidate:
+            visit(candidate["items"], path)
+        for branch in candidate.get("oneOf", []):
+            visit(branch, path, current)
+
+    visit(schema, ())
+    return found
+
+
+def _consumer_b_semantic_property_schemas(
+    schema: dict[str, Any], member: str
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    for properties in _consumer_b_role_properties(schema):
+        for child in properties.values():
+            if (
+                isinstance(child, dict)
+                and child.get(_SOURCE_MEMBER_KEY) == member
+                and child not in selected
+            ):
+                selected.append(child)
+    return selected
+
+
+def _consumer_b_source_roles_are_closed(
+    ldb: Mapping[str, Any], meta: Mapping[str, Any]
+) -> bool:
+    try:
+        notation = meta["language_definitions"]["wire_schema_protocol_roles"][
+            "source_notation"
+        ]
+        contract = notation["semantic_roles"]
+        if not isinstance(contract, dict) or set(contract) != {
+            "children",
+            "roles",
+            "root",
+        }:
+            return False
+        roles = contract["roles"]
+        children = contract["children"]
+        root = contract["root"]
+        if (
+            not isinstance(roles, dict)
+            or not isinstance(children, dict)
+            or not isinstance(root, str)
+            or root not in roles
+        ):
+            return False
+        for role, declaration in roles.items():
+            if (
+                not isinstance(role, str)
+                or not role
+                or not isinstance(declaration, dict)
+            ):
+                return False
+            allowed = {"members", "discriminator", "native_members"}
+            members = declaration.get("members")
+            if (
+                not set(declaration) <= allowed
+                or not isinstance(members, list)
+                or not members
+                or len(members) != len(set(members))
+                or not all(isinstance(member, str) and member for member in members)
+            ):
+                return False
+            discriminator = declaration.get("discriminator")
+            if discriminator is not None and (
+                not isinstance(discriminator, dict)
+                or len(discriminator) != 1
+                or not set(discriminator) <= set(members)
+                or not all(
+                    isinstance(value, str) and value for value in discriminator.values()
+                )
+            ):
+                return False
+            native = declaration.get("native_members")
+            if native is not None and (
+                not isinstance(native, dict)
+                or not set(native) <= set(members)
+                or not all(
+                    value
+                    in {
+                        "boolean-domain",
+                        "canonical-value",
+                        "closed-interval",
+                        "typed-literal",
+                    }
+                    for value in native.values()
+                )
+            ):
+                return False
+        if any(
+            not isinstance(parent, str)
+            or parent not in roles
+            or not isinstance(relations, dict)
+            or not set(relations) <= set(roles[parent]["members"])
+            for parent, relations in children.items()
+        ):
+            return False
+        source = _consumer_b_source_definition(ldb, notation["role"])["schema"]
+        if not isinstance(source, dict) or source.get(_SOURCE_ROLE_KEY) != root:
+            return False
+
+        anchors: dict[str, list[dict[str, Any]]] = {}
+        malformed = False
+
+        def visit(
+            value: Any, *, inherited: str | None = None, property_: bool = False
+        ) -> None:
+            nonlocal malformed
+            if malformed or not isinstance(value, dict):
+                return
+            explicit = value.get(_SOURCE_ROLE_KEY)
+            if _SOURCE_MEMBER_KEY in value and not property_:
+                malformed = True
+                return
+            if explicit is not None:
+                if (
+                    not isinstance(explicit, str)
+                    or explicit not in roles
+                    or explicit == inherited
+                ):
+                    malformed = True
+                    return
+                anchors.setdefault(explicit, []).append(value)
+            role = explicit if isinstance(explicit, str) else inherited
+            if explicit is not None:
+                observed: dict[str, set[str]] = {}
+                for properties in _consumer_b_role_properties(value):
+                    for authored, child in properties.items():
+                        member = (
+                            child.get(_SOURCE_MEMBER_KEY)
+                            if isinstance(child, dict)
+                            else None
+                        )
+                        if not isinstance(member, str) or not member:
+                            malformed = True
+                            return
+                        observed.setdefault(member, set()).add(authored)
+                if set(observed) != set(roles[explicit]["members"]) or any(
+                    len(names) != 1 for names in observed.values()
+                ):
+                    malformed = True
+                    return
+                discriminator = roles[explicit].get("discriminator")
+                if discriminator is not None:
+                    member, expected = next(iter(discriminator.items()))
+                    fields = _consumer_b_semantic_property_schemas(value, member)
+                    if not fields or any(
+                        field.get("const") != expected for field in fields
+                    ):
+                        malformed = True
+                        return
+            for child in value.get("properties", {}).values():
+                visit(child, property_=True)
+            if "items" in value:
+                visit(value["items"])
+            for branch in value.get("oneOf", []):
+                visit(branch, inherited=role)
+
+        visit(source)
+        if malformed or set(anchors) != set(roles):
+            return False
+
+        formula_contract = meta["formula_resolution"]
+
+        for parent, relations in children.items():
+            for member, relation in relations.items():
+                property_schemas = [
+                    child
+                    for anchor in anchors[parent]
+                    for child in _consumer_b_semantic_property_schemas(anchor, member)
+                ]
+                if not property_schemas:
+                    return False
+                candidates = property_schemas
+                descriptor = relation
+                if isinstance(descriptor, dict) and set(descriptor) == {"items"}:
+                    descriptor = descriptor["items"]
+                    candidates = [
+                        child.get("items")
+                        for child in property_schemas
+                        if isinstance(child.get("items"), dict)
+                    ]
+                if isinstance(descriptor, list):
+                    expected = set(descriptor)
+                elif isinstance(descriptor, dict) and set(descriptor) == {"family"}:
+                    family = descriptor["family"]
+                    if not isinstance(family, str) or family not in formula_contract:
+                        return False
+                    observed = {
+                        role
+                        for candidate in candidates
+                        for role in _consumer_b_schema_entry_roles(candidate)
+                    }
+                    family_values = {
+                        next(iter(roles[role]["discriminator"].values()))
+                        for role in observed
+                        if isinstance(roles[role].get("discriminator"), dict)
+                    }
+                    if family_values != set(formula_contract[family]):
+                        return False
+                    expected = observed
+                elif isinstance(descriptor, dict) and set(descriptor) == {"callee"}:
+                    callee = descriptor["callee"]
+                    calls = [
+                        row
+                        for row in formula_contract["static_callees"]
+                        if row["node"] == callee
+                    ]
+                    if len(calls) != 1:
+                        return False
+                    expected = {calls[0]["role"]}
+                else:
+                    return False
+                observed = {
+                    role
+                    for candidate in candidates
+                    for role in _consumer_b_schema_entry_roles(candidate)
+                }
+                if not expected or observed != expected or not expected <= set(roles):
+                    return False
+        return True
+    except (KeyError, TypeError, ValueError, StopIteration):
+        return False
+
+
+def _consumer_b_effective_source_schema(
+    schema: dict[str, Any], value: Any
+) -> dict[str, Any]:
+    selected = [
+        branch
+        for branch in schema.get("oneOf", [])
+        if isinstance(branch, dict)
+        and jsonschema.Draft202012Validator(branch).is_valid(value)
+    ]
+    if "oneOf" not in schema:
+        return schema
+    if len(selected) != 1:
+        raise ValueError("independent Source role alternative is ambiguous")
+    branch = _consumer_b_effective_source_schema(selected[0], value)
+    result = {key: child for key, child in schema.items() if key != "oneOf"}
+    for key, child in branch.items():
+        if key == "properties":
+            result[key] = {**result.get(key, {}), **child}
+        elif key == "required":
+            result[key] = list(dict.fromkeys([*result.get(key, []), *child]))
+        else:
+            result[key] = child
+    return result
+
+
+def _consumer_b_pointer(parts: tuple[object, ...]) -> str:
+    return "".join(
+        "/" + str(part).replace("~", "~0").replace("/", "~1") for part in parts
+    )
+
+
+def _consumer_b_project_source_value(
+    value: Any,
+    schema: dict[str, Any],
+    canonical_path: tuple[object, ...],
+    authored_path: tuple[object, ...],
+    authored_paths: dict[str, str],
+) -> Any:
+    schema = _consumer_b_effective_source_schema(schema, value)
+    authored_paths[_consumer_b_pointer(canonical_path)] = _consumer_b_pointer(
+        authored_path
+    )
+    role = schema.get(_SOURCE_ROLE_KEY)
+    if isinstance(role, str):
+        if not isinstance(value, dict):
+            raise ValueError("independent Source role value is not an object")
+        properties = schema.get("properties")
+        if not isinstance(properties, dict):
+            raise ValueError("independent Source role has no properties")
+        projected: dict[str, Any] = {}
+        for authored_member, child in value.items():
+            child_schema = properties.get(authored_member)
+            if not isinstance(child_schema, dict):
+                raise ValueError("independent Source member has no schema")
+            canonical_member = child_schema.get(_SOURCE_MEMBER_KEY)
+            if not isinstance(canonical_member, str) or canonical_member in projected:
+                raise ValueError("independent Source member role is ambiguous")
+            projected[canonical_member] = _consumer_b_project_source_value(
+                child,
+                child_schema,
+                (*canonical_path, canonical_member),
+                (*authored_path, authored_member),
+                authored_paths,
+            )
+        return projected
+    if isinstance(value, list):
+        item_schema = schema.get("items")
+        if not isinstance(item_schema, dict):
+            raise ValueError("independent Source array has no item schema")
+        return [
+            _consumer_b_project_source_value(
+                child,
+                item_schema,
+                (*canonical_path, index),
+                (*authored_path, index),
+                authored_paths,
+            )
+            for index, child in enumerate(value)
+        ]
+    if isinstance(value, dict):
+        properties = schema.get("properties")
+        if not isinstance(properties, dict):
+            result = deepcopy(value)
+            for member, child in value.items():
+                _consumer_b_record_native_paths(
+                    child,
+                    (*canonical_path, member),
+                    (*authored_path, member),
+                    authored_paths,
+                )
+            return result
+        return {
+            member: _consumer_b_project_source_value(
+                child,
+                cast(dict[str, Any], properties[member]),
+                (*canonical_path, member),
+                (*authored_path, member),
+                authored_paths,
+            )
+            for member, child in value.items()
+        }
+    return deepcopy(value)
+
+
+def _consumer_b_record_native_paths(
+    value: Any,
+    canonical_path: tuple[object, ...],
+    authored_path: tuple[object, ...],
+    authored_paths: dict[str, str],
+) -> None:
+    authored_paths[_consumer_b_pointer(canonical_path)] = _consumer_b_pointer(
+        authored_path
+    )
+    if isinstance(value, dict):
+        for member, child in value.items():
+            _consumer_b_record_native_paths(
+                child,
+                (*canonical_path, member),
+                (*authored_path, member),
+                authored_paths,
+            )
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            _consumer_b_record_native_paths(
+                child,
+                (*canonical_path, index),
+                (*authored_path, index),
+                authored_paths,
+            )
+
+
+def _consumer_b_project_source(
+    source: dict[str, Any],
+    kernel: Mapping[str, Any],
+    language_bundle: Mapping[str, Any],
+) -> _ConsumerBSourceProjection:
+    contract = _consumer_b_source_role_contract(kernel)
+    notation = kernel["meta_format"]["language_definitions"][
+        "wire_schema_protocol_roles"
+    ]["source_notation"]
+    definition = _consumer_b_source_definition(language_bundle, notation["role"])
+    schema = definition["schema"]
+    jsonschema.Draft202012Validator(schema).validate(source)
+    paths: dict[str, str] = {}
+    value = _consumer_b_project_source_value(source, schema, (), (), paths)
+    if not isinstance(value, dict) or schema.get(_SOURCE_ROLE_KEY) != contract["root"]:
+        raise ValueError("independent Source root role is malformed")
+    return _ConsumerBSourceProjection(value, paths, source)
+
+
+def _consumer_b_project_source_role(
+    value: dict[str, Any],
+    role: str,
+    kernel: Mapping[str, Any],
+    language_bundle: Mapping[str, Any],
+    *,
+    omitted_members: set[str] | None = None,
+) -> _ConsumerBSourceProjection:
+    contract = _consumer_b_source_role_contract(kernel)
+    if role not in contract["roles"]:
+        raise ValueError("independent Source role is unknown")
+    notation = kernel["meta_format"]["language_definitions"][
+        "wire_schema_protocol_roles"
+    ]["source_notation"]
+    schema = _consumer_b_source_definition(language_bundle, notation["role"])["schema"]
+    anchors: list[dict[str, Any]] = []
+
+    def collect(candidate: Any) -> None:
+        if not isinstance(candidate, dict):
+            return
+        if candidate.get(_SOURCE_ROLE_KEY) == role:
+            anchors.append(candidate)
+        for child in candidate.get("properties", {}).values():
+            collect(child)
+        if "items" in candidate:
+            collect(candidate["items"])
+        for branch in candidate.get("oneOf", []):
+            collect(branch)
+
+    collect(schema)
+    candidates: list[_ConsumerBSourceProjection] = []
+    for anchor in anchors:
+        properties = anchor.get("properties")
+        required = anchor.get("required", [])
+        if not isinstance(properties, dict) or not isinstance(required, list):
+            continue
+        permitted = omitted_members or set()
+        required_present = {
+            authored
+            for authored in required
+            if not (
+                isinstance(properties.get(authored), dict)
+                and properties[authored].get(_SOURCE_MEMBER_KEY) in permitted
+            )
+        }
+        if (
+            not required_present <= set(value)
+            or not set(value) <= set(properties)
+            or any(
+                not jsonschema.Draft202012Validator(properties[member]).is_valid(child)
+                for member, child in value.items()
+            )
+        ):
+            continue
+        paths: dict[str, str] = {}
+        projected = _consumer_b_project_source_value(value, anchor, (), (), paths)
+        if isinstance(projected, dict):
+            candidates.append(_ConsumerBSourceProjection(projected, paths, value))
+    identities = {_encoded(candidate.value) for candidate in candidates}
+    if not candidates or len(identities) != 1:
+        raise ValueError("independent Source role projection is ambiguous")
+    return candidates[0]
 
 
 def _consumer_b_source_notation_is_closed(ldb: dict[str, Any], contract: Any) -> bool:
@@ -3700,11 +4080,19 @@ def _consumer_b_rir_schema(
             )
         else:
             callee = callees[kind]
-            keys = callee["coordinate_members"]
+            semantic_roles = protocols["source_notation"]["semantic_roles"]
+            keys = semantic_roles["roles"][callee["role"]]["members"]
+            members = [
+                member
+                for member, relation in semantic_roles["children"][kind].items()
+                if relation == {"callee": kind}
+            ]
+            if len(members) != 1:
+                raise ValueError("Formula callee role is ambiguous")
             reference = obj(
                 {**{key: text for key in keys}, "identity": text}, [*keys, "identity"]
             )
-            fields[callee["member"]] = reference
+            fields[members[0]] = reference
             argument_key = "parameter" if kind == "formula-call" else "port"
             fields["arguments"] = array(
                 obj({argument_key: text, "operand": formula_operand})
@@ -4606,15 +4994,21 @@ def _consumer_b_resolution_contract_is_closed(value: Any) -> bool:
             not isinstance(item, dict)
             or set(item)
             != {
-                "profile_member",
                 "recipe",
                 "subject_kind",
                 "subject",
                 "projection",
+                "source_role",
+                "source_member",
             }
             or not all(
                 isinstance(item.get(member), str) and item[member]
-                for member in ("profile_member", "recipe", "subject")
+                for member in (
+                    "recipe",
+                    "subject",
+                    "source_role",
+                    "source_member",
+                )
             )
             or item.get("subject_kind") not in {"field-binding-source", "field-term"}
             or item.get("projection") not in {"dot-path", "last-segment"}
@@ -4622,9 +5016,11 @@ def _consumer_b_resolution_contract_is_closed(value: Any) -> bool:
         )
         or len(
             {
-                item["profile_member"]
+                (item["source_role"], item["source_member"])
                 for item in routing_equivalences
-                if isinstance(item, dict) and "profile_member" in item
+                if isinstance(item, dict)
+                and "source_role" in item
+                and "source_member" in item
             }
         )
         != len(routing_equivalences)
@@ -5049,12 +5445,19 @@ def _consumer_b_relation_paths_are_typed(
             candidates = fields
         if len(candidates) != 1 or not candidates[0]["path"]:
             return False
-        expected = (
+        selected_path = (
             ".".join(candidates[0]["path"])
             if equivalence["projection"] == "dot-path"
             else candidates[0]["path"][-1]
         )
-        if profile.get(equivalence["profile_member"]) != expected:
+        role_paths = _consumer_b_source_role_member_paths(
+            source[0], equivalence["source_role"], equivalence["source_member"]
+        )
+        expected = {
+            ".".join(path) if equivalence["projection"] == "dot-path" else path[-1]
+            for path in role_paths
+        }
+        if len(expected) != 1 or selected_path not in expected:
             return False
     if schema_addresses is not None:
         schema_addresses.update(derived_addresses)
@@ -6609,7 +7012,7 @@ def _consumer_b_source_fact_transport_is_supported(value: Any) -> bool:
     return value == {
         "unadapted_members": "copy-name-and-value",
         "adapters": [
-            "profile-symbol-name",
+            "semantic-symbol-name",
             "resolved-symbol-identity",
             "imported-type-identity",
             "nominal-export-kind",
@@ -6664,6 +7067,8 @@ def _consumer_b_language_definitions_are_closed(
     if not _consumer_b_source_notation_is_closed(
         ldb, authority.get("wire_schema_protocol_roles", {}).get("source_notation")
     ):
+        return False
+    if not _consumer_b_source_roles_are_closed(ldb, meta):
         return False
     if not _consumer_b_formula_resolution_is_closed(ldb, meta):
         return False
@@ -7122,15 +7527,8 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
     ]
     if len(selected_profiles) != 1:
         return False
-    modules_member = selected_profiles[0].get("modules_member")
-    symbols_member = selected_profiles[0].get("symbols_member")
     policy = lowering.get("assignment_policy")
-    if (
-        not isinstance(modules_member, str)
-        or not isinstance(symbols_member, str)
-        or not isinstance(policy, dict)
-        or not isinstance(policy.get("roles"), list)
-    ):
+    if not isinstance(policy, dict) or not isinstance(policy.get("roles"), list):
         return False
     role_rows = policy["roles"]
     roles = {
@@ -7258,14 +7656,29 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
     ]
     if len(model_schemas) != 1:
         return False
-    try:
-        schema_modes = set(
-            model_schemas[0]["properties"][modules_member]["items"]["properties"][
-                symbols_member
-            ]["items"]["properties"]["value_policy"]["properties"]["mode"]["enum"]
-        )
-    except (KeyError, TypeError):
+    value_policy_anchors: list[dict[str, Any]] = []
+
+    def collect_value_policy(value: Any) -> None:
+        if not isinstance(value, dict):
+            return
+        if value.get(_SOURCE_ROLE_KEY) == "value-policy":
+            value_policy_anchors.append(value)
+        for child in value.get("properties", {}).values():
+            collect_value_policy(child)
+        if "items" in value:
+            collect_value_policy(value["items"])
+        for branch in value.get("oneOf", []):
+            collect_value_policy(branch)
+
+    collect_value_policy(model_schemas[0])
+    mode_schemas = [
+        child
+        for anchor in value_policy_anchors
+        for child in _consumer_b_semantic_property_schemas(anchor, "mode")
+    ]
+    if len(mode_schemas) != 1 or not isinstance(mode_schemas[0].get("enum"), list):
         return False
+    schema_modes = set(mode_schemas[0]["enum"])
     return schema_modes == declared_modes
 
 
@@ -11918,13 +12331,8 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 reference_contracts_close = False
                 break
             right_values = _project(authorities, contract["right"])
-        elif set(contract) == {
-            "left",
-            "mode",
-            "profile",
-            "right_template",
-        }:
-            right_values = _consumer_b_profiled_equality_values(authorities, contract)
+        elif set(contract) == {"left", "mode", "right_template"}:
+            right_values = _consumer_b_source_equality_values(authorities, contract)
             if right_values is None:
                 reference_contracts_close = False
                 break
@@ -12545,7 +12953,10 @@ __all__ = [
     "_consumer_b_package_vector_contract_is_closed",
     "_consumer_b_package_vector_set_is_closed",
     "_consumer_b_path_is_declared",
-    "_consumer_b_profiled_equality_values",
+    "_consumer_b_project_source",
+    "_consumer_b_project_source_role",
+    "_consumer_b_source_equality_values",
+    "_consumer_b_source_role_member_paths",
     "_consumer_b_reason_is_closed",
     "_consumer_b_reason_operands_close",
     "_consumer_b_reason_vectors_cover",

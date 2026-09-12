@@ -16,6 +16,7 @@ import jsonschema
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 from schema2_bootstrap_conformance_support import (
     _consumer_b_inline_parameter_operand,
+    _consumer_b_project_source_role,
     _consumer_b_value_matches,
 )
 
@@ -73,59 +74,60 @@ def _formula_policy(
 
 
 def _inline_source_parameter(
-    policy: dict[str, Any], kernel: dict[str, Any]
+    kernel: dict[str, Any],
 ) -> tuple[str, str, str]:
     kind, reference = _consumer_b_inline_parameter_operand(kernel["meta_format"])
-    rows = policy["inline_body_normalizations"]
+    role = kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
+        "source_notation"
+    ]["semantic_roles"]["roles"]["inline-parameter"]
+    discriminator = role.get("discriminator")
+    members = role.get("members")
     if (
-        len(rows) != 1
-        or set(rows[0]) != {"parameter_member"}
-        or not isinstance(rows[0]["parameter_member"], str)
-        or not rows[0]["parameter_member"]
-        or rows[0]["parameter_member"] == "node"
+        not isinstance(discriminator, dict)
+        or discriminator != {"node": kind}
+        or not isinstance(members, list)
+        or set(members) != {"node", reference}
     ):
-        raise ValueError("independent inline Formula selector is ambiguous")
-    return kind, reference, rows[0]["parameter_member"]
+        raise ValueError("independent inline Formula role is ambiguous")
+    return kind, reference, reference
 
 
 def normalize_source_body(
     body: dict[str, Any], language_bundle: dict[str, Any], *, kernel: dict[str, Any]
 ) -> dict[str, Any]:
     """Independently adapt the declared Source field to the fixed operand role."""
-    policy = _formula_policy(language_bundle, kernel=kernel)
-    kind, reference, source_member = _inline_source_parameter(policy, kernel)
-    if "node" not in body:
-        return deepcopy(body)
-    if (
-        body.get("node") != kind
-        or set(body) != {"node", source_member}
-        or not isinstance(body[source_member], str)
-        or not body[source_member]
-    ):
-        raise ValueError("independent inline Formula body is malformed")
+    kind, reference, source_member = _inline_source_parameter(kernel)
+    try:
+        projected = _consumer_b_project_source_role(
+            body, "inline-parameter", kernel, language_bundle
+        ).value
+    except ValueError:
+        return _consumer_b_project_source_role(
+            body, "program", kernel, language_bundle
+        ).value
+    if not isinstance(projected.get(source_member), str):
+        raise ValueError("independent inline Formula parameter is malformed")
     return {
-        policy["body_nodes_member"]: [],
-        policy["body_result_member"]: {"kind": kind, reference: body[source_member]},
+        "nodes": [],
+        "result": {"kind": kind, reference: projected[source_member]},
     }
 
 
 def _validate_context(
     request: dict[str, Any], language_bundle: dict[str, Any], *, kernel: dict[str, Any]
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     language = language_bundle["language"]
-    profile = _resolution_profile(language_bundle)
     source_schema = _source_schema(language_bundle)
-    schema_version = source_schema["properties"][profile["schema_version_member"]][
-        "const"
+    version_fields = [
+        child
+        for child in source_schema["properties"].values()
+        if child.get("semantic_member") == "schema_version"
     ]
+    if len(version_fields) != 1:
+        raise ValueError("independent Source version role is ambiguous")
+    schema_version = version_fields[0]["const"]
     if request.get("schema_version") != schema_version:
         raise ValueError("independent Formula source schema version is unavailable")
-    import_schema = source_schema["properties"][profile["modules_member"]]["items"][
-        "properties"
-    ][profile["imports_member"]]["items"]
-    import_validator = jsonschema.Draft202012Validator(source_schema).evolve(
-        schema=import_schema
-    )
     requirements = request.get("package_requirements")
     if not isinstance(requirements, list):
         raise ValueError("independent Formula requirements are malformed")
@@ -147,43 +149,52 @@ def _validate_context(
     modules = request.get("modules", [current_module])
     if not isinstance(current_module, dict) or not isinstance(modules, list):
         raise ValueError("independent Formula module closure is malformed")
+    projected_modules = [
+        _consumer_b_project_source_role(module, "module", kernel, language_bundle).value
+        for module in modules
+        if isinstance(module, dict)
+    ]
+    if len(projected_modules) != len(modules):
+        raise ValueError("independent Formula module closure is malformed")
+    projected_current = _consumer_b_project_source_role(
+        current_module, "module", kernel, language_bundle
+    ).value
+    formula = request.get("formula")
+    if not isinstance(formula, dict):
+        raise ValueError("independent Formula declaration is malformed")
+    projected_formula = _consumer_b_project_source_role(
+        formula,
+        "formula",
+        kernel,
+        language_bundle,
+        omitted_members={"body", "expression"},
+    ).value
+    if not {"body", "expression"} & set(projected_formula):
+        raise ValueError("independent Formula has no Source representation")
     modules_by_id: dict[str, dict[str, Any]] = {}
-    for module in modules:
-        module_id = (
-            module.get(profile["module_id_member"])
-            if isinstance(module, dict)
-            else None
-        )
+    for module in projected_modules:
+        module_id = module.get("id")
         if not isinstance(module_id, str) or module_id in modules_by_id:
             raise ValueError("independent Formula module closure is ambiguous")
         modules_by_id[module_id] = module
-    current_id = current_module.get(profile["module_id_member"])
+    current_id = projected_current.get("id")
     if not isinstance(current_id, str) or current_id not in modules_by_id:
         raise ValueError("independent current module is outside its closure")
     closure_module = modules_by_id[current_id]
-    formula_member = _formula_policy(language_bundle, kernel=kernel)[
-        "module_formulas_member"
-    ]
-    for member in (
-        profile["imports_member"],
-        profile["symbols_member"],
-        formula_member,
-    ):
-        if member in current_module and current_module[member] != closure_module.get(
-            member, []
-        ):
+    for member in ("imports", "symbols", "formulas"):
+        if member in projected_current and projected_current[
+            member
+        ] != closure_module.get(member, []):
             raise ValueError("independent current module conflicts with its closure")
-    for module in modules:
-        imports = module.get(profile["imports_member"])
+    for module in projected_modules:
+        imports = module.get("imports")
         if not isinstance(imports, list):
             raise ValueError("independent Formula imports are malformed")
         aliases: set[str] = set()
         for imported in imports:
-            if not import_validator.is_valid(imported):
-                raise ValueError("independent Formula import is malformed")
-            alias = imported.get(profile["import_alias_member"])
-            package_key = imported.get(profile["import_package_member"])
-            symbol = imported.get(profile["import_symbol_member"])
+            alias = imported.get("alias")
+            package_key = imported.get("package")
+            symbol = imported.get("symbol")
             if (
                 not isinstance(alias, str)
                 or alias in aliases
@@ -204,7 +215,7 @@ def _validate_context(
             )
             if package_key not in requirement_keys or symbol not in exported_types:
                 raise ValueError("independent Formula import is unresolved")
-    return modules
+    return projected_modules, projected_current, projected_formula
 
 
 def _identifier(value: Any, grammar: dict[str, Any]) -> str:
@@ -792,13 +803,12 @@ def parse_canonical(
     grammar, _operations = _authority(language_bundle)
     formula_policy = _formula_policy(language_bundle, kernel=kernel)
     policy = formula_policy["notation_conversion"]
-    modules = _validate_context(request, language_bundle, kernel=kernel)
+    modules, module, formula = _validate_context(
+        request, language_bundle, kernel=kernel
+    )
     quote = cast(str, grammar["identifier_quote"])
     escape = cast(str, grammar["escape_character"])
-    parameters = {
-        row["id"]: _source_contract(row) for row in request["formula"]["parameters"]
-    }
-    module = request["module"]
+    parameters = {row["id"]: _source_contract(row) for row in formula["parameters"]}
     module_id = module["id"]
     imports_by_module = {
         row["id"]: {
@@ -896,7 +906,7 @@ def parse_canonical(
             operation,
             ports,
             [contract for _operand, contract in operands],
-            _source_contract(request["formula"]["result"]),
+            _source_contract(formula["result"]),
             policy,
             _boolean_formula_contract(kernel),
         )
@@ -919,7 +929,7 @@ def parse_canonical(
 
     if len(lines) == 1:
         operand, result_contract = typed_operand(lines[0])
-        expected = _source_contract(request["formula"]["result"])
+        expected = _source_contract(formula["result"])
         if result_contract is None and operand.get("kind") == "literal":
             value = operand.get("value")
             domain = expected.get("domain")
@@ -936,7 +946,7 @@ def parse_canonical(
         if result_contract != expected:
             raise ValueError("independent Formula result contract is incompatible")
         parameter_kind, parameter_reference, source_member = _inline_source_parameter(
-            formula_policy, kernel
+            kernel
         )
         if operand.get("kind") == parameter_kind:
             return {"node": parameter_kind, source_member: operand[parameter_reference]}
@@ -1068,7 +1078,7 @@ def parse_canonical(
         nodes.append(node)
         locals_[local] = result_contract
     result_operand, result_contract = typed_operand(lines[-1])
-    if result_contract != _source_contract(request["formula"]["result"]):
+    if result_contract != _source_contract(formula["result"]):
         raise ValueError("independent Formula result contract is incompatible")
     return {
         "nodes": nodes,
@@ -1079,16 +1089,15 @@ def parse_canonical(
 def admit_pair(
     request: dict[str, Any], language_bundle: dict[str, Any], *, kernel: dict[str, Any]
 ) -> bool:
-    formula = request.get("formula")
-    if (
-        not isinstance(formula, dict)
-        or not isinstance(formula.get("body"), dict)
-        or not isinstance(formula.get("expression"), str)
-    ):
+    authored_formula = request.get("formula")
+    if not isinstance(authored_formula, dict):
         return False
-    body = cast(dict[str, Any], formula["body"])
-    expression = cast(str, formula["expression"])
     try:
+        formula = _consumer_b_project_source_role(
+            authored_formula, "formula", kernel, language_bundle
+        ).value
+        body = cast(dict[str, Any], formula["body"])
+        expression = cast(str, formula["expression"])
         rendered = render_body(body, request, language_bundle, kernel=kernel)
         parsed = parse_canonical(expression, request, language_bundle, kernel=kernel)
     except (KeyError, TypeError, ValueError):

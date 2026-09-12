@@ -28,7 +28,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_project_template_schema,
     _consumer_b_project_rir_schema,
     _consumer_b_project_replay_schema,
-    _consumer_b_profiled_equality_values,
+    _consumer_b_source_equality_values,
     _consumer_b_project_trace_schema,
     _consumer_b_replay_comparison_vector_is_closed,
     _consumer_b_package_evidence_vector_header_is_closed,
@@ -626,7 +626,7 @@ def _source_format_role(kernel: Mapping[str, Any], graph: Mapping[str, Any]) -> 
     ]
     if len(equalities) != 1:
         raise InventoryRefusal("Source format parameter has no unique wire equality")
-    selected = _consumer_b_profiled_equality_values(
+    selected = _consumer_b_source_equality_values(
         {"kernel": dict(kernel), "language_bundle": _attached_language(kernel, graph)},
         equalities[0],
     )
@@ -634,10 +634,14 @@ def _source_format_role(kernel: Mapping[str, Any], graph: Mapping[str, Any]) -> 
         raise InventoryRefusal("Source format parameter has no resolved wire equality")
     actual = {value for _, value, _ in _authority_path_rows(kernel, graph, left)}
     source = _protocol_schema(kernel, graph, "model-source-package")
-    profile = _source_profile(kernel, graph)
-    expected = {
-        source["schema"]["properties"][profile["schema_version_member"]]["const"]
-    }
+    version_fields = [
+        child
+        for child in source["schema"]["properties"].values()
+        if child.get("semantic_member") == "schema_version"
+    ]
+    if len(version_fields) != 1:
+        raise InventoryRefusal("Source format role is ambiguous")
+    expected = {version_fields[0]["const"]}
     if set(selected) != expected:
         raise InventoryRefusal(
             "Source format equality does not select its actual field"

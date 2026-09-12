@@ -3,6 +3,7 @@
 from copy import deepcopy
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -12,6 +13,7 @@ from gda_balancing.domain.authority.context import (
 )
 from gda_balancing.domain.model import CheckedModel, check_model_source_value
 from schema2_authority_support import mutable_authorities
+from schema2_bootstrap_conformance_support import _consumer_b
 from schema2_bootstrap_production_support import _consumer_a
 from test_source_wire_owners import _source_schema
 from test_trace_protocol_structure import _authored, _graph, _index
@@ -188,6 +190,8 @@ def _candidate(case):
         raise AssertionError(case)
     graph = _graph(kernel, authored)
     assert _consumer_a(kernel, graph)["admitted"]
+    consumer_b = _consumer_b(kernel, graph)
+    assert consumer_b["admitted"], consumer_b["diagnostics"]
     context = admit_authority_context(kernel, _index(kernel, graph))
     assert isinstance(context, AdmittedAuthorityContext), context
     return kernel, graph, context, source, original
@@ -214,7 +218,10 @@ def test_source_roles_preserve_all_prepared_values(case):
     from gda_balancing.domain.model._compilation import lower_checked_model
 
     artifacts = lower_checked_model(checked)
-    declarations = artifacts["rir-semantic-payload"]["declarations"]
+    declarations = cast(
+        list[dict[str, object]],
+        artifacts["rir-semantic-payload"]["declarations"],
+    )
     assert {row["symbol"] for row in declarations} == {
         row["symbol"] for module in original["modules"] for row in module["symbols"]
     }
@@ -382,8 +389,10 @@ def test_source_semantic_role_contract_refuses_incomplete_or_misowned_schema(def
         )
     else:
         entrypoint["properties"]["ignored"] = {"type": "string"}
-    result = _consumer_a(kernel, _graph(kernel, authored))
-    assert not result["admitted"], result
+    graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, graph)
+        assert not result["admitted"], result
 
 
 @pytest.mark.parametrize(
@@ -477,8 +486,10 @@ def test_retired_source_selector_cannot_reintroduce_a_second_address_owner(
     owner = profile["formula_resolution"] if nested else profile
     assert member not in owner
     owner[member] = deepcopy(old_value)
-    result = _consumer_a(kernel, _graph(kernel, authored))
-    assert not result["admitted"], result
+    graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, graph)
+        assert not result["admitted"], result
 
 
 def test_source_semantic_keywords_have_no_parallel_metadata_selector():
@@ -506,5 +517,7 @@ def test_retired_lowering_source_selector_cannot_reintroduce_an_address_owner():
         for definition in closure["definitions"]
     )
     lowering["source_selector"] = ["modules", "*", "symbols", "*"]
-    result = _consumer_a(kernel, _graph(kernel, authored))
-    assert not result["admitted"], result
+    graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, graph)
+        assert not result["admitted"], result
