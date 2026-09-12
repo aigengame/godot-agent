@@ -85,7 +85,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:024063657390e1fa182dd737503c729294b1013548b0ddd430c876c9608ecfcf"
+    "sha256:0e4fb5cab2a85a223fd23ea3b9be343a3e270013c0349b19ecfcef27b338f360"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -482,6 +482,8 @@ def _formula_resolution_is_closed(
         nodes = {row["id"]: row for row in runtime["nodes"]}
         for profile in language_bundle["language"]["resolution_profiles"]:
             policy = profile["formula_resolution"]
+            member(schema, profile["entrypoints_member"], "array")
+            member(schema, profile["schema_version_member"], "string")
             module = member(schema, profile["modules_member"], "array")["items"]
             # Declarations may be omitted from a module; when present they are arrays.
             declarations = _json_schema_path(module, [policy["module_formulas_member"]])

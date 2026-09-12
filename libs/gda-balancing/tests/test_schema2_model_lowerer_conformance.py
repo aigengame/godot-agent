@@ -971,9 +971,9 @@ def _reference_check_source(
         return ((reasons[error.reason_id]["diagnostic"], error.pointer),)
     except (KeyError, ValueError) as error:
         pointer = (
-            "/formula_bindings"
+            _reference_pointer([profile["formula_resolution"]["bindings_member"]])
             if "formula" in str(error).lower() or "binding" in str(error).lower()
-            else "/entrypoints"
+            else _reference_pointer([profile["entrypoints_member"]])
         )
         return ((reasons[profile["structural_reason"]]["diagnostic"], pointer),)
     return checked
@@ -1465,6 +1465,11 @@ def _reference_selected_operation_coordinates(
     consume_instruction: Callable[[], None] | None = None,
 ) -> set[tuple[str, str]]:
 
+    profile = next(
+        item
+        for item in checked.language_bundle["language"]["resolution_profiles"]
+        if item["id"] == lock["resolution_profile"]["id"]
+    )
     operations = {
         (
             row["package"],
@@ -1477,7 +1482,7 @@ def _reference_selected_operation_coordinates(
             entrypoint["operation"]["package"],
             entrypoint["operation"]["id"],
         )
-        for entrypoint in checked.source.get("entrypoints", [])
+        for entrypoint in checked.source[profile["entrypoints_member"]]
     } | formula_roots
     reference_nodes = {
         node["id"]
@@ -1528,10 +1533,17 @@ def _reference_formulas_and_bindings(
     declarations: list[dict[str, Any]],
     lock: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    language = checked.language_bundle["language"]
+    lowering = _reference_lowering(language)
+    profile = next(
+        item
+        for item in language["resolution_profiles"]
+        if item["id"] == lowering["resolution_profile"]
+    )
     available = {
         (row["package"], row["definition"]["id"]) for row in lock["operations"]
     }
-    for index, entrypoint in enumerate(checked.source["entrypoints"]):
+    for index, entrypoint in enumerate(checked.source[profile["entrypoints_member"]]):
         reference = entrypoint["operation"]
         if (reference["package"], reference["id"]) not in available:
             member = (
@@ -1540,16 +1552,11 @@ def _reference_formulas_and_bindings(
                 else "id"
             )
             raise _ReferenceEntrypointError(
-                f"/entrypoints/{index}/operation/{member}",
+                _reference_pointer(
+                    [profile["entrypoints_member"], index, "operation", member]
+                ),
                 "entrypoint Operation is not selected",
             )
-    language = checked.language_bundle["language"]
-    lowering = _reference_lowering(language)
-    profile = next(
-        item
-        for item in language["resolution_profiles"]
-        if item["id"] == lowering["resolution_profile"]
-    )
     policy = profile["formula_resolution"]
     domains = policy["identity_domains"]
     formula_contexts = {
@@ -1884,14 +1891,16 @@ def _reference_formulas_and_bindings(
             ),
         }
 
-    source_bindings = checked.source.get("formula_bindings", [])
+    source_bindings = checked.source.get(policy["bindings_member"], [])
     selected_keys = {
         (binding["formula"]["module"], binding["formula"]["id"])
         for binding in source_bindings
     }
     binding_pointers = {
         (binding["formula"]["module"], binding["formula"]["id"]): (
-            f"/formula_bindings/{index}/formula"
+            _reference_pointer(
+                [policy["bindings_member"], index, policy["binding_formula_member"]]
+            )
         )
         for index, binding in enumerate(source_bindings)
     }
@@ -1943,7 +1952,13 @@ def _reference_formulas_and_bindings(
         if formula_key not in resolved:
             raise _ReferenceFormulaError(
                 "model.reason.formula-binding-missing",
-                f"/formula_bindings/{binding_index}/formula",
+                _reference_pointer(
+                    [
+                        policy["bindings_member"],
+                        binding_index,
+                        policy["binding_formula_member"],
+                    ]
+                ),
                 "Formula binding names no declaration",
             )
         formula = resolved[formula_key]
@@ -1961,7 +1976,13 @@ def _reference_formulas_and_bindings(
                         if key in bound_slots
                         else "model.reason.formula-unreachable"
                     ),
-                    f"/formula_bindings/{binding_index}/site",
+                    _reference_pointer(
+                        [
+                            policy["bindings_member"],
+                            binding_index,
+                            policy["binding_site_member"],
+                        ]
+                    ),
                     "Formula binding site is not one unique selected Operation slot",
                 )
             slot, operation_identity_value = slots[key]
@@ -1971,7 +1992,13 @@ def _reference_formulas_and_bindings(
             if slot.get("context") != formula_contexts[active]:
                 raise _ReferenceFormulaError(
                     "model.reason.formula-context-mismatch",
-                    f"/formula_bindings/{binding_index}/site",
+                    _reference_pointer(
+                        [
+                            policy["bindings_member"],
+                            binding_index,
+                            policy["binding_site_member"],
+                        ]
+                    ),
                     "Formula Operation slot has no admitted lifecycle context",
                 )
             bound_slots.add(key)
@@ -2058,7 +2085,7 @@ def _reference_formulas_and_bindings(
     if bound_slots != set(slots):
         raise _ReferenceFormulaError(
             "model.reason.formula-binding-missing",
-            "/entrypoints/0/operation",
+            _reference_pointer([profile["entrypoints_member"], 0, "operation"]),
             "every selected Operation Formula slot requires exactly one binding",
         )
     return formulas, bindings
@@ -2897,6 +2924,11 @@ def _reference_entrypoints(
     formula_bindings: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     lowering = _reference_lowering(checked.language_bundle["language"])
+    profile = next(
+        item
+        for item in checked.language_bundle["language"]["resolution_profiles"]
+        if item["id"] == lowering["resolution_profile"]
+    )
     policy = lowering["assignment_policy"]
     roles = {row["role"]: row for row in policy["roles"]}
     assert set(roles) == set(
@@ -2942,8 +2974,10 @@ def _reference_entrypoints(
     assert policy["scenario_target_cardinality"] == "one-per-resolved-actual"
     resolved_entrypoints = []
     seen: set[str] = set()
-    for entrypoint_index, source_entrypoint in enumerate(checked.source["entrypoints"]):
-        pointer = f"/entrypoints/{entrypoint_index}"
+    for entrypoint_index, source_entrypoint in enumerate(
+        checked.source[profile["entrypoints_member"]]
+    ):
+        pointer = _reference_pointer([profile["entrypoints_member"], entrypoint_index])
         entrypoint_id = source_entrypoint["id"]
         if entrypoint_id in seen:
             raise _ReferenceEntrypointError(

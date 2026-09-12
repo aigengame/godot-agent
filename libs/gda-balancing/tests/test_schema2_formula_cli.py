@@ -1060,7 +1060,6 @@ def test_standard_schema_owns_the_closed_formula_notation_grammar(run_cli) -> No
         "identifier_token_pattern": "[A-Za-z_][A-Za-z0-9_]*",
         "integer_literal_pattern": "-?(?:0|[1-9][0-9]*)",
         "whitespace_pattern": "\\s+",
-        "signed_integer_context": "operand-position",
         "reserved_identifiers": ["else", "if", "let", "then"],
         "identifier_quote": "`",
         "escape_character": "\\",

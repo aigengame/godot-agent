@@ -1376,8 +1376,20 @@ def prepare_template_instantiation(
     source = cast(dict[str, JsonValue], deepcopy(starter))
     source_identity_domain = model_source_identity_domain(language_bundle)
     starter_identity = content_identity(source_identity_domain, starter)
-    manifest = cast(dict[str, JsonValue], source["manifest"])
-    manifest["id"] = package_id
+    resolution_profile = next(
+        profile
+        for profile in cast(dict[str, Any], language_bundle)["language"][
+            "resolution_profiles"
+        ]
+        if profile["default"]
+    )
+    *manifest_path, identity_member = cast(
+        str, resolution_profile["manifest_id_path"]
+    ).split(".")
+    manifest = source
+    for member in manifest_path:
+        manifest = cast(dict[str, JsonValue], manifest[member])
+    manifest[identity_member] = package_id
     manifest["template_provenance"] = {
         "template_id": release["id"],
         "template_identity": release["content_identity"],

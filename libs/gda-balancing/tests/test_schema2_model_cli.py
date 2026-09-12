@@ -2985,7 +2985,6 @@ def test_operation_reachability_follows_kernel_operation_members_after_node_rena
         "packages": [{"id": "example.runtime"}],
         "operations": operations,
     }
-    source = {"entrypoints": [{"operation": root}]}
     selected_semantics = {
         "packages": lock["packages"],
         "operations": operations,
@@ -3000,7 +2999,7 @@ def test_operation_reachability_follows_kernel_operation_members_after_node_rena
     assert operation_nodes == {"defer"}
     assert (
         model_module._selected_source_operation_coordinates(
-            source, lock, operation_nodes
+            entrypoints, lock, operation_nodes
         )
         == expected
     )

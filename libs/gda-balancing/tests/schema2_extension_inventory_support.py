@@ -26,6 +26,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_project_template_schema,
     _consumer_b_project_rir_schema,
     _consumer_b_project_replay_schema,
+    _consumer_b_profiled_equality_values,
     _consumer_b_project_trace_schema,
     _consumer_b_replay_comparison_vector_is_closed,
     _consumer_b_package_evidence_vector_header_is_closed,
@@ -237,7 +238,7 @@ def source_formula_requests(
                 continue
             fp = _child(_child(mp, policy["module_formulas_member"]), fi)
             requests[fp + "/expression"] = {
-                "schema_version": source["schema_version"],
+                "schema_version": source[profile["schema_version_member"]],
                 "package_requirements": source[profile["requirements_member"]],
                 "module": module,
                 "modules": modules,
@@ -610,22 +611,32 @@ def _source_format_role(kernel: Mapping[str, Any], graph: Mapping[str, Any]) -> 
     """Keep Source protocol format parameters distinct from nominal identities."""
     role = "language.model_source_schema_versions"
     left = "language_bundle." + role
-    right = (
-        "language_bundle.language.wire_schemas.schema.properties.schema_version.const"
-    )
     law = next(
         row
         for row in kernel["admission"]["laws"]
         if row["id"] == "kernel.vectors.closed"
     )
-    if not any(
-        row.get("left") == left and row.get("right") == right
-        for row in law["arguments"]["equalities"]
-    ):
-        raise InventoryRefusal("Source format parameter has no declared wire equality")
+    equalities = [
+        row for row in law["arguments"]["equalities"] if row.get("left") == left
+    ]
+    if len(equalities) != 1:
+        raise InventoryRefusal("Source format parameter has no unique wire equality")
+    selected = _consumer_b_profiled_equality_values(
+        {"kernel": dict(kernel), "language_bundle": _attached_language(kernel, graph)},
+        equalities[0],
+    )
+    if selected is None:
+        raise InventoryRefusal("Source format parameter has no resolved wire equality")
     actual = {value for _, value, _ in _authority_path_rows(kernel, graph, left)}
     source = _protocol_schema(kernel, graph, "model-source-package")
-    expected = {source["schema"]["properties"]["schema_version"]["const"]}
+    profile = _source_profile(kernel, graph)
+    expected = {
+        source["schema"]["properties"][profile["schema_version_member"]]["const"]
+    }
+    if set(selected) != expected:
+        raise InventoryRefusal(
+            "Source format equality does not select its actual field"
+        )
     if actual != expected:
         raise InventoryRefusal(
             "Source format parameter does not match its wire contract"
@@ -5216,8 +5227,10 @@ class _Reader:
             "reference",
             law,
         )
-        for ei, entrypoint in enumerate(source.get("entrypoints", [])):
-            ep = f"/source/entrypoints/{ei}"
+        for ei, entrypoint in enumerate(
+            source.get(source_profile["entrypoints_member"], [])
+        ):
+            ep = _child(_child("/source", source_profile["entrypoints_member"]), ei)
             self.occurrence(
                 AuthorityToken("source-entrypoint", (model,), entrypoint["id"]),
                 ep + "/id",
@@ -6037,8 +6050,9 @@ def _verify_formula_coverage(
     projections = _formula_projections(kernel, graph)
     source_profile = _source_profile(kernel, graph)
     model = _at(source, source_profile["manifest_id_path"].split("."))
-    for i, binding in enumerate(source.get("formula_bindings", [])):
-        bp = f"/source/formula_bindings/{i}"
+    bindings_member = source_profile["formula_resolution"]["bindings_member"]
+    for i, binding in enumerate(source.get(bindings_member, [])):
+        bp = _child(_child("/source", bindings_member), i)
         formula = binding["formula"]
         fs = (model, formula["module"], formula["id"])
         field(
@@ -7020,8 +7034,10 @@ def validate_extension_inventory(
                         "reference",
                     )
                 )
-        for ei, entry in enumerate(source.get("entrypoints", [])):
-            ep = f"/source/entrypoints/{ei}"
+        for ei, entry in enumerate(
+            source.get(source_profile["entrypoints_member"], [])
+        ):
+            ep = _child(_child("/source", source_profile["entrypoints_member"]), ei)
             operation = entry["operation"]
             callee = (operation["package"], operation["id"])
             required.add(

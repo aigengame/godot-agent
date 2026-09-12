@@ -132,6 +132,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_source_fact_transport_independent.py",
         "test_source_module_routing.py",
         "test_scheduler_rule_inventory.py",
+        "test_source_wire_owners.py",
         "test_template_extension_inventory.py",
         "test_template_model_results.py",
         "test_template_model_results_independent.py",

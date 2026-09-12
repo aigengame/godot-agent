@@ -1210,7 +1210,7 @@ def _resolved_formula_programs_and_bindings_impl(
         selected_formula_keys.add(formula_key)
         binding_pointer_by_formula.setdefault(
             formula_key,
-            f"/{bindings_member}/{binding_index}/{binding_formula_member}",
+            _pointer([bindings_member, binding_index, binding_formula_member]),
         )
     pending = list(selected_formula_keys)
     while pending:
@@ -1267,7 +1267,9 @@ def _resolved_formula_programs_and_bindings_impl(
                 )
                 | {"result": node["result"]}
             )
-    for source_entrypoint in cast(list[dict[str, Any]], checked.source["entrypoints"]):
+    for source_entrypoint in cast(
+        list[dict[str, Any]], checked.source[profile["entrypoints_member"]]
+    ):
         operation_ref = cast(dict[str, str], source_entrypoint["operation"])
         coordinate = (operation_ref["package"], operation_ref["id"])
         operation = operations_by_coordinate.get(coordinate)
@@ -1295,7 +1297,7 @@ def _resolved_formula_programs_and_bindings_impl(
     )
     concrete_operation_calls = call_domain_projection.calls
     selected_operation_coordinates = _selected_source_operation_coordinates(
-        checked.source,
+        checked.source[profile["entrypoints_member"]],
         lock,
         _operation_reference_node_ids(checked.kernel),
         formula_operation_roots,
@@ -1318,7 +1320,7 @@ def _resolved_formula_programs_and_bindings_impl(
     bound_derived_sites: set[tuple[str, str]] = set()
     bound_operation_slots: set[tuple[str, str, str]] = set()
     for binding_index, source_binding in enumerate(source_bindings):
-        binding_pointer = f"/{bindings_member}/{binding_index}"
+        binding_pointer = _pointer([bindings_member, binding_index])
         failure_context[:] = [binding_pointer]
         source_site = cast(dict[str, Any], source_binding[binding_site_member])
         source_formula_ref = cast(
@@ -1616,7 +1618,7 @@ def _resolved_formula_programs_and_bindings_impl(
     if bound_operation_slots != set(selected_slots):
         raise _FormulaResolutionError(
             _FORMULA_REASON["binding-missing"],
-            "/entrypoints/0/operation",
+            _pointer([profile["entrypoints_member"], 0, "operation"]),
             "every selected Operation Formula slot requires exactly one binding",
         )
     resolved_formulas = [resolved_by_key[key] for key in sorted(selected_formula_keys)]
@@ -1625,7 +1627,7 @@ def _resolved_formula_programs_and_bindings_impl(
             declarations_by_source,
             cast(list[dict[str, Any]], resolved_formulas),
             cast(list[dict[str, Any]], resolved_bindings),
-            cast(list[dict[str, Any]], checked.source["entrypoints"]),
+            cast(list[dict[str, Any]], checked.source[profile["entrypoints_member"]]),
         )
         != bound_derived_sites
     ):
@@ -1633,7 +1635,7 @@ def _resolved_formula_programs_and_bindings_impl(
             _FORMULA_REASON["unreachable"],
             next(
                 (
-                    f"/{bindings_member}/{index}/{binding_site_member}"
+                    _pointer([bindings_member, index, binding_site_member])
                     for index, binding in enumerate(source_bindings)
                     if cast(dict[str, Any], binding[binding_site_member]).get("kind")
                     == "derived-symbol"
@@ -1655,10 +1657,13 @@ def _resolved_formula_programs_and_bindings_impl(
                         declarations_by_source,
                         cast(list[dict[str, Any]], resolved_formulas),
                         cast(list[dict[str, Any]], resolved_bindings),
-                        cast(list[dict[str, Any]], checked.source["entrypoints"]),
+                        cast(
+                            list[dict[str, Any]],
+                            checked.source[profile["entrypoints_member"]],
+                        ),
                     )
                 ),
-                f"/{bindings_member}",
+                _pointer([bindings_member]),
             ),
             "derived Formula binding is outside the executable entrypoint closure",
         )
@@ -1732,9 +1737,13 @@ def _resolved_formulas_and_bindings(
     list[tuple[str, str]],
 ]:
     """Normalize authoring sugar, then resolve one Formula program grammar."""
+    profile = _resolution_profile(
+        checked.language_bundle,
+        cast(str, _model_lowering(checked.language_bundle)["resolution_profile"]),
+    )
     # Resolve authored roots before interpreting their Formula binding sites.
     # An unknown root must not broaden selection to every installed Operation.
-    for index, entrypoint in enumerate(checked.source["entrypoints"]):
+    for index, entrypoint in enumerate(checked.source[profile["entrypoints_member"]]):
         reference = entrypoint["operation"]
         if not any(
             row["package"] == reference["package"]
@@ -1747,14 +1756,10 @@ def _resolved_formulas_and_bindings(
                 else "id"
             )
             raise _EntrypointBindingError(
-                f"/entrypoints/{index}/operation/{member}",
+                _pointer([profile["entrypoints_member"], index, "operation", member]),
                 f"entrypoint Operation is not selected: {entrypoint['id']}",
             )
     policy = _formula_policy(checked.language_bundle)
-    profile = _resolution_profile(
-        checked.language_bundle,
-        cast(str, _model_lowering(checked.language_bundle)["resolution_profile"]),
-    )
     normalized_source = deepcopy(checked.source)
     changed = False
     inline = inline_parameter_contract(policy, checked.kernel)
@@ -3068,6 +3073,9 @@ def _resolved_entrypoints(
 ) -> list[dict[str, JsonValue]]:
     """Resolve Source entrypoint bindings once; downstream consumers use only this graph."""
     lowering = _model_lowering(checked.language_bundle)
+    profile = _resolution_profile(
+        checked.language_bundle, lowering["resolution_profile"]
+    )
     assignment_policy = _assignment_policy(
         lowering,
         expected_roles=set(
@@ -3116,9 +3124,9 @@ def _resolved_entrypoints(
     entrypoints: list[dict[str, JsonValue]] = []
     seen_entrypoints: set[str] = set()
     for entrypoint_index, source_entrypoint in enumerate(
-        cast(list[dict[str, Any]], checked.source["entrypoints"])
+        cast(list[dict[str, Any]], checked.source[profile["entrypoints_member"]])
     ):
-        pointer = f"/entrypoints/{entrypoint_index}"
+        pointer = _pointer([profile["entrypoints_member"], entrypoint_index])
         entrypoint_id = cast(str, source_entrypoint["id"])
         if entrypoint_id in seen_entrypoints:
             raise _EntrypointBindingError(

@@ -115,7 +115,9 @@ def _validate_context(
     language = language_bundle["language"]
     profile = _resolution_profile(language_bundle)
     source_schema = _source_schema(language_bundle)
-    schema_version = source_schema["properties"]["schema_version"]["const"]
+    schema_version = source_schema["properties"][profile["schema_version_member"]][
+        "const"
+    ]
     if request.get("schema_version") != schema_version:
         raise ValueError("independent Formula source schema version is unavailable")
     import_schema = source_schema["properties"][profile["modules_member"]]["items"][
@@ -124,7 +126,7 @@ def _validate_context(
     import_validator = jsonschema.Draft202012Validator(source_schema).evolve(
         schema=import_schema
     )
-    requirements = request.get(profile["requirements_member"])
+    requirements = request.get("package_requirements")
     if not isinstance(requirements, list):
         raise ValueError("independent Formula requirements are malformed")
     requirement_keys: set[str] = set()

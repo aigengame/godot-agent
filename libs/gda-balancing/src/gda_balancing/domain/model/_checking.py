@@ -38,6 +38,7 @@ from gda_balancing.domain.model._resolution import (
     _model_check_diagnostics,
     _model_lowering,
     _path_value,
+    _pointer,
     _refusal,
     _resolution_diagnostics,
     _resolution_profile,
@@ -333,7 +334,7 @@ def _check_model_source_bytes(
             admitted_lowering,
             projection_budget,
             kernel=kernel,
-            entrypoints=source["entrypoints"],
+            entrypoints=source[profile["entrypoints_member"]],
             formulas=resolved_formulas,
         )
         initialization_programs = _compile_initialization_programs(
@@ -402,7 +403,7 @@ def _check_model_source_bytes(
         return _refusal(
             cast(str, source_contract_reason["diagnostic"]),
             source_identity,
-            "/entrypoints",
+            _pointer([profile["entrypoints_member"]]),
             f"Model entrypoint resolution failed: {err}",
             ldb,
         )

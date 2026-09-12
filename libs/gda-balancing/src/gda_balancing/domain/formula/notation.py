@@ -296,7 +296,9 @@ def formula_schema_version(
     version = (
         _formula_source_schema(authority_context)
         .get("properties", {})
-        .get("schema_version", {})
+        .get(
+            _formula_resolution_profile(authority_context)["schema_version_member"], {}
+        )
         .get("const")
     )
     if not isinstance(version, str):
@@ -310,7 +312,7 @@ def _module_imports(
     authority_context: AdmittedAuthorityContext,
     profile: dict[str, Any],
 ) -> dict[str, dict[str, str]]:
-    requirements = request.get(profile["requirements_member"])
+    requirements = request.get("package_requirements")
     if not isinstance(requirements, list):
         raise ValueError("Formula context has no package requirements")
     requirement_keys: set[str] = set()

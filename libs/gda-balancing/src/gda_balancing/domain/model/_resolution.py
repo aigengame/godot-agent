@@ -287,7 +287,7 @@ def _operation_reference_node_ids(kernel: dict[str, Any]) -> set[str]:
 
 
 def _selected_source_operation_coordinates(
-    source: dict[str, Any],
+    entrypoints: list[dict[str, Any]],
     lock: dict[str, Any],
     operation_node_ids: set[str],
     additional_roots: set[tuple[str, str]] | None = None,
@@ -302,7 +302,7 @@ def _selected_source_operation_coordinates(
     }
     selected = {
         (cast(str, operation["package"]), cast(str, operation["id"]))
-        for entrypoint in cast(list[dict[str, Any]], source.get("entrypoints", []))
+        for entrypoint in entrypoints
         if isinstance((operation := entrypoint.get("operation")), dict)
     }
     selected.update(additional_roots or set())
@@ -577,7 +577,7 @@ def _formula_pair_diagnostics(
             try:
                 admit_formula_pair(
                     {
-                        "schema_version": source.get("schema_version"),
+                        "schema_version": source.get(profile["schema_version_member"]),
                         "package_requirements": requirements,
                         "modules": modules,
                         "module": module,
