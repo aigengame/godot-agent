@@ -388,12 +388,12 @@ def _path_value(root: Any, dotted: str) -> Any:
 
 
 def _selected_values(
-    root: Any, selector: list[str], parts: tuple[object, ...] = ()
+    root: Any, selector: list[str | None], parts: tuple[object, ...] = ()
 ) -> list[tuple[Any, tuple[object, ...]]]:
     if not selector:
         return [(root, parts)]
     head, *tail = selector
-    if head == "*":
+    if head is None:
         if not isinstance(root, list):
             return []
         return [
@@ -483,7 +483,7 @@ def _unique_reason(
 
 def _model_check_paths(
     language: dict[str, Any],
-) -> Iterable[tuple[dict[str, Any], list[str], list[str]]]:
+) -> Iterable[tuple[dict[str, Any], list[str | None], list[str | None]]]:
     schema = next(
         row["schema"]
         for row in language["wire_schemas"]
@@ -566,10 +566,16 @@ def _model_check_diagnostics(
                 limit_path = cast(str, reason["predicate"]["limit_path"])
                 limit = cast(int, _path_value(language_bundle, limit_path))
                 location = (
-                    selected[limit][1] if len(selected) > limit else tuple(selector)
+                    selected[limit][1]
+                    if len(selected) > limit
+                    else tuple("*" if part is None else part for part in selector)
                 )
             else:
-                location = selected[0][1] if selected else tuple(selector)
+                location = (
+                    selected[0][1]
+                    if selected
+                    else tuple("*" if part is None else part for part in selector)
+                )
             diagnostics.append(
                 Schema2Diagnostic(
                     code=diagnostic_code,
@@ -665,7 +671,7 @@ def _schema_error_code(
     for check, scope, selected in _model_check_paths(language):
         selector = (*scope, *selected)
         if len(selector) == len(path) and all(
-            expected == "*" or expected == actual
+            expected is None or expected == actual
             for expected, actual in zip(selector, path, strict=True)
         ):
             return cast(str, reasons[check["reason"]]["diagnostic"])

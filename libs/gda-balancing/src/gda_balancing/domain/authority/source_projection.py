@@ -113,10 +113,12 @@ def source_schema_member(
     return matches[0]
 
 
-def source_semantic_selector(schema: dict[str, Any], selector: list[str]) -> list[str]:
+def source_semantic_selector(
+    schema: dict[str, Any], selector: list[str]
+) -> list[str | None]:
     """Resolve semantic member segments to one authored path, without reading values."""
     candidates = [schema]
-    authored: list[str] = []
+    authored: list[str | None] = []
     for member in selector:
         alternatives = [
             node for candidate in candidates for node in _object_alternatives(candidate)
@@ -125,7 +127,7 @@ def source_semantic_selector(schema: dict[str, Any], selector: list[str]) -> lis
             candidates = [node["items"] for node in alternatives if "items" in node]
             if not candidates:
                 raise ValueError("Source semantic wildcard has no array owner")
-            authored.append(member)
+            authored.append(None)
             continue
         children = [
             (name, child)

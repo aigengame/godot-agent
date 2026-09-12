@@ -21,7 +21,7 @@ from test_source_wire_owners import _source_schema
 from test_trace_protocol_structure import _authored, _graph, _index
 
 
-def _renamed_candidate():
+def _renamed_candidate(target="source.modules/~"):
     kernel, language = mutable_authorities()
     authored = _authored(language)
     source = json.loads(
@@ -31,7 +31,6 @@ def _renamed_candidate():
         ).read_text()
     )
     schema = _source_schema(authored)
-    target = "source.modules/~"
     _rename_role_field(schema, {"source"}, "modules", target)
     for recipe in _profile(authored)["relation_recipes"]:
         terms = [binding["source"] for binding in recipe["bindings"]]
@@ -49,10 +48,11 @@ def _renamed_candidate():
     return kernel, language, authored, source, renamed, target
 
 
+@pytest.mark.parametrize("target", ["source.modules/~", "*"])
 def test_semantic_model_checks_keep_their_meaning_through_public_source_rename(
-    tmp_path,
+    tmp_path, target
 ):
-    kernel, language, authored, source, renamed, target = _renamed_candidate()
+    kernel, language, authored, source, renamed, target = _renamed_candidate(target)
     checks = _definitions(authored, "language.model_checks")
     assert len(checks) == 5
     assert all(
@@ -90,7 +90,7 @@ def test_semantic_model_checks_keep_their_meaning_through_public_source_rename(
     assert isinstance(changed[0].primary, ArtifactLocation)
     assert isinstance(original[0].primary, ArtifactLocation)
     assert changed[0].primary.pointer == original[0].primary.pointer.replace(
-        "/modules/", "/source.modules~1~0/", 1
+        "/modules/", "/" + target.replace("~", "~0").replace("/", "~1") + "/", 1
     )
 
 
