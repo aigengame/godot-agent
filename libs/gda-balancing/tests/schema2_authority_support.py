@@ -97,6 +97,8 @@ def refresh_package_semantic_closures(
                     "artifact-set-manifest",
                     "publication-index",
                     "replay-comparison",
+                    "evaluator-capability-manifest",
+                    "resolved-runtime-profile",
                     "template-release",
                     "template-instantiate-command-input",
                     "template-instantiation-receipt",
@@ -109,6 +111,10 @@ def refresh_package_semantic_closures(
                     )
                     from gda_balancing.domain.authority.publication_projection import (
                         publication_protocol_schema,
+                    )
+
+                    from gda_balancing.domain.authority.runtime_projection import (
+                        runtime_output_schema,
                     )
 
                     from gda_balancing.domain.authority.template_projection import (
@@ -145,6 +151,15 @@ def refresh_package_semantic_closures(
                             "template-instantiation-receipt",
                         }:
                             expected_schema = template_protocol_schema(
+                                kernel,
+                                projected["protocol_role"],
+                                contracts[0]["artifact_kind"],
+                            )
+                        elif projected["protocol_role"] in {
+                            "evaluator-capability-manifest",
+                            "resolved-runtime-profile",
+                        }:
+                            expected_schema = runtime_output_schema(
                                 kernel,
                                 projected["protocol_role"],
                                 contracts[0]["artifact_kind"],

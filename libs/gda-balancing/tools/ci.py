@@ -130,6 +130,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_runtime_formula_contexts.py",
         "test_runtime_mutual_consumption.py",
         "test_runtime_profile_independent.py",
+        "test_runtime_wire_structure.py",
         "test_source_fact_selector_inventory.py",
         "test_source_fact_transport.py",
         "test_source_fact_transport_independent.py",

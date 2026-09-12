@@ -32,7 +32,12 @@ def project_artifact_protocols(
         project_replay_comparison_schema,
     )
 
+    from gda_balancing.domain.authority.runtime_projection import (
+        project_runtime_outputs,
+    )
+
     try:
+        project_runtime_outputs(kernel, language)
         project_template_protocol(kernel, language)
         project_trace_schema(kernel, language)
         project_rir_schema(kernel, language)

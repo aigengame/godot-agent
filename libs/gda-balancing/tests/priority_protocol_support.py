@@ -711,7 +711,9 @@ def source(turn):
     }
 
 
-def specification(rir, variant=False, *, choices=None):
+def specification(
+    rir, variant=False, *, choices=None, runtime_profile="standard.exact-int64-event-v1"
+):
     def value(name, supplied):
         return {
             "target": {
@@ -800,9 +802,9 @@ def specification(rir, variant=False, *, choices=None):
         status={"type": {"package": A, "id": "Outcome"}, "value": "pending"},
     )
     reqs = [
-        derive_scenario_program_requirements(
-            rir, e, "standard.exact-int64-event-v1", "splitmix64-v1"
-        )[0]
+        derive_scenario_program_requirements(rir, e, runtime_profile, "splitmix64-v1")[
+            0
+        ]
         for e in dict.fromkeys(entry for entry, _facts in choices)
     ]
     requirements = {k: sorted({x for r in reqs for x in r[k]}) for k in reqs[0]}
@@ -830,7 +832,7 @@ def specification(rir, variant=False, *, choices=None):
         else "example.priority-window.baseline",
         "model": {"rir_semantic_identity": rir["semantic_identity"]},
         "runtime": {
-            "profile": "standard.exact-int64-event-v1",
+            "profile": runtime_profile,
             "required_evaluator": requirements,
         },
         "seed": {"algorithm": "splitmix64-v1", "value": 1},

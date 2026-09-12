@@ -40,7 +40,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:3caa526a9d6ce7936683d6ed5da81c31d24280c1928ee512876bbb2da8467358"
+    "sha256:6401f370b5b162e52ff0de365534d07de7a27f44f230774338965701fc9e3c58"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
@@ -2092,6 +2092,7 @@ def _consumer_b_package_semantic_projections_are_exact(
             for definition in entry["definitions"]
         ]
     try:
+        _consumer_b_project_runtime_outputs(kernel, projected_language)
         _consumer_b_project_template_schema(kernel, projected_language)
         _consumer_b_project_publication_schema(kernel, projected_language)
         _consumer_b_project_trace_schema(kernel, projected_language)
@@ -2996,6 +2997,144 @@ def _consumer_b_artifact_envelope(
     if payload.get("optional_members"):
         common["optional_members"] = payload["optional_members"]
     return common
+
+
+def _consumer_b_runtime_output_schema(
+    kernel: dict[str, Any], protocol_role: str, artifact_kind: str
+) -> dict[str, Any]:
+    """Independently derive active Runtime output wire from its actual owners."""
+    meta = kernel["meta_format"]
+    protocols = meta["language_definitions"]["wire_schema_protocol_roles"]
+    structure = protocols["runtime_capability_structure"]
+    if set(structure) != {"manifest", "resolved_profile"}:
+        raise ValueError("Runtime output structure is incomplete")
+    match protocol_role:
+        case "evaluator-capability-manifest":
+            part = structure["manifest"]
+        case "resolved-runtime-profile":
+            part = structure["resolved_profile"]
+        case _:
+            raise ValueError("Unknown Runtime output protocol role")
+    if set(part) != {"required_members", "field_types"}:
+        raise ValueError("Runtime output part is incomplete")
+    common = deepcopy(protocols["artifact_envelope"])
+    if "artifact_kind" in common["field_types"]:
+        raise ValueError("Runtime envelope duplicates the bound artifact kind")
+    common["field_types"]["artifact_kind"] = {"const": artifact_kind}
+    convert = _consumer_b_protocol_contract_schema
+    fields = convert(common)["properties"]
+    for member, contract in part["field_types"].items():
+        if member in fields:
+            raise ValueError("Runtime container duplicates the envelope owner")
+        fields[member] = convert(contract)
+    if protocol_role == "resolved-runtime-profile":
+        if "runtime_profile" in fields:
+            raise ValueError("Runtime profile has two structure owners")
+        active = meta["runtime_profile_definition"]["active_runtime"]
+        if set(active) != {
+            "required_members",
+            "optional_members",
+            "runtime_member_bindings",
+            "rng_member_bindings",
+            "budget_scopes",
+            "resource_bounds",
+        }:
+            raise ValueError("Active Runtime contract is incomplete")
+        source = meta["language_definitions"]["collections"]["runtime_profiles"]
+        required, optional = active["required_members"], active["optional_members"]
+        if (
+            len(required) != len(set(required))
+            or len(optional) != len(set(optional))
+            or set(required) & set(optional)
+            or set(required) | set(optional) != set(source["field_types"])
+        ):
+            raise ValueError("Active Runtime fields have no unique source")
+        nested = {"rng", "budget_scopes", "resource_bounds"}
+        direct = active["runtime_member_bindings"]
+        if set(direct) & nested or not set(direct) <= set(source["field_types"]):
+            raise ValueError("Runtime binding has no distinct profile field")
+        profile = {
+            name: convert(contract)
+            for name, contract in source["field_types"].items()
+            if name not in nested | set(direct)
+        }
+        for name, path in direct.items():
+            profile[name] = {
+                "const": deepcopy(_consumer_b_path(meta["runtime_program"], path))
+            }
+
+        def record(properties, required=None):
+            return {
+                "type": "object",
+                "properties": properties,
+                "required": list(properties) if required is None else list(required),
+                "unevaluatedProperties": False,
+            }
+
+        profile["rng"] = record(
+            {
+                name: {
+                    "const": deepcopy(_consumer_b_path(meta["runtime_program"], path))
+                }
+                for name, path in active["rng_member_bindings"].items()
+            }
+        )
+        profile["budget_scopes"] = record(
+            {name: {"const": scope} for name, scope in active["budget_scopes"].items()}
+        )
+        bounds = active["resource_bounds"]
+        if (
+            set(bounds) != {"members", "value_contract"}
+            or bounds["value_contract"] != "positive-integer"
+            or len(bounds["members"]) != len(set(bounds["members"]))
+        ):
+            raise ValueError("Runtime resource bounds have an unknown owner")
+        profile["resource_bounds"] = record(
+            {name: {"type": "integer", "minimum": 1} for name in bounds["members"]}
+        )
+        if set(profile) != set(required) | set(optional):
+            raise ValueError("Runtime profile structure is incomplete")
+        fields["runtime_profile"] = record(profile, required)
+    required = part["required_members"]
+    if (
+        not isinstance(required, list)
+        or len(required) != len(set(required))
+        or set(fields) != set(required)
+    ):
+        raise ValueError("Runtime output field membership does not close")
+    return {
+        "$schema": meta["language_definitions"]["collections"]["artifact_wire_schemas"][
+            "field_types"
+        ]["schema"]["dialect"],
+        "type": "object",
+        "properties": fields,
+        "required": list(required),
+        "unevaluatedProperties": False,
+    }
+
+
+def _consumer_b_project_runtime_outputs(
+    kernel: dict[str, Any], language: dict[str, Any]
+) -> None:
+    for role in ("evaluator-capability-manifest", "resolved-runtime-profile"):
+        definitions = [
+            row
+            for row in language["artifact_wire_schemas"]
+            if row.get("protocol_role") == role
+        ]
+        if len(definitions) != 1:
+            raise ValueError("Runtime output role is missing or duplicated")
+        definition = definitions[0]
+        bindings = [
+            row
+            for row in language["artifact_contracts"]
+            if row["schema_kind"] == definition["artifact_kind"]
+        ]
+        if len(bindings) != 1 or "schema" in definition:
+            raise ValueError("Runtime output has an ambiguous or authored structure")
+        definition["schema"] = _consumer_b_runtime_output_schema(
+            kernel, role, bindings[0]["artifact_kind"]
+        )
 
 
 def _consumer_b_template_schema(
@@ -11108,6 +11247,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     deepcopy(vector_set.get("vector_definitions", []))
                 )
             try:
+                _consumer_b_project_runtime_outputs(kernel, language)
                 _consumer_b_project_template_schema(kernel, language)
                 _consumer_b_project_publication_schema(kernel, language)
                 _consumer_b_project_trace_schema(kernel, language)
