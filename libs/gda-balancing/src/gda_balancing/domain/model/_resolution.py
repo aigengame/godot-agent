@@ -732,12 +732,11 @@ def _schema_error_diagnostics(
     source_identity: str,
     language_bundle: dict[str, Any],
 ) -> list[Schema2Diagnostic]:
-    error_path = tuple(error.absolute_path)
     if (
         error.validator in {"oneOf", "anyOf"}
         and error.context
-        and len(error_path) >= 2
-        and error_path[-2] == "symbols"
+        and isinstance(error.schema, dict)
+        and error.schema.get("semantic_role") == "symbol"
     ):
         return [
             diagnostic
