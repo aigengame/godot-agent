@@ -96,6 +96,7 @@ def refresh_package_semantic_closures(
                     "artifact-set-receipt",
                     "artifact-set-manifest",
                     "publication-index",
+                    "replay-comparison",
                     "template-release",
                     "template-instantiate-command-input",
                     "template-instantiation-receipt",
@@ -112,6 +113,10 @@ def refresh_package_semantic_closures(
 
                     from gda_balancing.domain.authority.template_projection import (
                         template_protocol_schema,
+                    )
+
+                    from gda_balancing.domain.authority.replay_projection import (
+                        replay_comparison_schema,
                     )
 
                     contracts = [
@@ -142,6 +147,12 @@ def refresh_package_semantic_closures(
                             expected_schema = template_protocol_schema(
                                 kernel,
                                 projected["protocol_role"],
+                                contracts[0]["artifact_kind"],
+                            )
+                        elif projected["protocol_role"] == "replay-comparison":
+                            expected_schema = replay_comparison_schema(
+                                kernel,
+                                language_bundle["language"],
                                 contracts[0]["artifact_kind"],
                             )
                         else:

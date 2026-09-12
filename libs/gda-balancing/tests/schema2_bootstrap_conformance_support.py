@@ -40,7 +40,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:b6adf079019e055d3d5114d8d89994871070a0b94332785d047b54007f41f23d"
+    "sha256:024063657390e1fa182dd737503c729294b1013548b0ddd430c876c9608ecfcf"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
@@ -2095,6 +2095,7 @@ def _consumer_b_package_semantic_projections_are_exact(
         _consumer_b_project_template_schema(kernel, projected_language)
         _consumer_b_project_publication_schema(kernel, projected_language)
         _consumer_b_project_trace_schema(kernel, projected_language)
+        _consumer_b_project_replay_schema(kernel, projected_language)
         _consumer_b_project_rir_schema(kernel, projected_language)
     except (KeyError, TypeError, ValueError, IndexError):
         return False
@@ -3236,6 +3237,130 @@ def _consumer_b_artifact_contract_declarations(
         del declaration["identity_excluded_members"]
         declarations.append(declaration)
     return declarations
+
+
+def _consumer_b_replay_schema(
+    kernel: dict[str, Any], language: dict[str, Any], artifact_kind: str
+) -> dict[str, Any]:
+    """Derive Replay independently; its vector observations remain the inner owner."""
+    meta = kernel["meta_format"]
+    protocols = meta["language_definitions"]["wire_schema_protocol_roles"]
+    structure = deepcopy(protocols["replay_comparison_structure"])
+    if set(structure) != {
+        "required_members",
+        "field_types",
+    } or not _consumer_b_package_vector_contract_is_closed(meta["package_vector"]):
+        raise ValueError("Replay structure or vector owner is incomplete")
+    vector = next(
+        row
+        for row in meta["package_vector"]["kinds"]
+        if row["id"] == "replay-comparison"
+    )
+    envelope = deepcopy(protocols["artifact_envelope"])
+    if "artifact_kind" in envelope["field_types"]:
+        raise ValueError("Replay kind has a duplicated envelope owner")
+    envelope["field_types"]["artifact_kind"] = {"const": artifact_kind}
+    fields = _consumer_b_protocol_contract_schema(envelope)["properties"]
+    if set(fields) & set(structure["field_types"]):
+        raise ValueError("Replay envelope and payload overlap")
+    for name, contract in structure["field_types"].items():
+        fields[name] = _consumer_b_protocol_contract_schema(contract)
+    bindings = [
+        _consumer_b_replay_binding(language, role)
+        for role in ("evaluation-run", "experiment-verdict")
+    ]
+    statuses = [
+        schema["schema"]["properties"]["outcome"]["const"] for schema, _ in bindings
+    ]
+    if (
+        any(not isinstance(status, str) or not status for status in statuses)
+        or len(set(statuses)) != 2
+    ):
+        raise ValueError("Replay outcome status ownership is incomplete")
+    observation = {
+        "type": "object",
+        "required": list(vector["observation_members"]),
+        "properties": {
+            name: {"type": "string", "minLength": 1}
+            for name in vector["observation_members"]
+        },
+        "unevaluatedProperties": False,
+    }
+    observation["properties"]["evaluation_outcome_status"] = {"enum": statuses}
+    check_fields = {
+        name: {"type": "string", "minLength": 1}
+        for name in vector["check_members"]
+        if name != "match"
+    }
+    check_fields["match"] = {"type": "boolean"}
+    generated = {
+        "original_observation": observation,
+        "replay_observation": deepcopy(observation),
+        "replay_outcome_kind": {
+            "enum": [contract["artifact_kind"] for _, contract in bindings]
+        },
+        "checks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": check_fields,
+                "required": list(vector["check_members"]),
+                "unevaluatedProperties": False,
+            },
+        },
+        "result": {"enum": list(vector["results"])},
+    }
+    if set(fields) & set(generated):
+        raise ValueError("Replay container duplicates its semantic owner")
+    fields.update(generated)
+    required = structure["required_members"]
+    if (
+        not isinstance(required, list)
+        or not all(isinstance(name, str) for name in required)
+        or len(required) != len(set(required))
+        or set(required) != set(fields)
+    ):
+        raise ValueError("Replay container is not closed")
+    return {
+        "$schema": meta["language_definitions"]["collections"]["artifact_wire_schemas"][
+            "field_types"
+        ]["schema"]["dialect"],
+        "type": "object",
+        "properties": fields,
+        "required": list(required),
+        "unevaluatedProperties": False,
+    }
+
+
+def _consumer_b_replay_binding(
+    language: dict[str, Any], role: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    schemas = [
+        row
+        for row in language["artifact_wire_schemas"]
+        if row.get("protocol_role") == role
+    ]
+    if len(schemas) != 1:
+        raise ValueError("Replay protocol role has no unique Schema")
+    contracts = [
+        row
+        for row in language["artifact_contracts"]
+        if row["schema_kind"] == schemas[0]["artifact_kind"]
+    ]
+    if len(contracts) != 1:
+        raise ValueError("Replay Schema has no unique Artifact binding")
+    return schemas[0], contracts[0]
+
+
+def _consumer_b_project_replay_schema(
+    kernel: dict[str, Any], language: dict[str, Any]
+) -> None:
+    schema, contract = _consumer_b_replay_binding(language, "replay-comparison")
+    if "schema" in schema:
+        raise ValueError("Replay comparison structure has an obsolete authored owner")
+    schema["schema"] = _consumer_b_replay_schema(
+        kernel, language, contract["artifact_kind"]
+    )
 
 
 def _consumer_b_trace_schema(
@@ -10989,6 +11114,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 _consumer_b_project_template_schema(kernel, language)
                 _consumer_b_project_publication_schema(kernel, language)
                 _consumer_b_project_trace_schema(kernel, language)
+                _consumer_b_project_replay_schema(kernel, language)
                 _consumer_b_project_rir_schema(kernel, language)
             except (KeyError, TypeError, ValueError, IndexError):
                 runtime = kernel.get("meta_format", {}).get("runtime_program")

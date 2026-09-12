@@ -25,6 +25,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_project_publication_schema,
     _consumer_b_project_template_schema,
     _consumer_b_project_rir_schema,
+    _consumer_b_project_replay_schema,
     _consumer_b_project_trace_schema,
     _consumer_b_replay_comparison_vector_is_closed,
     _consumer_b_package_evidence_vector_header_is_closed,
@@ -177,6 +178,7 @@ def _attached_language(
         _consumer_b_project_template_schema(dict(kernel), language)
         _consumer_b_project_publication_schema(dict(kernel), language)
         _consumer_b_project_trace_schema(dict(kernel), language)
+        _consumer_b_project_replay_schema(dict(kernel), language)
         _consumer_b_project_rir_schema(dict(kernel), language)
     except (KeyError, TypeError, ValueError, IndexError) as error:
         raise InventoryRefusal("wire protocol structure does not close") from error
@@ -3940,6 +3942,7 @@ class _Reader:
             "artifact-set-receipt",
             "artifact-set-manifest",
             "publication-index",
+            "replay-comparison",
             "template-release",
             "template-instantiate-command-input",
             "template-instantiation-receipt",

@@ -116,6 +116,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_receipt_protocol_structure_independent.py",
         "test_replay_inventory.py",
         "test_replay_observation_members.py",
+        "test_replay_protocol_structure.py",
         "test_resolution_field_binding_roles.py",
         "test_resolution_parse_reason.py",
         "test_resolution_parse_reason_independent.py",

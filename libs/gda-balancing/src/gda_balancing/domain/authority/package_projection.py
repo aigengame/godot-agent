@@ -218,6 +218,57 @@ def _json_pointer_schema(meta_format: dict[str, Any]) -> dict[str, object]:
     return deepcopy(cast(dict[str, object], schema))
 
 
+def replay_observation_schemas(
+    meta_format: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Project the existing Replay vector's observation, checks and result owners."""
+    kinds = [
+        row
+        for row in meta_format["package_vector"]["kinds"]
+        if row.get("id") == "replay-comparison"
+    ]
+    if len(kinds) != 1:
+        raise ValueError("Kernel Replay vector kind is missing or ambiguous")
+    kind = kinds[0]
+    if (
+        kind.get("input_members") != ["original", "replay"]
+        or kind.get("observation_members")
+        != [
+            "evaluation_outcome_status",
+            "event_trace_identity",
+            "snapshot_series_identity",
+            "metric_dataset_identity",
+        ]
+        or kind.get("expect_members") != ["checks", "result"]
+        or kind.get("check_members") != ["key", "match", "original", "replay"]
+        or kind.get("results") != ["matched", "mismatched"]
+    ):
+        raise ValueError("Kernel replay-comparison vector contract is incomplete")
+    observation = {
+        "type": "object",
+        "properties": {
+            member: _non_empty_string_schema() for member in kind["observation_members"]
+        },
+        "required": list(kind["observation_members"]),
+        "unevaluatedProperties": False,
+    }
+    checks = {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "key": _non_empty_string_schema(),
+                "match": {"type": "boolean"},
+                "original": _non_empty_string_schema(),
+                "replay": _non_empty_string_schema(),
+            },
+            "required": list(kind["check_members"]),
+            "unevaluatedProperties": False,
+        },
+    }
+    return observation, checks, {"enum": list(kind["results"])}
+
+
 def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, object]]:
     pointer_schema = _json_pointer_schema(meta_format)
     contract = meta_format.get("package_vector")
@@ -825,35 +876,9 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                 )
                 continue
             if kind_id == "replay-comparison":
-                observation_members = kind.get("observation_members")
-                expect_members = kind.get("expect_members")
-                check_members = kind.get("check_members")
-                results = kind.get("results")
-                if (
-                    input_members != ["original", "replay"]
-                    or observation_members
-                    != [
-                        "evaluation_outcome_status",
-                        "event_trace_identity",
-                        "snapshot_series_identity",
-                        "metric_dataset_identity",
-                    ]
-                    or expect_members != ["checks", "result"]
-                    or check_members != ["key", "match", "original", "replay"]
-                    or results != ["matched", "mismatched"]
-                ):
-                    raise ValueError(
-                        "Kernel replay-comparison vector contract is incomplete"
-                    )
-                observation_schema = {
-                    "type": "object",
-                    "properties": {
-                        member: _non_empty_string_schema()
-                        for member in cast(list[str], observation_members)
-                    },
-                    "required": cast(list[str], observation_members),
-                    "unevaluatedProperties": False,
-                }
+                observation_schema, checks_schema, result_schema = (
+                    replay_observation_schemas(meta_format)
+                )
                 properties["input"] = {
                     "type": "object",
                     "properties": {
@@ -865,24 +890,8 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                 }
                 properties["expect"] = {
                     "type": "object",
-                    "properties": {
-                        "checks": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "key": _non_empty_string_schema(),
-                                    "match": {"type": "boolean"},
-                                    "original": _non_empty_string_schema(),
-                                    "replay": _non_empty_string_schema(),
-                                },
-                                "required": check_members,
-                                "unevaluatedProperties": False,
-                            },
-                        },
-                        "result": {"enum": results},
-                    },
-                    "required": expect_members,
+                    "properties": {"checks": checks_schema, "result": result_schema},
+                    "required": kind["expect_members"],
                     "unevaluatedProperties": False,
                 }
                 if set(properties) != set(required):
