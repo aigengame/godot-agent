@@ -982,28 +982,41 @@ def _scene_validate_recipe(
 
 
 def render_scene_preflight(preflight: "ScenePreflightResult") -> str:
-    """Render a startup verdict: the answer, then — when it is not clean — the evidence.
+    """Render a startup verdict: the answer, then — when there is any — the evidence.
 
     Conclusion first, and the headline distinguishes the case this command exists
     for: a scene that came up but complained on the way reads as ``ready with
-    errors``, not as ``ready``. A clean start stays the one short line; the project
-    only ever explains a failure, so it appears only with one (the shape ``script
-    validate`` uses).
+    errors``, not as ``ready``. Only a run with NOTHING to report is the one short
+    line; the evidence block below it explains a failed start, and since #844 it also
+    carries a record that did not fail one, so the project root appears with either
+    (the shape ``script validate`` uses).
+
+    The one short line is therefore keyed on ``started`` AND an empty
+    ``diagnostics``, not on ``started`` alone. #844 severed the old ``started
+    implies no diagnostics`` invariant — an exit-time leak is reported without
+    gating the verdict — and a shortcut on that invariant made this channel drop
+    the records the JSON one carries, which is the complaint GDA-DF-063 was filed
+    for (PR #964 review). The headline then comes from ``started``: a boot that WAS
+    clean keeps the plain status word with its records printed beneath, and ``ready
+    with errors`` keeps meaning what it always did — the scene reached ready and
+    something went wrong WHILE it started.
 
     A ``timeout`` verdict states its two numbers directly under the headline, in the
     wording the timeout envelopes use (#787): the ceiling that was reached and the
     elapsed wall clock. Every other verdict renders exactly the lines it always did.
     """
-    if preflight.started:
+    if preflight.started and not preflight.diagnostics:
         return f"{preflight.status.value} {preflight.path}"
     # ``.get`` with the raw value as the fallback: a renderer must not be the thing
     # that kills a command, so a status added later without a phrase here degrades to
     # its own spelling instead of raising a KeyError on the presentation path.
-    headline = {
-        SceneStartupStatus.READY: "ready with errors",
-        SceneStartupStatus.NOT_READY: "not ready",
-        SceneStartupStatus.TIMEOUT: "timeout",
-    }.get(preflight.status, preflight.status.value)
+    headline = preflight.status.value
+    if not preflight.started:
+        headline = {
+            SceneStartupStatus.READY: "ready with errors",
+            SceneStartupStatus.NOT_READY: "not ready",
+            SceneStartupStatus.TIMEOUT: "timeout",
+        }.get(preflight.status, preflight.status.value)
     lines = [f"{headline} {preflight.path}"]
     # The timeout evidence, on the human channel too (#787), so nobody has to re-run
     # with --json to learn which ceiling the run consumed. Both numbers are

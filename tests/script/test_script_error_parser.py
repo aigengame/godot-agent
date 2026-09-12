@@ -824,6 +824,24 @@ def test_the_verbose_spelling_of_the_resources_record_is_recognized_too():
     assert errors[1].message == "1 resources still in use at exit."
 
 
+def test_a_multi_digit_resource_count_is_recognized():
+    # The count is the engine's `%d`, so it is not one digit (PR #964 review).
+    # Every captured fixture in this slice happens to say `1`, which a
+    # single-digit pattern would satisfy — and GDA-DF-063, the report this issue
+    # comes from, said 7, while a real leak routinely passes nine. A run that
+    # leaked ten resources must not quietly stop being recognized and stop failing
+    # --strict. Synthesized from the captured line by changing the count alone.
+    stderr = (
+        "ERROR: 12 resources still in use at exit (run with --verbose for "
+        "details).\n"
+        "   at: clear (core/io/resource.cpp:810)\n"
+    )
+    errors = parse_script_errors(stderr)
+
+    assert [e.kind for e in errors] == [ScriptErrorKind.SHUTDOWN_LEAK]
+    assert errors[0].message.startswith("12 resources still in use at exit")
+
+
 def test_a_shutdown_leak_never_fails_an_entry_verdict():
     # It is a SHUTDOWN record: the engine prints it after the run, so it proves
     # the script ran. It must never become "the script never ran" — and it cannot,

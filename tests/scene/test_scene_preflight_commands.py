@@ -335,6 +335,50 @@ def test_human_output_leads_with_the_verdict(monkeypatch, tmp_path):
     )
 
 
+def test_the_human_channel_shows_a_record_that_did_not_gate_the_verdict(
+    monkeypatch, tmp_path
+):
+    # The two renderings are of ONE outcome (PR #964 review). #844 severed the old
+    # `started implies no diagnostics` invariant, and the renderer's shortcut on it
+    # dropped the leak records from the terminal while --json kept them — a leak
+    # sitting invisible is exactly what GDA-DF-063 was filed for. The headline stays
+    # the plain verdict word, because the boot itself WAS clean.
+    project = minimal_project(tmp_path)
+    _patch_launch(monkeypatch, RunResult(stdout=READY, stderr=LEAK_STDERR, exit_code=0))
+
+    result = CliRunner().invoke(
+        app, ["scene", "preflight", "res://main.tscn", "--project", str(project)]
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    lines = result.stdout.splitlines()
+    assert lines[0] == "ready res://main.tscn"
+    assert lines[1] == f"  project: {project.resolve()}"
+    assert lines[2] == (
+        "  shutdown_leak: ObjectDB instances leaked at exit "
+        "(run with --verbose for details)."
+    )
+    assert lines[3] == (
+        "  shutdown_leak: 1 resources still in use at exit "
+        "(run with --verbose for details)."
+    )
+
+
+def test_a_clean_start_stays_the_one_short_line(monkeypatch, tmp_path):
+    # The other side of the same rule: nothing to report means no evidence block at
+    # all, so widening the block above cannot make every clean run print a project
+    # line it never printed before.
+    project = minimal_project(tmp_path)
+    _patch_launch(monkeypatch, RunResult(stdout=READY, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app, ["scene", "preflight", "res://main.tscn", "--project", str(project)]
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines() == ["ready res://main.tscn"]
+
+
 def test_an_engine_reported_not_ready_projects_as_a_failed_start(monkeypatch, tmp_path):
     # The verdict gda cannot produce on a healthy engine but must still project
     # faithfully: readiness is settled before the first observed frame, so a

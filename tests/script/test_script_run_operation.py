@@ -824,6 +824,24 @@ def test_strict_leaves_a_zero_exit_a_success():
     assert outcome.exit_status == 0
 
 
+def test_strict_leaves_a_surviving_runtime_error_a_success():
+    # THE boundary of the #844 widening, which nothing else pins (PR #964 review):
+    # --strict has exactly TWO triggers, and "the engine printed an error" is not
+    # one of them. A runtime error the script SURVIVED is data on a successful
+    # result (ADR-0031, #651) — the case above uses an empty stderr, so it cannot
+    # tell a two-trigger gate from a general "any recognized diagnostic fails"
+    # rule, which would silently invert the decided default for every push_error
+    # run. The leak is the one record that is not about the run's own control flow.
+    outcome, _ = _run(
+        RunResult(stdout="all green\n", stderr=RUNTIME_ERROR_STDERR, exit_code=0),
+        strict=True,
+    )
+
+    assert isinstance(outcome, ScriptRunResult)
+    assert outcome.exit_status == 0
+    assert [d.kind.value for d in outcome.diagnostics] == ["runtime_error"]
+
+
 def test_the_default_still_passes_a_non_zero_exit_through():
     # The contract ADR-0031 recorded is unchanged without --strict: this is the guard
     # that the #651 opt-in did not quietly flip the default.

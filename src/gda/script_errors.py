@@ -21,7 +21,12 @@ Consumers (the reason this is a module and not a helper inside one command):
   ``diagnostics`` it carries on its result;
 - the ``script run`` timeout path (#655) — the same diagnostics from the partial
   stderr captured before the timeout;
-- the scene-startup preflight (#664) — the same script errors from a scene launch.
+- the scene-startup preflight (#664) — the same script errors from a scene launch;
+- the daemon's readiness boundary (#848) — the same script errors, read off the
+  Session log instead of a captured stderr, so ``daemon wait-ready`` and ``daemon
+  status`` can say a serving session started degraded. The first consumer that is
+  not a one-shot launch, which is why "pure function of the stderr text" below is
+  worth keeping: the text's SOURCE is the caller's business, not this module's.
 
 Everything here is a **pure function of the stderr text**: no engine, no I/O.
 Recognition is deliberately closed — only the records below are classified, so
@@ -467,12 +472,13 @@ class ScriptError(BaseModel):
 def script_error_line(error: ScriptError) -> str:
     """``<kind>: <path>:<line>: <message>``, dropping the parts the engine did not give.
 
-    The ONE text form of a recognized script error, so the four places that write
+    The ONE text form of a recognized script error, so the five places that write
     one — ``script run``'s passed-through diagnostics, ``scene preflight``'s startup
     diagnostics, the ``diagnostics`` prose of the two gda-ended ``script run``
-    failures (:mod:`gda.errors`), and the human failure channel's ``evidence`` block
-    — cannot drift into four spellings of the same line. Each site adds only its own
-    indent or prefix.
+    failures (:mod:`gda.errors`), the human failure channel's ``evidence`` block, and
+    the daemon readiness renderers that ``daemon wait-ready`` and ``daemon status``
+    share (#848) — cannot drift into five spellings of the same line. Each site adds
+    only its own indent or prefix.
 
     It lives HERE rather than in :mod:`gda.render` (#687 review). It is a lexical
     projection of a type this module owns, and one of its consumers is
