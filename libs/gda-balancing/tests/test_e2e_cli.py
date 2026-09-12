@@ -273,19 +273,10 @@ class TestKeyUserPath:
         assert {row["id"] for row in explanation["formula_explanations"]} == {
             "rare-threshold"
         }
+        # This Model reaches exactly these two Operations through its entrypoints.
         assert {row["id"] for row in explanation["operation_explanations"]} == {
-            "game.build.contribution@1",
             "game.build.replace-reward-v1",
             "game.generation.select-reward-v1",
-            "quantity.add",
-            "quantity.floor-divide",
-            "quantity.floor-zero",
-            "quantity.identity",
-            "quantity.less-than",
-            "quantity.maximum",
-            "quantity.minimum",
-            "quantity.multiply",
-            "quantity.subtract",
         }
 
         checked_in_experiment_path = _ROGUELIKE_REWARD_BUILD_EXAMPLE / "experiment.json"
@@ -705,10 +696,6 @@ class TestKeyUserPath:
         assert experiment["model"] == {
             "rir_semantic_identity": rir["semantic_identity"]
         }
-        assert experiment["runtime"]["required_evaluator"]["rng_algorithms"] == [
-            "splitmix64-v1"
-        ]
-        assert experiment["scenarios"][0]["named_streams"] == []
 
         receipts = []
         traces = []
@@ -724,6 +711,7 @@ class TestKeyUserPath:
             traces.append(trace)
 
         assert traces[0] == traces[1]
+        assert all(event["rng_draws"] == [] for event in traces[0]["events"])
         members = _receipt_members(receipts[0])
         dataset = json.loads(members["metric-dataset"].read_text(encoding="utf-8"))
         evaluator = json.loads(
@@ -737,10 +725,20 @@ class TestKeyUserPath:
             "floor-divide",
             "less-than",
         } <= set(evaluator["instruction_nodes"])
-        assert (
-            evaluator["instruction_nodes"]
-            == experiment["runtime"]["required_evaluator"]["instruction_nodes"]
-        )
+        assert evaluator["instruction_nodes"] == [
+            "add",
+            "constant",
+            "copy",
+            "floor-divide",
+            "if",
+            "less-than",
+            "less-than-or-equal",
+            "multiply",
+            "subtract",
+            "subtract-state",
+        ]
+        assert evaluator["rng_algorithms"] == [experiment["seed"]["algorithm"]]
+        assert evaluator["rng_algorithms"] == ["splitmix64-v1"]
         assert {sample["metric"]: sample["value"] for sample in dataset["samples"]} == {
             "attack_damage": 50,
             "base_damage": 20,
@@ -1955,9 +1953,6 @@ class TestKeyUserPath:
         )
         cancellation["id"] = "example.rpg-combat-cast.explicit-cancellation"
         cancellation["metrics"] = cancellation["metrics"][:2]
-        requirements = cancellation["runtime"]["required_evaluator"]
-        requirements["instruction_nodes"].append("cancel")
-        requirements["effects"].append("event.cancel")
         first_root, second_root = cancellation["scenarios"][0]["event_plan"]
         first_root["entrypoint"] = (
             "combat.player-attacks-enemy-and-cancels-counterattack"
@@ -2033,9 +2028,6 @@ class TestKeyUserPath:
                 "root_event_ref": first_root["root_event_ref"],
             }
         ]
-        requirements = active["runtime"]["required_evaluator"]
-        requirements["instruction_nodes"].append("cancel")
-        requirements["effects"].append("event.cancel")
         specification = tmp_path / "cancel-active-root.json"
         specification.write_text(json.dumps(active), encoding="utf-8")
 
@@ -2087,12 +2079,6 @@ class TestKeyUserPath:
             for row in no_cancellation["scenarios"][0]["assignments"]
             if row["target"]["name"] != "defeat_threshold"
         ]
-        no_cancellation["runtime"]["required_evaluator"]["instruction_nodes"].remove(
-            "guard-block"
-        )
-        no_cancellation["runtime"]["required_evaluator"]["instruction_nodes"].remove(
-            "require"
-        )
         enemy_health = next(
             row
             for row in no_cancellation["scenarios"][0]["assignments"]
@@ -2530,20 +2516,6 @@ class TestKeyUserPath:
             in combat_action_assignment_names("player-attacks-enemy")
             - {"defeat_threshold", "player_health"}
         ]
-        backward_time["runtime"]["required_evaluator"]["instruction_nodes"].extend(
-            ["cancel", "schedule"]
-        )
-        backward_time["runtime"]["required_evaluator"]["instruction_nodes"].remove(
-            "guard-block"
-        )
-        backward_time["runtime"]["required_evaluator"]["instruction_nodes"].remove(
-            "require"
-        )
-        backward_time["runtime"]["required_evaluator"]["instruction_nodes"].sort()
-        backward_time["runtime"]["required_evaluator"]["effects"].extend(
-            ["event.cancel", "event.schedule"]
-        )
-        backward_time["runtime"]["required_evaluator"]["effects"].sort()
         for index, (name, variant, stage, code) in enumerate(
             (
                 (
