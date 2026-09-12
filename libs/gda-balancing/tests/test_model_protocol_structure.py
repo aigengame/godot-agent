@@ -334,7 +334,7 @@ def test_model_inventory_retires_only_the_five_physical_schema_gaps():
     inventory = read_extension_inventory(kernel, graph)
     validate_extension_inventory(kernel, graph, inventory)
     assert _encoded(graph) == original
-    assert len(inventory.uncovered) == 4
+    assert len(inventory.uncovered) == 3
     assert {gap.pointer for gap in inventory.uncovered} == REMAINING_GAPS
 
 
@@ -351,7 +351,6 @@ REMAINING_GAPS = {
     "/vector_sets",
     "/packages/12/semantic_closure/25/definitions/0",
     "/packages/12/semantic_closure/2/definitions/3",
-    "/packages/12/semantic_closure/2/definitions/17",
 }
 
 

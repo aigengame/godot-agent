@@ -107,6 +107,7 @@ def refresh_package_semantic_closures(
                     "debug-map",
                     "package-lock",
                     "capability-manifest",
+                    "model-explanation",
                     "evaluator-capability-manifest",
                     "resolved-runtime-profile",
                     "snapshot-series",
@@ -187,6 +188,7 @@ def refresh_package_semantic_closures(
                                 kernel,
                                 projected["protocol_role"],
                                 contracts[0]["artifact_kind"],
+                                language=language_bundle["language"],
                             )
                         elif projected["protocol_role"] in {
                             "evaluator-capability-manifest",

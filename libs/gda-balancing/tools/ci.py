@@ -123,6 +123,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_replay_protocol_structure.py",
         "test_model_protocol_structure.py",
         "test_model_namespace_structure.py",
+        "test_model_explanation_structure.py",
         "test_resolution_field_binding_roles.py",
         "test_resolution_parse_reason.py",
         "test_resolution_parse_reason_independent.py",

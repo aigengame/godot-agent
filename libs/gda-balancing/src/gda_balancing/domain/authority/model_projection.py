@@ -7,7 +7,11 @@ from gda_balancing.domain.authority.contract_projection import (
     _contract_schema,
     artifact_envelope_contract,
 )
-from gda_balancing.domain.authority.rir_projection import _owned_contract_schema
+from gda_balancing.domain.authority.rir_projection import (
+    _owned_contract_schema,
+    rir_protocol_schema,
+)
+from gda_balancing.domain.canonical import canonical_bytes
 
 
 def _record(
@@ -220,15 +224,135 @@ def _namespace_schemas(kernel: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _explanation_schemas(
+    kernel: dict[str, Any], language: dict[str, Any]
+) -> dict[str, Any]:
+    """Select inspection structure from the actual compiled RIR owners."""
+    meta = kernel["meta_format"]
+    law = meta["language_definitions"]["wire_schema_protocol_roles"]["model_structure"][
+        "explanation_structure"
+    ]
+    definitions = [
+        row
+        for row in language["artifact_wire_schemas"]
+        if row.get("protocol_role") == "rir-semantic-payload"
+    ]
+    if len(definitions) != 1:
+        raise ValueError("Explanation has no unique RIR Schema owner")
+    bindings = [
+        row
+        for row in language["artifact_contracts"]
+        if row["schema_kind"] == definitions[0]["artifact_kind"]
+    ]
+    if len(bindings) != 1:
+        raise ValueError("Explanation has no unique RIR Artifact binding")
+    rir = rir_protocol_schema(
+        kernel, {"language": language}, bindings[0]["artifact_kind"]
+    )["properties"]
+
+    def record(name: str, supplied: dict[str, Any]) -> dict[str, Any]:
+        contract = law["records"][name]
+        fields = {
+            key: _owned_contract_schema(value)
+            for key, value in contract["field_types"].items()
+        }
+        if fields.keys() & supplied.keys():
+            raise ValueError("Explanation record duplicates its compiled owner")
+        fields.update(supplied)
+        if set(fields) != set(contract["required_members"]):
+            raise ValueError("Explanation record is incomplete")
+        return _record(fields, contract["required_members"])
+
+    formula = rir["formulas"]["items"]["properties"]
+    binding = rir["formula_bindings"]["items"]["properties"]
+    contexts = {}
+    for site in binding["site"]["oneOf"]:
+        context = site["properties"]["context"]
+        for alternative in context.get("oneOf", [context]):
+            contexts[canonical_bytes(alternative)] = alternative
+    site = record(
+        "evaluation_site",
+        {
+            "context": {"oneOf": [contexts[key] for key in sorted(contexts)]},
+            "operands": binding["arguments"],
+            "result": formula["result"],
+        },
+    )
+    declarations = [
+        row["properties"]
+        for row in rir["declarations"]["items"]["oneOf"]
+        if all(name in row["properties"] for name in law["declaration_members"])
+    ]
+    if len(declarations) != 1:
+        raise ValueError("Explanation has no unique structured declaration owner")
+    operation = rir["selected_semantics"]["properties"]["operations"]["items"][
+        "properties"
+    ]["definition"]["properties"]
+    runtime = meta["runtime_program"]
+    return {
+        "declaration_explanations": _items(
+            _record(
+                {name: declarations[0][name] for name in law["declaration_members"]},
+                law["declaration_members"],
+            )
+        ),
+        "formula_explanations": _items(
+            record(
+                "formula",
+                {
+                    **{name: formula[name] for name in law["formula_members"]},
+                    "evaluation_sites": _items(site),
+                },
+            )
+        ),
+        "operation_explanations": _items(
+            record(
+                "operation",
+                {
+                    **{name: operation[name] for name in law["operation_members"]},
+                    "control_nodes": _items(
+                        {"enum": [node["id"] for node in runtime["nodes"]]}
+                    ),
+                    "outcomes": _items(
+                        record(
+                            "outcome",
+                            {
+                                "kind": {"enum": runtime["outcome_contract"]["kinds"]},
+                                "state_policy": {
+                                    "enum": runtime["outcome_contract"][
+                                        "state_policies"
+                                    ]
+                                },
+                            },
+                        )
+                    ),
+                    "default_outcome": {
+                        "oneOf": [operation["default_outcome"], {"type": "null"}]
+                    },
+                },
+            )
+        ),
+    }
+
+
 def model_protocol_schema(
-    kernel: dict[str, Any], protocol_role: str, artifact_kind: str
+    kernel: dict[str, Any],
+    protocol_role: str,
+    artifact_kind: str,
+    *,
+    language: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Bind the actual Artifact kind without redefining compiled Model facts."""
     meta = kernel["meta_format"]
     structure = deepcopy(
         meta["language_definitions"]["wire_schema_protocol_roles"]["model_structure"]
     )
-    if set(structure) != {"containers", "debug_entry", "namespace_structure"}:
+    if set(structure) != {
+        "containers",
+        "debug_entry",
+        "namespace_structure",
+        "explanation_structure",
+    }:
         raise ValueError("Kernel Model structure has unknown or missing parts")
     part = structure["containers"][protocol_role]
     if set(part) != {"required_members", "field_types"}:
@@ -246,6 +370,13 @@ def model_protocol_schema(
         derived = _namespace_schemas(kernel)[protocol_role]
         if fields.keys() & derived.keys():
             raise ValueError("Model container duplicates its Namespace source")
+        fields.update(derived)
+    if protocol_role == "model-explanation":
+        if language is None:
+            raise ValueError("Explanation requires the actual supplied language")
+        derived = _explanation_schemas(kernel, language)
+        if fields.keys() & derived.keys():
+            raise ValueError("Explanation fields have multiple owners")
         fields.update(derived)
     if protocol_role == "debug-map":
         if "entries" in fields:
@@ -298,7 +429,7 @@ def project_model_protocols(kernel: dict[str, Any], language: dict[str, Any]) ->
             if len(contracts) != 1 or "schema" in definition:
                 raise ValueError("Model container has an ambiguous or authored owner")
             definition["schema"] = model_protocol_schema(
-                kernel, role, contracts[0]["artifact_kind"]
+                kernel, role, contracts[0]["artifact_kind"], language=language
             )
     except (KeyError, TypeError, IndexError) as error:
         raise ValueError(

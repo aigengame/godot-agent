@@ -40,7 +40,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:5cd7ff3394e05c8aa241921b8110a4c9d015b9a84e30876f09ebf929373dc644"
+    "sha256:7719af26efef27d068283a54195bbab7d5fddc46a2c27ea7ff872cef982c295b"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
@@ -3328,15 +3328,136 @@ def _consumer_b_model_namespace_schemas(kernel):
     }
 
 
+def _consumer_b_explanation_schemas(kernel, language):
+    """Independently derive inspection records from B's compiled RIR view."""
+    meta = kernel["meta_format"]
+    owner = meta["language_definitions"]["wire_schema_protocol_roles"][
+        "model_structure"
+    ]["explanation_structure"]
+    schema_rows = [
+        x
+        for x in language["artifact_wire_schemas"]
+        if x.get("protocol_role") == "rir-semantic-payload"
+    ]
+    if len(schema_rows) != 1:
+        raise ValueError("Explanation RIR role is missing or ambiguous")
+    artifact_rows = [
+        x
+        for x in language["artifact_contracts"]
+        if x["schema_kind"] == schema_rows[0]["artifact_kind"]
+    ]
+    if len(artifact_rows) != 1:
+        raise ValueError("Explanation RIR binding is missing or ambiguous")
+    source = _consumer_b_rir_schema(
+        kernel, {"language": language}, artifact_rows[0]["artifact_kind"]
+    )["properties"]
+
+    def sequence(value):
+        return {"type": "array", "items": value}
+
+    def closed(fields, required):
+        if set(fields) != set(required):
+            raise ValueError("Explanation member set differs from Kernel")
+        return {
+            "type": "object",
+            "properties": fields,
+            "required": required,
+            "unevaluatedProperties": False,
+        }
+
+    def record(key, fields):
+        contract = owner["records"][key]
+        own = {
+            name: _consumer_b_copied_definition_schema(value)
+            for name, value in contract["field_types"].items()
+        }
+        if own.keys() & fields.keys():
+            raise ValueError("Explanation field ownership is ambiguous")
+        return closed({**own, **fields}, contract["required_members"])
+
+    formula = source["formulas"]["items"]["properties"]
+    argument = source["formula_bindings"]["items"]["properties"]
+    phases = []
+    for variant in argument["site"]["oneOf"]:
+        context = variant["properties"]["context"]
+        phases.extend(context["oneOf"] if "oneOf" in context else [context])
+    contexts = {_encoded(x): x for x in phases}
+    site = record(
+        "evaluation_site",
+        {
+            "operands": argument["arguments"],
+            "result": formula["result"],
+            "context": {"oneOf": [contexts[x] for x in sorted(contexts)]},
+        },
+    )
+    declarations = [
+        x["properties"]
+        for x in source["declarations"]["items"]["oneOf"]
+        if set(owner["declaration_members"]) <= x["properties"].keys()
+    ]
+    if len(declarations) != 1:
+        raise ValueError("Explanation structured declaration owner is ambiguous")
+    definition = source["selected_semantics"]["properties"]["operations"]["items"][
+        "properties"
+    ]["definition"]["properties"]
+    runtime = meta["runtime_program"]
+    outcomes = runtime["outcome_contract"]
+    operation = {key: definition[key] for key in owner["operation_members"]}
+    operation.update(
+        {
+            "control_nodes": sequence({"enum": [x["id"] for x in runtime["nodes"]]}),
+            "default_outcome": {
+                "oneOf": [definition["default_outcome"], {"type": "null"}]
+            },
+            "outcomes": sequence(
+                record(
+                    "outcome",
+                    {
+                        "kind": {"enum": outcomes["kinds"]},
+                        "state_policy": {"enum": outcomes["state_policies"]},
+                    },
+                )
+            ),
+        }
+    )
+    return {
+        "formula_explanations": sequence(
+            record(
+                "formula",
+                {
+                    **{key: formula[key] for key in owner["formula_members"]},
+                    "evaluation_sites": sequence(site),
+                },
+            )
+        ),
+        "operation_explanations": sequence(record("operation", operation)),
+        "declaration_explanations": sequence(
+            closed(
+                {key: declarations[0][key] for key in owner["declaration_members"]},
+                owner["declaration_members"],
+            )
+        ),
+    }
+
+
 def _consumer_b_model_schema(
-    kernel: dict[str, Any], role: str, artifact_kind: str
+    kernel: dict[str, Any],
+    role: str,
+    artifact_kind: str,
+    *,
+    language: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Independently derive Model framing without consulting A's projector."""
     meta = kernel["meta_format"]
     shape = deepcopy(
         meta["language_definitions"]["wire_schema_protocol_roles"]["model_structure"]
     )
-    if set(shape) != {"containers", "debug_entry", "namespace_structure"}:
+    if set(shape) != {
+        "containers",
+        "debug_entry",
+        "namespace_structure",
+        "explanation_structure",
+    }:
         raise ValueError("Model structure has unknown parts")
     container = shape["containers"][role]
     if set(container) != {"required_members", "field_types"}:
@@ -3353,6 +3474,12 @@ def _consumer_b_model_schema(
         derived = _consumer_b_model_namespace_schemas(kernel)[role]
         if fields.keys() & derived.keys():
             raise ValueError("Model namespace source has multiple owners")
+    if role == "model-explanation":
+        if language is None:
+            raise ValueError("Explanation requires actual language")
+        derived = _consumer_b_explanation_schemas(kernel, language)
+        if fields.keys() & derived.keys():
+            raise ValueError("Explanation fields have duplicate owners")
     if role == "debug-map":
         if "entries" in fields:
             raise ValueError("Debug entries have a duplicate owner")
@@ -3401,7 +3528,7 @@ def _consumer_b_project_model_schema(kernel, language):
         if len(contracts) != 1 or "schema" in definition:
             raise ValueError("Model binding has an ambiguous or authored owner")
         definition["schema"] = _consumer_b_model_schema(
-            kernel, role, contracts[0]["artifact_kind"]
+            kernel, role, contracts[0]["artifact_kind"], language=language
         )
 
 

@@ -4494,6 +4494,7 @@ class _Reader:
             "debug-map",
             "package-lock",
             "capability-manifest",
+            "model-explanation",
             "evaluator-capability-manifest",
             "resolved-runtime-profile",
             "metric-dataset",
