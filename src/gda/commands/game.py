@@ -454,11 +454,21 @@ class GameRectParams(RelayedLiveParams):
 
 
 class GameRectResult(BaseModel):
-    """The result of ``gda game rect``: a Control's rendered viewport-space rect.
+    """The result of ``gda game rect``: a Control's whole layout read (#419, #852).
 
-    ``position`` and ``size`` are the two Vector2 projections from
-    ``Control.get_global_rect()``; no Rect2 projection is added to the shared
-    value projection surface.
+    Four rects and sizes, each a pair of Vector2 projections; no Rect2 projection
+    is added to the shared value projection surface. ``position`` / ``size`` are
+    ``Control.get_global_rect()`` — the rendered viewport-space rectangle, and the
+    reading the command shipped with. ``local_position`` / ``local_size`` are
+    ``Control.get_rect()``, the same rectangle in the PARENT's space. The two
+    minimum sizes are the layout's own inputs, and they are different reads:
+    ``minimum_size`` is the class's intrinsic minimum and EXCLUDES the authored
+    ``custom_minimum_size``, while ``combined_minimum_size`` is the per-axis
+    maximum of the two — the size a parent Container honors.
+
+    Together they answer why a Control renders where it does, which no storage
+    property reports: the authored ``custom_minimum_size`` is readable through
+    ``game get``, but the laid-out result is not (GDA-DF-071).
     """
 
     path: str = Field(description="The addressed node's runtime (absolute) path.")
@@ -473,6 +483,41 @@ class GameRectResult(BaseModel):
     size: list[float] = Field(
         description=(
             "The rendered viewport-space size, as [width, height]. "
+            + LIVE_ENGINE_PRECISION
+        )
+    )
+    local_position: list[float] = Field(
+        description=(
+            "The top-left point in the PARENT's space, as [x, y]: "
+            "Control.get_rect().position, the origin of the node's own transform. "
+            "That equals the node's `position` property only while `scale` and "
+            "`rotation` are default: a `pivot_offset` with a `scale` moves the "
+            "origin away from it. It differs from the viewport-space point "
+            "whenever an ancestor is offset. " + LIVE_ENGINE_PRECISION
+        )
+    )
+    local_size: list[float] = Field(
+        description=(
+            "The size in the PARENT's space, as [width, height]: "
+            "Control.get_rect().size, which is the node's `size` property "
+            "multiplied by the node's own `scale`. It differs from the "
+            "viewport-space size only where an ANCESTOR applies a scale. "
+            + LIVE_ENGINE_PRECISION
+        )
+    )
+    minimum_size: list[float] = Field(
+        description=(
+            "The class's own intrinsic minimum, as [width, height]: "
+            "Control.get_minimum_size(). It EXCLUDES the authored "
+            "custom_minimum_size, and is [0, 0] for a class with no intrinsic "
+            "minimum (a plain Control). " + LIVE_ENGINE_PRECISION
+        )
+    )
+    combined_minimum_size: list[float] = Field(
+        description=(
+            "The minimum a parent Container honors, as [width, height]: "
+            "Control.get_combined_minimum_size(), the per-axis maximum of "
+            "minimum_size and the authored custom_minimum_size. "
             + LIVE_ENGINE_PRECISION
         )
     )
@@ -751,10 +796,20 @@ def render_game_get(got: "GameGetResult") -> str:
 
 
 def render_game_rect(rect: "GameRectResult") -> str:
-    """Render a Control's runtime rendered rect as one viewport-space line."""
+    """Render a Control's layout read: the viewport rect, then its inputs (#852).
+
+    Three lines, each key labelled with the result field it renders, so the human
+    channel carries every fact the JSON one does. The head line is the rendered
+    viewport-space rectangle — the reading a caller asks for first — and the two
+    indented lines are the parent-space rectangle and the minimum sizes behind it.
+    """
     return (
         f"{rect.path} ({rect.type}) "
-        f"position={format_value(rect.position)} size={format_value(rect.size)}"
+        f"position={format_value(rect.position)} size={format_value(rect.size)}\n"
+        f"  local_position={format_value(rect.local_position)} "
+        f"local_size={format_value(rect.local_size)}\n"
+        f"  minimum_size={format_value(rect.minimum_size)} "
+        f"combined_minimum_size={format_value(rect.combined_minimum_size)}"
     )
 
 
@@ -1047,6 +1102,18 @@ def game_get(
     height, object_string, digest}, ADR-0035 amendment #666); `--texture-digest`
     opts into its content digest.
 
+    On a Control, `--property position`, `size`, `global_position` and
+    `global_rect` are `live_unknown_property`: none of them is a storage property
+    (the first two carry editor usage only, `global_position` no usage flags, and
+    `global_rect` is a method). They are layout OUTPUT — read them with `gda game
+    rect`, which the refusal message names. The refusal also names the layout
+    INPUTS, and WHICH ones depends on the parent: a free Control carries
+    offset_left, offset_top, offset_right, offset_bottom and anchor_left,
+    anchor_top, anchor_right, anchor_bottom, while a direct child of a Container
+    carries none of those — the engine drops them from its storage set — and its
+    inputs are custom_minimum_size, size_flags_horizontal and
+    size_flags_vertical, plus the parent Container's own layout.
+
     A value the engine reports crosses the wire at full binary64 precision — the
     reply is serialized with Godot's full-precision JSON writer, so a small or
     many-digit value reads back exactly (#752). The one residual is that
@@ -1074,14 +1141,31 @@ def game_rect(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Read a running Control's rendered viewport rect (live).
+    """Read a running Control's layout output (live).
 
     Routes through gda-daemon to the engine session's runtime SceneTree
     (kind = LIVE, ADR-0017), addressed by the runtime node path `game tree`
-    reports. The returned rect is Control.get_global_rect(): viewport-space
-    top-left position and laid-out size. With no daemon it reports
-    `daemon_not_running`; a path that resolves to no running node is
-    `live_node_not_found`; a non-Control node is `live_not_control`.
+    reports. It reports what the layout PRODUCED, which no storage property
+    carries: `position` / `size` are Control.get_global_rect() (viewport-space
+    top-left and laid-out size), `local_position` / `local_size` are
+    Control.get_rect() (the same rectangle in the parent's space), and the two
+    minimum sizes are different reads — `minimum_size` is the class's intrinsic
+    minimum WITHOUT the authored custom_minimum_size, `combined_minimum_size` the
+    per-axis maximum of the two, which is what a parent Container honors. Use it
+    for the four spellings `game get` refuses on a Control (position, size,
+    global_position, global_rect); the layout INPUTS stay `game get` / `game set`
+    storage properties, and which ones a node carries depends on its parent
+    (offset_* / anchor_* on a free Control, custom_minimum_size and the
+    size_flags_* on a direct child of a Container).
+
+    The read is not a pure one: Control.get_minimum_size() is the
+    `_get_minimum_size` virtual with no cache, so where a class leaves that getter
+    to Control the addressed node's script override of it runs once per request
+    (CONTEXT.md, `Project-code execution surface`).
+
+    With no daemon it reports `daemon_not_running`; a path that resolves to no
+    running node is `live_node_not_found`; a non-Control node is
+    `live_not_control`.
 
     A value the engine reports crosses the wire at full binary64 precision — the
     reply is serialized with Godot's full-precision JSON writer, so a small or

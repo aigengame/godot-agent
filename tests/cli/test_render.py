@@ -213,16 +213,25 @@ def test_render_game_get_renders_runtime_properties_by_absolute_path():
 
 
 def test_render_game_rect_renders_the_runtime_control_rect():
+    # The human channel carries every field the JSON one does (#852): the global
+    # rect on the head line, then the local rect and the two minimum sizes, each
+    # labelled with the result key it renders.
     result = GameRectResult(
         path="/root/Main/HUD/Stats",
         name="Stats",
         type="VBoxContainer",
         position=[24.0, 24.0],
         size=[160.0, 48.0],
+        local_position=[0.0, 0.0],
+        local_size=[160.0, 48.0],
+        minimum_size=[23.0, 26.0],
+        combined_minimum_size=[160.0, 48.0],
     )
-    assert (
-        render_game_rect(result) == "/root/Main/HUD/Stats (VBoxContainer) "
-        "position=[24.0, 24.0] size=[160.0, 48.0]"
+    assert render_game_rect(result) == (
+        "/root/Main/HUD/Stats (VBoxContainer) "
+        "position=[24.0, 24.0] size=[160.0, 48.0]\n"
+        "  local_position=[0.0, 0.0] local_size=[160.0, 48.0]\n"
+        "  minimum_size=[23.0, 26.0] combined_minimum_size=[160.0, 48.0]"
     )
 
 

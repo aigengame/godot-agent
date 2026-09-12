@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=8c2f2dce0229e2a816eb45186888fd06c25af9cabfaf1b84f18cd1a254163f00 -->
+<!-- gda-readme-i18n: source=README.md sha256=f828321713ebe36e45915a5f3c0d2afce7c748b3fba5908e7faa6702a61d0a7c -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -501,12 +501,13 @@ en el resultado.
 | `game tree` | Lee el árbol de escena en runtime del juego en ejecución (después de `_ready`). |
 | `game find` | Encuentra nodos de runtime por clase de motor, script, grupo, nombre o nombre único, en lugar de por ruta. `--type` es la clase del MOTOR (incluye subclases) y nunca un `class_name` del proyecto: `--script res://path.gd` es lo que llega a eso. |
 | `game get` | Lee las propiedades en vivo de un nodo de runtime por ruta de nodo; los nombres explícitos pueden acceder a variables del script adjunto. |
-| `game rect` | Lee el rectángulo renderizado en viewport de un Control de runtime por ruta de nodo. |
+| `game rect` | Lee la salida de layout de un Control de runtime por ruta de nodo: el rectángulo renderizado en viewport, ese mismo rectángulo en el espacio del padre y los tamaños mínimos intrínseco y combinado. |
 | `game set` | Define una propiedad de un nodo de runtime, o una variable del script adjunto nombrada explícitamente, en el juego en ejecución; `verified` informa si la relectura coincidió. |
 | `game call` | Invoca un método que el script del nodo declara en `GDA_CALLABLE` y devuelve su valor como datos estructurados. El propio proyecto declara que el método es de solo lectura, algo que gda no puede comprobar; nunca se invocan métodos no declarados. |
 
 `game call` lee lo que `game get` no puede: estado que tu proyecto expone como método.
 `game set --property position` sigue la misma regla de `Control` que `node set`.
+`game get` rechaza `position`, `size`, `global_position` y `global_rect` de un Control; `game rect` es la lectura que los sirve.
 
 **`diag`** — diagnósticos de runtime
 
