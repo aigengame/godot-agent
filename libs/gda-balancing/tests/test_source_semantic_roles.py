@@ -342,6 +342,7 @@ def test_source_template_provenance_roles_reach_the_real_public_writer(tmp_path)
         "array-shape",
         "missing-member-role",
         "duplicate-member-role",
+        "branch-only-field",
         "unsynced-recipe",
         "dangling-member-role",
     ],
@@ -381,6 +382,12 @@ def test_source_semantic_role_contract_refuses_incomplete_or_misowned_schema(def
         del entrypoint["properties"]["operation"]["semantic_member"]
     elif defect == "duplicate-member-role":
         entrypoint["properties"]["id"]["semantic_member"] = "operation"
+    elif defect == "branch-only-field":
+        symbols = schema["properties"]["modules"]["items"]["properties"]["symbols"][
+            "items"
+        ]
+        domain = symbols["properties"].pop("domain")
+        symbols["oneOf"][0]["properties"]["domain"] = domain
     elif defect == "dangling-member-role":
         schema["semantic_member"] = "source"
     elif defect == "unsynced-recipe":

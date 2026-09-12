@@ -2674,11 +2674,16 @@ def _consumer_b_schema_entry_roles(schema: Any) -> set[str]:
     role = schema.get(_SOURCE_ROLE_KEY)
     if isinstance(role, str):
         return {role}
-    return {
-        role
-        for branch in schema.get("oneOf", [])
-        for role in _consumer_b_schema_entry_roles(branch)
-    }
+    branches = schema.get("oneOf")
+    if not isinstance(branches, list):
+        return set()
+    observed: set[str] = set()
+    for branch in branches:
+        branch_roles = _consumer_b_schema_entry_roles(branch)
+        if not branch_roles:
+            raise ValueError("independent Source role union has an unowned branch")
+        observed.update(branch_roles)
+    return observed
 
 
 def _consumer_b_role_properties(schema: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2897,7 +2902,11 @@ def _consumer_b_source_roles_are_closed(
         malformed = False
 
         def visit(
-            value: Any, *, inherited: str | None = None, property_: bool = False
+            value: Any,
+            *,
+            inherited: str | None = None,
+            inherited_members: Mapping[str, str] | None = None,
+            property_: bool = False,
         ) -> None:
             nonlocal malformed
             if malformed or not isinstance(value, dict):
@@ -2910,25 +2919,31 @@ def _consumer_b_source_roles_are_closed(
                 if (
                     not isinstance(explicit, str)
                     or explicit not in roles
-                    or explicit == inherited
+                    or inherited is not None
                 ):
                     malformed = True
                     return
                 anchors.setdefault(explicit, []).append(value)
             role = explicit if isinstance(explicit, str) else inherited
+            direct_members: Mapping[str, str] | None
             if explicit is not None:
+                properties = value.get("properties")
+                if not isinstance(properties, dict):
+                    malformed = True
+                    return
                 observed: dict[str, set[str]] = {}
-                for properties in _consumer_b_role_properties(value):
-                    for authored, child in properties.items():
-                        member = (
-                            child.get(_SOURCE_MEMBER_KEY)
-                            if isinstance(child, dict)
-                            else None
-                        )
-                        if not isinstance(member, str) or not member:
-                            malformed = True
-                            return
-                        observed.setdefault(member, set()).add(authored)
+                direct_member_map: dict[str, str] = {}
+                for authored, child in properties.items():
+                    member = (
+                        child.get(_SOURCE_MEMBER_KEY)
+                        if isinstance(child, dict)
+                        else None
+                    )
+                    if not isinstance(member, str) or not member:
+                        malformed = True
+                        return
+                    observed.setdefault(member, set()).add(authored)
+                    direct_member_map[authored] = member
                 if set(observed) != set(roles[explicit]["members"]) or any(
                     len(names) != 1 for names in observed.values()
                 ):
@@ -2950,12 +2965,30 @@ def _consumer_b_source_roles_are_closed(
                     ):
                         malformed = True
                         return
+                direct_members = direct_member_map
+            else:
+                direct_members = inherited_members
+                properties = value.get("properties")
+                if inherited_members is not None and isinstance(properties, dict):
+                    for authored, child in properties.items():
+                        member = (
+                            child.get(_SOURCE_MEMBER_KEY)
+                            if isinstance(child, dict)
+                            else None
+                        )
+                        if inherited_members.get(authored) != member:
+                            malformed = True
+                            return
             for child in value.get("properties", {}).values():
                 visit(child, property_=True)
             if "items" in value:
                 visit(value["items"])
             for branch in value.get("oneOf", []):
-                visit(branch, inherited=role)
+                visit(
+                    branch,
+                    inherited=role,
+                    inherited_members=direct_members,
+                )
 
         visit(source)
         if malformed or set(anchors) != set(roles):

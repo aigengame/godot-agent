@@ -149,15 +149,30 @@ def _validate_context(
     modules = request.get("modules", [current_module])
     if not isinstance(current_module, dict) or not isinstance(modules, list):
         raise ValueError("independent Formula module closure is malformed")
+    module_members = set(
+        kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
+            "source_notation"
+        ]["semantic_roles"]["roles"]["module"]["members"]
+    )
     projected_modules = [
-        _consumer_b_project_source_role(module, "module", kernel, language_bundle).value
+        _consumer_b_project_source_role(
+            module,
+            "module",
+            kernel,
+            language_bundle,
+            omitted_members=module_members,
+        ).value
         for module in modules
         if isinstance(module, dict)
     ]
     if len(projected_modules) != len(modules):
         raise ValueError("independent Formula module closure is malformed")
     projected_current = _consumer_b_project_source_role(
-        current_module, "module", kernel, language_bundle
+        current_module,
+        "module",
+        kernel,
+        language_bundle,
+        omitted_members=module_members,
     ).value
     formula = request.get("formula")
     if not isinstance(formula, dict):

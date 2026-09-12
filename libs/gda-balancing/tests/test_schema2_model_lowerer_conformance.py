@@ -56,6 +56,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_project_source,
     _consumer_b_project_source_selector,
     _consumer_b_source_fact_transport_is_supported,
+    _consumer_b_source_role_member_paths,
 )
 from schema2_formula_conformance_support import normalize_source_body
 
@@ -557,6 +558,17 @@ def _reference_check_source(
     )
     reasons = {item["id"]: item for item in language["reasons"]}
     if schema_errors:
+        symbol_collection_paths = _consumer_b_source_role_member_paths(
+            source_schema, "module", "symbols"
+        )
+
+        def is_symbol_item_path(path: tuple[object, ...]) -> bool:
+            return (
+                bool(path)
+                and isinstance(path[-1], int)
+                and tuple(part for part in path if isinstance(part, str))
+                in symbol_collection_paths
+            )
 
         def pointer_count(error: jsonschema.ValidationError) -> int:
             if error.validator == "required" and isinstance(error.instance, dict):
@@ -615,7 +627,7 @@ def _reference_check_source(
             schema_path = tuple(schema_error.absolute_path)
             selected_errors = (
                 preferred_errors(schema_error)
-                if len(schema_path) >= 2 and schema_path[-2] == "symbols"
+                if is_symbol_item_path(schema_path)
                 else [schema_error]
             )
             for preferred in selected_errors:
