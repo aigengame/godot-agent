@@ -40,7 +40,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:09d710e08ff38ef03f218e187f26cf306094671dfbcac96d8078f9a7b05a7467"
+    "sha256:b6adf079019e055d3d5114d8d89994871070a0b94332785d047b54007f41f23d"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
@@ -2092,6 +2092,7 @@ def _consumer_b_package_semantic_projections_are_exact(
             for definition in entry["definitions"]
         ]
     try:
+        _consumer_b_project_template_schema(kernel, projected_language)
         _consumer_b_project_publication_schema(kernel, projected_language)
         _consumer_b_project_trace_schema(kernel, projected_language)
         _consumer_b_project_rir_schema(kernel, projected_language)
@@ -3000,6 +3001,122 @@ def _consumer_b_artifact_envelope(
     if payload.get("optional_members"):
         common["optional_members"] = payload["optional_members"]
     return common
+
+
+def _consumer_b_template_schema(
+    kernel: dict[str, Any], protocol_role: str, artifact_kind: str
+) -> dict[str, Any]:
+    """Independently expand Template framing, leaving member payloads separate."""
+    meta = kernel["meta_format"]
+    protocols = meta["language_definitions"]["wire_schema_protocol_roles"]
+    structure = deepcopy(protocols["template_structure"])
+    if set(structure) != {
+        "release",
+        "member",
+        "member_collection",
+        "command_input",
+        "receipt",
+    }:
+        raise ValueError("Template structure has missing or unknown parts")
+    convert = _consumer_b_protocol_contract_schema
+    member = structure["member"]
+    if (
+        set(member) != {"type", "closed", "required_members", "field_types"}
+        or member["type"] != "closed-object"
+        or member["closed"] is not True
+    ):
+        raise ValueError("Template member is not a closed container")
+    convert(member)
+    if member["field_types"].get("payload") != {"type": "canonical-json"}:
+        raise ValueError("Template payload has a separate admitted member Schema")
+    collection = structure["member_collection"]
+    if (
+        set(collection) != {"type", "minItems"}
+        or collection["type"] != "list-of"
+        or type(collection["minItems"]) is not int
+        or collection["minItems"] < 0
+    ):
+        raise ValueError("Template member collection is malformed")
+    for name in ("release", "command_input", "receipt"):
+        part = structure[name]
+        if set(part) != {"required_members", "field_types"}:
+            raise ValueError("Template container has unknown members")
+        required = part["required_members"]
+        if not isinstance(required, list) or len(required) != len(set(required)):
+            raise ValueError("Template required members are malformed")
+    common = deepcopy(protocols["artifact_envelope"])
+    fields = dict(common["field_types"])
+    if "artifact_kind" in fields:
+        raise ValueError("Template envelope duplicates the actual kind")
+    fields["artifact_kind"] = {"const": artifact_kind}
+    match protocol_role:
+        case "template-release":
+            part = structure["release"]
+            groups = (part["field_types"],)
+        case "template-instantiate-command-input":
+            part = structure["command_input"]
+            groups = (part["field_types"],)
+        case "template-instantiation-receipt":
+            part = structure["receipt"]
+            groups = (structure["command_input"]["field_types"], part["field_types"])
+        case _:
+            raise ValueError("Artifact role is outside the Template protocol")
+    for group in groups:
+        if set(group) & set(fields):
+            raise ValueError("Template fields have duplicate owners")
+        fields.update(group)
+    if not set(common["required_members"]) <= set(part["required_members"]):
+        raise ValueError("Template container omits an Artifact envelope field")
+    if protocol_role == "template-release":
+        if {"manifest", "members"} & set(fields):
+            raise ValueError("Template member collection has duplicate owners")
+        metadata = deepcopy(member)
+        metadata["required_members"] = [
+            name for name in metadata["required_members"] if name != "payload"
+        ]
+        del metadata["field_types"]["payload"]
+        fields["manifest"] = {**collection, "items": metadata}
+        fields["members"] = {**collection, "items": member}
+    return {
+        "$schema": meta["language_definitions"]["collections"]["artifact_wire_schemas"][
+            "field_types"
+        ]["schema"]["dialect"],
+        **convert(
+            {
+                **common,
+                "field_types": fields,
+                "required_members": part["required_members"],
+            }
+        ),
+    }
+
+
+def _consumer_b_project_template_schema(
+    kernel: dict[str, Any], language: dict[str, Any]
+) -> None:
+    for role in (
+        "template-release",
+        "template-instantiate-command-input",
+        "template-instantiation-receipt",
+    ):
+        definitions = [
+            row
+            for row in language["artifact_wire_schemas"]
+            if row.get("protocol_role") == role
+        ]
+        if len(definitions) != 1:
+            raise ValueError("Template protocol role is missing or ambiguous")
+        definition = definitions[0]
+        bindings = [
+            row
+            for row in language["artifact_contracts"]
+            if row["schema_kind"] == definition["artifact_kind"]
+        ]
+        if len(bindings) != 1 or "schema" in definition:
+            raise ValueError("Template container has an ambiguous or authored owner")
+        definition["schema"] = _consumer_b_template_schema(
+            kernel, role, bindings[0]["artifact_kind"]
+        )
 
 
 def _consumer_b_publication_schema(
@@ -10869,6 +10986,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     deepcopy(vector_set.get("vector_definitions", []))
                 )
             try:
+                _consumer_b_project_template_schema(kernel, language)
                 _consumer_b_project_publication_schema(kernel, language)
                 _consumer_b_project_trace_schema(kernel, language)
                 _consumer_b_project_rir_schema(kernel, language)

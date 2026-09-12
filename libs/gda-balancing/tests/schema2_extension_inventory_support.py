@@ -23,6 +23,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_operation_relation_is_satisfied,
     _consumer_b_package_evidence_vectors_are_closed,
     _consumer_b_project_publication_schema,
+    _consumer_b_project_template_schema,
     _consumer_b_project_rir_schema,
     _consumer_b_project_trace_schema,
     _consumer_b_replay_comparison_vector_is_closed,
@@ -173,6 +174,7 @@ def _attached_language(
     for collection in ("artifact_wire_schemas", "artifact_contracts"):
         language[collection] = [dict(row) for row in language[collection]]
     try:
+        _consumer_b_project_template_schema(dict(kernel), language)
         _consumer_b_project_publication_schema(dict(kernel), language)
         _consumer_b_project_trace_schema(dict(kernel), language)
         _consumer_b_project_rir_schema(dict(kernel), language)
@@ -3938,6 +3940,9 @@ class _Reader:
             "artifact-set-receipt",
             "artifact-set-manifest",
             "publication-index",
+            "template-release",
+            "template-instantiate-command-input",
+            "template-instantiation-receipt",
         }:
             # The protocol pass checks the physical declaration and producer
             # binding. The Kernel supplies structure; no authored field names

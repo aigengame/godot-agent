@@ -96,6 +96,9 @@ def refresh_package_semantic_closures(
                     "artifact-set-receipt",
                     "artifact-set-manifest",
                     "publication-index",
+                    "template-release",
+                    "template-instantiate-command-input",
+                    "template-instantiation-receipt",
                 }:
                     from gda_balancing.domain.authority.trace_projection import (
                         trace_protocol_schema,
@@ -105,6 +108,10 @@ def refresh_package_semantic_closures(
                     )
                     from gda_balancing.domain.authority.publication_projection import (
                         publication_protocol_schema,
+                    )
+
+                    from gda_balancing.domain.authority.template_projection import (
+                        template_protocol_schema,
                     )
 
                     contracts = [
@@ -123,6 +130,16 @@ def refresh_package_semantic_closures(
                             "publication-index",
                         }:
                             expected_schema = publication_protocol_schema(
+                                kernel,
+                                projected["protocol_role"],
+                                contracts[0]["artifact_kind"],
+                            )
+                        elif projected["protocol_role"] in {
+                            "template-release",
+                            "template-instantiate-command-input",
+                            "template-instantiation-receipt",
+                        }:
+                            expected_schema = template_protocol_schema(
                                 kernel,
                                 projected["protocol_role"],
                                 contracts[0]["artifact_kind"],

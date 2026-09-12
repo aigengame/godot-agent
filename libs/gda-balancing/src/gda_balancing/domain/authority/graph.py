@@ -24,7 +24,12 @@ def project_artifact_protocols(
         project_publication_protocol,
     )
 
+    from gda_balancing.domain.authority.template_projection import (
+        project_template_protocol,
+    )
+
     try:
+        project_template_protocol(kernel, language)
         project_trace_schema(kernel, language)
         project_rir_schema(kernel, language)
         project_publication_protocol(kernel, language)
