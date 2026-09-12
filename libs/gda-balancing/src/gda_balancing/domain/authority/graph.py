@@ -35,11 +35,15 @@ def project_artifact_protocols(
     from gda_balancing.domain.authority.runtime_projection import (
         project_runtime_outputs,
     )
+    from gda_balancing.domain.authority.runtime_evidence_projection import (
+        project_runtime_evidence_schemas,
+    )
 
     try:
         project_runtime_outputs(kernel, language)
         project_template_protocol(kernel, language)
         project_trace_schema(kernel, language)
+        project_runtime_evidence_schemas(kernel, language)
         project_rir_schema(kernel, language)
         project_publication_protocol(kernel, language)
         project_replay_comparison_schema(kernel, language)

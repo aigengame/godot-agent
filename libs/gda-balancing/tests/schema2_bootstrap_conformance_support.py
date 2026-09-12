@@ -40,7 +40,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:6401f370b5b162e52ff0de365534d07de7a27f44f230774338965701fc9e3c58"
+    "sha256:5816d87f53d080e689c59ca8504deb9ee877d19c14ca9a0e77843930a48fe3ee"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
@@ -2096,6 +2096,7 @@ def _consumer_b_package_semantic_projections_are_exact(
         _consumer_b_project_template_schema(kernel, projected_language)
         _consumer_b_project_publication_schema(kernel, projected_language)
         _consumer_b_project_trace_schema(kernel, projected_language)
+        _consumer_b_project_runtime_evidence_schemas(kernel, projected_language)
         _consumer_b_project_replay_schema(kernel, projected_language)
         _consumer_b_project_rir_schema(kernel, projected_language)
     except (KeyError, TypeError, ValueError, IndexError):
@@ -3496,9 +3497,7 @@ def _consumer_b_project_replay_schema(
     )
 
 
-def _consumer_b_trace_schema(
-    kernel: dict[str, Any], artifact_kind: str
-) -> dict[str, Any]:
+def _consumer_b_trace_contracts(kernel: dict[str, Any]) -> dict[str, Any]:
     """Independent Trace grammar projection from the actual Kernel, never A's view."""
     meta = kernel["meta_format"]
     law = deepcopy(
@@ -3638,6 +3637,14 @@ def _consumer_b_trace_schema(
         },
     )
 
+    return law
+
+
+def _consumer_b_trace_schema(
+    kernel: dict[str, Any], artifact_kind: str
+) -> dict[str, Any]:
+    law = _consumer_b_trace_contracts(kernel)
+    meta = kernel["meta_format"]
     return _consumer_b_order_derived_schema(
         kernel,
         {
@@ -3668,6 +3675,233 @@ def _consumer_b_project_trace_schema(
             raise ValueError("Trace kind binding is not unique")
         definition["schema"] = _consumer_b_trace_schema(
             kernel, bindings[0]["artifact_kind"]
+        )
+
+
+def _consumer_b_runtime_evidence_schema(
+    kernel: dict[str, Any], role: str, artifact_kind: str
+) -> dict[str, Any]:
+    """Independently resolve journal carriers and the existing Trace grammar."""
+    meta = kernel["meta_format"]
+    structures = deepcopy(
+        meta["language_definitions"]["wire_schema_protocol_roles"][
+            "runtime_evidence_structure"
+        ]
+    )
+    expected = {
+        "snapshot_series",
+        "terminal_audit",
+        "snapshot",
+        "continuation",
+        "journal_prefix",
+        "rng_state",
+        "event_catalog_record",
+        "event_spec",
+    }
+    if structures.keys() != expected:
+        raise ValueError("incomplete Runtime evidence ownership")
+    runtime = meta["runtime_program"]
+    scheduler = runtime["scheduler"]
+    trace = _consumer_b_trace_contracts(kernel)
+    trace_fields = trace["event"]["field_types"]
+    scheduled = trace_fields["schedules"]["items"]["field_types"]
+
+    def put(row, **fields):
+        if fields.keys() & row["field_types"].keys():
+            raise ValueError("Runtime evidence restates an existing contract")
+        row["field_types"].update(deepcopy(fields))
+
+    def row(**fields):
+        return {
+            "type": "closed-object",
+            "closed": True,
+            "required_members": list(fields),
+            "field_types": fields,
+        }
+
+    def sequence(items):
+        return {"type": "list-of", "items": items}
+
+    orders = trace_fields["ordering_key"]
+    named_values = trace_fields["state_after"]
+    assignment = sequence(
+        row(
+            target=scheduled["state_references"]["items"]["field_types"]["target"],
+            value=named_values["items"]["field_types"]["value"],
+        )
+    )
+    events = structures["event_spec"]
+    if events.keys() != {
+        "common",
+        "external_input",
+        "root_transition",
+        "scheduled_transition",
+        "observation",
+    }:
+        raise ValueError("admitted Event carrier variants are incomplete")
+    put(events["common"], ordering_key=orders)
+    put(events["external_input"], facts=assignment)
+    put(events["root_transition"], payload=assignment)
+    put(
+        events["scheduled_transition"],
+        **{
+            key: scheduled[key]
+            for key in ("operation", "arguments", "state_references")
+        },
+    )
+    put(events["observation"], ordering_key=orders)
+    alternatives = []
+    for name in [
+        "external_input",
+        "root_transition",
+        "scheduled_transition",
+        "observation",
+    ]:
+        item = events[name]
+        if name != "observation":
+            common = events["common"]
+            if set(item["required_members"]) & set(common["required_members"]):
+                raise ValueError("duplicate admitted Event frame member")
+            put(item, **common["field_types"])
+            item["required_members"] = [
+                *item["required_members"],
+                *common["required_members"],
+            ]
+        alternatives.append(item)
+    spec = {"type": "one-of", "alternatives": alternatives}
+    catalog = structures["event_catalog_record"]
+    put(
+        catalog,
+        event_spec=spec,
+        ordering_key=orders,
+        kind={"enum": [item["field_types"]["kind"]["const"] for item in alternatives]},
+    )
+    continuation = structures["continuation"]
+    if "required_members" in continuation:
+        raise ValueError("duplicate continuation field ownership")
+    names = []
+    for address in scheduler["snapshot_identity"][
+        "runtime_configuration_projection"
+    ].values():
+        segments = address.split(".")
+        if len(segments) == 2 and segments[0] == "continuation":
+            names.append(segments[1])
+        elif address != "values":
+            raise ValueError("unsupported Snapshot configuration address")
+    continuation["required_members"] = names
+    rng = structures["rng_state"]
+    encoding = runtime["named_rng"]["candidate_encoding"]
+    width = runtime["named_rng"]["word_bits"]
+    if (
+        encoding["radix"] != 16
+        or encoding["case"] != "lowercase"
+        or encoding["zero_pad"] is not True
+        or not isinstance(width, int)
+        or isinstance(width, bool)
+        or width <= 0
+        or width % 4
+        or not isinstance(encoding["alphabet"], str)
+        or not encoding["alphabet"]
+    ):
+        raise ValueError("incomplete RNG state wire encoding")
+    put(
+        rng,
+        state_hex={
+            "type": "string",
+            "pattern": f"^[{re.escape(encoding['alphabet'])}]{{{width // 4}}}$",
+        },
+    )
+    put(
+        continuation,
+        lifecycle_state={"enum": runtime["runtime_configuration"]["lifecycle_states"]},
+        step_boundary={
+            "type": "one-of",
+            "alternatives": [{"enum": runtime["step"]["boundaries"]}, {"type": "null"}],
+        },
+        rng=sequence(rng),
+        event_catalog=structures["journal_prefix"],
+        committed_trace=structures["journal_prefix"],
+    )
+    snapshot = structures["snapshot"]
+    put(snapshot, continuation=continuation, values=named_values)
+    if role == "snapshot-series":
+        payload = structures["snapshot_series"]
+        collection = payload["field_types"]["snapshots"]
+        if "items" in collection:
+            raise ValueError("duplicate Snapshot record owner")
+        collection["items"] = snapshot
+        put(payload, event_catalog=sequence(catalog))
+    elif role == "runtime-terminal-audit":
+        payload = structures["terminal_audit"]
+        references = [
+            item
+            for item in trace_fields["entrypoint"]["alternatives"]
+            if item.get("type") != "null"
+        ]
+        if len(references) != 1:
+            raise ValueError("Trace dispatch reference is ambiguous")
+        put(
+            payload["field_types"]["refusing_event"],
+            entrypoint=references[0],
+            event_spec=spec,
+            ordering_key=orders,
+            attempted_calls=trace_fields["calls"],
+        )
+        put(
+            payload["field_types"]["rollback"],
+            state_before=trace_fields["state_before"],
+            state_after=named_values,
+        )
+        put(
+            payload,
+            committed_trace_prefix=sequence(trace["event"]),
+            event_catalog_prefix=sequence(catalog),
+            last_snapshot=named_values,
+            last_snapshot_record=snapshot,
+            terminal_condition=trace["terminal"]["field_types"]["condition"],
+            budget_counters=row(
+                **{name: {"type": "integer"} for name in scheduler["budget_members"]}
+            ),
+        )
+    else:
+        raise ValueError("unsupported Runtime evidence role")
+    put(payload, root_event_map=trace["envelope"]["field_types"]["root_event_map"])
+    return _consumer_b_order_derived_schema(
+        kernel,
+        {
+            "$schema": meta["language_definitions"]["collections"][
+                "artifact_wire_schemas"
+            ]["field_types"]["schema"]["dialect"],
+            **_consumer_b_protocol_contract_schema(
+                _consumer_b_artifact_envelope(kernel, payload, artifact_kind)
+            ),
+        },
+    )
+
+
+def _consumer_b_project_runtime_evidence_schemas(
+    kernel: dict[str, Any], language: dict[str, Any]
+) -> None:
+    for role in ("snapshot-series", "runtime-terminal-audit"):
+        definitions = [
+            item
+            for item in language["artifact_wire_schemas"]
+            if item.get("protocol_role") == role
+        ]
+        if len(definitions) != 1:
+            raise ValueError("Runtime evidence role has no unique Schema")
+        definition = definitions[0]
+        if "schema" in definition:
+            raise ValueError("Runtime evidence has an obsolete authored Schema")
+        bindings = [
+            item
+            for item in language["artifact_contracts"]
+            if item["schema_kind"] == definition["artifact_kind"]
+        ]
+        if len(bindings) != 1:
+            raise ValueError("Runtime evidence kind binding is not unique")
+        definition["schema"] = _consumer_b_runtime_evidence_schema(
+            kernel, role, bindings[0]["artifact_kind"]
         )
 
 
@@ -11246,14 +11480,17 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 derived_vectors.extend(
                     deepcopy(vector_set.get("vector_definitions", []))
                 )
+            protocol_projection_failed = False
             try:
                 _consumer_b_project_runtime_outputs(kernel, language)
                 _consumer_b_project_template_schema(kernel, language)
                 _consumer_b_project_publication_schema(kernel, language)
                 _consumer_b_project_trace_schema(kernel, language)
+                _consumer_b_project_runtime_evidence_schemas(kernel, language)
                 _consumer_b_project_replay_schema(kernel, language)
                 _consumer_b_project_rir_schema(kernel, language)
             except (KeyError, TypeError, ValueError, IndexError):
+                protocol_projection_failed = True
                 runtime = kernel.get("meta_format", {}).get("runtime_program")
                 subject = (
                     "language.runtime"
@@ -11282,7 +11519,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 return refusal_result()
             if raw_graph_candidate:
                 ldb = expected_index
-            elif expected_index != dict(ldb):
+            elif not protocol_projection_failed and expected_index != dict(ldb):
                 refuse(
                     "kernel.identity_mismatch",
                     "ingress",

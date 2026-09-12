@@ -99,6 +99,8 @@ def refresh_package_semantic_closures(
                     "replay-comparison",
                     "evaluator-capability-manifest",
                     "resolved-runtime-profile",
+                    "snapshot-series",
+                    "runtime-terminal-audit",
                     "template-release",
                     "template-instantiate-command-input",
                     "template-instantiation-receipt",
@@ -123,6 +125,10 @@ def refresh_package_semantic_closures(
 
                     from gda_balancing.domain.authority.replay_projection import (
                         replay_comparison_schema,
+                    )
+
+                    from gda_balancing.domain.authority.runtime_evidence_projection import (
+                        runtime_evidence_protocol_schema,
                     )
 
                     contracts = [
@@ -160,6 +166,15 @@ def refresh_package_semantic_closures(
                             "resolved-runtime-profile",
                         }:
                             expected_schema = runtime_output_schema(
+                                kernel,
+                                projected["protocol_role"],
+                                contracts[0]["artifact_kind"],
+                            )
+                        elif projected["protocol_role"] in {
+                            "snapshot-series",
+                            "runtime-terminal-audit",
+                        }:
+                            expected_schema = runtime_evidence_protocol_schema(
                                 kernel,
                                 projected["protocol_role"],
                                 contracts[0]["artifact_kind"],

@@ -21,8 +21,8 @@ def _record(members: list[str], fields: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def trace_protocol_schema(kernel: dict[str, Any], artifact_kind: str) -> dict[str, Any]:
-    """Project one Trace structure; no LDB schema, override, or ambient authority."""
+def trace_protocol_contracts(kernel: dict[str, Any]) -> dict[str, Any]:
+    """Resolve the one Event, terminal and root-map owner for Runtime artifacts."""
     meta = kernel["meta_format"]
     structure = deepcopy(
         meta["language_definitions"]["wire_schema_protocol_roles"]["trace_structure"]
@@ -137,10 +137,17 @@ def trace_protocol_schema(kernel: dict[str, Any], artifact_kind: str) -> dict[st
             "terminal_statuses": {"type": "list-of", "items": terminal},
         },
     )
+    return structure
+
+
+def trace_protocol_schema(kernel: dict[str, Any], artifact_kind: str) -> dict[str, Any]:
+    """Project one Trace structure; no LDB schema, override, or ambient authority."""
+    meta = kernel["meta_format"]
+    envelope = trace_protocol_contracts(kernel)["envelope"]
     common = artifact_envelope_contract(kernel, artifact_kind)
     if set(common["required_members"]) & set(envelope["required_members"]):
         raise ValueError("Trace payload duplicates a common Artifact envelope field")
-    supply(envelope, common["field_types"])
+    envelope["field_types"].update(common["field_types"])
     envelope["required_members"] = (
         common["required_members"] + envelope["required_members"]
     )

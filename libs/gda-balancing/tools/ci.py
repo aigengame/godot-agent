@@ -144,6 +144,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_template_wire_structure.py",
         "test_trace_protocol_inventory.py",
         "test_trace_protocol_structure.py",
+        "test_runtime_evidence_protocol_structure.py",
     ),
     "bounded-fold": (
         "test_bounded_fold_formula.py",

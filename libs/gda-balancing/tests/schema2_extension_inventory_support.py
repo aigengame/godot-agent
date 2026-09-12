@@ -31,6 +31,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_project_replay_schema,
     _consumer_b_profiled_equality_values,
     _consumer_b_project_trace_schema,
+    _consumer_b_project_runtime_evidence_schemas,
     _consumer_b_replay_comparison_vector_is_closed,
     _consumer_b_package_evidence_vector_header_is_closed,
     _consumer_b_scheduler_scenario_vector_is_closed,
@@ -186,6 +187,7 @@ def _attached_language(
         _consumer_b_project_template_schema(dict(kernel), language)
         _consumer_b_project_publication_schema(dict(kernel), language)
         _consumer_b_project_trace_schema(dict(kernel), language)
+        _consumer_b_project_runtime_evidence_schemas(dict(kernel), language)
         _consumer_b_project_replay_schema(dict(kernel), language)
         _consumer_b_project_rir_schema(dict(kernel), language)
     except (KeyError, TypeError, ValueError, IndexError) as error:
@@ -4186,6 +4188,8 @@ class _Reader:
             "evaluator-capability-manifest",
             "resolved-runtime-profile",
             "event-trace",
+            "snapshot-series",
+            "runtime-terminal-audit",
             "rir-semantic-payload",
             "artifact-set-receipt",
             "artifact-set-manifest",

@@ -163,7 +163,7 @@ def test_inventory_does_not_generalize_kernel_ownership_or_guess_binding(
             if mutation == "missing-authored-schema":
                 if closure["authority_path"] == "language.artifact_wire_schemas":
                     for row in closure["definitions"]:
-                        if row.get("protocol_role") == "runtime-terminal-audit":
+                        if row.get("protocol_role") == "metric-dataset":
                             del row["schema"]
             elif closure["authority_path"] == "language.artifact_contracts":
                 matches = [
