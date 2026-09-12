@@ -158,3 +158,12 @@ def _assert_public_compilation_and_run(tmp_path, kernel, graph, source):
     assert isinstance(experiment, CheckedExperiment), experiment
     assert validate_experiment_artifact_set(experiment, executed)
     return public, checked
+
+
+def test_source_routing_projection_preserves_public_and_independent_artifacts(tmp_path):
+    from test_source_semantic_roles import _candidate
+
+    kernel, graph, _context, source, _original = _candidate("routing")
+    independent = _consumer_b(kernel, graph)
+    assert independent["admitted"], independent
+    _assert_public_compilation_and_run(tmp_path, kernel, graph, source)

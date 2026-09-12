@@ -97,6 +97,82 @@ def _candidate(case):
                     "package_requirements"
                 ]:
                     term["path"] = ["wire/requirements~"]
+    elif case == "routing":
+        from test_resolution_parse_reason import _profile
+
+        members = {
+            "source": {
+                "manifest": "header/~",
+                "package_requirements": "dependencies/~",
+                "modules": "sections/~",
+            },
+            "manifest": {"id": "model_key/~", "entry_module": "start_module/~"},
+            "module": {
+                "id": "module_key/~",
+                "imports": "uses/~",
+                "symbols": "declarations/~",
+            },
+            "import": {
+                "alias": "prefix/~",
+                "package": "package_id/~",
+                "symbol": "export_name/~",
+            },
+            "symbol": {"symbol": "name/~", "type": "type_ref/~"},
+        }
+        for role, names in members.items():
+            for old, new in names.items():
+                _rename_role_field(schema, {role}, old, new)
+        for role, objects in (
+            (
+                "symbol",
+                [row for module in source["modules"] for row in module["symbols"]],
+            ),
+            (
+                "import",
+                [row for module in source["modules"] for row in module["imports"]],
+            ),
+            ("module", source["modules"]),
+            ("manifest", [source["manifest"]]),
+            ("source", [source]),
+        ):
+            for obj in objects:
+                for old, new in members[role].items():
+                    obj[new] = obj.pop(old)
+
+        def rename_term(term):
+            if term["root"] == "source":
+                path = term["path"]
+                if path[:1] == ["manifest"]:
+                    term["path"] = [
+                        members["source"]["manifest"],
+                        members["manifest"][path[1]],
+                    ]
+                else:
+                    term["path"] = [members["source"].get(part, part) for part in path]
+            elif term["root"] == "binding":
+                names = members.get(term["binding"], {})
+                term["path"] = [names.get(part, part) for part in term["path"]]
+
+        for recipe in _profile(authored)["relation_recipes"]:
+            for binding in recipe["bindings"]:
+                rename_term(binding["source"])
+            for predicate in recipe["predicates"]:
+                rename_term(predicate["left"])
+                rename_term(predicate["right"])
+            for field in recipe["fields"]:
+                rename_term(field["term"])
+        # Model checks retain their authored Source paths. Lowering selects
+        # semantic Source rows after the schema-guided boundary projection.
+        names = {**members["source"], **members["module"], **members["symbol"]}
+        for package in authored["packages"]:
+            for closure in package["semantic_closure"]:
+                if closure["authority_path"] == "language.model_checks":
+                    for check in closure["definitions"]:
+                        for selector in ("selector", "scope_selector"):
+                            if selector in check:
+                                check[selector] = [
+                                    names.get(part, part) for part in check[selector]
+                                ]
     elif case == "entrypoint-id":
         _rename_role_field(schema, {"entrypoint"}, "id", "wire/id~")
         for entrypoint in source["entrypoints"]:
@@ -126,6 +202,7 @@ def _candidate(case):
         "entrypoint-id",
         "operation-arguments",
         "requirements",
+        "routing",
     ],
 )
 def test_source_roles_preserve_all_prepared_values(case):
@@ -134,6 +211,13 @@ def test_source_roles_preserve_all_prepared_values(case):
     assert isinstance(checked, CheckedModel), checked
     assert checked.source == source
     assert checked.source_projection.value == original
+    from gda_balancing.domain.model._compilation import lower_checked_model
+
+    artifacts = lower_checked_model(checked)
+    declarations = artifacts["rir-semantic-payload"]["declarations"]
+    assert {row["symbol"] for row in declarations} == {
+        row["symbol"] for module in original["modules"] for row in module["symbols"]
+    }
     assert checked.hir.entrypoints
     assert checked.hir.formulas
 
@@ -147,6 +231,7 @@ def test_source_roles_preserve_all_prepared_values(case):
         "entrypoint-id",
         "operation-arguments",
         "requirements",
+        "routing",
     ],
 )
 def test_source_roles_reach_public_build_and_run(tmp_path, case):

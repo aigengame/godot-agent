@@ -285,29 +285,12 @@ def _resolved_source_symbols(
     packages = {
         item["id"]: item for item in cast(list[dict[str, Any]], language["packages"])
     }
-    semantic_pointers = {
-        authored: semantic for semantic, authored in projection.authored_paths.items()
+    selected_source_rows = {
+        pointer: value
+        for value, pointer in _selected_values(
+            source, cast(list[str], lowering["source_selector"])
+        )
     }
-    selected_source_rows = {}
-    for _value, authored_pointer in _selected_values(
-        projection.authored_source, cast(list[str], lowering["source_selector"])
-    ):
-        pointer_text = semantic_pointers[_pointer(authored_pointer)]
-        parts = [
-            part.replace("~1", "/").replace("~0", "~")
-            for part in pointer_text.split("/")[1:]
-        ]
-        selected: Any = source
-        pointer: list[object] = []
-        for part in parts:
-            if isinstance(selected, list):
-                index = int(part)
-                selected = selected[index]
-                pointer.append(index)
-            else:
-                selected = selected[part]
-                pointer.append(part)
-        selected_source_rows[tuple(pointer)] = selected
     rows: list[tuple[dict[str, Any], tuple[object, ...]]] = []
     resolved_source_pointers: set[tuple[object, ...]] = set()
     module_ids: set[str] = set()
