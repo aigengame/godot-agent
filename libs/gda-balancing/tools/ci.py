@@ -106,6 +106,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_formula_operation_returns.py",
         "test_formula_operation_returns_independent.py",
         "test_formula_resolution_independent.py",
+        "test_metric_outcome_protocol_structure.py",
         "test_operation_extension_inventory.py",
         "test_operation_vector_inventory.py",
         "test_operation_root_projection.py",

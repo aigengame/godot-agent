@@ -91,6 +91,9 @@ def refresh_package_semantic_closures(
                 if path == "language.artifact_wire_schemas" and projected.get(
                     "protocol_role"
                 ) in {
+                    "metric-dataset",
+                    "evaluation-run",
+                    "experiment-verdict",
                     "event-trace",
                     "rir-semantic-payload",
                     "artifact-set-receipt",
@@ -105,6 +108,9 @@ def refresh_package_semantic_closures(
                     "template-instantiate-command-input",
                     "template-instantiation-receipt",
                 }:
+                    from gda_balancing.domain.authority.metric_projection import (
+                        metric_outcome_schema,
+                    )
                     from gda_balancing.domain.authority.trace_projection import (
                         trace_protocol_schema,
                     )
@@ -176,6 +182,17 @@ def refresh_package_semantic_closures(
                         }:
                             expected_schema = runtime_evidence_protocol_schema(
                                 kernel,
+                                projected["protocol_role"],
+                                contracts[0]["artifact_kind"],
+                            )
+                        elif projected["protocol_role"] in {
+                            "metric-dataset",
+                            "evaluation-run",
+                            "experiment-verdict",
+                        }:
+                            expected_schema = metric_outcome_schema(
+                                kernel,
+                                language_bundle["language"],
                                 projected["protocol_role"],
                                 contracts[0]["artifact_kind"],
                             )

@@ -40,7 +40,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:5816d87f53d080e689c59ca8504deb9ee877d19c14ca9a0e77843930a48fe3ee"
+    "sha256:3108d20a2227c410bf8f9ea862bfc67f2adc0bd350070fe67cc336873ac68a0e"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
@@ -2097,6 +2097,7 @@ def _consumer_b_package_semantic_projections_are_exact(
         _consumer_b_project_publication_schema(kernel, projected_language)
         _consumer_b_project_trace_schema(kernel, projected_language)
         _consumer_b_project_runtime_evidence_schemas(kernel, projected_language)
+        _consumer_b_project_metric_outcome_schema(kernel, projected_language)
         _consumer_b_project_replay_schema(kernel, projected_language)
         _consumer_b_project_rir_schema(kernel, projected_language)
     except (KeyError, TypeError, ValueError, IndexError):
@@ -3373,6 +3374,133 @@ def _consumer_b_artifact_contract_declarations(
     return declarations
 
 
+def _consumer_b_metric_outcome_schema(
+    kernel: dict[str, Any], language: dict[str, Any], role: str, artifact_kind: str
+) -> dict[str, Any]:
+    """Independently derive the Metric containers from their shared wire owners."""
+    meta = kernel["meta_format"]
+    protocols = meta["language_definitions"]["wire_schema_protocol_roles"]
+    law = protocols["metric_outcome_structure"]
+    if set(law) != {"bindings", "dataset", "sample", "primary", "outcomes"}:
+        raise ValueError("Metric container owner is incomplete")
+    if set(law["outcomes"]) != {"evaluation-run", "experiment-verdict"}:
+        raise ValueError("Metric outcome variants are incomplete")
+    _, trace_binding = _consumer_b_replay_binding(language, "event-trace")
+    trace_fields = _consumer_b_trace_schema(kernel, trace_binding["artifact_kind"])[
+        "properties"
+    ]
+    event_fields = trace_fields["events"]["items"]["properties"]
+    observation_choices = [
+        value
+        for value in event_fields["observation"]["oneOf"]
+        if value.get("type") == "object"
+    ]
+    if len(observation_choices) != 1:
+        raise ValueError("Metric observation has no unique wire owner")
+    observed = observation_choices[0]["properties"]
+
+    def assemble(contract, *groups):
+        if (
+            contract.get("type") != "closed-object"
+            or contract.get("closed") is not True
+        ):
+            raise ValueError("Metric protocol must be a closed container")
+        properties = {
+            name: _consumer_b_protocol_contract_schema(field)
+            for name, field in contract["field_types"].items()
+        }
+        for group in groups:
+            if properties.keys() & group.keys():
+                raise ValueError("Metric protocol field has multiple owners")
+            properties.update(deepcopy(group))
+        required = contract["required_members"]
+        if len(required) != len(set(required)) or set(required) != set(properties):
+            raise ValueError("Metric protocol field membership is incomplete")
+        return {
+            "type": "object",
+            "properties": properties,
+            "required": list(required),
+            "unevaluatedProperties": False,
+        }
+
+    shared = {
+        name: _consumer_b_protocol_contract_schema(value)
+        for name, value in law["bindings"].items()
+    }
+    if role == "metric-dataset":
+        sample = assemble(
+            law["sample"],
+            {
+                "logical_time": event_fields["ordering_key"]["properties"][
+                    "logical_time"
+                ],
+                "value": event_fields["facts"]["items"]["properties"]["integer"],
+                "window": observed["window"]["properties"]["name"],
+                "metric_definition_identity": observed["metric_definition_identity"],
+                "metric": observed["metric"],
+            },
+        )
+        payload = assemble(
+            law["dataset"],
+            shared,
+            {
+                "samples": {"type": "array", "items": sample, "minItems": 1},
+                "metric_definition_identities": {
+                    "type": "array",
+                    "items": observed["metric_definition_identity"],
+                    "minItems": 1,
+                },
+            },
+        )
+    elif role in law["outcomes"]:
+        variant = law["outcomes"][role]
+        if set(variant) != (
+            {"outcome"} if role == "evaluation-run" else {"outcome", "failed_metrics"}
+        ):
+            raise ValueError("Metric outcome variant is not closed")
+        contract = deepcopy(law["primary"])
+        contract["required_members"] += list(variant)
+        payload = assemble(
+            contract,
+            shared,
+            {
+                "root_event_map": trace_fields["root_event_map"],
+                "terminal_statuses": trace_fields["terminal_statuses"],
+            },
+            {
+                name: _consumer_b_protocol_contract_schema(value)
+                for name, value in variant.items()
+            },
+        )
+    else:
+        raise ValueError("Unknown Metric wire role")
+    envelope = deepcopy(protocols["artifact_envelope"])
+    if "artifact_kind" in envelope["field_types"]:
+        raise ValueError("Metric kind has two owners")
+    envelope["field_types"]["artifact_kind"] = {"const": artifact_kind}
+    common = _consumer_b_protocol_contract_schema(envelope)
+    if payload["properties"].keys() & common["properties"].keys():
+        raise ValueError("Metric payload duplicates its Artifact envelope")
+    payload["properties"].update(common["properties"])
+    payload["required"].extend(common["required"])
+    payload["$schema"] = meta["language_definitions"]["collections"][
+        "artifact_wire_schemas"
+    ]["field_types"]["schema"]["dialect"]
+    return _consumer_b_order_derived_schema(kernel, payload)
+
+
+def _consumer_b_project_metric_outcome_schema(
+    kernel: dict[str, Any], language: dict[str, Any]
+) -> None:
+    for role in ("metric-dataset", "evaluation-run", "experiment-verdict"):
+        schema, binding = _consumer_b_replay_binding(language, role)
+        if "schema" in schema:
+            raise ValueError("Metric wire structure has an obsolete authored owner")
+        schema["schema"] = _consumer_b_metric_outcome_schema(
+            kernel, language, role, binding["artifact_kind"]
+        )
+
+
 def _consumer_b_replay_schema(
     kernel: dict[str, Any], language: dict[str, Any], artifact_kind: str
 ) -> dict[str, Any]:
@@ -3404,7 +3532,12 @@ def _consumer_b_replay_schema(
         for role in ("evaluation-run", "experiment-verdict")
     ]
     statuses = [
-        schema["schema"]["properties"]["outcome"]["const"] for schema, _ in bindings
+        _consumer_b_metric_outcome_schema(
+            kernel, language, role, binding["artifact_kind"]
+        )["properties"]["outcome"]["const"]
+        for role, (_schema, binding) in zip(
+            ("evaluation-run", "experiment-verdict"), bindings, strict=True
+        )
     ]
     if (
         any(not isinstance(status, str) or not status for status in statuses)
@@ -11487,6 +11620,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 _consumer_b_project_publication_schema(kernel, language)
                 _consumer_b_project_trace_schema(kernel, language)
                 _consumer_b_project_runtime_evidence_schemas(kernel, language)
+                _consumer_b_project_metric_outcome_schema(kernel, language)
                 _consumer_b_project_replay_schema(kernel, language)
                 _consumer_b_project_rir_schema(kernel, language)
             except (KeyError, TypeError, ValueError, IndexError):

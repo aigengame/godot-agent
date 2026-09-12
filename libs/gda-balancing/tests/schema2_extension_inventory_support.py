@@ -26,6 +26,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_operation_composition_subjects,
     _consumer_b_operation_relation_is_satisfied,
     _consumer_b_package_evidence_vectors_are_closed,
+    _consumer_b_project_metric_outcome_schema,
     _consumer_b_project_publication_schema,
     _consumer_b_project_template_schema,
     _consumer_b_project_runtime_outputs,
@@ -190,6 +191,7 @@ def _attached_language(
         _consumer_b_project_publication_schema(dict(kernel), language)
         _consumer_b_project_trace_schema(dict(kernel), language)
         _consumer_b_project_runtime_evidence_schemas(dict(kernel), language)
+        _consumer_b_project_metric_outcome_schema(dict(kernel), language)
         _consumer_b_project_replay_schema(dict(kernel), language)
         _consumer_b_project_rir_schema(dict(kernel), language)
     except (KeyError, TypeError, ValueError, IndexError) as error:
@@ -4485,6 +4487,9 @@ class _Reader:
         if role == "language.artifact_wire_schemas" and value.get("protocol_role") in {
             "evaluator-capability-manifest",
             "resolved-runtime-profile",
+            "metric-dataset",
+            "evaluation-run",
+            "experiment-verdict",
             "event-trace",
             "snapshot-series",
             "runtime-terminal-audit",

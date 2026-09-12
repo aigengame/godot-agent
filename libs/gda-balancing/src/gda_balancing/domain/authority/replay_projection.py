@@ -8,6 +8,7 @@ from gda_balancing.domain.authority.contract_projection import (
     artifact_envelope_contract,
 )
 from gda_balancing.domain.authority.package_projection import replay_observation_schemas
+from gda_balancing.domain.authority.metric_projection import metric_outcome_schema
 
 
 def _binding(
@@ -56,7 +57,12 @@ def replay_comparison_schema(
         _binding(language, role) for role in ("evaluation-run", "experiment-verdict")
     ]
     statuses = [
-        schema["schema"]["properties"]["outcome"]["const"] for schema, _ in outcomes
+        metric_outcome_schema(kernel, language, role, contract["artifact_kind"])[
+            "properties"
+        ]["outcome"]["const"]
+        for role, (_schema, contract) in zip(
+            ("evaluation-run", "experiment-verdict"), outcomes, strict=True
+        )
     ]
     if (
         not all(isinstance(status, str) and status for status in statuses)

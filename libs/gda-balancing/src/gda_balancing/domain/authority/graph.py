@@ -31,6 +31,9 @@ def project_artifact_protocols(
     from gda_balancing.domain.authority.replay_projection import (
         project_replay_comparison_schema,
     )
+    from gda_balancing.domain.authority.metric_projection import (
+        project_metric_outcome_schemas,
+    )
 
     from gda_balancing.domain.authority.runtime_projection import (
         project_runtime_outputs,
@@ -46,6 +49,7 @@ def project_artifact_protocols(
         project_runtime_evidence_schemas(kernel, language)
         project_rir_schema(kernel, language)
         project_publication_protocol(kernel, language)
+        project_metric_outcome_schemas(kernel, language)
         project_replay_comparison_schema(kernel, language)
         if any("schema" not in row for row in language["artifact_wire_schemas"]):
             raise ValueError("an authored artifact schema is missing")

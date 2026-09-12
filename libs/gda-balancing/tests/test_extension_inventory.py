@@ -1143,7 +1143,7 @@ def test_resolution_inventory_closes_every_actual_source_selector(witness):
         assert all(row.token in inventory.reserved for row in occurrences)
     assert Counter(gap.reason for gap in inventory.uncovered) == Counter(
         {
-            "nested language.artifact_wire_schemas roles are not yet traversed": 12,
+            "nested language.artifact_wire_schemas roles are not yet traversed": 9,
             "nested language.wire_schemas roles are not yet traversed": 1,
             "remaining vector families: source-or-rule-or-reason": 1,
         }
