@@ -332,8 +332,6 @@ def test_a_600_frame_summary_window_stays_compact_and_reports_its_own_cost(
 
         # The observer's own footprint, as the real harness computed it: one
         # packed column per monitor plus one of timestamps, 8 bytes per value.
-        # 8 bytes per stored value, over one packed column per monitor plus one
-        # of timestamps.
         assert data["collector_bytes"] == (
             600 * (len(PERF_MONITOR_NAMES) + 1) * PERF_PACKED_VALUE_BYTES
         )
@@ -351,6 +349,9 @@ def test_a_600_frame_summary_window_stays_compact_and_reports_its_own_cost(
         assert len(rows["samples"]) == 600
         assert [row["frame"] for row in rows["samples"]] == list(range(600))
         assert set(rows["samples"][0]["values"]) == set(PERF_MONITOR_NAMES)
+        # The timestamp column is the engine's clock, not a constant: only a
+        # real session can show that, because every unit fake is CLI-side.
+        assert rows["samples"][-1]["timestamp"] > rows["samples"][0]["timestamp"]
         assert rows["collector_bytes"] == data["collector_bytes"]
         assert len(full.stdout.encode("utf-8")) > SUMMARY_RESULT_BYTE_BOUND
 

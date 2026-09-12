@@ -1330,6 +1330,11 @@ def test_perf_monitors_help_states_the_observer_cost_and_summary():
     assert "samples_omitted" in flat
     assert "collector_bytes" in flat
     assert "static_memory" in flat
+    # And it must say what that number is NOT: a lower bound, read by order of
+    # magnitude, so the help does not point a caller at a false game leak
+    # (round 1 measured the observer's own rise at about 1.4x the figure).
+    assert "LOWER bound" in flat
+    assert "ORDER OF MAGNITUDE" in flat
 
 
 def test_perf_monitors_schema_and_models_reach_the_same_verdict():
@@ -1426,8 +1431,14 @@ def test_perf_monitors_schema_and_models_reach_the_same_verdict():
         # A window that discloses neither what it kept nor what it retained.
         {k: v for k, v in window.items() if k != "samples_omitted"},
         {k: v for k, v in window.items() if k != "collector_bytes"},
-        # A snapshot cannot borrow the window-only disclosures.
+        # A snapshot cannot borrow the window-only disclosures — either of
+        # them: the schema pins both to null, and round 1 showed the pair was
+        # only half covered here.
         {**snapshot, "collector_bytes": 16},
+        {**snapshot, "samples_omitted": False},
+        # A published `minimum: 0` that no instance exercises: a negative
+        # retention figure is not a fact any window can report.
+        {**window, "collector_bytes": -1},
     ]
     for instance in input_corpus:
         assert schema_ok(doc["input"], instance) == model_ok(
@@ -1456,3 +1467,9 @@ def test_perf_monitors_schema_and_models_reach_the_same_verdict():
     assert not schema_ok(doc["input"], {"summary": True})
     assert not model_ok(PerfMonitorsParams, {"frames": 5, "summary": "yes"})
     assert not model_ok(PerfMonitorsParams, {"frames": 5, "summary": 1})
+    # #846, round 1: `collector_bytes`' published `minimum: 0` is derived from
+    # the model's `ge=0`, so dropping the bound moves BOTH halves together and
+    # parity alone stays silent. The published fact needs its own one-sided
+    # assertion, the same reason recheck 3's range keywords have one.
+    assert not schema_ok(doc["output"], {**window, "collector_bytes": -1})
+    assert not model_ok(PerfMonitorsResult, {**window, "collector_bytes": -1})

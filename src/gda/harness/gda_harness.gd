@@ -83,7 +83,8 @@ const MAX_WINDOW_FRAMES := 600
 const WINDOW_CLOCK_PROCESS := "process"
 const WINDOW_CLOCK_PHYSICS := "physics"
 
-# The bytes ONE stored value costs the `perf-sample` window below (#846). A
+# The bytes ONE stored value occupies in the `perf-sample` window below (#846) —
+# its LOGICAL size, so the array's own over-allocation is outside it. A
 # PackedFloat64Array element and a PackedInt64Array element are both 8 bytes, so
 # one constant covers the value columns and the timestamp column. Reported as
 # `collector_bytes`, and mirrored by a unit test so that number stays checkable
@@ -1043,10 +1044,17 @@ func _handle_perf_sample(params: Dictionary) -> Variant:
 			column.append(Performance.get_monitor(_perf_monitors[key]))
 		return null
 	var finalize := func(samples: Array) -> String:
-		# What the COLUMNS hold, which is what grows with the frame count. The
-		# shared window base also accumulates one Array entry per frame (a nil
-		# here, since this sampler returns none) and is left out: it is the
-		# base's, not this sampler's, and #846 keeps that base unchanged.
+		# What the COLUMNS hold, which is what grows with the frame count — the
+		# logical size, and so a LOWER bound on what the window costs in the game.
+		# Two parts are outside it: a packed column over-allocates as it grows,
+		# and the shared window base accumulates one Array entry per frame (a nil
+		# here, since this sampler returns none). `samples` is in hand, so counting
+		# that accumulator would be one line right here; it is left out because it
+		# would not close the gap — measured at 600 frames over 16 monitors,
+		# 81,600 + 17,128 against a 113,872-byte static_memory rise, the remainder
+		# being over-allocation on the columns already counted — and closing the
+		# rest would need an engine-internal sizeof(Variant) estimate. A true total
+		# belongs in a separately measured field, not in this one.
 		var stored := timestamps.size()
 		for name in names:
 			var column: PackedFloat64Array = columns[String(name)]

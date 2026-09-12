@@ -1740,22 +1740,35 @@ re-derives every verdict from a running engine.
   `--summary` and `--budget` require `--frames`, and the no-flag snapshot
   behavior is unchanged.
   A window ALLOCATES inside the game it measures, so it discloses that cost
-  rather than leaving it to be read as a leak (#846). `collector_bytes` reports
-  what the harness's sampler retained — 8 bytes per stored value, over one
-  column per sampled monitor plus one of timestamps — so a window's own
-  `static_memory` rise is attributable: a rise of about `collector_bytes` is the
-  observer, a rise well past it is the game. `--summary` (the spelling and
-  meaning `screen frames --summary` has) leaves the per-frame rows out of the
-  RESULT — `samples: null`, `samples_omitted: true` — while the window is still
-  sampled in full, so the statistics, the budget verdicts and `collector_bytes`
-  are the same and the result stops growing with `--frames`. Measured on a real
-  session over all 16 monitors, a 600-frame window is 1,667 bytes with
-  `--summary` against 259,569 with its rows. Both forms are admitted by the
+  rather than leaving it to be read as a leak (#846). `collector_bytes` is the
+  LOGICAL size of what the harness's sampler kept — 8 bytes per stored value,
+  over one column per sampled monitor plus one of timestamps — exact and
+  testable, and therefore a LOWER bound on the in-game cost rather than the
+  whole rise. Two parts sit outside it: a packed column over-allocates as it
+  grows (a 600-element column measured 5,736 bytes against a logical 4,800), and
+  the shared multi-frame base accumulates one entry per frame (17,128 bytes at
+  600 frames), which belongs to that base. So read a window's own
+  `static_memory` rise against the number by ORDER OF MAGNITUDE: a rise of a few
+  times `collector_bytes` is still the observer, a rise an order of magnitude
+  past it is the game. Measured: a 600-frame window over all 16 monitors
+  reported `collector_bytes` 81,600 against a `static_memory` rise of 113,872
+  bytes — about 1.4x — on macOS with Godot 4.6.3. That ratio is a MEASUREMENT of
+  one host and one engine build, not a constant gda promises; only the direction
+  generalizes — the number understates wherever a growing packed array
+  over-allocates. Counting the base accumulator would not close the gap
+  (81,600 + 17,128 = 98,728 against the measured 113,872, the rest being
+  over-allocation on the columns already counted), and closing the rest would
+  need an engine-internal `sizeof(Variant)` estimate; a true total, if it is ever
+  wanted, belongs in a separately measured field rather than in this one.
+  `--summary` (the spelling and meaning `screen frames --summary` has) leaves the
+  per-frame rows out of the RESULT — `samples: null`, `samples_omitted: true` —
+  while the window is still sampled in full, so the statistics, the budget
+  verdicts and `collector_bytes` are the same and the result stops growing with
+  `--frames`. Measured on a real session over all 16 monitors, a 600-frame window
+  is about 1.7 KB with `--summary` against about 260 KB with its rows (Godot
+  4.6.3; the exact digits vary between sessions). Both forms are admitted by the
   published window schema; `collector_bytes` and `samples_omitted` are null in
-  snapshot mode, which retains nothing. The number covers the COLUMNS, which are
-  what grows with the frame count; the shared multi-frame base's own per-frame
-  accumulator is not counted, because it belongs to that base and #846 leaves it
-  unchanged.
+  snapshot mode, which retains nothing.
   The reply shape this replaced (one Dictionary per frame) is NOT decoded: live
   commands target the harness bundled with the running gda (ADR-0018's
   2026-09-08 note), so an old reply is `contract_violation`.

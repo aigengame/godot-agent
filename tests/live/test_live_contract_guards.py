@@ -125,6 +125,19 @@ def test_perf_packed_value_bytes_mirrors_the_harness():
     # And it must be what the sampler's reply actually multiplies by, not an
     # unread constant beside a hardcoded number.
     assert "stored * PERF_PACKED_VALUE_BYTES" in source
+    # And the STORAGE has to be the 8-byte-per-element types the constant
+    # describes (round-1 review): the constant and the multiplication alone let
+    # a narrower column through — PackedFloat32Array with the constant left at 8
+    # passes every other test in the repo, halves the truth of
+    # `collector_bytes`, and silently destroys the full-binary64 fidelity this
+    # command's help and CONTEXT.md's `Value projection` publish (22001251 reads
+    # back as 22001252).
+    assert "= PackedFloat64Array()" in source, (
+        "the perf-sample value columns must stay PackedFloat64Array"
+    )
+    assert "timestamps := PackedInt64Array()" in source, (
+        "the perf-sample timestamp column must stay PackedInt64Array"
+    )
 
 
 def test_game_call_conversion_table_uses_only_live_json_source_types():

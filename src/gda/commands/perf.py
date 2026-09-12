@@ -619,9 +619,10 @@ class PerfMonitorsResult(BaseModel):
     ``samples_omitted`` and ``collector_bytes`` (#846), and — with a budget —
     ``budget`` verdicts plus the overall ``passed``. ``--summary`` sets
     ``samples_omitted`` and drops the rows, leaving every other window field
-    describing the same full window; ``collector_bytes`` reports what the
-    harness's sampler retained for it, so the observer's own footprint is
-    attributable rather than read as a game leak. Each mode's field set is
+    describing the same full window; ``collector_bytes`` reports the logical
+    size of what the harness's sampler retained for it — a lower bound on the
+    observer's own footprint, so a ``static_memory`` rise is attributable by
+    order of magnitude rather than read as a game leak. Each mode's field set is
     VALIDATED, not merely described — a payload mixing the modes, or one
     dropping the rows without saying so, fails output validation rather than
     passing through — and the same split is PUBLISHED as schema, so a client
@@ -688,12 +689,15 @@ class PerfMonitorsResult(BaseModel):
         default=None,
         ge=0,
         description=(
-            "The approximate bytes the gda harness's sampler retained for this "
-            "window (#846): 8 per stored value, over one packed column per "
-            "sampled monitor plus one packed column of timestamps. Null in "
-            "snapshot mode, which retains nothing. Read it against the "
-            "window's own 'static_memory' rise to tell the observer's "
-            "footprint from the game's."
+            "The LOGICAL size of what the gda harness's sampler retained for "
+            "this window (#846): 8 bytes per stored value, over one packed "
+            "column per sampled monitor plus one packed column of timestamps. "
+            "It is a LOWER bound on the in-game cost — a packed column "
+            "over-allocates as it grows, and the shared window base's own "
+            "per-frame accumulator is outside it. Null in snapshot mode, which "
+            "retains nothing. Read the window's own 'static_memory' rise "
+            "against it by order of magnitude: a few times this number is "
+            "still the observer, an order of magnitude past it is the game."
         ),
     )
     budget: dict[str, PerfBudgetVerdict] | None = Field(
@@ -1238,14 +1242,17 @@ def perf_monitors(
 
     A long window ALLOCATES on the engine side: the gda harness keeps the whole
     window, so every frame you ask for costs memory inside the game you are
-    measuring. The result says how much in `collector_bytes` — 8 bytes per
-    stored value, over one column per sampled monitor plus one of timestamps —
-    so read a window's own `static_memory` rise against it: a rise of about
-    `collector_bytes` is the observer, and a rise well past it is the game.
-    `--summary` does not change that number; it keeps the full window and only
-    leaves the per-frame rows out of the RESULT (`samples: null`,
-    `samples_omitted: true`), which is what keeps a 600-frame window's output
-    small.
+    measuring. `collector_bytes` states the LOGICAL size of what the sampler
+    kept — 8 bytes per stored value, over one column per sampled monitor plus
+    one of timestamps. That is a LOWER bound on the in-game cost, not the whole
+    of it: a packed column over-allocates as it grows, and the shared window
+    base accumulates one entry per frame that this number does not count. So
+    read a window's own `static_memory` rise against it by ORDER OF MAGNITUDE,
+    not as an equality — a rise of a few times `collector_bytes` is still the
+    observer, a rise an order of magnitude past it is the game. `--summary`
+    does not change that number; it keeps the full window and only leaves the
+    per-frame rows out of the RESULT (`samples: null`, `samples_omitted:
+    true`), which is what keeps a 600-frame window's output small.
 
     A value the engine reports crosses the wire at full binary64 precision — the
     reply is serialized with Godot's full-precision JSON writer, so a small or
