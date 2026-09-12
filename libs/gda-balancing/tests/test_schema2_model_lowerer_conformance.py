@@ -1528,6 +1528,14 @@ def _reference_formula_phases(kernel: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
+def _reference_invocation_node_ids(kernel: dict[str, Any]) -> frozenset[str]:
+    return frozenset(
+        row["id"]
+        for row in kernel["meta_format"]["runtime_program"]["nodes"]
+        if row.get("semantics", {}).get("operator") == "invoke-operation"
+    )
+
+
 def _reference_formulas_and_bindings(
     checked: ModelSourceContext,
     declarations: list[dict[str, Any]],
@@ -1565,6 +1573,7 @@ def _reference_formulas_and_bindings(
     actual_operand_domain = checked.kernel["meta_format"]["runtime_program"][
         "invocation_contract"
     ]["identity_domains"]["actual_operand"]
+    invocation_node_ids = _reference_invocation_node_ids(checked.kernel)
     declarations_by_source = {
         (
             declaration["resolved_symbol"]["module"],
@@ -1574,7 +1583,7 @@ def _reference_formulas_and_bindings(
     }
     prototypes: dict[tuple[str, str], dict[str, Any]] = {}
     dependencies: dict[tuple[str, str], list[tuple[str, str]]] = {}
-    for module in checked.source[profile["modules_member"]]:
+    for module_index, module in enumerate(checked.source[profile["modules_member"]]):
         module_id = module[profile["module_id_member"]]
         imports = {
             item[profile["import_alias_member"]]: {
@@ -1583,7 +1592,7 @@ def _reference_formulas_and_bindings(
             }
             for item in module[profile["imports_member"]]
         }
-        for source_formula in module.get("formulas", []):
+        for formula_index, source_formula in enumerate(module.get("formulas", [])):
             key = (module_id, source_formula["id"])
             source_body = normalize_source_body(
                 source_formula[policy["formula_body_member"]],
@@ -1609,6 +1618,7 @@ def _reference_formulas_and_bindings(
                 "imports": imports,
                 "source_body": source_body,
                 "expression": source_formula["expression"],
+                "pointer": f"/modules/{module_index}/formulas/{formula_index}",
             }
             dependencies[key] = [
                 (node["formula"]["module"], node["formula"]["id"])
@@ -1798,6 +1808,27 @@ def _reference_formulas_and_bindings(
                         )
                     arguments.append({"port": argument["port"], "operand": actual})
                 arguments.sort(key=lambda item: item["port"])
+                try:
+                    _reference_inline_pure_scalar_operation(
+                        coordinate,
+                        operations,
+                        {
+                            argument["port"]: argument["operand"]
+                            for argument in arguments
+                        },
+                        prefix=f"check.{prototype['module']}.{prototype['id']}.{node_id}",
+                        reference=lambda _value: "operand",
+                        local=lambda name: {"kind": "local", "local": name},
+                        literal=lambda value: {"kind": "literal", "literal": value},
+                        emit=lambda _instruction: None,
+                        invocation_node_ids=invocation_node_ids,
+                    )
+                except ValueError as error:
+                    raise _ReferenceFormulaError(
+                        "model.reason.formula-type-mismatch",
+                        f"{prototype['pointer']}/expression",
+                        str(error),
+                    ) from error
                 result = _reference_formula_contract(
                     source_node["result"],
                     prototype["imports"],
@@ -2091,10 +2122,131 @@ def _reference_formulas_and_bindings(
     return formulas, bindings
 
 
+def _reference_inline_pure_scalar_operation(
+    coordinate: tuple[str, str],
+    operations: dict[tuple[str, str], dict[str, Any]],
+    arguments: dict[str, dict[str, Any]],
+    *,
+    prefix: str,
+    reference: Callable[[dict[str, Any]], str],
+    local: Callable[[str], dict[str, Any]],
+    literal: Callable[[JsonValue], dict[str, Any]],
+    emit: Callable[[dict[str, Any]], None],
+    invocation_node_ids: frozenset[str],
+    result_target: str | None = None,
+    stack: tuple[tuple[str, str], ...] = (),
+) -> dict[str, Any] | None:
+    """Independently lower one scalar Operation and its lexical invoke graph."""
+    if coordinate in stack:
+        raise ValueError("independent Formula Operation graph is recursive")
+    operation = operations[coordinate]
+    if set(arguments) != {row["id"] for row in operation["inputs"]}:
+        raise ValueError("independent Formula Operation arguments are incomplete")
+    values = dict(arguments)
+    operation_results: dict[str, dict[str, Any] | None] = {}
+    result_source = operation["result"]["source"]
+    returned_local = (
+        result_source.get("name") if result_source["kind"] == "local" else None
+    )
+    for index, instruction in enumerate(operation["body"]):
+        target = f"{prefix}.{index}"
+        if instruction["node"] in invocation_node_ids:
+            child_arguments = {}
+            for argument in instruction["arguments"]:
+                operand = argument["operand"]
+                kind = operand["kind"]
+                if kind in {"port", "local"}:
+                    value = values[operand[kind]]
+                elif kind == "literal":
+                    value = literal(operand["literal"])
+                else:
+                    raise ValueError(
+                        "independent Formula Operation operand has no scalar lowering"
+                    )
+                child_arguments[argument["port"]] = value
+            child = instruction["operation"]
+            child_result = _reference_inline_pure_scalar_operation(
+                (child["package"], child["id"]),
+                operations,
+                child_arguments,
+                prefix=target,
+                reference=reference,
+                local=local,
+                literal=literal,
+                emit=emit,
+                invocation_node_ids=invocation_node_ids,
+                stack=(*stack, coordinate),
+            )
+            binding = instruction["result"]
+            if result_target is not None and (
+                (binding["kind"] == "local" and binding.get("name") == returned_local)
+                or (
+                    result_source["kind"] == "operation-result"
+                    and result_source["site"] == instruction["site"]
+                )
+            ):
+                target = result_target
+            if child_result is None:
+                raise ValueError(
+                    "independent Formula Unit invocation has no scalar lowering"
+                )
+            emit(
+                {
+                    "node": "copy",
+                    "target": target,
+                    "value": reference(child_result),
+                }
+            )
+            child_result = local(target)
+            operation_results[instruction["site"]] = child_result
+            if binding["kind"] == "local":
+                if child_result is None:
+                    raise ValueError(
+                        "independent Formula Unit result cannot bind a scalar local"
+                    )
+                values[binding["name"]] = child_result
+            elif binding["kind"] not in {"operation-result", "discard"}:
+                raise ValueError("independent Formula Operation result is malformed")
+            continue
+        source_target = instruction.get("target")
+        if not isinstance(source_target, str):
+            raise ValueError(
+                "independent Formula Operation instruction has no scalar result"
+            )
+        if result_target is not None and source_target == returned_local:
+            target = result_target
+        compiled = {"node": instruction["node"], "target": target}
+        for member, value in instruction.items():
+            if member in {"node", "target"}:
+                continue
+            if member == "literal":
+                if not isinstance(value, int) or isinstance(value, bool):
+                    raise ValueError(
+                        "independent Formula Operation literal is not an integer"
+                    )
+                compiled[member] = value
+            elif isinstance(value, str) and value in values:
+                compiled[member] = reference(values[value])
+            else:
+                raise ValueError(
+                    "independent Formula Operation body has no scalar lowering"
+                )
+        emit(compiled)
+        values[source_target] = local(target)
+    if result_source["kind"] in {"local", "port"}:
+        return values[result_source["name"]]
+    if result_source["kind"] == "operation-result":
+        return operation_results[result_source["site"]]
+    if result_source["kind"] == "unit":
+        return None
+    raise ValueError("independent Formula Operation result source is unresolved")
+
+
 def _reference_specialize_formula_slots(
     selected_semantics: dict[str, Any],
     formulas: list[dict[str, Any]],
     bindings: list[dict[str, Any]],
+    invocation_node_ids: frozenset[str],
 ) -> dict[str, Any]:
     specialized = deepcopy(selected_semantics)
 
@@ -2145,12 +2297,6 @@ def _reference_specialize_formula_slots(
             target = result_target if node_id == final_local else f"{prefix}.{node_id}"
             if node["node"] == "operation-call":
                 operation_ref = node["operation"]
-                called = operations[
-                    (
-                        operation_ref["package"],
-                        operation_ref["id"],
-                    )
-                ]
                 child_values = {
                     argument["port"]: runtime_operand(
                         argument["operand"],
@@ -2160,53 +2306,22 @@ def _reference_specialize_formula_slots(
                     )
                     for argument in node["arguments"]
                 }
-                result_source = called["result"]["source"]
-                result_name = result_source.get("name")
-                for index, child in enumerate(called["body"]):
-                    child_target = (
-                        target
-                        if child.get("target") == result_name
-                        else f"{prefix}.{node_id}.{index}"
+                called_result = _reference_inline_pure_scalar_operation(
+                    (operation_ref["package"], operation_ref["id"]),
+                    operations,
+                    child_values,
+                    prefix=f"{prefix}.{node_id}",
+                    reference=reference,
+                    local=lambda name: {"kind": "local", "local": name},
+                    literal=lambda value: {"kind": "literal", "literal": value},
+                    emit=instructions.append,
+                    invocation_node_ids=invocation_node_ids,
+                    result_target=target,
+                )
+                if called_result is None:
+                    raise ValueError(
+                        "independent Formula Unit result cannot bind a scalar result"
                     )
-                    if child["node"] == "constant":
-                        compiled = {
-                            "node": "constant",
-                            "target": child_target,
-                            "literal": child["literal"],
-                        }
-                    elif child["node"] == "copy":
-                        compiled = {
-                            "node": "copy",
-                            "target": child_target,
-                            "value": reference(child_values[child["value"]]),
-                        }
-                    elif child["node"] in {
-                        "add",
-                        "less-than",
-                        "multiply",
-                        "subtract",
-                    }:
-                        compiled = {
-                            "node": child["node"],
-                            "target": child_target,
-                            "left": reference(child_values[child["left"]]),
-                            "right": reference(child_values[child["right"]]),
-                        }
-                    else:
-                        assert child["node"] == "if"
-                        compiled = {
-                            "node": "if",
-                            "target": child_target,
-                            "condition": reference(child_values[child["condition"]]),
-                            "when_true": reference(child_values[child["when_true"]]),
-                            "when_false": reference(child_values[child["when_false"]]),
-                        }
-                    instructions.append(compiled)
-                    child_values[child["target"]] = {
-                        "kind": "local",
-                        "local": child_target,
-                    }
-                called_result = child_values[result_name]
                 if called_result != {"kind": "local", "local": target}:
                     instructions.append(
                         {
@@ -2215,7 +2330,10 @@ def _reference_specialize_formula_slots(
                             "value": reference(called_result),
                         }
                     )
-                instructions.append({"node": "copy", "target": target, "value": target})
+                else:
+                    instructions.append(
+                        {"node": "copy", "target": target, "value": target}
+                    )
             elif node["node"] == "conditional":
                 instructions.append(
                     {
@@ -2448,6 +2566,7 @@ def _reference_initialization_programs(
         ]
     )
     domains = profile["formula_resolution"]["identity_domains"]
+    invocation_node_ids = _reference_invocation_node_ids(checked.kernel)
     programs = []
     for binding in bindings:
         site = binding["site"]
@@ -2528,70 +2647,35 @@ def _reference_initialization_programs(
                 site_identity = instruction_site(formula, node_id, prefix)
                 if node["node"] == "operation-call":
                     operation_ref = node["operation"]
-                    operation = operations[
-                        (
-                            operation_ref["package"],
-                            operation_ref["id"],
-                        )
-                    ]
                     values = {
                         argument["port"]: source(
                             argument["operand"], parameters, locals_, prefix
                         )
                         for argument in node["arguments"]
                     }
-                    for index, instruction in enumerate(operation["body"]):
-                        child_target = f"{target}.{index}"
-
-                        def child_reference(member: str) -> str:
-                            return reference(values[instruction[member]])
-
-                        child_node = instruction["node"]
-                        if child_node == "constant":
-                            compiled = {
-                                "node": child_node,
-                                "target": child_target,
-                                "literal": instruction["literal"],
-                            }
-                        elif child_node == "copy":
-                            compiled = {
-                                "node": child_node,
-                                "target": child_target,
-                                "value": child_reference("value"),
-                            }
-                        elif child_node in {
-                            "add",
-                            "less-than",
-                            "multiply",
-                            "subtract",
-                        }:
-                            compiled = {
-                                "node": child_node,
-                                "target": child_target,
-                                "left": child_reference("left"),
-                                "right": child_reference("right"),
-                            }
-                        else:
-                            assert child_node == "if"
-                            compiled = {
-                                "node": child_node,
-                                "target": child_target,
-                                "condition": child_reference("condition"),
-                                "when_true": child_reference("when_true"),
-                                "when_false": child_reference("when_false"),
-                            }
-                        emit(compiled, site_identity)
-                        values[instruction["target"]] = {
-                            "kind": "local",
-                            "name": child_target,
-                        }
-                    result = operation["result"]["source"]
-                    assert result["kind"] in {"local", "port"}
+                    result = _reference_inline_pure_scalar_operation(
+                        (operation_ref["package"], operation_ref["id"]),
+                        operations,
+                        values,
+                        prefix=target,
+                        reference=reference,
+                        local=lambda name: {"kind": "local", "name": name},
+                        literal=lambda value: add_input(
+                            f"{target}.$literal.{len(inputs)}",
+                            {"kind": "literal", "value": value},
+                        ),
+                        emit=lambda compiled: emit(compiled, site_identity),
+                        invocation_node_ids=invocation_node_ids,
+                    )
+                    if result is None:
+                        raise ValueError(
+                            "independent Formula Unit result cannot bind a scalar result"
+                        )
                     emit(
                         {
                             "node": "copy",
                             "target": target,
-                            "value": reference(values[result["name"]]),
+                            "value": reference(result),
                         },
                         site_identity,
                     )
@@ -2760,6 +2844,7 @@ def _reference_rir(
         selected_semantics,
         formulas,
         formula_bindings,
+        _reference_invocation_node_ids(checked.kernel),
     )
     payload = {
         "declarations": declarations,

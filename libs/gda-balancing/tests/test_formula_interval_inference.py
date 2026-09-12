@@ -7,7 +7,9 @@ import pytest
 
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.authority.graph import LanguageBundleIndex
-from gda_balancing.domain.formula.inference import infer_formula_operation_result
+from gda_balancing.domain.formula.inference import (
+    infer_formula_operation_local_contract,
+)
 from gda_balancing.domain.formula.notation import (
     FormulaNotationRefusal,
     parse_formula_expression,
@@ -74,10 +76,11 @@ def _selection(true_name, false_name, *, relation="independent", inverse=False):
 def _inferred(operation, x, y, authority, z=(-1, 1)):
     policy, boolean = authority
     contracts = [_contract(bounds) for bounds in (x, y, z)]
-    result = infer_formula_operation_result(
+    result = infer_formula_operation_local_contract(
         operation,
         ["x", "y", "z"],
         contracts,
+        "result",
         contracts[0],
         policy,
         {},
@@ -270,13 +273,14 @@ def test_narrow_inference_does_not_hide_an_eager_unselected_overflow(
     operands = vector["input"]["operands"]
     contracts = [_contract((row["value"], row["value"])) for row in operands]
     policy, boolean = inference_authority
-    result = infer_formula_operation_result(
+    result = infer_formula_operation_local_contract(
         {
             "body": [row["instruction"] for row in vector["input"]["instructions"]],
             "result": {"source": {"kind": "local", "name": "result"}},
         },
         [row["name"] for row in operands],
         contracts,
+        "result",
         contracts[0],
         policy,
         {},

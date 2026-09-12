@@ -112,19 +112,45 @@ def _evaluate_formula_evidence_result(
         if operation is None:
             return _INVALID_FORMULA_EVIDENCE
         variables: dict[str, Any] = dict(values)
+        returns: dict[str, JsonValue] = {}
         try:
             for instruction in cast(list[dict[str, Any]], operation["body"]):
                 node = runtime_nodes.get(cast(str, instruction.get("node")))
-                if node is None or node.get("family") != "expression":
+                if node is None:
+                    return _INVALID_FORMULA_EVIDENCE
+                if node["semantics"]["operator"] == "invoke-operation":
+                    child_arguments: dict[str, JsonValue] = {}
+                    for argument in instruction["arguments"]:
+                        operand = argument["operand"]
+                        kind = operand["kind"]
+                        if kind == "literal":
+                            value = operand["literal"]
+                        elif kind in {"port", "local"}:
+                            value = variables[operand[kind]]
+                        else:
+                            return _INVALID_FORMULA_EVIDENCE
+                        child_arguments[argument["port"]] = value
+                    result = evaluate_operation(
+                        instruction["operation"], child_arguments
+                    )
+                    if result is _INVALID_FORMULA_EVIDENCE:
+                        return result
+                    returns[instruction["site"]] = cast(JsonValue, result)
+                    binding = instruction["result"]
+                    if binding["kind"] == "local":
+                        variables[binding["name"]] = result
+                    continue
+                if node.get("family") != "expression":
                     return _INVALID_FORMULA_EVIDENCE
                 _execute_value_instruction(instruction, variables, numeric, node)
             source = cast(dict[str, Any], operation["result"]["source"])
-            if source.get("kind") not in {"local", "port"}:
-                return _INVALID_FORMULA_EVIDENCE
-            return cast(
-                JsonValue,
-                variables[cast(str, source["name"])],
-            )
+            if source.get("kind") in {"local", "port"}:
+                return cast(JsonValue, variables[cast(str, source["name"])])
+            if source.get("kind") == "operation-result":
+                return returns[source["site"]]
+            if source.get("kind") == "unit":
+                return None
+            return _INVALID_FORMULA_EVIDENCE
         except (KeyError, OverflowError, TypeError, ValueError):
             return _INVALID_FORMULA_EVIDENCE
 

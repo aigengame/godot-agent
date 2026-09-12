@@ -202,6 +202,14 @@ def test_independent_inline_selector_closes_real_schema_addresses(mutation):
         ("operation_argument_compatibility", "exact-operation-formal"),
         ("symbol_resolution", "exact-module-coordinate"),
         ("literal_result_inference", "contextual-anchor"),
+        (
+            "operation_result_source",
+            {"kind": "local", "source_member": "source", "name_member": "name"},
+        ),
+        (
+            "result_source",
+            {"kind": "local", "source_member": "source", "name_member": "name"},
+        ),
         ("infix_parser.algorithm", "shunting-yard"),
         ("identity_domains.closure", "formula-closure-v2"),
     ],
@@ -261,8 +269,7 @@ def test_independent_comparison_inference_keeps_the_kernel_boolean_owner(mutatio
     kernel, authored, _source = _inline_case(False)
     conversion = _profile(authored)["formula_resolution"]["notation_conversion"]
     assert "condition_contract" not in conversion
-    # This still-consumed projection is deliberately not deleted in this slice.
-    assert "operation_result_source" in conversion
+    assert "operation_result_source" not in conversion
     rule = next(
         row
         for row in conversion["local_result_inference"]

@@ -2,7 +2,9 @@
 
 # ruff: noqa: F403, F405
 import schema2_bootstrap_conformance_support as bootstrap_support
-from gda_balancing.domain.formula.inference import infer_formula_operation_result
+from gda_balancing.domain.formula.inference import (
+    infer_formula_operation_local_contract,
+)
 from gda_balancing.domain.formula.types import (
     formula_contract_from_operation,
     formula_contract_matches_operation,
@@ -417,10 +419,11 @@ def test_current_quantity_composition_inference_and_positive_divisor_contract():
     assert not formula_contract_matches_operation(
         contract(0, 3), floor_divide["inputs"][1]
     )
-    assert infer_formula_operation_result(
+    assert infer_formula_operation_local_contract(
         floor_divide,
         ["left", "right"],
         [contract(-10, 10), contract(2, 3)],
+        floor_divide["result"]["source"]["name"],
         contract(-10, 10),
         policy,
         {},
@@ -435,7 +438,7 @@ def test_current_quantity_composition_inference_and_positive_divisor_contract():
     for operation_id, expected_domain in expected_domains.items():
         operation = operations[operation_id]
         assert (
-            infer_formula_operation_result(
+            infer_formula_operation_local_contract(
                 operation,
                 ["left", "right"],
                 [
@@ -444,6 +447,7 @@ def test_current_quantity_composition_inference_and_positive_divisor_contract():
                     if operation_id != "quantity.multiply"
                     else contract(-4, 5),
                 ],
+                operation["result"]["source"]["name"],
                 contract(-2, 3),
                 policy,
                 {},

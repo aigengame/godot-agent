@@ -85,7 +85,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:6d15879e283ef18eabc20fb52a929484ce314e3ef9085e7db3882c7f3e551442"
+    "sha256:3caa526a9d6ce7936683d6ed5da81c31d24280c1928ee512876bbb2da8467358"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -552,13 +552,6 @@ def _formula_resolution_is_closed(
             ):
                 return False
             conversion = policy["notation_conversion"]
-            result_source = conversion["operation_result_source"]
-            if result_source["source_member"] != "source" or set(
-                runtime["invocation_contract"]["result_source_shapes"][
-                    result_source["kind"]
-                ]
-            ) != {"kind", result_source["name_member"]}:
-                return False
             rules = conversion["local_result_inference"]
             if len({row["node"] for row in rules}) != len(rules):
                 return False

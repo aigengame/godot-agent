@@ -103,6 +103,8 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_lowering_policy_inventory.py",
         "test_extension_renaming.py",
         "test_formula_inline_resolution.py",
+        "test_formula_operation_returns.py",
+        "test_formula_operation_returns_independent.py",
         "test_formula_resolution_independent.py",
         "test_operation_extension_inventory.py",
         "test_operation_vector_inventory.py",

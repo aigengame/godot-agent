@@ -2049,6 +2049,101 @@ def _inline_pure_expression_instruction(
     return compiled
 
 
+def _inline_pure_operation(
+    coordinate: tuple[str, str],
+    operations: dict[tuple[str, str], dict[str, Any]],
+    values: dict[str, dict[str, JsonValue]],
+    *,
+    prefix: str,
+    reference: Callable[[dict[str, JsonValue]], str],
+    local: Callable[[str], dict[str, JsonValue]],
+    literal: Callable[[JsonValue], dict[str, JsonValue]],
+    emit: Callable[[dict[str, JsonValue]], None],
+    result_target: str | None = None,
+    stack: tuple[tuple[str, str], ...] = (),
+) -> dict[str, JsonValue] | None:
+    """Expand one admitted scalar call in lexical order for both Formula emitters.
+
+    Each nested invoke contributes one ordinary value instruction in addition
+    to its complete child body. Unit requires a real invocation program boundary
+    and is refused by scalar Formula inference before this lowering.
+    """
+    if coordinate in stack:
+        raise ValueError("Formula Operation call graph is cyclic")
+    operation = operations[coordinate]
+    if set(values) != {port["id"] for port in operation["inputs"]}:
+        raise ValueError("Formula Operation arguments are incomplete")
+    values = dict(values)
+    results: dict[str, dict[str, JsonValue] | None] = {}
+    source = operation["result"]["source"]
+    returned_local = source.get("name") if source["kind"] == "local" else None
+    for index, instruction in enumerate(operation["body"]):
+        target = f"{prefix}.{index}"
+        if instruction["node"] == "invoke":
+            arguments: dict[str, dict[str, JsonValue]] = {}
+            for argument in instruction["arguments"]:
+                operand = argument["operand"]
+                kind = operand["kind"]
+                if kind == "literal":
+                    value = literal(operand["literal"])
+                elif kind in {"port", "local"}:
+                    value = values[operand[kind]]
+                else:
+                    raise ValueError("Formula Operation operand has no scalar lowering")
+                arguments[argument["port"]] = value
+            child = instruction["operation"]
+            result = _inline_pure_operation(
+                (child["package"], child["id"]),
+                operations,
+                arguments,
+                prefix=target,
+                reference=reference,
+                local=local,
+                literal=literal,
+                emit=emit,
+                stack=(*stack, coordinate),
+            )
+            binding = instruction["result"]
+            if result_target is not None and (
+                (binding["kind"] == "local" and binding.get("name") == returned_local)
+                or (
+                    source["kind"] == "operation-result"
+                    and source["site"] == instruction["site"]
+                )
+            ):
+                target = result_target
+            if result is None:
+                raise ValueError(
+                    "Formula scalar value program cannot express a Unit invocation"
+                )
+            emit({"node": "copy", "target": target, "value": reference(result)})
+            result = local(target)
+            results[instruction["site"]] = result
+            if binding["kind"] == "local":
+                if result is None:
+                    raise ValueError("Formula Unit return cannot bind a scalar local")
+                values[binding["name"]] = result
+            elif binding["kind"] not in {"operation-result", "discard"}:
+                raise ValueError("Formula Operation return binding is malformed")
+            continue
+        source_target = instruction.get("target")
+        if result_target is not None and source_target == returned_local:
+            target = result_target
+        emit(
+            _inline_pure_expression_instruction(
+                instruction, target=target, values=values, reference=reference
+            )
+        )
+        values[source_target] = local(target)
+    if source["kind"] in {"port", "local"}:
+        return values[source["name"]]
+    if source["kind"] == "operation-result":
+        return results[source["site"]]
+    if source["kind"] == "unit":
+        return None
+    raise ValueError("Formula Operation result source is unresolved")
+
+
 def _specialize_operation_formula_slots(
     selected_semantics: dict[str, JsonValue],
     formulas: list[dict[str, JsonValue]],
@@ -2125,12 +2220,6 @@ def _specialize_operation_formula_slots(
             target = result_target if node_id == final_local else f"{prefix}.{node_id}"
             if node["node"] == "operation-call":
                 operation_ref = cast(dict[str, Any], node["operation"])
-                called_operation = operations[
-                    (
-                        cast(str, operation_ref["package"]),
-                        cast(str, operation_ref["id"]),
-                    )
-                ]
                 child_values = {
                     cast(str, argument["port"]): runtime_operand(
                         cast(dict[str, Any], argument["operand"]),
@@ -2140,38 +2229,19 @@ def _specialize_operation_formula_slots(
                     )
                     for argument in cast(list[dict[str, Any]], node["arguments"])
                 }
-                child_result_source = cast(
-                    dict[str, Any], called_operation["result"]["source"]
+                called_result = _inline_pure_operation(
+                    (operation_ref["package"], operation_ref["id"]),
+                    operations,
+                    child_values,
+                    prefix=f"{prefix}.{node_id}",
+                    reference=runtime_reference,
+                    local=lambda name: {"kind": "local", "local": name},
+                    literal=lambda value: {"kind": "literal", "literal": value},
+                    emit=instructions.append,
+                    result_target=target,
                 )
-                child_result_name = (
-                    cast(str, child_result_source["name"])
-                    if child_result_source["kind"] in {"local", "port"}
-                    else None
-                )
-                for child_index, child_instruction in enumerate(
-                    cast(list[dict[str, Any]], called_operation["body"])
-                ):
-                    child_target_name = cast(str, child_instruction.get("target", ""))
-                    child_target = (
-                        target
-                        if child_target_name == child_result_name
-                        else f"{prefix}.{node_id}.{child_index}"
-                    )
-
-                    compiled_child = _inline_pure_expression_instruction(
-                        child_instruction,
-                        target=child_target,
-                        values=child_values,
-                        reference=runtime_reference,
-                    )
-                    instructions.append(compiled_child)
-                    child_values[child_target_name] = {
-                        "kind": "local",
-                        "local": child_target,
-                    }
-                if child_result_name is None:
-                    raise ValueError("Formula pure Operation has no value result")
-                called_result = child_values[child_result_name]
+                if called_result is None:
+                    raise ValueError("Formula Unit return cannot bind a scalar result")
                 if called_result != {"kind": "local", "local": target}:
                     instructions.append(
                         {
@@ -2180,9 +2250,12 @@ def _specialize_operation_formula_slots(
                             "value": runtime_reference(called_result),
                         }
                     )
-                # The Formula node itself is charged in addition to its
-                # selected pure Operation body.
-                instructions.append({"node": "copy", "target": target, "value": target})
+                else:
+                    # The Formula node's own charge when the selected return
+                    # already occupies its target; port returns use the copy above.
+                    instructions.append(
+                        {"node": "copy", "target": target, "value": target}
+                    )
             elif node["node"] == "conditional":
                 condition = runtime_operand(
                     cast(dict[str, Any], node["condition"]),
@@ -2524,12 +2597,6 @@ def _compile_initialization_programs(
                 site_identity = instruction_site(formula, node_id, prefix)
                 if node["node"] == "operation-call":
                     operation_ref = cast(dict[str, Any], node["operation"])
-                    operation = operations[
-                        (
-                            cast(str, operation_ref["package"]),
-                            cast(str, operation_ref["id"]),
-                        )
-                    ]
                     values = {
                         cast(str, argument["port"]): source_for_operand(
                             cast(dict[str, Any], argument["operand"]),
@@ -2539,35 +2606,25 @@ def _compile_initialization_programs(
                         )
                         for argument in cast(list[dict[str, Any]], node["arguments"])
                     }
-                    result_source = cast(dict[str, Any], operation["result"]["source"])
-                    result_name = (
-                        cast(str, result_source["name"])
-                        if result_source["kind"] in {"local", "port"}
-                        else None
+                    operation_result = _inline_pure_operation(
+                        (operation_ref["package"], operation_ref["id"]),
+                        operations,
+                        values,
+                        prefix=target,
+                        reference=reference,
+                        local=lambda name: {"kind": "local", "name": name},
+                        literal=lambda value: add_input(
+                            f"{target}.$literal.{len(inputs)}",
+                            {"kind": "literal", "value": value},
+                        ),
+                        emit=lambda instruction: emit(
+                            instruction, evaluation_site_identity=site_identity
+                        ),
                     )
-                    for child_index, child in enumerate(
-                        cast(list[dict[str, Any]], operation["body"])
-                    ):
-                        child_target_name = cast(str, child.get("target", ""))
-                        child_target = f"{target}.{child_index}"
-
-                        compiled_child = _inline_pure_expression_instruction(
-                            child,
-                            target=child_target,
-                            values=values,
-                            reference=reference,
+                    if operation_result is None:
+                        raise ValueError(
+                            "Formula Unit return cannot bind a scalar result"
                         )
-                        emit(
-                            compiled_child,
-                            evaluation_site_identity=site_identity,
-                        )
-                        values[child_target_name] = {
-                            "kind": "local",
-                            "name": child_target,
-                        }
-                    if result_name is None:
-                        raise ValueError("pure Operation has no value result")
-                    operation_result = values[result_name]
                     emit(
                         {
                             "node": "copy",

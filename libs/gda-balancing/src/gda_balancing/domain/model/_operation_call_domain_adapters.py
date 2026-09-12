@@ -233,6 +233,11 @@ def build_operation_call_domain_input(
         roots=roots,
         formula_slot_bindings=_formula_slot_bindings(bindings, operations),
         operation_node_ids=frozenset(_operation_reference_node_ids(kernel)),
+        invocation_node_ids=frozenset(
+            node["id"]
+            for node in kernel["meta_format"]["runtime_program"]["nodes"]
+            if node["semantics"]["operator"] == "invoke-operation"
+        ),
         conversion_policy=conversion_policy,
         boolean_contract=cast(
             dict[str, Any],

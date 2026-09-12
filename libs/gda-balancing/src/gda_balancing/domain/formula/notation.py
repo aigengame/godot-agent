@@ -21,7 +21,12 @@ from gda_balancing.domain.formula.types import (
 from gda_balancing.domain.authority.runtime_validation import (
     operation_literal_context_contract,
 )
-from gda_balancing.domain.formula.inference import infer_formula_operation_result
+from gda_balancing.domain.operation_program import closed_operation_coordinates
+from gda_balancing.domain.operation_call_domains import (
+    ConcreteOperationCallDomainInput,
+    project_concrete_operation_call_domains,
+)
+from gda_balancing.domain.authority.graph import resolve_current_namespaces
 from gda_balancing.domain.wire_schema import wire_schema_definition_for_role
 
 
@@ -668,6 +673,24 @@ class _FormulaParser:
         if len(group_delimiters) != 2:
             raise ValueError("Formula notation group delimiters are malformed")
         self.open_group, self.close_group = group_delimiters
+        catalog = _operation_catalog(authority_context)
+        if operation_coordinates is not None:
+            # Imported Formula pairs name their direct calls. Concrete return
+            # inference also consumes those calls' admitted lexical dependencies;
+            # the visible notation names remain restricted to the direct roots.
+            closure = closed_operation_coordinates(operation_coordinates, catalog)
+            if not closure <= catalog.keys():
+                raise ValueError("Formula Operation dependency is unresolved")
+            self.operation_catalog = {key: catalog[key] for key in closure}
+        else:
+            selection = resolve_current_namespaces(
+                authority_context.current_namespace_packages(),
+                request["package_requirements"],
+            )
+            namespaces = {package.namespace for package in selection.packages}
+            self.operation_catalog = {
+                key: value for key, value in catalog.items() if key[0] in namespaces
+            }
         self.notations = _selected_operation_notations(
             request, authority_context, operation_coordinates
         )
@@ -1198,15 +1221,77 @@ class _FormulaParser:
             cast(dict[str, Any], contract or anchor) for _operand, contract in operands
         ]
         try:
-            return infer_formula_operation_result(
-                operation.declaration,
-                [cast(str, port) for port in ports],
-                contracts,
-                self.resolve_contract(fallback),
-                self.conversion_policy,
-                self.source_type_aliases,
-                boolean_contract=self.boolean_contract,
+            runtime = self.authority_context.kernel["meta_format"]["runtime_program"]
+            invocation_nodes = frozenset(
+                row["id"]
+                for row in runtime["nodes"]
+                if row["semantics"]["operator"] == "invoke-operation"
             )
+
+            def literal_contract(
+                value: Any, formal: dict[str, Any]
+            ) -> dict[str, Any] | None:
+                selected = operation_literal_context_contract(
+                    value, formal, self.authority_context.kernel, self.literal_semantics
+                )
+                if selected is None:
+                    return None
+                contract = dict(formula_contract_from_operation(selected))
+                if isinstance(value, int) and not isinstance(value, bool):
+                    contract.update(
+                        domain_kind="closed-interval",
+                        domain={"minimum": value, "maximum": value},
+                    )
+                return contract
+
+            def no_iteration(_formal: dict[str, Any]) -> dict[str, Any]:
+                raise ValueError(
+                    "Formula scalar body cannot execute a dynamic iteration"
+                )
+
+            projection = project_concrete_operation_call_domains(
+                ConcreteOperationCallDomainInput(
+                    operations=self.operation_catalog,
+                    roots={
+                        operation.coordinate: [
+                            {
+                                "arguments": dict(
+                                    zip(
+                                        ports,
+                                        [
+                                            self.resolve_contract(value)
+                                            for value in contracts
+                                        ],
+                                        strict=True,
+                                    )
+                                )
+                            }
+                        ]
+                    },
+                    formula_slot_bindings=frozenset(),
+                    operation_node_ids=invocation_nodes,
+                    invocation_node_ids=invocation_nodes,
+                    conversion_policy=self.conversion_policy,
+                    boolean_contract=self.boolean_contract,
+                    literal_contract=literal_contract,
+                    iteration_contract=no_iteration,
+                    snapshot_contracts={},
+                    snapshot_operand_names={},
+                ),
+                scalar_return_roots=frozenset({operation.coordinate}),
+            )
+            inferred = deepcopy(projection.root_results[operation.coordinate][0])
+            if "type_identity" not in fallback:
+                identity = inferred.pop("type_identity")
+                alias = self.source_type_aliases.get(
+                    (identity["package"], identity["id"])
+                )
+                if alias is None:
+                    raise ValueError(
+                        "Formula Operation result has no Source type alias"
+                    )
+                inferred["type"] = alias
+            return inferred
         except ValueError as err:
             raise _FormulaContextError(
                 "model.reason.formula-type-mismatch",

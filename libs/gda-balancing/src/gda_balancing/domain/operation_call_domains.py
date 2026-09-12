@@ -8,7 +8,6 @@ from typing import Any, cast
 
 from gda_balancing.domain.formula.inference import (
     infer_formula_operation_local_contract,
-    infer_formula_operation_result,
     infer_formula_slot_parameter_contract,
 )
 from gda_balancing.domain.formula.types import formula_contract_from_operation
@@ -65,6 +64,7 @@ class ConcreteOperationCallDomainInput:
     roots: dict[OperationCoordinate, list[dict[str, Any]]]
     formula_slot_bindings: frozenset[OperationSlotCoordinate]
     operation_node_ids: frozenset[str]
+    invocation_node_ids: frozenset[str]
     conversion_policy: dict[str, Any]
     boolean_contract: dict[str, Any]
     literal_contract: LiteralContractResolver
@@ -78,6 +78,7 @@ class ConcreteOperationCallDomainProjection:
     """Concrete calls and Formula-slot parameter contracts reached from roots."""
 
     calls: dict[OperationCoordinate, list[dict[str, Any]]]
+    root_results: dict[OperationCoordinate, list[dict[str, Any]]]
     slot_parameter_contracts: dict[
         OperationSlotCoordinate, list[dict[str, dict[str, Any]]]
     ]
@@ -85,6 +86,8 @@ class ConcreteOperationCallDomainProjection:
 
 def project_concrete_operation_call_domains(
     projection_input: ConcreteOperationCallDomainInput,
+    *,
+    scalar_return_roots: frozenset[OperationCoordinate] = frozenset(),
 ) -> ConcreteOperationCallDomainProjection:
     """Propagate exact contracts to every bound Operation Formula-slot call site."""
     operations = projection_input.operations
@@ -96,8 +99,9 @@ def project_concrete_operation_call_domains(
         cast(OperationCoordinate, coordinate[:2])
         for coordinate in projection_input.formula_slot_bindings
     }
-    if not slot_coordinates:
-        return ConcreteOperationCallDomainProjection(projected, {})
+    root_results: dict[OperationCoordinate, list[dict[str, Any]]] = {}
+    if not slot_coordinates and not scalar_return_roots:
+        return ConcreteOperationCallDomainProjection(projected, root_results, {})
     reaches_slot_cache: dict[OperationCoordinate, bool] = {}
 
     def reaches_formula_slot(
@@ -155,6 +159,7 @@ def project_concrete_operation_call_domains(
         stack: tuple[OperationCoordinate, ...],
         *,
         resolve_result: bool,
+        scalar: bool = False,
     ) -> dict[str, Any]:
         if coordinate in stack:
             raise ConcreteOperationCallDomainError(
@@ -181,6 +186,25 @@ def project_concrete_operation_call_domains(
                 coordinate,
             )
         operand_contracts = [cast(dict[str, Any], arguments[port]) for port in ports]
+        inference_nodes = {
+            row["node"]
+            for row in projection_input.conversion_policy["local_result_inference"]
+        }
+        if scalar and (
+            operation.get("purity") != "pure"
+            or operation.get("operation_kind") != "pure-expression"
+        ):
+            raise ConcreteOperationCallDomainError(
+                "non_scalar_operation",
+                "Formula requires a pure expression Operation",
+                coordinate,
+            )
+        if scalar and operation["result"]["source"]["kind"] == "unit":
+            raise ConcreteOperationCallDomainError(
+                "unsupported_scalar_unit",
+                "Formula scalar value program cannot express a Unit invocation",
+                coordinate,
+            )
         known_arguments = cast(dict[str, Any], call.get("known_arguments", {}))
         local_contracts = {
             name: contract.copy()
@@ -258,6 +282,16 @@ def project_concrete_operation_call_domains(
             for instruction in instructions:
                 node = instruction.get("node")
                 target = instruction.get("target")
+                if (
+                    scalar
+                    and node not in inference_nodes
+                    and node not in projection_input.invocation_node_ids
+                ):
+                    raise ConcreteOperationCallDomainError(
+                        "unsupported_scalar_instruction",
+                        "Formula Operation body has no admitted scalar inference",
+                        coordinate,
+                    )
                 if node == "constant" and isinstance(target, str):
                     local_values[target] = instruction.get("literal")
                 elif node == "draw" and isinstance(target, str):
@@ -276,6 +310,15 @@ def project_concrete_operation_call_domains(
                 ):
                     walk(cast(list[dict[str, Any]], nested))
                 if node not in projection_input.operation_node_ids:
+                    if scalar:
+                        if not isinstance(target, str):
+                            raise ConcreteOperationCallDomainError(
+                                "unresolved_local",
+                                "Formula Operation instruction has no target",
+                                coordinate,
+                            )
+                        local_contracts.pop(target, None)
+                        local_contract(target, operation["result"])
                     continue
                 child_coordinate = _require_operation_coordinate(
                     instruction.get("operation"),
@@ -342,7 +385,9 @@ def project_concrete_operation_call_domains(
                     child_coordinate,
                     child_call,
                     (*stack, coordinate),
-                    resolve_result=result_kind in {"local", "operation-result"},
+                    resolve_result=scalar
+                    or result_kind in {"local", "operation-result"},
+                    scalar=scalar,
                 )
                 site = instruction.get("site")
                 if isinstance(site, str):
@@ -378,7 +423,8 @@ def project_concrete_operation_call_domains(
             return cast(dict[str, Any], formula_contract_from_operation(result))
         declared_domain = result.get("domain")
         if (
-            isinstance(declared_domain, dict)
+            not scalar
+            and isinstance(declared_domain, dict)
             and declared_domain.get("kind") != "actual"
         ):
             return cast(dict[str, Any], formula_contract_from_operation(result))
@@ -402,22 +448,13 @@ def project_concrete_operation_call_domains(
             return resolved
         if source.get("kind") == "unit":
             return cast(dict[str, Any], formula_contract_from_operation(result))
-        try:
-            return infer_formula_operation_result(
-                operation,
-                ports,
-                operand_contracts,
-                cast(dict[str, Any], formula_contract_from_operation(result)),
-                projection_input.conversion_policy,
-                {},
-                boolean_contract=projection_input.boolean_contract,
-            )
-        except ValueError as error:
-            raise ConcreteOperationCallDomainError(
-                "unresolved_result",
-                "concrete Operation result is unresolved",
-                coordinate,
-            ) from error
+        if source.get("kind") == "port":
+            contract = arguments.get(source.get("name"))
+            if isinstance(contract, dict):
+                return contract
+        raise ConcreteOperationCallDomainError(
+            "unresolved_result", "concrete Operation result is unresolved", coordinate
+        )
 
     initial_roots = [
         (coordinate, call)
@@ -425,7 +462,11 @@ def project_concrete_operation_call_domains(
         for call in list(calls)
     ]
     for coordinate, call in initial_roots:
-        if reaches_formula_slot(coordinate):
+        if coordinate in scalar_return_roots:
+            root_results.setdefault(coordinate, []).append(
+                visit(coordinate, call, (), resolve_result=True, scalar=True)
+            )
+        elif reaches_formula_slot(coordinate):
             visit(coordinate, call, (), resolve_result=False)
 
     slot_parameter_contracts: dict[
@@ -485,5 +526,6 @@ def project_concrete_operation_call_domains(
         slot_parameter_contracts[slot_coordinate] = projections
     return ConcreteOperationCallDomainProjection(
         projected,
+        root_results,
         slot_parameter_contracts,
     )

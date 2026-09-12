@@ -605,12 +605,38 @@ def _infer_result(
     fallback: dict[str, Any],
     policy: dict[str, Any],
     boolean_contract: dict[str, Any],
+    *,
+    operations: dict[tuple[str, str], dict[str, Any]],
+    kernel: dict[str, Any],
+    imports: dict[str, tuple[str, str]],
+    stack: tuple[tuple[str, str], ...] = (),
 ) -> dict[str, Any]:
+    coordinate = (cast(str, operation.get("package")), cast(str, operation.get("id")))
+    if coordinate in stack:
+        raise ValueError("independent Formula operation graph is recursive")
+    if (
+        operation.get("purity") != "pure"
+        or operation.get("operation_kind") != "pure-expression"
+    ):
+        raise ValueError("independent Formula Operation is not a pure expression")
+    actuals = dict(zip(ports, contracts, strict=True))
+    canonical_ports = [
+        cast(str, formal["id"])
+        for formal in cast(list[dict[str, Any]], operation.get("inputs", []))
+    ]
+    if set(actuals) != set(canonical_ports) or len(actuals) != len(canonical_ports):
+        raise ValueError("independent Formula Operation inputs are unresolved")
+    ports = canonical_ports
+    contracts = [actuals[port] for port in ports]
     anchor = next((row for row in contracts if isinstance(row, dict)), fallback)
     values = {
         port: deepcopy(contract or anchor)
         for port, contract in zip(ports, contracts, strict=True)
     }
+    port_values = deepcopy(values)
+    produced_locals: set[str] = set()
+    results_by_site: dict[str, dict[str, Any]] = {}
+    seen_sites: set[str] = set()
     rules = policy.get("local_result_inference")
     if not isinstance(rules, list):
         raise ValueError("independent result policy is malformed")
@@ -618,6 +644,14 @@ def _infer_result(
         row.get("node"): row
         for row in rules
         if isinstance(row, dict) and isinstance(row.get("node"), str)
+    }
+    runtime = kernel["meta_format"]["runtime_program"]
+    invocation = runtime["invocation_contract"]
+    source_shapes = invocation["result_source_shapes"]
+    invocation_nodes = {
+        row["id"]
+        for row in runtime["nodes"]
+        if row.get("semantics", {}).get("operator") == "invoke-operation"
     }
 
     def interval(contract: dict[str, Any]) -> tuple[int, int] | None:
@@ -673,7 +707,125 @@ def _infer_result(
         selected_values = [pair[0 if selected == x else 1] for pair in pairs]
         return min(selected_values), max(selected_values)
 
-    for instruction in operation.get("body", []):
+    body = operation.get("body")
+    if not isinstance(body, list):
+        raise ValueError("independent inference Operation body is malformed")
+    for instruction in body:
+        if not isinstance(instruction, dict):
+            raise ValueError("independent inference instruction is malformed")
+        if instruction.get("node") in invocation_nodes:
+            reference = instruction.get("operation")
+            child_coordinate: tuple[str, str] | None = None
+            if (
+                isinstance(reference, dict)
+                and set(reference) == {"package", "id"}
+                and isinstance(reference.get("package"), str)
+                and isinstance(reference.get("id"), str)
+            ):
+                child_coordinate = (reference["package"], reference["id"])
+            child = (
+                operations.get(child_coordinate)
+                if child_coordinate is not None
+                else None
+            )
+            if (
+                child is None
+                or child.get("purity") != "pure"
+                or child.get("operation_kind") != "pure-expression"
+            ):
+                raise ValueError("independent nested Operation is unresolved")
+            site = instruction.get("site")
+            if not isinstance(site, str) or not site or site in seen_sites:
+                raise ValueError("independent nested Operation site is unresolved")
+            seen_sites.add(site)
+            child_ports = [
+                cast(str, formal["id"])
+                for formal in cast(list[dict[str, Any]], child.get("inputs", []))
+            ]
+            formals = {
+                cast(str, formal["id"]): formal
+                for formal in cast(list[dict[str, Any]], child.get("inputs", []))
+            }
+            arguments = instruction.get("arguments")
+            if (
+                not isinstance(arguments, list)
+                or [
+                    argument.get("port") if isinstance(argument, dict) else None
+                    for argument in arguments
+                ]
+                != child_ports
+            ):
+                raise ValueError(
+                    "independent nested Operation arguments are unresolved"
+                )
+            child_contracts: list[dict[str, Any] | None] = []
+            for argument in arguments:
+                operand = argument.get("operand")
+                kind = operand.get("kind") if isinstance(operand, dict) else None
+                actual = None
+                if isinstance(operand, dict) and kind in {"port", "local"}:
+                    member = cast(str, kind)
+                    name = operand.get(member)
+                    if isinstance(name, str):
+                        actual = values.get(name)
+                elif isinstance(operand, dict) and kind == "literal":
+                    value = operand.get("literal")
+                    if isinstance(value, int) and not isinstance(value, bool):
+                        actual = with_interval(anchor, (value, value))
+                formal = formals[cast(str, argument["port"])]
+                if actual is None or not _operation_contract_matches(
+                    actual, formal, imports
+                ):
+                    raise ValueError(
+                        "independent nested Operation operand is incompatible"
+                    )
+                child_contracts.append(deepcopy(actual))
+            child_result = _infer_result(
+                child,
+                child_ports,
+                child_contracts,
+                fallback,
+                policy,
+                boolean_contract,
+                operations=operations,
+                kernel=kernel,
+                imports=imports,
+                stack=(*stack, coordinate),
+            )
+            binding = instruction.get("result")
+            if not isinstance(binding, dict):
+                raise ValueError("independent nested Operation result is unresolved")
+            binding_kind = binding.get("kind")
+            if binding_kind == "local":
+                name = binding.get("name")
+                if (
+                    set(binding) != {"kind", "name"}
+                    or not isinstance(name, str)
+                    or not name
+                    or name in values
+                ):
+                    raise ValueError(
+                        "independent nested Operation result is unresolved"
+                    )
+                values[name] = child_result
+                produced_locals.add(name)
+            elif binding_kind == "operation-result":
+                if set(binding) != {"kind"}:
+                    raise ValueError(
+                        "independent nested Operation result is unresolved"
+                    )
+                results_by_site[site] = child_result
+            elif binding_kind == "discard":
+                if (
+                    set(binding) != {"kind"}
+                    or child.get("result", {}).get("discardable") is not True
+                ):
+                    raise ValueError(
+                        "independent nested Operation result is not discardable"
+                    )
+            else:
+                raise ValueError("independent nested Operation result is unresolved")
+            continue
         rule = (
             by_node.get(instruction.get("node"))
             if isinstance(instruction, dict)
@@ -685,6 +837,8 @@ def _infer_result(
         )
         if not isinstance(rule, dict) or not isinstance(target, str):
             raise ValueError("independent inference instruction is unresolved")
+        if target in values:
+            raise ValueError("independent inference target is ambiguous")
         comparisons = {
             name: pair
             for name, pair in comparisons.items()
@@ -693,16 +847,21 @@ def _infer_result(
         rule_id = rule.get("rule")
         if rule_id == "literal-closed-interval":
             literal = instruction.get(rule["literal_member"])
-            if not isinstance(literal, int):
+            if not isinstance(literal, int) or isinstance(literal, bool):
                 raise ValueError("independent literal inference is malformed")
             values[target] = with_interval(anchor, (literal, literal))
         elif rule_id == "copy-contract":
-            copied = instruction[rule["source_member"]]
+            copied = instruction.get(rule["source_member"])
+            if not isinstance(copied, str) or copied not in values:
+                raise ValueError("independent inference operand is unresolved")
             values[target] = deepcopy(values[copied])
             if copied in comparisons:
                 comparisons[target] = comparisons[copied]
         elif rule_id == "closed-interval-less-than":
-            comparisons[target] = tuple(instruction[m] for m in rule["operand_members"])
+            operands = tuple(instruction.get(m) for m in rule["operand_members"])
+            if not all(isinstance(name, str) and name in values for name in operands):
+                raise ValueError("independent inference operand is unresolved")
+            comparisons[target] = cast(tuple[str, str], operands)
             values[target] = deepcopy(boolean_contract)
         elif rule_id in {
             "closed-interval-add",
@@ -711,9 +870,14 @@ def _infer_result(
             "closed-interval-select",
             "closed-interval-subtract",
         }:
-            left_name, right_name = [
-                instruction[member] for member in rule["operand_members"]
-            ]
+            operand_names = tuple(
+                instruction.get(member) for member in rule["operand_members"]
+            )
+            if not all(
+                isinstance(name, str) and name in values for name in operand_names
+            ):
+                raise ValueError("independent inference operand is unresolved")
+            left_name, right_name = cast(tuple[str, str], operand_names)
             left, right = values[left_name], values[right_name]
             left_bounds, right_bounds = interval(left), interval(right)
             if left_bounds is None or right_bounds is None:
@@ -774,12 +938,35 @@ def _infer_result(
                 )
         else:
             raise ValueError("independent inference rule is unknown")
+        produced_locals.add(target)
     result = operation["result"]
-    source_policy = policy["operation_result_source"]
-    source = result[source_policy["source_member"]]
-    if source.get("kind") != source_policy["kind"]:
-        raise ValueError("independent result source kind is malformed")
-    return values[source[source_policy["name_member"]]]
+    source = result.get("source") if isinstance(result, dict) else None
+    source_kind = source.get("kind") if isinstance(source, dict) else None
+    shape = source_shapes.get(source_kind) if isinstance(source_kind, str) else None
+    if (
+        not isinstance(source, dict)
+        or not isinstance(shape, list)
+        or set(source) != set(shape)
+    ):
+        raise ValueError("independent result source is malformed")
+    if source_kind == "local":
+        name = source.get("name")
+        if name not in produced_locals:
+            raise ValueError("independent local result producer is unresolved")
+        return deepcopy(values[cast(str, name)])
+    if source_kind == "port":
+        name = source.get("name")
+        if name not in port_values:
+            raise ValueError("independent port result producer is unresolved")
+        return deepcopy(port_values[cast(str, name)])
+    if source_kind == "operation-result":
+        site = source.get("site")
+        if site not in results_by_site:
+            raise ValueError("independent Operation result producer is unresolved")
+        return deepcopy(results_by_site[cast(str, site)])
+    if source_kind == "unit":
+        raise ValueError("independent Formula Operation result is not scalar")
+    raise ValueError("independent result source kind is unresolved")
 
 
 def parse_canonical(
@@ -811,6 +998,31 @@ def parse_canonical(
         for row in modules
     }
     imports = imports_by_module[module_id]
+    selected_packages = set(request["package_requirements"])
+    packages_by_id = {
+        package["id"]: package for package in language_bundle["language"]["packages"]
+    }
+    pending = list(selected_packages)
+    while pending:
+        package_id = pending.pop()
+        package = packages_by_id.get(package_id)
+        if package is None:
+            raise ValueError("independent Formula package requirement is unresolved")
+        for dependency in package["dependencies"]["required"]:
+            if dependency not in selected_packages:
+                selected_packages.add(dependency)
+                pending.append(dependency)
+    operations = {
+        (package["id"], definition["id"]): {
+            **definition,
+            "package": package["id"],
+        }
+        for package in language_bundle["language"]["packages"]
+        if package["id"] in selected_packages
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.operations"
+        for definition in closure["definitions"]
+    }
     symbols: dict[tuple[str, str], dict[str, Any]] = {}
     declarations: dict[
         tuple[str, str], tuple[dict[str, Any], dict[str, tuple[str, str]]]
@@ -887,18 +1099,74 @@ def parse_canonical(
             raise ValueError("independent Operation arity is malformed")
         operands = [typed_operand(value) for value in values]
         formals = {row["id"]: row for row in operation["inputs"]}
-        if set(ports) != set(formals) or any(
-            not _operation_contract_matches(contract, formals[port], imports)
-            for port, (_operand, contract) in zip(ports, operands, strict=True)
-        ):
+        if set(ports) != set(formals) or len(formals) != len(operation["inputs"]):
             raise ValueError("independent Operation port contract is incompatible")
+        typed_operands = []
+        for port, (operand, contract) in zip(ports, operands, strict=True):
+            if contract is None and operand.get("kind") == "literal":
+                literal = operand.get("value")
+                matches = [
+                    row
+                    for row in language_bundle["language"]["literal_typing_profiles"]
+                    if isinstance(literal, int)
+                    and not isinstance(literal, bool)
+                    and row.get("source_kind") == "integer"
+                    and isinstance(row.get("minimum"), int)
+                    and isinstance(row.get("maximum"), int)
+                    and row["minimum"] <= literal <= row["maximum"]
+                    and row.get("type") == formals[port].get("type")
+                    and all(
+                        row.get(member) == formals[port].get(member)
+                        for member in (
+                            "representation",
+                            "kind",
+                            "unit",
+                            "domain",
+                            "numeric_policy",
+                        )
+                    )
+                ]
+                aliases = [
+                    alias
+                    for alias, coordinate in imports.items()
+                    if len(matches) == 1
+                    and coordinate
+                    == (matches[0]["type"]["package"], matches[0]["type"]["id"])
+                ]
+                if len(matches) != 1 or len(aliases) != 1:
+                    raise ValueError(
+                        "independent Operation literal contract is incompatible"
+                    )
+                # Generic actual formals retain the existing contextual anchor.
+                # Only an explicit interval owner narrows a literal operand.
+                if matches[0]["domain"].get("kind") == "closed-interval":
+                    contract = {
+                        "type": aliases[0],
+                        **{
+                            member: deepcopy(matches[0][member])
+                            for member in (
+                                "representation",
+                                "kind",
+                                "unit",
+                                "numeric_policy",
+                            )
+                        },
+                        "domain_kind": "closed-interval",
+                        "domain": {"minimum": literal, "maximum": literal},
+                    }
+            if not _operation_contract_matches(contract, formals[port], imports):
+                raise ValueError("independent Operation port contract is incompatible")
+            typed_operands.append((operand, contract))
         result = _infer_result(
             operation,
             ports,
-            [contract for _operand, contract in operands],
+            [contract for _operand, contract in typed_operands],
             _source_contract(request["formula"]["result"]),
             policy,
             _boolean_formula_contract(kernel),
+            operations=operations,
+            kernel=kernel,
+            imports=imports,
         )
         return (
             {
@@ -908,10 +1176,15 @@ def parse_canonical(
                     "package": operation["package"],
                     "id": operation["id"],
                 },
-                "arguments": [
-                    {"port": port, "operand": operand}
-                    for port, (operand, _contract) in zip(ports, operands, strict=True)
-                ],
+                "arguments": sorted(
+                    [
+                        {"port": port, "operand": operand}
+                        for port, (operand, _contract) in zip(
+                            ports, typed_operands, strict=True
+                        )
+                    ],
+                    key=lambda argument: cast(str, argument["port"]),
+                ),
                 "result": result,
             },
             result,
@@ -1068,7 +1341,12 @@ def parse_canonical(
         nodes.append(node)
         locals_[local] = result_contract
     result_operand, result_contract = typed_operand(lines[-1])
-    if result_contract != _source_contract(request["formula"]["result"]):
+    if not _formula_contract_matches(
+        result_contract,
+        imports,
+        _source_contract(request["formula"]["result"]),
+        imports,
+    ):
         raise ValueError("independent Formula result contract is incompatible")
     return {
         "nodes": nodes,

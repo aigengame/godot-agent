@@ -131,6 +131,7 @@ def _fold_projection_input() -> ConcreteOperationCallDomainInput:
                 {"arguments": {"items": {"type_identity": root["inputs"][0]["type"]}}}
             ]
         },
+        invocation_node_ids=frozenset({"invoke"}),
         operation_node_ids=frozenset({"invoke", "schedule", "fold"}),
     )
 
@@ -251,6 +252,7 @@ def _projection_input() -> ConcreteOperationCallDomainInput:
             ]
         },
         formula_slot_bindings=frozenset({LEAF_SLOT}),
+        invocation_node_ids=frozenset({"invoke"}),
         operation_node_ids=frozenset({"invoke", "schedule"}),
         conversion_policy=deepcopy(
             _formula_policy(context.language_bundle)["notation_conversion"]

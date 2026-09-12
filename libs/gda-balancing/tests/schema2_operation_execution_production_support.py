@@ -13,7 +13,9 @@ from gda_balancing.domain.experiment import (
     CheckedExperiment,
     derive_scenario_program_requirements,
 )
-from gda_balancing.domain.formula.inference import infer_formula_operation_result
+from gda_balancing.domain.formula.inference import (
+    infer_formula_operation_local_contract,
+)
 from gda_balancing.domain.formula.notation import render_formula_body
 from gda_balancing.domain.formula.types import formula_contract_from_operation
 from gda_balancing.domain.model import (
@@ -330,13 +332,14 @@ def _formula_sources(
                             "id": expression_operation["id"],
                         },
                         "arguments": arguments,
-                        "result": infer_formula_operation_result(
+                        "result": infer_formula_operation_local_contract(
                             expression_operation,
                             [formal["id"] for formal in expression_operation["inputs"]],
                             [
                                 local_contracts[references[formal["id"]]]
                                 for formal in expression_operation["inputs"]
                             ],
+                            expression_operation["result"]["source"]["name"],
                             _formula_contract(
                                 expression_operation["result"],
                                 aliases,

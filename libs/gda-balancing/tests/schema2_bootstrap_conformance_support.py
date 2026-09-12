@@ -40,7 +40,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:6d15879e283ef18eabc20fb52a929484ce314e3ef9085e7db3882c7f3e551442"
+    "sha256:3caa526a9d6ce7936683d6ed5da81c31d24280c1928ee512876bbb2da8467358"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
@@ -2675,14 +2675,6 @@ def _consumer_b_formula_resolution_is_closed(
                     return False
                 aliases.add(row["alias"])
             conversion = formula["notation_conversion"]
-            projection = conversion["operation_result_source"]
-            source_shape = runtime["invocation_contract"]["result_source_shapes"][
-                projection["kind"]
-            ]
-            if projection["source_member"] != "source" or sorted(
-                source_shape
-            ) != sorted(["kind", projection["name_member"]]):
-                return False
             inferred: set[str] = set()
             for row in conversion["local_result_inference"]:
                 if row["node"] in inferred:

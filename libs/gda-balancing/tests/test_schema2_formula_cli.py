@@ -1116,7 +1116,6 @@ def test_standard_compiler_owns_formula_notation_contextual_policy(run_cli) -> N
     assert set(conversion) == {
         "infix_parser",
         "local_result_inference",
-        "operation_result_source",
     }
     assert conversion["infix_parser"] == {
         "generated_local_separator": "__notation_",
