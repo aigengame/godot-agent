@@ -283,6 +283,10 @@ def test_every_evidence_field_is_optional_in_the_published_schema():
         # templates it could not see.
         "templates_root_checked",
         "templates_root_host",
+        # The two res:// spellings of a `path_case_mismatch` refusal (#845): the
+        # address the caller asked for, and the one the project stores.
+        "requested_path",
+        "stored_path",
     }
 
 

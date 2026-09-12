@@ -141,7 +141,11 @@ a nested `project.godot`, and with no project resolved too (`script run` and
 (`evidence.owning_project`) but never switches to it, and the message states the
 whole re-issue: `--project <owner>` AND the target respelled relative to that
 owner — a relative path anchors at the project, so your original spelling would
-not be found under the new one. `--all` needs no such check: every project-wide listing
+not be found under the new one. The same three commands refuse a path whose CASE
+does not match the stored file, with `path_case_mismatch`: such a path opens on a
+case-insensitive filesystem (macOS, Windows) and fails on a case-sensitive one
+(Linux, most export hosts), so re-issue with the `evidence.stored_path` the refusal
+names. `--all` needs no such check: every project-wide listing
 (`script list`, `scene list`, `script validate --all`, `project` analysis) walks the
 `res://` tree with the engine's own skip rule, declining the engine cache, a directory
 holding a nested `project.godot`, and one holding a `.gdignore` (hidden and dot-prefixed

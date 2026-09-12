@@ -215,6 +215,8 @@ _EVIDENCE_SAMPLES = {
     "owning_project": "/tmp/outer/inner",
     "templates_root_checked": "/iso/data/Godot/export_templates",
     "templates_root_host": "/home/dev/data/Godot/export_templates",
+    "requested_path": "res://Content/combat_session.gd",
+    "stored_path": "res://content/combat_session.gd",
 }
 
 

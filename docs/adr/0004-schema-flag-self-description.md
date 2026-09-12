@@ -286,6 +286,23 @@ status: accepted
 > reply naming no directory yields no `evidence` key rather than an empty object.
 > The asserted set in `tests/cli/test_error_registry.py` is now eight.
 >
+> **Addendum (2026-09-09, #845): a ninth producer, and the counts above stand as the
+> record of what each earlier change decided.** `path_case_mismatch_failure` joins the
+> set with `requested_path` and `stored_path` — the `res://` address a caller asked
+> for and the one the project actually stores. A path that differs from the stored
+> entry only in case opens on a case-insensitive filesystem and fails on a
+> case-sensitive one, so gda refuses it at ADR-0006's path authority before the engine
+> runs. Both spellings pass the criterion: the authority read the directory's own
+> entries to reach the verdict, so both are already computed on the failure path;
+> neither is recoverable from the envelope without reading the sentence; and the
+> stored one is exactly what the caller re-issues with. It is the fourth
+> producer that reports on no run — the third pre-launch refusal, beside the two
+> `target_outside_project` ones it shares a gate with. The corrected spelling rides
+> here rather than on `hint`, whose contract is the curated near-miss table (the #670
+> note above): a computed correction is not a recognized near miss, which is the same
+> line #840 drew for its two directories. The asserted set in
+> `tests/cli/test_error_registry.py` is now nine.
+>
 > **Answering ADR-0002's open pointer (#717): the ceiling's PROVENANCE is declined, on
 > the criterion.** That note left the question here — whether a `launch_timeout`'s
 > ceiling was the caller's `--timeout` or one of gda's own fixed bounds "belongs on

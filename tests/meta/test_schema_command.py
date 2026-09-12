@@ -91,6 +91,10 @@ def test_the_published_error_schema_declares_the_optional_evidence_key():
         # templates it could not see.
         "templates_root_checked",
         "templates_root_host",
+        # The two res:// spellings of a `path_case_mismatch` refusal (#845): the
+        # address the caller asked for, and the one the project stores.
+        "requested_path",
+        "stored_path",
     }
     assert doc["error"]["$defs"]["TerminationPhase"]["enum"] == [
         "launched",

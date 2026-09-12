@@ -30,13 +30,13 @@ stderr parser that first needed one (:mod:`gda.script_errors`, now a consumer).
 
 Since #802 the authority owns the **decision** as well as the primitives:
 :func:`containment_violation` is the whole ordered composition — normalize the
-project, ask ownership, ask containment, report whichever half fired with its
-coordinates. The ENVELOPES stay with the taxonomy: `gda.errors.containment_refusal`
-maps the decision to the two refusals, so a command module states only WHICH
-target it is asking about while the dependency direction stays
-``errors -> foundation`` (ADR-0040 §5; #807 review — the composition briefly
-lived here whole and needed a deferred ``gda.errors`` import to hide the
-inverted edge).
+project, ask ownership, ask containment, ask the spelling (:func:`case_mismatch`,
+#845), report whichever arm fired with its coordinates. The ENVELOPES stay with
+the taxonomy: `gda.errors.containment_refusal` maps the decision to the three
+refusals, so a command module states only WHICH target it is asking about while
+the dependency direction stays ``errors -> foundation`` (ADR-0040 §5; #807 review
+— the composition briefly lived here whole and needed a deferred ``gda.errors``
+import to hide the inverted edge).
 """
 
 import os
@@ -539,14 +539,121 @@ class OutsideRootViolation:
     root: Path
 
 
+@dataclass(frozen=True)
+class CaseMismatchViolation:
+    """The spelling half of the decision: the project stores it under another case."""
+
+    requested: str
+    stored: str
+
+
+def _stored_entry(directory: Path, name: str) -> str | None:
+    """The entry of ``directory`` that ``name`` addresses, spelled as it is STORED.
+
+    ``None`` when the directory holds no entry for ``name`` under any case, and
+    when the directory cannot be listed at all — both mean "this component names
+    nothing", which is the operation's ``path_not_found`` to report, not a
+    spelling verdict.
+
+    The exact spelling is preferred over a caseless match, so a case-SENSITIVE
+    filesystem holding both ``Content`` and ``content`` answers with the one the
+    caller named. Caseless matching is :meth:`str.casefold`, Python's own primitive
+    for it; a filesystem's folding rule is its own and can differ in the far corners
+    of Unicode (``ß``/``ss``), which is why the result is reported as a spelling to
+    re-issue rather than acted on.
+
+    It LISTS rather than asking whether the path exists, and that is the whole
+    reason the verdict is the same on every platform: ``Path.exists()`` answers
+    "yes" for a mis-cased path on a case-insensitive filesystem and "no" on a
+    case-sensitive one, while the directory's own entries read alike on both.
+    """
+    try:
+        entries = os.listdir(directory)
+    except OSError:
+        return None
+    if name in entries:
+        return name
+    folded = name.casefold()
+    for entry in entries:
+        if entry.casefold() == folded:
+            return entry
+    return None
+
+
+def case_mismatch(target: str, project: Path) -> CaseMismatchViolation | None:
+    """``target``'s stored spelling when it differs from the requested one (#845).
+
+    The third arm of the target decision, and the one neither containment nor
+    ownership can see: a path that names the project's own file with the wrong CASE.
+    On a case-insensitive filesystem the engine opens it and only WARNS
+    (``FileAccessUnix``'s "Case mismatch opening requested file … This file will not
+    open when exported to other case-sensitive platforms"), which gda's script-error
+    classifier skips by contract — so a portability gate returned ``valid: true`` for
+    a path that fails on Linux and on a case-sensitive export host (dogfooding
+    GDA-DF-062). On a case-sensitive filesystem the same call is a bare
+    ``path_not_found``, which names the wrong problem. gda decides it here instead,
+    so ONE mistake reports ONE code everywhere.
+
+    The reading is per COMPONENT, from the project root downward, against each
+    directory's actual entries (:func:`_stored_entry`) — the mis-spelling is as often
+    a directory as a file name. It stops and reports NOTHING as soon as a component
+    names no entry at all: an absent file is the operation's own verdict, and
+    guessing a spelling for it would replace a true ``path_not_found`` with a false
+    correction.
+
+    Both spellings are reported as ``res://`` addresses, whichever form the caller
+    used, because that is the namespace the project stores the entry in and the one
+    address all three gated commands accept back — a project-relative respelling
+    would not survive being pasted after ``--project``.
+
+    **Bounds, each for its own reason.** The project ROOT's own spelling is not
+    compared: the walk starts below it, so a case-differing ``--project`` stays the
+    separate open gap ADR-0006's amendment records. A target that is not LEXICALLY
+    under the root is not compared either — that is the symlinked-in file
+    :func:`path_outside_project` admits through its resolved reading, whose stored
+    spelling lives in a tree this project does not name. And ``user://`` / ``uid://``
+    are left alone as everywhere else: neither addresses the project's namespace.
+
+    It reads the filesystem, which the rest of this module's lexical primitives do
+    not, and that cost is one ``os.listdir`` per component of the target. Against a
+    headless engine launch of hundreds of milliseconds it does not register; it is
+    also why the walk is bounded by the project rather than run from the filesystem
+    root.
+
+    ``project`` is the already-absolutized directory
+    (:func:`project_absolute`), as :func:`containment_violation` passes it.
+    """
+    if is_engine_virtual_path(target) and not target.startswith(RES_PREFIX):
+        return None
+    root = _lexical_abs(_expand_user(project))
+    try:
+        relative = _lexical_abs(_anchored_target(target, project)).relative_to(root)
+    except ValueError:
+        return None
+    stored: list[str] = []
+    current = root
+    for part in relative.parts:
+        entry = _stored_entry(current, part)
+        if entry is None:
+            return None
+        stored.append(entry)
+        current = current / entry
+    if list(relative.parts) == stored:
+        return None
+    return CaseMismatchViolation(
+        requested=RES_PREFIX + "/".join(relative.parts),
+        stored=RES_PREFIX + "/".join(stored),
+    )
+
+
 def containment_violation(
     target: str, project: Path | None
-) -> ForeignOwnerViolation | OutsideRootViolation | None:
-    """The ordered containment decision for ``target`` under ``project`` (#802).
+) -> ForeignOwnerViolation | OutsideRootViolation | CaseMismatchViolation | None:
+    """The ordered containment decision for ``target`` under ``project`` (#802, #845).
 
     The one question "does this target belong to the resolved project?", asked in
     one order, answered with the fired half and its coordinates — no envelope is
-    built here. `gda.errors.containment_refusal` maps the decision to the two
+    built here. `gda.errors.containment_refusal` maps the decision to the three
     refusals and is what the three commands call (``script validate`` per batch
     entry, ``script run`` for its entry script, ``resource import`` per asset);
     until #802 each wrote this composition by hand, so the ordering rule, the four
@@ -574,6 +681,16 @@ def containment_violation(
     outside OF, so containment is skipped and a standalone file that no
     ``project.godot`` claims is served, as ADR-0006's projectless fallback
     promises.
+
+    **The spelling comes LAST** (:func:`case_mismatch`, #845), and the reason is the
+    same shape as the one above: it is the least specific of the three. Asking
+    whether the project stores this entry under another case only means something
+    once the target has been established as this project's to serve — a target
+    another project owns, or one outside the root, has its spelling read against a
+    tree that is not the one it belongs to. It is also the only half that touches
+    the filesystem, so putting it last keeps the two lexical halves free of that
+    cost on every refused call. Like containment, it is skipped PROJECTLESS: there
+    is no ``res://`` namespace to name a stored spelling in.
 
     **Normalization: the project is cwd-absolutized** (:func:`project_absolute`),
     the form ``resource import`` adopted in #738 — the checks read the project as
@@ -608,6 +725,7 @@ def containment_violation(
         outside = path_outside_project(target, anchor)
         if outside is not None:
             return OutsideRootViolation(outside=outside, root=root)
+        return case_mismatch(target, anchor)
     return None
 
 

@@ -272,6 +272,23 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCodeSource.OPERATION,
         "A requested file does not exist.",
     ),
+    # The spelling sibling of the two rows above, and CLASSIFIER-source for the same
+    # reason `target_outside_project` is: ADR-0006 keeps the path authority CLI-side,
+    # so no operation can report it. It is minted rather than reusing
+    # `path_not_found` because the meanings differ and the remedies do: a missing
+    # file is re-checked, a mis-cased one is re-issued under the spelling the
+    # refusal names.
+    ErrorCodeSpec(
+        "path_case_mismatch",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "A requested path names a project file under a different case than the one"
+        " the filesystem stores, so it opens on a case-insensitive filesystem and"
+        " fails on a case-sensitive one; gda refuses it before the engine runs, with"
+        " one code on every platform. The requested and the stored res:// spellings"
+        " ride the envelope as evidence: re-issue with the stored one (#845).",
+    ),
     ErrorCodeSpec(
         "not_a_scene",
         ErrorCategory.OPERATION,
