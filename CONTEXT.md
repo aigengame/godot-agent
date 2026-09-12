@@ -384,10 +384,17 @@ addressed node's attached-script chain named in its `GDA_CALLABLE` declaration
 runs, once, per request. Reading that declaration adds no point at all — the
 constant map is served by the compiled script, so learning what may be called
 executes nothing (ADR-0041).
+`gda game rect` (#852) contributes ONE narrow point too, and the caller does not
+name it: the command reads the addressed Control's intrinsic minimum, and
+`Control::get_minimum_size()` is the `_get_minimum_size` virtual with no cache,
+so where a class leaves that getter to `Control` the node's script override of it
+runs once per request. `get_combined_minimum_size()`, the other minimum the same
+result reports, reads the engine's minimum-size cache; where that cache is stale
+it recomputes through the SAME virtual, so it adds no point of its own.
 All stay within the `Trusted project` assumption (ADR-0009); `script run`, the
 loaded-value assignment (ADR-0033), the startup preflight, the import pass, the
-declared method call, and the composed static validate widen this surface without
-adding a new trust axis.
+declared method call, the minimum-size read, and the composed static validate
+widen this surface without adding a new trust axis.
 _Avoid_: attack surface, code-execution risk
 
 **Concurrent external editor**:

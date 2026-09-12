@@ -377,8 +377,11 @@ free-positioned `Control`, `gda node set --property position --value x,y` coerce
 current size, and echoes the resulting `position`. If the `Control` is a direct child of a
 `Container`, the command refuses with `unknown_property` and names the four offset properties as the
 actionable alternative; container-managed layout is not overridden. Live `gda game set` mirrors the
-same policy with `live_unknown_property` for the container-managed case. `gda game rect` remains a
-read-only query and is not a setter; it is the read for a `Control`'s layout output (#852).
+same policy with `live_unknown_property` for the container-managed case. `gda game rect` is the read
+for a `Control`'s layout output (#852) and is not a setter, but it is not a pure read either:
+`Control::get_minimum_size()` is the `_get_minimum_size` virtual with no cache, so where a class
+leaves that getter to `Control` the addressed node's script override of it runs once per request
+(CONTEXT.md, `Project-code execution surface`).
 
 **Object-typed property assignment by `res://` reference** (ADR-0033, #363): for an **Object-typed**
 property that expects a Resource (sub)class — e.g. a `CollisionShape2D`'s `shape` (`Shape2D`) — `gda
@@ -1465,7 +1468,10 @@ re-derives every verdict from a running engine.
   OUTPUT, which no storage property carries: `position` / `size` from
   `Control.get_global_rect()` (the rendered viewport-space rectangle), `local_position` /
   `local_size` from `Control.get_rect()` (the same rectangle in the PARENT's space, which
-  differs by the ancestors' offsets and, in size, only under an ancestor scale), and the
+  differs from the viewport-space one by the ancestors' TRANSFORM — an ancestor offset
+  moves the origin, an ancestor scale multiplies the origin and the size; the local origin
+  is the node's own `position` moved by `pivot_offset` where a `scale` or a `rotation` is
+  set, and the local size is the node's own `size` multiplied by its own `scale`), and the
   two minimum sizes, which are different reads — `minimum_size`
   (`Control.get_minimum_size()`) is the class's intrinsic minimum and EXCLUDES the
   authored `custom_minimum_size`, while `combined_minimum_size`
@@ -1483,7 +1489,11 @@ re-derives every verdict from a running engine.
   (the first two carry editor usage only, `global_position` no usage flags, and
   `global_rect` is a method), so `game get` refuses them; since #852 that
   `live_unknown_property` message names `gda game rect` and the fields it reports, plus
-  the `offset_*` / `anchor_*` storage properties that decide the layout. Any other node
+  the storage properties that decide the layout — and WHICH ones those are depends on the
+  parent, so the message branches: the `offset_*` / `anchor_*` set on a free `Control`, and
+  `custom_minimum_size` / `size_flags_horizontal` / `size_flags_vertical` plus the parent
+  `Container`'s own layout on a direct child of a `Container`, whose storage set the engine
+  strips of `offset_*` and `anchor_*` (`Control::_validate_property`). Any other node
   keeps the generic message. The on-disk counterparts stay under `scene` / `node`
   (ADR-0019).
   `game call <node> --method NAME [--args JSON]` (shipped, #673, ADR-0041) serves the

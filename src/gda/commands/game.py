@@ -489,16 +489,20 @@ class GameRectResult(BaseModel):
     local_position: list[float] = Field(
         description=(
             "The top-left point in the PARENT's space, as [x, y]: "
-            "Control.get_rect().position, which is the node's own `position`. It "
-            "differs from the viewport-space point whenever an ancestor is offset. "
-            + LIVE_ENGINE_PRECISION
+            "Control.get_rect().position, the origin of the node's own transform. "
+            "That equals the node's `position` property only while `scale` and "
+            "`rotation` are default: a `pivot_offset` with a `scale` moves the "
+            "origin away from it. It differs from the viewport-space point "
+            "whenever an ancestor is offset. " + LIVE_ENGINE_PRECISION
         )
     )
     local_size: list[float] = Field(
         description=(
             "The size in the PARENT's space, as [width, height]: "
-            "Control.get_rect().size. It differs from the viewport-space size only "
-            "where an ancestor applies a scale. " + LIVE_ENGINE_PRECISION
+            "Control.get_rect().size, which is the node's `size` property "
+            "multiplied by the node's own `scale`. It differs from the "
+            "viewport-space size only where an ANCESTOR applies a scale. "
+            + LIVE_ENGINE_PRECISION
         )
     )
     minimum_size: list[float] = Field(
@@ -1102,9 +1106,13 @@ def game_get(
     `global_rect` are `live_unknown_property`: none of them is a storage property
     (the first two carry editor usage only, `global_position` no usage flags, and
     `global_rect` is a method). They are layout OUTPUT — read them with `gda game
-    rect`, which the refusal message names. The layout INPUTS are storage
-    properties this command does read: offset_left, offset_top, offset_right,
-    offset_bottom and anchor_left, anchor_top, anchor_right, anchor_bottom.
+    rect`, which the refusal message names. The refusal also names the layout
+    INPUTS, and WHICH ones depends on the parent: a free Control carries
+    offset_left, offset_top, offset_right, offset_bottom and anchor_left,
+    anchor_top, anchor_right, anchor_bottom, while a direct child of a Container
+    carries none of those — the engine drops them from its storage set — and its
+    inputs are custom_minimum_size, size_flags_horizontal and
+    size_flags_vertical, plus the parent Container's own layout.
 
     A value the engine reports crosses the wire at full binary64 precision — the
     reply is serialized with Godot's full-precision JSON writer, so a small or
@@ -1145,10 +1153,19 @@ def game_rect(
     minimum WITHOUT the authored custom_minimum_size, `combined_minimum_size` the
     per-axis maximum of the two, which is what a parent Container honors. Use it
     for the four spellings `game get` refuses on a Control (position, size,
-    global_position, global_rect); the layout INPUTS (offset_* / anchor_*) stay
-    `game get` / `game set` storage properties. With no daemon it reports
-    `daemon_not_running`; a path that resolves to no running node is
-    `live_node_not_found`; a non-Control node is `live_not_control`.
+    global_position, global_rect); the layout INPUTS stay `game get` / `game set`
+    storage properties, and which ones a node carries depends on its parent
+    (offset_* / anchor_* on a free Control, custom_minimum_size and the
+    size_flags_* on a direct child of a Container).
+
+    The read is not a pure one: Control.get_minimum_size() is the
+    `_get_minimum_size` virtual with no cache, so where a class leaves that getter
+    to Control the addressed node's script override of it runs once per request
+    (CONTEXT.md, `Project-code execution surface`).
+
+    With no daemon it reports `daemon_not_running`; a path that resolves to no
+    running node is `live_node_not_found`; a non-Control node is
+    `live_not_control`.
 
     A value the engine reports crosses the wire at full binary64 precision — the
     reply is serialized with Godot's full-precision JSON writer, so a small or

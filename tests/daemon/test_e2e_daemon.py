@@ -50,15 +50,27 @@ RECT_MAIN_TSCN = (
     "custom_minimum_size = Vector2(160, 48)\n"
     'text = "HP"\n'
 )
-# The layout fixture for `game rect`'s minimum sizes and local rect (#852). Every
-# number it produces is decided by the engine, not by a theme: `Box` is a plain
-# `Control`, whose `get_minimum_size()` returns the `_get_minimum_size` virtual it
-# does not implement — (0, 0) — so the authored `custom_minimum_size` is visible
-# ONLY through `get_combined_minimum_size()`, the per-axis maximum of the two
-# (`Control::_update_minimum_size_cache`). `Box` is a container-managed child, so
-# its own `position` is (0, 0) in the container's space while the container itself
-# is offset in the viewport. `Player` is the non-Control that must keep the generic
-# refusal message.
+# The layout fixture for `game rect`'s minimum sizes and local rect (#852), and
+# for the refusal `game get` returns on the reads it cannot serve. Four subjects:
+#
+# * `Box` — a plain `Control` managed by a `Container`. Its `get_minimum_size()`
+#   is the `_get_minimum_size` virtual it does not implement, so (0, 0), and the
+#   authored `custom_minimum_size` is visible ONLY through
+#   `get_combined_minimum_size()`, the per-axis maximum of the two
+#   (`Control::_update_minimum_size_cache`). Its own `position` is (0, 0) in the
+#   container's space while the container itself is offset in the viewport. As a
+#   container-managed child it also carries NO `offset_*` or `anchor_*` storage
+#   property — the engine strips them (`Control::_validate_property`) — which is
+#   what the refusal's container branch must say.
+# * `Tag` — a `Button` whose authored minimum is wider than its intrinsic one and
+#   SHORTER on the other axis, so the combined minimum equals neither input and
+#   the per-axis maximum is observable. Its intrinsic height comes from the
+#   default theme, so the test reads it rather than pinning it.
+# * `Scaled` — a free `Control` with a `scale` and a `pivot_offset`, whose local
+#   transform origin is therefore NOT its `position` property, and whose local
+#   size is its `size` property multiplied by that scale. `Frame` offsets it in
+#   the viewport, so the local and global origins differ too.
+# * `Player` — the non-Control that must keep the generic refusal message.
 MIN_SIZE_MAIN_TSCN = (
     "[gd_scene format=3]\n\n"
     '[node name="Main" type="Control"]\n\n'
@@ -69,8 +81,31 @@ MIN_SIZE_MAIN_TSCN = (
     "offset_bottom = 72.0\n\n"
     '[node name="Box" type="Control" parent="HUD"]\n'
     "custom_minimum_size = Vector2(80, 20)\n\n"
+    '[node name="Tag" type="Button" parent="HUD"]\n'
+    "custom_minimum_size = Vector2(300, 1)\n\n"
+    '[node name="Frame" type="Control" parent="."]\n'
+    "offset_left = 10.0\n"
+    "offset_top = 5.0\n"
+    "offset_right = 410.0\n"
+    "offset_bottom = 305.0\n\n"
+    '[node name="Scaled" type="Control" parent="Frame"]\n'
+    "offset_left = 30.0\n"
+    "offset_top = 40.0\n"
+    "offset_right = 130.0\n"
+    "offset_bottom = 90.0\n"
+    "scale = Vector2(2, 3)\n"
+    "pivot_offset = Vector2(10, 10)\n\n"
     '[node name="Player" type="Node2D" parent="."]\n'
 )
+# What `Scaled` and `Tag` are authored with, which `game get` reads back as
+# storage properties. The expected geometry is derived from these in the test, so
+# a change to the fixture cannot leave an assertion pinning a stale number.
+SCALED_OFFSET = (30.0, 40.0)
+SCALED_SIZE = (100.0, 50.0)
+SCALED_SCALE = (2.0, 3.0)
+SCALED_PIVOT = (10.0, 10.0)
+FRAME_OFFSET = (10.0, 5.0)
+TAG_CUSTOM_MINIMUM = [300.0, 1.0]
 CONTROL_POSITION_MAIN_TSCN = (
     "[gd_scene format=3]\n\n"
     '[node name="Main" type="Control"]\n\n'
@@ -381,7 +416,8 @@ def test_daemon_game_rect_reports_the_minimum_sizes_and_the_local_rect(
         ]
         assert doc["local_position"] != doc["position"], doc
         # get_rect() and get_global_rect() take the same size through their
-        # transforms and nothing in the fixture scales, so the two sizes agree.
+        # transforms and nothing on `Box`'s chain scales, so the two sizes agree.
+        # (`Scaled` below is the fixture's node that does.)
         assert doc["local_size"] == doc["size"]
 
         # The two minimum sizes are different reads. A plain Control implements no
@@ -394,6 +430,52 @@ def test_daemon_game_rect_reports_the_minimum_sizes_and_the_local_rect(
         # fits every child into a rect no smaller than it.
         assert doc["size"][0] >= doc["combined_minimum_size"][0], doc
         assert doc["size"][1] >= doc["combined_minimum_size"][1], doc
+
+        # `Tag` separates the combined minimum from BOTH its inputs. The authored
+        # width wins on x and the theme-driven intrinsic height wins on y, so the
+        # per-axis maximum is a third value — the defining semantics, which a node
+        # whose two minimums are equal cannot show.
+        tag = run("game", "rect", "/root/Main/HUD/Tag")
+        assert tag.returncode == 0, tag.stdout + tag.stderr
+        button = json.loads(tag.stdout)
+        assert button["type"] == "Button"
+        assert button["minimum_size"][1] > TAG_CUSTOM_MINIMUM[1], (
+            "the fixture needs a Button whose theme minimum HEIGHT exceeds the "
+            f"authored {TAG_CUSTOM_MINIMUM[1]}: {button}"
+        )
+        assert button["combined_minimum_size"] == [
+            max(button["minimum_size"][axis], TAG_CUSTOM_MINIMUM[axis])
+            for axis in (0, 1)
+        ], button
+        assert button["combined_minimum_size"] != TAG_CUSTOM_MINIMUM, button
+        assert button["combined_minimum_size"] != button["minimum_size"], button
+
+        # `Scaled` separates the local rect from the node's own `position` and
+        # `size` properties. Control.get_rect() is built from the LOCAL TRANSFORM:
+        # its origin is position + pivot_offset - scale * pivot_offset, and its
+        # size is the node's size multiplied by the node's own scale. `Frame`
+        # offsets it, so the local origin differs from the viewport one too.
+        scaled = run("game", "rect", "/root/Main/Frame/Scaled")
+        assert scaled.returncode == 0, scaled.stdout + scaled.stderr
+        free = json.loads(scaled.stdout)
+        assert free["local_position"] == [
+            SCALED_OFFSET[axis]
+            + SCALED_PIVOT[axis]
+            - SCALED_SCALE[axis] * SCALED_PIVOT[axis]
+            for axis in (0, 1)
+        ], free
+        assert free["local_position"] != list(SCALED_OFFSET), free
+        assert free["local_size"] == [
+            SCALED_SIZE[axis] * SCALED_SCALE[axis] for axis in (0, 1)
+        ], free
+        assert free["local_size"] != list(SCALED_SIZE), free
+        assert free["position"] == [
+            FRAME_OFFSET[axis] + free["local_position"][axis] for axis in (0, 1)
+        ], free
+        # The two `!=` above are the discriminating pair: every anchor is zero, so
+        # the node's own `position` IS the authored offset and its own `size` IS
+        # the authored extent. A harness that reported `control.position` or
+        # `control.size` here would report those two values instead.
     finally:
         run("daemon", "stop")
 
@@ -404,24 +486,70 @@ def test_daemon_game_get_names_game_rect_for_a_controls_layout_reads(
 ):
     # #852: the four spellings a caller reaches for on a Control are not storage
     # properties, so `game get` refuses them — and the refusal now names the read
-    # that serves them. A non-Control keeps the generic message, which only a real
-    # engine's property list can prove.
+    # that serves them, plus the layout INPUTS the caller can still write. Which
+    # inputs a node carries depends on its parent, so the message branches and
+    # both branches are checked here: a redirect that names a property the node
+    # does not have is the same dead end one step further in. Only a real engine
+    # reports the storage set, so only e2e can prove the named ones are on it. A
+    # non-Control keeps the generic message.
     (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MIN_SIZE_MAIN_TSCN, encoding="utf-8")
     run = Gda(tmp_path, json_output=True)
+
+    # The layout inputs each branch names, and they must all be readable on that
+    # branch's node.
+    container_child = (
+        "custom_minimum_size",
+        "size_flags_horizontal",
+        "size_flags_vertical",
+    )
+    free_control = (
+        "offset_left",
+        "offset_top",
+        "offset_right",
+        "offset_bottom",
+        "anchor_left",
+        "anchor_top",
+        "anchor_right",
+        "anchor_bottom",
+    )
 
     try:
         started = run("daemon", "start")
         assert started.returncode == 0, started.stdout + started.stderr
 
-        for spelling in ("position", "size", "global_position", "global_rect"):
-            got = run("game", "get", "/root/Main/HUD/Box", "--property", spelling)
-            assert got.returncode == 6, got.stdout + got.stderr
-            error = json.loads(got.stdout)["error"]
-            assert error["code"] == "live_unknown_property", (spelling, error)
-            assert "gda game rect /root/Main/HUD/Box" in error["message"], error
-            for named in ("minimum_size", "offset_left", "anchor_right"):
-                assert named in error["message"], (spelling, named, error)
+        for path, named in (
+            ("/root/Main/HUD/Box", container_child),
+            ("/root/Main/Frame/Scaled", free_control),
+        ):
+            for spelling in ("position", "size", "global_position", "global_rect"):
+                got = run("game", "get", path, "--property", spelling)
+                assert got.returncode == 6, got.stdout + got.stderr
+                error = json.loads(got.stdout)["error"]
+                assert error["code"] == "live_unknown_property", (spelling, error)
+                assert f"gda game rect {path}" in error["message"], error
+                assert "minimum_size" in error["message"], (spelling, error)
+                for storage in named:
+                    assert storage in error["message"], (path, spelling, storage, error)
+
+            # Following the redirect must WORK: every storage property it names is
+            # on that node's storage set, so the caller reaches a value.
+            for storage in named:
+                reached = run("game", "get", path, "--property", storage)
+                assert reached.returncode == 0, reached.stdout + reached.stderr
+                properties = json.loads(reached.stdout)["properties"]
+                assert [entry["name"] for entry in properties] == [storage], properties
+
+        # And the container branch says why it names other inputs: the engine
+        # strips offset_* and anchor_* from a container-managed child, so the free
+        # Control's list would strand the caller.
+        stripped = run("game", "get", "/root/Main/HUD/Box", "--property", "offset_left")
+        assert stripped.returncode == 6, stripped.stdout + stripped.stderr
+        assert json.loads(stripped.stdout)["error"]["code"] == "live_unknown_property"
+        refusal = json.loads(
+            run("game", "get", "/root/Main/HUD/Box", "--property", "size").stdout
+        )["error"]["message"]
+        assert "direct child of a Container" in refusal, refusal
 
         # A non-Control has no layout output to redirect to: same code, generic
         # message, no `game rect`.

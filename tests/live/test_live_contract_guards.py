@@ -999,7 +999,16 @@ def test_game_get_names_game_rect_for_the_control_reads_it_cannot_serve():
     ):
         assert field in message, f"the redirect must name game rect's {field}"
     # And the layout INPUT: the storage properties that decide that output, which
-    # `game get` and `game set` do serve.
+    # `game get` and `game set` do serve. WHICH ones depends on the parent, so the
+    # message branches on the predicate `game set` already uses: the engine strips
+    # offset_* and anchor_* from a direct child of a Container, so naming them
+    # there would send the caller into a second live_unknown_property. Both
+    # branches are observed against a real engine's storage set in
+    # tests/daemon/test_e2e_daemon.py.
+    assert "_has_container_parent(control)" in message, (
+        "the redirect must branch on the container-parent predicate, or it names "
+        f"inputs a container-managed Control does not carry: {message}"
+    )
     for storage in (
         "offset_left",
         "offset_top",
@@ -1011,6 +1020,14 @@ def test_game_get_names_game_rect_for_the_control_reads_it_cannot_serve():
         "anchor_bottom",
     ):
         assert storage in message, f"the redirect must name the storage {storage}"
+    for storage in (
+        "custom_minimum_size",
+        "size_flags_horizontal",
+        "size_flags_vertical",
+    ):
+        assert storage in message, (
+            f"the container-managed branch must name the storage {storage}"
+        )
 
     # Control-only: any other node keeps the generic message, so the redirect
     # cannot send a Node2D caller to a command that refuses it.

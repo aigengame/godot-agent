@@ -631,7 +631,7 @@ func _handle_game_get(params: Dictionary) -> String:
 	if has_filter and properties.is_empty():
 		if node is Control and CONTROL_LAYOUT_READS.has(wanted):
 			return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
-					_control_layout_read_message(path, wanted))
+					_control_layout_read_message(node as Control, path, wanted))
 		return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
 				_unknown_runtime_property_message(path, wanted))
 
@@ -668,27 +668,50 @@ func _explicit_script_variable_property(
 # that command and every field it reports, then the layout INPUTS — the storage
 # properties game get and game set do serve. Any other node keeps the generic
 # message: it has no layout output to redirect to.
-func _control_layout_read_message(path: String, prop_name: String) -> String:
+#
+# Which inputs those are depends on the PARENT, so the last sentence branches on
+# the same _has_container_parent predicate game set uses: the engine drops
+# PROPERTY_USAGE_DEFAULT from offset_*, anchor_*, grow_* and anchors_preset on a
+# direct child of a Container (Control::_validate_property, not editor-gated), so
+# naming them there sends the caller into a SECOND live_unknown_property. A
+# container-managed child gets the inputs it does carry.
+func _control_layout_read_message(
+		control: Control, path: String, prop_name: String) -> String:
+	var inputs := " The layout inputs are the" \
+			+ " storage properties offset_left, offset_top, offset_right," \
+			+ " offset_bottom and anchor_left, anchor_top, anchor_right," \
+			+ " anchor_bottom"
+	if _has_container_parent(control):
+		inputs = " This Control is a direct child of a Container, which owns its" \
+				+ " position and size: the offset_* and anchor_* properties are" \
+				+ " not in its storage set. The layout inputs it does carry are" \
+				+ " the storage properties custom_minimum_size," \
+				+ " size_flags_horizontal and size_flags_vertical; the rest is" \
+				+ " the parent Container's own layout"
 	return _unknown_runtime_property_message(path, prop_name) \
 			+ ". On a Control, position, size, global_position and global_rect are" \
 			+ " layout output, not storage properties: read them with `gda game rect " \
 			+ path + "`, which reports position, size, local_position, local_size," \
-			+ " minimum_size and combined_minimum_size. The layout inputs are the" \
-			+ " storage properties offset_left, offset_top, offset_right," \
-			+ " offset_bottom and anchor_left, anchor_top, anchor_right," \
-			+ " anchor_bottom"
+			+ " minimum_size and combined_minimum_size." + inputs
 
 
 # game rect: resolve a node by its ABSOLUTE runtime path, require it to be a
 # Control, and report what the layout PRODUCED for it — no storage property
 # carries that. The rendered viewport-space rect comes from
 # Control.get_global_rect() and the parent-space one from Control.get_rect();
-# the two differ by the ancestors' offsets, and their sizes differ only where an
-# ancestor applies a scale. The two minimum sizes are the layout's own inputs and
-# are DIFFERENT reads (#852): get_minimum_size() is the class's intrinsic minimum
-# and excludes the authored custom_minimum_size, while
-# get_combined_minimum_size() is the per-axis maximum of the two — what a parent
-# Container honors.
+# the two differ by the ancestors' TRANSFORM — an ancestor offset moves the
+# origin, an ancestor scale multiplies the origin and the size. The local rect is
+# built from the local transform too, so its origin is the node's own position
+# moved by pivot_offset where a scale or a rotation is set, and its size is the
+# node's own size multiplied by the node's own scale. The two minimum sizes are
+# the layout's own inputs and are DIFFERENT reads (#852): get_minimum_size() is
+# the class's intrinsic minimum and excludes the authored custom_minimum_size,
+# while get_combined_minimum_size() is the per-axis maximum of the two — what a
+# parent Container honors. The first read RUNS PROJECT CODE where the class
+# leaves the getter to Control: Control::get_minimum_size() is the
+# _get_minimum_size virtual with no cache, so a script override of it runs once
+# per request (CONTEXT.md, Project-code execution surface). The combined read
+# beside it takes the engine's cache.
 func _handle_game_rect(params: Dictionary) -> String:
 	var path := _string_param(params, "node")
 	var node := _resolve_runtime_node(path)
