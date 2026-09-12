@@ -2045,10 +2045,6 @@ def test_inventory_consumes_the_complete_declared_source_module_mapping(renamed)
                                 original
                             ]:
                                 term["path"][0] = renamed
-                elif role == "language.model_checks":
-                    for member in ("selector", "scope_selector"):
-                        if row.get(member, [])[:1] == [original]:
-                            row[member][0] = renamed
         _reidentify_package_release(package, kernel)
     _reidentify_graph_root(language)
     a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
@@ -2077,15 +2073,9 @@ def test_inventory_consumes_the_complete_declared_source_module_mapping(renamed)
         "source-field", ("language.wire_schemas", "model-source-package"), renamed
     )
     references = [o for o in inventory.occurrences if o.token == token]
-    assert (
-        len(
-            [
-                o
-                for o in references
-                if o.pointer.endswith(("/selector/0", "/scope_selector/0"))
-            ]
-        )
-        == 5
+    assert not any(
+        "/semantic_selector/" in o.pointer or "/semantic_scope_selector/" in o.pointer
+        for o in references
     )
     assert any(
         o.pointer == "/source/" + renamed.replace("~", "~0").replace("/", "~1")

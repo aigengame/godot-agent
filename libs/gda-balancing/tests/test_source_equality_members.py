@@ -85,13 +85,6 @@ def test_annotated_symbol_members_reach_public_compilation_and_identical_facts(
                 symbol[target] = symbol.pop(member)
                 changed += 1
     assert changed >= 3
-    for package in authored["packages"]:
-        for closure in package["semantic_closure"]:
-            if closure["authority_path"] == "language.model_checks":
-                for check in closure["definitions"]:
-                    for selector in ("selector", "scope_selector"):
-                        if check.get(selector, [])[-1:] == [member]:
-                            check[selector][-1] = target
     sealed = _graph(kernel, authored)
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, sealed)

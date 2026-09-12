@@ -113,6 +113,34 @@ def source_schema_member(
     return matches[0]
 
 
+def source_semantic_selector(schema: dict[str, Any], selector: list[str]) -> list[str]:
+    """Resolve semantic member segments to one authored path, without reading values."""
+    candidates = [schema]
+    authored: list[str] = []
+    for member in selector:
+        alternatives = [
+            node for candidate in candidates for node in _object_alternatives(candidate)
+        ]
+        if member == "*":
+            candidates = [node["items"] for node in alternatives if "items" in node]
+            if not candidates:
+                raise ValueError("Source semantic wildcard has no array owner")
+            authored.append(member)
+            continue
+        children = [
+            (name, child)
+            for node in alternatives
+            for name, child in node.get("properties", {}).items()
+            if child.get("semantic_member") == member
+        ]
+        names = {name for name, _ in children}
+        if len(names) != 1:
+            raise ValueError("Source semantic selector has no unique authored member")
+        authored.append(next(iter(names)))
+        candidates = [child for _, child in children]
+    return authored
+
+
 def source_member_paths(
     schema: dict[str, Any], role: str, member: str
 ) -> set[tuple[str, ...]]:

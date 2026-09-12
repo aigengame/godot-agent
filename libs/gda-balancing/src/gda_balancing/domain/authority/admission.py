@@ -84,7 +84,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:4f98b4d11411a1d2134fd7f7441b9e9ecb5d9033d04ef74a4003152fa8d343c1"
+    "sha256:c17dedce17a0321186f0b040f3a41a867f08f04ce8a5f57f5dd20840710b4fac"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -2578,6 +2578,26 @@ def _language_definitions_are_closed(
     ):
         return False
     if not _formula_resolution_is_closed(language_bundle, meta_format):
+        return False
+    try:
+        from gda_balancing.domain.authority.source_projection import (
+            source_semantic_selector,
+        )
+
+        source = next(
+            row["schema"]
+            for row in language["wire_schemas"]
+            if row.get("protocol_role") == "model-source-package"
+        )
+        for check in language["model_checks"]:
+            source_semantic_selector(
+                source,
+                [
+                    *check.get("semantic_scope_selector", []),
+                    *check["semantic_selector"],
+                ],
+            )
+    except (KeyError, TypeError, ValueError, StopIteration):
         return False
     quantity = language.get("quantity")
     quantity_contract = authority.get("quantity")

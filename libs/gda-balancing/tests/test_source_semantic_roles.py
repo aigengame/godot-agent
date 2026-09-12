@@ -163,18 +163,6 @@ def _candidate(case):
                 rename_term(predicate["right"])
             for field in recipe["fields"]:
                 rename_term(field["term"])
-        # Model checks retain their authored Source paths. Lowering selects
-        # semantic Source rows after the schema-guided boundary projection.
-        names = {**members["source"], **members["module"], **members["symbol"]}
-        for package in authored["packages"]:
-            for closure in package["semantic_closure"]:
-                if closure["authority_path"] == "language.model_checks":
-                    for check in closure["definitions"]:
-                        for selector in ("selector", "scope_selector"):
-                            if selector in check:
-                                check[selector] = [
-                                    names.get(part, part) for part in check[selector]
-                                ]
     elif case == "entrypoint-id":
         _rename_role_field(schema, {"entrypoint"}, "id", "wire/id~")
         for entrypoint in source["entrypoints"]:

@@ -41,7 +41,10 @@ from gda_balancing.domain.formula.notation import (
 from gda_balancing.domain.operation_program import closed_operation_coordinates
 from gda_balancing.domain.program_reachability import formula_lifecycle_phases
 from gda_balancing.domain.model._preparation import _TypedHIR
-from gda_balancing.domain.authority.source_projection import SourceProjection
+from gda_balancing.domain.authority.source_projection import (
+    SourceProjection,
+    source_semantic_selector,
+)
 
 _RESOLVER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-exact-resolver-v1"
 _RelationBindings: TypeAlias = dict[str, tuple[Any, tuple[object, ...] | None]]
@@ -478,6 +481,22 @@ def _unique_reason(
     return matches[0]
 
 
+def _model_check_paths(
+    language: dict[str, Any],
+) -> Iterable[tuple[dict[str, Any], list[str], list[str]]]:
+    schema = next(
+        row["schema"]
+        for row in language["wire_schemas"]
+        if row.get("protocol_role") == "model-source-package"
+    )
+    for check in language["model_checks"]:
+        scope = check.get("semantic_scope_selector", [])
+        authored = source_semantic_selector(
+            schema, [*scope, *check["semantic_selector"]]
+        )
+        yield check, authored[: len(scope)], authored[len(scope) :]
+
+
 def _model_check_diagnostics(
     source: dict[str, Any],
     source_identity: str,
@@ -488,20 +507,20 @@ def _model_check_diagnostics(
         item["id"]: item for item in cast(list[dict[str, Any]], language["reasons"])
     }
     diagnostics: list[Schema2Diagnostic] = []
-    for check in cast(list[dict[str, Any]], language["model_checks"]):
+    for check, scope_selector, selector in _model_check_paths(language):
         reason = reasons[check["reason"]]
         scopes = (
             _selected_values(
                 source,
-                cast(list[str], check["scope_selector"]),
+                scope_selector,
             )
-            if "scope_selector" in check
+            if scope_selector
             else [(source, ())]
         )
         for scope, scope_path in scopes:
             selected = _selected_values(
                 scope,
-                cast(list[str], check["selector"]),
+                selector,
                 scope_path,
             )
             values = [value for value, _ in selected]
@@ -547,12 +566,10 @@ def _model_check_diagnostics(
                 limit_path = cast(str, reason["predicate"]["limit_path"])
                 limit = cast(int, _path_value(language_bundle, limit_path))
                 location = (
-                    selected[limit][1]
-                    if len(selected) > limit
-                    else tuple(check["selector"])
+                    selected[limit][1] if len(selected) > limit else tuple(selector)
                 )
             else:
-                location = selected[0][1] if selected else tuple(check["selector"])
+                location = selected[0][1] if selected else tuple(selector)
             diagnostics.append(
                 Schema2Diagnostic(
                     code=diagnostic_code,
@@ -645,13 +662,8 @@ def _schema_error_code(
     reasons = {
         item["id"]: item for item in cast(list[dict[str, Any]], language["reasons"])
     }
-    for check in cast(list[dict[str, Any]], language["model_checks"]):
-        selector = tuple(
-            [
-                *cast(list[str], check.get("scope_selector", [])),
-                *cast(list[str], check["selector"]),
-            ]
-        )
+    for check, scope, selected in _model_check_paths(language):
+        selector = (*scope, *selected)
         if len(selector) == len(path) and all(
             expected == "*" or expected == actual
             for expected, actual in zip(selector, path, strict=True)

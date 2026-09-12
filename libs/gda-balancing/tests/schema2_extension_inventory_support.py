@@ -1011,59 +1011,6 @@ def _source_address_links(
                     annotated_addresses.update(candidates)
         for address in annotated_addresses:
             yield from schema_links(address, transport_law)
-        known_addresses = set(addresses.values()) | annotated_addresses
-
-        def selector(parts: list[str], path: str, prefix: tuple[str | int, ...] = ()):
-            # model_checks/model_lowerings field_types declare path-segments:
-            # '*' selects array items; it is syntax, not a free Source field.
-            address = prefix
-            for index, segment in enumerate(parts):
-                current = [schema for schema, _ in address_schemas(address)]
-                if segment == "*":
-                    if not any(
-                        schema.get("type") == "array"
-                        and isinstance(schema.get("items"), dict)
-                        for schema in current
-                    ) or any(
-                        schema.get("type") not in (None, "array") for schema in current
-                    ):
-                        raise InventoryRefusal(
-                            "Source selector wildcard has no array item owner"
-                        )
-                    address = (*address, "items")
-                else:
-                    if not any(
-                        schema.get("type") == "object"
-                        and segment in schema.get("properties", {})
-                        for schema in current
-                    ) or any(
-                        schema.get("type") not in (None, "object") for schema in current
-                    ):
-                        raise InventoryRefusal(
-                            "Source selector has an unknown Schema member"
-                        )
-                    address = (*address, "properties", segment)
-                    if address not in known_addresses:
-                        raise InventoryRefusal(
-                            "Source selector member has no interpreted owner"
-                        )
-                    yield (
-                        token(address),
-                        _child(path, index),
-                        "reference",
-                        "value",
-                        "",
-                        transport_law if address in annotated_addresses else law,
-                    )
-            return address
-
-        for _, check, cp in _authority_path_rows(
-            kernel, graph, "language_bundle.language.model_checks"
-        ):
-            prefix = yield from selector(
-                check.get("scope_selector", []), cp + "/scope_selector"
-            )
-            yield from selector(check["selector"], cp + "/selector", prefix)
 
 
 def _scheduler_rule_vector_inventory(
