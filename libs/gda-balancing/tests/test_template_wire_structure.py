@@ -76,8 +76,8 @@ def test_template_fixed_containers_have_one_owner_and_exact_wire(role):
         for gap in inventory.uncovered
         for index in (0, 1, 2)
     )
-    # Source, Resolution, lowering and unrelated Artifact families stay open.
-    assert len(inventory.uncovered) == 20
+    # Source, Resolution and unrelated Artifact families stay open.
+    assert len(inventory.uncovered) == 19
 
 
 @pytest.mark.parametrize("role", _SCHEMA_DIGESTS)

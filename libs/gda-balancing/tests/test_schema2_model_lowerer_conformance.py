@@ -2970,8 +2970,6 @@ def _reference_entrypoints(
     domains = checked.kernel["meta_format"]["runtime_program"]["invocation_contract"][
         "identity_domains"
     ]
-    assert policy["duplicate_actual_policy"] == "collapse"
-    assert policy["scenario_target_cardinality"] == "one-per-resolved-actual"
     resolved_entrypoints = []
     seen: set[str] = set()
     for entrypoint_index, source_entrypoint in enumerate(
@@ -3979,11 +3977,18 @@ def _reference_runtime_projection(
                 pending.extend(term)
             elif isinstance(term, dict):
                 coordinate = tuple(
-                    term.get(member) for member in type_closure["coordinate_members"]
+                    term.get(member)
+                    for member in checked.kernel["meta_format"]["literal_typing"][
+                        "typed_envelope_profile"
+                    ]["admission"]["nominal_type_reference"]["coordinate_members"]
                 )
                 if all(isinstance(member, str) and member for member in coordinate):
                     references.add(coordinate)
-                kind = term.get(type_closure["structural_kind_member"])
+                kind = term.get(
+                    checked.kernel["meta_format"]["runtime_projection"][
+                        "type_reference_closure"
+                    ]["structural_match"]["definition_kind_member"]
+                )
                 if isinstance(kind, str) and kind:
                     kinds.add(kind)
                 pending.extend(term.values())
@@ -4031,7 +4036,11 @@ def _reference_runtime_projection(
         for index, row in enumerate(catalogs[constructor_collection]):
             consume()
             try:
-                kind = descend(row[2], type_closure["constructor_kind_path"])
+                kind = descend(row[2], type_closure["constructor_kind_path"][:-1])[
+                    checked.kernel["meta_format"]["runtime_projection"][
+                        "type_reference_closure"
+                    ]["structural_match"]["constructor_kind_member"]
+                ]
             except (KeyError, TypeError):
                 continue
             if kind in constructor_kinds:

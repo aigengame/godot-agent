@@ -16,6 +16,8 @@ import jsonschema
 from schema2_bootstrap_conformance_support import (
     _consumer_b_canonical_equal,
     _consumer_b_definition_is_closed,
+    _consumer_b_contract_path,
+    _consumer_b_fact_contract_at_path,
     _consumer_b_evidence_claim_kinds_are_closed,
     _consumer_b_evaluate_structured_value_vector,
     _consumer_b_value_program_instruction_is_closed,
@@ -33,6 +35,9 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_scheduler_scenario_vector_is_closed,
     _consumer_b_vector_header_is_closed,
     _consumer_b_relation_paths_are_typed,
+    _consumer_b_runtime_projection_is_closed,
+    _consumer_b_schema_path,
+    _consumer_b_semantic_item_contract,
     _consumer_b_source_fact_transport_is_supported,
     _consumer_b_template_admission_is_closed,
 )
@@ -1482,6 +1487,231 @@ def _projection_collection_links(kernel: Mapping[str, Any], graph: Mapping[str, 
                         "reference",
                         "/meta_format/runtime_projection/" + grammar,
                     )
+
+
+def _lowering_path_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    """Project addresses already interpreted by the independent lowering judgment.
+
+    LDB identifiers are covered by metadata, rule, assignment and collection
+    links. These additional occurrences address fixed Kernel contracts, not
+    the values stored in the addressed fields.
+    """
+    meta = kernel["meta_format"]
+    definitions = meta["language_definitions"]
+    law = "/meta_format/language_definitions/collections/model_lowerings"
+    grammar = definitions["collections"]["model_lowerings"]
+    language = {**graph["ldb_root"], **_attached_language(kernel, graph)}
+    rules = {row["id"]: row for row in language["language"]["rules"]}
+    facts = {row["kind"]: row["field_contract"] for row in meta["fact"]["schemas"]}
+    rir = next(
+        row["schema"]
+        for row in language["language"]["artifact_wire_schemas"]
+        if row.get("protocol_role") == "rir-semantic-payload"
+    )["properties"]["selected_semantics"]["properties"]
+
+    def fixed(name, pointer, owner):
+        return TokenOccurrence(
+            AuthorityToken("kernel.lowering-address", (owner,), name),
+            pointer,
+            "reference",
+            owner,
+        )
+
+    def path_links(path, pointer, contract, owner, *, schema=False):
+        select = _consumer_b_schema_path if schema else _consumer_b_contract_path
+        for i, name in enumerate(path):
+            if select(contract, path[: i + 1]) is None:
+                raise InventoryRefusal("lowering path has no declared field owner")
+            yield fixed(name, f"{pointer}/{i}", owner + "/" + "/".join(path[:i]))
+
+    def markers(value, contract, pointer, owner):
+        # Only explicit enum/const declarations are primitive value owners.
+        allowed = contract.get(
+            "enum", [contract["const"]] if "const" in contract else []
+        )
+        if value not in allowed:
+            raise InventoryRefusal("lowering marker has no Kernel value owner")
+        yield fixed(value, pointer, owner)
+
+    for _, lowering, pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.model_lowerings"
+    ):
+        if not _consumer_b_definition_is_closed(lowering, grammar, language):
+            raise InventoryRefusal(
+                "lowering definition does not close its Kernel grammar"
+            )
+        terminals = []
+        for member in ("rule_chain", "structured_rule_chain"):
+            for i, step in enumerate(lowering[member]):
+                rule = rules.get(step["rule"])
+                if rule is None or any(
+                    step[key] != rule[key] for key in ("phase", "judgment")
+                ):
+                    raise InventoryRefusal(
+                        "lowering invocation has the wrong rule owner"
+                    )
+                yield from markers(
+                    step["phase"],
+                    grammar["field_types"][member]["items"]["field_types"]["phase"],
+                    f"{pointer}/{member}/{i}/phase",
+                    law + "/field_types/" + member,
+                )
+            if not lowering[member]:
+                raise InventoryRefusal("lowering has no terminal rule")
+            name = facts[rules[lowering[member][-1]["rule"]]["conclusion"]["fact_kind"]]
+            fields = meta["fact"]["field_contracts"][name]
+            terminals.append((fields, "/meta_format/fact/field_contracts/" + name))
+            if not _consumer_b_runtime_projection_is_closed(
+                lowering["runtime_projection"],
+                meta["runtime_projection"],
+                language,
+                fields,
+                definitions,
+                meta,
+            ):
+                raise InventoryRefusal(
+                    "lowering Runtime projection is not independently closed"
+                )
+            for ei, equality in enumerate(lowering["output_equalities"]):
+                for side in ("left", "right"):
+                    if (
+                        _consumer_b_fact_contract_at_path(fields, equality[side])
+                        is None
+                    ):
+                        raise InventoryRefusal(
+                            "lowering equality has no terminal Fact owner"
+                        )
+                    yield from path_links(
+                        equality[side],
+                        f"{pointer}/output_equalities/{ei}/{side}",
+                        {"field_types": fields},
+                        terminals[-1][1],
+                    )
+        projection = lowering["runtime_projection"]
+        pp = pointer + "/runtime_projection"
+        shapes = {}
+        for ci, collection in enumerate(projection["collections"]):
+            source = collection["source"]
+            cp = f"{pp}/collections/{ci}/source"
+            if source["kind"] == "namespace-member":
+                owner = (
+                    "/meta_format/runtime_projection/path_typing/namespace/"
+                    + source["member"]
+                )
+                shape = rir[source["member"]]["items"]
+                shapes[collection["id"]] = (shape, owner, True)
+                yield fixed(
+                    source["member"],
+                    cp + "/member",
+                    "/meta_format/language_definitions/wire_schema_protocol_roles/rir_structure/namespace_outputs",
+                )
+                yield from path_links(
+                    source["package_path"],
+                    cp + "/package_path",
+                    shape,
+                    owner,
+                    schema=True,
+                )
+            else:
+                shape = _consumer_b_semantic_item_contract(
+                    source["authority_path"], definitions
+                )
+                if shape is None:
+                    raise InventoryRefusal(
+                        "lowering collection has no Kernel source owner"
+                    )
+                owner = "/meta_format/language_definitions/" + source["authority_path"]
+                shapes[collection["id"]] = (shape, owner, False)
+                yield fixed(
+                    source["authority_path"],
+                    cp + "/authority_path",
+                    "/meta_format/package_release/semantic_closure/projections",
+                )
+            yield from markers(
+                source["kind"],
+                {"enum": meta["runtime_projection"]["collection_source_kinds"]},
+                cp + "/kind",
+                "/meta_format/runtime_projection/collection_source_kinds",
+            )
+        for si, seed in enumerate(projection["seeds"]):
+            sp = f"{pp}/seeds/{si}"
+            shape, owner, schema = shapes[seed["collection"]]
+            yield from path_links(
+                seed["target_path"], sp + "/target_path", shape, owner, schema=schema
+            )
+            applicable = [
+                (fields, owner)
+                for fields, owner in terminals
+                if seed["applicability_member"] in fields
+            ]
+            if not applicable:
+                raise InventoryRefusal("lowering seed has no applicable terminal Fact")
+            for fields, owner in applicable:
+                yield fixed(
+                    seed["applicability_member"],
+                    sp + "/applicability_member",
+                    owner + "/",
+                )
+                for member in ("declaration_path", "declaration_package_path"):
+                    yield from path_links(
+                        seed[member], sp + "/" + member, {"field_types": fields}, owner
+                    )
+        for ei, edge in enumerate(projection["edges"]):
+            for side in ("source", "target"):
+                shape, owner, schema = shapes[edge[side + "_collection"]]
+                yield from path_links(
+                    edge[side + "_path"],
+                    f"{pp}/edges/{ei}/{side}_path",
+                    shape,
+                    owner,
+                    schema=schema,
+                )
+        closure = projection["type_reference_closure"]
+        for member, collection in (
+            ("source_definition_path", "source_collection"),
+            ("constructor_kind_path", "target_constructor_collection"),
+        ):
+            shape, owner, schema = shapes[closure[collection]]
+            yield from path_links(
+                closure[member],
+                pp + "/type_reference_closure/" + member,
+                shape,
+                owner,
+                schema=schema,
+            )
+        policy = lowering["assignment_policy"]
+        fields = grammar["field_types"]["assignment_policy"]["field_types"]["roles"][
+            "items"
+        ]["field_types"]
+        for ri, role in enumerate(policy["roles"]):
+            rp = f"{pointer}/assignment_policy/roles/{ri}"
+            yield from markers(
+                role["binding_kind"],
+                fields["binding_kind"],
+                rp + "/binding_kind",
+                law + "/assignment_policy/roles/binding_kind",
+            )
+            # Access values are actual Operation formal access roles. Their
+            # strings have no bearing on same-spelled assignment mode names.
+            access = definitions["wire_schema_protocol_roles"]["rir_structure"][
+                "containers"
+            ]["argument"]["field_types"]["access"]
+            for ai, name in enumerate(role["entrypoint_operand_access"]):
+                yield from markers(
+                    name,
+                    access,
+                    f"{rp}/entrypoint_operand_access/{ai}",
+                    "/meta_format/language_definitions/wire_schema_protocol_roles/rir_structure/containers/argument/field_types/access",
+                )
+            for mi, mode in enumerate(role["modes"]):
+                for member, field in fields["modes"]["items"]["field_types"].items():
+                    if "enum" in field:
+                        yield from markers(
+                            mode[member],
+                            field,
+                            f"{rp}/modes/{mi}/{member}",
+                            law + "/assignment_policy/roles/modes/" + member,
+                        )
 
 
 def _resolution_binding_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
@@ -3939,6 +4169,9 @@ class _Reader:
                 "Template const/enum data has no declared instance field or item owner",
             )
             return True
+        if role == "language.model_lowerings":
+            # All remaining fields have their existing typed lowering owner.
+            return True
         if role == "language.replay_comparison_policies":
             # The independent observation-member pass closes the complete
             # policy shape and every actual check reference before this pass.
@@ -5680,6 +5913,9 @@ class _Reader:
         )
         for row in vector_links:
             self.occurrence(row.token, row.pointer, row.use, row.law)
+        for row in _lowering_path_links(self.kernel, self.graph):
+            self.occurrence(row.token, row.pointer, row.use, row.law)
+            self.reserved.add(row.token)
         self.rule_chain_links()
         self.assignment_policies()
         self.formula_aliases()
@@ -6283,6 +6519,67 @@ def validate_extension_inventory(
     is implemented; require_complete still refuses that inventory.
     """
     validate_inventory_occurrences(kernel, graph, inventory)
+    lowering_links = set(_lowering_path_links(kernel, graph))
+    lowering_roots = [
+        pointer
+        for _, _, pointer in _authority_path_rows(
+            kernel, graph, "language_bundle.language.model_lowerings"
+        )
+    ]
+
+    def in_lowering(pointer):
+        return any(
+            pointer == root or pointer.startswith(root + "/") for root in lowering_roots
+        )
+
+    if any(in_lowering(gap.pointer) for gap in inventory.uncovered):
+        raise InventoryRefusal("lowering has an invented unresolved owner")
+    lowering_expected = set(
+        _close_projection_occurrences(
+            graph,
+            lowering_links,
+            [
+                (source, target)
+                for source, target, _, _ in _contract_vector_projections(kernel, graph)
+            ],
+        )
+    )
+    lowering_positions = {row.pointer for row in lowering_expected}
+    lowering_actual = {
+        row
+        for row in inventory.occurrences
+        if row.pointer in lowering_positions
+        or row.token.role == "kernel.lowering-address"
+    }
+
+    def interpreted_lowering(rows):
+        return {
+            (row.token, row.pointer, row.use, row.location, row.projection)
+            for row in rows
+        }
+
+    if interpreted_lowering(lowering_actual) != interpreted_lowering(
+        lowering_expected
+    ) or {row.token for row in lowering_expected} != {
+        token for token in inventory.reserved if token.role == "kernel.lowering-address"
+    }:
+        raise InventoryRefusal("lowering address coverage is incomplete or misowned")
+    fixed_tokens = {row.token for row in lowering_expected}
+    for _, name, pointer, target, _ in _declared_metadata_links(kernel, graph):
+        if in_lowering(pointer) and target.startswith("kernel."):
+            role, scoped = _declared_target_role(kernel, target)
+            if scoped:
+                raise InventoryRefusal(
+                    "lowering Kernel reference has an unexpected scope"
+                )
+            fixed_tokens.add(AuthorityToken(role, (), name))
+    lowering_tokens = {
+        row.token for row in inventory.occurrences if in_lowering(row.pointer)
+    }
+    if inventory.reserved & lowering_tokens != fixed_tokens:
+        raise InventoryRefusal(
+            "lowering nominal and Kernel token partition is incorrect"
+        )
     template_expected, template_reserved, template_roots, template_schemas = (
         _template_inventory(kernel, graph)
     )

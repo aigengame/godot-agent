@@ -85,7 +85,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:0e4fb5cab2a85a223fd23ea3b9be343a3e270013c0349b19ecfcef27b338f360"
+    "sha256:6d15879e283ef18eabc20fb52a929484ce314e3ef9085e7db3882c7f3e551442"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -2275,12 +2275,14 @@ def _runtime_projection_is_closed(
                 "source_definition_path",
                 "target_type_collection",
                 "target_constructor_collection",
-                "coordinate_members",
-                "structural_kind_member",
                 "constructor_kind_path",
             ],
             "coordinate_match": "exact-package-type-id",
-            "structural_match": "definition-kind-to-constructor-kind",
+            "structural_match": {
+                "relation": "definition-kind-to-constructor-kind",
+                "definition_kind_member": "kind",
+                "constructor_kind_member": "definition_kind",
+            },
         }
         or contract.get("path_typing")
         != {
@@ -2363,16 +2365,17 @@ def _runtime_projection_is_closed(
             member: type_reference_closure[member]
             for member in (
                 "constructor_kind_path",
-                "coordinate_members",
                 "source_definition_path",
-                "structural_kind_member",
             )
         }
         != {
-            "constructor_kind_path": ["value_rule", "definition_kind"],
-            "coordinate_members": ["package", "id"],
+            "constructor_kind_path": [
+                "value_rule",
+                contract["type_reference_closure"]["structural_match"][
+                    "constructor_kind_member"
+                ],
+            ],
             "source_definition_path": ["definition"],
-            "structural_kind_member": "kind",
         }
     ):
         return False

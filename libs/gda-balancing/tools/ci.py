@@ -100,6 +100,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_evidence_candidate_independent.py",
         "test_evidence_claim_identity.py",
         "test_extension_inventory.py",
+        "test_lowering_policy_inventory.py",
         "test_extension_renaming.py",
         "test_formula_inline_resolution.py",
         "test_formula_resolution_independent.py",

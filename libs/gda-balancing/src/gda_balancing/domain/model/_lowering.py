@@ -1812,8 +1812,6 @@ def _assignment_policy(
     if (
         not isinstance(rows, list)
         or not rows
-        or policy.get("scenario_target_cardinality") != "one-per-resolved-actual"
-        or policy.get("duplicate_actual_policy") != "collapse"
         or any(
             not isinstance(row, dict)
             or not isinstance(row.get("role"), str)
@@ -4228,10 +4226,8 @@ def _runtime_projection(
     type_reference_closure = cast(dict[str, Any], profile.get("type_reference_closure"))
     if set(type_reference_closure) != {
         "constructor_kind_path",
-        "coordinate_members",
         "source_collection",
         "source_definition_path",
-        "structural_kind_member",
         "target_constructor_collection",
         "target_type_collection",
     }:
@@ -4239,10 +4235,16 @@ def _runtime_projection(
 
     def nested_type_terms(root: Any) -> tuple[set[tuple[str, str]], set[str]]:
         coordinate_members = cast(
-            list[str], type_reference_closure["coordinate_members"]
+            list[str],
+            kernel["meta_format"]["literal_typing"]["typed_envelope_profile"][
+                "admission"
+            ]["nominal_type_reference"]["coordinate_members"],
         )
         structural_kind_member = cast(
-            str, type_reference_closure["structural_kind_member"]
+            str,
+            kernel["meta_format"]["runtime_projection"]["type_reference_closure"][
+                "structural_match"
+            ]["definition_kind_member"],
         )
         coordinates: set[tuple[str, str]] = set()
         structural_kinds: set[str] = set()
@@ -4352,7 +4354,15 @@ def _runtime_projection(
         for index, row in enumerate(catalogs[constructor_target_id]):
             budget.consume()
             try:
-                constructor_kind = path_value(row["value"], constructor_kind_path)
+                constructor_kind = path_value(
+                    row["value"],
+                    [
+                        *constructor_kind_path[:-1],
+                        kernel["meta_format"]["runtime_projection"][
+                            "type_reference_closure"
+                        ]["structural_match"]["constructor_kind_member"],
+                    ],
+                )
             except ValueError:
                 continue
             if constructor_kind in structural_kinds:
