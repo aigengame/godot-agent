@@ -40,7 +40,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:0780866300dbfe5f371ce42c45364fe3723a95a3d7cdde0e42d7882fff7c2fed"
+    "sha256:5cd7ff3394e05c8aa241921b8110a4c9d015b9a84e30876f09ebf929373dc644"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
@@ -3140,6 +3140,194 @@ def _consumer_b_project_runtime_outputs(
         )
 
 
+def _consumer_b_copied_definition_schema(contract):
+    """Keep Kernel-delegated authored values under their semantic consumer."""
+
+    def normalize(value):
+        result = deepcopy(value)
+        if result.get("type") in {"closed-json-schema", "object"}:
+            return {"type": "canonical-value"}
+        if result.get("type") == "list":
+            return {"type": "list-of", "items": {"type": "canonical-value"}}
+        for mapping in ("field_types", "variants"):
+            if mapping in result:
+                result[mapping] = {
+                    key: normalize(child) for key, child in result[mapping].items()
+                }
+        if "items" in result:
+            result["items"] = normalize(result["items"])
+        return result
+
+    return _consumer_b_protocol_contract_schema(normalize(contract))
+
+
+def _consumer_b_model_namespace_schemas(kernel):
+    meta = kernel["meta_format"]
+    protocols = meta["language_definitions"]["wire_schema_protocol_roles"]
+    shape = protocols["model_structure"]["namespace_structure"]
+    if shape["content_validation"] != "exact-selected-authority-definitions":
+        raise ValueError("Model copied content has no independent semantic checker")
+    text = {"type": "non-empty-string"}
+    any_value = {"type": "canonical-value"}
+    convert = _consumer_b_copied_definition_schema
+
+    def object_contract(fields, required=None):
+        return {
+            "type": "closed-object",
+            "field_types": fields,
+            "required_members": list(fields) if required is None else required,
+        }
+
+    def object_schema(fields, required=None):
+        return {
+            "type": "object",
+            "properties": fields,
+            "required": list(fields) if required is None else required,
+            "unevaluatedProperties": False,
+        }
+
+    def sequence(item):
+        return {"type": "array", "items": item}
+
+    contracts = {
+        "language." + name: row
+        for name, row in meta["language_definitions"]["collections"].items()
+    }
+    contracts.update(
+        {
+            "language.quantity." + name: row
+            for name, row in meta["language_definitions"]["quantity"][
+                "collections"
+            ].items()
+        }
+    )
+    diagnostic = deepcopy(meta["admitted_language_index"]["diagnostic"])
+    diagnostic["field_types"] = {
+        key: {"enum": kernel["admission"]["refusal_stages"]}
+        if value.get("type") == "refusal-stage"
+        else value
+        for key, value in diagnostic["field_types"].items()
+    }
+    contracts["diagnostics"] = diagnostic
+    reason = meta["diagnostic_reason"]
+    reason_fields = {
+        key: convert(value) for key, value in reason["member_types"].items()
+    }
+    reason_fields["predicate"] = {
+        "oneOf": [
+            object_schema(
+                {key: convert(value) for key, value in row["member_types"].items()},
+                row["required_members"],
+            )
+            for row in reason["predicate_schemas"]
+        ]
+    }
+    rules = meta["rule"]
+    contracts["language.rules"] = object_contract(
+        {
+            "id": text,
+            "phase": {"enum": rules["phases"]},
+            "judgment": text,
+            "premises": {
+                "type": "list-of",
+                "items": object_contract(
+                    {"bind": any_value, "fact_kind": text},
+                    rules["premise_required_members"],
+                ),
+            },
+            "conclusion": object_contract(
+                {"fact_kind": text, "fields": any_value},
+                rules["conclusion_required_members"],
+            ),
+        },
+        rules["required_members"],
+    )
+    definitions = {
+        "language.reasons": object_schema(reason_fields, reason["required_members"])
+    }
+    for declaration in meta["package_release"]["semantic_closure"]["projections"]:
+        path = declaration["authority_path"]
+        if path not in definitions:
+            contract = contracts[path]
+            definitions[path] = convert(
+                {"type": contract["item_type"]} if "item_type" in contract else contract
+            )
+
+    def record(name, extra=None):
+        contract = shape["records"][name]
+        fields = {key: convert(value) for key, value in contract["field_types"].items()}
+        extra = extra or {}
+        if fields.keys() & extra.keys():
+            raise ValueError("Model namespace record has multiple field owners")
+        fields.update(extra)
+        if set(fields) != set(contract["required_members"]):
+            raise ValueError("Model namespace record fields are missing")
+        return object_schema(fields, contract["required_members"])
+
+    shared = {}
+    for name in shape["shared_collections"]:
+        if name == "language_rules":
+            item = convert(text)
+        else:
+            binding = protocols["rir_structure"]["selected_collections"][name]
+            source = binding["source"]
+            if source["kind"] == "namespace-member":
+                if source["member"] == "types":
+                    fields = convert(meta["package_release"]["type_export"])[
+                        "properties"
+                    ]
+                    item = object_schema({**fields, "package": convert(text)})
+                elif source["member"] == "capability_bindings":
+                    item = convert(
+                        protocols["rir_structure"]["containers"]["capability_binding"]
+                    )
+                else:
+                    raise ValueError("Model namespace member has no shape")
+            else:
+                item = definitions[source["authority_path"]]
+                if binding["shape"] == "package-definition":
+                    item = object_schema({"package": convert(text), "definition": item})
+        shared[name] = sequence(item)
+    entries = sequence(
+        {
+            "oneOf": [
+                object_schema(
+                    {
+                        "authority_path": {"const": path},
+                        "definitions": sequence(definitions[path]),
+                    },
+                    meta["package_release"]["semantic_closure"]["entry_members"],
+                )
+                for path in sorted(definitions)
+            ]
+        }
+    )
+    closures = sequence(record("package_closure", {"definitions": entries}))
+    semantic_fields = {
+        **shared,
+        "packages": sequence(record("semantic_package")),
+        "package_semantic_closures": closures,
+    }
+    return {
+        "package-lock": {
+            **shared,
+            "packages": sequence(record("locked_package")),
+            "resolution_profile": definitions["language.resolution_profiles"],
+            "package_semantic_closures": closures,
+            "dependency_edges": sequence(record("dependency_edge")),
+            "diagnostic_reasons": sequence(definitions["language.reasons"]),
+            "selected_semantics": object_schema(
+                {name: semantic_fields[name] for name in shape["selected_members"]},
+                shape["selected_members"],
+            ),
+        },
+        "capability-manifest": {
+            **shared,
+            "packages": sequence(record("capability_package")),
+        },
+    }
+
+
 def _consumer_b_model_schema(
     kernel: dict[str, Any], role: str, artifact_kind: str
 ) -> dict[str, Any]:
@@ -3148,7 +3336,7 @@ def _consumer_b_model_schema(
     shape = deepcopy(
         meta["language_definitions"]["wire_schema_protocol_roles"]["model_structure"]
     )
-    if set(shape) != {"containers", "debug_entry"}:
+    if set(shape) != {"containers", "debug_entry", "namespace_structure"}:
         raise ValueError("Model structure has unknown parts")
     container = shape["containers"][role]
     if set(container) != {"required_members", "field_types"}:
@@ -3160,6 +3348,11 @@ def _consumer_b_model_schema(
     if set(fields) & set(container["field_types"]):
         raise ValueError("Model fields have duplicate owners")
     fields.update(container["field_types"])
+    derived = {}
+    if role in {"package-lock", "capability-manifest"}:
+        derived = _consumer_b_model_namespace_schemas(kernel)[role]
+        if fields.keys() & derived.keys():
+            raise ValueError("Model namespace source has multiple owners")
     if role == "debug-map":
         if "entries" in fields:
             raise ValueError("Debug entries have a duplicate owner")
@@ -3169,17 +3362,22 @@ def _consumer_b_model_schema(
         not isinstance(required, list)
         or not all(isinstance(name, str) for name in required)
         or len(required) != len(set(required))
-        or set(required) != set(fields)
+        or set(required) != set(fields) | set(derived)
     ):
         raise ValueError("Model required members are incomplete")
-    return {
-        "$schema": meta["language_definitions"]["collections"]["artifact_wire_schemas"][
-            "field_types"
-        ]["schema"]["dialect"],
-        **_consumer_b_protocol_contract_schema(
-            {**common, "required_members": required, "field_types": fields}
-        ),
-    }
+    projected = _consumer_b_protocol_contract_schema(
+        {**common, "required_members": list(fields), "field_types": fields}
+    )
+    projected["required"] = required
+    projected["properties"].update(derived)
+    return deepcopy(
+        {
+            "$schema": meta["language_definitions"]["collections"][
+                "artifact_wire_schemas"
+            ]["field_types"]["schema"]["dialect"],
+            **projected,
+        }
+    )
 
 
 def _consumer_b_project_model_schema(kernel, language):

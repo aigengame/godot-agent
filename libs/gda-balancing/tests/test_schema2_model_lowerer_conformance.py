@@ -51,6 +51,7 @@ from schema2_bootstrap_production_support import _recursive_nominal_owner_candid
 from schema2_bootstrap_conformance_support import (
     _consumer_b_fact_is_closed,
     _consumer_b_operation_composition_subjects,
+    _consumer_b_operation_value_is_admitted,
     _consumer_b_source_fact_transport_is_supported,
 )
 from schema2_formula_conformance_support import normalize_source_body
@@ -2912,15 +2913,56 @@ def _reference_literal_context(
     checked: ModelSourceContext,
     selected_semantics: dict[str, Any],
 ) -> dict[str, Any] | None:
-    if (
-        type(value) is not int
-        or checked.kernel["meta_format"]["literal_typing"]["selection"]
-        != "unique-formal-match"
-    ):
+    law = checked.kernel["meta_format"]["literal_typing"]
+    if law["selection"] != "unique-formal-match":
         return None
     profiles = [
         row["definition"] for row in selected_semantics["literal_typing_profiles"]
     ]
+    if isinstance(value, dict):
+        typed = law["typed_envelope_profile"]
+        if set(value) != set(typed["admission"]["envelope_members"]):
+            return None
+        matches = [
+            profile
+            for profile in profiles
+            if profile["source_kind"] == "typed-envelope"
+            and profile["value_kind"] == typed["value_kind"]
+            and formal.get("value_kind") == profile["value_kind"]
+            and value[typed["type_member"]] == formal["type"]
+        ]
+        if len(matches) != 1 or not _consumer_b_operation_value_is_admitted(
+            value,
+            formal,
+            ldb=checked.language_bundle,
+            kernel=checked.kernel,
+            resource_limit=checked.language_bundle["resources"]["max_rule_match_steps"],
+        ):
+            return None
+        return {
+            "id": matches[0]["id"],
+            "type": value[typed["type_member"]],
+            "value_kind": matches[0]["value_kind"],
+        }
+    if type(value) is bool:
+        contract = checked.kernel["meta_format"]["runtime_program"][
+            "fixed_value_contracts"
+        ]["kernel-boolean"]
+        if not _reference_operation_contract_matches(contract, formal):
+            return None
+        return {
+            name: contract[name]
+            for name in (
+                "type",
+                "representation",
+                "kind",
+                "unit",
+                "domain",
+                "numeric_policy",
+            )
+        }
+    if type(value) is not int:
+        return None
     matches = []
     for profile in profiles:
         if (

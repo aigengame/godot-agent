@@ -4492,6 +4492,8 @@ class _Reader:
             "resolved-model",
             "model-build-command-input",
             "debug-map",
+            "package-lock",
+            "capability-manifest",
             "evaluator-capability-manifest",
             "resolved-runtime-profile",
             "metric-dataset",

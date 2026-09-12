@@ -105,6 +105,8 @@ def refresh_package_semantic_closures(
                     "resolved-model",
                     "model-build-command-input",
                     "debug-map",
+                    "package-lock",
+                    "capability-manifest",
                     "evaluator-capability-manifest",
                     "resolved-runtime-profile",
                     "snapshot-series",
