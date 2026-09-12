@@ -2540,8 +2540,6 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
     scenario = experiment["scenarios"][0]
     scenario["event_plan"] = scenario["event_plan"][:1]
     scenario["terminal_condition"] = {"kind": "event-count", "maximum": 1}
-    for node in ("guard-block", "require"):
-        experiment["runtime"]["required_evaluator"]["instruction_nodes"].remove(node)
     retained_assignments = {
         "enemy_defense",
         "enemy_health",
