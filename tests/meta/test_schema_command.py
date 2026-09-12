@@ -1458,6 +1458,8 @@ def test_sample_perf_results_validate_against_emitted_output_schemas():
             }
         },
         "samples": [{"frame": 0, "timestamp": 100, "values": {"fps": 60.0}}],
+        "samples_omitted": False,
+        "collector_bytes": 16,
         "budget": {
             "fps": {
                 "stat": "p50",
@@ -1470,6 +1472,12 @@ def test_sample_perf_results_validate_against_emitted_output_schemas():
         "passed": True,
     }
     jsonschema.validate(instance=window_instance, schema=monitors_doc["output"])
+    # The window branch admits BOTH forms (#846 AC3): the rows, or the compact
+    # --summary result that omits them and says so.
+    jsonschema.validate(
+        instance={**window_instance, "samples": None, "samples_omitted": True},
+        schema=monitors_doc["output"],
+    )
     jsonschema.validate(
         instance=PERF_MONITOR_PROPERTY_RESULT, schema=monitor_doc["output"]
     )

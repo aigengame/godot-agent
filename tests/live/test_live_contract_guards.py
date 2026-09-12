@@ -39,10 +39,12 @@ from gda.runner import RunResult
 
 from tests.support import (
     INPUT_TAP_ACTION_RESULT,
+    PERF_PACKED_VALUE_BYTES,
     PNG_1X1_B64,
     inject_live_runner,
     minimal_project,
     panel_text,
+    perf_sample_reply,
     screen_capture_reply,
     sentinel,
 )
@@ -104,6 +106,25 @@ def test_gda_callable_constant_name_mirrors_the_harness():
         named = re.findall(r"`?\b(GDA_[A-Z_]+)\b`? script constant", flat)
         assert named, f"{label} must name the declaration constant"
         assert set(named) == {GDA_CALLABLE_CONST}, (label, set(named))
+
+
+def test_perf_packed_value_bytes_mirrors_the_harness():
+    """``collector_bytes`` is arithmetic in GDScript; the fixtures restate it (#846).
+
+    The harness reports what its packed window retained, and the shared fake
+    reply computes the same number so a unit test can assert an exact
+    ``collector_bytes``. If the harness ever stored something wider than 8 bytes
+    per value, that fake would publish a figure no engine produces — invisible
+    until the nightly e2e, because PR CI runs no Godot. Same mirror idiom as the
+    op names, the live error codes and the monitor table.
+    """
+    source = GDA_HARNESS_GD.read_text(encoding="utf-8")
+    match = re.search(r"const PERF_PACKED_VALUE_BYTES := (\d+)", source)
+    assert match is not None, "the harness must declare PERF_PACKED_VALUE_BYTES"
+    assert int(match.group(1)) == PERF_PACKED_VALUE_BYTES
+    # And it must be what the sampler's reply actually multiplies by, not an
+    # unread constant beside a hardcoded number.
+    assert "stored * PERF_PACKED_VALUE_BYTES" in source
 
 
 def test_game_call_conversion_table_uses_only_live_json_source_types():
@@ -466,15 +487,9 @@ def _perf_monitors_probe(monkeypatch, tmp_path):
         monkeypatch,
         RunResult(
             stdout=sentinel(
-                {
-                    "kind": "sample",
-                    "frames": len(sampled),
-                    "monitors": ["fps"],
-                    "samples": [
-                        {"frame": index, "timestamp": 100 + index, "values": {"fps": v}}
-                        for index, v in enumerate(sampled)
-                    ],
-                }
+                perf_sample_reply(
+                    [100 + index for index in range(len(sampled))], {"fps": sampled}
+                )
             ),
             stderr="",
             exit_code=0,
@@ -739,17 +754,7 @@ def test_a_gda_derived_float_keeps_a_negative_zero_and_discloses_it(
     inject_live_runner(
         monkeypatch,
         RunResult(
-            stdout=sentinel(
-                {
-                    "kind": "sample",
-                    "frames": 2,
-                    "monitors": ["fps"],
-                    "samples": [
-                        {"frame": 0, "timestamp": 100, "values": {"fps": 0.5}},
-                        {"frame": 1, "timestamp": 101, "values": {"fps": 1.5}},
-                    ],
-                }
-            ),
+            stdout=sentinel(perf_sample_reply([100, 101], {"fps": [0.5, 1.5]})),
             stderr="",
             exit_code=0,
         ),

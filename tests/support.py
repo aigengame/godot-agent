@@ -1300,23 +1300,47 @@ PERF_MONITOR_SIGNAL_RESULT = {
     ],
 }
 
-# A ``perf-sample`` WIRE reply (#662) — what the harness returns: raw per-frame
-# rows only. Statistics and budget verdicts are computed CLI-side by the recipe,
-# so the values here are chosen to make the aggregates exactly checkable:
+# The bytes ONE value costs in the harness sampler's packed storage (#846), the
+# CLI-side twin of the harness's ``PERF_PACKED_VALUE_BYTES``: a
+# PackedFloat64Array element and a PackedInt64Array element are both 8 bytes. A
+# mirror test holds the two identical, so a fake reply's ``collector_bytes``
+# stays the number a real harness would report.
+PERF_PACKED_VALUE_BYTES = 8
+
+
+def perf_sample_reply(timestamps, values) -> dict:
+    """A ``perf-sample`` WIRE reply in the PACKED shape the harness sends (#846).
+
+    Column-wise: one value column per monitor plus one column of timestamps,
+    all of length ``frames``, with the frame index positional rather than
+    transmitted, and ``collector_bytes`` over the packed sizes. Built here so
+    every fake reply agrees with the real harness's arithmetic instead of
+    restating it per test.
+    """
+    stored = len(timestamps) + sum(len(column) for column in values.values())
+    return {
+        "kind": "sample",
+        "frames": len(timestamps),
+        "monitors": list(values),
+        "timestamps": list(timestamps),
+        "values": {name: list(column) for name, column in values.items()},
+        "collector_bytes": stored * PERF_PACKED_VALUE_BYTES,
+    }
+
+
+# A ``perf-sample`` WIRE reply (#662) — what the harness returns: the sampled
+# window and what it cost to retain, no statistics. Those and the budget
+# verdicts are computed CLI-side by the recipe, so the values here are chosen to
+# make the aggregates exactly checkable:
 # fps sorted = [55, 58, 60, 60, 62] -> mean 59, p50 60, p95 62 (nearest-rank);
 # draw_calls sorted = [90, 95, 100, 110, 120] -> mean 103, p50 100, p95 120.
-PERF_SAMPLE_REPLY = {
-    "kind": "sample",
-    "frames": 5,
-    "monitors": ["fps", "draw_calls"],
-    "samples": [
-        {"frame": 0, "timestamp": 100, "values": {"fps": 60.0, "draw_calls": 100.0}},
-        {"frame": 1, "timestamp": 116, "values": {"fps": 55.0, "draw_calls": 120.0}},
-        {"frame": 2, "timestamp": 132, "values": {"fps": 62.0, "draw_calls": 90.0}},
-        {"frame": 3, "timestamp": 148, "values": {"fps": 58.0, "draw_calls": 110.0}},
-        {"frame": 4, "timestamp": 164, "values": {"fps": 60.0, "draw_calls": 95.0}},
-    ],
-}
+PERF_SAMPLE_REPLY = perf_sample_reply(
+    [100, 116, 132, 148, 164],
+    {
+        "fps": [60.0, 55.0, 62.0, 58.0, 60.0],
+        "draw_calls": [100.0, 120.0, 90.0, 110.0, 95.0],
+    },
+)
 
 
 def perf_sample_reply_all_monitors(names) -> dict:
@@ -1326,18 +1350,7 @@ def perf_sample_reply_all_monitors(names) -> dict:
     correlates the reply's monitor list with that expectation — so the fake
     reply must cover the whole table for the default-selection test.
     """
-    return {
-        "kind": "sample",
-        "frames": 1,
-        "monitors": list(names),
-        "samples": [
-            {
-                "frame": 0,
-                "timestamp": 100,
-                "values": {name: 1.0 for name in names},
-            }
-        ],
-    }
+    return perf_sample_reply([100], {name: [1.0] for name in names})
 
 
 # Sample ``gda input`` results — the events the gda harness injected into the

@@ -57,6 +57,8 @@ from gda.commands.perf import (
     PerfMonitorResult,
     PerfMonitorsResult,
     PerfPropertySample,
+    PerfSampleFrame,
+    PerfSampleStats,
     PerfSignalEmission,
     render_perf_monitor,
     render_perf_monitors,
@@ -252,6 +254,51 @@ def test_render_perf_monitors_renders_a_sorted_snapshot():
     # Monitors are listed in a stable (name-sorted) order under the timestamp header.
     assert (
         render_perf_monitors(result) == "perf @ 500ms\n  fps = 60.0\n  node_count = 3.0"
+    )
+
+
+def test_render_perf_monitors_window_states_the_observer_cost_and_rows():
+    # The window header carries what the observer retained and whether the
+    # per-frame rows were kept (#846), so the human form discloses the same
+    # facts the --json result does.
+    stats = {
+        "fps": PerfSampleStats(
+            count=2, min=59.0, max=61.0, mean=60.0, p50=61.0, p95=61.0
+        )
+    }
+    kept = PerfMonitorsResult(
+        kind="window",
+        frames=2,
+        max_frames=600,
+        stats=stats,
+        samples=[
+            PerfSampleFrame(frame=0, timestamp=100, values={"fps": 59.0}),
+            PerfSampleFrame(frame=1, timestamp=116, values={"fps": 61.0}),
+        ],
+        samples_omitted=False,
+        collector_bytes=32,
+    )
+    omitted = PerfMonitorsResult(
+        kind="window",
+        frames=2,
+        max_frames=600,
+        stats=stats,
+        samples=None,
+        samples_omitted=True,
+        collector_bytes=32,
+    )
+
+    assert render_perf_monitors(kept).splitlines()[0] == (
+        "perf window: 2 frames, 1 monitors (ceiling 600, collector ~32 bytes, "
+        "samples kept)"
+    )
+    assert render_perf_monitors(omitted).splitlines()[0] == (
+        "perf window: 2 frames, 1 monitors (ceiling 600, collector ~32 bytes, "
+        "samples omitted)"
+    )
+    # The statistics line is the same either way — --summary drops rows, not data.
+    assert render_perf_monitors(kept) == render_perf_monitors(omitted).replace(
+        "samples omitted", "samples kept"
     )
 
 

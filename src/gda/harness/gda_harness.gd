@@ -83,6 +83,13 @@ const MAX_WINDOW_FRAMES := 600
 const WINDOW_CLOCK_PROCESS := "process"
 const WINDOW_CLOCK_PHYSICS := "physics"
 
+# The bytes ONE stored value costs the `perf-sample` window below (#846). A
+# PackedFloat64Array element and a PackedInt64Array element are both 8 bytes, so
+# one constant covers the value columns and the timestamp column. Reported as
+# `collector_bytes`, and mirrored by a unit test so that number stays checkable
+# without an engine.
+const PERF_PACKED_VALUE_BYTES := 8
+
 var _peer: StreamPeerUDS = null
 var _authed := false
 # True once this run was launched by gda-daemon (the LAUNCH_MARKER is present in the
@@ -993,11 +1000,12 @@ func _handle_perf_monitors() -> String:
 # snapshot, on the same time-windowed base `perf monitor` uses (#223). Each
 # selected-clock frame the sampler reads every SELECTED monitor (all of them
 # when the selection is empty), frame-coherently (ADR-0020), and the reply
-# carries the raw timestamped samples. The harness stays dumb on purpose: the
-# aggregate statistics and any budget verdicts are computed CLI-side, where the
-# numeric semantics are unit-testable without an engine. The frame count is
-# bounded model-side (ADR-0015); the unknown-monitor arm below is defensive
-# only (the CLI validates names against its mirrored table before dispatch).
+# carries the collected window plus the bytes the sampler retained for it. The
+# harness stays dumb on purpose: the aggregate statistics and any budget
+# verdicts are computed CLI-side, where the numeric semantics are unit-testable
+# without an engine. The frame count is bounded model-side (ADR-0015); the
+# unknown-monitor arm below is defensive only (the CLI validates names against
+# its mirrored table before dispatch).
 func _handle_perf_sample(params: Dictionary) -> Variant:
 	var frames := _int_param(params, "frames", 60)
 	var raw_names: Variant = params.get("monitors", [])
@@ -1008,24 +1016,48 @@ func _handle_perf_sample(params: Dictionary) -> Variant:
 		if not _perf_monitors.has(String(name)):
 			return _error("operation_failed",
 					"unknown performance monitor: " + String(name))
-	var frame_box := {"n": 0}
+	# The observer's own storage (#846). The window is kept COLUMN-wise in packed
+	# arrays — one PackedFloat64Array per monitor, plus one PackedInt64Array of
+	# timestamps — instead of one Dictionary per frame. A stored value then costs
+	# 8 bytes instead of a hash node and two boxed Variants, which is what the
+	# dogfooding report needed: its stable window rose 1.2 MB of `static_memory`
+	# with every object/node/resource count flat, and 600 retained Dictionaries
+	# were the most plausible source. The frame index is positional (entry i IS
+	# frame i), so it is not stored.
+	#
+	# A packed array is passed by REFERENCE in Godot 4 (the engine's own class
+	# reference states it), so the sampler appends to the very arrays the
+	# finalizer reports: a local bound to a column is the same array as the
+	# Dictionary's entry, and a lambda's by-value capture of `timestamps` is the
+	# same array too. No write-back, and no `frame_box` indirection like the one
+	# an accumulated INT needs in the handlers above.
+	var timestamps := PackedInt64Array()
+	var columns := {}
+	for name in names:
+		columns[String(name)] = PackedFloat64Array()
 	var sample := func() -> Variant:
-		var values := {}
+		timestamps.append(Time.get_ticks_msec())
 		for name in names:
-			values[String(name)] = Performance.get_monitor(_perf_monitors[String(name)])
-		var entry := {
-			"frame": int(frame_box["n"]),
-			"timestamp": Time.get_ticks_msec(),
-			"values": values,
-		}
-		frame_box["n"] = int(frame_box["n"]) + 1
-		return entry
+			var key := String(name)
+			var column: PackedFloat64Array = columns[key]
+			column.append(Performance.get_monitor(_perf_monitors[key]))
+		return null
 	var finalize := func(samples: Array) -> String:
+		# What the COLUMNS hold, which is what grows with the frame count. The
+		# shared window base also accumulates one Array entry per frame (a nil
+		# here, since this sampler returns none) and is left out: it is the
+		# base's, not this sampler's, and #846 keeps that base unchanged.
+		var stored := timestamps.size()
+		for name in names:
+			var column: PackedFloat64Array = columns[String(name)]
+			stored += column.size()
 		return _ok({
 			"kind": "sample",
 			"frames": samples.size(),
 			"monitors": names,
-			"samples": samples,
+			"timestamps": timestamps,
+			"values": columns,
+			"collector_bytes": stored * PERF_PACKED_VALUE_BYTES,
 		})
 	return _begin_window(frames, sample, finalize)
 
