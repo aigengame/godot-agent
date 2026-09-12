@@ -53,6 +53,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_operation_composition_subjects,
     _consumer_b_source_fact_transport_is_supported,
 )
+from schema2_formula_conformance_support import normalize_source_body
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
@@ -1577,6 +1578,11 @@ def _reference_formulas_and_bindings(
         }
         for source_formula in module.get("formulas", []):
             key = (module_id, source_formula["id"])
+            source_body = normalize_source_body(
+                source_formula[policy["formula_body_member"]],
+                checked.language_bundle,
+                kernel=checked.kernel,
+            )
             parameters = [
                 {
                     "id": parameter["id"],
@@ -1594,12 +1600,12 @@ def _reference_formulas_and_bindings(
                     imports,
                 ),
                 "imports": imports,
-                "source_body": source_formula["body"],
+                "source_body": source_body,
                 "expression": source_formula["expression"],
             }
             dependencies[key] = [
                 (node["formula"]["module"], node["formula"]["id"])
-                for node in source_formula["body"]["nodes"]
+                for node in source_body[policy["body_nodes_member"]]
                 if node["node"] == "formula-call"
             ]
 

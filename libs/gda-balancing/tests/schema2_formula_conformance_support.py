@@ -14,6 +14,10 @@ from typing import Any, cast
 import jsonschema
 
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
+from schema2_bootstrap_conformance_support import (
+    _consumer_b_inline_parameter_operand,
+    _consumer_b_value_matches,
+)
 
 
 def _source_definition(language_bundle: dict[str, Any]) -> dict[str, Any]:
@@ -56,36 +60,57 @@ def _resolution_profile(language_bundle: dict[str, Any]) -> dict[str, Any]:
     return profiles[0]
 
 
-def _formula_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
+def _formula_policy(
+    language_bundle: dict[str, Any], *, kernel: dict[str, Any]
+) -> dict[str, Any]:
     policy = _resolution_profile(language_bundle)["formula_resolution"]
-    if not isinstance(policy, dict):
+    contract = kernel["meta_format"]["language_definitions"]["collections"][
+        "resolution_profiles"
+    ]["field_types"]["formula_resolution"]
+    if not _consumer_b_value_matches(policy, contract, language_bundle):
         raise ValueError("independent consumer found no Formula policy")
     return policy
 
 
-def _conversion_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
-    policy = _formula_policy(language_bundle).get("notation_conversion")
-    infix_parser = policy.get("infix_parser") if isinstance(policy, dict) else None
+def _inline_source_parameter(
+    policy: dict[str, Any], kernel: dict[str, Any]
+) -> tuple[str, str, str]:
+    kind, reference = _consumer_b_inline_parameter_operand(kernel["meta_format"])
+    rows = policy["inline_body_normalizations"]
     if (
-        not isinstance(policy, dict)
-        or policy.get("condition_contract") != "kernel-boolean"
-        or policy.get("formula_argument_compatibility") != "exact-resolved-contract"
-        or policy.get("formula_result_compatibility") != "exact-resolved-contract"
-        or policy.get("literal_typing") != "selected-unique-formal-match"
-        or policy.get("literal_result_inference") != "contextual-anchor"
-        or policy.get("operation_argument_compatibility") != "exact-operation-formal"
-        or policy.get("symbol_resolution") != "exact-module-coordinate"
-        or not isinstance(infix_parser, dict)
-        or infix_parser.get("algorithm") != "shunting-yard"
-        or not isinstance(infix_parser.get("generated_local_separator"), str)
-        or not infix_parser["generated_local_separator"]
+        len(rows) != 1
+        or set(rows[0]) != {"parameter_member"}
+        or not isinstance(rows[0]["parameter_member"], str)
+        or not rows[0]["parameter_member"]
+        or rows[0]["parameter_member"] == "node"
     ):
-        raise ValueError("independent consumer found no notation conversion policy")
-    return policy
+        raise ValueError("independent inline Formula selector is ambiguous")
+    return kind, reference, rows[0]["parameter_member"]
+
+
+def normalize_source_body(
+    body: dict[str, Any], language_bundle: dict[str, Any], *, kernel: dict[str, Any]
+) -> dict[str, Any]:
+    """Independently adapt the declared Source field to the fixed operand role."""
+    policy = _formula_policy(language_bundle, kernel=kernel)
+    kind, reference, source_member = _inline_source_parameter(policy, kernel)
+    if "node" not in body:
+        return deepcopy(body)
+    if (
+        body.get("node") != kind
+        or set(body) != {"node", source_member}
+        or not isinstance(body[source_member], str)
+        or not body[source_member]
+    ):
+        raise ValueError("independent inline Formula body is malformed")
+    return {
+        policy["body_nodes_member"]: [],
+        policy["body_result_member"]: {"kind": kind, reference: body[source_member]},
+    }
 
 
 def _validate_context(
-    request: dict[str, Any], language_bundle: dict[str, Any]
+    request: dict[str, Any], language_bundle: dict[str, Any], *, kernel: dict[str, Any]
 ) -> list[dict[str, Any]]:
     language = language_bundle["language"]
     profile = _resolution_profile(language_bundle)
@@ -134,7 +159,9 @@ def _validate_context(
     if not isinstance(current_id, str) or current_id not in modules_by_id:
         raise ValueError("independent current module is outside its closure")
     closure_module = modules_by_id[current_id]
-    formula_member = _formula_policy(language_bundle)["module_formulas_member"]
+    formula_member = _formula_policy(language_bundle, kernel=kernel)[
+        "module_formulas_member"
+    ]
     for member in (
         profile["imports_member"],
         profile["symbols_member"],
@@ -252,10 +279,9 @@ def render_body(
     *,
     kernel: dict[str, Any],
 ) -> str:
-    _validate_context(request, language_bundle)
+    _validate_context(request, language_bundle, kernel=kernel)
     grammar, _operations = _authority(language_bundle)
-    if set(body) == {"node", "parameter"} and body.get("node") == "parameter":
-        return _identifier(body["parameter"], grammar)
+    body = normalize_source_body(body, language_bundle, kernel=kernel)
     notations = _selected_notations(request, language_bundle, kernel)
     by_coordinate = {
         (
@@ -674,7 +700,6 @@ def _infer_result(
             if copied in comparisons:
                 comparisons[target] = comparisons[copied]
         elif rule_id == "closed-interval-less-than":
-            assert policy["condition_contract"] == "kernel-boolean"
             comparisons[target] = tuple(instruction[m] for m in rule["operand_members"])
             values[target] = deepcopy(boolean_contract)
         elif rule_id in {
@@ -763,9 +788,9 @@ def parse_canonical(
     kernel: dict[str, Any],
 ) -> dict[str, Any]:
     grammar, _operations = _authority(language_bundle)
-    policy = _conversion_policy(language_bundle)
-    formula_policy = _formula_policy(language_bundle)
-    modules = _validate_context(request, language_bundle)
+    formula_policy = _formula_policy(language_bundle, kernel=kernel)
+    policy = formula_policy["notation_conversion"]
+    modules = _validate_context(request, language_bundle, kernel=kernel)
     quote = cast(str, grammar["identifier_quote"])
     escape = cast(str, grammar["escape_character"])
     parameters = {
@@ -908,8 +933,11 @@ def parse_canonical(
             result_contract = expected
         if result_contract != expected:
             raise ValueError("independent Formula result contract is incompatible")
-        if operand.get("kind") == "parameter":
-            return {"node": "parameter", "parameter": operand["parameter"]}
+        parameter_kind, parameter_reference, source_member = _inline_source_parameter(
+            formula_policy, kernel
+        )
+        if operand.get("kind") == parameter_kind:
+            return {"node": parameter_kind, source_member: operand[parameter_reference]}
         return {"nodes": [], "result": operand}
 
     for line in lines[:-1]:

@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:6cc472ff54bdb5014e7e855c7af16d362f2143601aa74c21a2182e0191ac81aa"
+    "sha256:09d710e08ff38ef03f218e187f26cf306094671dfbcac96d8078f9a7b05a7467"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
@@ -2493,6 +2493,47 @@ def _consumer_b_formula_resolution_contract_is_supported(value: Any) -> bool:
     )
 
 
+def _consumer_b_inline_parameter_operand(meta: dict[str, Any]) -> tuple[str, str]:
+    """Read the compiled parameter tag and reference from its existing owner."""
+    contract = meta["language_definitions"]["wire_schema_protocol_roles"][
+        "rir_structure"
+    ]["containers"]["formula_parameter_operand"]
+    if not isinstance(contract, dict):
+        raise ValueError("independent Formula parameter operand is not an object")
+    required = contract.get("required_members")
+    fields = contract.get("field_types")
+    if (
+        contract.get("type") != "closed-object"
+        or contract.get("closed") is not True
+        or not isinstance(required, list)
+        or not isinstance(fields, dict)
+        or len(required) != len(set(required))
+        or set(required) != set(fields)
+        or fields.get("identity") != {"type": "non-empty-string"}
+    ):
+        raise ValueError("independent Formula parameter operand is not closed")
+    constants = [
+        (name, value["const"])
+        for name, value in fields.items()
+        if isinstance(value, dict) and set(value) == {"const"}
+    ]
+    references = [
+        name
+        for name, value in fields.items()
+        if name != "identity" and value == {"type": "non-empty-string"}
+    ]
+    if (
+        len(required) != 3
+        or len(constants) != 1
+        or constants[0][0] != "kind"
+        or not isinstance(constants[0][1], str)
+        or not constants[0][1]
+        or len(references) != 1
+    ):
+        raise ValueError("independent Formula parameter operand is ambiguous")
+    return constants[0][1], references[0]
+
+
 def _consumer_b_formula_resolution_is_closed(
     ldb: dict[str, Any], meta: dict[str, Any]
 ) -> bool:
@@ -2567,17 +2608,22 @@ def _consumer_b_formula_resolution_is_closed(
             if body is None or inline is None:
                 return False
             inline_forms = choices(inline, "node")
+            parameter_kind, _parameter_reference = _consumer_b_inline_parameter_operand(
+                meta
+            )
             normalizations = formula["inline_body_normalizations"]
-            if len(normalizations) != len(inline_forms):
+            if len(normalizations) != 1 or set(inline_forms) != {parameter_kind}:
                 return False
             for normalization in normalizations:
-                if (normalization["node"], normalization["result_kind"]) != (
-                    "parameter",
-                    "parameter",
+                if (
+                    set(normalization) != {"parameter_member"}
+                    or normalization["parameter_member"] == "node"
+                    or set(inline_forms[parameter_kind]["properties"])
+                    != {"node", normalization["parameter_member"]}
                 ):
                     return False
                 field(
-                    inline_forms[normalization["node"]],
+                    inline_forms[parameter_kind],
                     normalization["parameter_member"],
                     "string",
                 )
@@ -2677,8 +2723,18 @@ def _consumer_b_formula_resolution_is_closed(
                         return False
                 elif (
                     node["semantics"].get("comparison") != "less-than"
-                    or result_type
-                    != {"kind": "fixed", "contract": conversion["condition_contract"]}
+                    or set(result_type) != {"kind", "contract"}
+                    or result_type["kind"] != "fixed"
+                    or _encoded(
+                        deepcopy(
+                            runtime["fixed_value_contracts"].get(
+                                result_type["contract"]
+                            )
+                        )
+                    )
+                    != _encoded(
+                        deepcopy(runtime["fixed_value_contracts"]["kernel-boolean"])
+                    )
                     or {"kind": "runtime-numeric", "members": inputs}
                     not in node["operand_constraints"]
                 ):
