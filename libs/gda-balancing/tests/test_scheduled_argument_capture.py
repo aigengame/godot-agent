@@ -13,7 +13,6 @@ from gda_balancing.domain.canonical import content_identity
 from gda_balancing.domain.experiment import (
     CheckedExperiment,
     check_experiment_value,
-    derive_scenario_program_requirements,
 )
 from gda_balancing.domain.experiment_artifacts import (
     _event_catalog_record_is_valid,
@@ -120,13 +119,6 @@ def captured_execution(capture_candidate, request):
             }
         )
     ]
-    requirements, _ = derive_scenario_program_requirements(
-        rir,
-        "combat.plan-casts",
-        specification["runtime"]["profile"],
-        specification["seed"]["algorithm"],
-    )
-    specification["runtime"]["required_evaluator"] = requirements
     path = candidate.directory / f"experiment-{request.param}.json"
     path.write_text(json.dumps(specification))
     candidate.cli("experiment", "check", str(path), "--rir", rir_path)

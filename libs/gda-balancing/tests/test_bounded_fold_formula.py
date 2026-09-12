@@ -153,8 +153,6 @@ def test_public_fold_step_executes_bound_formula_for_each_actual_accumulator(tmp
         if row["logical_name"] == "rir-semantic-payload"
     )
     specification = _specification(rir, [1, 2, 3, 4], count=4, order=1234)
-    specification["runtime"]["required_evaluator"]["instruction_nodes"].append("copy")
-    specification["runtime"]["required_evaluator"]["instruction_nodes"].sort()
     path, _ = _check(candidate, rir_path, specification)
     run = _run(candidate, rir_path, path)
     members = _members(run)

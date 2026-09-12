@@ -278,16 +278,7 @@ def test_scalar_returns_reach_initialization_event_observation_and_public_replay
         if row["logical_name"] == "rir-semantic-payload"
     )
     specification = _experiment(build_receipt=receipt, base_damage=24)
-    from gda_balancing.domain.experiment import derive_scenario_program_requirements
 
-    requirements, streams = derive_scenario_program_requirements(
-        rir,
-        "combat.cast",
-        specification["runtime"]["profile"],
-        specification["seed"]["algorithm"],
-    )
-    specification["runtime"]["required_evaluator"] = requirements
-    specification["scenarios"][0]["named_streams"] = streams
     path = tmp_path / "experiment.json"
     path.write_text(json.dumps(specification))
     assert (
@@ -483,7 +474,6 @@ def _prepared_runtime_cli(
     from test_trace_protocol_structure import _index
     from test_public_formula_runtime_seam import _build, _write_specification
     from test_schema2_experiment_cli import _experiment
-    from gda_balancing.domain.experiment import derive_scenario_program_requirements
 
     kernel, authored, source = _runtime_case("nested-operation-result")
     if limit is not None:
@@ -536,14 +526,6 @@ def _prepared_runtime_cli(
     monkeypatch.setattr(authority, "_PACKAGED_CONTEXT", context)
     receipt, rir_path, rir = _build(tmp_path, run_cli, source)
     specification = _experiment(build_receipt=receipt, base_damage=24)
-    requirements, streams = derive_scenario_program_requirements(
-        rir,
-        "combat.cast",
-        specification["runtime"]["profile"],
-        specification["seed"]["algorithm"],
-    )
-    specification["runtime"]["required_evaluator"] = requirements
-    specification["scenarios"][0]["named_streams"] = streams
     spec_path = _write_specification(tmp_path, run_cli, rir_path, specification)
     return context, rir, rir_path, specification, spec_path
 

@@ -167,10 +167,8 @@ def test_nonexecuting_model_refuses_before_constructing_runtime_consumers(
         "rir_semantic_identity": artifacts["rir-semantic-payload"]["semantic_identity"]
     }
     value["runtime"]["profile"] = "compile.exact-int64"
-    value["runtime"]["required_evaluator"]["runtime_profiles"] = ["compile.exact-int64"]
     scenario = value["scenarios"][0]
     scenario["assignments"] = []
-    scenario["named_streams"] = []
     scenario["event_plan"] = [
         {
             "kind": "external-input",
@@ -201,8 +199,15 @@ def test_nonexecuting_model_refuses_before_constructing_runtime_consumers(
     diagnostic = refused.diagnostics[0]
     assert diagnostic.code == "language.resolution_binding_mismatch"
     assert isinstance(diagnostic.primary, ArtifactLocation)
-    assert diagnostic.primary.pointer == "/model/rir_semantic_identity"
-    assert diagnostic.message == "Experiment Model has no executable Event entrypoints"
+    assert (
+        artifacts["rir-semantic-payload"]["selected_semantics"]["runtime_profiles"]
+        == []
+    )
+    assert diagnostic.primary.pointer == "/runtime/profile"
+    assert (
+        diagnostic.message
+        == "Experiment Runtime profile is absent from the selected RIR"
+    )
 
 
 @pytest.fixture(scope="module")

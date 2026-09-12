@@ -575,6 +575,51 @@ def _replay_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
             )
 
 
+def _experiment_judgment_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    """Discriminator labels belong to their actual Kernel selector field path."""
+    collections = kernel["meta_format"]["language_definitions"]["collections"]
+    for name in ("experiment_metric_judgments", "experiment_acceptance_judgments"):
+        contract = collections[name]
+        law = "/meta_format/language_definitions/collections/" + name
+        for _, definition, pointer in _authority_path_rows(
+            kernel, graph, "language_bundle.language." + name
+        ):
+            if not _consumer_b_definition_is_closed(definition, contract, {}):
+                raise InventoryRefusal(
+                    "Experiment judgment does not close its record owner"
+                )
+            if name != "experiment_metric_judgments":
+                continue
+
+            def labels(value, shape, owner, position, field_law):
+                if shape.get("type") == "non-empty-string":
+                    yield TokenOccurrence(
+                        AuthorityToken("experiment-metric-label", owner, value),
+                        position,
+                        "declaration",
+                        field_law,
+                    )
+                elif shape.get("type") == "closed-object":
+                    for member, child in shape["field_types"].items():
+                        yield from labels(
+                            value[member],
+                            child,
+                            (*owner, member),
+                            _child(position, member),
+                            _child(field_law + "/field_types", member),
+                        )
+                else:
+                    raise InventoryRefusal("Metric discriminator has an unowned type")
+
+            yield from labels(
+                definition["selector"],
+                contract["field_types"]["selector"],
+                (),
+                pointer + "/selector",
+                law + "/field_types/selector",
+            )
+
+
 def _evidence_claim_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
     """Interpret the existing claim-local labels and closed eligibility grammar."""
     law = "/meta_format/language_definitions/collections/evidence_claim_kinds"
@@ -4484,37 +4529,7 @@ class _Reader:
             "language.experiment_metric_judgments",
             "language.experiment_acceptance_judgments",
         }:
-            collection = role.removeprefix("language.")
-            contract = self.meta["language_definitions"]["collections"][collection]
-            if not _consumer_b_definition_is_closed(value, contract, self.language):
-                raise InventoryRefusal(
-                    "Experiment judgment does not close its record owner"
-                )
-            if collection == "experiment_metric_judgments":
-
-                def labels(record, shape, path):
-                    if shape.get("type") == "non-empty-string":
-                        self.occurrence(
-                            AuthorityToken(
-                                "experiment-metric-label", tuple(path), record
-                            ),
-                            pointer + "/selector/" + "/".join(path),
-                            "declaration",
-                            "/meta_format/language_definitions/collections/"
-                            + collection
-                            + "/field_types/selector",
-                        )
-                    elif shape.get("type") == "closed-object":
-                        for member, child in shape["field_types"].items():
-                            labels(record[member], child, [*path, member])
-                    else:
-                        raise InventoryRefusal(
-                            "Metric discriminator has an unowned type"
-                        )
-
-                labels(value["selector"], contract["field_types"]["selector"], [])
-            # Operators are finite Kernel vocabulary. The acceptance operator
-            # consumes the existing Metric sample and result outcome contracts.
+            # Complete label paths are owned by the independent judgment pass.
             return True
         if role == "language.replay_comparison_policies":
             # The independent observation-member pass closes the complete
@@ -6223,6 +6238,10 @@ class _Reader:
                 occurrence.law,
                 location=occurrence.location,
             )
+        for occurrence in _experiment_judgment_links(self.kernel, self.graph):
+            self.occurrence(
+                occurrence.token, occurrence.pointer, occurrence.use, occurrence.law
+            )
         for occurrence in _evidence_claim_links(self.kernel, self.graph):
             self.occurrence(
                 occurrence.token,
@@ -6884,6 +6903,32 @@ def validate_extension_inventory(
     is implemented; require_complete still refuses that inventory.
     """
     validate_inventory_occurrences(kernel, graph, inventory)
+    judgment_expected = set(_experiment_judgment_links(kernel, graph))
+    judgment_roots = {
+        pointer + "/selector"
+        for _, _, pointer in _authority_path_rows(
+            kernel, graph, "language_bundle.language.experiment_metric_judgments"
+        )
+    }
+    judgment_actual = {
+        row
+        for row in inventory.occurrences
+        if row.token.role == "experiment-metric-label"
+        or any(
+            row.pointer == root or row.pointer.startswith(root + "/")
+            for root in judgment_roots
+        )
+    }
+    if (
+        judgment_actual != judgment_expected
+        or inventory.reserved & {row.token for row in judgment_expected}
+        or any(
+            gap.pointer == root or gap.pointer.startswith(root + "/")
+            for gap in inventory.uncovered
+            for root in judgment_roots
+        )
+    ):
+        raise InventoryRefusal("Experiment judgment labels are incomplete or misowned")
     lowering_links = set(_lowering_path_links(kernel, graph))
     lowering_roots = [
         pointer
@@ -7899,6 +7944,8 @@ def _renamed_owner(
             name(AuthorityToken("assignment-policy", token.owner[:1], token.owner[1])),
             name(AuthorityToken("language.quantity.symbol_roles", (), token.owner[2])),
         )
+    if token.role == "experiment-metric-label":
+        return token.owner  # The selector path consists of fixed Kernel fields.
     if token.role == "diagnostic-signal":
         return token.owner  # Stage is the Kernel refusal-stage enum, not a namespace.
     if token.role.startswith("source-"):

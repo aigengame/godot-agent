@@ -13,7 +13,6 @@ from gda_balancing.domain.authority.context import (
 from gda_balancing.domain.experiment import (
     CheckedExperiment,
     check_experiment_value,
-    derive_scenario_program_requirements,
 )
 from gda_balancing.domain.experiment_artifacts import (
     _event_catalog_records_are_authoritative,
@@ -281,16 +280,6 @@ def _experiment(rir, later_refusal):
         for name, value in values.items()
     ]
     specification["metrics"] = specification["metrics"][:1]
-    requirements = [
-        derive_scenario_program_requirements(
-            rir, event["entrypoint"], "standard.exact-int64-event-v1", "splitmix64-v1"
-        )[0]
-        for event in scenario["event_plan"]
-    ]
-    specification["runtime"]["required_evaluator"] = {
-        key: sorted({value for row in requirements for value in row[key]})
-        for key in requirements[0]
-    }
     return specification
 
 

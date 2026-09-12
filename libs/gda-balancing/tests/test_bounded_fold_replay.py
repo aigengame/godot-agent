@@ -12,7 +12,6 @@ from gda_balancing.domain.authority.context import (
 from gda_balancing.domain.experiment import (
     CheckedExperiment,
     check_experiment_value,
-    derive_scenario_program_requirements,
 )
 from gda_balancing.domain.experiment_artifact_replay import (
     ReplayEventEvidence,
@@ -68,13 +67,6 @@ def test_typed_fold_subtraction_replays_actual_state_and_cumulative_charge():
         for row in specification["scenarios"][0]["assignments"]
         if row["target"]["name"] == "selected_count"
     )["value"] = 4
-    requirements, _streams = derive_scenario_program_requirements(
-        rir,
-        "fold",
-        operation["runtime_profile"],
-        context.kernel["meta_format"]["runtime_program"]["named_rng"]["algorithm"],
-    )
-    specification["runtime"]["required_evaluator"] = requirements
     checked = check_experiment_value(specification, program, authority_context=context)
     assert isinstance(checked, CheckedExperiment), checked
     prepared = prepare_experiment(checked)
@@ -274,9 +266,6 @@ def test_fold_post_state_replay_accepts_a_business_rollback_after_writes():
     rir = compile_checked_model(model)["rir-semantic-payload"]
     program = admit_rir(rir, authority_context=context)
     specification = _specification(rir, [1, 2, 3, 4], count=0, order=0)
-    specification["runtime"]["required_evaluator"]["instruction_nodes"].append(
-        "precondition-greater-than-or-equal"
-    )
     checked = check_experiment_value(specification, program, authority_context=context)
     assert isinstance(checked, CheckedExperiment), checked
     prepared = prepare_experiment(checked)
@@ -406,14 +395,6 @@ def _fold_case(*, variant: str = "ordinary", limit: int | None = None, items=Non
     specification = _specification(rir, [_MAX, 1] if items is None else items)
     if variant == "escaped":
         specification["scenarios"][0]["event_plan"][0]["entrypoint"] = "root/~@0"
-    if variant == "nested":
-        specification["runtime"]["required_evaluator"]["instruction_nodes"].remove(
-            "multiply"
-        )
-    if variant == "pure-invoke":
-        specification["runtime"]["required_evaluator"]["instruction_nodes"].append(
-            "invoke"
-        )
     checked = check_experiment_value(specification, program, authority_context=context)
     assert isinstance(checked, CheckedExperiment), checked
     prepared = prepare_experiment(checked)

@@ -100,7 +100,7 @@ def execution(request, tmp_path_factory) -> _Execution:
     expected = tuple(
         sorted(_EFFECT_RENAMES.values() if request.param else _EFFECT_RENAMES)
     )
-    assert value["runtime"]["required_evaluator"]["effects"] == list(expected)
+    assert list(checked.required_evaluator["effects"]) == list(expected)
     return _Execution(candidate, checked, path, rir_path, expected)
 
 
@@ -133,20 +133,21 @@ def test_public_runtime_executes_opaque_effect_labels(execution):
 def test_required_effects_do_not_grant_evaluator_capabilities(execution):
     checked = execution.checked
     value = deepcopy(checked.value)
-    value["runtime"]["required_evaluator"]["effects"].append("rng.named-stream")
-    value["runtime"]["required_evaluator"]["effects"].sort()
+    value["runtime"]["required_evaluator"] = {"effects": ["rng.named-stream"]}
     program = admit_rir(checked.rir, authority_context=checked.authority_context)
     refused = check_experiment_value(
         value, program, authority_context=checked.authority_context
     )
     assert isinstance(refused, Schema2RefusalReport)
-    assert refused.stage == "resolution"
+    assert refused.stage == "static"
     location = refused.diagnostics[0].primary
     assert isinstance(location, ArtifactLocation)
-    assert location.pointer == "/runtime/required_evaluator/effects"
-    # Independently exercise the producer declaration boundary: copying the
-    # caller requirement here must not manufacture support for an unused effect.
-    forged = replace(checked, value=value)
+    assert location.pointer == "/runtime/required_evaluator"
+    # A forged requirement cannot manufacture producer support, even after
+    # the authored-input boundary has independently refused that old field.
+    requirements = deepcopy(checked.required_evaluator)
+    requirements["effects"] = [*requirements["effects"], "rng.named-stream"]
+    forged = replace(checked, required_evaluator=requirements)
     manifest = projections.evaluator_manifest(forged)
     assert manifest.value["effects"] == list(execution.effects)
     assert (
@@ -176,4 +177,4 @@ def test_unsupported_operator_refuses_before_dispatch(execution, monkeypatch):
     assert refused.stage == "resolution"
     location = refused.diagnostics[0].primary
     assert isinstance(location, ArtifactLocation)
-    assert location.pointer == "/runtime/required_evaluator/instruction_nodes"
+    assert location.pointer == "/runtime/profile"

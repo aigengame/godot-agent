@@ -702,7 +702,6 @@ def test_stream_identity_rename_preserves_execution_law_but_changes_entropy(witn
         assert isinstance(program, AdmittedRir), program
         specification = deepcopy(original_specification)
         specification["model"] = {"rir_semantic_identity": program.semantic_identity}
-        specification["scenarios"][0]["named_streams"] = [stream]
         checked = check_experiment_value(
             specification, program, authority_context=context
         )
@@ -1143,7 +1142,7 @@ def test_resolution_inventory_closes_every_actual_source_selector(witness):
         assert all(row.token in inventory.reserved for row in occurrences)
     assert Counter(gap.reason for gap in inventory.uncovered) == Counter(
         {
-            "nested language.artifact_wire_schemas roles are not yet traversed": 9,
+            "nested language.artifact_wire_schemas roles are not yet traversed": 8,
             "nested language.wire_schemas roles are not yet traversed": 1,
             "remaining vector families: source-or-rule-or-reason": 1,
         }
@@ -1908,7 +1907,10 @@ def test_contract_vector_expected_values_inherit_only_declared_projection_roles(
     )
     assert isinstance(numeric["expect"], int)
     numeric["expect"] += 1
-    with pytest.raises(InventoryRefusal, match="expected subtree"):
+    with pytest.raises(
+        InventoryRefusal,
+        match="Operation vectors do not close their selected contracts",
+    ):
         read_extension_inventory(kernel, changed)
 
 

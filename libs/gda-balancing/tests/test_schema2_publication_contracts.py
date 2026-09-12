@@ -14,7 +14,7 @@ from gda_balancing.domain.artifact_set import (
     EXPERIMENT_SUCCESS_ARTIFACT_SET,
     resolve_artifact_set,
 )
-from gda_balancing.domain.experiment import CheckedExperiment, experiment_input_identity
+from gda_balancing.domain.experiment import CheckedExperiment
 from gda_balancing.application.experiment_inputs import check_experiment_inputs
 from gda_balancing.domain.experiment_artifacts import (
     validate_experiment_artifact_set,
@@ -57,7 +57,7 @@ def test_committed_recovery_consumes_only_selected_framing_and_member_contracts(
     out = tmp_path / "evaluation.json"
     invocation_key = "8" * 64
     descriptor_identity = "sha256:" + "7" * 64
-    input_identity = experiment_input_identity(checked.value)
+    input_identity = checked.content_identity
 
     def member_validator(name, value):
         return validate_experiment_member(checked, name, value)

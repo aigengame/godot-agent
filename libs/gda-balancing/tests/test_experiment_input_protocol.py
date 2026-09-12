@@ -1,7 +1,9 @@
 """Experiment input composes existing owners and selects explicit judgments."""
 
 from copy import deepcopy
+from dataclasses import replace
 
+import jsonschema
 import pytest
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
@@ -17,6 +19,14 @@ from gda_balancing.domain.runtime.execution import (
     evaluate_experiment,
 )
 from gda_balancing.domain.runtime.projections import resolved_runtime_profile
+from schema2_extension_inventory_support import (
+    AuthorityToken,
+    InventoryRefusal,
+    read_extension_inventory,
+    validate_extension_inventory,
+    token_bijection_from_names,
+    validate_token_bijection,
+)
 from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_conformance_support import (
     _consumer_b,
@@ -87,6 +97,15 @@ def _checked(kernel, authored, rir, value):
     )
 
 
+@pytest.fixture(scope="module")
+def independent_input_context(program_data):
+    kernel, authored, _ = program_data
+    language = _index(kernel, _graph(kernel, deepcopy(authored)))
+    reference = _reference_check_source(_source(), kernel, language)
+    assert not isinstance(reference, tuple)
+    return reference
+
+
 def _definitions(authored, collection):
     return [
         row
@@ -101,7 +120,9 @@ def _definitions(authored, collection):
     "field",
     ["schema_version", "required_evaluator", "named_streams", "scenario_streams"],
 )
-def test_deleted_input_fact_is_rejected_without_fallback(program_data, field):
+def test_deleted_input_fact_is_rejected_without_fallback(
+    program_data, independent_input_context, field
+):
     kernel, authored, rir = program_data
     specification = _spec(rir)
     if field == "schema_version":
@@ -115,6 +136,8 @@ def test_deleted_input_fact_is_rejected_without_fallback(program_data, field):
     checked, _, _ = _checked(kernel, authored, rir, specification)
     assert not isinstance(checked, CheckedExperiment)
     assert checked.stage == "static"
+    with pytest.raises(jsonschema.ValidationError):
+        reference_runtime_artifacts(independent_input_context, rir, specification)
 
 
 @pytest.mark.parametrize(
@@ -130,7 +153,7 @@ def test_deleted_input_fact_is_rejected_without_fallback(program_data, field):
     ],
 )
 def test_unimplemented_metric_discriminator_does_not_silently_execute(
-    program_data, path
+    program_data, independent_input_context, path
 ):
     kernel, authored, rir = program_data
     specification = _spec(rir)
@@ -141,10 +164,14 @@ def test_unimplemented_metric_discriminator_does_not_silently_execute(
     checked, _, _ = _checked(kernel, authored, rir, specification)
     assert not isinstance(checked, CheckedExperiment)
     assert checked.stage == "resolution"
+    with pytest.raises(ValueError, match="Metric selection is not unique"):
+        reference_runtime_artifacts(independent_input_context, rir, specification)
 
 
 @pytest.mark.parametrize("mutation", ["missing", "unknown"])
-def test_acceptance_is_explicit_and_resolves_a_unique_judgment(program_data, mutation):
+def test_acceptance_is_explicit_and_resolves_a_unique_judgment(
+    program_data, independent_input_context, mutation
+):
     kernel, authored, rir = program_data
     specification = _spec(rir)
     if mutation == "missing":
@@ -153,6 +180,32 @@ def test_acceptance_is_explicit_and_resolves_a_unique_judgment(program_data, mut
         specification["acceptance"]["policy"] = "unimplemented"
     checked, _, _ = _checked(kernel, authored, rir, specification)
     assert not isinstance(checked, CheckedExperiment)
+    error = jsonschema.ValidationError if mutation == "missing" else ValueError
+    with pytest.raises(error):
+        reference_runtime_artifacts(independent_input_context, rir, specification)
+
+
+def test_external_input_cannot_publish_an_empty_fact_set(
+    program_data, independent_input_context
+):
+    kernel, authored, rir = program_data
+    specification = _spec(rir)
+    specification["scenarios"][0]["event_plan"] = [
+        {
+            "kind": "external-input",
+            "root_event_ref": "empty-input",
+            "logical_time": 0,
+            "priority": 0,
+            "source_identity": "sha256:" + "a" * 64,
+            "source_sequence": 0,
+            "facts": [],
+        }
+    ]
+    checked, _, _ = _checked(kernel, authored, rir, specification)
+    assert isinstance(checked, Schema2RefusalReport)
+    assert checked.stage == "static"
+    with pytest.raises(jsonschema.ValidationError):
+        reference_runtime_artifacts(independent_input_context, rir, specification)
 
 
 @pytest.mark.parametrize("renamed", [False, True])
@@ -365,3 +418,64 @@ def test_independent_input_projection_does_not_use_production_oracle(
     )
     assert _consumer_b_experiment_input_schema(kernel) == expected
     assert _consumer_b(kernel, _graph(kernel, deepcopy(authored)))["admitted"]
+
+
+@pytest.fixture(scope="module")
+def judgment_inventory():
+    kernel, language = mutable_authorities()
+    graph = _authored(language)
+    graph["source"] = _source()
+    inventory = read_extension_inventory(kernel, graph)
+    validate_extension_inventory(kernel, graph, inventory)
+    return kernel, graph, inventory
+
+
+def test_metric_label_bijection_preserves_kernel_selector_paths(judgment_inventory):
+    _, _, inventory = judgment_inventory
+    names = {
+        token: f"renamed_{index}"
+        for index, token in enumerate(sorted(inventory.tokens - inventory.reserved))
+    }
+    pairs = token_bijection_from_names(inventory, names)
+    selected = [
+        (source, target)
+        for source, target in pairs
+        if source.role == "experiment-metric-label"
+    ]
+    assert selected
+    assert all(source.owner == target.owner for source, target in selected)
+    with pytest.raises(InventoryRefusal, match="uncovered semantic role"):
+        validate_token_bijection(inventory, pairs)
+
+
+@pytest.mark.parametrize("mutation", ["missing", "owner", "reserved"])
+def test_metric_label_coverage_cannot_be_dropped_or_misowned(
+    judgment_inventory, mutation
+):
+    kernel, graph, inventory = judgment_inventory
+    token = AuthorityToken(
+        "experiment-metric-label", ("observation", "source"), "snapshot"
+    )
+    assert token in inventory.tokens - inventory.reserved
+    if mutation == "missing":
+        candidate = replace(
+            inventory,
+            tokens=inventory.tokens - {token},
+            occurrences=tuple(
+                row for row in inventory.occurrences if row.token != token
+            ),
+        )
+    elif mutation == "owner":
+        wrong = replace(token, owner=("window", "kind"))
+        candidate = replace(
+            inventory,
+            tokens=inventory.tokens - {token} | {wrong},
+            occurrences=tuple(
+                replace(row, token=wrong) if row.token == token else row
+                for row in inventory.occurrences
+            ),
+        )
+    else:
+        candidate = replace(inventory, reserved=inventory.reserved | {token})
+    with pytest.raises(InventoryRefusal):
+        validate_extension_inventory(kernel, deepcopy(graph), candidate)
