@@ -36,11 +36,12 @@ from gda_balancing.domain.diagnostics import (
 )
 from gda_balancing.domain.formula.notation import (
     FormulaPairRefusal,
-    admit_formula_pair,
+    admit_semantic_formula_pair,
 )
 from gda_balancing.domain.operation_program import closed_operation_coordinates
 from gda_balancing.domain.program_reachability import formula_lifecycle_phases
 from gda_balancing.domain.model._preparation import _TypedHIR
+from gda_balancing.domain.authority.source_projection import SourceProjection
 
 _RESOLVER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-exact-resolver-v1"
 _RelationBindings: TypeAlias = dict[str, tuple[Any, tuple[object, ...] | None]]
@@ -113,6 +114,7 @@ class ModelSourceContext:
     """Inputs for resolution; these alone do not authorize compilation."""
 
     source: dict[str, Any]
+    source_projection: SourceProjection
     source_identity: str
     kernel: dict[str, Any]
     language_bundle: dict[str, Any]
@@ -135,6 +137,15 @@ class CheckedModel(ModelSourceContext):
         ):
             raise ValueError("checked Model must retain its admitted authority context")
         object.__setattr__(self, "source", _deep_freeze(self.source))
+        object.__setattr__(
+            self,
+            "source_projection",
+            SourceProjection(
+                _deep_freeze(self.source_projection.value),
+                _deep_freeze(self.source_projection.authored_paths),
+                self.source,
+            ),
+        )
 
 
 class _ResolutionResourceExhausted(Exception):
@@ -290,6 +301,7 @@ def _selected_source_operation_coordinates(
     entrypoints: list[dict[str, Any]],
     lock: dict[str, Any],
     operation_node_ids: set[str],
+    entrypoint_operation_member: str,
     additional_roots: set[tuple[str, str]] | None = None,
 ) -> set[tuple[str, str]]:
     """Close the exact Operation-valued graph from authored entrypoints."""
@@ -303,7 +315,7 @@ def _selected_source_operation_coordinates(
     selected = {
         (cast(str, operation["package"]), cast(str, operation["id"]))
         for entrypoint in entrypoints
-        if isinstance((operation := entrypoint.get("operation")), dict)
+        if isinstance((operation := entrypoint.get(entrypoint_operation_member)), dict)
     }
     selected.update(additional_roots or set())
     return closed_operation_coordinates(selected, operations, operation_node_ids)
@@ -552,16 +564,17 @@ def _model_check_diagnostics(
 
 
 def _formula_pair_diagnostics(
-    source: dict[str, Any],
+    projection: SourceProjection,
     source_identity: str,
     authority_context: AdmittedAuthorityContext,
 ) -> list[Schema2Diagnostic]:
+    source = projection.value
     diagnostics: list[Schema2Diagnostic] = []
     profile = _resolution_profile(authority_context.language_bundle)
-    policy = profile["formula_resolution"]
-    modules_member = cast(str, profile["modules_member"])
-    formulas_member = cast(str, policy["module_formulas_member"])
-    requirements = source.get(cast(str, profile["requirements_member"]))
+    profile["formula_resolution"]
+    modules_member = "modules"
+    formulas_member = "formulas"
+    requirements = source.get("package_requirements")
     modules = source.get(modules_member)
     if not isinstance(requirements, list) or not isinstance(modules, list):
         return diagnostics
@@ -575,9 +588,9 @@ def _formula_pair_diagnostics(
             if not isinstance(formula, dict):
                 continue
             try:
-                admit_formula_pair(
+                admit_semantic_formula_pair(
                     {
-                        "schema_version": source.get(profile["schema_version_member"]),
+                        "schema_version": source.get("schema_version"),
                         "package_requirements": requirements,
                         "modules": modules,
                         "module": module,
@@ -593,13 +606,15 @@ def _formula_pair_diagnostics(
                         message=err.message,
                         primary=_location(
                             source_identity,
-                            _pointer(
-                                (
-                                    modules_member,
-                                    module_index,
-                                    formulas_member,
-                                    formula_index,
-                                    err.member,
+                            projection.authored_pointer(
+                                _pointer(
+                                    (
+                                        modules_member,
+                                        module_index,
+                                        formulas_member,
+                                        formula_index,
+                                        err.member,
+                                    )
                                 )
                             ),
                         ),

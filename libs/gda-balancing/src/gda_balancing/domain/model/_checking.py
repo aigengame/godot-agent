@@ -47,6 +47,9 @@ from gda_balancing.domain.model._resolution import (
     _unique_reason,
 )
 from gda_balancing.domain.model._preparation import _TypedHIR
+from gda_balancing.domain.authority.source_projection import (
+    project_source_value,
+)
 from gda_balancing.domain.model._lowering import (
     _EntrypointBindingError,
     _FormulaResolutionError,
@@ -199,7 +202,12 @@ def _check_model_source_bytes(
         dict[str, Any],
         cast(dict[str, Any], kernel["meta_format"])["resolution_judgment"],
     )
-    raw_requirements = source.get(cast(str, profile["requirements_member"]))
+    projection = (
+        project_source_value(source, kernel, source_schema) if not errors else None
+    )
+    raw_requirements = (
+        projection.value["package_requirements"] if projection is not None else []
+    )
     namespace_projection = project_required_namespace_closure(
         authority_context.current_namespace_packages(),
         tuple(item for item in raw_requirements if isinstance(item, str))
@@ -225,8 +233,11 @@ def _check_model_source_bytes(
         refusal = _bounded_refusal(diagnostics, ldb)
         if refusal is not None:
             return refusal
+    authored_source = source
+    assert projection is not None
+    source = projection.value
     try:
-        source_rows = _resolved_source_symbols(source, ldb, kernel)
+        source_rows = _resolved_source_symbols(projection, ldb, kernel)
     except (KeyError, TypeError, ValueError) as err:
         source_contract_reason = reason_by_id(
             ldb,
@@ -235,18 +246,21 @@ def _check_model_source_bytes(
         return _refusal(
             cast(str, source_contract_reason["diagnostic"]),
             source_identity,
-            err.pointer if isinstance(err, _SourceFactError) else "",
+            projection.authored_pointer(err.pointer)
+            if isinstance(err, _SourceFactError)
+            else "",
             f"Model Source name resolution failed: {err}",
             ldb,
         )
     context = ModelSourceContext(
-        source=source,
+        source=authored_source,
+        source_projection=projection,
         source_identity=source_identity,
         kernel=kernel,
         language_bundle=ldb,
         namespace_selection=admit_namespace_selection(namespace_projection),
     )
-    invalid_policy_pointer = _invalid_source_value_policy_pointer(source, ldb)
+    invalid_policy_pointer = _invalid_source_value_policy_pointer(source, ldb, kernel)
     if invalid_policy_pointer is not None:
         source_contract_reason = reason_by_id(
             ldb,
@@ -255,7 +269,7 @@ def _check_model_source_bytes(
         return _refusal(
             cast(str, source_contract_reason["diagnostic"]),
             source_identity,
-            invalid_policy_pointer,
+            projection.authored_pointer(invalid_policy_pointer),
             "Model Symbol does not close the LDB assignment policy",
             ldb,
         )
@@ -281,7 +295,7 @@ def _check_model_source_bytes(
                 ],
             ),
             source_identity,
-            err.pointer,
+            projection.authored_pointer(err.pointer),
             f"Model Source lowering failed: {err}",
             ldb,
         )
@@ -294,7 +308,7 @@ def _check_model_source_bytes(
                 ],
             ),
             source_identity,
-            err.pointer,
+            projection.authored_pointer(err.pointer),
             f"Model entrypoint resolution failed: {err}",
             ldb,
         )
@@ -312,15 +326,17 @@ def _check_model_source_bytes(
             cast(str, formula_reason["diagnostic"]),
             source_identity,
             (
-                err.pointer
+                projection.authored_pointer(err.pointer)
                 if isinstance(err, _FormulaResolutionError)
-                else _formula_failure_pointer(source, message, ldb)
+                else projection.authored_pointer(
+                    _formula_failure_pointer(source, message, ldb, kernel)
+                )
             ),
             f"Model Formula resolution failed: {message}",
             ldb,
         )
     formula_pair_refusal = _bounded_refusal(
-        _formula_pair_diagnostics(source, source_identity, authority_context),
+        _formula_pair_diagnostics(projection, source_identity, authority_context),
         ldb,
     )
     if formula_pair_refusal is not None:
@@ -334,7 +350,8 @@ def _check_model_source_bytes(
             admitted_lowering,
             projection_budget,
             kernel=kernel,
-            entrypoints=source[profile["entrypoints_member"]],
+            entrypoints=source["entrypoints"],
+            entrypoint_reference_member="operation",
             formulas=resolved_formulas,
         )
         initialization_programs = _compile_initialization_programs(
@@ -391,7 +408,7 @@ def _check_model_source_bytes(
         return _refusal(
             cast(str, source_contract_reason["diagnostic"]),
             source_identity,
-            err.pointer,
+            projection.authored_pointer(err.pointer),
             f"Model entrypoint resolution failed: {err}",
             ldb,
         )
@@ -403,12 +420,13 @@ def _check_model_source_bytes(
         return _refusal(
             cast(str, source_contract_reason["diagnostic"]),
             source_identity,
-            _pointer([profile["entrypoints_member"]]),
+            projection.authored_pointer(_pointer(["entrypoints"])),
             f"Model entrypoint resolution failed: {err}",
             ldb,
         )
     return CheckedModel(
-        source=source,
+        source=authored_source,
+        source_projection=projection,
         source_identity=source_identity,
         kernel=kernel,
         language_bundle=ldb,
@@ -418,10 +436,16 @@ def _check_model_source_bytes(
             package_lock=lock,
             declarations=declarations,
             lowering=admitted_lowering,
-            source_rows=source_rows,
+            source_rows=[
+                (fields, projection.authored_parts(pointer))
+                for fields, pointer in source_rows
+            ],
             formulas=resolved_formulas,
             formula_bindings=resolved_formula_bindings,
-            formula_debug_entries=formula_debug_entries,
+            formula_debug_entries=[
+                (projection.authored_pointer(pointer), identity)
+                for pointer, identity in formula_debug_entries
+            ],
             runtime_projection=selected_semantics,
             initialization_programs=initialization_programs,
             entrypoints=entrypoints,

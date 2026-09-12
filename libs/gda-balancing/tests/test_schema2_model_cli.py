@@ -2491,7 +2491,7 @@ def test_resolved_model_admission_rejects_reidentified_nested_formula_domain_esc
     }
     rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
     kernel, language_bundle = mutable_authorities()
-    policy = model_lowering_module._formula_policy(language_bundle)
+    policy = model_module._formula_policy(language_bundle)
     domains = cast(dict[str, str], policy["identity_domains"])
     formula = next(row for row in rir["formulas"] if row["id"] == formula_id)
     next(
@@ -2587,7 +2587,7 @@ def test_resolved_model_admission_rejects_reidentified_call_domain_mutations(
     }
     rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
     kernel, language_bundle = mutable_authorities()
-    policy = model_lowering_module._formula_policy(language_bundle)
+    policy = model_module._formula_policy(language_bundle)
     domains = cast(dict[str, str], policy["identity_domains"])
     selected_operations = {
         row["definition"]["id"]: row["definition"]
@@ -2999,7 +2999,7 @@ def test_operation_reachability_follows_kernel_operation_members_after_node_rena
     assert operation_nodes == {"defer"}
     assert (
         model_module._selected_source_operation_coordinates(
-            entrypoints, lock, operation_nodes
+            entrypoints, lock, operation_nodes, "operation"
         )
         == expected
     )

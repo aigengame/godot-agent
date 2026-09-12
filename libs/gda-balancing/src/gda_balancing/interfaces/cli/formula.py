@@ -18,6 +18,7 @@ from gda_balancing.domain.diagnostics import (
     source_parse_reason,
 )
 from gda_balancing.domain.wire_schema import wire_schema_definition_for_role
+from gda_balancing.domain.authority.source_projection import source_schema_member
 
 
 class FormulaRenderInput(BaseModel):
@@ -80,17 +81,9 @@ def _formula_conversion_result_schema() -> dict[str, object]:
     source_schema = wire_schema_definition_for_role(
         context.language_bundle, "model-source-package"
     )["schema"]
-    profile = next(
-        row
-        for row in context.language_bundle["language"]["resolution_profiles"]
-        if row.get("default") is True
-    )
-    policy = profile["formula_resolution"]
-    body_schema = source_schema["properties"][profile["modules_member"]]["items"][
-        "properties"
-    ][policy["module_formulas_member"]]["items"]["properties"][
-        policy["formula_body_member"]
-    ]
+    module_schema = source_schema_member(source_schema, "modules")[1]["items"]
+    formula_schema = source_schema_member(module_schema, "formulas")[1]["items"]
+    body_schema = source_schema_member(formula_schema, "body")[1]
     return {
         "type": "object",
         "properties": {

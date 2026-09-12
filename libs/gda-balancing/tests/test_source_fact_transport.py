@@ -250,7 +250,9 @@ def test_mixed_public_model_keeps_closed_facts_and_runtime_values(
     )
     checked = check_model_source_value(source, authority_context=context)
     assert isinstance(checked, CheckedModel)
-    rows = _resolved_source_symbols(source, context.language_bundle, kernel)
+    rows = _resolved_source_symbols(
+        checked.source_projection, context.language_bundle, kernel
+    )
     assert len(rows) == 5
     assert (
         sum(fields.get("value_kind") == "nominal-structured" for fields, _ in rows) == 2
@@ -321,8 +323,14 @@ def test_all_current_positive_source_vectors_have_closed_initial_facts():
         if "source_fixture" not in vector or vector["expect"]["outcome"] != "admitted":
             continue
         source = _materialize_vector_source(vector, language)
+        checked = check_model_source_value(
+            source, kernel=kernel, language_bundle=language
+        )
+        assert isinstance(checked, CheckedModel), vector["id"]
         facts = []
-        for fields, _ in _resolved_source_symbols(source, language, kernel):
+        for fields, _ in _resolved_source_symbols(
+            checked.source_projection, language, kernel
+        ):
             fact = {
                 "kind": lowering[
                     "structured_initial_fact_kind"
