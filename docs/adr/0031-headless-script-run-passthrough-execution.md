@@ -622,9 +622,15 @@ added incrementally under ADR-0025 if a concrete need appears.
 > widening admits the closed set's FIRST warning record, argued in that module
 > against #722's three admission criteria: the two sentences are C++ format-string
 > literals, the record says what became of the objects and resources of the process
-> this run was, and the kind states that the script RAN — so it stays out of the
-> entry-failure precedence and, naming no resource, could not decide an entry
-> verdict even if it were in it. The warning LEVEL is still skipped; a project
+> this run was, and the kind states that the process REACHED SHUTDOWN — nothing
+> about whether the entry script ran, which is why the record can appear beside a
+> missing entry and why an autoload's leak reads like the scene's own — so it stays
+> out of the entry-failure precedence and, naming no resource, could not decide an
+> entry verdict even if it were in it. Recorded as debt rather than fixed here: a
+> process-lifecycle record now travels in `ScriptError` / `evidence.script_errors`,
+> a per-script shape; this issue forbids a wire-shape migration, and a SECOND
+> process-lifecycle record is the trigger for a broader diagnostic type (third
+> review of PR #964). The warning LEVEL is still skipped; a project
 > `push_warning` that spells the same words is not a leak. The set stays CLOSED at
 > those two records: the engine's other exit-time leak family, the RID reports, is
 > deliberately outside it, so a run that leaks only RIDs is a clean `--strict`. No

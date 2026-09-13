@@ -21,12 +21,7 @@ Consumers (the reason this is a module and not a helper inside one command):
   ``diagnostics`` it carries on its result;
 - the ``script run`` timeout path (#655) — the same diagnostics from the partial
   stderr captured before the timeout;
-- the scene-startup preflight (#664) — the same script errors from a scene launch;
-- the daemon's readiness boundary (#848) — the same script errors, read off the
-  Session log instead of a captured stderr, so ``daemon wait-ready`` and ``daemon
-  status`` can say a serving session started degraded. The first consumer that is
-  not a one-shot launch, which is why "pure function of the stderr text" below is
-  worth keeping: the text's SOURCE is the caller's business, not this module's.
+- the scene-startup preflight (#664) — the same script errors from a scene launch.
 
 Everything here is a **pure function of the stderr text**: no engine, no I/O.
 Recognition is deliberately closed — only the records below are classified, so
@@ -74,9 +69,10 @@ became of the objects and resources of the process this run was — it ended wit
 them still alive — which an agent branches on (a strict gate, a soak or lifecycle
 test), where a leak that only sat inside the raw stderr string made the
 production add "stderr must be empty" as its own gate (GDA-DF-063). (3) The kind
-states that the script RAN, because the engine prints these AFTER the run: it
-stays out of ``_ENTRY_FAILURE_PRECEDENCE`` and names no resource, so it can never
-decide an entry verdict. What stays skipped is the warning LEVEL, not merely this
+states that the PROCESS REACHED SHUTDOWN — the engine prints these while it
+exits, about everything the process held, so they say nothing about whether the
+entry script ran: it stays out of ``_ENTRY_FAILURE_PRECEDENCE`` and names no
+resource, so it can never decide an entry verdict. What stays skipped is the warning LEVEL, not merely this
 one sentence of it.
 
 **What is deliberately NOT in the set: the RID leak reports** (PR #964 review).
@@ -351,11 +347,14 @@ class ScriptErrorKind(str, Enum):
     #: The engine reported at ENGINE EXIT that the run left objects or resources
     #: alive: ``ObjectDB instances leaked at exit`` (the closed set's one warning)
     #: or ``<n> resources still in use at exit``, whose count stays in the message.
-    #: A shutdown record, so like ``RUNTIME_ERROR`` and ``PUSH_ERROR`` it says the
-    #: script RAN — it is printed after the run — and it names no resource, so it
-    #: can never decide an entry verdict. What it reports is the fate of the whole
-    #: PROCESS's objects — an autoload's leak reads like the script's own — which a
-    #: soak or lifecycle gate branches on (#844).
+    #: A record about the PROCESS, not the entry script: the engine prints it when
+    #: the process reaches shutdown, about everything the process still held — an
+    #: autoload's leak reads exactly like the script's own, and a scene whose nodes
+    #: carry no script at all emits it under a leaking autoload. So it proves that
+    #: the process reached shutdown and NOTHING about whether the entry script
+    #: ran (third review of PR #964: it can sit beside a missing entry). It names
+    #: no resource, so it can never decide an entry verdict. A soak or lifecycle
+    #: gate branches on it (#844).
     SHUTDOWN_LEAK = "shutdown_leak"
     #: A script binding the engine refused at assignment time: a compiled script
     #: whose native base cannot bind the object it was assigned to (e.g. an
@@ -387,12 +386,13 @@ class ScriptErrorKind(str, Enum):
 #: 6. ``NOT_A_MAIN_LOOP`` — last because it is only reachable by a script that
 #:    already existed AND compiled; it is a refusal, not a load failure.
 #:
-#: ``RUNTIME_ERROR``, ``PUSH_ERROR`` and ``SHUTDOWN_LEAK`` are absent by
-#: construction: all three prove the script DID run — the first because the engine
-#: raised the error inside it, the second because the project's own code called
-#: ``push_error`` from it, the third because the engine printed it at exit, after
-#: the run. The last also names no resource, so it could not match an entry even if
-#: it were listed here.
+#: ``RUNTIME_ERROR`` and ``PUSH_ERROR`` are absent by construction: both prove
+#: the script DID run — the first because the engine raised the error inside it,
+#: the second because the project's own code called ``push_error`` from it.
+#: ``SHUTDOWN_LEAK`` is absent for a different reason: it is a record about the
+#: process reaching shutdown, which says nothing about the entry script either
+#: way, and it names no resource, so it could not match an entry even if it were
+#: listed here.
 _ENTRY_FAILURE_PRECEDENCE = (
     ScriptErrorKind.SCRIPT_MISSING,
     ScriptErrorKind.COMPILE_FAILED,
@@ -436,10 +436,12 @@ class ScriptError(BaseModel):
 
     kind: ScriptErrorKind = Field(
         description=(
-            "Which known engine failure this line reports. 'runtime_error', "
-            "'push_error' and 'shutdown_leak' say the script RAN (the second is the "
-            "project's own push_error(), which it survived; the third is the "
-            "engine's exit-time leak report, which names no path); "
+            "Which known engine failure this line reports. 'runtime_error' and "
+            "'push_error' say the script RAN (the second is the project's own "
+            "push_error(), which it survived); 'shutdown_leak' says the PROCESS "
+            "reached shutdown still holding objects or resources — an autoload's "
+            "leak included — and nothing about the entry script, and it names no "
+            "path; "
             "'incompatible_script' is a binding the engine refused and names no "
             "path; the rest say the named resource could not be loaded or run. "
             "Whether the RUN failed depends on whether "
@@ -449,8 +451,9 @@ class ScriptError(BaseModel):
     )
     message: str = Field(
         description=(
-            "The engine's error text verbatim, with its 'ERROR:'/'SCRIPT ERROR:' "
-            "prefix stripped."
+            "The engine's error text verbatim, with its 'ERROR:' / 'SCRIPT ERROR:' "
+            "/ 'WARNING:' prefix stripped — the last for the one warning record the "
+            "set admits, the ObjectDB leak."
         )
     )
     path: str | None = Field(
@@ -472,13 +475,12 @@ class ScriptError(BaseModel):
 def script_error_line(error: ScriptError) -> str:
     """``<kind>: <path>:<line>: <message>``, dropping the parts the engine did not give.
 
-    The ONE text form of a recognized script error, so the five places that write
+    The ONE text form of a recognized script error, so the four places that write
     one — ``script run``'s passed-through diagnostics, ``scene preflight``'s startup
     diagnostics, the ``diagnostics`` prose of the two gda-ended ``script run``
-    failures (:mod:`gda.errors`), the human failure channel's ``evidence`` block, and
-    the daemon readiness renderers that ``daemon wait-ready`` and ``daemon status``
-    share (#848) — cannot drift into five spellings of the same line. Each site adds
-    only its own indent or prefix.
+    failures (:mod:`gda.errors`), and the human failure channel's ``evidence`` block
+    — cannot drift into four spellings of the same line. Each site adds only its own
+    indent or prefix.
 
     It lives HERE rather than in :mod:`gda.render` (#687 review). It is a lexical
     projection of a type this module owns, and one of its consumers is
