@@ -388,9 +388,10 @@ executes nothing (ADR-0041).
 name it: the command reads the addressed Control's intrinsic minimum, and
 `Control::get_minimum_size()` is the `_get_minimum_size` virtual with no cache,
 so where a class leaves that getter to `Control` the node's script override of it
-runs once per request. `get_combined_minimum_size()`, the other minimum the same
-result reports, reads the engine's minimum-size cache; where that cache is stale
-it recomputes through the SAME virtual, so it adds no point of its own.
+runs once per request, and twice where the combined read finds the minimum-size
+cache stale. `get_combined_minimum_size()`, the other minimum the same result
+reports, reads that cache first; where it is stale the read recomputes through
+the SAME virtual, so it adds no point of its own.
 All stay within the `Trusted project` assumption (ADR-0009); `script run`, the
 loaded-value assignment (ADR-0033), the startup preflight, the import pass, the
 declared method call, the minimum-size read, and the composed static validate

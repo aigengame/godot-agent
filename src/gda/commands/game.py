@@ -490,10 +490,11 @@ class GameRectResult(BaseModel):
         description=(
             "The top-left point in the PARENT's space, as [x, y]: "
             "Control.get_rect().position, the origin of the node's own transform. "
-            "That equals the node's `position` property only while `scale` and "
-            "`rotation` are default: a `pivot_offset` with a `scale` moves the "
-            "origin away from it. It differs from the viewport-space point "
-            "whenever an ancestor is offset. " + LIVE_ENGINE_PRECISION
+            "That equals the node's `position` property while `pivot_offset` is "
+            "zero, or while `scale` and `rotation` are default: a `pivot_offset` "
+            "with a `scale` (or a rotation) moves the origin away from it. It "
+            "differs from the viewport-space point whenever an ancestor is "
+            "offset. " + LIVE_ENGINE_PRECISION
         )
     )
     local_size: list[float] = Field(
@@ -1160,7 +1161,8 @@ def game_rect(
 
     The read is not a pure one: Control.get_minimum_size() is the
     `_get_minimum_size` virtual with no cache, so where a class leaves that getter
-    to Control the addressed node's script override of it runs once per request
+    to Control the addressed node's script override of it runs once per request,
+    and twice where the combined read finds the minimum-size cache stale
     (CONTEXT.md, `Project-code execution surface`).
 
     With no daemon it reports `daemon_not_running`; a path that resolves to no

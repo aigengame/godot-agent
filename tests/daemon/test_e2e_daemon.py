@@ -518,9 +518,9 @@ def test_daemon_game_get_names_game_rect_for_a_controls_layout_reads(
         started = run("daemon", "start")
         assert started.returncode == 0, started.stdout + started.stderr
 
-        for path, named in (
-            ("/root/Main/HUD/Box", container_child),
-            ("/root/Main/Frame/Scaled", free_control),
+        for path, named, absent in (
+            ("/root/Main/HUD/Box", container_child, free_control),
+            ("/root/Main/Frame/Scaled", free_control, ()),
         ):
             for spelling in ("position", "size", "global_position", "global_rect"):
                 got = run("game", "get", path, "--property", spelling)
@@ -531,6 +531,17 @@ def test_daemon_game_get_names_game_rect_for_a_controls_layout_reads(
                 assert "minimum_size" in error["message"], (spelling, error)
                 for storage in named:
                     assert storage in error["message"], (path, spelling, storage, error)
+                # The container branch REPLACES the free-Control list; it must not
+                # add to it. A message that names both strands the caller on the
+                # offset_* / anchor_* properties this node does not carry, which
+                # every "names this property" assertion above would still pass.
+                for stripped_storage in absent:
+                    assert stripped_storage not in error["message"], (
+                        path,
+                        spelling,
+                        stripped_storage,
+                        error,
+                    )
 
             # Following the redirect must WORK: every storage property it names is
             # on that node's storage set, so the caller reaches a value.

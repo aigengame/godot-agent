@@ -1028,6 +1028,16 @@ def test_game_get_names_game_rect_for_the_control_reads_it_cannot_serve():
         assert storage in message, (
             f"the container-managed branch must name the storage {storage}"
         )
+    # And that branch REPLACES the free-Control list rather than adding to it. An
+    # append satisfies every "must name" assertion above while telling a
+    # container-managed child to write the offset_* / anchor_* properties it does
+    # not carry — the same dead end, one step further in. The e2e test asserts the
+    # absence in a real engine's message; here the assignment itself is read.
+    override = re.search(r"^\t+inputs (\+?)= ", message, re.MULTILINE)
+    assert override is not None and override.group(1) == "", (
+        "the container branch must ASSIGN its layout inputs, not append them to "
+        f"the free-Control list: {message}"
+    )
 
     # Control-only: any other node keeps the generic message, so the redirect
     # cannot send a Node2D caller to a command that refuses it.

@@ -710,8 +710,10 @@ func _control_layout_read_message(
 # parent Container honors. The first read RUNS PROJECT CODE where the class
 # leaves the getter to Control: Control::get_minimum_size() is the
 # _get_minimum_size virtual with no cache, so a script override of it runs once
-# per request (CONTEXT.md, Project-code execution surface). The combined read
-# beside it takes the engine's cache.
+# per request, and twice where the combined read finds the minimum-size cache
+# stale (CONTEXT.md, Project-code execution surface). The combined read beside it
+# takes that cache first, and recomputes through the same virtual where it is
+# stale.
 func _handle_game_rect(params: Dictionary) -> String:
 	var path := _string_param(params, "node")
 	var node := _resolve_runtime_node(path)

@@ -448,7 +448,8 @@ explicitly instead. Live `game set --property position` mirrors this policy, whi
 `Control`, `game get --property position` / `size` / `global_position` / `global_rect`
 all refuse with `live_unknown_property` and name it. It is not a pure read either:
 `Control.get_minimum_size()` has no cache, so where a class leaves that getter to
-`Control` the addressed node's `_get_minimum_size` override runs once per request.
+`Control` the addressed node's `_get_minimum_size` override runs once per request,
+and twice where the combined read finds the minimum-size cache stale.
 
 `scene create` with a `Control-derived` `--root-type` writes a root with zero
 anchors and zero offsets, so it does not fill the viewport. A root class with

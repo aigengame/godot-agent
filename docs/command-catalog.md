@@ -380,8 +380,9 @@ actionable alternative; container-managed layout is not overridden. Live `gda ga
 same policy with `live_unknown_property` for the container-managed case. `gda game rect` is the read
 for a `Control`'s layout output (#852) and is not a setter, but it is not a pure read either:
 `Control::get_minimum_size()` is the `_get_minimum_size` virtual with no cache, so where a class
-leaves that getter to `Control` the addressed node's script override of it runs once per request
-(CONTEXT.md, `Project-code execution surface`).
+leaves that getter to `Control` the addressed node's script override of it runs once per request,
+and twice where the combined read finds the minimum-size cache stale (CONTEXT.md, `Project-code
+execution surface`).
 
 **Object-typed property assignment by `res://` reference** (ADR-0033, #363): for an **Object-typed**
 property that expects a Resource (sub)class — e.g. a `CollisionShape2D`'s `shape` (`Shape2D`) — `gda
