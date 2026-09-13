@@ -16,6 +16,7 @@ despite its name: it is the ``project find-references`` result shape, so it
 lives with its single consumer in the ``project`` group (ADR-0040 §5).
 """
 
+import re
 import os
 from pathlib import Path
 from typing import Any, Literal, Optional, get_args
@@ -922,20 +923,26 @@ def _asset_record(project: Path, res_path: str) -> ResourceImportAsset:
 def _engine_output(stderr: "str | None", res_path: str) -> "tuple[list[str], bool]":
     """The pass's stderr lines that NAME one asset, bounded (#853).
 
-    The match is the asset's ``res://`` path as a substring, which is how the
-    engine spells an asset in ``Error importing 'res://x.png'``, in the loader
-    errors above it, and in the ``ResourceFormatImporter::load`` errors it
-    prints for a sidecar it is about to SKIP (``res://x.png.import:8``). Deliberately literal: a broader needle (the
-    filename, the filesystem path) would attribute a neighbour's error to this
-    asset, and evidence that over-claims is worse than evidence that is short.
-    The engine's ``at:`` continuation lines name a source file, not the asset,
-    so they stay out.
+    The match is the asset's ``res://`` path as a WHOLE TOKEN: the path, then
+    whatever the engine puts after a path — the closing quote of ``Error
+    importing 'res://x.png'`` and of the loader errors above it, the
+    ``.import:<line>`` of the ``ResourceFormatImporter::load`` errors it prints
+    for a sidecar it is about to SKIP (``res://x.png.import:8``), or a colon,
+    a comma, a bracket, whitespace or the end of the line. A bare substring
+    test was the third-review defect here: ``res://icon.png`` matched the
+    neighbours ``res://icon.png2`` and ``res://icon.png.backup``, attributing
+    their lines to this asset and spending its line cap on them. Deliberately
+    literal otherwise: a broader needle (the filename, the filesystem path)
+    would attribute a neighbour's error to this asset, and evidence that
+    over-claims is worse than evidence that is short. The engine's ``at:``
+    continuation lines name a source file, not the asset, so they stay out.
 
     Returns the kept lines and whether any were dropped.
     """
     if not stderr:
         return [], False
-    matched = [line for line in stderr.splitlines() if res_path in line]
+    names_asset = re.compile(re.escape(res_path) + r"(?=$|['\"\s:,)\]]|\.import\b)")
+    matched = [line for line in stderr.splitlines() if names_asset.search(line)]
     return matched[:ENGINE_OUTPUT_LINE_CAP], len(matched) > ENGINE_OUTPUT_LINE_CAP
 
 

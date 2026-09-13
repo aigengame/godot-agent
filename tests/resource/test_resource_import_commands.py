@@ -780,6 +780,42 @@ def test_a_pass_that_leaves_the_asset_uncached_reports_the_settlement_reason(
     assert asset["engine_output_truncated"] is False
 
 
+def test_engine_output_names_the_asset_as_a_whole_token(monkeypatch, tmp_path):
+    # Third review of PR #937: the matcher was a bare substring test, so a line
+    # naming a PREFIX neighbour — `res://icon.png2`, `res://icon.png.backup`,
+    # both legal asset names — was attributed to `res://icon.png` and spent its
+    # line cap. The asset is matched as a whole token: its path, then what the
+    # engine puts after a path (a closing quote, its own `.import:<line>`
+    # sidecar, a colon, whitespace, the end of the line) — never another path
+    # character.
+    project = icon_project(tmp_path)
+    ours = [
+        "ERROR: Error importing 'res://icon.png'.",
+        "ERROR: ResourceFormatImporter::load - 'res://icon.png.import:8' error 'x'.",
+        "ERROR: res://icon.png: importer failed",
+        "ERROR: could not read res://icon.png",
+    ]
+    neighbours = [
+        "ERROR: Error importing 'res://icon.png2'.",
+        "ERROR: Error importing 'res://icon.png.backup'.",
+        "ERROR: ResourceFormatImporter::load - 'res://icon.png2.import:3' error 'y'.",
+    ]
+    # Neighbour lines beyond the cap would have been counted as the asset's own.
+    flood = [f"ERROR: {i} 'res://icon.png2' failed." for i in range(25)]
+
+    def fake_launch(binary, args, *, cwd, timeout, timeout_label="Godot", watch=None):
+        sidecar(project, "icon.png", ".godot/imported/never-written.ctex")
+        stderr = "\n".join(neighbours + flood + ours) + "\n"
+        return RunResult(stdout="", stderr=stderr, exit_code=0)
+
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+
+    asset = json.loads(_run(project, "res://icon.png").stdout)["assets"][0]
+
+    assert asset["engine_output"] == ours
+    assert asset["engine_output_truncated"] is False
+
+
 def test_engine_output_is_bounded_to_twenty_lines(monkeypatch, tmp_path):
     # #665's bounded-stream rule, without a spill file: a pass that floods the
     # log must not turn one asset's verdict into an unbounded payload, and the
