@@ -7,6 +7,7 @@ the e2e.
 """
 
 import json
+import typing
 
 import jsonschema
 import pytest
@@ -192,6 +193,31 @@ def test_the_emitted_shape_names_every_field_the_models_hold():
     # NAMES must agree.
     assert set(EmittedGameNode.__annotations__) == set(GameNode.model_fields)
     assert set(EmittedGameTree.__annotations__) == set(GameTreeResult.model_fields)
+    # Names are not enough (third review of PR #939): the TypedDict annotations
+    # also DRIVE the writer's types and nesting. A model field retyped without the
+    # same change here would validate and publish one contract while the writer
+    # emits another. So every field's type must agree too, with the emitted node
+    # standing in for the model node. Requiredness is a DIFFERENT notion on the
+    # two sides and is pinned as such below: a model field's default fills it on
+    # input, so every field is present on the instance the writer reads — the
+    # only keys the writer may leave out are the ones it omits WHEN ABSENT, and
+    # that set is exactly `children_omitted` (absent rather than 0, so the
+    # unbounded read pays nothing per node).
+    for emitted, model in (
+        (EmittedGameNode, GameNode),
+        (EmittedGameTree, GameTreeResult),
+    ):
+        hints = typing.get_type_hints(emitted)
+        for name, field in model.model_fields.items():
+            expected = str(field.annotation)
+            actual = (
+                str(hints[name])
+                .replace("EmittedGameNode", "GameNode")
+                .replace("EmittedGameTree", "GameTreeResult")
+            )
+            assert actual == expected, (name, actual, expected)
+    assert EmittedGameNode.__optional_keys__ == {"children_omitted"}
+    assert EmittedGameTree.__optional_keys__ == set()
 
 
 def test_the_prune_leaves_an_excluded_tree_alone():

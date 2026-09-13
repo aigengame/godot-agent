@@ -156,6 +156,18 @@ class EmittedGameTree(TypedDict):
     omitted_nodes: int
 
 
+def _check_omission(what: str, truncated: bool, omitted_nodes: int) -> None:
+    """The ONE rule both bounded reads share: ``truncated`` is ``omitted_nodes > 0``.
+
+    Stated once so the two result models cannot drift into two rules (third review
+    of PR #939); each keeps its own subject in the message it raises.
+    """
+    if truncated != (omitted_nodes > 0):
+        raise ValueError(
+            f"{what} reports truncated true exactly when omitted_nodes is above 0."
+        )
+
+
 class GameTreeResult(BaseModel):
     """The result of ``gda game tree``: the running game's runtime scene tree (#849).
 
@@ -226,11 +238,7 @@ class GameTreeResult(BaseModel):
         # drifted harness must fail output validation and classify as
         # contract_violation, never pass as a success. Same rule, same reason as
         # the `input` gesture evidence (``InputTapResult``, #652).
-        if self.truncated != (self.omitted_nodes > 0):
-            raise ValueError(
-                "a tree result reports truncated true exactly when "
-                "omitted_nodes is above 0."
-            )
+        _check_omission("a tree result", self.truncated, self.omitted_nodes)
         return self
 
 
@@ -457,11 +465,7 @@ class GameFindResult(BaseModel):
         # contract_violation (#929).
         if self.count != len(self.matches):
             raise ValueError("a find result's count is the length of matches.")
-        if self.truncated != (self.omitted_nodes > 0):
-            raise ValueError(
-                "a find result reports truncated true exactly when "
-                "omitted_nodes is above 0."
-            )
+        _check_omission("a find result", self.truncated, self.omitted_nodes)
         return self
 
 
