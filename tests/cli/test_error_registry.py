@@ -251,6 +251,15 @@ def test_no_registered_code_grows_a_key_by_defaulting_the_optional_context():
 #: two `target_outside_project` refusals report a project-context mismatch gda decides
 #: before anything is launched, so their coordinates are the whole cause rather than a
 #: run's residue. ADR-0004's paragraph carries the same two names.
+#:
+#: The eighth arrives with #840: `export_templates_missing_failure` types the two
+#: export-templates directories a `--user-data-root` redirect puts at odds — the one
+#: the engine checked and the host one that holds the templates it could not see.
+#: Also not reporting on a run (it is the pre-export preflight's verdict), and it
+#: passes the criterion the same way: both paths are already in hand on the failure
+#: path, neither is recoverable from the envelope without parsing prose, and which of
+#: the two shapes it is decides whether the caller drops the redirect or installs
+#: templates. ADR-0004's paragraph carries this name too.
 _EVIDENCE_PRODUCERS = {
     "launch_timeout_failure",
     "script_did_not_run_failure",
@@ -259,6 +268,7 @@ _EVIDENCE_PRODUCERS = {
     "script_run_aborted_failure",
     "target_outside_project_failure",
     "target_owned_by_another_project_failure",
+    "export_templates_missing_failure",
 }
 
 
@@ -290,8 +300,12 @@ def test_no_producer_can_emit_an_empty_evidence_object():
     # The fourth state the amendment's argument does not cover: `FailureEvidence()`
     # with every field unset serializes to `"evidence": {}` — a key that says nothing,
     # on a failure that byte-identity says should carry no key at all. Unreachable
-    # through the five producers today, but only incidentally, so it is pinned rather
-    # than assumed. Each producer is called with the LEAST it can be given.
+    # through the first five producers today, but only incidentally, so it is pinned
+    # rather than assumed. Producers six to eight (the two `target_*` refusals and
+    # `export_templates_missing_failure`) are not in this list because their builders
+    # cannot be called with nothing; each pins the same rule in a dedicated test
+    # (e.g. `test_no_evidence_at_all_when_no_directory_was_reported`). Each producer
+    # is called with the LEAST it can be given.
     raw = RunResult(
         stdout="", stderr="", exit_code=124, launch_failure=LaunchFailure.TIMEOUT
     )

@@ -20,7 +20,14 @@ import json
 from typing import Any, Optional
 
 import typer
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.execution import ExecutionKind
@@ -66,20 +73,309 @@ class GameNode(BaseModel):
     type: str
     path: str
     children: list["GameNode"] = []
+    children_omitted: int = Field(
+        default=0,
+        description=(
+            "How many of this node's DIRECT children the read did not serialize "
+            "because `max_depth` stopped it here (#849). ABSENT from the JSON "
+            "when it is 0: an unbounded read serializes every node, so it must "
+            "not pay one extra key per node for a bound it never had. Read it as "
+            "`node.get('children_omitted', 0)`; re-read that subtree with "
+            "`--root <this node's path>` to see what it left out."
+        ),
+    )
+
+    # The presence rule above is a SERIALIZATION rule, so it lives on the writer
+    # rather than on every caller: the field stays a plain int with a 0 default
+    # (a consumer reads a number, never None), and the key is dropped from the
+    # emitted JSON when nothing was omitted. `mode="wrap"` runs pydantic's own
+    # serializer first, so nested children are serialized — and pruned — by this
+    # same rule at every depth.
+    @model_serializer(mode="wrap")
+    def _omit_absent_omission_count(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:
+        rendered = handler(self)
+        if not rendered.get("children_omitted"):
+            rendered.pop("children_omitted", None)
+        return rendered
 
 
 class GameTreeParams(RelayedLiveParams):
-    """The params of ``gda game tree``: read the running game's runtime scene tree.
+    """The params of ``gda game tree``: read the running game's runtime scene tree (#849).
 
-    Empty — it reads the whole runtime tree of the engine session held by
-    ``gda-daemon`` (a subtree root may be added by a later slice).
+    Unbounded by default, and rooted at the running CURRENT SCENE (``/root``
+    only when no scene is current) — the whole subtree below it, which on a
+    production UI is a very large result. An autoload is that scene's SIBLING
+    under ``/root``, so a read that must see one names ``root="/root"``;
+    ``root`` otherwise narrows the read to one subtree and ``max_depth`` bounds
+    how deep it goes. Both counters cover the SELECTED subtree only, and what a
+    bound leaves out of it is COUNTED rather than silently dropped, so a partial
+    read is never mistaken for a complete one (see :class:`GameTreeResult`).
     """
+
+    root: str | None = Field(
+        default=None,
+        description=(
+            "Serialize the subtree at this runtime (absolute) node path, as "
+            "`game tree` itself reports it (e.g. /root/Main/HUD). Unset reads "
+            "the running current scene — an autoload is its SIBLING under "
+            "/root, so name /root to see one. A path that resolves to nothing "
+            "is `live_node_not_found`, the same refusal every other live op "
+            "gives."
+        ),
+    )
+    # strict=True: the published schema says `integer`, so the runtime refuses
+    # what the schema refuses — `true` or `"1"` are not coerced to 1 (ADR-0015).
+    max_depth: int | None = Field(
+        default=None,
+        ge=0,
+        strict=True,
+        description=(
+            "Serialize at most this many levels BELOW the read's root: 0 is the "
+            "root node alone, 1 adds its children. Unset reads the whole "
+            "subtree — an unbounded read of a large tree is the caller's choice."
+        ),
+    )
 
 
 class GameTreeResult(BaseModel):
-    """The result of ``gda game tree``: the running game's runtime scene tree."""
+    """The result of ``gda game tree``: the running game's runtime scene tree (#849).
+
+    ``truncated`` and ``omitted_nodes`` are always present, so a bounded read
+    reports what it left out instead of looking like a complete one. They are the
+    ONLY difference an unbounded read shows: no node in it carries
+    ``children_omitted``.
+    """
 
     root: GameNode
+    truncated: bool = Field(
+        description=(
+            "Whether a bound stopped the read short — true exactly when "
+            "`omitted_nodes` is above 0. Always false for an unbounded read."
+        )
+    )
+    omitted_nodes: int = Field(
+        description=(
+            "How many nodes, at every depth, the read did not serialize. It "
+            "counts whole omitted subtrees, not just the direct children a node "
+            "reports in `children_omitted`, so it is the size of what is "
+            "missing from this result."
+        )
+    )
+
+
+# The selectors `gda game find` ANDs together, in the order the params model
+# declares them. One authority: the model reads it to refuse a selector-less
+# search, and the refusal spells the flags from it, so a selector cannot be added
+# to one and forgotten by the other.
+FIND_SELECTORS = ("type", "script", "group", "name", "unique_name")
+
+FIND_SELECTOR_FLAGS = ", ".join(
+    "--" + selector.replace("_", "-") for selector in FIND_SELECTORS
+)
+
+# The "at least one selector" rule, published as JSON Schema so a standard
+# Draft 2020-12 validator reaches the SAME verdict as the model. ADR-0015 makes
+# the params model the one authority for both, which means the published input
+# contract must not be WIDER than the ABI `--params-json` accepts — and
+# `gda-mcp` builds its tool from exactly this schema, so a schema-only client
+# would otherwise offer `{}`: valid by the contract, `invalid_params` at
+# dispatch. Follows the `project add-input-action` precedent
+# (`gda.commands.project._AT_LEAST_ONE_BINDING_SCHEMA`, #743). The per-branch
+# `properties` clause is load-bearing, not decoration: `required` alone accepts
+# an explicit `{"type": null}`, which the model refuses because a null selector
+# selects nothing. `_require_one_selector` below stays the ENFORCING authority;
+# a parity corpus (tests/live/test_game_commands.py) runs the same payloads
+# through both and requires one verdict, so the two cannot drift.
+_AT_LEAST_ONE_SELECTOR_SCHEMA: dict[str, Any] = {
+    "anyOf": [
+        {"required": [selector], "properties": {selector: {"type": "string"}}}
+        for selector in FIND_SELECTORS
+    ]
+}
+
+
+class GameMatch(BaseModel):
+    """One node ``gda game find`` matched (#855).
+
+    The FLAT counterpart of :class:`GameNode`: the same runtime identity
+    (``path``/``name``/``type``) with no ``children``, because a match list is
+    not a tree — plus the ``res://`` path of the script the node carries, the
+    fact ``type`` cannot report (it is the ENGINE class, which never names a
+    project ``class_name``). ``path`` is what the follow-up ops take.
+    """
+
+    path: str = Field(
+        description=(
+            "The matched node's runtime (absolute) path — what `game get` / "
+            "`game rect` / `game set` / `game call` address it by."
+        )
+    )
+    name: str = Field(
+        description=(
+            "The node's runtime name — unique among its siblings only, so "
+            "several matches can share it."
+        )
+    )
+    type: str = Field(description="The node's engine class (e.g. CheckBox).")
+    script_path: str | None = Field(
+        description=(
+            "The `res://` path of the script attached to this node; null when "
+            "it carries none, or when the script has no resource_path (one "
+            "created and assigned at run time). A script stored INSIDE a scene "
+            "file reports its sub-resource path "
+            "(res://main.tscn::GDScript_abc12). It is the node's OWN script "
+            "even when `--script` matched further up its base chain."
+        )
+    )
+
+
+class GameFindParams(RelayedLiveParams):
+    """The params of ``gda game find``: locate running nodes by selector (#855).
+
+    The read that answers "which node is it now": a numeric fallback name
+    (``Enemy0`` -> ``Enemy1`` after a rebuild) is instantiation history, not
+    identity, so an exact path goes stale while the node is still there. Every
+    named selector must hold (they are ANDed), and at least one must be named —
+    a selector-less find is ``game tree`` flattened, not a search.
+
+    ``root`` and ``max_depth`` bound the search exactly as they bound
+    :class:`GameTreeParams`' read, including the default root: the running
+    CURRENT SCENE (``/root`` only when no scene is current), whose SIBLINGS the
+    autoloads are, so finding one takes ``root="/root"``.
+    """
+
+    model_config = ConfigDict(json_schema_extra=_AT_LEAST_ONE_SELECTOR_SCHEMA)
+
+    type: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Match nodes of this ENGINE class, subclass-inclusive "
+            "(Node.is_class): `Button` also matches a `CheckBox`, and `Control` "
+            "matches every Control. A project `class_name` is NOT an engine "
+            "class and is never matched here — use `script` for that. A name "
+            "`is_class` does not know (a typo, or exactly that `class_name`) "
+            "matches nothing: an empty successful search, never a refusal."
+        ),
+    )
+    script: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Match nodes whose attached script, or any script in its base "
+            "chain, is this resource. Compared verbatim against the script's "
+            "`resource_path`, so it is the `res://` form (e.g. "
+            "res://ui/card_view.gd). This is the selector that reaches a "
+            "project `class_name`."
+        ),
+    )
+    group: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Match nodes in this group (Node.is_in_group).",
+    )
+    name: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Match nodes whose node name is exactly this. Names are unique only "
+            "among siblings, so this can match several nodes."
+        ),
+    )
+    unique_name: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Match a `%`-addressable node of this name: it has "
+            "`unique_name_in_owner` set, its name is this one, and the OWNER "
+            "that declares it is the search root or lies inside the searched "
+            "subtree. A unique name is per owner and a running tree holds many "
+            "owners (every autoload, every instanced sub-scene), so the same "
+            "`%Name` declared by an owner ABOVE the search root is not a match."
+        ),
+    )
+    root: str | None = Field(
+        default=None,
+        description=(
+            "Search the subtree at this runtime (absolute) node path, as "
+            "`game tree` reports it (e.g. /root/Main/HUD). Unset searches the "
+            "running current scene — an autoload is its SIBLING under /root, so "
+            "name /root to reach one. A path that resolves to nothing is "
+            "`live_node_not_found`, the same refusal every other live op gives."
+        ),
+    )
+    # strict=True, as on `game tree`'s bound: the schema's `integer` is the
+    # accepted type, so a boolean or numeric string is refused, not coerced.
+    max_depth: int | None = Field(
+        default=None,
+        ge=0,
+        strict=True,
+        description=(
+            "Search at most this many levels BELOW the search root: 0 tests the "
+            "root node alone, 1 adds its children. Unset searches the whole "
+            "subtree."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _require_one_selector(self) -> "GameFindParams":
+        """Refuse a selector-less find, on both input channels (ADR-0015).
+
+        With no selector every node in the subtree matches, which is ``game
+        tree`` flattened rather than a search — and an unbounded one on a
+        production UI is the very result #849 taught callers to avoid. The rule
+        lives on the model so argv reports it as a usage error and
+        ``--params-json`` as ``invalid_params``, both before any daemon.
+        """
+        if all(getattr(self, selector) is None for selector in FIND_SELECTORS):
+            raise ValueError(
+                "game find needs at least one selector "
+                f"({FIND_SELECTOR_FLAGS}); to list a subtree instead, use "
+                "`gda game tree --root <path> --max-depth N`"
+            )
+        return self
+
+
+class GameFindResult(BaseModel):
+    """The result of ``gda game find``: the nodes that matched (#855).
+
+    Ambiguity is DATA, not an error: every candidate is returned and the caller
+    decides, while the ops that need one node keep taking an exact path. Zero
+    matches is a success with an empty list.
+
+    ``truncated`` / ``omitted_nodes`` are :class:`GameTreeResult`'s counters,
+    reading here as what the search never REACHED — so an empty list with
+    ``truncated`` true has not proved the node absent, and one with it false has.
+    """
+
+    matches: list[GameMatch] = Field(
+        description=(
+            "The matching nodes, in the searched tree's document order "
+            "(depth-first, pre-order, parents before children)."
+        )
+    )
+    count: int = Field(
+        description=(
+            "How many nodes matched — the length of `matches`, so a caller can "
+            "branch on the number without walking the list."
+        )
+    )
+    truncated: bool = Field(
+        description=(
+            "Whether a bound stopped the search short — true exactly when "
+            "`omitted_nodes` is above 0. Always false for an unbounded search. "
+            "While it is true, an empty `matches` does not prove absence."
+        )
+    )
+    omitted_nodes: int = Field(
+        description=(
+            "How many nodes, at every depth, the search did not REACH because "
+            "`max_depth` stopped it. It counts whole unsearched subtrees, so it "
+            "is the size of what was never tested against the selectors."
+        )
+    )
 
 
 class GameGetParams(RelayedLiveParams):
@@ -407,13 +703,42 @@ class GameCallResult(BaseModel):
 
 
 def render_game_tree(game: "GameTreeResult") -> str:
-    """Render the running game's runtime scene tree (ADR-0019).
+    """Render the running game's runtime scene tree (ADR-0019, #849).
 
     The runtime counterpart of ``render_scene_tree``: ``render_node_tree`` reads
     only ``name``/``type``/``children``, which a ``GameNode`` carries, so the
     runtime tree flows through the same indented outline as the on-disk scene.
+
+    A bounded read appends ONE trailing line with the omitted total, so the
+    outline cannot be read as a complete tree on the human channel either. The
+    shared outline itself is left alone: the per-node count is a ``game`` shape,
+    and teaching the tree renderer about it would change what the on-disk
+    ``scene``/``node`` trees print (ADR-0040 §5).
     """
-    return render_node_tree(game.root)
+    outline = render_node_tree(game.root)
+    if not game.truncated:
+        return outline
+    return f"{outline}\ntruncated: {game.omitted_nodes} nodes omitted"
+
+
+def render_game_find(found: "GameFindResult") -> str:
+    """Render the match list as one line per node, then the total (#855).
+
+    A flat list, so the tree outline does not apply: each line is the runtime
+    path the caller will address next, its engine class, and the attached
+    script when there is one. The total rides its own line — an empty result
+    still says so — and a bounded search appends what it never searched, so the
+    human channel cannot read a partial search as an exhaustive one either.
+    """
+    lines = [
+        f"{match.path} ({match.type})"
+        + (f" {match.script_path}" if match.script_path else "")
+        for match in found.matches
+    ]
+    lines.append("1 match" if found.count == 1 else f"{found.count} matches")
+    if found.truncated:
+        lines.append(f"truncated: {found.omitted_nodes} nodes not searched")
+    return "\n".join(lines)
 
 
 def render_game_get(got: "GameGetResult") -> str:
@@ -451,6 +776,15 @@ GAME_TREE_COMMAND: HeadlessCommand[GameTreeResult] = HeadlessCommand(
     input_model=GameTreeParams,
     output_model=GameTreeResult,
     render=render_game_tree,
+    kind=ExecutionKind.LIVE,
+)
+
+
+GAME_FIND_COMMAND: HeadlessCommand[GameFindResult] = HeadlessCommand(
+    operation="game-find",
+    input_model=GameFindParams,
+    output_model=GameFindResult,
+    render=render_game_find,
     kind=ExecutionKind.LIVE,
 )
 
@@ -503,6 +837,26 @@ _app = typer.Typer(
 
 @_app.command(name="tree", cls=GAME_TREE_COMMAND.command_class())
 def game_tree(
+    root: Optional[str] = typer.Option(
+        None,
+        "--root",
+        help=(
+            "Read the subtree at this runtime node path, as `game tree` reports "
+            "it (absolute, e.g. /root/Main/HUD). Unset reads the current scene "
+            "(autoloads are its siblings: name /root to see them); a path that "
+            "resolves to nothing is `live_node_not_found`."
+        ),
+    ),
+    max_depth: Optional[int] = typer.Option(
+        None,
+        "--max-depth",
+        min=0,
+        help=(
+            "Read at most this many levels below the root (0 = the root alone); "
+            "must be >= 0. Unset is an unbounded read of the whole subtree, "
+            "which on a large tree is the caller's choice."
+        ),
+    ),
     json_output: bool = json_option(),
     schema: bool = GAME_TREE_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
@@ -518,10 +872,132 @@ def game_tree(
     naming the remediation (`gda daemon start`); on an unsupported platform,
     `live_unsupported_platform`. The platform/Godot-version precondition is the
     structured `constraints` field of `--schema` (ADR-0021), not restated here.
+
+    `--root` and `--max-depth` bound the read; without them it is unbounded and
+    rooted at the running current scene, and a production UI's whole tree is a
+    very large result. An autoload is that scene's sibling under `/root`, so a
+    read that must see one names `--root /root`. What a bound leaves out of the
+    selected subtree is counted, never silently dropped: the result carries
+    `truncated` and `omitted_nodes`, and each node whose children were not walked
+    carries `children_omitted`. Read bounded first, then address the nodes you
+    want by their exact path (`game get`, `game rect`, `game set`).
     """
     dispatch_domain(
         GAME_TREE_COMMAND,
-        GameTreeParams(),
+        params_or_bad_parameter(GameTreeParams, root=root, max_depth=max_depth),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(name="find", cls=GAME_FIND_COMMAND.command_class())
+def game_find(
+    type: Optional[str] = typer.Option(
+        None,
+        "--type",
+        help=(
+            "Match this ENGINE class, subclass-inclusive: --type Button also "
+            "matches a CheckBox. A project `class_name` is not an engine class "
+            "and is never matched here — use --script for that. A class name "
+            "the engine does not know matches nothing: an empty successful "
+            "search, not a refusal."
+        ),
+    ),
+    script: Optional[str] = typer.Option(
+        None,
+        "--script",
+        help=(
+            "Match nodes whose attached script, or a script in its base chain, "
+            "is this resource (the res:// path, compared to the script's own "
+            "resource_path). The selector that reaches a `class_name`."
+        ),
+    ),
+    group: Optional[str] = typer.Option(
+        None, "--group", help="Match nodes in this group."
+    ),
+    name: Optional[str] = typer.Option(
+        None,
+        "--name",
+        help="Match this exact node name (names are unique only among siblings).",
+    ),
+    unique_name: Optional[str] = typer.Option(
+        None,
+        "--unique-name",
+        help=(
+            "Match a %-addressable node of this name: it has "
+            "unique_name_in_owner set and the OWNER declaring it is the search "
+            "root or inside the searched subtree. The same %Name owned from "
+            "ABOVE that root does not match."
+        ),
+    ),
+    root: Optional[str] = typer.Option(
+        None,
+        "--root",
+        help=(
+            "Search the subtree at this runtime node path, as `game tree` "
+            "reports it (absolute, e.g. /root/Main/HUD). Unset searches the "
+            "current scene (autoloads are its siblings: name /root to reach "
+            "them); a path that resolves to nothing is `live_node_not_found`."
+        ),
+    ),
+    max_depth: Optional[int] = typer.Option(
+        None,
+        "--max-depth",
+        min=0,
+        help=(
+            "Search at most this many levels below the root (0 = the root "
+            "alone); must be >= 0. Unset searches the whole subtree."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = GAME_FIND_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Find running nodes by type, script, group, name or unique name (live).
+
+    The read that answers "which node is it NOW" (#855): a fallback name like
+    `Enemy0` is instantiation history, not identity, so a path recorded earlier
+    can go stale while the node is still there. Resolve identity here, then
+    address the exact paths with `game get` / `game rect` / `game set` /
+    `game call` — do not re-read the tree per node.
+
+    Every selector you name must hold (they are ANDed) and at least one is
+    required. `--type` reads the ENGINE class and is subclass-inclusive
+    (`--type Control` matches every Control); it never sees a project
+    `class_name`, which is what `--script` reaches — matching the node's
+    attached script or any script in its base chain. `--unique-name` is decided
+    by the node's OWN owner (not `current_scene`): the owner
+    declaring the `%` name must be the search root or lie inside the searched
+    subtree, because a running tree holds many owners (every autoload, every
+    instanced sub-scene).
+
+    A class name `is_class` does not know — a typo, or exactly the project
+    `class_name` `--script` is for — matches nothing. That is an empty
+    successful search, not a refusal.
+
+    Ambiguity is data, not an error: every candidate comes back and zero matches
+    is a success with an empty list. `--root` and `--max-depth` bound the search
+    as they bound `game tree`; unset, `--root` is the running current scene. What
+    a bound left unsearched is counted in `omitted_nodes` — while that is above
+    zero, an empty result does not prove a node is absent. With no daemon it
+    reports `daemon_not_running`; a `--root` that resolves to nothing is
+    `live_node_not_found`.
+    """
+    dispatch_domain(
+        GAME_FIND_COMMAND,
+        params_or_bad_parameter(
+            GameFindParams,
+            type=type,
+            script=script,
+            group=group,
+            name=name,
+            unique_name=unique_name,
+            root=root,
+            max_depth=max_depth,
+        ),
         json_output=json_output,
         godot=godot,
         project=project,

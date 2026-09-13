@@ -525,3 +525,70 @@ def test_without_the_root_option_the_launch_keeps_the_engine_default(
 
     assert result.exit_code == 0, result.stdout
     assert rec.kwargs is not None and rec.kwargs["env"] is None
+
+
+# --------------------------------------------------------------------------
+# What the launch REPORTS about the placement it made (#850)
+# --------------------------------------------------------------------------
+
+
+def test_a_default_launch_reports_the_engine_resolved_data_path_and_no_log(
+    monkeypatch,
+):
+    # The placement is prepared and DROPPED inside `launch`, so the facts a channel
+    # may disclose have to ride the result out (the `TimeoutBound` shape). On the
+    # default path gda redirects nothing but the log, so there is no root to name —
+    # and the log is a private temporary file this launch removes on the way out, so
+    # naming it would hand a caller a path that no longer exists.
+    rec = RecordingSpawn()
+    monkeypatch.setattr(subprocess, "Popen", rec)
+    monkeypatch.delenv(USER_DATA_ROOT_ENV, raising=False)
+
+    result = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
+
+    assert result.user_data is not None
+    assert result.user_data.root is None
+    assert result.user_data.data_path == engine_data_path()
+    assert result.user_data.log_file is None
+
+
+def test_a_redirected_launch_reports_the_root_the_derived_path_and_the_log(
+    monkeypatch, tmp_path
+):
+    # With a root, gda IS redirecting `user://`, so all three facts are knowable and
+    # the log outlives the launch — it is the caller's own directory, not a
+    # temporary one. The data path is the PLATFORM-DERIVED one the engine will use
+    # (`<root>/Library/Application Support` on macOS), never the bare root.
+    rec = RecordingSpawn()
+    monkeypatch.setattr(subprocess, "Popen", rec)
+    root = tmp_path / "udr"
+    set_user_data_root(str(root))
+
+    result = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
+
+    assert result.user_data is not None
+    assert result.user_data.root == root
+    assert result.user_data.data_path == engine_data_path(data_path_env(root))
+    log_file = result.user_data.log_file
+    assert log_file == root / "logs" / "godot.log"
+    # It really outlives the launch: the file is there after `launch` returned.
+    assert log_file is not None and log_file.exists()
+
+
+def test_a_refused_placement_reports_no_placement_at_all(monkeypatch, tmp_path):
+    # There is nothing to report when the placement was never made usable: the
+    # refusal's own diagnostics name what was attempted (they RESOLVED it), and a
+    # report here would claim a placement the launch does not have.
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: None)
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o555)
+    try:
+        set_user_data_root(str(locked / "root"))
+
+        result = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
+    finally:
+        locked.chmod(0o755)
+
+    assert result.launch_failure is LaunchFailure.USER_DATA_UNWRITABLE
+    assert result.user_data is None

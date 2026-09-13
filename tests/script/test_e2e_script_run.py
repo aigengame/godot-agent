@@ -1083,3 +1083,82 @@ def test_script_run_stdout_above_the_cap_truncates_and_spills(godot_project):
         assert "<<<LAST-RECORD>>>" in complete  # nothing was lost
     finally:
         spill.unlink()
+
+
+# A script that WRITES `user://` and reports where the engine resolved it. The
+# persistence shape #850's disclosure exists for: when the application-data
+# directory is not writable the write fails inside the script, and without the
+# placement on the result the failure reads as a game regression.
+PERSIST_GD = """\
+extends SceneTree
+
+func _initialize() -> void:
+\tvar f = FileAccess.open("user://probe.txt", FileAccess.WRITE)
+\tif f == null:
+\t\tprint("WRITE_FAILED")
+\t\tquit(1)
+\tf.store_string("ok")
+\tf.close()
+\tprint("USER_DIR=", OS.get_user_data_dir())
+\tquit(0)
+"""
+
+
+@pytest.mark.e2e
+def test_script_run_reports_the_engine_data_path_of_a_default_run(godot_project):
+    # The default placement, read back from a real launch: gda redirects only the
+    # engine log — to a private temporary file it removes — so the result names the
+    # directory the engine resolved `user://` beneath and OMITS the other two keys.
+    (godot_project / "hello.gd").write_text(HELLO_GD, encoding="utf-8")
+
+    run = gda(
+        "script",
+        "run",
+        "res://hello.gd",
+        "--project",
+        str(godot_project),
+        "--json",
+        retry=True,
+    )
+
+    assert run.returncode == 0, run.stdout + run.stderr
+    data = json.loads(run.stdout)
+    assert data["engine_data_path"], data
+    # Omitted, not null: gda redirected no root, and the log no longer exists.
+    assert "user_data_root" not in data
+    assert "log_file" not in data
+
+
+@pytest.mark.e2e
+def test_script_run_under_a_user_data_root_reports_the_placement_it_ran_with(
+    godot_project, tmp_path
+):
+    # The redirect is the recipe for a script that writes `user://`, and the option
+    # is GLOBAL — it precedes the subcommand. All three keys are then knowable, and
+    # the log is the one the caller can still read after the command returned.
+    (godot_project / "persist.gd").write_text(PERSIST_GD, encoding="utf-8")
+    root = tmp_path / "udr"
+
+    run = gda(
+        "--user-data-root",
+        str(root),
+        "script",
+        "run",
+        "res://persist.gd",
+        "--project",
+        str(godot_project),
+        "--json",
+        retry=True,
+    )
+
+    assert run.returncode == 0, run.stdout + run.stderr
+    data = json.loads(run.stdout)
+    assert data["exit_status"] == 0, data["stdout"] + data["stderr"]
+    assert data["user_data_root"] == str(root)
+    # The DERIVED path, not the bare root: the engine appends its platform layout.
+    assert data["engine_data_path"].startswith(str(root))
+    # The script's own `user://` really landed under the reported data path.
+    assert data["engine_data_path"] in data["stdout"]
+    # The log outlives the launch — the whole reason this key is reported only here.
+    assert Path(data["log_file"]).exists()
+    assert data["log_file"].startswith(str(root))

@@ -24,6 +24,14 @@ operation-source ``invalid_path`` from the CLI. Two consequences worth stating
 because they have been misread: reuse-vs-mint is decided by **semantic match**,
 never by ``source``; and classifier reuse adds no member and removes none, so the
 mirror derivation is untouched by it.
+
+Reuse also covers a failure the CLI itself SUFFERS while finishing what an engine
+run started, not only one it reads out of the engine's output (#843, PR #898
+review): ``gda project set`` restores the declarations
+``ProjectSettings.save()`` dropped from ``project.godot``, and a restore it cannot
+write is that file failing to save — reported as ``save_failed``, the row whose
+semantics already cover it. The same test applies: the CLI may take a registered
+code when its meaning matches, and taking one changes no mirror membership.
 """
 
 from dataclasses import dataclass
@@ -639,7 +647,9 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
-        "An input-action key could not be resolved to a Godot keycode (unknown key name or non-positive keycode).",
+        "An input-action binding token could not be resolved: a key name or "
+        "keycode that maps to no Godot keycode, or a joypad button or axis "
+        "direction that names no JoyButton / JoyAxis.",
     ),
     ErrorCodeSpec(
         "contract_violation",

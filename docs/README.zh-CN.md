@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=77bb050928bb00a8ba3ce8936b82593b68eeae2731f81332c327a0010235067d -->
+<!-- gda-readme-i18n: source=README.md sha256=8c2f2dce0229e2a816eb45186888fd06c25af9cabfaf1b84f18cd1a254163f00 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -8,6 +8,7 @@
 
 [产品概览](https://aigengame.xyz/zh/) ·
 [CLI、Agent Skill 还是 MCP？](https://aigengame.xyz/zh/godot-mcp/) ·
+[可玩示例](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
 > **让 Coding Agent、Shell 脚本与 CI 构建并验证 Godot 项目。**
@@ -32,8 +33,6 @@
 > `gda` 处于 **pre-1.0** 阶段：目前每条命令都能端到端跑通，但在 1.0 之前命令界面
 > 仍可能变化。
 
----
-
 ## 目录
 
 - [为什么选择 `gda`？](#why-gda)
@@ -46,8 +45,6 @@
 - [配置](#configuration)
 - [贡献](#contributing)
 - [许可证](#license)
-
----
 
 <a id="why-gda"></a>
 ## 为什么选择 `gda`？
@@ -69,8 +66,6 @@
 这些能力在[真实游戏制作](https://aigengame.xyz/zh/#showcase)中持续打磨，相关过程记录在
 公开的[dogfooding 记录](https://github.com/aigengame/godot-agent/milestone/10)中。
 
----
-
 <a id="capabilities-at-a-glance"></a>
 ## 能力速览
 
@@ -81,8 +76,6 @@
 | 验证运行时行为（Live） | 读取运行时状态、调用已声明的方法、模拟输入、捕获画面、收集日志和错误以及测量性能 | `gda daemon start`，然后使用 `game` / `input` / `screen` / `diag` / `logger` / `perf` |
 | 接入 Coding Agent | 使用 CLI 直接执行、Agent Skill 可复用指导，或 MCP 工具发现与调用 | `gda` / `gda skill` / `gda-mcp` |
 | 在自动化环境中可靠运行 | 获得结构化结果、带类型的 Schema 与失败信息、明确的执行边界、隔离日志和可直接处理的诊断信息 | `--json` / `--schema` / `--user-data-root` / 超时设置 |
-
----
 
 <a id="installation"></a>
 ## 安装
@@ -115,8 +108,6 @@ uv sync                  # create the environment + install dependencies
 uv run gda --help
 ```
 </details>
-
----
 
 <a id="quick-start"></a>
 ## 快速上手
@@ -166,8 +157,6 @@ gda daemon stop
 
 （`gda screen capture` 也能实时工作，但需要一个带窗口的会话——用
 `gda daemon start --windowed` 启动 daemon。）
-
----
 
 <a id="choose-your-integration"></a>
 ## 选择你的集成方式
@@ -306,8 +295,6 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 > 用户级与项目级、各 agent 的项目固定方式——都在[注册配方](gda-mcp-registration.md)里。
 </details>
 
----
-
 <a id="how-it-works"></a>
 ## 工作原理
 
@@ -341,8 +328,6 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 ¹ Headless 在设计上就是跨平台的（一次性进程，无平台相关依赖）——Windows 保留完整的
   headless 命令界面，尽管 CI 还没有对它做过验证。
 ² Live 操作使用 Unix 域套接字，所以暂不支持 Windows。
-
----
 
 <a id="command-reference"></a>
 ## 命令参考
@@ -428,12 +413,15 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `project set` | 设置一个项目设置，并把值强制转换为它声明的类型。 |
 | `project add-autoload` | 注册一个 autoload 单例（名称 → 脚本/场景）。 |
 | `project remove-autoload` | 按名称注销一个 autoload 单例。 |
-| `project add-input-action` | 注册一个绑定按键的 InputMap 动作（`--key` 键名或键码、`--deadzone`、`--physical`）。 |
+| `project add-input-action` | 注册一个绑定按键和/或手柄的 InputMap 动作（`--key`、`--joy-button`、`--joy-axis` 形如 `<轴>[:<符号>]`、`--device`、`--deadzone`、`--physical`）；至少需要一个绑定。 |
 | `project remove-input-action` | 按名称注销一个 InputMap 动作。 |
 | `project find-references` | 找出引用了给定资源的每一个项目文件。 |
 | `project dependencies` | 把每个场景/资源映射到它所依赖的资源。 |
 | `project find-unused-resources` | 找出没有任何东西引用的资源文件。 |
 | `project statistics` | 报告项目的文件/行数统计、autoload 等信息。 |
+
+每次 `project` 写入都经由引擎保存，而引擎会重新序列化整个文件：gda 会把它删掉的显式
+配置行按原样恢复，并在结果中报告其余改动。
 
 **`resource`** — 资源文件（`.tres`）与项目的已导入资产
 
@@ -486,6 +474,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | 命令 | 作用 |
 | ------- | ------------ |
 | `game tree` | 读取正在运行的游戏的运行时场景树（在 `_ready` 之后）。 |
+| `game find` | 按引擎类、脚本、组、名称或唯一名称查找运行时节点，而不是按路径。`--type` 匹配的是引擎类（含子类），永远不匹配项目的 `class_name` —— 要匹配后者请用 `--script res://path.gd`。 |
 | `game get` | 按节点路径读取一个运行时节点的实时属性；显式命名时可读取附加脚本变量。 |
 | `game rect` | 按节点路径读取一个运行时 Control 渲染后的视口矩形。 |
 | `game set` | 在正在运行的游戏上设置运行时节点属性，或显式命名的附加脚本变量；`verified` 报告读回值是否匹配。 |
@@ -520,8 +509,8 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `input key` | 注入一个按键事件（带修饰键）。 |
 | `input mouse-click` | 在 `(x, y)` 处注入完整的点击手势(移动、按下、释放)。 |
 | `input mouse-move` | 将鼠标移动到 `(x, y)`。 |
-| `input action` | 按下/释放一个已映射的输入动作。 |
-| `input tap` | 轻按一个按键或动作：跨帧完成按下、保持、释放。 |
+| `input action` | 按下/释放一个已映射的输入动作 —— 仅改变轮询状态，除非用 `--as-event` 将其送达 `_input`/`_gui_input`。 |
+| `input tap` | 轻按一个按键或动作：跨帧完成按下、保持、释放（`--key` 送达事件，`--action` 改变轮询状态，除非加上 `--as-event`）。 |
 | `input sequence` | 注入一条跨多帧的事件时间线。 |
 
 注入的鼠标坐标请从 `event.position` 读取——daemon 会话中 `get_mouse_position()` /
@@ -544,8 +533,6 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `--project` | 用于 `res://` 解析的 Godot 项目目录（覆盖 `$GDA_PROJECT`；若当前目录本身是个项目则默认用它）。仅限领域命令。解析一个项目会运行该项目的代码——参见[项目代码执行](#configuration)。 |
 | `--version` | 打印已安装的 `gda` 版本。加上 `--json` 时，同时给出它的来源——安装类型（`wheel`、`editable` 或 `unknown`），以及 editable 安装对应源码检出的 Git 版本号。 |
 | `--help`    | 显示 `gda` 或任意命令的用法。                                |
-
----
 
 <a id="configuration"></a>
 ## 配置
@@ -577,8 +564,6 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 - **`game call`** 只运行节点 `GDA_CALLABLE` 声明中列出的那一个方法；未声明的绝不会被调用。
 
 </details>
-
----
 
 <details>
 <summary><strong>底层原理</strong> — 结构化输出契约与退出码</summary>
@@ -676,8 +661,6 @@ CONTEXT.md          # the project's shared domain language
 headless 进程（`runner.py`），以及通过 daemon 与正在运行的游戏对话（`live_runner.py`）。
 e2e 套件会驱动真实引擎覆盖这两条边界。
 </details>
-
----
 
 <a id="contributing"></a>
 ## 贡献

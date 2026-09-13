@@ -547,3 +547,41 @@ added incrementally under ADR-0025 if a concrete need appears.
 > `Outcome (2026-08-31, #716 / #717)` note stands unchanged, and typed evidence is
 > what makes it comfortable to leave standing — the honest verdict now ships with the
 > precise cause attached.
+
+> **Outcome (2026-09-05, #850) — the promoted Raw run also carries WHERE the run's
+> user data was.** The 2026-08-17 (#653) amendment above records `launch()` taking
+> over each launch's `User-data placement` and notes that `--user-data-root` makes
+> `user://` writable for a `script run` under a restricted profile. What it did not
+> give the caller was any way to READ that: the placement was prepared and dropped
+> inside the primitive, so only the `user_data_unwritable` refusal ever named it, and
+> a persistence-bearing run whose `user://` write failed kept being diagnosed as a
+> game regression (GDA-DF-049, PIPE-DF-077). The `Raw run` now carries the placement
+> out of the launch — the root, the platform-derived data path, and the log file —
+> and this ADR's promotion publishes it as three flattened keys, so the promoted
+> shape is `{path, exit_status, stdout, stderr, stdout_bytes, stdout_truncated,
+> stdout_file, diagnostics, engine_data_path}` plus `user_data_root` and `log_file`
+> where they apply.
+>
+> Which keys apply is decided by what is a FACT, not by what is convenient:
+> `engine_data_path` is required-but-nullable (null means the platform's own
+> variable is unset, which gda reports rather than guessing a path);
+> `user_data_root` is present only when a root was given, and `log_file` only then
+> too — by default the log is a private temporary file the launch removes on the way
+> out, so naming it would hand a caller a dangling path. Both are **omitted, never
+> null**. A default run's result therefore changes by exactly one key — it gains
+> `engine_data_path` — and by nothing else; byte identity is what the OTHER
+> launch-backed channels and this channel's failure envelopes keep.
+>
+> Three boundaries. The facts come from the ONE launch primitive and are read off
+> the raw run; `script run` resolves no root and derives no data path of its own, so
+> it cannot report a placement the run did not have. This stays the ONE channel that
+> publishes them: `scene preflight`, `export run`, `resource import` and every
+> sentinel command take the same facts off the same raw run and disclose none, so
+> their results are unchanged (a registry test holds them to it). And it is the
+> SUCCESS result alone: this channel's failure envelopes — `--strict`'s
+> `script_failed`, the two gda-ended runs — keep the shape the #687 outcome above
+> gave them, because putting `engine_data_path` on an Error envelope means extending
+> ADR-0004's `Failure evidence` producer set, a decision that ADR owns and that #850
+> did not scope. The follow-up is named rather than taken here. The human rendering
+> is unchanged too — `script run` without `--json` stays the script's own output, per
+> this ADR's passthrough decision.

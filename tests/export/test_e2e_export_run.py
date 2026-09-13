@@ -174,6 +174,138 @@ def test_export_run_writes_to_configured_export_path(godot_project):
 
 
 @pytest.mark.e2e
+def test_export_run_under_a_redirect_names_both_template_directories(
+    godot_project, tmp_path
+):
+    # #840 ACCEPTANCE, live. A release export under `--user-data-root` fails with
+    # export_templates_missing even on a host whose templates are correctly
+    # installed, because Godot reads the templates from the data directory the
+    # redirect relocated. The failure now says so at the point it happens: the
+    # message names the directory that was checked AND the host directory holding
+    # the templates, plus the two remedies, and `evidence` carries the same two
+    # paths as typed facts.
+    #
+    # The redirect is per invocation, never exported for the run — exporting it
+    # would hide the host's templates from every other test (PITFALLS.md).
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    (godot_project / "main.gd").write_text(
+        "extends Node\n\nfunc _ready() -> void:\n\tpass\n", encoding="utf-8"
+    )
+    gda = Gda(godot_project)
+    if not templates_installed(gda):
+        pytest.skip(
+            "this host has no export templates installed, so there is nothing for "
+            "a --user-data-root redirect to hide"
+        )
+    isolated = tmp_path / "iso"
+    artifact = godot_project / "build/game.x86_64"
+
+    run = gda(
+        "--user-data-root",
+        str(isolated),
+        "export",
+        "run",
+        "--preset",
+        "Linux/X11",
+        "--json",
+    )
+
+    assert run.returncode == 4, run.stdout + run.stderr
+    err = json.loads(run.stdout)["error"]
+    assert err["code"] == "export_templates_missing", run.stdout + run.stderr
+    assert str(isolated) in err["message"], err["message"]
+    assert "--user-data-root" in err["message"], err["message"]
+    assert "$GDA_USER_DATA_ROOT" in err["message"], err["message"]
+    assert "without the user-data redirect" in err["message"], err["message"]
+    assert "--mode pack" in err["message"], err["message"]
+    # Not a near miss, so no corrected invocation rides along.
+    assert "hint" not in err, err
+    evidence = err["evidence"]
+    assert str(isolated) in evidence["templates_root_checked"], evidence
+    assert evidence["templates_root_host"].endswith("export_templates"), evidence
+    assert str(isolated) not in evidence["templates_root_host"], evidence
+    # The preflight fired first, so nothing was exported.
+    assert not artifact.exists(), "no artifact when the preflight fails fast"
+
+
+@pytest.mark.e2e
+def test_export_get_under_a_redirect_with_a_template_less_host_names_no_host_root(
+    godot_project, tmp_path
+):
+    # Clause 3 of the engine-side check (#840): the redirect is in play and the two
+    # roots differ, but the host has no templates for this version EITHER — so
+    # nothing is hidden and the plain shape must come back (no host root), not a
+    # false "they are installed in the host's …" remedy. The host root is resolved
+    # over gda's OWN environment, so that environment is pointed at an empty home
+    # for this one invocation; the child engine's data goes under the isolated
+    # root as before. The redirect is never exported for the run (PITFALLS.md).
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    empty_home = tmp_path / "home"
+    empty_home.mkdir()
+    isolated = tmp_path / "iso"
+    gda = Gda(
+        godot_project,
+        extra_env={"HOME": str(empty_home), "XDG_DATA_HOME": str(empty_home / "share")},
+    )
+
+    got = gda.json(
+        "--user-data-root", str(isolated), "export", "get", "--preset", "Linux/X11"
+    )
+
+    assert got["templates_installed"] is False, got
+    assert str(isolated) in got["templates_root"], got
+    assert got["templates_root_host"] is None, got
+
+
+@pytest.mark.e2e
+def test_export_get_under_a_redirect_whose_root_holds_the_templates_names_no_host_root(
+    godot_project, tmp_path
+):
+    # Both roots populated (PR #883 review round 3): the redirect is in play and
+    # the host has this version, but the CHECKED root has it too — so nothing is
+    # hidden, the reply says installed, and `templates_root_host` stays null. The
+    # engine-side check used to compare only the two roots and the host's
+    # contents, so a healthy redirected root read as hiding templates and the
+    # human line said "installed" and "hidden by" in one breath. The isolated
+    # root's layout is learned from the plain redirected reply rather than spelled
+    # here; the version directory only has to EXIST for the engine's own check.
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    gda = Gda(godot_project)
+    if not templates_installed(gda):
+        pytest.skip(
+            "this host has no export templates installed, so both roots cannot "
+            "hold this version"
+        )
+    isolated = tmp_path / "iso"
+    plain = gda.json(
+        "--user-data-root", str(isolated), "export", "get", "--preset", "Linux/X11"
+    )
+    assert plain["templates_installed"] is False, plain
+    assert plain["templates_root_host"] is not None, plain
+    (Path(plain["templates_root"]) / plain["templates_version"]).mkdir(parents=True)
+
+    got = gda.json(
+        "--user-data-root", str(isolated), "export", "get", "--preset", "Linux/X11"
+    )
+    human = gda(
+        "--user-data-root", str(isolated), "export", "get", "--preset", "Linux/X11"
+    )
+
+    assert got["templates_installed"] is True, got
+    assert str(isolated) in got["templates_root"], got
+    assert got["templates_root_host"] is None, got
+    assert human.returncode == 0, human.stdout + human.stderr
+    assert "templates installed" in human.stdout, human.stdout
+    assert "hidden by" not in human.stdout, human.stdout
+
+
+@pytest.mark.e2e
 def test_export_run_pack_writes_pck_without_templates(godot_project):
     # #170 PROOF: `--mode pack --output <path>.pck` runs Godot's native
     # --export-pack to the OVERRIDDEN path (not the preset's configured

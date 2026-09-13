@@ -153,6 +153,10 @@ def _evidence_lines(evidence: FailureEvidence) -> list[str]:
         body.append(f"  project root: {evidence.project_root}")
     if evidence.owning_project is not None:
         body.append(f"  owning project: {evidence.owning_project}")
+    if evidence.templates_root_checked is not None:
+        body.append(f"  templates root checked: {evidence.templates_root_checked}")
+    if evidence.templates_root_host is not None:
+        body.append(f"  host templates root: {evidence.templates_root_host}")
     return ["evidence:", *body] if body else []
 
 

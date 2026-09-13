@@ -67,6 +67,10 @@ def test_clean_run_emits_the_passthrough_result(monkeypatch, tmp_path):
         # A clean run recognizes no script errors, so the #651 diagnostics channel
         # is present but empty — never absent, so an agent can read it unguarded.
         "diagnostics": [],
+        # The launch's user-data placement (#850): always-present, and null here
+        # because this canned run carries no placement report at all. Its two
+        # root-only companions are OMITTED — this equality is what pins that.
+        "engine_data_path": None,
     }
     # The recipe launched `--path <project> --script <res path>` with cwd=None.
     (_binary, args, cwd, _timeout, _label, _watch) = calls[0]

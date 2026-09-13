@@ -6,6 +6,7 @@
 
 [Product overview](https://aigengame.xyz/) ·
 [CLI, Agent Skill, or MCP?](https://aigengame.xyz/godot-mcp/) ·
+[Playable demos](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
 > **Build and verify Godot projects with AI coding agents, shell scripts, and CI.**
@@ -31,8 +32,6 @@
 > `gda` is **pre-1.0**: every command works end to end today, but the command surface may
 > still change before 1.0.
 
----
-
 ## Contents
 
 - [Why `gda`?](#why-gda)
@@ -45,8 +44,6 @@
 - [Configuration](#configuration)
 - [Contributing](#contributing)
 - [License](#license)
-
----
 
 ## Why `gda`?
 
@@ -73,8 +70,6 @@ These capabilities were refined while
 [building a real game](https://aigengame.xyz/#showcase), with the work documented in a public
 [dogfooding record](https://github.com/aigengame/godot-agent/milestone/10).
 
----
-
 ## Capabilities at a glance
 
 | Goal | What `gda` provides | Start with |
@@ -84,8 +79,6 @@ These capabilities were refined while
 | Verify runtime behavior (Live) | Read runtime state, call declared methods, simulate input, capture frames, collect logs and errors, and sample performance | `gda daemon start`, then `game` / `input` / `screen` / `diag` / `logger` / `perf` |
 | Connect an AI coding agent | Use direct CLI execution, reusable Agent Skill guidance, or MCP tool discovery and calling | `gda` / `gda skill` / `gda-mcp` |
 | Run reliably in automation | Receive structured results, typed schemas and failures, bounded execution, isolated logs, and actionable diagnostics | `--json` / `--schema` / `--user-data-root` / timeouts |
-
----
 
 ## Installation
 
@@ -117,8 +110,6 @@ uv sync                  # create the environment + install dependencies
 uv run gda --help
 ```
 </details>
-
----
 
 ## Quick start
 
@@ -168,8 +159,6 @@ gda daemon stop
 
 (`gda screen capture` works live too, but needs a windowed session — start the daemon
 with `gda daemon start --windowed`.)
-
----
 
 ## Choose your integration
 
@@ -313,8 +302,6 @@ command — register via the JSON above or the Settings → MCP UI.
 > [registration recipes](docs/gda-mcp-registration.md).
 </details>
 
----
-
 ## How it works
 
 `gda` is one Godot automation toolchain with three components and two complementary
@@ -350,8 +337,6 @@ self-disables in the exported game — so a shipped game never *runs* anything d
 ¹ Headless is cross-platform by design (one-shot processes, no platform-specific
   dependency) — Windows keeps the full headless surface, though CI does not exercise it yet.
 ² Live operations use Unix domain sockets, so Windows is not supported yet.
-
----
 
 ## Command reference
 
@@ -437,12 +422,15 @@ names the file, and only `preflight` catches a first-frame failure.
 | `project set` | Set a project setting, coercing the value to its declared type. |
 | `project add-autoload` | Register an autoload singleton (name → script/scene). |
 | `project remove-autoload` | Unregister an autoload singleton by name. |
-| `project add-input-action` | Register an InputMap action bound to keys (`--key` name or keycode, `--deadzone`, `--physical`). |
+| `project add-input-action` | Register an InputMap action bound to keys and/or a controller (`--key`, `--joy-button`, `--joy-axis` as `<axis>[:<sign>]`, `--device`, `--deadzone`, `--physical`); at least one binding is required. |
 | `project remove-input-action` | Unregister an InputMap action by name. |
 | `project find-references` | Find every project file that references a given resource. |
 | `project dependencies` | Map each scene/resource to the resources it depends on. |
 | `project find-unused-resources` | Find resource files that nothing references. |
 | `project statistics` | Report the project's file/line counts, autoloads, and more. |
+
+Every `project` write saves through the engine, which reserializes the whole file:
+gda restores the explicit lines it drops and reports the rest on the result.
 
 **`resource`** — resource files (`.tres`) and the project's imported assets
 
@@ -495,6 +483,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | Command | What it does |
 | ------- | ------------ |
 | `game tree` | Read the running game's runtime scene tree (after `_ready`). |
+| `game find` | Find runtime nodes by engine class, script, group, name, or unique name, instead of by path. `--type` is the ENGINE class (subclass-inclusive) and never a project `class_name` — `--script res://path.gd` is what reaches that. |
 | `game get` | Read a runtime node's live properties by node path; explicit names can address attached-script variables. |
 | `game rect` | Read a runtime Control's rendered viewport rect by node path. |
 | `game set` | Set a runtime node property, or an explicitly named attached-script variable, on the running game; `verified` reports whether the read-back matched. |
@@ -529,8 +518,8 @@ names the file, and only `preflight` catches a first-frame failure.
 | `input key` | Inject a key event (with modifiers). |
 | `input mouse-click` | Inject a complete click gesture (move, press, release) at `(x, y)`. |
 | `input mouse-move` | Inject mouse motion to `(x, y)`. |
-| `input action` | Press/release a mapped input action. |
-| `input tap` | Tap one key or action: press, hold, release across frames. |
+| `input action` | Press/release a mapped input action — polled state only, unless `--as-event` delivers it to `_input`/`_gui_input`. |
+| `input tap` | Tap one key or action: press, hold, release across frames (`--key` delivers an event, `--action` sets polled state unless `--as-event`). |
 | `input sequence` | Inject a multi-frame event timeline. |
 
 Read injected mouse coordinates from `event.position` — in a daemon session
@@ -553,8 +542,6 @@ Read injected mouse coordinates from `event.position` — in a daemon session
 | `--project` | Godot project directory for `res://` resolution (overrides `$GDA_PROJECT`; defaults to the current directory if it is a project). Domain commands only. Resolving a project runs that project's code — see [Project code execution](#configuration). |
 | `--version` | Print the installed `gda` version. With `--json`, also where it came from — install kind (`wheel`, `editable`, or `unknown`) and, for an editable install, the source checkout's Git revision. |
 | `--help`    | Show usage for `gda` or any command.                                |
-
----
 
 ## Configuration
 
@@ -588,8 +575,6 @@ project is trusted ([ADR-0009](docs/adr/0009-trust-boundary-trusted-project.md))
   undeclared is ever called.
 
 </details>
-
----
 
 <details>
 <summary><strong>Under the hood</strong> — the structured-output contract & exit codes</summary>
@@ -689,8 +674,6 @@ CONTEXT.md          # the project's shared domain language
 one-shot headless process (`runner.py`) and talking to a running game via the daemon
 (`live_runner.py`). The e2e suite drives a real engine across both.
 </details>
-
----
 
 ## Contributing
 

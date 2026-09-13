@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=77bb050928bb00a8ba3ce8936b82593b68eeae2731f81332c327a0010235067d -->
+<!-- gda-readme-i18n: source=README.md sha256=8c2f2dce0229e2a816eb45186888fd06c25af9cabfaf1b84f18cd1a254163f00 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -8,6 +8,7 @@
 
 [製品概要](https://aigengame.xyz/) ·
 [CLI、Agent Skill、MCP のどれを選ぶ？](https://aigengame.xyz/godot-mcp/) ·
+[プレイ可能なデモ](https://github.com/aigengame/gallery) ·
 [PyPI](https://pypi.org/project/gda/)
 
 > **AI コーディングエージェント、シェルスクリプト、CI から Godot プロジェクトを構築・検証できます。**
@@ -33,8 +34,6 @@
 > `gda` は **pre-1.0** です。現時点ですべてのコマンドがエンドツーエンドで動作しますが、
 > コマンド体系は 1.0 までにまだ変わる可能性があります。
 
----
-
 ## 目次
 
 - [なぜ `gda`？](#why-gda)
@@ -47,8 +46,6 @@
 - [設定](#configuration)
 - [コントリビューション](#contributing)
 - [ライセンス](#license)
-
----
 
 <a id="why-gda"></a>
 ## なぜ `gda`？
@@ -74,8 +71,6 @@
 これらの機能は[実際のゲーム制作](https://aigengame.xyz/#showcase)を通じて磨かれ、その過程は
 公開されている[dogfooding の記録](https://github.com/aigengame/godot-agent/milestone/10)にまとめられています。
 
----
-
 <a id="capabilities-at-a-glance"></a>
 ## ひと目でわかる機能
 
@@ -86,8 +81,6 @@
 | ランタイム挙動を検証する（Live） | ランタイム状態の読み取り、宣言済みメソッドの呼び出し、入力シミュレーション、フレーム取得、ログとエラーの収集、パフォーマンス計測 | `gda daemon start`、その後 `game` / `input` / `screen` / `diag` / `logger` / `perf` |
 | AI コーディングエージェントを接続する | CLI の直接実行、Agent Skill の再利用可能なガイダンス、または MCP ツールの検出と呼び出し | `gda` / `gda skill` / `gda-mcp` |
 | 自動化環境で安定して実行する | 構造化結果、型付きのスキーマと失敗、範囲を制御した実行、分離されたログ、復旧に使える診断情報 | `--json` / `--schema` / `--user-data-root` / タイムアウト |
-
----
 
 <a id="installation"></a>
 ## インストール
@@ -120,8 +113,6 @@ uv sync                  # create the environment + install dependencies
 uv run gda --help
 ```
 </details>
-
----
 
 <a id="quick-start"></a>
 ## クイックスタート
@@ -174,8 +165,6 @@ gda daemon stop
 
 (`gda screen capture` も Live で動作しますが、ウィンドウ付きのセッションが必要です — `gda daemon
 start --windowed` でデーモンを起動してください。)
-
----
 
 <a id="choose-your-integration"></a>
 ## 統合方法を選ぶ
@@ -322,8 +311,6 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 > ごとのプロジェクト固定 — は [登録レシピ](gda-mcp-registration.md) にあります。
 </details>
 
----
-
 <a id="how-it-works"></a>
 ## 仕組み
 
@@ -360,8 +347,6 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 ¹ Headless は設計上クロスプラットフォームです(ワンショットのプロセスで、プラットフォーム固有の
   依存がありません)— Windows でも Headless の全機能が使えますが、CI ではまだ検証されていません。
 ² Live 操作は Unix ドメインソケットを使うため、Windows はまだサポートされていません。
-
----
 
 <a id="command-reference"></a>
 ## コマンドリファレンス
@@ -448,12 +433,15 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `project set` | プロジェクト設定を設定します。値は宣言された型に変換されます。 |
 | `project add-autoload` | オートロードのシングルトンを登録します(名前 → スクリプト/シーン)。 |
 | `project remove-autoload` | オートロードのシングルトンを名前で指定して登録解除します。 |
-| `project add-input-action` | キーに割り当てた InputMap アクションを登録します(`--key` はキー名またはキーコード、`--deadzone`、`--physical`)。 |
+| `project add-input-action` | キーやコントローラーに割り当てた InputMap アクションを登録します(`--key`、`--joy-button`、`--joy-axis` は `<軸>[:<符号>]` 形式、`--device`、`--deadzone`、`--physical`)。バインドは 1 つ以上必要です。 |
 | `project remove-input-action` | InputMap アクションを名前で指定して登録解除します。 |
 | `project find-references` | 指定したリソースを参照するすべてのプロジェクトファイルを見つけます。 |
 | `project dependencies` | 各シーン/リソースを、それが依存するリソースに対応付けます。 |
 | `project find-unused-resources` | どこからも参照されていないリソースファイルを見つけます。 |
 | `project statistics` | プロジェクトのファイル数/行数、オートロードなどを報告します。 |
+
+`project` の書き込みはエンジン経由で保存され、エンジンはファイル全体を再シリアライズ
+します。gda は削除された明示的な行を復元し、残りの変更を結果で報告します。
 
 **`resource`** — リソースファイル(`.tres`)とプロジェクトのインポート済みアセット
 
@@ -506,6 +494,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | コマンド | 機能 |
 | ------- | ------------ |
 | `game tree` | 実行中ゲームのランタイムシーンツリーを読み取ります(`_ready` の後)。 |
+| `game find` | ランタイムノードをパスではなく、エンジンクラス・スクリプト・グループ・名前・ユニーク名で検索します。`--type` はエンジンクラス(サブクラスを含む)であり、プロジェクトの `class_name` には決して一致しません。それに届くのは `--script res://path.gd` です。 |
 | `game get` | ランタイムノードのライブプロパティをノードパスで読み取ります。明示名ならアタッチ済みスクリプト変数も対象にできます。 |
 | `game rect` | ランタイム Control のレンダリング済みビューポート矩形をノードパスで読み取ります。 |
 | `game set` | 実行中ゲームのランタイムノードプロパティ、または明示名のアタッチ済みスクリプト変数を設定します。`verified` は読み戻し値が一致したかを報告します。 |
@@ -540,8 +529,8 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `input key` | キーイベントを(修飾キー付きで)注入します。 |
 | `input mouse-click` | `(x, y)` の位置に完全なクリックジェスチャ(移動、押下、解放)を注入します。 |
 | `input mouse-move` | `(x, y)` へのマウス移動を注入します。 |
-| `input action` | マッピング済みの入力アクションを押下/解放します。 |
-| `input tap` | キーまたはアクションを 1 回タップします(押下、保持、解放を複数フレームで実行)。 |
+| `input action` | マッピング済みの入力アクションを押下/解放します(ポーリング状態のみが変化。`--as-event` を付けると `_input`/`_gui_input` に届きます)。 |
+| `input tap` | キーまたはアクションを 1 回タップします(押下、保持、解放を複数フレームで実行。`--key` はイベントを届け、`--action` はポーリング状態を変えます。`--as-event` を付けた場合を除く)。 |
 | `input sequence` | 複数フレームにわたるイベントのタイムラインを注入します。 |
 
 注入されたマウス座標は `event.position` から読み取ってください——デーモンセッションでは
@@ -564,8 +553,6 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `--project` | `res://` 解決のための Godot プロジェクトディレクトリ(`$GDA_PROJECT` を上書き。プロジェクトであればカレントディレクトリがデフォルト)。ドメインコマンドのみ。プロジェクトの解決はそのプロジェクトのコードを実行します — [プロジェクトコードの実行](#configuration) を参照してください。 |
 | `--version` | インストール済みの `gda` のバージョンを表示します。`--json` を付けると、その出どころも出力します — インストール種別(`wheel`・`editable`・`unknown`)と、editable インストールの場合はソースチェックアウトの Git リビジョンです。 |
 | `--help`    | `gda` または任意のコマンドの使い方を表示します。 |
-
----
 
 <a id="configuration"></a>
 ## 設定
@@ -600,8 +587,6 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
   メソッドが呼ばれることはありません。
 
 </details>
-
----
 
 <details>
 <summary><strong>内部の仕組み</strong> — 構造化出力の契約と終了コード</summary>
@@ -700,8 +685,6 @@ CONTEXT.md          # the project's shared domain language
 ワンショットの Headless プロセスを起動すること(`runner.py`)と、デーモン経由で実行中ゲームと対話する
 こと(`live_runner.py`)です。e2e スイートは、その両方にわたって実際のエンジンを駆動します。
 </details>
-
----
 
 <a id="contributing"></a>
 ## コントリビューション
