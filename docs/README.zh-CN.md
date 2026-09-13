@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=f828321713ebe36e45915a5f3c0d2afce7c748b3fba5908e7faa6702a61d0a7c -->
+<!-- gda-readme-i18n: source=README.md sha256=9ba5359ec552e5f3b0d0d08c69dec5e00c41c606488667c77583ae2fe83d619d -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -383,7 +383,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `node add` | 在某个父节点下添加一个节点，可用 `--index` 指定位置：内置类型、带 `class_name` 的脚本，或用 `--instance` 将另一个场景实例化为子节点。 |
 | `node get` | 按节点路径读取一个节点的属性，输出带类型的 JSON。 |
 | `node list` | 列出一个场景的节点树，并给出每个节点相对于根的路径。 |
-| `node set` | 设置一个节点属性，并把值强制转换为它声明的 Godot 类型。对 `Control`，`position` 会写入四个 offset；`Container` 的子节点由布局管理，请直接设置它们的 offset。 |
+| `node set` | 设置一个节点属性，并把值强制转换为它声明的 Godot 类型。对 `Control`，`position` 会写入四个 offset；`Container` 的子节点由布局管理、不带 offset——请改为设置 `custom_minimum_size`、size flags 或父节点的布局。 |
 | `node remove` | 按节点路径移除一个节点（及其子树）。 |
 | `node duplicate` | 在父节点下复制一个节点（及其子树）。 |
 | `node move` | 把一个节点（及其子树）重新挂到新的父节点下，或用 `--index` 调整同级顺序。 |

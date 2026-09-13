@@ -442,8 +442,11 @@ cover scripts, and Resource-typed fields take a `res://` path, not a coerced lit
 For `Control` layout, `node set --property position --value "x,y"` is supported on
 free-positioned Controls: gda writes the underlying `offset_left`, `offset_top`,
 `offset_right`, and `offset_bottom` while preserving the current size. Direct
-children of a `Container` are layout-managed; use those offset properties
-explicitly instead. Live `game set --property position` mirrors this policy, while
+children of a `Container` are layout-managed and carry NO offset or anchor
+properties (the engine strips them from a container child's storage set): set
+`custom_minimum_size`, `size_flags_horizontal` / `size_flags_vertical`, or the
+parent `Container`'s own layout instead, which is what the refusal names. Live
+`game set --property position` mirrors this policy, while
 `game rect` is not a setter — and it is the read for layout output: on a
 `Control`, `game get --property position` / `size` / `global_position` / `global_rect`
 all refuse with `live_unknown_property` and name it. It is not a pure read either:

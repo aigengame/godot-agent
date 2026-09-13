@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=f828321713ebe36e45915a5f3c0d2afce7c748b3fba5908e7faa6702a61d0a7c -->
+<!-- gda-readme-i18n: source=README.md sha256=9ba5359ec552e5f3b0d0d08c69dec5e00c41c606488667c77583ae2fe83d619d -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -407,7 +407,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `node add` | Añade un nodo bajo un padre, opcionalmente en `--index`: un tipo integrado, un script con `class_name`, o `--instance` para componer otra escena como hijo instanciado. |
 | `node get` | Lee las propiedades de un nodo (por ruta de nodo) como JSON tipado. |
 | `node list` | Lista el árbol de nodos de una escena con la ruta de cada nodo relativa a la raíz. |
-| `node set` | Define una propiedad de nodo, forzando el valor a su tipo de Godot declarado. En un `Control`, `position` escribe los cuatro offsets; el layout coloca los hijos de un `Container`, así que define sus offsets directamente. |
+| `node set` | Define una propiedad de nodo, forzando el valor a su tipo de Godot declarado. En un `Control`, `position` escribe los cuatro offsets; el layout coloca los hijos de un `Container` y estos no tienen offsets: define `custom_minimum_size`, las size flags o el layout del padre. |
 | `node remove` | Elimina un nodo (y su subárbol) por ruta de nodo. |
 | `node duplicate` | Duplica un nodo (y su subárbol) bajo su padre. |
 | `node move` | Reasigna un nodo (y su subárbol) a un nuevo padre, o lo reordena con `--index`. |

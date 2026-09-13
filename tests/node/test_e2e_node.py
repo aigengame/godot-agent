@@ -1063,9 +1063,14 @@ def test_node_set_control_position_updates_offsets_preserving_size(godot_project
 
 
 @pytest.mark.e2e
-def test_node_set_container_managed_control_position_names_offset_alternatives(
+def test_node_set_container_managed_control_position_names_the_inputs_it_carries(
     godot_project,
 ):
+    # The refusal must be FOLLOWABLE (third review of PR #967): the engine strips
+    # offset_* / anchor_* from a container child's storage set, so the message
+    # names custom_minimum_size and the size flags — the same shared statement
+    # the live setter and the `game get` redirect use — never the offsets, which
+    # answered `unknown_property` when followed (measured on 4.6.3).
     scene_path = godot_project / "main.tscn"
     scene_path.write_text(
         "[gd_scene format=3]\n\n"
@@ -1091,9 +1096,32 @@ def test_node_set_container_managed_control_position_names_offset_alternatives(
         "--json",
         code="unknown_property",
     )
-    for name in ("offset_left", "offset_top", "offset_right", "offset_bottom"):
-        assert name in err["message"]
+    for name in ("custom_minimum_size", "size_flags_horizontal", "size_flags_vertical"):
+        assert name in err["message"], err
+    for name in (
+        "offset_left",
+        "offset_top",
+        "offset_right",
+        "offset_bottom",
+        "anchor_left",
+    ):
+        assert name not in err["message"], err
     assert scene_path.read_text(encoding="utf-8") == before
+
+    # Following the advice WORKS on that node.
+    followed = gda.json(
+        "node",
+        "set",
+        str(scene_path),
+        "--node",
+        "HUD/Stats",
+        "--property",
+        "custom_minimum_size",
+        "--value",
+        "200,60",
+        "--json",
+    )
+    assert followed["value"] == [200.0, 60.0]
 
 
 @pytest.mark.e2e

@@ -375,9 +375,13 @@ offsets rather than a normal serialized storage field, but it is a common author
 free-positioned `Control`, `gda node set --property position --value x,y` coerces `x,y` as a
 `Vector2`, writes `offset_left` / `offset_top` / `offset_right` / `offset_bottom`, preserves the
 current size, and echoes the resulting `position`. If the `Control` is a direct child of a
-`Container`, the command refuses with `unknown_property` and names the four offset properties as the
-actionable alternative; container-managed layout is not overridden. Live `gda game set` mirrors the
-same policy with `live_unknown_property` for the container-managed case. `gda game rect` is the read
+`Container`, the command refuses with `unknown_property` and names what such a child DOES carry —
+`custom_minimum_size`, `size_flags_horizontal` / `size_flags_vertical`, and the parent `Container`'s
+own layout — because the engine drops `offset_*` / `anchor_*` from a container child's storage set
+(`Control::_validate_property`), so naming the offsets sent the caller into a second refusal (PR
+#967, third review); container-managed layout is not overridden. Live `gda game set` mirrors the
+same policy with `live_unknown_property` for the container-managed case, and both refusals share
+one statement of a Control's layout inputs with the `game get` redirect. `gda game rect` is the read
 for a `Control`'s layout output (#852) and is not a setter, but it is not a pure read either:
 `Control::get_minimum_size()` is the `_get_minimum_size` virtual with no cache, so where a class
 leaves that getter to `Control` the addressed node's script override of it runs once per request,

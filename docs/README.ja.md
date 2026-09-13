@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=f828321713ebe36e45915a5f3c0d2afce7c748b3fba5908e7faa6702a61d0a7c -->
+<!-- gda-readme-i18n: source=README.md sha256=9ba5359ec552e5f3b0d0d08c69dec5e00c41c606488667c77583ae2fe83d619d -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -403,7 +403,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `node add` | 親の下にノードを追加します。必要なら `--index` で位置を指定できます: 組み込みタイプ、`class_name` スクリプト、または `--instance` で別のシーンをインスタンス化した子として合成します。 |
 | `node get` | ノードのプロパティを(ノードパスで指定して)型付き JSON として読み取ります。 |
 | `node list` | シーンのノードツリーを、各ノードのルートからの相対パスとともに一覧します。 |
-| `node set` | ノードのプロパティを設定します。値は宣言された Godot の型に変換されます。`Control` では `position` が 4 つの offset を書き込みます。`Container` の子はレイアウト管理下にあるため、offset を直接設定してください。 |
+| `node set` | ノードのプロパティを設定します。値は宣言された Godot の型に変換されます。`Control` では `position` が 4 つの offset を書き込みます。`Container` の子はレイアウト管理下にあり offset を持ちません。`custom_minimum_size`、size flags、または親のレイアウトを設定してください。 |
 | `node remove` | ノード(およびそのサブツリー)をノードパスで指定して削除します。 |
 | `node duplicate` | ノード(およびそのサブツリー)を親の下に複製します。 |
 | `node move` | ノード(およびそのサブツリー)を新しい親の下に付け替えるか、`--index` で兄弟順を並べ替えます。 |

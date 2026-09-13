@@ -392,7 +392,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | `node add` | Add a node under a parent, optionally at `--index`: a built-in type, a `class_name` script, or `--instance` to compose another scene as an instanced child. |
 | `node get` | Read a node's properties (by node path) as typed JSON. |
 | `node list` | List a scene's node tree with each node's path relative to the root. |
-| `node set` | Set a node property, coercing the value to its declared Godot type. On a `Control`, `position` writes the four offsets; a `Container`'s children are layout-managed, so set their offsets directly. |
+| `node set` | Set a node property, coercing the value to its declared Godot type. On a `Control`, `position` writes the four offsets; a `Container`'s children are layout-managed and carry no offsets — set `custom_minimum_size`, the size flags, or the parent's layout. |
 | `node remove` | Remove a node (and its subtree) by node path. |
 | `node duplicate` | Duplicate a node (and its subtree) under its parent. |
 | `node move` | Reparent a node (and its subtree) under a new parent, or reorder it with `--index`. |

@@ -677,22 +677,12 @@ func _explicit_script_variable_property(
 # container-managed child gets the inputs it does carry.
 func _control_layout_read_message(
 		control: Control, path: String, prop_name: String) -> String:
-	var inputs := " The layout inputs are the" \
-			+ " storage properties offset_left, offset_top, offset_right," \
-			+ " offset_bottom and anchor_left, anchor_top, anchor_right," \
-			+ " anchor_bottom"
-	if _has_container_parent(control):
-		inputs = " This Control is a direct child of a Container, which owns its" \
-				+ " position and size: the offset_* and anchor_* properties are" \
-				+ " not in its storage set. The layout inputs it does carry are" \
-				+ " the storage properties custom_minimum_size," \
-				+ " size_flags_horizontal and size_flags_vertical; the rest is" \
-				+ " the parent Container's own layout"
 	return _unknown_runtime_property_message(path, prop_name) \
 			+ ". On a Control, position, size, global_position and global_rect are" \
 			+ " layout output, not storage properties: read them with `gda game rect " \
 			+ path + "`, which reports position, size, local_position, local_size," \
-			+ " minimum_size and combined_minimum_size." + inputs
+			+ " minimum_size and combined_minimum_size." \
+			+ _control_layout_inputs(control)
 
 
 # game rect: resolve a node by its ABSOLUTE runtime path, require it to be a
@@ -937,7 +927,7 @@ func _handle_game_set(params: Dictionary) -> String:
 		var control: Control = node as Control
 		if _has_container_parent(control):
 			return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
-					_control_position_unavailable_message("node " + path))
+					_control_position_unavailable_message("node " + path, control))
 		var raw_position := _string_param(params, "value")
 		var coerced_position: Variant = _coerce_value(raw_position,
 				TYPE_VECTOR2, control.position)
@@ -1012,8 +1002,31 @@ func _has_container_parent(control: Control) -> bool:
 	return control.get_parent() is Container
 
 
-func _control_position_unavailable_message(subject: String) -> String:
-	return subject + " is a direct child of a Container, so Control.position is not an actionable settable property; address offset_left, offset_top, offset_right, and offset_bottom instead"
+func _control_layout_inputs(control: Control) -> String:
+	# The ONE statement of which layout inputs a Control carries, shared by the
+	# `game get` redirect and the `position` setter refusal (and mirrored in
+	# operations.gd for the headless `node set`), so the two cannot disagree —
+	# they did: the setter kept naming offset_* on a container child after the
+	# getter had learned better (PR #967, third review). The engine strips
+	# PROPERTY_USAGE_STORAGE from offset_* / anchor_* when the parent is a
+	# Container (Control::_validate_property), so on such a child the inputs are
+	# custom_minimum_size, the size flags, and the parent's own layout.
+	if _has_container_parent(control):
+		return " This Control is a direct child of a Container, which owns its" \
+				+ " position and size: the offset_* and anchor_* properties are" \
+				+ " not in its storage set. The layout inputs it does carry are" \
+				+ " the storage properties custom_minimum_size," \
+				+ " size_flags_horizontal and size_flags_vertical; the rest is" \
+				+ " the parent Container's own layout"
+	return " The layout inputs are the" \
+			+ " storage properties offset_left, offset_top, offset_right," \
+			+ " offset_bottom and anchor_left, anchor_top, anchor_right," \
+			+ " anchor_bottom"
+
+
+func _control_position_unavailable_message(subject: String, control: Control) -> String:
+	return subject + " is a direct child of a Container, so Control.position is not an actionable settable property." \
+			+ _control_layout_inputs(control)
 
 
 func _unknown_runtime_property_message(path: String, prop_name: String) -> String:

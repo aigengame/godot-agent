@@ -989,6 +989,15 @@ def test_game_get_names_game_rect_for_the_control_reads_it_cannot_serve():
     # The read that DOES serve them, with every field it reports named, so the
     # caller re-issues one command instead of discovering the fields.
     assert "gda game rect" in message
+    # The layout INPUTS are stated ONCE, in `_control_layout_inputs`, and both the
+    # redirect and the `position` setter refusal take them from there (third
+    # review of PR #967: the setter had kept naming offset_* on a container child
+    # after the redirect learned better — two owners of one rule).
+    assert "_control_layout_inputs(control)" in message, message
+    setter = _harness_function(source, "_control_position_unavailable_message")
+    assert "_control_layout_inputs(control)" in setter, setter
+    assert "offset_left" not in setter, setter
+    inputs = _harness_function(source, "_control_layout_inputs")
     for field in (
         "position",
         "size",
@@ -1005,10 +1014,11 @@ def test_game_get_names_game_rect_for_the_control_reads_it_cannot_serve():
     # there would send the caller into a second live_unknown_property. Both
     # branches are observed against a real engine's storage set in
     # tests/daemon/test_e2e_daemon.py.
-    assert "_has_container_parent(control)" in message, (
-        "the redirect must branch on the container-parent predicate, or it names "
-        f"inputs a container-managed Control does not carry: {message}"
+    assert "_has_container_parent(control)" in inputs, (
+        "the shared inputs statement must branch on the container-parent "
+        f"predicate, or it names inputs a container-managed Control does not carry: {inputs}"
     )
+    message = inputs
     for storage in (
         "offset_left",
         "offset_top",
@@ -1033,11 +1043,16 @@ def test_game_get_names_game_rect_for_the_control_reads_it_cannot_serve():
     # container-managed child to write the offset_* / anchor_* properties it does
     # not carry — the same dead end, one step further in. The e2e test asserts the
     # absence in a real engine's message; here the assignment itself is read.
-    override = re.search(r"^\t+inputs (\+?)= ", message, re.MULTILINE)
-    assert override is not None and override.group(1) == "", (
-        "the container branch must ASSIGN its layout inputs, not append them to "
-        f"the free-Control list: {message}"
+    head, _, tail = message.partition("if _has_container_parent(control):")
+    container_branch, _, free_branch = tail.partition("\treturn ")
+    assert container_branch and free_branch, message
+    assert (
+        "offset_left" not in container_branch and "anchor_left" not in container_branch
+    ), (
+        "the container branch must RETURN its own inputs, not the free-Control "
+        f"list plus something: {container_branch}"
     )
+    assert "offset_left" in free_branch, free_branch
 
     # Control-only: any other node keeps the generic message, so the redirect
     # cannot send a Node2D caller to a command that refuses it.

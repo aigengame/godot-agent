@@ -312,11 +312,15 @@ def test_daemon_game_set_control_position_updates_offsets_preserving_size(
 
 
 @pytest.mark.e2e
-def test_daemon_game_set_container_managed_control_position_names_offset_alternatives(
+def test_daemon_game_set_container_managed_control_position_names_the_inputs_it_carries(
     tmp_path, daemon_runtime_dir
 ):
     # A Container owns direct-child layout; `game set position` reports an
     # actionable live error instead of claiming a write the next layout pass owns.
+    # ACTIONABLE means the caller can follow it (third review of PR #967): the
+    # engine strips offset_* / anchor_* from a container child's storage set, so
+    # the refusal names custom_minimum_size and the size flags — never the
+    # offsets, which sent the caller into a second live_unknown_property.
     (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(RECT_MAIN_TSCN, encoding="utf-8")
     run = Gda(tmp_path, json_output=True)
@@ -338,8 +342,32 @@ def test_daemon_game_set_container_managed_control_position_names_offset_alterna
         error = json.loads(was_set.stdout)["error"]
         assert error["category"] == "live"
         assert error["code"] == "live_unknown_property"
-        for name in ("offset_left", "offset_top", "offset_right", "offset_bottom"):
-            assert name in error["message"]
+        for name in (
+            "custom_minimum_size",
+            "size_flags_horizontal",
+            "size_flags_vertical",
+        ):
+            assert name in error["message"], error
+        for name in (
+            "offset_left",
+            "offset_top",
+            "offset_right",
+            "offset_bottom",
+            "anchor_left",
+        ):
+            assert name not in error["message"], error
+        # Following the advice WORKS on that node.
+        followed = run(
+            "game",
+            "set",
+            "/root/Main/HUD/Stats",
+            "--property",
+            "custom_minimum_size",
+            "--value",
+            "200,60",
+        )
+        assert followed.returncode == 0, followed.stdout + followed.stderr
+        assert json.loads(followed.stdout)["value"] == [200.0, 60.0]
     finally:
         run("daemon", "stop")
 
