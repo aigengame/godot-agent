@@ -699,9 +699,12 @@ def uninstall_harness(project: Path) -> HarnessUninstall:
     **Byte-identity (#654).** After ``install_harness`` → ``uninstall_harness``,
     ``project.godot`` holds its pre-install bytes: the entry, the ``[autoload]``
     section gda appended and that section's blank separator all come back off, and
-    the file's own line terminator is preserved. Scoped to exclude the three
-    malformed-input shapes the module docstring enumerates (mixed terminators, no
-    final terminator, CR-only), none of which Godot's own writer can produce.
+    the file's own line terminator is preserved. Scoped to exclude the FIVE
+    malformed-input shapes the module docstring enumerates — mixed terminators, no
+    final terminator, CR-only, an already-empty ``[autoload]`` section, and a
+    byte-order mark before a first-line ``[autoload]`` header — none of which
+    Godot's own writer can produce. That list is the authority; this sentence
+    only points at it (third review of PR #938: it had enumerated three).
 
     Two states are outside the guarantee by design:
 
