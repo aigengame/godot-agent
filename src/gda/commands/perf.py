@@ -621,8 +621,8 @@ class PerfMonitorsResult(BaseModel):
     ``samples_omitted`` and drops the rows, leaving every other window field
     describing the same full window; ``collector_bytes`` reports the logical
     size of what the harness's sampler retained for it — a lower bound on the
-    observer's own footprint, so a ``static_memory`` rise is attributable by
-    order of magnitude rather than read as a game leak. Each mode's field set is
+    observer's own footprint, which cannot attribute a ``static_memory`` rise by
+    itself (a matched baseline window does that). Each mode's field set is
     VALIDATED, not merely described — a payload mixing the modes, or one
     dropping the rows without saying so, fails output validation rather than
     passing through — and the same split is PUBLISHED as schema, so a client
@@ -695,9 +695,11 @@ class PerfMonitorsResult(BaseModel):
             "It is a LOWER bound on the in-game cost — a packed column "
             "over-allocates as it grows, and the shared window base's own "
             "per-frame accumulator is outside it. Null in snapshot mode, which "
-            "retains nothing. Read the window's own 'static_memory' rise "
-            "against it by order of magnitude: a few times this number is "
-            "still the observer, an order of magnitude past it is the game."
+            "retains nothing. It cannot attribute a 'static_memory' rise by "
+            "itself: the parts outside it are not proportional to it, and the "
+            "game allocates concurrently. To attribute, take a matched baseline "
+            "— the same --frames and --monitor set on a scene that allocates "
+            "nothing, on the same host — and compare the two rises."
         ),
     )
     budget: dict[str, PerfBudgetVerdict] | None = Field(
@@ -1246,10 +1248,13 @@ def perf_monitors(
     kept — 8 bytes per stored value, over one column per sampled monitor plus
     one of timestamps. That is a LOWER bound on the in-game cost, not the whole
     of it: a packed column over-allocates as it grows, and the shared window
-    base accumulates one entry per frame that this number does not count. So
-    read a window's own `static_memory` rise against it by ORDER OF MAGNITUDE,
-    not as an equality — a rise of a few times `collector_bytes` is still the
-    observer, a rise an order of magnitude past it is the game. `--summary`
+    base accumulates one entry per frame that this number does not count. It
+    cannot attribute a window's `static_memory` rise on its own: those parts are
+    not proportional to it (fixed costs dominate a small window or a narrow
+    monitor set) and the game keeps allocating, so no threshold on the ratio
+    tells the observer from the game. Attribute with a MATCHED BASELINE instead
+    — the same `--frames` and `--monitor` set on a scene that allocates nothing,
+    on the same host — and compare the two rises. `--summary`
     does not change that number; it keeps the full window and only leaves the
     per-frame rows out of the RESULT (`samples: null`, `samples_omitted:
     true`), which is what keeps a 600-frame window's output small.

@@ -1747,10 +1747,15 @@ re-derives every verdict from a running engine.
   whole rise. Two parts sit outside it: a packed column over-allocates as it
   grows (a 600-element column measured 5,736 bytes against a logical 4,800), and
   the shared multi-frame base accumulates one entry per frame (17,128 bytes at
-  600 frames), which belongs to that base. So read a window's own
-  `static_memory` rise against the number by ORDER OF MAGNITUDE: a rise of a few
-  times `collector_bytes` is still the observer, a rise an order of magnitude
-  past it is the game. Measured: a 600-frame window over all 16 monitors
+  600 frames), which belongs to that base. The number therefore cannot attribute
+  a window's `static_memory` rise on its own: those parts are not proportional
+  to it — fixed costs dominate a small window or a narrow monitor set — and the
+  game allocates concurrently, so no threshold on the ratio separates the
+  observer from the game (a game-side rise of five times the number would read
+  as observer under such a rule, and platform overhead past ten times as a
+  game leak). Attribute with a MATCHED BASELINE instead: the same `--frames` and
+  `--monitor` set on a scene that allocates nothing, on the same host, and
+  compare the two rises. For scale only, measured: a 600-frame window over all 16 monitors
   reported `collector_bytes` 81,600 against a `static_memory` rise of 113,872
   bytes — about 1.4x — on macOS with Godot 4.6.3. That ratio is a MEASUREMENT of
   one host and one engine build, not a constant gda promises; only the direction

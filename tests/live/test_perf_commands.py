@@ -1330,11 +1330,14 @@ def test_perf_monitors_help_states_the_observer_cost_and_summary():
     assert "samples_omitted" in flat
     assert "collector_bytes" in flat
     assert "static_memory" in flat
-    # And it must say what that number is NOT: a lower bound, read by order of
-    # magnitude, so the help does not point a caller at a false game leak
-    # (round 1 measured the observer's own rise at about 1.4x the figure).
+    # And it must say what that number is NOT: a lower bound that cannot
+    # attribute a rise by itself — the third review of PR #973 struck the
+    # "a few times / an order of magnitude" thresholds as a causal rule one
+    # measurement cannot support — so the help names the matched-baseline
+    # method instead of a ratio.
     assert "LOWER bound" in flat
-    assert "ORDER OF MAGNITUDE" in flat
+    assert "MATCHED BASELINE" in flat
+    assert "order of magnitude" not in flat.lower()
 
 
 def test_perf_monitors_schema_and_models_reach_the_same_verdict():
