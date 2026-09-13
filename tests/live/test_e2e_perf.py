@@ -289,13 +289,13 @@ def test_perf_monitors_window_collects_bounded_stats_and_verdicts(
 
 
 # The ceiling `perf monitors --frames 600 --summary --json` must stay under
-# (#846). Measured on a real session over ALL 16 monitors (Godot 4.6.3, macOS,
-# 2026-09-12): the compact result is the statistics block plus the mode fields,
-# so its size follows the MONITOR count and not the frame count — 1,667 bytes at
-# 600 frames, against 259,569 for the same window with its rows. The bound is
-# ~4.9x the measured size, headroom for a widened monitor table but far below
-# anything that grows with `--frames`: a result that started carrying per-frame
-# data again fails here.
+# (#846). Measured on a real session over ALL 16 monitors (macOS, Godot 4.6.3):
+# the compact result is the statistics block plus the mode fields, so its size
+# follows the MONITOR count and not the frame count — about 1.7 KB at 600
+# frames, against about 260 KB for the same window with its rows (the exact
+# digits vary between sessions). The bound is several times the measured size,
+# headroom for a widened monitor table but far below anything that grows with
+# `--frames`: a result that started carrying per-frame data again fails here.
 SUMMARY_RESULT_BYTE_BOUND = 8192
 
 
@@ -350,8 +350,12 @@ def test_a_600_frame_summary_window_stays_compact_and_reports_its_own_cost(
         assert [row["frame"] for row in rows["samples"]] == list(range(600))
         assert set(rows["samples"][0]["values"]) == set(PERF_MONITOR_NAMES)
         # The timestamp column is the engine's clock, not a constant: only a
-        # real session can show that, because every unit fake is CLI-side.
-        assert rows["samples"][-1]["timestamp"] > rows["samples"][0]["timestamp"]
+        # real session can show that, because every unit fake is CLI-side. The
+        # span bounds the published UNIT too — 'timestamp (ms)': the daemon
+        # gives a window 30 s, so a 600-frame span in milliseconds cannot reach
+        # 30,000, while the same clock read in microseconds does at once.
+        span_ms = rows["samples"][-1]["timestamp"] - rows["samples"][0]["timestamp"]
+        assert 0 < span_ms < 30_000, span_ms
         assert rows["collector_bytes"] == data["collector_bytes"]
         assert len(full.stdout.encode("utf-8")) > SUMMARY_RESULT_BYTE_BOUND
 

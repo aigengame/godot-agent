@@ -289,11 +289,11 @@ def test_render_perf_monitors_window_states_the_observer_cost_and_rows():
     )
 
     assert render_perf_monitors(kept).splitlines()[0] == (
-        "perf window: 2 frames, 1 monitors (ceiling 600, collector ~32 bytes, "
+        "perf window: 2 frames, 1 monitors (ceiling 600, collector >=32 bytes, "
         "samples kept)"
     )
     assert render_perf_monitors(omitted).splitlines()[0] == (
-        "perf window: 2 frames, 1 monitors (ceiling 600, collector ~32 bytes, "
+        "perf window: 2 frames, 1 monitors (ceiling 600, collector >=32 bytes, "
         "samples omitted)"
     )
     # The statistics line is the same either way — --summary drops rows, not data.

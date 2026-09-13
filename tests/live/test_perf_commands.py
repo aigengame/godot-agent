@@ -1473,3 +1473,10 @@ def test_perf_monitors_schema_and_models_reach_the_same_verdict():
     # assertion, the same reason recheck 3's range keywords have one.
     assert not schema_ok(doc["output"], {**window, "collector_bytes": -1})
     assert not model_ok(PerfMonitorsResult, {**window, "collector_bytes": -1})
+    # #846, round 2: the PUBLISHED description of that field is the surface an
+    # agent or gda-mcp reads, and it states the rule the number obeys. Reverting
+    # it to "the approximate bytes" passed the whole fast tier, so pin the rule.
+    assert (
+        "LOWER bound on the in-game cost"
+        in doc["output"]["properties"]["collector_bytes"]["description"]
+    )

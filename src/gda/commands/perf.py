@@ -1099,7 +1099,7 @@ def render_perf_monitors(outcome: "PerfMonitorsResult") -> str:
     rows = "samples omitted" if outcome.samples_omitted else "samples kept"
     header = (
         f"perf window: {outcome.frames} frames, {len(outcome.stats)} monitors "
-        f"(ceiling {outcome.max_frames}, collector ~{outcome.collector_bytes} "
+        f"(ceiling {outcome.max_frames}, collector >={outcome.collector_bytes} "
         f"bytes, {rows})"
     )
     lines = [

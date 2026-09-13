@@ -807,7 +807,7 @@ def test_ready_gates_on_template_feature_as_its_first_statement():
 #   3. update the current pins below (the failure carries the new hash).
 PINNED_HARNESS_VERSION = "24"
 PINNED_HARNESS_SHA256 = (
-    "c368e2c82f8ecd818897427e09634d907bca0ff051e49b05cb42c8c6166f87c6"
+    "3ba2ba9fd142d5b43fe62ceff2790aaf9b4efd0d652648518d47bb3e9c4eab04"
 )
 
 

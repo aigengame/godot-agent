@@ -1050,11 +1050,12 @@ func _handle_perf_sample(params: Dictionary) -> Variant:
 		# and the shared window base accumulates one Array entry per frame (a nil
 		# here, since this sampler returns none). `samples` is in hand, so counting
 		# that accumulator would be one line right here; it is left out because it
-		# would not close the gap — measured at 600 frames over 16 monitors,
-		# 81,600 + 17,128 against a 113,872-byte static_memory rise, the remainder
-		# being over-allocation on the columns already counted — and closing the
-		# rest would need an engine-internal sizeof(Variant) estimate. A true total
-		# belongs in a separately measured field, not in this one.
+		# would not close the gap — measured at 600 frames over 16 monitors, on
+		# macOS with Godot 4.6.3: 81,600 + 17,128 against a 113,872-byte
+		# static_memory rise, the remainder being over-allocation on the columns
+		# already counted — and closing the rest would need an engine-internal
+		# sizeof(Variant) estimate. A true total belongs in a separately measured
+		# field, not in this one.
 		var stored := timestamps.size()
 		for name in names:
 			var column: PackedFloat64Array = columns[String(name)]
