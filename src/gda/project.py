@@ -557,10 +557,19 @@ def _stored_entry(directory: Path, name: str) -> str | None:
 
     The exact spelling is preferred over a caseless match, so a case-SENSITIVE
     filesystem holding both ``Content`` and ``content`` answers with the one the
-    caller named. Caseless matching is :meth:`str.casefold`, Python's own primitive
-    for it; a filesystem's folding rule is its own and can differ in the far corners
-    of Unicode (``ß``/``ss``), which is why the result is reported as a spelling to
-    re-issue rather than acted on.
+    caller named. "Caseless" is SIMPLE case folding — :meth:`str.lower` on both
+    sides — never :meth:`str.casefold`: full folding makes ``straße`` and
+    ``strasse`` equal although both are lowercase and name two different files,
+    and a "correction" to a different file replaces a truthful ``path_not_found``
+    with a wrong spelling (third review of PR #966). Simple folding is what a
+    case-insensitive filesystem does, one character to one; a host's table can
+    still differ in Unicode's far corners, which is why the result is reported as
+    a spelling to re-issue rather than acted on.
+
+    A name that folds equal to MORE than one entry — a case-sensitive host holding
+    both ``FOO.gd`` and ``foo.gd`` when ``Foo.gd`` is asked for — is NO match:
+    picking one would make ``stored_path`` depend on the directory's enumeration
+    order, and the honest answer is the operation's ``path_not_found``.
 
     It LISTS rather than asking whether the path exists, and that is the whole
     reason the verdict is the same on every platform: ``Path.exists()`` answers
@@ -573,11 +582,9 @@ def _stored_entry(directory: Path, name: str) -> str | None:
         return None
     if name in entries:
         return name
-    folded = name.casefold()
-    for entry in entries:
-        if entry.casefold() == folded:
-            return entry
-    return None
+    folded = name.lower()
+    matches = [entry for entry in entries if entry.lower() == folded]
+    return matches[0] if len(matches) == 1 else None
 
 
 def case_mismatch(target: str, project: Path) -> CaseMismatchViolation | None:

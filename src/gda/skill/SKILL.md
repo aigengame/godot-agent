@@ -143,8 +143,8 @@ whole re-issue: `--project <owner>` AND the target respelled relative to that
 owner — a relative path anchors at the project, so your original spelling would
 not be found under the new one. The same three commands refuse a path whose CASE
 does not match the stored file, with `path_case_mismatch`: such a path opens on a
-case-insensitive filesystem (macOS, Windows) and fails on a case-sensitive one
-(Linux, most export hosts), so re-issue with the `evidence.stored_path` the refusal
+case-insensitive filesystem (the common default on macOS and Windows) and fails on a
+case-sensitive one (the common default on Linux and most export hosts), so re-issue with the `evidence.stored_path` the refusal
 names. `--all` needs no such check: every project-wide listing
 (`script list`, `scene list`, `script validate --all`, `project` analysis) walks the
 `res://` tree with the engine's own skip rule, declining the engine cache, a directory

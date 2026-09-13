@@ -27,6 +27,7 @@ neither branch silently passes as a no-op.
 """
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -192,6 +193,60 @@ def test_a_case_sensitive_host_answers_with_the_spelling_the_caller_named(projec
 
     assert case_mismatch(f"res://{STORED_SCRIPT}", project) is None
     assert case_mismatch(f"res://{REQUESTED_SCRIPT}", project) is None
+
+
+def test_full_case_folding_never_corrects_to_a_different_file(project):
+    # Third review of PR #966: `str.casefold` is FULL folding, under which `straße`
+    # and `strasse` are equal although both are lowercase and name two different
+    # files — so a request for one was "corrected" to the other, replacing a
+    # truthful `path_not_found` with a wrong spelling. The relation is SIMPLE
+    # folding (`str.lower`), one character to one, which is what a
+    # case-insensitive filesystem itself does.
+    other = project / "content" / "straße.gd"
+    other.write_text("extends Node\n", encoding="utf-8")
+
+    assert case_mismatch("res://content/strasse.gd", project) is None
+    assert case_mismatch("res://content/STRASSE.gd", project) is None
+    # A true case-only pair of the same name is still corrected.
+    assert case_mismatch("res://content/STRAßE.gd", project) is not None
+
+
+def test_an_ambiguous_caseless_match_is_no_correction(project):
+    if _case_insensitive(project):
+        pytest.skip("this host's filesystem cannot hold both spellings at once")
+
+    # Two entries fold to the requested name on a case-sensitive host. Picking one
+    # would make `stored_path` depend on `os.listdir` order — nondeterministic typed
+    # evidence (third review of PR #966). The authority reports NO match and the
+    # operation's `path_not_found` stands.
+    (project / "content" / "FOO.gd").write_text("extends Node\n", encoding="utf-8")
+    (project / "content" / "foo.gd").write_text("extends Node\n", encoding="utf-8")
+
+    assert case_mismatch("res://content/Foo.gd", project) is None
+    # Each exact spelling still resolves to itself, with no correction.
+    assert case_mismatch("res://content/FOO.gd", project) is None
+    assert case_mismatch("res://content/foo.gd", project) is None
+
+
+def test_the_authority_lists_each_directory_component_once(project, monkeypatch):
+    # The cost bound the issue's note records (third review of PR #966): one
+    # `os.listdir` per path component, on every call — a case-insensitive host
+    # cannot answer "not found" for a mis-cased path without listing, so there is
+    # no cheaper "found" fast path to promise. Two components, two listings.
+    calls: list[str] = []
+    real_listdir = os.listdir
+
+    def counting_listdir(path):
+        calls.append(str(path))
+        return real_listdir(path)
+
+    monkeypatch.setattr("gda.project.os.listdir", counting_listdir)
+
+    assert case_mismatch(f"res://{STORED_SCRIPT}", project) is None
+    assert len(calls) == 2
+    calls.clear()
+    assert case_mismatch(f"res://{REQUESTED_SCRIPT}", project) is not None
+    assert len(calls) == 2
 
 
 # --- the three commands the gate protects, and the rest of the surface ---------
