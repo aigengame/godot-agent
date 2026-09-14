@@ -667,7 +667,12 @@ def test_the_verdict_is_bounded_to_the_log_up_to_the_handshake(tmp_path, monkeyp
         _project_with_marker(tmp_path), session_log=tmp_path / "session.log"
     )
     before = _PARSE_ERROR_LOG
-    after = "ERROR: boom on frame two\n   at: _process (res://main.gd:9)\n"
+    # A record the recognizer DOES classify (a runtime error), so an unbounded
+    # read would add a third kind and the assertion below tells the two apart.
+    after = (
+        "SCRIPT ERROR: Invalid call. Nonexistent function 'boom' in base 'Nil'.\n"
+        "          at: _process (res://main.gd:9)\n"
+    )
 
     def _launch(*args, **kwargs):
         paths.session_log.write_text(before, encoding="utf-8")
@@ -688,9 +693,7 @@ def test_the_verdict_is_bounded_to_the_log_up_to_the_handshake(tmp_path, monkeyp
         "parse_error",
         "compile_failed",
     ]
-    assert all(
-        "frame two" not in error["message"] for error in ready["startup_diagnostics"]
-    )
+    assert all("boom" not in error["message"] for error in ready["startup_diagnostics"])
 
 
 def test_a_log_gda_could_not_read_is_no_verdict_not_a_clean_start(

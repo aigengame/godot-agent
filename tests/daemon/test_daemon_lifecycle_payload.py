@@ -932,10 +932,24 @@ def test_status_startup_verdict_is_null_before_a_launch_or_on_drift(
 ):
     # No session this daemon lifetime -> both keys null: an empty list would read
     # as "the start was clean", which is a claim no launch backed. A drifted reply
-    # degrades to null too, rather than crashing the read.
+    # degrades to null too, rather than crashing the read — and the pair is ONE
+    # fact, so a list that contradicts its boolean is drift as well (third review
+    # of PR #940): half a verdict is no verdict.
     project = _project(tmp_path)
     monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
-    for diagnostics, clean in ((None, None), ("nonsense", 7), ([{"kind": "?"}], True)):
+    recognized = {
+        "kind": "parse_error",
+        "message": "Parse Error: bad",
+        "path": "res://main.gd",
+        "line": 5,
+    }
+    for diagnostics, clean in (
+        (None, None),
+        ("nonsense", 7),
+        ([{"kind": "?"}], True),
+        ([], False),
+        ([recognized], True),
+    ):
         monkeypatch.setattr(
             daemon_ops,
             "_control",
