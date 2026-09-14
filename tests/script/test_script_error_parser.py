@@ -844,10 +844,11 @@ def test_a_multi_digit_resource_count_is_recognized():
 
 
 def test_a_shutdown_leak_never_fails_an_entry_verdict():
-    # It is a SHUTDOWN record: the engine prints it after the run, so it proves
-    # the script ran. It must never become "the script never ran" — and it cannot,
-    # by construction: the kind is outside the precedence and the record names no
-    # path to match an entry against.
+    # It is a SHUTDOWN record: the engine prints it while the PROCESS exits, about
+    # everything the process held, so it names no resource and says nothing about
+    # whether the entry script ran. It can never establish an entry-load verdict —
+    # and it cannot, by construction: the kind is outside the precedence and the
+    # record names no path to match an entry against.
     errors = parse_script_errors(SHUTDOWN_LEAK_STDERR)
 
     assert entry_load_failure(errors, "res://leaky.gd") is None
