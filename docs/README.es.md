@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e6d52d18b9707a5cc5eeb31a0cedb84d20a9c71c796bc6c9301deb90c384a6be -->
+<!-- gda-readme-i18n: source=README.md sha256=3bfcc94147cc0d0fa0c63b14646550a7083e63c225d09905c9125289be23b2c8 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -407,7 +407,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `node add` | Añade un nodo bajo un padre, opcionalmente en `--index`: un tipo integrado, un script con `class_name`, o `--instance` para componer otra escena como hijo instanciado. |
 | `node get` | Lee las propiedades de un nodo (por ruta de nodo) como JSON tipado. |
 | `node list` | Lista el árbol de nodos de una escena con la ruta de cada nodo relativa a la raíz. |
-| `node set` | Define una propiedad de nodo, forzando el valor a su tipo de Godot declarado. En un `Control`, `position` escribe los cuatro offsets; el layout coloca los hijos de un `Container`, así que define sus offsets directamente. |
+| `node set` | Define una propiedad de nodo, forzando el valor a su tipo de Godot declarado. En un `Control`, `position` escribe los cuatro offsets; el layout coloca los hijos de un `Container` y estos no tienen offsets: define `custom_minimum_size`, las size flags o el layout del padre. |
 | `node remove` | Elimina un nodo (y su subárbol) por ruta de nodo. |
 | `node duplicate` | Duplica un nodo (y su subárbol) bajo su padre. |
 | `node move` | Reasigna un nodo (y su subárbol) a un nuevo padre, o lo reordena con `--index`. |
@@ -501,12 +501,13 @@ en el resultado.
 | `game tree` | Lee el árbol de escena en runtime del juego en ejecución (después de `_ready`). |
 | `game find` | Encuentra nodos de runtime por clase de motor, script, grupo, nombre o nombre único, en lugar de por ruta. `--type` es la clase del MOTOR (incluye subclases) y nunca un `class_name` del proyecto: `--script res://path.gd` es lo que llega a eso. |
 | `game get` | Lee las propiedades en vivo de un nodo de runtime por ruta de nodo; los nombres explícitos pueden acceder a variables del script adjunto. |
-| `game rect` | Lee el rectángulo renderizado en viewport de un Control de runtime por ruta de nodo. |
+| `game rect` | Lee la salida de layout de un Control de runtime por ruta de nodo: el rectángulo renderizado en viewport, ese mismo rectángulo en el espacio del padre y los tamaños mínimos intrínseco y combinado. |
 | `game set` | Define una propiedad de un nodo de runtime, o una variable del script adjunto nombrada explícitamente, en el juego en ejecución; `verified` informa si la relectura coincidió. |
 | `game call` | Invoca un método que el script del nodo declara en `GDA_CALLABLE` y devuelve su valor como datos estructurados. El propio proyecto declara que el método es de solo lectura, algo que gda no puede comprobar; nunca se invocan métodos no declarados. |
 
 `game call` lee lo que `game get` no puede: estado que tu proyecto expone como método.
 `game set --property position` sigue la misma regla de `Control` que `node set`.
+`game get` rechaza `position`, `size`, `global_position` y `global_rect` de un Control; `game rect` es la lectura que los sirve.
 
 **`diag`** — diagnósticos de runtime
 

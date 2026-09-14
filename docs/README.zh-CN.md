@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=e6d52d18b9707a5cc5eeb31a0cedb84d20a9c71c796bc6c9301deb90c384a6be -->
+<!-- gda-readme-i18n: source=README.md sha256=3bfcc94147cc0d0fa0c63b14646550a7083e63c225d09905c9125289be23b2c8 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -383,7 +383,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `node add` | 在某个父节点下添加一个节点，可用 `--index` 指定位置：内置类型、带 `class_name` 的脚本，或用 `--instance` 将另一个场景实例化为子节点。 |
 | `node get` | 按节点路径读取一个节点的属性，输出带类型的 JSON。 |
 | `node list` | 列出一个场景的节点树，并给出每个节点相对于根的路径。 |
-| `node set` | 设置一个节点属性，并把值强制转换为它声明的 Godot 类型。对 `Control`，`position` 会写入四个 offset；`Container` 的子节点由布局管理，请直接设置它们的 offset。 |
+| `node set` | 设置一个节点属性，并把值强制转换为它声明的 Godot 类型。对 `Control`，`position` 会写入四个 offset；`Container` 的子节点由布局管理、不带 offset——请改为设置 `custom_minimum_size`、size flags 或父节点的布局。 |
 | `node remove` | 按节点路径移除一个节点（及其子树）。 |
 | `node duplicate` | 在父节点下复制一个节点（及其子树）。 |
 | `node move` | 把一个节点（及其子树）重新挂到新的父节点下，或用 `--index` 调整同级顺序。 |
@@ -476,12 +476,13 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `game tree` | 读取正在运行的游戏的运行时场景树（在 `_ready` 之后）。 |
 | `game find` | 按引擎类、脚本、组、名称或唯一名称查找运行时节点，而不是按路径。`--type` 匹配的是引擎类（含子类），永远不匹配项目的 `class_name` —— 要匹配后者请用 `--script res://path.gd`。 |
 | `game get` | 按节点路径读取一个运行时节点的实时属性；显式命名时可读取附加脚本变量。 |
-| `game rect` | 按节点路径读取一个运行时 Control 渲染后的视口矩形。 |
+| `game rect` | 按节点路径读取一个运行时 Control 的布局输出：渲染后的视口矩形、同一矩形在父节点空间中的表示，以及固有最小尺寸与合并后的最小尺寸。 |
 | `game set` | 在正在运行的游戏上设置运行时节点属性，或显式命名的附加脚本变量；`verified` 报告读回值是否匹配。 |
 | `game call` | 调用节点脚本在 `GDA_CALLABLE` 中声明的一个方法，并以结构化数据形式返回结果。项目自己承诺该方法是只读的，gda 无法验证；未声明的方法绝不会被调用。 |
 
 `game call` 读取 `game get` 读不到的东西：项目以方法形式暴露的状态。
 `game set --property position` 遵循与 `node set` 相同的 `Control` 规则。
+`game get` 会拒绝读取 Control 的 `position`、`size`、`global_position` 和 `global_rect`；读取它们请用 `game rect`。
 
 **`diag`** — 运行时诊断
 
