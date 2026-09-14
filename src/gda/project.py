@@ -561,10 +561,14 @@ def _stored_entry(directory: Path, name: str) -> str | None:
     sides — never :meth:`str.casefold`: full folding makes ``straße`` and
     ``strasse`` equal although both are lowercase and name two different files,
     and a "correction" to a different file replaces a truthful ``path_not_found``
-    with a wrong spelling (third review of PR #966). Simple folding is what a
-    case-insensitive filesystem does, one character to one; a host's table can
-    still differ in Unicode's far corners, which is why the result is reported as
-    a spelling to re-issue rather than acted on.
+    with a wrong spelling (third review of PR #966). The relation is EQUALITY
+    UNDER :meth:`str.lower` and no more: Python's lowercase mapping is one
+    character to one except where Unicode expands it (``İ``, U+0130, lowers to
+    ``i`` plus a combining dot above), and such an expansion folds the two
+    spellings equal like any other case difference — the ambiguity rule below
+    still applies (fourth review of PR #966). A case-insensitive host's own
+    table can differ from Python's in those corners, which is why the result is
+    reported as a spelling to re-issue rather than acted on.
 
     A name that folds equal to MORE than one entry — a case-sensitive host holding
     both ``FOO.gd`` and ``foo.gd`` when ``Foo.gd`` is asked for — is NO match:

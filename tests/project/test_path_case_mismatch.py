@@ -199,9 +199,8 @@ def test_full_case_folding_never_corrects_to_a_different_file(project):
     # Third review of PR #966: `str.casefold` is FULL folding, under which `straße`
     # and `strasse` are equal although both are lowercase and name two different
     # files — so a request for one was "corrected" to the other, replacing a
-    # truthful `path_not_found` with a wrong spelling. The relation is SIMPLE
-    # folding (`str.lower`), one character to one, which is what a
-    # case-insensitive filesystem itself does.
+    # truthful `path_not_found` with a wrong spelling. The relation is equality
+    # under `str.lower`, which never folds `ß` to `ss`.
     other = project / "content" / "straße.gd"
     other.write_text("extends Node\n", encoding="utf-8")
 
@@ -209,6 +208,22 @@ def test_full_case_folding_never_corrects_to_a_different_file(project):
     assert case_mismatch("res://content/STRASSE.gd", project) is None
     # A true case-only pair of the same name is still corrected.
     assert case_mismatch("res://content/STRAßE.gd", project) is not None
+
+
+def test_the_relation_is_equality_under_lower_expansions_included(project):
+    # Fourth review of PR #966: `str.lower` is not one character to one — `İ`
+    # (U+0130) lowers to `i` plus U+0307, two code points. The relation is stated
+    # as equality under `str.lower` and nothing narrower, so the expanded
+    # spelling folds equal to the stored one like any other case difference,
+    # while the plain `i` does not.
+    assert len("İ".lower()) == 2
+    stored = project / "content" / "İcon.gd"
+    stored.write_text("extends Node\n", encoding="utf-8")
+
+    corrected = case_mismatch("res://content/i\u0307con.gd", project)
+    assert corrected is not None
+    assert corrected.stored == "res://content/İcon.gd"
+    assert case_mismatch("res://content/icon.gd", project) is None
 
 
 def test_an_ambiguous_caseless_match_is_no_correction(project):
