@@ -226,6 +226,30 @@ script and injects nothing into it (ADR-0031 rejected a gda-owned sentinel wrapp
 `operations.gd` payload; a marker is an arbitrary caller line read for one boolean.
 _Avoid_: sentinel, done marker, quit marker
 
+**Export artifact**:
+What `gda export run` produces for a preset: a macOS `.app` bundle; a Linux or
+Windows executable with its PCK beside it or embedded; a bare PCK in `pack` mode.
+Identified by the SHA-256 of its executable(s) and PCK, which `export run` reports
+where the artifact is born and an `Artifact smoke` echoes for what it launched
+(ADR-0042). The one thing gda produces that is NOT the project under the editor
+binary: release template, the PCK the export filters admitted, the harness stripped
+(ADR-0028), imported resources remapped.
+_Avoid_: build, bundle (macOS only), binary, release
+
+**Artifact smoke**:
+The bounded run of an `Export artifact` that `gda export smoke` performs: the exported
+game itself, launched with caller-declared arguments under the `script run` contract
+(ADR-0031) — the run ending is success, its exit status is data, `--strict` fails on
+a non-zero exit or a recognized exit-time leak, a `Completion marker` may end it
+early — headless by default, its `user://` placed privately by default. gda's only
+evidence about the SHIPPED build, and a point on the `Project-code execution
+surface`: the widest one, since it runs every script the build carries for as long
+as the caller's timeout allows (ADR-0042). NOT a `Startup preflight`, which boots
+one scene under the editor binary, and not a `Live operation`, which needs an
+`Engine session`.
+_Avoid_: post-export test, launch check, release verify, smoke test (the project's
+own tests are its own)
+
 **Session log**:
 The per-`Engine session` capture of the running game's output and error stream,
 written by the engine to a daemon-owned path (via `--log-file`) and read by
@@ -371,8 +395,11 @@ property (`node set` / `resource set --value res://…`, ADR-0033), the **full
 execution of a named project script** via `gda script run` (ADR-0031), and — via
 `gda scene preflight` (#664) — the **startup of a whole scene**: every script it
 carries runs its `_init` and `_ready` and keeps running for a bounded number of
-frames, beside the autoloads — that preflight point is the widest on this
-list. `gda resource import` (#668) contributes two DISTINCT points: a fully
+frames, beside the autoloads — the widest point on this list until the
+`Artifact smoke` (ADR-0042, #841): `gda export smoke` runs the **exported game
+itself** — every script the build carries, for as long as the caller's timeout
+allows — the widest point of all, and the only one on the shipped build rather
+than on the project under the editor binary. `gda resource import` (#668) contributes two DISTINCT points: a fully
 cached request starts no engine at all (nothing on this surface runs), while
 a missing or stale cache runs the **engine import pass** — importer code (and
 any import plugins the project registers) over project content, WITHOUT the
@@ -399,8 +426,8 @@ reports, reads that cache first; where it is stale the read recomputes through
 the SAME virtual, so it adds no point of its own.
 All stay within the `Trusted project` assumption (ADR-0009); `script run`, the
 loaded-value assignment (ADR-0033), the startup preflight, the import pass, the
-declared method call, the minimum-size read, and the composed static validate
-widen this surface without adding a new trust axis.
+declared method call, the minimum-size read, the composed static validate, and
+the artifact smoke widen this surface without adding a new trust axis.
 _Avoid_: attack surface, code-execution risk
 
 **Concurrent external editor**:
