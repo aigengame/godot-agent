@@ -30,7 +30,7 @@ a bounded inventory of "files under the output path" misses them, and two artifa
 beyond an inventory cap read identical. No identity contract remains in this decision.
 
 **Measured (Godot 4.6.3 release template, macOS universal, unsigned probe exported through
-`gda export run`, 2026-09-14; reproducible from the probe described on #841):**
+`gda export run`, 2026-09-14; observations recorded on #841):**
 
 - The exported game accepts `--headless` and `--log-file` and exits with the script's own
   `quit(N)`. A windowed run works too.
@@ -50,23 +50,25 @@ supported host with its own probes.
 
 ## Decision
 
-**gda gains ONE new point on the [Project-code execution surface](../../CONTEXT.md): the
+**gda gains ONE separate caller-artifact execution point: the
 [Artifact smoke](../../CONTEXT.md), `gda export smoke <artifact>`, which runs a same-host
-desktop exported game.** It is the release-stage leg of the agent's write → run → observe →
-fix loop. ADR-0025 holds on both criteria: agent value (the defect above was observable
-nowhere else) and structured-operation fit (a bounded one-shot run, one `--json` result, a
-`--schema`, the existing `GdaError` envelopes).
+desktop exported game.** It is not part of the [Project-code execution
+surface](../../CONTEXT.md): gda has no fact tying the caller-selected artifact to the resolved
+project. It is the release-stage leg of the agent's write → run → observe → fix loop. ADR-0025
+holds on both criteria: agent value (the defect above was observable nowhere else) and
+structured-operation fit (a bounded one-shot run, one `--json` result, a `--schema`, the
+existing `GdaError` envelopes).
 
-### 1. Two trust subjects, stated once
+### 1. Trust subjects and authority
 
-- The resolved [Trusted project](../../CONTEXT.md) (ADR-0009) is the subject of every other
-  point on the surface.
+- The resolved [Trusted project](../../CONTEXT.md) (ADR-0009) is the subject of every point on
+  the Project-code execution surface.
 - The caller-selected Export artifact is a DISTINCT subject: gda executes it unsandboxed, with
   no verified provenance — gda has no fact to tie the artifact to the project and does not
   claim one. The relation is the one gda already has with `--project`: the caller chooses what
   gda runs.
-- This sentence is the only statement of that trust; CONTEXT.md's surface entry refers to it
-  and does not fold the smoke into "no new trust axis".
+- This section is the authority for that distinct trust subject; CONTEXT.md refers here rather
+  than folding the smoke into the project's "no new trust axis" rule.
 
 ### 2. What the smoke is
 
@@ -87,15 +89,21 @@ nowhere else) and structured-operation fit (a bounded one-shot run, one `--json`
 - Result on a run that ended: `exit_status` (data, never a verdict by itself), the bounded
   `stdout` projection (#665), `stderr` verbatim, `diagnostics` from the shared recognizer over
   the captured stderr (the release template prints the same records), the user-data placement
-  (#850), and the LAUNCH TARGET the smoke used: the executable's path and SHA-256, and the path
-  and SHA-256 of a separate `.pck` found beside it when there is one. The launch target is an
-  observation of what ran — it lets a reader tell which of several candidates a verdict
-  belongs to (GDA-DF-072 had three) — and is not an identity, a manifest or a provenance of
-  the artifact.
-- Headless by default, `--windowed` opt-in (the `daemon start` precedent). `user://` goes to a
-  fresh private root per run by default; `--user-data-root` names a durable one. gda passes
+  (#850), the caller's artifact path, and the resolved executable path plus a SHA-256 computed
+  immediately before launch. The digest is a bounded, non-atomic pre-launch observation: it
+  lets a reader distinguish the several candidates in GDA-DF-072, but it does not prove what
+  bytes the OS executed and is not content identity, a manifest or provenance. The smoke does
+  not report a discovered PCK: finding one does not establish which pack Godot loaded.
+- Headless by default, `--windowed` opt-in (the `daemon start` precedent). gda passes
   `--log-file` so the game writes no rotated default log, and captures stderr because that is
-  where the leak records are.
+  where the leak records are. `--user-data-root` has the existing command-line-over-environment
+  precedence and names a durable root. When neither source names one, the smoke creates a fresh
+  private root, redirects `user://` and the log there, and removes the root after the result or
+  failure envelope has been built. A successful result always reports the `engine_data_path`
+  used; the ephemeral default's historical path is reported there, while `user_data_root` and
+  `log_file` are omitted because they no longer exist. A caller-selected durable root reports
+  all three placement fields. Failure envelopes do not publish placement unless ADR-0004 later
+  admits those facts into `Failure evidence`.
 
 ### 3. Shared mechanics, command-owned policy
 
@@ -109,14 +117,18 @@ nowhere else) and structured-operation fit (a bounded one-shot run, one `--json`
   `script_aborted`, whose registry meaning stays the `script run` meaning.
 - Owned by the smoke — its own policy with its own public codes, registered under ADR-0002:
   - `smoke_failed` (`operation`): under `--strict`, the run ended with a non-zero exit status
-    OR a recognized exit-time leak — the evidence-backed rule from GDA-DF-072 and #844; the
-    envelope carries the diagnostics as `Failure evidence`.
+    OR a recognized exit-time leak — the evidence-backed rule from GDA-DF-072 and #844. Its
+    `Failure evidence` reuses the existing shape: the child's `exit_status` and the parsed
+    `script_errors`; `diagnostics` remains the separate human-readable prose.
   - `smoke_aborted` (`operation`): with a `--completion-marker` declared, the run was ended
     early because a recognized record that is not an exit-time process record appeared, the
     marker had not, and the run then went silent for the declared window. An exported game has
     no single entry script — the whole artifact is the entry — so this, not entry attribution,
-    is the arming rule.
+    is the arming rule. Its evidence reuses `elapsed_seconds`,
+    `termination_phase: aborted_on_error`, and the parsed `script_errors`.
   - Without `--strict`, a leak and a non-zero exit are data on the success result.
+- The implementation slice updates ADR-0004's recorded producer set and its registry assertion
+  for these two builders in the same change; it adds no `FailureEvidence` field.
 - Rationale: the deep module is the launch; the two commands are two adapters with their own
   public semantics, so neither's codes are broadened as a shortcut for the other.
 
@@ -128,10 +140,12 @@ is not decided here.
 
 ### Left to the implementation slice and its review
 
-The result's field-level shape; the exact messages of the four codes; the executable's location
-rule per host; the per-host probes the slice records. Any PCK inspection (header validity, the
-engine version it carries, entry count) is NOT in this decision: it needs its own agent-value
-case and scope before it is filed.
+The exact result key names for the artifact and executable observations; the exact messages of
+the four codes; the executable's location rule per host; the per-host probes the slice records.
+The placement and typed failure facts above are decided, including the required ADR-0004
+producer-set update. Any PCK inspection (loader selection, header validity, the engine version
+it carries, entry count) is NOT in this decision: it needs its own agent-value case and scope
+before it is filed.
 
 ## Considered options
 
@@ -143,7 +157,9 @@ case and scope before it is filed.
 - **An executable-plus-PCK identity on `export run`, then a bounded cross-platform inventory
   (both rejected, second review).** Each served a content-identity NFR with no evidence-backed
   need and hid platform differences (`output_path` is not an artifact-membership authority: the
-  Web exporter writes siblings). Removed; the smoke reports only the launch target it used.
+  Web exporter writes siblings). Removed; the smoke reports only the caller's artifact path,
+  the resolved executable and its explicitly bounded pre-launch digest. It does not report a
+  PCK because discovery cannot establish loader choice.
 - **A separate read-only `export verify` (rejected).** The same NFR under another name.
 - **Additive smoke on `export run` (`--smoke`), rejected for now.** One result would carry a
   construction and a run, and a smoke must be re-runnable without exporting again.
@@ -164,18 +180,16 @@ case and scope before it is filed.
   criteria and links here, with its earlier requirement and decision text under a superseded
   block.
 - CONTEXT.md gains `Export artifact` (named by the `output_path` `export run` reports, not by
-  content) and `Artifact smoke`, and its `Project-code execution surface` entry names the smoke
-  as its widest point — the game's startup path and whatever code the run reaches within the
-  caller's bound, never every script the PCK carries — with the distinct trust subject stated
-  by reference to §1.
+  content) and `Artifact smoke`. The smoke is a separate caller-artifact execution point, not a
+  point on the Project-code execution surface; its distinct trust subject is stated in §1.
 - ONE implementation slice will be filed from this ADR (`/to-issues`, milestone #12, W5): the
   smoke, blocked by nothing but this ADR; serial with #839 on the export command module. No
   identity slice.
 - Four codes enter the ADR-0002 registry: `export_artifact_not_found`,
   `export_artifact_not_runnable`, `smoke_failed`, `smoke_aborted`. The `script_*` codes are
-  unchanged.
-- The launch is a sibling of the [Headless launch](../../CONTEXT.md) primitive with a different
-  argv head; the slice reuses the primitive's streaming, timeout, placement and `Raw run`
-  normalization rather than copying them.
+  unchanged. The two smoke failure builders enter ADR-0004's existing evidence producer set.
+- Artifact smoke is a sibling channel that uses the [Headless launch](../../CONTEXT.md)
+  primitive with a different argv head; the slice reuses the primitive's streaming, timeout,
+  placement and `Raw run` normalization rather than copying them.
 - Not promised: content identity, provenance, a manifest, a sandbox, a network policy, signing
   interpretation, or non-desktop targets. A project's release portfolio stays the project's.

@@ -126,17 +126,19 @@ derived from the accepted request after its event count is confirmed (ADR-0023).
 _Avoid_: input mode, injection method, path
 
 **Headless launch**:
-The one-shot `godot --headless` spawn primitive that the Phase-1 channels share —
+The one-shot engine-process spawn primitive that the Phase-1 channels share —
 the sentinel op-dispatch runner, the native-export runner, the `gda resource
 import` engine pass, the `gda script run` user-script runner (ADR-0031), and the
 `gda scene preflight` runner, which dispatches an ordinary sentinel op but calls
 the primitive itself because it bifurcates on the launch's own outcome, a timeout
-being its verdict rather than a failure to classify (#664). Given the binary, an
-argv tail, an optional working directory, and a timeout, it builds `[binary,
---headless, --log-file <gda-owned path>, *args]`, captures bytes with the timeout,
+being its verdict rather than a failure to classify (#664). ADR-0042's `Artifact
+smoke` is another channel: it supplies the exported-game binary and may opt out of
+`--headless`, while keeping the same mechanics. Given the binary, an argv tail, an
+optional working directory, a timeout and that mode, the primitive builds `[binary,
+--headless unless windowed, --log-file <gda-owned path>, *args]`, captures bytes with the timeout,
 and normalizes the outcome into a `Raw run` (the single home of the spawn /
 timeout / launch-failure / UTF-8-decode handling). Each channel contributes only
-its argv tail and the export-only cwd. It also owns the launch's `User-data
+its binary, argv tail and optional cwd. It also owns the launch's `User-data
 placement` — resolved and preflighted here, once, so no channel plumbs it (#653).
 Every launch **streams**: both pipes are read as they arrive, so whatever the run
 produced before gda ended it survives, and the launch is timed. #655 introduced
@@ -145,7 +147,8 @@ timeout and reported the wait instead, keeping the other channels on it while th
 mechanism was proven; #714 moved the last three across and deleted it, so there is
 ONE strategy and no channel can be left on the discard. What a channel may still
 choose is a `LaunchWatch` — POLICY, not strategy: a rule for ending a run EARLY
-that only that channel can state (`gda script run`'s `Completion marker`).
+that only that channel can state (`gda script run` and Artifact smoke each apply
+their own `Completion marker` rule).
 _Avoid_: spawn helper, subprocess wrapper
 
 **User-data placement**:
@@ -153,21 +156,27 @@ Where one `Headless launch` puts the engine's log and, when redirected, `user://
 gda always owns the **log** target and passes it as `--log-file`, because Godot
 builds its file logger before any project code runs and dies with signal 11 if it
 cannot open the log — and because the engine default is one per-project rotated
-file that concurrent invocations contend over. By default the target is a private
+file that concurrent invocations contend over. Normally the target is a private
 temporary file, so a read-only application-data directory is not fatal; the
-per-invocation `--user-data-root` (env `GDA_USER_DATA_ROOT`) instead places the log
-*and* `user://` under a caller-chosen directory, since Godot has no
-`--user-data-dir` flag and the platform data variable is the only lever. The
+per-invocation `--user-data-root`, which overrides `GDA_USER_DATA_ROOT`, instead
+places the log *and* `user://` under a caller-chosen directory, since Godot has no
+`--user-data-dir` flag and the platform data variable is the only lever. Artifact
+smoke adds ONE safety default: when neither source names a root, it creates a fresh
+private root and uses that same placement mechanism so a caller-selected exported
+game cannot write the real user directory. The
 placement is **created, not inspected**, before the spawn — that creation IS the
 preflight — and a placement gda cannot make usable is a typed refusal
 (`user_data_unwritable`) rather than an engine crash. It is also REPORTED, not only
 prepared: the placement rides the `Raw run` out of the launch that dropped it, and
-`gda script run` publishes it on a SUCCESSFUL result, so a failed `user://` write is
-attributable to the environment instead of read as a game regression (#850). Only
-there: a run that ends in an `Error envelope` — `--strict`'s `script_failed`, a
-`launch_timeout` — keeps its pre-#850 shape, since disclosing a fact on a failure
-means entering `Failure evidence`'s producer set, which is a separate ADR-0004
-decision. The engine's export-template lookup follows the same placement, so a
+`gda script run` and Artifact smoke publish it on a SUCCESSFUL result, so a failed
+`user://` write is attributable to the environment instead of read as a game
+regression (#850, ADR-0042). The smoke removes its private root after building the
+result: `engine_data_path` records the historical path used, while `user_data_root`
+and `log_file` are omitted because neither survives; an explicit durable root
+publishes all three. A run that ends in an `Error envelope` keeps placement out of
+that envelope, since disclosing a fact on a failure means admitting placement fields
+to `Failure evidence`, which ADR-0042 does not do. The engine's export-template
+lookup follows the same placement, so a
 redirected export can miss templates the host holds — `export run` says so and
 `export get` reports both roots (#840). Headless only: a live `Engine session`'s log
 is daemon-owned (ADR-0022).
@@ -194,8 +203,9 @@ when a root made it outlive the launch. It is the `User-data placement` minus it
 child environment, attached on every outcome of a prepared placement and absent on
 one that was refused (#850). Those launch-backed channels all return the one
 `RunResult` shape.
-Normally internal, it is **promoted to a public result by `gda script run`** — the
-one operation whose success result *is* a Raw run (minus `launch_failure`,
+Normally internal, it is **promoted to a public result by `gda script run` and,
+under ADR-0042, Artifact smoke**. The script operation's success result *is* a Raw
+run (minus `launch_failure`,
 `elapsed_seconds`, `timeout_bound`, and the streams' timeout semantics, all of
 which are lifted out into an `Error envelope`; since #665 the
 promoted `stdout` is additionally a BOUNDED projection — verbatim up to a cap,
@@ -203,8 +213,10 @@ above it the leading cap bytes with the complete stream spilled to a file the
 result names; since #850 the promoted `user_data` is three flattened keys —
 `engine_data_path` always, `user_data_root` and `log_file` omitted rather than null
 where they are not facts), so its `exit_status` can be non-zero on success
-(ADR-0031). It is the ONE channel that publishes the placement: the others take the
-same facts off the same run and disclose none of them.
+(ADR-0031). The smoke selects the same run and placement fields, then adds the
+caller artifact path and the resolved executable path with its bounded pre-launch
+digest. The other channels take the same facts off the same run and disclose none
+of them.
 _Avoid_: run output, export output
 
 **Completion marker**:
@@ -230,8 +242,9 @@ _Avoid_: sentinel, done marker, quit marker
 What `gda export run` produces for a preset, named by the `output_path` it reports:
 a macOS `.app` bundle; a Linux or Windows executable with its PCK beside it or
 embedded; a bare PCK in `pack` mode; a Web page with its siblings; an Android or
-iOS output. Named by path, never by content — gda keeps no identity, manifest or
-provenance of it (ADR-0042). The one thing gda produces that is NOT the project
+iOS output. Named by path, never by content — gda defines no artifact-level content
+identity, manifest or provenance contract (ADR-0042). The one thing gda produces
+that is NOT the project
 under the editor binary: release template, the PCK the export filters admitted, the
 harness stripped (ADR-0028), imported resources remapped. Only a desktop artifact on
 its own host can be smoked.
@@ -245,11 +258,13 @@ recognizer and `Completion marker`) under the smoke's own policy and verdict cod
 (ADR-0042) — the run ending is success, its exit status is data, `--strict` fails on
 a non-zero exit or a recognized exit-time leak, a `Completion marker` may end it
 early — headless by default, its `user://` placed privately by default, reporting the
-launch target it used (the executable, and a separate PCK beside it) as an
-observation of what ran, not as an identity. gda's only evidence about the exported
-game, and a point on the `Project-code execution surface`: the widest one, since it
-runs the game's startup path and whatever code that run reaches within the caller's
-bound — never every script the PCK carries. NOT a `Startup preflight`, which boots
+caller artifact path and the resolved executable path plus a SHA-256 computed
+immediately before launch. That digest distinguishes candidate executables but is
+non-atomic and is neither proof of executed bytes nor artifact identity; no
+discovered PCK is reported because discovery cannot establish loader choice. This
+is gda's only evidence about the exported game and a separate caller-artifact
+execution point, outside the `Project-code execution surface` because gda cannot
+tie the artifact to the resolved project. NOT a `Startup preflight`, which boots
 one scene under the editor binary, and not a `Live operation`, which needs an
 `Engine session`. Its trust subject is the caller-selected artifact, distinct from
 the resolved `Trusted project` (ADR-0042 §1).
@@ -401,13 +416,8 @@ property (`node set` / `resource set --value res://…`, ADR-0033), the **full
 execution of a named project script** via `gda script run` (ADR-0031), and — via
 `gda scene preflight` (#664) — the **startup of a whole scene**: every script it
 carries runs its `_init` and `_ready` and keeps running for a bounded number of
-frames, beside the autoloads — the widest point on this list until the
-`Artifact smoke` (ADR-0042, #841): `gda export smoke` runs the **exported game
-itself** — its startup path and whatever code that run reaches within the
-caller's bound, never every script the PCK carries — the widest point of all,
-and the only one whose subject is not the resolved project but a
-caller-selected `Export artifact`, executed unsandboxed with no verified
-provenance (ADR-0042 §1). `gda resource import` (#668) contributes two DISTINCT points: a fully
+frames, beside the autoloads — the widest point on this surface. `gda resource
+import` (#668) contributes two DISTINCT points: a fully
 cached request starts no engine at all (nothing on this surface runs), while
 a missing or stale cache runs the **engine import pass** — importer code (and
 any import plugins the project registers) over project content, WITHOUT the
@@ -435,8 +445,9 @@ the SAME virtual, so it adds no point of its own.
 All stay within the `Trusted project` assumption (ADR-0009); `script run`, the
 loaded-value assignment (ADR-0033), the startup preflight, the import pass, the
 declared method call, the minimum-size read, and the composed static validate
-widen this surface without adding a new trust axis. The artifact smoke is the one
-point with a second trust subject, stated once in ADR-0042 §1.
+widen this surface without adding a new trust axis. Artifact smoke is outside this
+surface: it is the separate caller-artifact execution point, with the second trust
+subject stated once in ADR-0042 §1.
 _Avoid_: attack surface, code-execution risk
 
 **Concurrent external editor**:
