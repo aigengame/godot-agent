@@ -168,12 +168,13 @@ def test_a_parse_error_alone_still_fails_the_entry():
 def test_every_never_ran_kind_is_an_entry_failure_candidate():
     # `entry_load_failure` acts on the enum's published promise, so the two must
     # not drift. Exactly four kinds are excluded, for reasons the enum states:
-    # `runtime_error`, `push_error` and `shutdown_leak` all prove the script DID
-    # run (the engine raised inside it; the project's own code called push_error
-    # from it; the engine printed the leak at exit, after the run), and
-    # `incompatible_script` carries no path by construction, so it can never name
-    # the entry script and has no place in an entry-verdict precedence —
-    # `shutdown_leak` carries none either, which excludes it twice over.
+    # `runtime_error` and `push_error` prove the script DID run (the engine raised
+    # inside it; the project's own code called push_error from it);
+    # `shutdown_leak` is a record about the PROCESS reaching shutdown and says
+    # nothing about whether the entry script ran; and `incompatible_script`
+    # carries no path by construction, so it can never name the entry script and
+    # has no place in an entry-verdict precedence — `shutdown_leak` carries none
+    # either, which excludes it twice over.
     #
     # Updated deliberately by #722 and again by #844, which is what this assertion
     # is FOR: adding a kind without deciding whether it can fail an entry fails

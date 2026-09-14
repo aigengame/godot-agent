@@ -37,8 +37,9 @@ so the criterion has to outlive the record that motivated it):
 1. gda keys recognition on a part of the record the ENGINE fixes — a C++ format
    string's literal prefix, or the ``at:`` frame a builtin always reports — never
    on text a project authored. Project prose is the payload, not the key;
-2. the record says something specific about a SCRIPT's fate that an agent would
-   branch on, beyond "the engine printed something";
+2. the record says something specific that an agent would branch on — about a
+   SCRIPT's fate, or about the fate of the PROCESS the run was, which is the one
+   exit-time record the set holds (#844) — beyond "the engine printed something";
 3. the new kind states, in the enum, whether it proves the script never ran —
    which is what puts it in (or keeps it out of) ``_ENTRY_FAILURE_PRECEDENCE``.
 
