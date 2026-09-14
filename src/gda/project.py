@@ -30,13 +30,13 @@ stderr parser that first needed one (:mod:`gda.script_errors`, now a consumer).
 
 Since #802 the authority owns the **decision** as well as the primitives:
 :func:`containment_violation` is the whole ordered composition — normalize the
-project, ask ownership, ask containment, report whichever half fired with its
-coordinates. The ENVELOPES stay with the taxonomy: `gda.errors.containment_refusal`
-maps the decision to the two refusals, so a command module states only WHICH
-target it is asking about while the dependency direction stays
-``errors -> foundation`` (ADR-0040 §5; #807 review — the composition briefly
-lived here whole and needed a deferred ``gda.errors`` import to hide the
-inverted edge).
+project, ask ownership, ask containment, ask the spelling (:func:`case_mismatch`,
+#845), report whichever arm fired with its coordinates. The ENVELOPES stay with
+the taxonomy: `gda.errors.containment_refusal` maps the decision to the three
+refusals, so a command module states only WHICH target it is asking about while
+the dependency direction stays ``errors -> foundation`` (ADR-0040 §5; #807 review
+— the composition briefly lived here whole and needed a deferred ``gda.errors``
+import to hide the inverted edge).
 """
 
 import os
@@ -45,7 +45,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from gda.project_file import read_config, unquote
+from gda.project_file import read_config
 
 GDA_PROJECT_ENV = "GDA_PROJECT"
 
@@ -539,14 +539,132 @@ class OutsideRootViolation:
     root: Path
 
 
+@dataclass(frozen=True)
+class CaseMismatchViolation:
+    """The spelling half of the decision: the project stores it under another case."""
+
+    requested: str
+    stored: str
+
+
+def _stored_entry(directory: Path, name: str) -> str | None:
+    """The entry of ``directory`` that ``name`` addresses, spelled as it is STORED.
+
+    ``None`` when the directory holds no entry for ``name`` under any case, and
+    when the directory cannot be listed at all — both mean "this component names
+    nothing", which is the operation's ``path_not_found`` to report, not a
+    spelling verdict.
+
+    The exact spelling is preferred over a caseless match, so a case-SENSITIVE
+    filesystem holding both ``Content`` and ``content`` answers with the one the
+    caller named. "Caseless" is SIMPLE case folding — :meth:`str.lower` on both
+    sides — never :meth:`str.casefold`: full folding makes ``straße`` and
+    ``strasse`` equal although both are lowercase and name two different files,
+    and a "correction" to a different file replaces a truthful ``path_not_found``
+    with a wrong spelling (third review of PR #966). The relation is EQUALITY
+    UNDER :meth:`str.lower` and no more: Python's lowercase mapping is one
+    character to one except where Unicode expands it (``İ``, U+0130, lowers to
+    ``i`` plus a combining dot above), and such an expansion folds the two
+    spellings equal like any other case difference — the ambiguity rule below
+    still applies (fourth review of PR #966). A case-insensitive host's own
+    table can differ from Python's in those corners, which is why the result is
+    reported as a spelling to re-issue rather than acted on.
+
+    A name that folds equal to MORE than one entry — a case-sensitive host holding
+    both ``FOO.gd`` and ``foo.gd`` when ``Foo.gd`` is asked for — is NO match:
+    picking one would make ``stored_path`` depend on the directory's enumeration
+    order, and the honest answer is the operation's ``path_not_found``.
+
+    It LISTS rather than asking whether the path exists, and that is the whole
+    reason the verdict is the same on every platform: ``Path.exists()`` answers
+    "yes" for a mis-cased path on a case-insensitive filesystem and "no" on a
+    case-sensitive one, while the directory's own entries read alike on both.
+    """
+    try:
+        entries = os.listdir(directory)
+    except OSError:
+        return None
+    if name in entries:
+        return name
+    folded = name.lower()
+    matches = [entry for entry in entries if entry.lower() == folded]
+    return matches[0] if len(matches) == 1 else None
+
+
+def case_mismatch(target: str, project: Path) -> CaseMismatchViolation | None:
+    """``target``'s stored spelling when it differs from the requested one (#845).
+
+    The third arm of the target decision, and the one neither containment nor
+    ownership can see: a path that names the project's own file with the wrong CASE.
+    On a case-insensitive filesystem the engine opens it and only WARNS
+    (``FileAccessUnix``'s "Case mismatch opening requested file … This file will not
+    open when exported to other case-sensitive platforms"), which gda's script-error
+    classifier skips by contract — so a portability gate returned ``valid: true`` for
+    a path that fails on Linux and on a case-sensitive export host (dogfooding
+    GDA-DF-062). On a case-sensitive filesystem the same call is a bare
+    ``path_not_found``, which names the wrong problem. gda decides it here instead,
+    so ONE mistake reports ONE code everywhere.
+
+    The reading is per COMPONENT, from the project root downward, against each
+    directory's actual entries (:func:`_stored_entry`) — the mis-spelling is as often
+    a directory as a file name. It stops and reports NOTHING as soon as a component
+    names no entry at all: an absent file is the operation's own verdict, and
+    guessing a spelling for it would replace a true ``path_not_found`` with a false
+    correction.
+
+    Both spellings are reported as ``res://`` addresses, whichever form the caller
+    used, because that is the namespace the project stores the entry in and the one
+    address all three gated commands accept back — a project-relative respelling
+    would not survive being pasted after ``--project``.
+
+    **Bounds, each for its own reason.** The project ROOT's own spelling is not
+    compared: the walk starts below it, so a case-differing ``--project`` stays the
+    separate open gap ADR-0006's amendment records. A target that is not LEXICALLY
+    under the root is not compared either — that is the symlinked-in file
+    :func:`path_outside_project` admits through its resolved reading, whose stored
+    spelling lives in a tree this project does not name. And ``user://`` / ``uid://``
+    are left alone as everywhere else: neither addresses the project's namespace.
+
+    It reads the filesystem, which the rest of this module's lexical primitives do
+    not, and that cost is one ``os.listdir`` per component of the target. Against a
+    headless engine launch of hundreds of milliseconds it does not register; it is
+    also why the walk is bounded by the project rather than run from the filesystem
+    root.
+
+    ``project`` is the already-absolutized directory
+    (:func:`project_absolute`), as :func:`containment_violation` passes it.
+    """
+    if is_engine_virtual_path(target) and not target.startswith(RES_PREFIX):
+        return None
+    root = _lexical_abs(_expand_user(project))
+    try:
+        relative = _lexical_abs(_anchored_target(target, project)).relative_to(root)
+    except ValueError:
+        return None
+    stored: list[str] = []
+    current = root
+    for part in relative.parts:
+        entry = _stored_entry(current, part)
+        if entry is None:
+            return None
+        stored.append(entry)
+        current = current / entry
+    if list(relative.parts) == stored:
+        return None
+    return CaseMismatchViolation(
+        requested=RES_PREFIX + "/".join(relative.parts),
+        stored=RES_PREFIX + "/".join(stored),
+    )
+
+
 def containment_violation(
     target: str, project: Path | None
-) -> ForeignOwnerViolation | OutsideRootViolation | None:
-    """The ordered containment decision for ``target`` under ``project`` (#802).
+) -> ForeignOwnerViolation | OutsideRootViolation | CaseMismatchViolation | None:
+    """The ordered containment decision for ``target`` under ``project`` (#802, #845).
 
     The one question "does this target belong to the resolved project?", asked in
     one order, answered with the fired half and its coordinates — no envelope is
-    built here. `gda.errors.containment_refusal` maps the decision to the two
+    built here. `gda.errors.containment_refusal` maps the decision to the three
     refusals and is what the three commands call (``script validate`` per batch
     entry, ``script run`` for its entry script, ``resource import`` per asset);
     until #802 each wrote this composition by hand, so the ordering rule, the four
@@ -574,6 +692,16 @@ def containment_violation(
     outside OF, so containment is skipped and a standalone file that no
     ``project.godot`` claims is served, as ADR-0006's projectless fallback
     promises.
+
+    **The spelling comes LAST** (:func:`case_mismatch`, #845), and the reason is the
+    same shape as the one above: it is the least specific of the three. Asking
+    whether the project stores this entry under another case only means something
+    once the target has been established as this project's to serve — a target
+    another project owns, or one outside the root, has its spelling read against a
+    tree that is not the one it belongs to. It is also the only half that touches
+    the filesystem, so putting it last keeps the two lexical halves free of that
+    cost on every refused call. Like containment, it is skipped PROJECTLESS: there
+    is no ``res://`` namespace to name a stored spelling in.
 
     **Normalization: the project is cwd-absolutized** (:func:`project_absolute`),
     the form ``resource import`` adopted in #738 — the checks read the project as
@@ -608,6 +736,7 @@ def containment_violation(
         outside = path_outside_project(target, anchor)
         if outside is not None:
             return OutsideRootViolation(outside=outside, root=root)
+        return case_mismatch(target, anchor)
     return None
 
 
@@ -659,6 +788,7 @@ def resolve_project_dir(
 MAIN_SCENE_UNDEFINED = "live_main_scene_undefined"
 MAIN_SCENE_UNRESOLVED = "live_main_scene_unresolved"
 
+_APPLICATION_SECTION = "application"
 _MAIN_SCENE_KEY = "run/main_scene"
 _HIDDEN_DATA_DIR_KEY = "config/use_hidden_project_data_directory"
 _SETTINGS_OVERRIDE_KEY = "config/project_settings_override"
@@ -703,17 +833,37 @@ class _MainSceneSetting:
     hidden_data_dir: bool | None
 
 
+def _unquoted_literal(token: str) -> str:
+    """A Godot VALUE literal with its surrounding quotes off, or as it stands.
+
+    The one thing this lookup needs that :mod:`gda.project_file` does not provide:
+    that module reads the FORMAT and leaves every value as the text the file
+    spells, because decoding a Variant is the engine's job. A main-scene path and
+    an overlay path are the two literals this verdict compares, and both are
+    plain quoted strings — so the quotes come off here, at the one caller, and
+    nothing else in gda grows a second value decoder. It is NOT a key decoder:
+    a key's spelling is the reader's (``ConfigEntry.name``).
+    """
+    token = token.strip()
+    if len(token) >= 2 and token[0] == '"' and token[-1] == '"':
+        return token[1:-1].replace('\\"', '"')
+    return token
+
+
 def _read_main_scene(project: Path) -> _MainSceneSetting | None:
     """Read the main-scene setting, or ``None`` when it cannot be determined.
 
     Reads the ``[application]`` section through the shared ``ConfigFile`` reader
     (:mod:`gda.project_file`, #843) and takes from it only the settings this
-    verdict needs and their override declarations. An ESCAPED application key is
-    left to the engine's parser — this reader gives up on the whole file rather
-    than mistake a declaration it cannot decode for an absent setting, so the
-    verdict defers instead of refusing. A file gda cannot read or decode is
-    ``None`` too: that is not a verdict about the scene, and the next step that
-    touches the file (the harness install) reports the failure as its own.
+    verdict needs and their override declarations. Each entry is addressed by the
+    NAME that reader decoded for it, which is the one decoding of a key spelling in
+    gda: ``"run/\\u006dain_scene"`` names the main scene, as it does to the
+    engine's parser. An entry that reader could not name is left to the engine:
+    this reader gives up on the whole file rather than mistake a declaration it
+    cannot decode for an absent setting, so the verdict defers instead of refusing.
+    A file gda cannot read or decode is ``None`` too — that is not a verdict about
+    the scene, and the next step that touches the file (the harness install)
+    reports the failure as its own.
     """
     config = read_config(project / PROJECT_MARKER)
     if config is None:
@@ -722,16 +872,14 @@ def _read_main_scene(project: Path) -> _MainSceneSetting | None:
     overridden = (project / _OVERRIDE_CFG).exists()
     hidden: bool | None = True
     for entry in config.entries:
-        if entry.section != "application":
+        if entry.section != _APPLICATION_SECTION:
             continue
-        if "\\" in entry.key_token:
-            # A quoted key can encode any setting name (e.g. run/\u006dain_scene).
-            # Do not mistake a declaration we cannot decode for an absent setting.
+        if entry.name is None:
             return None
-        key = unquote(entry.key_token)
+        key = entry.name.removeprefix(f"{_APPLICATION_SECTION}/")
         token = entry.value
         if key == _MAIN_SCENE_KEY:
-            value = unquote(token)
+            value = _unquoted_literal(token)
         elif key.startswith(_MAIN_SCENE_KEY + "."):
             overridden = True
         elif key == _HIDDEN_DATA_DIR_KEY:
@@ -739,7 +887,7 @@ def _read_main_scene(project: Path) -> _MainSceneSetting | None:
                 hidden = {"true": True, "false": False}.get(token.strip())
         elif key.startswith(_HIDDEN_DATA_DIR_KEY + "."):
             hidden = None
-        elif key == _SETTINGS_OVERRIDE_KEY and unquote(token):
+        elif key == _SETTINGS_OVERRIDE_KEY and _unquoted_literal(token):
             overridden = True
         elif key.startswith(_SETTINGS_OVERRIDE_KEY + "."):
             overridden = True
@@ -776,7 +924,7 @@ def main_scene_unrunnable(
     can change the effective value in ways only the engine decides (its features
     and the overlay's contents), so their presence defers to the engine. The launch
     behaves as before this check, bounded by the readiness deadline (a native alert
-    can still appear). Escaped application keys also defer to the engine. A
+    can still appear). An application key gda cannot decode defers as well. A
     feature-tagged data-directory setting defers only the UID-cache verdict.
     """
     if scene:

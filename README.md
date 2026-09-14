@@ -472,9 +472,9 @@ gda restores the explicit lines it drops and reports the rest on the result.
 | Command | What it does |
 | ------- | ------------ |
 | `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches lazily, on the first operation that needs one (`--windowed` for `screen` capture). The project must define `application/run/main_scene`, or pass `--scene`. |
-| `daemon wait-ready` | Launch the engine session now and wait for it; `--timeout` is the daemon's budget for that launch, not a hard ceiling on the call. Read-only `diag` / `logger` tails never launch a session, so run this first when such a read is your first live command. |
+| `daemon wait-ready` | Launch the engine session now and wait for it; `--timeout` is the daemon's budget for that launch, not a hard ceiling on the call. Read-only `diag` / `logger` tails never launch a session, so run this first when such a read is your first live command. A ready session is not a cleanly started scene: read `clean_start` before you read the game as evidence. |
 | `daemon stop` | Stop the project's daemon and any running engine session. |
-| `daemon status` | Report the daemon's state (running, windowed mode, session). |
+| `daemon status` | Report the daemon's state (running, windowed mode, session, and that session's startup verdict). |
 | `daemon install` | Install the in-game harness without starting a daemon, and report what it wrote. Idempotent; `daemon start` does this itself, so use it only to review or commit the `project.godot` change on its own. |
 | `daemon uninstall` | Remove the in-game harness — autoload entry, harness files, `.uid` sidecar — restoring `project.godot`, and report what was removed. Dev-tooling teardown only: `gda export run` already strips the harness from exported builds. |
 

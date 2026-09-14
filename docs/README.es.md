@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=9ba5359ec552e5f3b0d0d08c69dec5e00c41c606488667c77583ae2fe83d619d -->
+<!-- gda-readme-i18n: source=README.md sha256=3bfcc94147cc0d0fa0c63b14646550a7083e63c225d09905c9125289be23b2c8 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -488,9 +488,9 @@ en el resultado.
 | Comando | Qué hace |
 | ------- | ------------ |
 | `daemon start` | Arranca el daemon por proyecto e instala el harness dentro del juego; la sesión del motor se inicia solo cuando una operación la necesita (`--windowed` para la captura de `screen`). El proyecto debe definir `application/run/main_scene`, o pasa `--scene`. |
-| `daemon wait-ready` | Lanza la sesión del motor ahora y espera a que esté lista; `--timeout` es el presupuesto que el daemon dedica a ese lanzamiento y no limita estrictamente la duración total de la llamada. Las consultas de solo lectura `diag` / `logger` nunca lanzan una sesión, así que ejecútalo primero cuando una de ellas sea tu primer comando live. |
+| `daemon wait-ready` | Lanza la sesión del motor ahora y espera a que esté lista; `--timeout` es el presupuesto que el daemon dedica a ese lanzamiento y no limita estrictamente la duración total de la llamada. Las consultas de solo lectura `diag` / `logger` nunca lanzan una sesión, así que ejecútalo primero cuando una de ellas sea tu primer comando live. Una sesión lista no es una escena que arrancó limpia: lee `clean_start` antes de leer el juego como evidencia. |
 | `daemon stop` | Detiene el daemon del proyecto y cualquier sesión del motor en ejecución. |
-| `daemon status` | Informa el estado del daemon (en ejecución, modo con ventana, sesión). |
+| `daemon status` | Informa el estado del daemon (en ejecución, modo con ventana, sesión y el veredicto de arranque de esa sesión). |
 | `daemon install` | Instala el harness dentro del juego sin iniciar un daemon e informa qué escribió. Idempotente; `daemon start` ya lo hace por su cuenta, así que úsalo solo para revisar o hacer commit por separado del cambio en `project.godot`. |
 | `daemon uninstall` | Elimina el harness dentro del juego — entrada de autoload, archivos del harness, sidecar `.uid` — restaurando `project.godot`, e informa qué se eliminó. Solo desmontaje de herramientas de desarrollo: `gda export run` ya elimina el harness de las builds exportadas. |
 

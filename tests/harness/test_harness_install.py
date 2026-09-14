@@ -556,6 +556,191 @@ def test_harness_artifacts_names_the_script_and_its_uid_sidecar(tmp_path):
     )
 
 
+# --- One scan owns every section boundary (#930) ------------------------------
+# The edit recognized sections line by line, restarting the scan on every line, so
+# a header-shaped line INSIDE a multi-line quoted value opened a section the file
+# does not have: the install wrote its entry into the string and the uninstall
+# deleted a line out of it. The edit now runs on the spans the shared reader's one
+# scan recorded, which carry the quote state from one line to the next.
+
+
+def _documented_harness_project() -> str:
+    """A project whose ``[application]`` description QUOTES the autoload declaration.
+
+    Godot writes a multi-line string back with its newlines literal
+    (``String::c_escape_multiline`` escapes only ``\\`` and ``"``), so the middle
+    lines of this value are spelled exactly like a section header and like the entry
+    gda writes — inside a string its parser reads as three lines of text.
+    """
+    quoted = _autoload_line().replace('"', '\\"')
+    return (
+        "config_version=5\n\n[application]\n\n"
+        f'config/description="how to install:\n[autoload]\n{quoted}\n'
+        'is what gda writes"\n'
+        'config/name="t"\n'
+        '\n[autoload]\n\nOther="*res://other.gd"\n'
+    )
+
+
+def test_install_writes_into_the_real_autoload_section_not_a_quoted_one(tmp_path):
+    project_godot = tmp_path / "project.godot"
+    before = _documented_harness_project()
+    project_godot.write_text(before, encoding="utf-8")
+
+    result = install_harness(tmp_path)
+
+    assert result.changed is True
+    assert result.created_sections == ()  # the file already has an [autoload]
+    text = project_godot.read_text(encoding="utf-8")
+    # The entry goes under the file's own header, beside the sibling autoload, and
+    # the description keeps its bytes — its escaped quotes included.
+    assert text == before.replace(
+        '[autoload]\n\nOther="*res://other.gd"\n',
+        f'[autoload]\n{_autoload_line()}\n\nOther="*res://other.gd"\n',
+    )
+    assert text.count("[autoload]") == 2  # the quoted line and the real header
+
+
+def test_uninstall_takes_only_the_real_entry_out_of_a_documented_project(tmp_path):
+    project_godot = tmp_path / "project.godot"
+    before = _documented_harness_project()
+    project_godot.write_text(before, encoding="utf-8")
+    install_harness(tmp_path)
+
+    result = uninstall_harness(tmp_path)
+
+    assert result.removed is True
+    assert project_godot.read_bytes() == before.encode("utf-8")  # byte-identical
+    assert result.removed_sections == ()  # the sibling autoload holds the section
+
+
+def test_a_commented_autoload_header_is_the_autoload_section(tmp_path):
+    # Godot's parser reads past a trailing comment, so `[autoload] ; note` IS the
+    # autoload section: the install joins it instead of appending a second one, and
+    # the uninstall takes its entry out again. Pinned here, at the installer whose
+    # behaviour it is (it used to be pinned only on the reader's line reduction).
+    project_godot = tmp_path / "project.godot"
+    before = _NO_AUTOLOAD + '\n[autoload] ; the autoloads\n\nOther="*res://other.gd"\n'
+    project_godot.write_text(before, encoding="utf-8")
+
+    install_harness(tmp_path)
+
+    text = project_godot.read_text(encoding="utf-8")
+    assert text.count("[autoload]") == 1  # joined, never a second section
+    assert text == before.replace(
+        "[autoload] ; the autoloads\n",
+        f"[autoload] ; the autoloads\n{_autoload_line()}\n",
+    )
+
+    uninstall_harness(tmp_path)
+
+    assert project_godot.read_bytes() == before.encode("utf-8")
+
+
+def test_an_emptied_commented_autoload_header_is_not_gda_s_to_drop(tmp_path):
+    # The deliberate asymmetry of `_emptied_autoload_span`: the section is JOINED by
+    # name (the comment is not part of it), but only a header gda itself writes — a
+    # bare `[autoload]` — is dropped again. Removing this one would delete a line,
+    # and a comment, gda never wrote.
+    project_godot = tmp_path / "project.godot"
+    before = _NO_AUTOLOAD + f'\n[autoload] ; mine\n\nGdaHarness="*{HARNESS_RES_PATH}"\n'
+    project_godot.write_text(before, encoding="utf-8")
+
+    result = uninstall_harness(tmp_path)
+
+    text = project_godot.read_text(encoding="utf-8")
+    assert _autoload_line() not in text  # the entry went
+    assert "[autoload] ; mine" in text  # the header stayed, comment and all
+    assert result.removed_sections == ()
+
+
+def test_an_entry_written_across_lines_is_re_pointed_and_removed_whole(tmp_path):
+    # A `ConfigFile` value may hold a literal newline, so the entry the edit acts on
+    # is the SPAN the scan recorded, not the line it starts on. Taking one line of
+    # it leaves the continuation behind, and the engine then refuses the WHOLE file:
+    # `ConfigFile.load` returns ERR_PARSE_ERROR ("Unterminated string", verified on
+    # 4.6.3), so the project stops loading over a line gda left in it.
+    project_godot = tmp_path / "project.godot"
+    across_lines = (
+        _NO_AUTOLOAD + '\n[autoload]\n\nGdaHarness="*res://legacy/old.gd\ncontinued"\n'
+    )
+    project_godot.write_text(across_lines, encoding="utf-8")
+
+    assert install_harness(tmp_path).changed is True
+
+    # Re-pointed: the whole span becomes the one line gda writes.
+    assert (
+        project_godot.read_text(encoding="utf-8")
+        == _NO_AUTOLOAD + f"\n[autoload]\n\n{_autoload_line()}\n"
+    )
+
+    uninstall_harness(tmp_path)
+
+    assert project_godot.read_text(encoding="utf-8") == _NO_AUTOLOAD
+
+    # And an uninstall that meets the multi-line entry itself takes all of its
+    # lines — which is what leaves the section key-less, so the header goes too.
+    project_godot.write_text(across_lines, encoding="utf-8")
+
+    result = uninstall_harness(tmp_path)
+
+    assert project_godot.read_text(encoding="utf-8") == _NO_AUTOLOAD
+    assert result.removed_sections == ("[autoload]",)
+
+
+def test_install_re_points_the_entry_the_engine_reads_last(tmp_path):
+    # `ConfigFile` lets the LAST declaration of a key win, and the two spellings
+    # here are one key to it (verified on 4.6.3: `get_section_keys` reports a single
+    # `GdaHarness` and `get_value` returns the bare line's `*res://old.gd`). Gda has
+    # to decide on that last entry: stopping at the canonical FIRST one reported
+    # nothing to do while the engine went on loading `res://old.gd`, so the harness
+    # never registered and `daemon start` waited out its readiness deadline
+    # (PR #938 review, round 2).
+    project_godot = tmp_path / "project.godot"
+    before = (
+        _NO_AUTOLOAD + f'\n[autoload]\n\n"GdaHarness"="*{HARNESS_RES_PATH}"\n'
+        'GdaHarness="*res://old.gd"\n'
+    )
+    project_godot.write_text(before, encoding="utf-8")
+
+    result = install_harness(tmp_path)
+
+    assert result.changed is True
+    text = project_godot.read_text(encoding="utf-8")
+    # The last declaration is re-pointed; the earlier spelling stays as written
+    # (the engine ignores it, and gda rewrites no line it does not have to).
+    assert text == before.replace(
+        'GdaHarness="*res://old.gd"\n', f"{_autoload_line()}\n"
+    )
+    assert install_harness(tmp_path).changed is False  # and the repeat is a no-op
+
+    result = uninstall_harness(tmp_path)
+
+    # Both spellings go: the removal takes every harness entry it finds, so the
+    # section is key-less and the header gda wrote goes with it.
+    assert project_godot.read_text(encoding="utf-8") == _NO_AUTOLOAD
+    assert result.removed_sections == ("[autoload]",)
+
+
+def test_a_round_trip_keeps_a_leading_byte_order_mark(tmp_path):
+    # The reader drops a leading BOM from the keys it NAMES (the engine glues it to
+    # the first key), but the bytes stay the file's: an edit spells the text back
+    # with the mark it came with, so the round trip is byte-identical here too.
+    project_godot = tmp_path / "project.godot"
+    before = ("﻿" + _NO_AUTOLOAD).encode("utf-8")
+    project_godot.write_bytes(before)
+
+    install_harness(tmp_path)
+
+    installed = project_godot.read_bytes()
+    assert installed.startswith("﻿".encode("utf-8"))
+    assert _autoload_line().encode("utf-8") in installed
+
+    uninstall_harness(tmp_path)
+
+    assert project_godot.read_bytes() == before
+
+
 # --- Snapshot-exact restoration of a failed install (#680 rechecks) -----------
 # A `daemon start` installs the harness BEFORE the daemon exists, so a start that
 # never comes ready must hand the project back untouched. The restore is the

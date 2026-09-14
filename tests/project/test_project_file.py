@@ -5,6 +5,10 @@ precondition, the harness installer's ``[autoload]`` edit, and the bounded proje
 write. These tests pin the format rules it owns: comments, sections, section-less
 keys, multi-line values, escaped key spellings, and the byte-faithful round trip an
 edit relies on.
+
+They exercise it through the interface its callers have — the readers, the bounded
+write and what they answer with. The line primitives are private (#930), so a rule
+they used to be asked about directly is asked of the text it applies to.
 """
 
 import pytest
@@ -16,13 +20,8 @@ from gda.project_file import (
     ProjectFileRestoreError,
     ProjectWriteMutation,
     bound_project_write,
-    config_key,
-    config_line,
     read_config,
     read_config_text,
-    section_name,
-    strip_comment,
-    unquote,
 )
 
 
@@ -49,66 +48,73 @@ file_logging/enable_file_logging=false
 """
 
 
-def test_strip_comment_cuts_at_an_unquoted_semicolon_only():
-    assert strip_comment('a="x" ; note').strip() == 'a="x"'
-    assert strip_comment('a="x ; y"') == 'a="x ; y"'
+def test_a_comment_ends_a_line_only_outside_quotes():
+    config = read_config_text('a="x" ; note\nb="x ; y"\n')
+
+    settings = config.settings()
+    assert settings["a"].value == '"x"'  # the comment is not part of the value
+    assert settings["b"].value == '"x ; y"'  # a quoted `;` is not a comment
 
 
-def test_section_name_reads_a_header_and_nothing_else():
-    assert section_name("[application]") == "application"
-    assert section_name("config/name=1") is None
+def test_a_header_line_opens_a_section_and_an_assignment_does_not():
+    config = read_config_text("[application]\nconfig/name=1\n")
+
+    assert [(header.index, header.name) for header in config.headers] == [
+        (0, "application")
+    ]
+    assert [entry.name for entry in config.entries] == ["application/config/name"]
 
 
-def test_config_key_decodes_the_engine_encoded_spelling():
+def test_an_entry_is_named_by_the_key_the_engine_reads():
     # property_name_encode() quotes and escapes a key holding '=' or non-ASCII, so
-    # the two spellings of one key have to compare equal.
-    assert config_key("config/name") == "config/name"
-    assert config_key('"run/\\u006dain_scene"') == "run/main_scene"
-    assert config_key('"a=b"') == "a=b"
-    # VariantParser::get_token reads SIX hex digits after \U and four after \u, and
-    # gives every other escape the character it precedes (`default: res = next`) —
-    # there is no \a or \v in that switch. Demanding eight digits made this exact
-    # declaration unnameable, so the save dropped it and gda reported nothing
-    # (PR #898 review, round 3).
-    assert (
-        config_key('"\\U000066ile_logging/enable_file_logging"')
-        == "file_logging/enable_file_logging"
+    # the two spellings of one key have to compare equal. VariantParser::get_token
+    # reads SIX hex digits after \U and four after \u, and gives every other escape
+    # the character it precedes (`default: res = next`) — there is no \a or \v in
+    # that switch. Demanding eight digits made a valid declaration unnameable, so
+    # the save dropped it and gda reported nothing (PR #898 review, round 3).
+    config = read_config_text(
+        "config/name=1\n"
+        '"run/\\u006dain_scene"=1\n'
+        '"a=b"=1\n'
+        '"\\U000066ile_logging/enable_file_logging"=1\n'
+        '"a\\q"=1\n'
+        '"\\a\\v"=1\n'
+        '"\\ud83d\\ude00"=1\n'  # a UTF-16 pair, combined as the tokenizer combines it
     )
-    assert config_key('"a\\q"') == "aq"
-    assert config_key('"\\a\\v"') == "av"
-    # A UTF-16 pair is combined the way the tokenizer combines it.
-    assert config_key('"\\ud83d\\ude00"') == "\U0001f600"
+
+    assert [entry.name for entry in config.entries] == [
+        "config/name",
+        "run/main_scene",
+        "a=b",
+        "file_logging/enable_file_logging",
+        "aq",
+        "av",
+        "\U0001f600",
+    ]
 
 
-def test_config_key_drops_what_a_bare_key_cannot_hold():
+def test_a_bare_key_drops_what_a_bare_key_cannot_hold():
     # parse_tag_assign_eof accumulates ONLY characters of code > 32 into a bare
     # key, so `foo bar` IS `foobar` to the engine. Keeping the space made gda read
     # one declaration as a second setting, and the restore then re-declared the
     # old value under the name a `project set` had just written (PR #898 review,
     # round 3).
-    assert config_key("foo bar") == "foobar"
-    assert config_key("debug/foo\tbar baz") == "debug/foobarbaz"
-    assert config_key("config/name") == "config/name"
+    config = read_config_text("foo bar=1\ndebug/foo\tbar baz=1\n")
+
+    assert [entry.name for entry in config.entries] == ["foobar", "debug/foobarbaz"]
 
 
-def test_config_key_refuses_a_spelling_it_cannot_decode():
-    # A key gda cannot name is excluded from every comparison rather than guessed
-    # at — a key wrongly read as two keys is how a restore writes a duplicate line.
-    # These are the spellings the engine's own tokenizer refuses the FILE for.
-    assert config_key('"\\u00"') is None  # truncated hex sequence
-    assert config_key('"\\uzzzz"') is None  # not hex at all
-    assert config_key('"\\ud800"') is None  # unpaired lead surrogate
-    assert config_key('"\\udc00"') is None  # unpaired trail surrogate
-    assert config_key("a\\b") is None  # a backslash in a bare key
+def test_a_commented_header_is_a_section_and_a_quoted_semicolon_is_not_a_comment():
+    # The reduction every boundary is decided on: the comment goes and the
+    # surrounding whitespace with it, so a header written `[autoload] ; note` IS
+    # the autoload section — a second reducer that skipped the comment made the
+    # harness installer miss one (PR #898 review, round 3).
+    config = read_config_text('  [autoload] ; note  \na="x ; y" \n')
 
-
-def test_config_line_reduces_a_raw_line_to_what_the_parser_reads():
-    # The ONE reduction every recognizer applies. A second one that skipped the
-    # comment made the harness installer miss a commented header (PR #898 review,
-    # round 3).
-    assert config_line("  [autoload] ; note  ") == "[autoload]"
-    assert section_name("[autoload] ; note") == "autoload"
-    assert config_line('a="x ; y" ') == 'a="x ; y"'
+    assert [(header.index, header.name) for header in config.headers] == [
+        (0, "autoload")
+    ]
+    assert config.settings()["autoload/a"].value == '"x ; y"'
 
 
 def test_entries_carry_section_name_and_raw_lines():
@@ -208,8 +214,56 @@ def test_an_entry_after_a_multi_line_string_is_read_in_its_real_section():
 
 
 def test_text_round_trips_the_input_byte_for_byte():
-    for text in (PROJECT, PROJECT.replace("\n", "\r\n"), "a=1", ""):
+    # The byte-order mark included: the engine glues it to the first key, so the
+    # scan keeps it out of the KEYS it names — but the bytes are the file's, and
+    # every writer built on this spells them back (#930).
+    for text in (PROJECT, PROJECT.replace("\n", "\r\n"), "﻿" + PROJECT, "a=1", ""):
         assert read_config_text(text).text() == text
+
+
+def test_an_entry_knows_the_line_it_starts_on():
+    # The span an edit replaces or removes: `lines[index : index + len(lines)]` of
+    # the scanned text IS the entry as it was written, multi-line values included.
+    config = read_config_text(MULTILINE)
+
+    for entry in config.entries:
+        span = config.lines[entry.index : entry.index + len(entry.lines)]
+        assert span == entry.lines
+    assert config.settings()["application/config/description"].index == 4
+
+
+def test_sections_named_bounds_every_part_the_scan_found():
+    # A name can be opened more than once, and a caller that edits the section has
+    # to see all of them — the harness installer's `[autoload]` edit does.
+    config = read_config_text(
+        'config_version=5\n\n[autoload]\n\nOne="*res://one.gd"\n'
+        "\n[application]\n\n"
+        'config/description="line one\n[autoload]\nline three"\n'
+        '\n[autoload]\n\nTwo="*res://two.gd"\n'
+    )
+
+    autoloads = config.sections_named("autoload")
+
+    assert [(section.header, section.start, section.end) for section in autoloads] == [
+        (2, 3, 6),
+        (12, 13, 15),
+    ]
+    # The `[autoload]` spelled inside the description opens nothing, so the
+    # section it appears to start is not one of these — and the entries are the
+    # scan's, each under the header that really holds it.
+    assert [[entry.name for entry in section.entries] for section in autoloads] == [
+        ["autoload/One"],
+        ["autoload/Two"],
+    ]
+
+
+def test_the_section_less_head_is_always_one_section():
+    # It is the file's beginning, so it exists even when nothing is written there.
+    for text, end in ((PROJECT, 3), ("[application]\n", 0), ("a=1\n", 1)):
+        head = read_config_text(text).sections_named(SECTIONLESS)
+        assert len(head) == 1
+        assert (head[0].header, head[0].start, head[0].end) == (None, 0, end)
+    assert read_config_text(PROJECT).sections_named("nowhere") == ()
 
 
 def test_settings_keeps_the_last_assignment_of_a_repeated_key():
@@ -221,15 +275,24 @@ def test_settings_keeps_the_last_assignment_of_a_repeated_key():
 
 
 def test_an_undecodable_key_is_scanned_but_never_named():
-    config = read_config_text('[application]\n\n"a\\u00"=1\nconfig/name="x"\n')
+    # A key gda cannot name is excluded from every comparison rather than guessed
+    # at — a key wrongly read as two keys is how a restore writes a duplicate line.
+    # These are the spellings the engine's own tokenizer refuses the FILE for.
+    config = read_config_text(
+        "[application]\n\n"
+        '"a\\u00"=1\n'  # truncated hex sequence
+        '"a\\uzzzz"=1\n'  # not hex at all
+        '"a\\ud800"=1\n'  # unpaired lead surrogate
+        '"a\\udc00"=1\n'  # unpaired trail surrogate
+        "a\\b=1\n"  # a backslash in a bare key
+        'config/name="x"\n'
+    )
 
-    assert [entry.name for entry in config.entries] == [None, "application/config/name"]
+    assert [entry.name for entry in config.entries] == [
+        *[None] * 5,
+        "application/config/name",
+    ]
     assert set(config.settings()) == {"application/config/name"}
-
-
-def test_unquote_strips_a_quoted_literal():
-    assert unquote('"res://main.tscn"') == "res://main.tscn"
-    assert unquote("false") == "false"
 
 
 def test_read_config_reports_a_file_it_cannot_read_as_none(tmp_path):

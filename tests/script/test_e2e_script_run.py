@@ -31,7 +31,13 @@ prints. A fixture-driven test would only prove the parser matches our fixtures.
   surfaced as a classified diagnostic (GDA-DF-007);
 - a deliberate ``quit(1)`` under ``--strict`` → the ``script_failed`` envelope and
   a non-zero gda process exit (GDA-DF-017), carrying the suite's own printed
-  output as evidence, while the default arm above is unchanged.
+  output as evidence, while the default arm above is unchanged;
+- a script that ``quit(0)``s with its objects still alive → the engine's two
+  exit-time leak records read back as ``shutdown_leak`` diagnostics on a SUCCESS,
+  and the same run under ``--strict`` as ``script_failed`` (GDA-DF-063, #844).
+  These are e2e for the reason the whole verdict family is: the leak, the records
+  and the zero exit status are all things only the real engine produces at the end
+  of a real process.
 
 **No e2e arm for the not-a-main-loop shape, deliberately.** An entry script that
 compiles but does not extend ``SceneTree``/``MainLoop`` also never runs, and gda
@@ -141,6 +147,39 @@ func _initialize() -> void:
 \tprint("loaded=", r)
 \tquit(0)
 """
+
+# --- The #844 fixture: a run that finishes cleanly and leaks anyway.
+
+# A script that builds a RefCounted cycle, parks a loaded resource inside it and
+# quit(0)s. Reference counting cannot collect the cycle, so the objects and the
+# .tres are still alive when the engine shuts down — GDA-DF-063's shape, whose
+# original fixture was repaired before it could be captured. Both engine records
+# come out of this: the ObjectDB warning and the resources error.
+LEAKY_GD = """\
+extends SceneTree
+
+class Cyclic extends RefCounted:
+\tvar peer: RefCounted = null
+\tvar held: Resource = null
+
+func _initialize() -> void:
+\tvar a := Cyclic.new()
+\tvar b := Cyclic.new()
+\ta.peer = b
+\tb.peer = a
+\ta.held = load("res://kept.tres")
+\tprint("suite passed")
+\tquit(0)
+"""
+
+# The resource the cycle keeps alive, so the run leaks a RESOURCE as well as
+# ObjectDB instances — the second engine record needs one.
+KEPT_TRES = """\
+[gd_resource type="Resource" format=3]
+
+[resource]
+"""
+
 
 # A failing suite that reports the way a real GDScript test runner does — through
 # print(), i.e. STDOUT. It is the fixture for the --strict evidence assertion:
@@ -689,6 +728,79 @@ def test_script_run_strict_leaves_a_passing_script_a_success(godot_project):
     data = json.loads(run.stdout)
     assert data["exit_status"] == 0
     assert data["diagnostics"] == []
+
+
+def _leaking_project(godot_project):
+    """Write the leaking entry script and the resource it parks in the cycle."""
+    (godot_project / "leaky.gd").write_text(LEAKY_GD, encoding="utf-8")
+    (godot_project / "kept.tres").write_text(KEPT_TRES, encoding="utf-8")
+
+
+@pytest.mark.e2e
+def test_script_run_reports_a_shutdown_leak_as_a_diagnostic(godot_project):
+    # AC1 (#844) against the REAL engine: the script printed a pass and chose 0, and
+    # the engine then said the run left objects and a resource alive. Before this
+    # widening both records sat only inside the raw stderr string, so the production
+    # had to gate on "stderr must be empty" (GDA-DF-063). Without --strict the run
+    # stays a SUCCESS — ADR-0031's passthrough is untouched — and the leak is data.
+    _leaking_project(godot_project)
+
+    run = gda(
+        "script",
+        "run",
+        "res://leaky.gd",
+        "--project",
+        str(godot_project),
+        "--json",
+        retry=True,
+    )
+
+    assert run.returncode == 0, run.stdout + run.stderr
+    data = json.loads(run.stdout)
+    assert "error" not in data
+    assert data["exit_status"] == 0
+    assert "suite passed" in data["stdout"]
+    leaks = [d for d in data["diagnostics"] if d["kind"] == "shutdown_leak"]
+    # Both engine records, and neither names a resource: the sentences carry no
+    # res:// address, so path and line are honestly null.
+    assert len(leaks) == 2, data["diagnostics"]
+    assert all(d["path"] is None and d["line"] is None for d in leaks)
+    # The count the engine reported is in the message — the record model gains no
+    # field for it, and the ObjectDB record has no count to carry.
+    messages = [d["message"] for d in leaks]
+    assert any(m.startswith("ObjectDB instances leaked at exit") for m in messages)
+    assert any("resources still in use at exit" in m for m in messages)
+
+
+@pytest.mark.e2e
+def test_script_run_strict_fails_a_leaking_run_that_exited_zero(godot_project):
+    # AC2 (#844): the SAME run under --strict is the script_failed envelope and a
+    # non-zero gda process exit, so a CI gate stops on a suite that passes and
+    # leaks. The status is 0, so the message has to say what the status cannot.
+    _leaking_project(godot_project)
+
+    run = gda(
+        "script",
+        "run",
+        "res://leaky.gd",
+        "--strict",
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    assert run.returncode == 4, run.stdout + run.stderr
+    err = json.loads(run.stdout)["error"]
+    assert err["code"] == "script_failed"
+    assert err["category"] == "operation"
+    assert "status 0" in err["message"]
+    assert "the engine reported a leak at exit" in err["message"]
+    # The evidence keys are the ones this producer already carried (#687): the
+    # CHILD's status, and the parsed records. No new key, no new producer.
+    assert set(err["evidence"]) == {"exit_status", "script_errors"}
+    assert err["evidence"]["exit_status"] == 0
+    kinds = [e["kind"] for e in err["evidence"]["script_errors"]]
+    assert kinds == ["shutdown_leak", "shutdown_leak"], kinds
 
 
 @pytest.mark.e2e
