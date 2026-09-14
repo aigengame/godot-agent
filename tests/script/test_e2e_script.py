@@ -1349,6 +1349,51 @@ def test_script_validate_refuses_an_outside_path_that_merely_contains_a_scheme(
     assert '"valid"' not in validated.stdout
 
 
+@pytest.mark.e2e
+def test_script_validate_case_mismatch_is_refused_and_the_stored_spelling_is_clean(
+    tmp_path,
+):
+    # The real-engine half of #845, in the order the fix has to hold: the STORED
+    # spelling is a clean pass — the engine compiles it, reports no diagnostic and
+    # writes no "Case mismatch" line anywhere — and the mis-cased spelling of the
+    # SAME file is refused before the engine runs at all.
+    #
+    # The control matters as much as the refusal. Godot's warning comes from
+    # `FileAccessUnix` ("Case mismatch opening requested file ... stored as ...")
+    # and is a WARN_PRINT the script-error classifier skips by contract, so gda
+    # could not read it even when it is printed (GDA-DF-062). This test states what
+    # gda relies on instead: the accepted spelling produces no such line, so the
+    # refusal is not covering for one gda would otherwise have had to parse.
+    project = tmp_path / "game"
+    (project / "content").mkdir(parents=True)
+    (project / "project.godot").write_text(
+        project_godot("gda-e2e-case"), encoding="utf-8"
+    )
+    (project / "content" / "card.gd").write_text(
+        "extends Node\n\nfunc rank() -> int:\n\treturn 3\n", encoding="utf-8"
+    )
+    gda = Gda(project)
+
+    stored = gda("script", "validate", "res://content/card.gd", "--json")
+
+    assert stored.returncode == 0, stored.stdout + stored.stderr
+    data = json.loads(stored.stdout)
+    assert data["valid"] is True
+    assert data["scripts"][0]["diagnostics"] == []
+    assert "Case mismatch" not in stored.stdout + stored.stderr
+
+    requested = gda("script", "validate", "res://Content/card.gd", "--json")
+
+    err = assert_operation_error(requested, "path_case_mismatch")
+    assert err["evidence"] == {
+        "requested_path": "res://Content/card.gd",
+        "stored_path": "res://content/card.gd",
+    }
+    # Refused BEFORE the engine ran: no verdict was computed for the file.
+    assert '"valid"' not in requested.stdout
+    assert err["diagnostics"] == ""
+
+
 # --- script attach (issue #118) ---
 
 

@@ -1829,9 +1829,11 @@ func _op_node_set(params: Dictionary) -> void:
 	if _is_control_position_write(node, prop_name):
 		var control: Control = node as Control
 		if _has_container_parent(control):
+			# Read the message BEFORE the tree is freed: it asks the control's
+			# parent for the inputs it carries.
+			var refusal := _control_position_unavailable_message("node " + node_path, control)
 			root.free()
-			_fail(OP_ERROR_UNKNOWN_PROPERTY,
-					_control_position_unavailable_message("node " + node_path))
+			_fail(OP_ERROR_UNKNOWN_PROPERTY, refusal)
 			return
 		var raw_position := _string_param(params, "value")
 		var coerced_position: Variant = _coerce_value(raw_position,
@@ -1920,8 +1922,31 @@ func _has_container_parent(control: Control) -> bool:
 	return control.get_parent() is Container
 
 
-func _control_position_unavailable_message(subject: String) -> String:
-	return subject + " is a direct child of a Container, so Control.position is not an actionable settable property; address offset_left, offset_top, offset_right, and offset_bottom instead"
+func _control_layout_inputs(control: Control) -> String:
+	# The ONE statement of which layout inputs a Control carries, shared by the
+	# `game get` redirect and the `position` setter refusal (and mirrored in
+	# operations.gd for the headless `node set`), so the two cannot disagree —
+	# they did: the setter kept naming offset_* on a container child after the
+	# getter had learned better (PR #967, third review). The engine strips
+	# PROPERTY_USAGE_STORAGE from offset_* / anchor_* when the parent is a
+	# Container (Control::_validate_property), so on such a child the inputs are
+	# custom_minimum_size, the size flags, and the parent's own layout.
+	if _has_container_parent(control):
+		return " This Control is a direct child of a Container, which owns its" \
+				+ " position and size: the offset_* and anchor_* properties are" \
+				+ " not in its storage set. The layout inputs it does carry are" \
+				+ " the storage properties custom_minimum_size," \
+				+ " size_flags_horizontal and size_flags_vertical; the rest is" \
+				+ " the parent Container's own layout"
+	return " The layout inputs are the" \
+			+ " storage properties offset_left, offset_top, offset_right," \
+			+ " offset_bottom and anchor_left, anchor_top, anchor_right," \
+			+ " anchor_bottom"
+
+
+func _control_position_unavailable_message(subject: String, control: Control) -> String:
+	return subject + " is a direct child of a Container, so Control.position is not an actionable settable property." \
+			+ _control_layout_inputs(control)
 
 
 # node-remove: load a .tscn, resolve a node by node path, delete it and its

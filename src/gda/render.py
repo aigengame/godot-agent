@@ -157,6 +157,10 @@ def _evidence_lines(evidence: FailureEvidence) -> list[str]:
         body.append(f"  templates root checked: {evidence.templates_root_checked}")
     if evidence.templates_root_host is not None:
         body.append(f"  host templates root: {evidence.templates_root_host}")
+    if evidence.requested_path is not None:
+        body.append(f"  requested path: {evidence.requested_path}")
+    if evidence.stored_path is not None:
+        body.append(f"  stored path: {evidence.stored_path}")
     return ["evidence:", *body] if body else []
 
 

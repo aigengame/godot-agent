@@ -83,6 +83,14 @@ const MAX_WINDOW_FRAMES := 600
 const WINDOW_CLOCK_PROCESS := "process"
 const WINDOW_CLOCK_PHYSICS := "physics"
 
+# The bytes ONE stored value occupies in the `perf-sample` window below (#846) —
+# its LOGICAL size, so the array's own over-allocation is outside it. A
+# PackedFloat64Array element and a PackedInt64Array element are both 8 bytes, so
+# one constant covers the value columns and the timestamp column. Reported as
+# `collector_bytes`, and mirrored by a unit test so that number stays checkable
+# without an engine.
+const PERF_PACKED_VALUE_BYTES := 8
+
 var _peer: StreamPeerUDS = null
 var _authed := false
 # True once this run was launched by gda-daemon (the LAUNCH_MARKER is present in the
@@ -587,6 +595,14 @@ func _match_payload(node: Node) -> Dictionary:
 	}
 
 
+# The reads a caller reaches for when a Control looks wrong on screen (#852,
+# GDA-DF-071), none of which game get can serve: position and size carry editor
+# usage only, global_position carries no usage flags, and global_rect is a
+# method — so none of them is in the storage set this handler reads. They are
+# layout OUTPUT, which game rect reports.
+const CONTROL_LAYOUT_READS := ["position", "size", "global_position", "global_rect"]
+
+
 # game get: resolve a node by its ABSOLUTE runtime path (as game tree reports it,
 # e.g. /root/Main/Player) and report its storage properties as typed JSON — the
 # runtime counterpart of headless node get. An optional `property` param filters
@@ -621,6 +637,9 @@ func _handle_game_get(params: Dictionary) -> String:
 		if not script_property.is_empty():
 			properties.append(script_property)
 	if has_filter and properties.is_empty():
+		if node is Control and CONTROL_LAYOUT_READS.has(wanted):
+			return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
+					_control_layout_read_message(node as Control, path, wanted))
 		return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
 				_unknown_runtime_property_message(path, wanted))
 
@@ -651,9 +670,48 @@ func _explicit_script_variable_property(
 	return {}
 
 
+# The refusal for a CONTROL_LAYOUT_READS spelling on a Control: the generic
+# message says the read failed but not where the answer is, which left the
+# dogfooding caller stranded on exactly the reads game rect serves. So it names
+# that command and every field it reports, then the layout INPUTS — the storage
+# properties game get and game set do serve. Any other node keeps the generic
+# message: it has no layout output to redirect to.
+#
+# Which inputs those are depends on the PARENT, so the last sentence branches on
+# the same _has_container_parent predicate game set uses: the engine drops
+# PROPERTY_USAGE_DEFAULT from offset_*, anchor_*, grow_* and anchors_preset on a
+# direct child of a Container (Control::_validate_property, not editor-gated), so
+# naming them there sends the caller into a SECOND live_unknown_property. A
+# container-managed child gets the inputs it does carry.
+func _control_layout_read_message(
+		control: Control, path: String, prop_name: String) -> String:
+	return _unknown_runtime_property_message(path, prop_name) \
+			+ ". On a Control, position, size, global_position and global_rect are" \
+			+ " layout output, not storage properties: read them with `gda game rect " \
+			+ path + "`, which reports position, size, local_position, local_size," \
+			+ " minimum_size and combined_minimum_size." \
+			+ _control_layout_inputs(control)
+
+
 # game rect: resolve a node by its ABSOLUTE runtime path, require it to be a
-# Control, and report its rendered viewport-space rect. This reads layout output
-# via Control.get_global_rect(), not a storage property surface.
+# Control, and report what the layout PRODUCED for it — no storage property
+# carries that. The rendered viewport-space rect comes from
+# Control.get_global_rect() and the parent-space one from Control.get_rect();
+# the two differ by the ancestors' TRANSFORM — an ancestor offset moves the
+# origin, an ancestor scale multiplies the origin and the size. The local rect is
+# built from the local transform too, so its origin is the node's own position
+# moved by pivot_offset where a scale or a rotation is set, and its size is the
+# node's own size multiplied by the node's own scale. The two minimum sizes are
+# the layout's own inputs and are DIFFERENT reads (#852): get_minimum_size() is
+# the class's intrinsic minimum and excludes the authored custom_minimum_size,
+# while get_combined_minimum_size() is the per-axis maximum of the two — what a
+# parent Container honors. The first read RUNS PROJECT CODE where the class
+# leaves the getter to Control: Control::get_minimum_size() is the
+# _get_minimum_size virtual with no cache, so a script override of it runs once
+# per request, and twice where the combined read finds the minimum-size cache
+# stale (CONTEXT.md, Project-code execution surface). The combined read beside it
+# takes that cache first, and recomputes through the same virtual where it is
+# stale.
 func _handle_game_rect(params: Dictionary) -> String:
 	var path := _string_param(params, "node")
 	var node := _resolve_runtime_node(path)
@@ -666,12 +724,17 @@ func _handle_game_rect(params: Dictionary) -> String:
 
 	var control: Control = node as Control
 	var rect := control.get_global_rect()
+	var local_rect := control.get_rect()
 	return _ok({
 		"path": path,
 		"name": String(control.name),
 		"type": control.get_class(),
 		"position": _jsonify(rect.position),
 		"size": _jsonify(rect.size),
+		"local_position": _jsonify(local_rect.position),
+		"local_size": _jsonify(local_rect.size),
+		"minimum_size": _jsonify(control.get_minimum_size()),
+		"combined_minimum_size": _jsonify(control.get_combined_minimum_size()),
 	})
 
 
@@ -872,7 +935,7 @@ func _handle_game_set(params: Dictionary) -> String:
 		var control: Control = node as Control
 		if _has_container_parent(control):
 			return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
-					_control_position_unavailable_message("node " + path))
+					_control_position_unavailable_message("node " + path, control))
 		var raw_position := _string_param(params, "value")
 		var coerced_position: Variant = _coerce_value(raw_position,
 				TYPE_VECTOR2, control.position)
@@ -947,8 +1010,31 @@ func _has_container_parent(control: Control) -> bool:
 	return control.get_parent() is Container
 
 
-func _control_position_unavailable_message(subject: String) -> String:
-	return subject + " is a direct child of a Container, so Control.position is not an actionable settable property; address offset_left, offset_top, offset_right, and offset_bottom instead"
+func _control_layout_inputs(control: Control) -> String:
+	# The ONE statement of which layout inputs a Control carries, shared by the
+	# `game get` redirect and the `position` setter refusal (and mirrored in
+	# operations.gd for the headless `node set`), so the two cannot disagree —
+	# they did: the setter kept naming offset_* on a container child after the
+	# getter had learned better (PR #967, third review). The engine strips
+	# PROPERTY_USAGE_STORAGE from offset_* / anchor_* when the parent is a
+	# Container (Control::_validate_property), so on such a child the inputs are
+	# custom_minimum_size, the size flags, and the parent's own layout.
+	if _has_container_parent(control):
+		return " This Control is a direct child of a Container, which owns its" \
+				+ " position and size: the offset_* and anchor_* properties are" \
+				+ " not in its storage set. The layout inputs it does carry are" \
+				+ " the storage properties custom_minimum_size," \
+				+ " size_flags_horizontal and size_flags_vertical; the rest is" \
+				+ " the parent Container's own layout"
+	return " The layout inputs are the" \
+			+ " storage properties offset_left, offset_top, offset_right," \
+			+ " offset_bottom and anchor_left, anchor_top, anchor_right," \
+			+ " anchor_bottom"
+
+
+func _control_position_unavailable_message(subject: String, control: Control) -> String:
+	return subject + " is a direct child of a Container, so Control.position is not an actionable settable property." \
+			+ _control_layout_inputs(control)
 
 
 func _unknown_runtime_property_message(path: String, prop_name: String) -> String:
@@ -993,11 +1079,12 @@ func _handle_perf_monitors() -> String:
 # snapshot, on the same time-windowed base `perf monitor` uses (#223). Each
 # selected-clock frame the sampler reads every SELECTED monitor (all of them
 # when the selection is empty), frame-coherently (ADR-0020), and the reply
-# carries the raw timestamped samples. The harness stays dumb on purpose: the
-# aggregate statistics and any budget verdicts are computed CLI-side, where the
-# numeric semantics are unit-testable without an engine. The frame count is
-# bounded model-side (ADR-0015); the unknown-monitor arm below is defensive
-# only (the CLI validates names against its mirrored table before dispatch).
+# carries the collected window plus the bytes the sampler retained for it. The
+# harness stays dumb on purpose: the aggregate statistics and any budget
+# verdicts are computed CLI-side, where the numeric semantics are unit-testable
+# without an engine. The frame count is bounded model-side (ADR-0015); the
+# unknown-monitor arm below is defensive only (the CLI validates names against
+# its mirrored table before dispatch).
 func _handle_perf_sample(params: Dictionary) -> Variant:
 	var frames := _int_param(params, "frames", 60)
 	var raw_names: Variant = params.get("monitors", [])
@@ -1008,24 +1095,56 @@ func _handle_perf_sample(params: Dictionary) -> Variant:
 		if not _perf_monitors.has(String(name)):
 			return _error("operation_failed",
 					"unknown performance monitor: " + String(name))
-	var frame_box := {"n": 0}
+	# The observer's own storage (#846). The window is kept COLUMN-wise in packed
+	# arrays — one PackedFloat64Array per monitor, plus one PackedInt64Array of
+	# timestamps — instead of one Dictionary per frame. A stored value then costs
+	# 8 bytes instead of a hash node and two boxed Variants, which is what the
+	# dogfooding report needed: its stable window rose 1.2 MB of `static_memory`
+	# with every object/node/resource count flat, and 600 retained Dictionaries
+	# were the most plausible source. The frame index is positional (entry i IS
+	# frame i), so it is not stored.
+	#
+	# A packed array is passed by REFERENCE in Godot 4 (the engine's own class
+	# reference states it), so the sampler appends to the very arrays the
+	# finalizer reports: a local bound to a column is the same array as the
+	# Dictionary's entry, and a lambda's by-value capture of `timestamps` is the
+	# same array too. No write-back, and no `frame_box` indirection like the one
+	# an accumulated INT needs in the handlers above.
+	var timestamps := PackedInt64Array()
+	var columns := {}
+	for name in names:
+		columns[String(name)] = PackedFloat64Array()
 	var sample := func() -> Variant:
-		var values := {}
+		timestamps.append(Time.get_ticks_msec())
 		for name in names:
-			values[String(name)] = Performance.get_monitor(_perf_monitors[String(name)])
-		var entry := {
-			"frame": int(frame_box["n"]),
-			"timestamp": Time.get_ticks_msec(),
-			"values": values,
-		}
-		frame_box["n"] = int(frame_box["n"]) + 1
-		return entry
+			var key := String(name)
+			var column: PackedFloat64Array = columns[key]
+			column.append(Performance.get_monitor(_perf_monitors[key]))
+		return null
 	var finalize := func(samples: Array) -> String:
+		# What the COLUMNS hold, which is what grows with the frame count — the
+		# logical size, and so a LOWER bound on what the window costs in the game.
+		# Two parts are outside it: a packed column over-allocates as it grows,
+		# and the shared window base accumulates one Array entry per frame (a nil
+		# here, since this sampler returns none). `samples` is in hand, so counting
+		# that accumulator would be one line right here; it is left out because it
+		# would not close the gap — measured at 600 frames over 16 monitors, on
+		# macOS with Godot 4.6.3: 81,600 + 17,128 against a 113,872-byte
+		# static_memory rise, the remainder being over-allocation on the columns
+		# already counted — and closing the rest would need an engine-internal
+		# sizeof(Variant) estimate. A true total belongs in a separately measured
+		# field, not in this one.
+		var stored := timestamps.size()
+		for name in names:
+			var column: PackedFloat64Array = columns[String(name)]
+			stored += column.size()
 		return _ok({
 			"kind": "sample",
 			"frames": samples.size(),
 			"monitors": names,
-			"samples": samples,
+			"timestamps": timestamps,
+			"values": columns,
+			"collector_bytes": stored * PERF_PACKED_VALUE_BYTES,
 		})
 	return _begin_window(frames, sample, finalize)
 

@@ -392,7 +392,7 @@ names the file, and only `preflight` catches a first-frame failure.
 | `node add` | Add a node under a parent, optionally at `--index`: a built-in type, a `class_name` script, or `--instance` to compose another scene as an instanced child. |
 | `node get` | Read a node's properties (by node path) as typed JSON. |
 | `node list` | List a scene's node tree with each node's path relative to the root. |
-| `node set` | Set a node property, coercing the value to its declared Godot type. On a `Control`, `position` writes the four offsets; a `Container`'s children are layout-managed, so set their offsets directly. |
+| `node set` | Set a node property, coercing the value to its declared Godot type. On a `Control`, `position` writes the four offsets; a `Container`'s children are layout-managed and carry no offsets — set `custom_minimum_size`, the size flags, or the parent's layout. |
 | `node remove` | Remove a node (and its subtree) by node path. |
 | `node duplicate` | Duplicate a node (and its subtree) under its parent. |
 | `node move` | Reparent a node (and its subtree) under a new parent, or reorder it with `--index`. |
@@ -472,9 +472,9 @@ gda restores the explicit lines it drops and reports the rest on the result.
 | Command | What it does |
 | ------- | ------------ |
 | `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches lazily, on the first operation that needs one (`--windowed` for `screen` capture). The project must define `application/run/main_scene`, or pass `--scene`. |
-| `daemon wait-ready` | Launch the engine session now and wait for it; `--timeout` is the daemon's budget for that launch, not a hard ceiling on the call. Read-only `diag` / `logger` tails never launch a session, so run this first when such a read is your first live command. |
+| `daemon wait-ready` | Launch the engine session now and wait for it; `--timeout` is the daemon's budget for that launch, not a hard ceiling on the call. Read-only `diag` / `logger` tails never launch a session, so run this first when such a read is your first live command. A ready session is not a cleanly started scene: read `clean_start` before you read the game as evidence. |
 | `daemon stop` | Stop the project's daemon and any running engine session. |
-| `daemon status` | Report the daemon's state (running, windowed mode, session). |
+| `daemon status` | Report the daemon's state (running, windowed mode, session, and that session's startup verdict). |
 | `daemon install` | Install the in-game harness without starting a daemon, and report what it wrote. Idempotent; `daemon start` does this itself, so use it only to review or commit the `project.godot` change on its own. |
 | `daemon uninstall` | Remove the in-game harness — autoload entry, harness files, `.uid` sidecar — restoring `project.godot`, and report what was removed. Dev-tooling teardown only: `gda export run` already strips the harness from exported builds. |
 
@@ -485,12 +485,14 @@ gda restores the explicit lines it drops and reports the rest on the result.
 | `game tree` | Read the running game's runtime scene tree (after `_ready`). |
 | `game find` | Find runtime nodes by engine class, script, group, name, or unique name, instead of by path. `--type` is the ENGINE class (subclass-inclusive) and never a project `class_name` — `--script res://path.gd` is what reaches that. |
 | `game get` | Read a runtime node's live properties by node path; explicit names can address attached-script variables. |
-| `game rect` | Read a runtime Control's rendered viewport rect by node path. |
+| `game rect` | Read a runtime Control's layout output by node path: the rendered viewport rect, the same rect in the parent's space, and the intrinsic and combined minimum sizes. |
 | `game set` | Set a runtime node property, or an explicitly named attached-script variable, on the running game; `verified` reports whether the read-back matched. |
 | `game call` | Invoke one method the node's script declares in `GDA_CALLABLE` — the project's own read-only promise, which gda cannot verify — and project what it returns; nothing undeclared is ever called. |
 
 `game call` reads what `game get` cannot: state your project exposes as a method.
 `game set --property position` follows the same `Control` rule as `node set`.
+`game get` refuses a Control's `position`, `size`, `global_position` and `global_rect`;
+`game rect` is the read for them.
 
 **`diag`** — runtime diagnostics
 
@@ -508,7 +510,7 @@ gda restores the explicit lines it drops and reports the rest on the result.
 
 | Command | What it does |
 | ------- | ------------ |
-| `perf monitors` | Snapshot the engine's counters — or, with `--frames`, sample a window with statistics and budget verdicts. |
+| `perf monitors` | Snapshot the engine's counters — or, with `--frames`, sample a window with statistics and budget verdicts (`--summary` omits the per-frame samples). |
 | `perf monitor` | Sample a node property or signal over a frame window (timeline). |
 
 **`input`** — input simulation

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=8c2f2dce0229e2a816eb45186888fd06c25af9cabfaf1b84f18cd1a254163f00 -->
+<!-- gda-readme-i18n: source=README.md sha256=ffd6346b637cf849942e1fed5d619cb5f7cfc1adebea294312c9e7b81e68f771 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -407,7 +407,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `node add` | Añade un nodo bajo un padre, opcionalmente en `--index`: un tipo integrado, un script con `class_name`, o `--instance` para componer otra escena como hijo instanciado. |
 | `node get` | Lee las propiedades de un nodo (por ruta de nodo) como JSON tipado. |
 | `node list` | Lista el árbol de nodos de una escena con la ruta de cada nodo relativa a la raíz. |
-| `node set` | Define una propiedad de nodo, forzando el valor a su tipo de Godot declarado. En un `Control`, `position` escribe los cuatro offsets; el layout coloca los hijos de un `Container`, así que define sus offsets directamente. |
+| `node set` | Define una propiedad de nodo, forzando el valor a su tipo de Godot declarado. En un `Control`, `position` escribe los cuatro offsets; el layout coloca los hijos de un `Container` y estos no tienen offsets: define `custom_minimum_size`, las size flags o el layout del padre. |
 | `node remove` | Elimina un nodo (y su subárbol) por ruta de nodo. |
 | `node duplicate` | Duplica un nodo (y su subárbol) bajo su padre. |
 | `node move` | Reasigna un nodo (y su subárbol) a un nuevo padre, o lo reordena con `--index`. |
@@ -488,9 +488,9 @@ en el resultado.
 | Comando | Qué hace |
 | ------- | ------------ |
 | `daemon start` | Arranca el daemon por proyecto e instala el harness dentro del juego; la sesión del motor se inicia solo cuando una operación la necesita (`--windowed` para la captura de `screen`). El proyecto debe definir `application/run/main_scene`, o pasa `--scene`. |
-| `daemon wait-ready` | Lanza la sesión del motor ahora y espera a que esté lista; `--timeout` es el presupuesto que el daemon dedica a ese lanzamiento y no limita estrictamente la duración total de la llamada. Las consultas de solo lectura `diag` / `logger` nunca lanzan una sesión, así que ejecútalo primero cuando una de ellas sea tu primer comando live. |
+| `daemon wait-ready` | Lanza la sesión del motor ahora y espera a que esté lista; `--timeout` es el presupuesto que el daemon dedica a ese lanzamiento y no limita estrictamente la duración total de la llamada. Las consultas de solo lectura `diag` / `logger` nunca lanzan una sesión, así que ejecútalo primero cuando una de ellas sea tu primer comando live. Una sesión lista no es una escena que arrancó limpia: lee `clean_start` antes de leer el juego como evidencia. |
 | `daemon stop` | Detiene el daemon del proyecto y cualquier sesión del motor en ejecución. |
-| `daemon status` | Informa el estado del daemon (en ejecución, modo con ventana, sesión). |
+| `daemon status` | Informa el estado del daemon (en ejecución, modo con ventana, sesión y el veredicto de arranque de esa sesión). |
 | `daemon install` | Instala el harness dentro del juego sin iniciar un daemon e informa qué escribió. Idempotente; `daemon start` ya lo hace por su cuenta, así que úsalo solo para revisar o hacer commit por separado del cambio en `project.godot`. |
 | `daemon uninstall` | Elimina el harness dentro del juego — entrada de autoload, archivos del harness, sidecar `.uid` — restaurando `project.godot`, e informa qué se eliminó. Solo desmontaje de herramientas de desarrollo: `gda export run` ya elimina el harness de las builds exportadas. |
 
@@ -501,12 +501,13 @@ en el resultado.
 | `game tree` | Lee el árbol de escena en runtime del juego en ejecución (después de `_ready`). |
 | `game find` | Encuentra nodos de runtime por clase de motor, script, grupo, nombre o nombre único, en lugar de por ruta. `--type` es la clase del MOTOR (incluye subclases) y nunca un `class_name` del proyecto: `--script res://path.gd` es lo que llega a eso. |
 | `game get` | Lee las propiedades en vivo de un nodo de runtime por ruta de nodo; los nombres explícitos pueden acceder a variables del script adjunto. |
-| `game rect` | Lee el rectángulo renderizado en viewport de un Control de runtime por ruta de nodo. |
+| `game rect` | Lee la salida de layout de un Control de runtime por ruta de nodo: el rectángulo renderizado en viewport, ese mismo rectángulo en el espacio del padre y los tamaños mínimos intrínseco y combinado. |
 | `game set` | Define una propiedad de un nodo de runtime, o una variable del script adjunto nombrada explícitamente, en el juego en ejecución; `verified` informa si la relectura coincidió. |
 | `game call` | Invoca un método que el script del nodo declara en `GDA_CALLABLE` y devuelve su valor como datos estructurados. El propio proyecto declara que el método es de solo lectura, algo que gda no puede comprobar; nunca se invocan métodos no declarados. |
 
 `game call` lee lo que `game get` no puede: estado que tu proyecto expone como método.
 `game set --property position` sigue la misma regla de `Control` que `node set`.
+`game get` rechaza `position`, `size`, `global_position` y `global_rect` de un Control; `game rect` es la lectura que los sirve.
 
 **`diag`** — diagnósticos de runtime
 
@@ -524,7 +525,7 @@ en el resultado.
 
 | Comando | Qué hace |
 | ------- | ------------ |
-| `perf monitors` | Toma una instantánea de los contadores del motor — o, con `--frames`, muestrea una ventana con estadísticas y veredictos de presupuesto. |
+| `perf monitors` | Toma una instantánea de los contadores del motor — o, con `--frames`, muestrea una ventana con estadísticas y veredictos de presupuesto (`--summary` omite las muestras por frame). |
 | `perf monitor` | Muestrea una propiedad o señal de nodo a lo largo de una ventana de frames (línea de tiempo). |
 
 **`input`** — simulación de entrada

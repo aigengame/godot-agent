@@ -57,6 +57,8 @@ from gda.commands.perf import (
     PerfMonitorResult,
     PerfMonitorsResult,
     PerfPropertySample,
+    PerfSampleFrame,
+    PerfSampleStats,
     PerfSignalEmission,
     render_perf_monitor,
     render_perf_monitors,
@@ -65,6 +67,7 @@ from gda.models import EngineVersion, NodeProperty
 from gda.commands.meta import render_engine_version
 from gda.commands.script import ScriptMetadata
 from gda.render import format_value, render_node_tree
+from gda.script_errors import ScriptError, ScriptErrorKind
 
 # The five script result types the metadata renderer used to read as a union.
 SCRIPT_METADATA_MODELS = [
@@ -213,16 +216,25 @@ def test_render_game_get_renders_runtime_properties_by_absolute_path():
 
 
 def test_render_game_rect_renders_the_runtime_control_rect():
+    # The human channel carries every field the JSON one does (#852): the global
+    # rect on the head line, then the local rect and the two minimum sizes, each
+    # labelled with the result key it renders.
     result = GameRectResult(
         path="/root/Main/HUD/Stats",
         name="Stats",
         type="VBoxContainer",
         position=[24.0, 24.0],
         size=[160.0, 48.0],
+        local_position=[0.0, 0.0],
+        local_size=[160.0, 48.0],
+        minimum_size=[23.0, 26.0],
+        combined_minimum_size=[160.0, 48.0],
     )
-    assert (
-        render_game_rect(result) == "/root/Main/HUD/Stats (VBoxContainer) "
-        "position=[24.0, 24.0] size=[160.0, 48.0]"
+    assert render_game_rect(result) == (
+        "/root/Main/HUD/Stats (VBoxContainer) "
+        "position=[24.0, 24.0] size=[160.0, 48.0]\n"
+        "  local_position=[0.0, 0.0] local_size=[160.0, 48.0]\n"
+        "  minimum_size=[23.0, 26.0] combined_minimum_size=[160.0, 48.0]"
     )
 
 
@@ -252,6 +264,51 @@ def test_render_perf_monitors_renders_a_sorted_snapshot():
     # Monitors are listed in a stable (name-sorted) order under the timestamp header.
     assert (
         render_perf_monitors(result) == "perf @ 500ms\n  fps = 60.0\n  node_count = 3.0"
+    )
+
+
+def test_render_perf_monitors_window_states_the_observer_cost_and_rows():
+    # The window header carries what the observer retained and whether the
+    # per-frame rows were kept (#846), so the human form discloses the same
+    # facts the --json result does.
+    stats = {
+        "fps": PerfSampleStats(
+            count=2, min=59.0, max=61.0, mean=60.0, p50=61.0, p95=61.0
+        )
+    }
+    kept = PerfMonitorsResult(
+        kind="window",
+        frames=2,
+        max_frames=600,
+        stats=stats,
+        samples=[
+            PerfSampleFrame(frame=0, timestamp=100, values={"fps": 59.0}),
+            PerfSampleFrame(frame=1, timestamp=116, values={"fps": 61.0}),
+        ],
+        samples_omitted=False,
+        collector_bytes=32,
+    )
+    omitted = PerfMonitorsResult(
+        kind="window",
+        frames=2,
+        max_frames=600,
+        stats=stats,
+        samples=None,
+        samples_omitted=True,
+        collector_bytes=32,
+    )
+
+    assert render_perf_monitors(kept).splitlines()[0] == (
+        "perf window: 2 frames, 1 monitors (ceiling 600, collector >=32 bytes, "
+        "samples kept)"
+    )
+    assert render_perf_monitors(omitted).splitlines()[0] == (
+        "perf window: 2 frames, 1 monitors (ceiling 600, collector >=32 bytes, "
+        "samples omitted)"
+    )
+    # The statistics line is the same either way — --summary drops rows, not data.
+    assert render_perf_monitors(kept) == render_perf_monitors(omitted).replace(
+        "samples omitted", "samples kept"
     )
 
 
@@ -314,7 +371,13 @@ def test_render_daemon_status_notes_the_windowed_session(tmp_path):
     # #251: `daemon status` surfaces the running daemon's display mode. Like
     # `daemon start`, the marker shows only when windowed (headless is the default).
     windowed = DaemonStatusResult(
-        running=True, pid=42, socket_path="/tmp/x.sock", windowed=True, session_id=None
+        running=True,
+        pid=42,
+        socket_path="/tmp/x.sock",
+        windowed=True,
+        session_id=None,
+        startup_diagnostics=None,
+        clean_start=None,
     )
     assert (
         render_daemon_status(windowed)
@@ -330,12 +393,51 @@ def test_render_daemon_status_notes_the_windowed_session(tmp_path):
 
     # The session identity (#660) prints only when a session was established.
     identified = windowed.model_copy(update={"session_id": "a1b2c3d4e5f60718"})
-    assert render_daemon_status(identified).endswith(" session a1b2c3d4e5f60718")
+    rendered = render_daemon_status(identified).splitlines()
+    assert rendered[0].endswith(" session a1b2c3d4e5f60718")
+    # An established session with a null verdict says so (third review of PR
+    # #940): silence here would read as a clean start. Before a session is
+    # established (the `windowed` case above) there is nothing to say.
+    assert rendered[1:] == [
+        "  startup verdict unavailable: the session log up to the handshake was "
+        "not read (run `gda diag errors`)"
+    ]
 
     stopped = DaemonStatusResult(
-        running=False, socket_path="/tmp/x.sock", session_id=None
+        running=False,
+        socket_path="/tmp/x.sock",
+        session_id=None,
+        startup_diagnostics=None,
+        clean_start=None,
     )
     assert render_daemon_status(stopped) == "daemon not running"
+
+    # #848: a session that started clean adds nothing to the line; a degraded one
+    # adds the block, so a reader who only ever looks at stdout still sees it.
+    clean = windowed.model_copy(update={"startup_diagnostics": [], "clean_start": True})
+    assert (
+        render_daemon_status(clean)
+        == "daemon running: pid 42 on /tmp/x.sock [windowed]"
+    )
+
+    degraded = windowed.model_copy(
+        update={
+            "startup_diagnostics": [
+                ScriptError(
+                    kind=ScriptErrorKind.PARSE_ERROR,
+                    message="Parse Error: bad",
+                    path="res://main.gd",
+                    line=5,
+                )
+            ],
+            "clean_start": False,
+        }
+    )
+    assert render_daemon_status(degraded) == (
+        "daemon running: pid 42 on /tmp/x.sock [windowed]\n"
+        "  startup not clean:\n"
+        "    parse_error: res://main.gd:5: Parse Error: bad"
+    )
 
 
 def test_render_daemon_uninstall_reports_removal(tmp_path):

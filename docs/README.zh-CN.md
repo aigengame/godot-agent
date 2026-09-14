@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=8c2f2dce0229e2a816eb45186888fd06c25af9cabfaf1b84f18cd1a254163f00 -->
+<!-- gda-readme-i18n: source=README.md sha256=ffd6346b637cf849942e1fed5d619cb5f7cfc1adebea294312c9e7b81e68f771 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -383,7 +383,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `node add` | 在某个父节点下添加一个节点，可用 `--index` 指定位置：内置类型、带 `class_name` 的脚本，或用 `--instance` 将另一个场景实例化为子节点。 |
 | `node get` | 按节点路径读取一个节点的属性，输出带类型的 JSON。 |
 | `node list` | 列出一个场景的节点树，并给出每个节点相对于根的路径。 |
-| `node set` | 设置一个节点属性，并把值强制转换为它声明的 Godot 类型。对 `Control`，`position` 会写入四个 offset；`Container` 的子节点由布局管理，请直接设置它们的 offset。 |
+| `node set` | 设置一个节点属性，并把值强制转换为它声明的 Godot 类型。对 `Control`，`position` 会写入四个 offset；`Container` 的子节点由布局管理、不带 offset——请改为设置 `custom_minimum_size`、size flags 或父节点的布局。 |
 | `node remove` | 按节点路径移除一个节点（及其子树）。 |
 | `node duplicate` | 在父节点下复制一个节点（及其子树）。 |
 | `node move` | 把一个节点（及其子树）重新挂到新的父节点下，或用 `--index` 调整同级顺序。 |
@@ -463,9 +463,9 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | 命令 | 作用 |
 | ------- | ------------ |
 | `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话按需启动，只有操作需要时才会拉起（`screen` 截图需加 `--windowed`）。项目必须定义 `application/run/main_scene`，或传 `--scene`。 |
-| `daemon wait-ready` | 立即启动引擎会话并等待它就绪；`--timeout` 是 daemon 为这次启动分配的预算，不是这次调用的硬性上限。只读的 `diag` / `logger` 读取从不启动会话，所以当这类读取是你的第一个 Live 命令时，先跑这一步。 |
+| `daemon wait-ready` | 立即启动引擎会话并等待它就绪；`--timeout` 是 daemon 为这次启动分配的预算，不是这次调用的硬性上限。只读的 `diag` / `logger` 读取从不启动会话，所以当这类读取是你的第一个 Live 命令时，先跑这一步。会话就绪不等于场景干净启动：把游戏当作证据来读之前，先读 `clean_start`。 |
 | `daemon stop` | 停止项目的 daemon 以及任何正在运行的引擎会话。 |
-| `daemon status` | 报告 daemon 的状态（是否运行、窗口模式、会话）。 |
+| `daemon status` | 报告 daemon 的状态（是否运行、窗口模式、会话，以及该会话的启动结论）。 |
 | `daemon install` | 在不启动 daemon 的情况下安装游戏内 harness，并报告写入了什么。幂等；`daemon start` 自己就会做这一步，因此只在想单独审阅或提交那次 `project.godot` 改动时使用。 |
 | `daemon uninstall` | 移除游戏内 harness——autoload 条目、harness 文件、`.uid` 附属文件——还原 `project.godot`，并报告移除了什么。仅用于开发工具卸载：`gda export run` 已经会自动从导出产物中剥离 harness。 |
 
@@ -476,12 +476,13 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `game tree` | 读取正在运行的游戏的运行时场景树（在 `_ready` 之后）。 |
 | `game find` | 按引擎类、脚本、组、名称或唯一名称查找运行时节点，而不是按路径。`--type` 匹配的是引擎类（含子类），永远不匹配项目的 `class_name` —— 要匹配后者请用 `--script res://path.gd`。 |
 | `game get` | 按节点路径读取一个运行时节点的实时属性；显式命名时可读取附加脚本变量。 |
-| `game rect` | 按节点路径读取一个运行时 Control 渲染后的视口矩形。 |
+| `game rect` | 按节点路径读取一个运行时 Control 的布局输出：渲染后的视口矩形、同一矩形在父节点空间中的表示，以及固有最小尺寸与合并后的最小尺寸。 |
 | `game set` | 在正在运行的游戏上设置运行时节点属性，或显式命名的附加脚本变量；`verified` 报告读回值是否匹配。 |
 | `game call` | 调用节点脚本在 `GDA_CALLABLE` 中声明的一个方法，并以结构化数据形式返回结果。项目自己承诺该方法是只读的，gda 无法验证；未声明的方法绝不会被调用。 |
 
 `game call` 读取 `game get` 读不到的东西：项目以方法形式暴露的状态。
 `game set --property position` 遵循与 `node set` 相同的 `Control` 规则。
+`game get` 会拒绝读取 Control 的 `position`、`size`、`global_position` 和 `global_rect`；读取它们请用 `game rect`。
 
 **`diag`** — 运行时诊断
 
@@ -499,7 +500,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `perf monitors` | 对引擎计数器拍快照——或配合 `--frames` 在一个帧窗口内采样，输出聚合统计与预算判定。 |
+| `perf monitors` | 对引擎计数器拍快照——或配合 `--frames` 在一个帧窗口内采样，输出聚合统计与预算判定（`--summary` 省略逐帧采样数据）。 |
 | `perf monitor` | 在一个帧窗口内对某个节点属性或信号采样（时间线）。 |
 
 **`input`** — 输入模拟

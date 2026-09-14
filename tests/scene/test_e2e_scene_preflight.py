@@ -478,6 +478,57 @@ def test_a_non_script_binding_is_not_a_clean_start(godot_project):
     assert "incompatible_script" in kinds
 
 
+# A scene that comes up correctly and leaves a RefCounted cycle holding a loaded
+# resource behind it (#844). Nothing fails while it starts — the engine reports
+# the leak only when it exits, after the verdict the op itself printed.
+LEAKY_READY_SCRIPT = """\
+extends Node2D
+
+class Cyclic extends RefCounted:
+\tvar peer: RefCounted = null
+\tvar held: Resource = null
+
+
+func _ready() -> void:
+\tvar a := Cyclic.new()
+\tvar b := Cyclic.new()
+\ta.peer = b
+\tb.peer = a
+\ta.held = load("res://kept.tres")
+\tprinterr("hero ready")
+"""
+
+KEPT_TRES = """\
+[gd_resource type="Resource" format=3]
+
+[resource]
+"""
+
+
+@pytest.mark.e2e
+def test_a_scene_that_leaks_at_exit_is_reported_without_losing_its_verdict(
+    godot_project,
+):
+    # AC3 (#844): the shutdown records reach this channel too, because it reads the
+    # SAME parser over the same captured stderr. What they do NOT do is change the
+    # verdict (PR #964 review): the scene really did come up, and the engine printed
+    # the leak after the run about the whole process, so `started` stays true and
+    # the records are reported beside it.
+    (godot_project / "leaky.gd").write_text(LEAKY_READY_SCRIPT, encoding="utf-8")
+    (godot_project / "kept.tres").write_text(KEPT_TRES, encoding="utf-8")
+    (godot_project / "leaky.tscn").write_text(_scene_tscn("leaky.gd"), encoding="utf-8")
+    gda = Gda(godot_project)
+
+    preflighted = gda("scene", "preflight", "res://leaky.tscn", "--json")
+
+    assert preflighted.returncode == 0, preflighted.stdout + preflighted.stderr
+    data = json.loads(preflighted.stdout)
+    assert data["status"] == "ready"
+    kinds = [diag["kind"] for diag in data["diagnostics"]]
+    assert kinds == ["shutdown_leak", "shutdown_leak"], data["diagnostics"]
+    assert data["started"] is True
+
+
 @pytest.mark.e2e
 def test_the_timeout_verdict_carries_the_elapsed_clock_and_the_configured_ceiling(
     godot_project,

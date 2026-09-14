@@ -39,10 +39,12 @@ from gda.runner import RunResult
 
 from tests.support import (
     INPUT_TAP_ACTION_RESULT,
+    PERF_PACKED_VALUE_BYTES,
     PNG_1X1_B64,
     inject_live_runner,
     minimal_project,
     panel_text,
+    perf_sample_reply,
     screen_capture_reply,
     sentinel,
 )
@@ -104,6 +106,38 @@ def test_gda_callable_constant_name_mirrors_the_harness():
         named = re.findall(r"`?\b(GDA_[A-Z_]+)\b`? script constant", flat)
         assert named, f"{label} must name the declaration constant"
         assert set(named) == {GDA_CALLABLE_CONST}, (label, set(named))
+
+
+def test_perf_packed_value_bytes_mirrors_the_harness():
+    """``collector_bytes`` is arithmetic in GDScript; the fixtures restate it (#846).
+
+    The harness reports what its packed window retained, and the shared fake
+    reply computes the same number so a unit test can assert an exact
+    ``collector_bytes``. If the harness ever stored something wider than 8 bytes
+    per value, that fake would publish a figure no engine produces — invisible
+    until the nightly e2e, because PR CI runs no Godot. Same mirror idiom as the
+    op names, the live error codes and the monitor table.
+    """
+    source = GDA_HARNESS_GD.read_text(encoding="utf-8")
+    match = re.search(r"const PERF_PACKED_VALUE_BYTES := (\d+)", source)
+    assert match is not None, "the harness must declare PERF_PACKED_VALUE_BYTES"
+    assert int(match.group(1)) == PERF_PACKED_VALUE_BYTES
+    # And it must be what the sampler's reply actually multiplies by, not an
+    # unread constant beside a hardcoded number.
+    assert "stored * PERF_PACKED_VALUE_BYTES" in source
+    # And the STORAGE has to be the 8-byte-per-element types the constant
+    # describes (round-1 review): the constant and the multiplication alone let
+    # a narrower column through — PackedFloat32Array with the constant left at 8
+    # passes every other test in the repo, halves the truth of
+    # `collector_bytes`, and silently destroys the full-binary64 fidelity this
+    # command's help and CONTEXT.md's `Value projection` publish (22001251 reads
+    # back as 22001252).
+    assert "= PackedFloat64Array()" in source, (
+        "the perf-sample value columns must stay PackedFloat64Array"
+    )
+    assert "timestamps := PackedInt64Array()" in source, (
+        "the perf-sample timestamp column must stay PackedInt64Array"
+    )
 
 
 def test_game_call_conversion_table_uses_only_live_json_source_types():
@@ -466,15 +500,9 @@ def _perf_monitors_probe(monkeypatch, tmp_path):
         monkeypatch,
         RunResult(
             stdout=sentinel(
-                {
-                    "kind": "sample",
-                    "frames": len(sampled),
-                    "monitors": ["fps"],
-                    "samples": [
-                        {"frame": index, "timestamp": 100 + index, "values": {"fps": v}}
-                        for index, v in enumerate(sampled)
-                    ],
-                }
+                perf_sample_reply(
+                    [100 + index for index in range(len(sampled))], {"fps": sampled}
+                )
             ),
             stderr="",
             exit_code=0,
@@ -739,17 +767,7 @@ def test_a_gda_derived_float_keeps_a_negative_zero_and_discloses_it(
     inject_live_runner(
         monkeypatch,
         RunResult(
-            stdout=sentinel(
-                {
-                    "kind": "sample",
-                    "frames": 2,
-                    "monitors": ["fps"],
-                    "samples": [
-                        {"frame": 0, "timestamp": 100, "values": {"fps": 0.5}},
-                        {"frame": 1, "timestamp": 101, "values": {"fps": 1.5}},
-                    ],
-                }
-            ),
+            stdout=sentinel(perf_sample_reply([100, 101], {"fps": [0.5, 1.5]})),
             stderr="",
             exit_code=0,
         ),
@@ -924,6 +942,164 @@ def test_relayed_live_ops_mirror_the_harness_op_table():
         f"{GDA_HARNESS_GD.name}. (Daemon-SERVED ops belong in "
         "gda.daemon.server.DAEMON_SERVED_OPS, not in the harness op table.)"
     )
+
+
+# --- The Control layout contract: what `game rect` reports, and what `game get`
+# --- says about the reads it does not serve (#852) ----------------------------
+
+# The keys `_handle_game_rect` puts in its success payload. The handler builds the
+# reply in one `_ok({...})` literal, so the wire shape is readable off the source
+# the way the op table above is.
+HARNESS_RECT_REPLY = re.compile(
+    r"^func _handle_game_rect\(.*?\n\treturn _ok\(\{\n(?P<body>.*?)\n\t\}\)$",
+    re.MULTILINE | re.DOTALL,
+)
+HARNESS_REPLY_KEY = re.compile(r'^\t\t"([a-z_]+)":', re.MULTILINE)
+
+# The spellings a caller reaches for on a Control, which `game get` cannot serve.
+HARNESS_CONTROL_LAYOUT_READS = re.compile(
+    r"^const CONTROL_LAYOUT_READS := \[(?P<body>.*?)\]$", re.MULTILINE | re.DOTALL
+)
+
+
+def test_game_rect_reply_keys_mirror_its_published_result_model():
+    # The wire shape of a recipe-less live command is the harness's alone: gda
+    # validates the reply against the result model and publishes it. So a field
+    # the model requires and the harness never writes is a `contract_violation`
+    # on a real engine only — PR CI runs no Godot e2e — and a field the harness
+    # writes and the model omits is a fact the caller never sees. Both are
+    # one-sided edits this equality catches at unit speed.
+    from gda.commands.game import GameRectResult
+
+    source = GDA_HARNESS_GD.read_text(encoding="utf-8")
+    match = HARNESS_RECT_REPLY.search(source)
+    assert match is not None, (
+        f"could not read _handle_game_rect's reply literal from "
+        f"{GDA_HARNESS_GD.name}; fix HARNESS_RECT_REPLY rather than letting this "
+        "guard pass vacuously"
+    )
+    keys = HARNESS_REPLY_KEY.findall(match.group("body"))
+    assert set(keys) == set(GameRectResult.model_fields), (
+        f"harness reply keys {sorted(keys)} != GameRectResult fields "
+        f"{sorted(GameRectResult.model_fields)}"
+    )
+
+
+def test_game_get_names_game_rect_for_the_control_reads_it_cannot_serve():
+    # `game get` reads the storage surface, and a Control's laid-out geometry is
+    # not on it (#852, GDA-DF-071): `position` and `size` carry editor usage only,
+    # `global_position` carries no usage flags, and `global_rect` is a method. The
+    # generic refusal therefore stranded a caller on exactly the reads `game rect`
+    # serves. The message is written in the harness, so this reads the harness.
+    source = GDA_HARNESS_GD.read_text(encoding="utf-8")
+    declared = HARNESS_CONTROL_LAYOUT_READS.search(source)
+    assert declared is not None, (
+        f"{GDA_HARNESS_GD.name} must declare CONTROL_LAYOUT_READS"
+    )
+    assert set(re.findall(r'"([a-z_]+)"', declared.group("body"))) == {
+        "position",
+        "size",
+        "global_position",
+        "global_rect",
+    }
+
+    message = _harness_function(source, "_control_layout_read_message")
+    # The read that DOES serve them, with every field it reports named, so the
+    # caller re-issues one command instead of discovering the fields.
+    assert "gda game rect" in message
+    # The layout INPUTS are stated ONCE, in `_control_layout_inputs`, and both the
+    # redirect and the `position` setter refusal take them from there (third
+    # review of PR #967: the setter had kept naming offset_* on a container child
+    # after the redirect learned better — two owners of one rule).
+    assert "_control_layout_inputs(control)" in message, message
+    setter = _harness_function(source, "_control_position_unavailable_message")
+    assert "_control_layout_inputs(control)" in setter, setter
+    assert "offset_left" not in setter, setter
+    inputs = _harness_function(source, "_control_layout_inputs")
+    for field in (
+        "position",
+        "size",
+        "local_position",
+        "local_size",
+        "minimum_size",
+        "combined_minimum_size",
+    ):
+        assert field in message, f"the redirect must name game rect's {field}"
+    # And the layout INPUT: the storage properties that decide that output, which
+    # `game get` and `game set` do serve. WHICH ones depends on the parent, so the
+    # message branches on the predicate `game set` already uses: the engine strips
+    # offset_* and anchor_* from a direct child of a Container, so naming them
+    # there would send the caller into a second live_unknown_property. Both
+    # branches are observed against a real engine's storage set in
+    # tests/daemon/test_e2e_daemon.py.
+    assert "_has_container_parent(control)" in inputs, (
+        "the shared inputs statement must branch on the container-parent "
+        f"predicate, or it names inputs a container-managed Control does not carry: {inputs}"
+    )
+    message = inputs
+    for storage in (
+        "offset_left",
+        "offset_top",
+        "offset_right",
+        "offset_bottom",
+        "anchor_left",
+        "anchor_top",
+        "anchor_right",
+        "anchor_bottom",
+    ):
+        assert storage in message, f"the redirect must name the storage {storage}"
+    for storage in (
+        "custom_minimum_size",
+        "size_flags_horizontal",
+        "size_flags_vertical",
+    ):
+        assert storage in message, (
+            f"the container-managed branch must name the storage {storage}"
+        )
+    # And that branch REPLACES the free-Control list rather than adding to it. An
+    # append satisfies every "must name" assertion above while telling a
+    # container-managed child to write the offset_* / anchor_* properties it does
+    # not carry — the same dead end, one step further in. The e2e test asserts the
+    # absence in a real engine's message; here the assignment itself is read.
+    head, _, tail = message.partition("if _has_container_parent(control):")
+    container_branch, _, free_branch = tail.partition("\treturn ")
+    assert container_branch and free_branch, message
+    assert (
+        "offset_left" not in container_branch and "anchor_left" not in container_branch
+    ), (
+        "the container branch must RETURN its own inputs, not the free-Control "
+        f"list plus something: {container_branch}"
+    )
+    assert "offset_left" in free_branch, free_branch
+
+    # Control-only: any other node keeps the generic message, so the redirect
+    # cannot send a Node2D caller to a command that refuses it.
+    handler = _harness_function(source, "_handle_game_get")
+    guarded = [
+        line
+        for line in handler.splitlines()
+        if "CONTROL_LAYOUT_READS" in line and "is Control" in line
+    ]
+    assert guarded, (
+        "the CONTROL_LAYOUT_READS redirect must be guarded by a Control check in "
+        f"_handle_game_get: {handler}"
+    )
+
+
+def _harness_function(source: str, name: str) -> str:
+    """One top-level GDScript function's text, its body included."""
+    lines = source.splitlines()
+    start = next(
+        (index for index, line in enumerate(lines) if line.startswith(f"func {name}(")),
+        None,
+    )
+    assert start is not None, f"expected function {name} in {GDA_HARNESS_GD.name}"
+    body = [lines[start]]
+    for line in lines[start + 1 :]:
+        if line and not line.startswith("\t"):
+            break
+        body.append(line)
+    return "\n".join(body)
 
 
 HARNESS_LAUNCH_MARKER = re.compile(r'^const LAUNCH_MARKER := "(.*)"$', re.MULTILINE)

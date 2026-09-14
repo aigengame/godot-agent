@@ -91,6 +91,10 @@ def test_the_published_error_schema_declares_the_optional_evidence_key():
         # templates it could not see.
         "templates_root_checked",
         "templates_root_host",
+        # The two res:// spellings of a `path_case_mismatch` refusal (#845): the
+        # address the caller asked for, and the one the project stores.
+        "requested_path",
+        "stored_path",
     }
     assert doc["error"]["$defs"]["TerminationPhase"]["enum"] == [
         "launched",
@@ -1458,6 +1462,8 @@ def test_sample_perf_results_validate_against_emitted_output_schemas():
             }
         },
         "samples": [{"frame": 0, "timestamp": 100, "values": {"fps": 60.0}}],
+        "samples_omitted": False,
+        "collector_bytes": 16,
         "budget": {
             "fps": {
                 "stat": "p50",
@@ -1470,6 +1476,12 @@ def test_sample_perf_results_validate_against_emitted_output_schemas():
         "passed": True,
     }
     jsonschema.validate(instance=window_instance, schema=monitors_doc["output"])
+    # The window branch admits BOTH forms (#846 AC3): the rows, or the compact
+    # --summary result that omits them and says so.
+    jsonschema.validate(
+        instance={**window_instance, "samples": None, "samples_omitted": True},
+        schema=monitors_doc["output"],
+    )
     jsonschema.validate(
         instance=PERF_MONITOR_PROPERTY_RESULT, schema=monitor_doc["output"]
     )

@@ -29,6 +29,7 @@ BLOCK = re.compile(
 CONTROL_POSITION_POLICY_HELPERS = (
     "_is_control_position_write",
     "_has_container_parent",
+    "_control_layout_inputs",
     "_control_position_unavailable_message",
 )
 

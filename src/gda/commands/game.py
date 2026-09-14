@@ -17,7 +17,7 @@ against the engine session it holds, reading the runtime ``SceneTree`` after
 """
 
 import json
-from typing import Any, Optional
+from typing import Any, NotRequired, Optional, TypedDict
 
 import typer
 from pydantic import (
@@ -88,17 +88,9 @@ class GameNode(BaseModel):
     # The presence rule above is a SERIALIZATION rule, so it lives on the writer
     # rather than on every caller: the field stays a plain int with a 0 default
     # (a consumer reads a number, never None), and the key is dropped from the
-    # emitted JSON when nothing was omitted. `mode="wrap"` runs pydantic's own
-    # serializer first, so nested children are serialized — and pruned — by this
-    # same rule at every depth.
-    @model_serializer(mode="wrap")
-    def _omit_absent_omission_count(
-        self, handler: SerializerFunctionWrapHandler
-    ) -> dict[str, Any]:
-        rendered = handler(self)
-        if not rendered.get("children_omitted"):
-            rendered.pop("children_omitted", None)
-        return rendered
+    # emitted JSON when nothing was omitted. The writer is ONE serializer on
+    # :class:`GameTreeResult`, not one per node — see it for why; a node dumped
+    # on its own therefore keeps the key, which no gda path does.
 
 
 class GameTreeParams(RelayedLiveParams):
@@ -139,6 +131,43 @@ class GameTreeParams(RelayedLiveParams):
     )
 
 
+# The shape ``game tree`` EMITS, as opposed to the shape it holds: identical to
+# :class:`GameNode` / :class:`GameTreeResult` except that `children_omitted` is
+# optional, which is the one difference the prune below makes. Declared because a
+# `model_serializer`'s return annotation is what pydantic builds the writer from
+# — see the method for why a bare mapping is not enough here. Not published: the
+# `--schema` document is generated from the models in validation mode, where a
+# serializer's return type does not appear.
+class EmittedGameNode(TypedDict):
+    """One node of the emitted runtime tree (#929)."""
+
+    name: str
+    type: str
+    path: str
+    children: list["EmittedGameNode"]
+    children_omitted: NotRequired[int]
+
+
+class EmittedGameTree(TypedDict):
+    """The emitted ``game tree`` result (#929)."""
+
+    root: EmittedGameNode
+    truncated: bool
+    omitted_nodes: int
+
+
+def _check_omission(what: str, truncated: bool, omitted_nodes: int) -> None:
+    """The ONE rule both bounded reads share: ``truncated`` is ``omitted_nodes > 0``.
+
+    Stated once so the two result models cannot drift into two rules (third review
+    of PR #939); each keeps its own subject in the message it raises.
+    """
+    if truncated != (omitted_nodes > 0):
+        raise ValueError(
+            f"{what} reports truncated true exactly when omitted_nodes is above 0."
+        )
+
+
 class GameTreeResult(BaseModel):
     """The result of ``gda game tree``: the running game's runtime scene tree (#849).
 
@@ -163,6 +192,54 @@ class GameTreeResult(BaseModel):
             "missing from this result."
         )
     )
+
+    # The ONE writer of :class:`GameNode`'s `children_omitted` presence rule
+    # (#929). It sits here, on the whole tree, because the obvious home — a
+    # `model_serializer` on the node itself — is a Python callback at EVERY
+    # level, and pydantic stops calling those at about 128 nested levels: a
+    # chain the model happily VALIDATED then raised an uncaught
+    # `PydanticSerializationError`, so the CLI exited 1 with a bare traceback
+    # and no `Error envelope` at all, while `scene get`'s plain nested model
+    # refused the same depth typed. One callback at the top runs pydantic's own
+    # serializer over the whole tree first and then walks the dumped
+    # dictionaries with an explicit stack — never recursion, which would only
+    # move the ceiling into Python. The emitted JSON is unchanged and every tree
+    # the model accepts now also serializes; past that the refusal stays the
+    # typed `tree_too_deep` (issue #37) that `game tree --help` states.
+    #
+    # The return type is spelled out rather than left as a bare mapping BECAUSE
+    # of the depth: pydantic serializes a callback's result through the schema
+    # the annotation gives it, and an unannotated one falls back to the inferred
+    # writer, whose own JSON guard stops at the same ~128 levels this method
+    # exists to clear. The annotation is what makes the tree schema-driven again.
+    @model_serializer(mode="wrap")
+    def _omit_absent_omission_counts(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> "EmittedGameTree":
+        rendered = handler(self)
+        # Both reads are defensive because `exclude` / `include` /
+        # `exclude_defaults` let a caller drop either key: the prune must then
+        # find nothing to do, not raise a KeyError the caller reads as a
+        # serialization failure.
+        pending: list[Any] = [rendered["root"]] if "root" in rendered else []
+        while pending:
+            node = pending.pop()
+            if not node.get("children_omitted"):
+                node.pop("children_omitted", None)
+            pending.extend(node.get("children", ()))
+        return rendered
+
+    @model_validator(mode="after")
+    def _check_omission_counters(self) -> "GameTreeResult":
+        # The two counters ARE the partial-read contract (#929): a caller that
+        # reads `truncated` false stops looking, so a reply carrying it beside a
+        # non-zero `omitted_nodes` presents an incomplete tree as a complete one
+        # — and the reverse claims an omission the read never made. A stale or
+        # drifted harness must fail output validation and classify as
+        # contract_violation, never pass as a success. Same rule, same reason as
+        # the `input` gesture evidence (``InputTapResult``, #652).
+        _check_omission("a tree result", self.truncated, self.omitted_nodes)
+        return self
 
 
 # The selectors `gda game find` ANDs together, in the order the params model
@@ -377,6 +454,20 @@ class GameFindResult(BaseModel):
         )
     )
 
+    @model_validator(mode="after")
+    def _check_result_counters(self) -> "GameFindResult":
+        # `count` is published so a caller can branch on the number WITHOUT
+        # walking the list, which makes a count that disagrees with the list
+        # worse than no count at all. The bounding pair carries
+        # :class:`GameTreeResult`'s rule for the same reason it does there: a
+        # search that under-reports its omission reads as proven absence. Both
+        # are harness drift, so both fail output validation and classify as
+        # contract_violation (#929).
+        if self.count != len(self.matches):
+            raise ValueError("a find result's count is the length of matches.")
+        _check_omission("a find result", self.truncated, self.omitted_nodes)
+        return self
+
 
 class GameGetParams(RelayedLiveParams):
     """The params of ``gda game get``: read a running node's runtime properties (#220, #422).
@@ -454,11 +545,21 @@ class GameRectParams(RelayedLiveParams):
 
 
 class GameRectResult(BaseModel):
-    """The result of ``gda game rect``: a Control's rendered viewport-space rect.
+    """The result of ``gda game rect``: a Control's whole layout read (#419, #852).
 
-    ``position`` and ``size`` are the two Vector2 projections from
-    ``Control.get_global_rect()``; no Rect2 projection is added to the shared
-    value projection surface.
+    Four rects and sizes, each a pair of Vector2 projections; no Rect2 projection
+    is added to the shared value projection surface. ``position`` / ``size`` are
+    ``Control.get_global_rect()`` — the rendered viewport-space rectangle, and the
+    reading the command shipped with. ``local_position`` / ``local_size`` are
+    ``Control.get_rect()``, the same rectangle in the PARENT's space. The two
+    minimum sizes are the layout's own inputs, and they are different reads:
+    ``minimum_size`` is the class's intrinsic minimum and EXCLUDES the authored
+    ``custom_minimum_size``, while ``combined_minimum_size`` is the per-axis
+    maximum of the two — the size a parent Container honors.
+
+    Together they answer why a Control renders where it does, which no storage
+    property reports: the authored ``custom_minimum_size`` is readable through
+    ``game get``, but the laid-out result is not (GDA-DF-071).
     """
 
     path: str = Field(description="The addressed node's runtime (absolute) path.")
@@ -473,6 +574,42 @@ class GameRectResult(BaseModel):
     size: list[float] = Field(
         description=(
             "The rendered viewport-space size, as [width, height]. "
+            + LIVE_ENGINE_PRECISION
+        )
+    )
+    local_position: list[float] = Field(
+        description=(
+            "The top-left point in the PARENT's space, as [x, y]: "
+            "Control.get_rect().position, the origin of the node's own transform. "
+            "That equals the node's `position` property while `pivot_offset` is "
+            "zero, or while `scale` and `rotation` are default: a `pivot_offset` "
+            "with a `scale` (or a rotation) moves the origin away from it. It "
+            "differs from the viewport-space point whenever an ancestor is "
+            "offset. " + LIVE_ENGINE_PRECISION
+        )
+    )
+    local_size: list[float] = Field(
+        description=(
+            "The size in the PARENT's space, as [width, height]: "
+            "Control.get_rect().size, which is the node's `size` property "
+            "multiplied by the node's own `scale`. It differs from the "
+            "viewport-space size only where an ANCESTOR applies a scale. "
+            + LIVE_ENGINE_PRECISION
+        )
+    )
+    minimum_size: list[float] = Field(
+        description=(
+            "The class's own intrinsic minimum, as [width, height]: "
+            "Control.get_minimum_size(). It EXCLUDES the authored "
+            "custom_minimum_size, and is [0, 0] for a class with no intrinsic "
+            "minimum (a plain Control). " + LIVE_ENGINE_PRECISION
+        )
+    )
+    combined_minimum_size: list[float] = Field(
+        description=(
+            "The minimum a parent Container honors, as [width, height]: "
+            "Control.get_combined_minimum_size(), the per-axis maximum of "
+            "minimum_size and the authored custom_minimum_size. "
             + LIVE_ENGINE_PRECISION
         )
     )
@@ -751,10 +888,20 @@ def render_game_get(got: "GameGetResult") -> str:
 
 
 def render_game_rect(rect: "GameRectResult") -> str:
-    """Render a Control's runtime rendered rect as one viewport-space line."""
+    """Render a Control's layout read: the viewport rect, then its inputs (#852).
+
+    Three lines, each key labelled with the result field it renders, so the human
+    channel carries every fact the JSON one does. The head line is the rendered
+    viewport-space rectangle — the reading a caller asks for first — and the two
+    indented lines are the parent-space rectangle and the minimum sizes behind it.
+    """
     return (
         f"{rect.path} ({rect.type}) "
-        f"position={format_value(rect.position)} size={format_value(rect.size)}"
+        f"position={format_value(rect.position)} size={format_value(rect.size)}\n"
+        f"  local_position={format_value(rect.local_position)} "
+        f"local_size={format_value(rect.local_size)}\n"
+        f"  minimum_size={format_value(rect.minimum_size)} "
+        f"combined_minimum_size={format_value(rect.combined_minimum_size)}"
     )
 
 
@@ -880,7 +1027,10 @@ def game_tree(
     selected subtree is counted, never silently dropped: the result carries
     `truncated` and `omitted_nodes`, and each node whose children were not walked
     carries `children_omitted`. Read bounded first, then address the nodes you
-    want by their exact path (`game get`, `game rect`, `game set`).
+    want by their exact path (`game get`, `game rect`, `game set`). A tree
+    nesting deeper than about 250 levels is refused (`tree_too_deep`; past about
+    500 the engine's own JSON writer cuts the reply short and the refusal is
+    `contract_violation`): bound such a read with `--root` and `--max-depth`.
     """
     dispatch_domain(
         GAME_TREE_COMMAND,
@@ -1047,6 +1197,18 @@ def game_get(
     height, object_string, digest}, ADR-0035 amendment #666); `--texture-digest`
     opts into its content digest.
 
+    On a Control, `--property position`, `size`, `global_position` and
+    `global_rect` are `live_unknown_property`: none of them is a storage property
+    (the first two carry editor usage only, `global_position` no usage flags, and
+    `global_rect` is a method). They are layout OUTPUT — read them with `gda game
+    rect`, which the refusal message names. The refusal also names the layout
+    INPUTS, and WHICH ones depends on the parent: a free Control carries
+    offset_left, offset_top, offset_right, offset_bottom and anchor_left,
+    anchor_top, anchor_right, anchor_bottom, while a direct child of a Container
+    carries none of those — the engine drops them from its storage set — and its
+    inputs are custom_minimum_size, size_flags_horizontal and
+    size_flags_vertical, plus the parent Container's own layout.
+
     A value the engine reports crosses the wire at full binary64 precision — the
     reply is serialized with Godot's full-precision JSON writer, so a small or
     many-digit value reads back exactly (#752). The one residual is that
@@ -1074,14 +1236,32 @@ def game_rect(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Read a running Control's rendered viewport rect (live).
+    """Read a running Control's layout output (live).
 
     Routes through gda-daemon to the engine session's runtime SceneTree
     (kind = LIVE, ADR-0017), addressed by the runtime node path `game tree`
-    reports. The returned rect is Control.get_global_rect(): viewport-space
-    top-left position and laid-out size. With no daemon it reports
-    `daemon_not_running`; a path that resolves to no running node is
-    `live_node_not_found`; a non-Control node is `live_not_control`.
+    reports. It reports what the layout PRODUCED, which no storage property
+    carries: `position` / `size` are Control.get_global_rect() (viewport-space
+    top-left and laid-out size), `local_position` / `local_size` are
+    Control.get_rect() (the same rectangle in the parent's space), and the two
+    minimum sizes are different reads — `minimum_size` is the class's intrinsic
+    minimum WITHOUT the authored custom_minimum_size, `combined_minimum_size` the
+    per-axis maximum of the two, which is what a parent Container honors. Use it
+    for the four spellings `game get` refuses on a Control (position, size,
+    global_position, global_rect); the layout INPUTS stay `game get` / `game set`
+    storage properties, and which ones a node carries depends on its parent
+    (offset_* / anchor_* on a free Control, custom_minimum_size and the
+    size_flags_* on a direct child of a Container).
+
+    The read is not a pure one: Control.get_minimum_size() is the
+    `_get_minimum_size` virtual with no cache, so where a class leaves that getter
+    to Control the addressed node's script override of it runs once per request,
+    and twice where the combined read finds the minimum-size cache stale
+    (CONTEXT.md, `Project-code execution surface`).
+
+    With no daemon it reports `daemon_not_running`; a path that resolves to no
+    running node is `live_node_not_found`; a non-Control node is
+    `live_not_control`.
 
     A value the engine reports crosses the wire at full binary64 precision — the
     reply is serialized with Godot's full-precision JSON writer, so a small or

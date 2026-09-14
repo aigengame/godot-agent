@@ -33,7 +33,12 @@ from gda.harness.install import (
 
 from tests.support import Gda, assert_windowed_ok, import_project
 
-from tests.conftest import LIVE_MAIN_TSCN, LIVE_PROJECT_GODOT, project_godot
+from tests.conftest import (
+    LIVE_MAIN_TSCN,
+    LIVE_PROJECT_GODOT,
+    SCRIPTED_MAIN_TSCN,
+    project_godot,
+)
 
 # A main scene so the launched session has a runtime SceneTree to read; a Player
 # Node2D child carries a Vector2 storage property (position) for the game get/set
@@ -50,6 +55,62 @@ RECT_MAIN_TSCN = (
     "custom_minimum_size = Vector2(160, 48)\n"
     'text = "HP"\n'
 )
+# The layout fixture for `game rect`'s minimum sizes and local rect (#852), and
+# for the refusal `game get` returns on the reads it cannot serve. Four subjects:
+#
+# * `Box` — a plain `Control` managed by a `Container`. Its `get_minimum_size()`
+#   is the `_get_minimum_size` virtual it does not implement, so (0, 0), and the
+#   authored `custom_minimum_size` is visible ONLY through
+#   `get_combined_minimum_size()`, the per-axis maximum of the two
+#   (`Control::_update_minimum_size_cache`). Its own `position` is (0, 0) in the
+#   container's space while the container itself is offset in the viewport. As a
+#   container-managed child it also carries NO `offset_*` or `anchor_*` storage
+#   property — the engine strips them (`Control::_validate_property`) — which is
+#   what the refusal's container branch must say.
+# * `Tag` — a `Button` whose authored minimum is wider than its intrinsic one and
+#   SHORTER on the other axis, so the combined minimum equals neither input and
+#   the per-axis maximum is observable. Its intrinsic height comes from the
+#   default theme, so the test reads it rather than pinning it.
+# * `Scaled` — a free `Control` with a `scale` and a `pivot_offset`, whose local
+#   transform origin is therefore NOT its `position` property, and whose local
+#   size is its `size` property multiplied by that scale. `Frame` offsets it in
+#   the viewport, so the local and global origins differ too.
+# * `Player` — the non-Control that must keep the generic refusal message.
+MIN_SIZE_MAIN_TSCN = (
+    "[gd_scene format=3]\n\n"
+    '[node name="Main" type="Control"]\n\n'
+    '[node name="HUD" type="VBoxContainer" parent="."]\n'
+    "offset_left = 24.0\n"
+    "offset_top = 24.0\n"
+    "offset_right = 184.0\n"
+    "offset_bottom = 72.0\n\n"
+    '[node name="Box" type="Control" parent="HUD"]\n'
+    "custom_minimum_size = Vector2(80, 20)\n\n"
+    '[node name="Tag" type="Button" parent="HUD"]\n'
+    "custom_minimum_size = Vector2(300, 1)\n\n"
+    '[node name="Frame" type="Control" parent="."]\n'
+    "offset_left = 10.0\n"
+    "offset_top = 5.0\n"
+    "offset_right = 410.0\n"
+    "offset_bottom = 305.0\n\n"
+    '[node name="Scaled" type="Control" parent="Frame"]\n'
+    "offset_left = 30.0\n"
+    "offset_top = 40.0\n"
+    "offset_right = 130.0\n"
+    "offset_bottom = 90.0\n"
+    "scale = Vector2(2, 3)\n"
+    "pivot_offset = Vector2(10, 10)\n\n"
+    '[node name="Player" type="Node2D" parent="."]\n'
+)
+# What `Scaled` and `Tag` are authored with, which `game get` reads back as
+# storage properties. The expected geometry is derived from these in the test, so
+# a change to the fixture cannot leave an assertion pinning a stale number.
+SCALED_OFFSET = (30.0, 40.0)
+SCALED_SIZE = (100.0, 50.0)
+SCALED_SCALE = (2.0, 3.0)
+SCALED_PIVOT = (10.0, 10.0)
+FRAME_OFFSET = (10.0, 5.0)
+TAG_CUSTOM_MINIMUM = [300.0, 1.0]
 CONTROL_POSITION_MAIN_TSCN = (
     "[gd_scene format=3]\n\n"
     '[node name="Main" type="Control"]\n\n'
@@ -256,11 +317,15 @@ def test_daemon_game_set_control_position_updates_offsets_preserving_size(
 
 
 @pytest.mark.e2e
-def test_daemon_game_set_container_managed_control_position_names_offset_alternatives(
+def test_daemon_game_set_container_managed_control_position_names_the_inputs_it_carries(
     tmp_path, daemon_runtime_dir
 ):
     # A Container owns direct-child layout; `game set position` reports an
     # actionable live error instead of claiming a write the next layout pass owns.
+    # ACTIONABLE means the caller can follow it (third review of PR #967): the
+    # engine strips offset_* / anchor_* from a container child's storage set, so
+    # the refusal names custom_minimum_size and the size flags — never the
+    # offsets, which sent the caller into a second live_unknown_property.
     (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(RECT_MAIN_TSCN, encoding="utf-8")
     run = Gda(tmp_path, json_output=True)
@@ -282,8 +347,32 @@ def test_daemon_game_set_container_managed_control_position_names_offset_alterna
         error = json.loads(was_set.stdout)["error"]
         assert error["category"] == "live"
         assert error["code"] == "live_unknown_property"
-        for name in ("offset_left", "offset_top", "offset_right", "offset_bottom"):
-            assert name in error["message"]
+        for name in (
+            "custom_minimum_size",
+            "size_flags_horizontal",
+            "size_flags_vertical",
+        ):
+            assert name in error["message"], error
+        for name in (
+            "offset_left",
+            "offset_top",
+            "offset_right",
+            "offset_bottom",
+            "anchor_left",
+        ):
+            assert name not in error["message"], error
+        # Following the advice WORKS on that node.
+        followed = run(
+            "game",
+            "set",
+            "/root/Main/HUD/Stats",
+            "--property",
+            "custom_minimum_size",
+            "--value",
+            "200,60",
+        )
+        assert followed.returncode == 0, followed.stdout + followed.stderr
+        assert json.loads(followed.stdout)["value"] == [200.0, 60.0]
     finally:
         run("daemon", "stop")
 
@@ -320,6 +409,199 @@ def test_daemon_game_rect_reads_container_managed_child_rect(
         assert doc["type"] == "Label"
         assert doc["position"] == [24.0, 24.0]
         assert doc["size"] == [160.0, 48.0]
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_rect_reports_the_minimum_sizes_and_the_local_rect(
+    tmp_path, daemon_runtime_dir
+):
+    # #852: `game rect` reports the whole layout read, not the global rect alone.
+    # Only a real engine lays a Control out, so the relationships below are read
+    # off a running VBoxContainer and its child.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MIN_SIZE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        hud = run("game", "rect", "/root/Main/HUD")
+        assert hud.returncode == 0, hud.stdout + hud.stderr
+        container = json.loads(hud.stdout)
+
+        box = run("game", "rect", "/root/Main/HUD/Box")
+        assert box.returncode == 0, box.stdout + box.stderr
+        doc = json.loads(box.stdout)
+        assert doc["path"] == "/root/Main/HUD/Box"
+        assert doc["type"] == "Control"
+
+        # The local rect is the SAME rectangle in the parent's space: Control
+        # .position is relative to the parent's rect origin, so the child's global
+        # origin is the container's plus its own. The container is offset in the
+        # viewport, so the two rects differ — which is what makes both worth
+        # reporting.
+        assert doc["local_position"] == [
+            doc["position"][0] - container["position"][0],
+            doc["position"][1] - container["position"][1],
+        ]
+        assert doc["local_position"] != doc["position"], doc
+        # get_rect() and get_global_rect() take the same size through their
+        # transforms and nothing on `Box`'s chain scales, so the two sizes agree.
+        # (`Scaled` below is the fixture's node that does.)
+        assert doc["local_size"] == doc["size"]
+
+        # The two minimum sizes are different reads. A plain Control implements no
+        # `_get_minimum_size`, so its intrinsic minimum is exactly (0, 0) — and the
+        # authored custom_minimum_size (80, 20) appears only in the combined one,
+        # which is the per-axis maximum of the two.
+        assert doc["minimum_size"] == [0.0, 0.0], doc
+        assert doc["combined_minimum_size"] == [80.0, 20.0], doc
+        # The container honors that combined minimum on both axes: BoxContainer
+        # fits every child into a rect no smaller than it.
+        assert doc["size"][0] >= doc["combined_minimum_size"][0], doc
+        assert doc["size"][1] >= doc["combined_minimum_size"][1], doc
+
+        # `Tag` separates the combined minimum from BOTH its inputs. The authored
+        # width wins on x and the theme-driven intrinsic height wins on y, so the
+        # per-axis maximum is a third value — the defining semantics, which a node
+        # whose two minimums are equal cannot show.
+        tag = run("game", "rect", "/root/Main/HUD/Tag")
+        assert tag.returncode == 0, tag.stdout + tag.stderr
+        button = json.loads(tag.stdout)
+        assert button["type"] == "Button"
+        assert button["minimum_size"][1] > TAG_CUSTOM_MINIMUM[1], (
+            "the fixture needs a Button whose theme minimum HEIGHT exceeds the "
+            f"authored {TAG_CUSTOM_MINIMUM[1]}: {button}"
+        )
+        assert button["combined_minimum_size"] == [
+            max(button["minimum_size"][axis], TAG_CUSTOM_MINIMUM[axis])
+            for axis in (0, 1)
+        ], button
+        assert button["combined_minimum_size"] != TAG_CUSTOM_MINIMUM, button
+        assert button["combined_minimum_size"] != button["minimum_size"], button
+
+        # `Scaled` separates the local rect from the node's own `position` and
+        # `size` properties. Control.get_rect() is built from the LOCAL TRANSFORM:
+        # its origin is position + pivot_offset - scale * pivot_offset, and its
+        # size is the node's size multiplied by the node's own scale. `Frame`
+        # offsets it, so the local origin differs from the viewport one too.
+        scaled = run("game", "rect", "/root/Main/Frame/Scaled")
+        assert scaled.returncode == 0, scaled.stdout + scaled.stderr
+        free = json.loads(scaled.stdout)
+        assert free["local_position"] == [
+            SCALED_OFFSET[axis]
+            + SCALED_PIVOT[axis]
+            - SCALED_SCALE[axis] * SCALED_PIVOT[axis]
+            for axis in (0, 1)
+        ], free
+        assert free["local_position"] != list(SCALED_OFFSET), free
+        assert free["local_size"] == [
+            SCALED_SIZE[axis] * SCALED_SCALE[axis] for axis in (0, 1)
+        ], free
+        assert free["local_size"] != list(SCALED_SIZE), free
+        assert free["position"] == [
+            FRAME_OFFSET[axis] + free["local_position"][axis] for axis in (0, 1)
+        ], free
+        # The two `!=` above are the discriminating pair: every anchor is zero, so
+        # the node's own `position` IS the authored offset and its own `size` IS
+        # the authored extent. A harness that reported `control.position` or
+        # `control.size` here would report those two values instead.
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_get_names_game_rect_for_a_controls_layout_reads(
+    tmp_path, daemon_runtime_dir
+):
+    # #852: the four spellings a caller reaches for on a Control are not storage
+    # properties, so `game get` refuses them — and the refusal now names the read
+    # that serves them, plus the layout INPUTS the caller can still write. Which
+    # inputs a node carries depends on its parent, so the message branches and
+    # both branches are checked here: a redirect that names a property the node
+    # does not have is the same dead end one step further in. Only a real engine
+    # reports the storage set, so only e2e can prove the named ones are on it. A
+    # non-Control keeps the generic message.
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MIN_SIZE_MAIN_TSCN, encoding="utf-8")
+    run = Gda(tmp_path, json_output=True)
+
+    # The layout inputs each branch names, and they must all be readable on that
+    # branch's node.
+    container_child = (
+        "custom_minimum_size",
+        "size_flags_horizontal",
+        "size_flags_vertical",
+    )
+    free_control = (
+        "offset_left",
+        "offset_top",
+        "offset_right",
+        "offset_bottom",
+        "anchor_left",
+        "anchor_top",
+        "anchor_right",
+        "anchor_bottom",
+    )
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        for path, named, absent in (
+            ("/root/Main/HUD/Box", container_child, free_control),
+            ("/root/Main/Frame/Scaled", free_control, ()),
+        ):
+            for spelling in ("position", "size", "global_position", "global_rect"):
+                got = run("game", "get", path, "--property", spelling)
+                assert got.returncode == 6, got.stdout + got.stderr
+                error = json.loads(got.stdout)["error"]
+                assert error["code"] == "live_unknown_property", (spelling, error)
+                assert f"gda game rect {path}" in error["message"], error
+                assert "minimum_size" in error["message"], (spelling, error)
+                for storage in named:
+                    assert storage in error["message"], (path, spelling, storage, error)
+                # The container branch REPLACES the free-Control list; it must not
+                # add to it. A message that names both strands the caller on the
+                # offset_* / anchor_* properties this node does not carry, which
+                # every "names this property" assertion above would still pass.
+                for stripped_storage in absent:
+                    assert stripped_storage not in error["message"], (
+                        path,
+                        spelling,
+                        stripped_storage,
+                        error,
+                    )
+
+            # Following the redirect must WORK: every storage property it names is
+            # on that node's storage set, so the caller reaches a value.
+            for storage in named:
+                reached = run("game", "get", path, "--property", storage)
+                assert reached.returncode == 0, reached.stdout + reached.stderr
+                properties = json.loads(reached.stdout)["properties"]
+                assert [entry["name"] for entry in properties] == [storage], properties
+
+        # And the container branch says why it names other inputs: the engine
+        # strips offset_* and anchor_* from a container-managed child, so the free
+        # Control's list would strand the caller.
+        stripped = run("game", "get", "/root/Main/HUD/Box", "--property", "offset_left")
+        assert stripped.returncode == 6, stripped.stdout + stripped.stderr
+        assert json.loads(stripped.stdout)["error"]["code"] == "live_unknown_property"
+        refusal = json.loads(
+            run("game", "get", "/root/Main/HUD/Box", "--property", "size").stdout
+        )["error"]["message"]
+        assert "direct child of a Container" in refusal, refusal
+
+        # A non-Control has no layout output to redirect to: same code, generic
+        # message, no `game rect`.
+        other = run("game", "get", "/root/Main/Player", "--property", "size")
+        assert other.returncode == 6, other.stdout + other.stderr
+        error = json.loads(other.stdout)["error"]
+        assert error["code"] == "live_unknown_property"
+        assert "game rect" not in error["message"], error
     finally:
         run("daemon", "stop")
 
@@ -1405,3 +1687,92 @@ def test_daemon_serves_screen_capture_while_scenetree_paused(
         assert resumed_after > resumed_before
     finally:
         run("daemon", "stop")
+
+
+# --- the readiness boundary discloses a degraded start (#848) ------------------
+# GDA-DF-047: `daemon start --scene <fixture>` returned a successful pid although
+# the root's attached script failed to parse. The root booted script-less, the
+# first live tree held only it, and the automation captured a blank frame — the
+# failure was visible only in `diag errors`, after a live read had already
+# established the session. Only a real engine proves the fix: the verdict is read
+# out of the daemon-owned Session log the ENGINE wrote, at the moment the harness
+# handshake completed, so nothing short of a real launch produces that file.
+
+# A root script that does not compile. The scene still LOADS — Godot logs the
+# parse failure and leaves the root script-less — so the session serves.
+BROKEN_ROOT_GD = "extends Node2D\n\n\nfunc _ready() -> void:\n\tvar model: = broken\n"
+
+# The same shape, compiling: the contrast is the script's fate, not its presence.
+CLEAN_ROOT_GD = 'extends Node2D\n\n\nfunc _ready() -> void:\n\tprint("gda ready")\n'
+
+
+def _startup_verdict(project, script_source: str) -> tuple[dict, dict]:
+    """Boot ``script_source`` as the main scene's root script; return the verdicts.
+
+    The pair a caller reads at the readiness boundary: what ``daemon wait-ready``
+    answered, and what ``daemon status`` reports for the same serving session
+    afterwards (no relaunch).
+    """
+    (project / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (project / "main.tscn").write_text(SCRIPTED_MAIN_TSCN, encoding="utf-8")
+    (project / "main.gd").write_text(script_source, encoding="utf-8")
+    run = Gda(project, json_output=True)
+    try:
+        # `--scene <fixture>` rather than the main_scene default, because that is
+        # how GDA-DF-047 was reported and what the acceptance criterion names.
+        # The two boot the same scene here (the fixture IS this project's
+        # main_scene), but the selector also runs the launch-boundary scene
+        # verification, so the disclosure is proven on the path the note used.
+        started = run("daemon", "start", "--scene", "res://main.tscn")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        ready = run("daemon", "wait-ready")
+        assert ready.returncode == 0, ready.stdout + ready.stderr
+        status = run("daemon", "status")
+        assert status.returncode == 0, status.stdout + status.stderr
+        return json.loads(ready.stdout), json.loads(status.stdout)
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_wait_ready_discloses_a_root_script_that_did_not_compile(
+    tmp_path, daemon_runtime_dir
+):
+    ready, status = _startup_verdict(tmp_path, BROKEN_ROOT_GD)
+
+    # A disclosure on SUCCESS, not a refusal: the session serves, which is exactly
+    # when `diag errors`, `game tree` and a capture are wanted.
+    assert ready["launched"] is True
+    assert ready["clean_start"] is False
+
+    # Every recognized record is about the script the scene bound, and the compile
+    # failure names the line. The engine may spell one broken declaration as
+    # several parse records, so the assertions are on WHAT was recognized, not on
+    # how many sentences this engine build prints for this source.
+    recognized = ready["startup_diagnostics"]
+    assert recognized, ready
+    assert {error["path"] for error in recognized} == {"res://main.gd"}
+    kinds = {error["kind"] for error in recognized}
+    assert "parse_error" in kinds and "compile_failed" in kinds
+    assert 5 in {
+        error["line"] for error in recognized if error["kind"] == "parse_error"
+    }
+
+    # `daemon status` reports the SAME verdict for the serving session, so a later
+    # caller reads it without relaunching the game.
+    assert status["clean_start"] is False
+    assert status["startup_diagnostics"] == ready["startup_diagnostics"]
+
+
+@pytest.mark.e2e
+def test_wait_ready_reports_a_clean_start_for_a_scene_that_compiles(
+    tmp_path, daemon_runtime_dir
+):
+    ready, status = _startup_verdict(tmp_path, CLEAN_ROOT_GD)
+
+    assert ready["launched"] is True
+    assert ready["clean_start"] is True
+    assert ready["startup_diagnostics"] == []
+    assert status["clean_start"] is True
+    assert status["startup_diagnostics"] == []
