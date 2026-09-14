@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 import typer
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from gda.binary import resolve_godot_binary
 from gda.daemon.discovery import (
@@ -191,6 +191,29 @@ class DaemonStatusParams(BaseModel):
     """The params of ``gda daemon status``: none."""
 
 
+def check_startup_verdict_pair(
+    diagnostics: "list[ScriptError] | None", clean_start: "bool | None"
+) -> None:
+    """Raise ``ValueError`` unless the startup verdict is ONE fact (#848).
+
+    Either both values are null — no verdict — or ``startup_diagnostics`` is a
+    list and ``clean_start`` is exactly "that list is empty". Owned HERE, on the
+    published values, and enforced by both result models below: the daemon
+    computing the boolean in one place is a property of ONE deployment, and the
+    CLI/daemon skew this slice makes reachable is exactly a second one (fourth
+    review of PR #940). ``wait-ready`` lets the violation fail output validation
+    (`contract_violation`, the channel a missing key already takes); ``status``
+    degrades it to the null pair before it builds its result, through this same
+    function, because a status read must not crash on a drifted daemon.
+    """
+    if (diagnostics is None) != (clean_start is None):
+        raise ValueError(
+            "startup_diagnostics and clean_start are null together or not at all"
+        )
+    if diagnostics is not None and clean_start != (not diagnostics):
+        raise ValueError("clean_start must be exactly 'startup_diagnostics is empty'")
+
+
 class DaemonStatusResult(BaseModel):
     """The result of ``gda daemon status``: whether a per-project daemon is up."""
 
@@ -261,6 +284,11 @@ class DaemonStatusResult(BaseModel):
             "did not see is not evidence of a clean start."
         ),
     )
+
+    @model_validator(mode="after")
+    def _one_verdict(self) -> "DaemonStatusResult":
+        check_startup_verdict_pair(self.startup_diagnostics, self.clean_start)
+        return self
 
 
 # A daemon-SERVED op (``gda.daemon.server.DAEMON_SERVED_OPS``): the daemon consumes
@@ -348,9 +376,17 @@ class DaemonWaitReadyResult(BaseModel):
             "disclosure, not a refusal — the session serves, which is exactly "
             "when `diag errors`, `game tree` and a capture are wanted. Null when "
             "the prefix could not be read, together with `startup_diagnostics`: "
-            "a log gda did not see is not evidence of a clean start."
+            "a log gda did not see is not evidence of a clean start. The pair "
+            "is one fact — both null, or a list and exactly `that list is "
+            "empty`; a reply that says otherwise fails output validation as "
+            "`contract_violation`."
         )
     )
+
+    @model_validator(mode="after")
+    def _one_verdict(self) -> "DaemonWaitReadyResult":
+        check_startup_verdict_pair(self.startup_diagnostics, self.clean_start)
+        return self
 
 
 class DaemonInstallParams(BaseModel):
@@ -1046,10 +1082,12 @@ def _startup_verdict(
         recognized = [ScriptError.model_validate(entry) for entry in raw]
     except ValidationError:
         return None, None
-    # The pair is ONE fact: the boolean is "that list is empty". A reply that
-    # says otherwise is a drifted daemon, and half a verdict is no verdict
-    # (third review of PR #940).
-    if clean != (not recognized):
+    # The pair is ONE fact, and the rule is the result models' own
+    # (:func:`check_startup_verdict_pair`): a reply that breaks it is a drifted
+    # daemon, and half a verdict is no verdict.
+    try:
+        check_startup_verdict_pair(recognized, clean)
+    except ValueError:
         return None, None
     return recognized, clean
 
@@ -1554,8 +1592,9 @@ def daemon_wait_ready(
     prefix (`gda diag errors` says `live_log_unavailable`), never a clean start
     it did not see; and read `gda diag errors` for the whole log (#848).
 
-    A daemon started by an OLDER gda answers without these two keys, which the
-    CLI reports as `contract_violation`; run `gda daemon stop`, then `gda daemon
+    A daemon started by an OLDER gda answers without these two keys — and a
+    drifted one with a pair that contradicts itself — which the CLI reports as
+    `contract_violation`; run `gda daemon stop`, then `gda daemon
     start`, so the daemon serves the current contract. A mixed-version session
     is not a compatibility target and gets no negotiation — the CLI/daemon leg
     of ADR-0018's current-harness policy.

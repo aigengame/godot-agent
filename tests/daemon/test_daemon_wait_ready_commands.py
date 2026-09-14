@@ -9,9 +9,12 @@ regression is the e2e.
 
 import json
 
+import pytest
+from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from gda.cli import app
+from gda.commands.daemon import DaemonStatusResult, DaemonWaitReadyResult
 from gda.exit_codes import EXIT_LIVE
 from gda.runner import RunResult
 from tests.support import (
@@ -266,6 +269,56 @@ def test_wait_ready_human_output_names_an_unavailable_verdict(monkeypatch, tmp_p
         "  startup verdict unavailable: the session log up to the handshake was "
         "not read (run `gda diag errors`)",
     ]
+
+
+# The pair is ONE fact (fourth review of PR #940): both null, or a list and
+# exactly "that list is empty". A reply that says otherwise is a drifted daemon,
+# and on `wait-ready` it fails OUTPUT validation the way a missing key does —
+# never a success carrying half a verdict.
+CONTRADICTIONS = [
+    (None, True),
+    ([], None),
+    ([], False),
+    (DEGRADED["startup_diagnostics"], True),
+]
+
+
+@pytest.mark.parametrize("diagnostics,clean", CONTRADICTIONS)
+def test_wait_ready_rejects_a_contradictory_verdict_pair(
+    monkeypatch, tmp_path, diagnostics, clean
+):
+    reply = {**READY, "startup_diagnostics": diagnostics, "clean_start": clean}
+    inject_live_runner(
+        monkeypatch, RunResult(stdout=sentinel(reply), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path)), "--json"],
+    )
+
+    assert result.exit_code != 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
+
+
+@pytest.mark.parametrize("model", [DaemonWaitReadyResult, DaemonStatusResult])
+@pytest.mark.parametrize("diagnostics,clean", CONTRADICTIONS)
+def test_both_result_models_own_the_one_verdict_rule(model, diagnostics, clean):
+    # The rule lives on the published values, not in the daemon that computed
+    # them: a second deployment (the reachable CLI/daemon skew) is exactly where
+    # "the daemon derives the boolean in one place" stops being evidence.
+    base = {
+        "pid": 4242,
+        "launched": True,
+        "running": True,
+        "socket_path": "/tmp/x.sock",
+        "session_id": None,
+    }
+    fields = {k: v for k, v in base.items() if k in model.model_fields}
+    with pytest.raises(ValidationError):
+        model(**fields, startup_diagnostics=diagnostics, clean_start=clean)
+    for good_diagnostics, good_clean in ((None, None), ([], True)):
+        model(**fields, startup_diagnostics=good_diagnostics, clean_start=good_clean)
 
 
 def test_wait_ready_schema_publishes_the_startup_verdict():
