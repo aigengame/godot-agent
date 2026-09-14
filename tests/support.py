@@ -1135,14 +1135,22 @@ GAME_CALL_RESULT = {
     "value": {"phase": 3, "ready": True, "labels": ["a", "b"]},
 }
 
-# Sample ``gda game rect`` result — a running Control's rendered viewport-space
-# rectangle, addressed by the absolute runtime path (#419).
+# Sample ``gda game rect`` result — a running Control's whole layout read,
+# addressed by the absolute runtime path (#419, #852): the rendered
+# viewport-space rectangle, the same rectangle in the parent's space, and the two
+# minimum sizes. The local origin differs from the global one because the sample
+# node is a container-managed child; the combined minimum is the per-axis maximum
+# of ``minimum_size`` and the authored ``custom_minimum_size``.
 GAME_RECT_RESULT = {
     "path": "/root/Main/HUD/Stats",
     "name": "Stats",
     "type": "VBoxContainer",
     "position": [24.0, 24.0],
     "size": [160.0, 48.0],
+    "local_position": [0.0, 0.0],
+    "local_size": [160.0, 48.0],
+    "minimum_size": [23.0, 26.0],
+    "combined_minimum_size": [160.0, 48.0],
 }
 
 # Sample ``gda diag errors`` result — the running game's runtime errors,

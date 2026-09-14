@@ -139,18 +139,23 @@ they answer *different* ones:
   `--frames` idle frames so startup work landing after `_ready` still prints, and reports
   `status` (`ready` / `not_ready` / `timeout`) plus the script errors gda recognized in the
   engine's error stream. Read `started`: true only when the scene reached `_ready` AND nothing was
-  recognized on stderr, which is the distinction the dogfooding note asks for (GDA-DF-030 —
-  static validation passed while the first live launch rejected every assembly). Recognition is
-  #651's closed set: the engine's own failure sentences (a runtime error, a failed assertion, a
+  recognized on stderr WHILE it started, which is the distinction the dogfooding note asks for
+  (GDA-DF-030 — static validation passed while the first live launch rejected every assembly).
+  Recognition is #651's closed set: the engine's own failure sentences (a runtime error, a failed assertion, a
   script that could not load, a script binding the engine refused) **and a project-raised
   `push_error()`** (#722), which is the most common way a Godot project reports exactly the
   invariant violation GDA-DF-030 describes. That one is recognized by its `at:` frame — which
   the engine fixes as `push_error` — never by its message, which is the project's own prose; its
   `kind` is `push_error` and its `path`/`line` are the call site named in the engine's GDScript
-  backtrace, or null when it attached none. Everything else the engine prints stays
-  unrecognized: a backtrace alone does not qualify a record, since the engine attaches one to
-  any error raised while GDScript is on the stack, including engine-side failures a script only
-  triggered indirectly.
+  backtrace, or null when it attached none. The set also holds **the engine's exit-time leak
+  report** (#844), `kind` `shutdown_leak`, and that one is DATA here: the engine prints it after
+  the scene ran and about the whole process — an autoload's leak reads exactly like the scene's
+  own — so a scene that comes up and leaks reads `status: ready` with `started: true`, the leak
+  records reported beside that verdict in `diagnostics`. Gating `started` on the record would
+  report a scene whose nodes carry no script at all as not started.
+  Everything else the engine prints stays unrecognized: a backtrace alone does not qualify a
+  record, since the engine attaches one to any error raised while GDScript is on the stack,
+  including engine-side failures a script only triggered indirectly.
 
 **A composed verdict, not a single-file one** (established by #721): a scene that references a
 broken one is broken too, and its own dependency walk can never see that — `res://child.tscn`
@@ -375,10 +380,18 @@ offsets rather than a normal serialized storage field, but it is a common author
 free-positioned `Control`, `gda node set --property position --value x,y` coerces `x,y` as a
 `Vector2`, writes `offset_left` / `offset_top` / `offset_right` / `offset_bottom`, preserves the
 current size, and echoes the resulting `position`. If the `Control` is a direct child of a
-`Container`, the command refuses with `unknown_property` and names the four offset properties as the
-actionable alternative; container-managed layout is not overridden. Live `gda game set` mirrors the
-same policy with `live_unknown_property` for the container-managed case. `gda game rect` remains a
-read-only rendered-geometry query and is not a setter.
+`Container`, the command refuses with `unknown_property` and names what such a child DOES carry —
+`custom_minimum_size`, `size_flags_horizontal` / `size_flags_vertical`, and the parent `Container`'s
+own layout — because the engine drops `offset_*` / `anchor_*` from a container child's storage set
+(`Control::_validate_property`), so naming the offsets sent the caller into a second refusal (PR
+#967, third review); container-managed layout is not overridden. Live `gda game set` mirrors the
+same policy with `live_unknown_property` for the container-managed case, and both refusals share
+one statement of a Control's layout inputs with the `game get` redirect. `gda game rect` is the read
+for a `Control`'s layout output (#852) and is not a setter, but it is not a pure read either:
+`Control::get_minimum_size()` is the `_get_minimum_size` virtual with no cache, so where a class
+leaves that getter to `Control` the addressed node's script override of it runs once per request,
+and twice where the combined read finds the minimum-size cache stale (CONTEXT.md, `Project-code
+execution surface`).
 
 **Object-typed property assignment by `res://` reference** (ADR-0033, #363): for an **Object-typed**
 property that expects a Resource (sub)class — e.g. a `CollisionShape2D`'s `shape` (`Shape2D`) — `gda
@@ -868,8 +881,11 @@ because a script compiled against the wrong project reports every `res://` depen
 plus the type errors derived from them, which reads as a broken script; `project_root` is what
 tells the two apart. A target the resolved project **does not own** is **refused before parsing**
 with `target_outside_project`, naming both the file and the project, rather than emitting that
-false cascade. The check applies to **every** path in a batch, and the first offender in requested
-order refuses the whole call (#663): one call has one project, so one outsider makes the requested
+false cascade. A target it does own but spells differently — the same path in another CASE —
+is `path_case_mismatch` (#845), because Godot opens it on a case-insensitive filesystem with
+only a `WARN_PRINT` the classifier skips, so a portability gate reported `valid: true` for a
+path that fails on Linux (GDA-DF-062). Both checks apply to **every** path in a batch, and
+the first offender in requested order refuses the whole call (#663): one call has one project, so one outsider makes the requested
 set unservable. `--all` carries no paths to check, and needs none: it enumerates through gda's own
 `res://` walk, which skips a directory holding a nested `project.godot` exactly as the engine's
 editor scan does (`EditorFileSystem::_should_skip_directory`), so it never reaches a file this
@@ -950,6 +966,24 @@ arms that abort even though it is recognized (#722): it interrupts nothing — e
 continues at the next statement — so a script that reports an invariant and then computes
 quietly is alive by construction. It does appear in the run's `diagnostics`, which are advisory:
 a project that uses `push_error` as ordinary logging sees entries on runs that still succeed.
+
+**`--strict` fails a run on either of two triggers** (#844): the non-zero status the script
+chose, or a `shutdown_leak` diagnostic — Godot's two exit-time leak records (`ObjectDB
+instances leaked at exit`, `<n> resources still in use at exit`), which it prints after the
+run. A suite can report a pass, `quit(0)` and still leave its objects and a loaded resource
+alive, so a status-only gate called that run clean and the production had to add "stderr must
+be empty" as a gate of its own (GDA-DF-063). ONE verdict, not two: the same `script_failed`
+code, the same `evidence.exit_status` / `evidence.script_errors` keys and the same producer;
+only the message differs, quoting the engine's leak sentence when the status is zero. Without
+`--strict` the diagnostic is data on the successful result, as #651 decided for every error
+the script survived. Recognition still keys on the engine's own format strings — one of the
+two records is the parser's only WARNING — so a project `push_warning()` spelling the same
+words is not a leak. Two boundaries the wording keeps: the leak is the PROCESS's, so an
+autoload's leak reads exactly like the script's own and the message says the engine reported
+a leak rather than that this script leaked; and the engine's OTHER exit-time leak family, the
+RID reports, is deliberately outside the recognized set, so a run that leaks only RIDs passes
+`--strict` with no diagnostic.
+
 `script run` takes the two portable script-path forms — a `res://` address and a
 project-relative path — and decides the whole path edge before any launch (ADR-0031). Six
 shapes are `invalid_path`: an absolute path, another engine scheme, a leading `~`, a path
@@ -959,7 +993,13 @@ is the shared containment verdict instead, `target_outside_project` (ADR-0006 am
 #697/#763) — the code `script validate` and `resource import` report for the same
 condition; it names no root, because this edge is decided ahead of the projectless check.
 The resolved project must also OWN the script: a nearer `project.godot` between the two is
-the same refusal, naming the owner to pass.
+the same refusal, naming the owner to pass. And the script must be spelled the way the
+project stores it: a path differing only in CASE is `path_case_mismatch` (#845), the same
+refusal `script validate` and `resource import` make, decided at ADR-0006's path authority
+and through the same gate. Such a path opens on a case-insensitive filesystem and fails on
+a case-sensitive one, so gda reports one code on every platform and carries both `res://`
+spellings as `evidence.requested_path` / `evidence.stored_path`; re-issue with the stored
+one. It carries no `hint` — that key is the curated near-miss table's (ADR-0004, #670).
 
 Every `script run` failure that computed evidence also carries it as DATA on the
 envelope's optional `evidence` key (#687): the child's own `exit_status` on `--strict`'s
@@ -1171,7 +1211,9 @@ is `target_outside_project` (#763), while one that collapses back inside (`res:/
 is accepted, exactly as the script commands accept it. An asset a NESTED `project.godot`
 owns gets the same refusal, because the engine's own scan skips that directory
 (`EditorFileSystem::_should_skip_directory`) and would return `not_importable` after a
-wasted pass. `user://`/`uid://` name no project asset and stay `invalid_params`. `resource import ASSETS... [--dry-run] [--timeout S]` reads
+wasted pass. An asset whose CASE does not match the stored entry is `path_case_mismatch`
+(#845) — the same authority, the same gate, the same code the two `script` commands
+report. `user://`/`uid://` name no project asset and stay `invalid_params`. `resource import ASSETS... [--dry-run] [--timeout S]` reads
 each requested asset's EVIDENCE STATE from the same project artifacts the engine's own
 reimport test reads: `cached` needs positive ARTIFACT-level evidence (a keep/skip
 importer, or the PATH-derived `.md5` receipt present with `source_md5`/`dest_md5`
@@ -1204,7 +1246,28 @@ gda's scoping is in the decision and the report. A real run settles each state
 every `invalid` request settles here without spending a pass) and lists every created
 file, classified against the explicit cache root: `cache_owned` (under `res://.godot`) vs
 `source_adjacent` (`.import` and `.uid` sidecars — the GDA-DF-038 noise, accounted file by
-file). `--dry-run` writes nothing and reports the decidable inventory: the per-asset
+file). An `invalid` or `failed` asset also says WHY (#853): `reason` names the check that
+decided it — `sidecar_marked_invalid` (the engine failed the last import),
+`sidecar_unparsable`, `receipt_unsupported`, or the settlement's own
+`dest_missing_after_pass` — and `detail` the offending line or path where the check
+knows one the record does not already carry (the malformed `dest_files=`/`files=` line,
+the derived `.md5` receipt). The three artifact reasons are decided in the evidence
+adapter and SURVIVE the settlement, so a real run's `failed` still names the pre-pass
+check that refused it; `dest_missing_after_pass` is the one only the command can decide
+— no check refused the asset, the pass ran, and it is still not cached. For a `failed`,
+`engine_output` carries the pass's stderr lines naming the asset's `res://` path,
+verbatim and in order, whenever THIS request ran a pass — empty when none ran — bounded
+to 20 with `engine_output_truncated` when more matched (#665's rule without its spill
+file; the engine's `at:` continuation lines name a source file, not the asset, so they
+stay out). It is independent of `reason`, deliberately: `reason` is gda's pre-pass
+evidence and `engine_output` is the engine's own words, and the engine NAMES an asset it
+then skips (an unparsable sidecar draws two `ResourceFormatImporter::load` errors before
+the skip; a receipt outside gda's narrower subset is re-imported and fails in the open).
+Those lines are the ones naming the asset, which for some importers is the verdict
+without its cause — pass the global `--user-data-root DIR` to keep the whole engine
+stream at `DIR/logs/godot.log`. PIPE-DF-191 is the caller who got the bare `failed` and
+had to prove the outcome from unchanged resource bytes.
+`--dry-run` writes nothing and reports the decidable inventory: the per-asset
 states, the requested assets' sidecars-to-be, and `pass_will_also_import` — the OTHER
 stale assets the project-wide pass will re-import (invalid ones excluded; assets under a
 nested project's, a `.gdignore`d or a **dot-prefixed** directory excluded too, since the
@@ -1429,6 +1492,10 @@ re-derives every verdict from a running engine.
   nothing was omitted, so the unbounded read pays nothing per node. Unbounded stays the
   default and the caller's choice; the follow-up read is a narrower `--root`, not a
   continuation token, which would page a snapshot the live tree has already left behind.
+  A tree nesting deeper than about 250 levels is refused (`tree_too_deep`; past about 500
+  the engine's own JSON writer cuts the reply short and the refusal is `contract_violation`):
+  bound such a read with `--root` and `--max-depth` (#929, the retained ceilings the help
+  names).
   `game find` (shipped, [#855](https://github.com/aigengame/godot-agent/issues/855),
   from GDA-DF-051, where a rebuilt screen moved an actor slot from `Enemy0` to `Enemy1`
   and a full-tree read was the only way to find it again) answers "which node is it
@@ -1461,17 +1528,37 @@ re-derives every verdict from a running engine.
   the content digest of each PATH-LESS `Texture2D` value's **texture projection**
   (ADR-0035 amendment): the digest needs `Texture2D.get_image()`, a GPU-to-CPU readback,
   so without the flag the projection's `digest` field stays null.
-  `game rect` (shipped, #419) reads a running
-  `Control`'s rendered viewport-space rectangle via `Control.get_global_rect()`, returning
-  `position` and `size` as the existing Vector2 projection. These commands address the
-  node by its **runtime (absolute) path** as `game tree` reports it (e.g.
+  `game rect` (shipped, #419, extended by #852) reads a running `Control`'s layout
+  OUTPUT, which no storage property carries: `position` / `size` from
+  `Control.get_global_rect()` (the rendered viewport-space rectangle), `local_position` /
+  `local_size` from `Control.get_rect()` (the same rectangle in the PARENT's space, which
+  differs from the viewport-space one by the ancestors' TRANSFORM — an ancestor offset
+  moves the origin, an ancestor scale multiplies the origin and the size; the local origin
+  is the node's own `position` moved by `pivot_offset` where a `scale` or a `rotation` is
+  set, and the local size is the node's own `size` multiplied by its own `scale`), and the
+  two minimum sizes, which are different reads — `minimum_size`
+  (`Control.get_minimum_size()`) is the class's intrinsic minimum and EXCLUDES the
+  authored `custom_minimum_size`, while `combined_minimum_size`
+  (`Control.get_combined_minimum_size()`) is the per-axis maximum of the two, the size a
+  parent `Container` honors. Each is the existing Vector2 projection. These commands
+  address the node by its **runtime (absolute) path** as `game tree` reports it (e.g.
   `/root/Main/Player`), in contrast to the on-disk node group's **root-relative** path:
   the live tree has no `.tscn` scene root to be relative to, and the headless resolver
   rejects absolute paths, so the harness resolves off the running `SceneTree` root. A
   `set` applies at a frame boundary (ADR-0020) and is bound to the session, not persisted;
   a missing node is `live_node_not_found`, an absent property `live_unknown_property`, an
   uncoercible value `live_uncoercible_value`, and a `game rect` target that is not a
-  `Control` is `live_not_control`. The on-disk counterparts stay under `scene` / `node`
+  `Control` is `live_not_control`. On a `Control`, the four spellings a caller reaches for
+  — `position`, `size`, `global_position` and `global_rect` — are not storage properties
+  (the first two carry editor usage only, `global_position` no usage flags, and
+  `global_rect` is a method), so `game get` refuses them; since #852 that
+  `live_unknown_property` message names `gda game rect` and the fields it reports, plus
+  the storage properties that decide the layout — and WHICH ones those are depends on the
+  parent, so the message branches: the `offset_*` / `anchor_*` set on a free `Control`, and
+  `custom_minimum_size` / `size_flags_horizontal` / `size_flags_vertical` plus the parent
+  `Container`'s own layout on a direct child of a `Container`, whose storage set the engine
+  strips of `offset_*` and `anchor_*` (`Control::_validate_property`). Any other node
+  keeps the generic message. The on-disk counterparts stay under `scene` / `node`
   (ADR-0019).
   `game call <node> --method NAME [--args JSON]` (shipped, #673, ADR-0041) serves the
   read `game get` cannot: a debug or state contract the project exposes as a METHOD
@@ -1812,9 +1899,38 @@ re-derives every verdict from a running engine.
   for waiting and for committing to new work rather than a hard wall clock — no phase gets a
   fresh grace, every timed wait uses what remains, and once it is spent nothing further is
   launched — but a synchronous step already in flight (a filesystem write, the spawn itself)
-  can delay when that expiry is observed. Success (`{pid, launched}`) means subsequent
-  live reads serve, and a repeat while the session is alive is idempotent (`launched:
-  false`, nothing relaunched). A session stops serving when its harness channel breaks OR
+  can delay when that expiry is observed. Success (`{pid, launched, startup_diagnostics,
+  clean_start}`) means subsequent live reads serve, and a repeat while the session is alive
+  is idempotent (`launched: false`, nothing relaunched). Success also carries the STARTUP
+  VERDICT of the session it established (#848): `startup_diagnostics` — the `ScriptError[]`
+  that `script run` and `scene preflight` publish — and `clean_start`, the one boolean
+  saying nothing was recognized against that start. It answers what readiness never did: a
+  harness that connected is not a scene that started cleanly, because a script that fails
+  to compile leaves its node script-less and the session serves anyway (GDA-DF-047). A
+  disclosure on SUCCESS, never a refusal — a broken scene is exactly when `diag errors`,
+  `game tree` and a capture are wanted.
+  WHAT THE VERDICT COVERS is the daemon-owned `Session log` UP TO THE HANDSHAKE: the launch
+  measures the log's size at the instant the harness handshake completes, and the verdict
+  is read from that prefix — so it covers engine startup, the project's autoloads and the
+  scene's own scripts, and a record the game emits during the handshake's own frames lands
+  on whichever side of that instant it was written. Everything after that instant is
+  `gda diag errors` (ADR-0022), which stays the authority over the file — the two are
+  projections of one daemon-owned log, not competing readers of it. A prefix gda could not
+  read — no session log, or a read failure — is NO verdict: both keys are null, never a
+  clean start for a log nobody saw, and `gda diag errors` names that condition
+  `live_log_unavailable`; the human rendering says so in one line, since a reader who sees
+  nothing would take it for a clean start. An idempotent repeat reports the establishing
+  launch's verdict, not a fresh read.
+  A daemon started by an OLDER gda answers without the two keys — and a drifted one with a
+  pair that contradicts itself (the pair is one fact: both null, or a list and exactly "that
+  list is empty") — which the CLI reports as `contract_violation`; run `gda daemon stop`,
+  then `gda daemon start`, so the daemon
+  serves the current contract. The skew is reachable because a daemon is a long-lived
+  per-project process and a repeat `daemon start` only reports `already_running`, so
+  upgrading gda while one runs leaves the older daemon serving. There is no CLI/daemon
+  version handshake and none is planned: a mixed-version session is not a compatibility
+  target — the CLI/daemon leg of ADR-0018's current-harness policy (2026-09-08).
+  A session stops serving when its harness channel breaks OR
   when a relay hits `live_timeout` — the one-op-at-a-time RPC carries no request id, so a
   late reply can no longer be attributed — and the next operation that requires a session
   relaunches it, losing runtime state (ADR-0017 amendment, ADR-0020). `daemon status`
@@ -1824,9 +1940,15 @@ re-derives every verdict from a running engine.
   retained across a failed replacement launch (nothing replaced the session it names)
   until a new session is established. It is the value a `screen capture` receipt's
   `session_id` correlates with; null before the first established session this daemon
-  lifetime. With no `--scene` selector, `daemon start` checks the project files for an empty
-  `application/run/main_scene` — `live_main_scene_undefined` (LIVE, exit 6) — or a `uid://`
-  main scene with no cache under the configured project data directory —
+  lifetime. `daemon status` reports that session's `startup_diagnostics` / `clean_start`
+  too, so a caller arriving after the launch reads the verdict without relaunching the
+  game; both are null together, when no session was established this daemon lifetime, when
+  gda could not read the log up to that session's handshake, when no daemon is running, or
+  when the status round trip missed transiently — null and an empty list are different
+  facts, the second saying a session started and nothing was recognized in the prefix.
+  With no `--scene` selector, `daemon start` checks the project
+  files for an empty `application/run/main_scene` — `live_main_scene_undefined` (LIVE, exit
+  6) — or a `uid://` main scene with no cache under the configured project data directory —
   `live_main_scene_unresolved`, remedy: run the import pass once. Refusal precedes daemon
   or session launch (the engine version probe is allowed), and the daemon repeats the
   check at its launch boundary. A determinate main-scene refusal precedes the

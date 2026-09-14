@@ -14,7 +14,7 @@ import time
 
 import pytest
 
-from gda.exit_codes import EXIT_LIVE
+from gda.exit_codes import EXIT_LIVE, EXIT_PARSE
 from tests.support import PNG_1X1_B64, Gda
 
 from tests.conftest import LIVE_PROJECT_GODOT, project_godot
@@ -804,16 +804,27 @@ def test_game_tree_bounds_the_read_and_counts_what_it_left_out(
 # total, and the op published that as a successful read — the exact-count promise
 # of #849 broken on a finite, valid tree.
 DEEP_CHAIN_DEPTH = 2200
-DEEP_CHAIN_MAIN_GD = (
-    "extends Node2D\n"
-    "func _ready() -> void:\n"
-    "\tvar current: Node = self\n"
-    f"\tfor index in range({DEEP_CHAIN_DEPTH}):\n"
-    "\t\tvar child := Node.new()\n"
-    "\t\tchild.name = str(index)\n"
-    "\t\tcurrent.add_child(child)\n"
-    "\t\tcurrent = child\n"
-)
+
+
+def chain_main_gd(depth: int) -> str:
+    """The main-scene script building ONE chain `depth` nodes deep below Main.
+
+    The chain length is the only thing the depth cases vary, and each of them
+    reads a different ceiling, so the script is built rather than copied.
+    """
+    return (
+        "extends Node2D\n"
+        "func _ready() -> void:\n"
+        "\tvar current: Node = self\n"
+        f"\tfor index in range({depth}):\n"
+        "\t\tvar child := Node.new()\n"
+        "\t\tchild.name = str(index)\n"
+        "\t\tcurrent.add_child(child)\n"
+        "\t\tcurrent = child\n"
+    )
+
+
+DEEP_CHAIN_MAIN_GD = chain_main_gd(DEEP_CHAIN_DEPTH)
 DEEP_CHAIN_MAIN_TSCN = (
     "[gd_scene load_steps=2 format=3]\n\n"
     '[ext_resource type="Script" path="res://main.gd" id="1"]\n\n'
@@ -864,6 +875,96 @@ def test_game_tree_counts_an_omitted_subtree_deeper_than_the_call_stack(
         errors = run("diag", "errors")
         assert errors.returncode == 0, errors.stdout + errors.stderr
         assert json.loads(errors.stdout)["errors"] == []
+    finally:
+        run("daemon", "stop")
+
+
+# The two depths that bracket the ONE ceiling `game tree` promises anything
+# about (#929): the result model validates a tree of about 254 nesting levels,
+# and everything it accepts must also reach the caller. Below the ceiling the
+# read is whole; above it the refusal is the typed `tree_too_deep` that
+# `game tree --help` names, with `--max-depth` as the remedy. The ceilings above
+# THAT one — the engine's own JSON writer and its call stack — are disclosed,
+# not promised: the 2200-node cases above stay bounded reads.
+SERIALIZED_CHAIN_DEPTH = 200
+REFUSED_CHAIN_DEPTH = 300
+
+
+def _chain_project(tmp_path, depth):
+    (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(DEEP_CHAIN_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "main.gd").write_text(chain_main_gd(depth), encoding="utf-8")
+    return Gda(tmp_path, json_output=True)
+
+
+@pytest.mark.e2e
+def test_game_tree_serializes_a_chain_the_result_model_accepts(
+    tmp_path, daemon_runtime_dir
+):
+    # 201 nesting levels is well inside the result model's own recursion limit,
+    # and this read used to exit 1 with a bare traceback and NO error envelope:
+    # the per-node `children_omitted` prune was a Python callback at every level,
+    # and pydantic stops calling those at about 128 levels — far below the depth
+    # it validates. A tree the model accepts must reach the caller whole.
+    run = _chain_project(tmp_path, SERIALIZED_CHAIN_DEPTH)
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        whole = run("game", "tree")
+        assert whole.returncode == 0, whole.stdout + whole.stderr
+        data = json.loads(whole.stdout)
+        assert data["root"]["path"] == "/root/Main"
+        assert data["truncated"] is False
+        assert data["omitted_nodes"] == 0
+
+        node, levels = data["root"], 1
+        while node["children"]:
+            assert len(node["children"]) == 1, levels
+            node = node["children"][0]
+            levels += 1
+        assert levels == SERIALIZED_CHAIN_DEPTH + 1
+        assert node["name"] == str(SERIALIZED_CHAIN_DEPTH - 1)
+        # The prune still reaches every depth: an unbounded read pays no
+        # per-node key for a bound it never had.
+        assert "children_omitted" not in whole.stdout
+
+        # And nothing in the engine had to fail for that: the depth is gda's
+        # own arithmetic, not something the session survived.
+        errors = run("diag", "errors")
+        assert errors.returncode == 0, errors.stdout + errors.stderr
+        assert json.loads(errors.stdout)["errors"] == []
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_game_tree_refuses_a_chain_past_the_result_model_limit(
+    tmp_path, daemon_runtime_dir
+):
+    # Past the model's limit the read is REFUSED, typed, and the refusal names
+    # gda's own ceiling rather than blaming the engine's payload (issue #37).
+    # The remedy `game tree --help` states is the same call bounded, and it
+    # still counts the unread remainder exactly.
+    run = _chain_project(tmp_path, REFUSED_CHAIN_DEPTH)
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        whole = run("game", "tree")
+        assert whole.returncode == EXIT_PARSE, whole.stdout + whole.stderr
+        error = json.loads(whole.stdout)["error"]
+        assert error["code"] == "tree_too_deep"
+        assert error["category"] == "parse"
+
+        bounded = run("game", "tree", "--max-depth", "1")
+        assert bounded.returncode == 0, bounded.stdout + bounded.stderr
+        data = json.loads(bounded.stdout)
+        assert [child["name"] for child in data["root"]["children"]] == ["0"]
+        assert data["root"]["children"][0]["children_omitted"] == 1
+        assert "children_omitted" not in data["root"]
+        assert data["truncated"] is True
+        assert data["omitted_nodes"] == REFUSED_CHAIN_DEPTH - 1
     finally:
         run("daemon", "stop")
 

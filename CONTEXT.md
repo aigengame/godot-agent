@@ -77,8 +77,13 @@ the engine's project-wide pass — `cached` / `missing` / `stale` / `invalid`, r
 from the same artifacts `EditorFileSystem::_test_for_reimport` reads, in the
 engine's own order, with the engine-state checks it cannot read declared as a
 one-way remainder (delay a re-import, never spend a pass the engine would not).
-Owned by the core `import_evidence` module; settlements are the command's
-post-pass verdicts, not evidence.
+An `invalid` verdict also names the check that decided it (`reason`, with the
+offending line or path in `detail`), because that is the one verdict the pass
+will not change and the caller's next move depends on which check refused it
+(#853). Owned by the core `import_evidence` module; settlements are the
+command's post-pass verdicts, not evidence — the command carries an `invalid`
+reason into the `failed` it settles, and decides on its own the one reason no
+artifact check can state, `dest_missing_after_pass`.
 _Avoid_: cache check, freshness probe, validity scan
 
 **Engine session**:
@@ -384,10 +389,18 @@ addressed node's attached-script chain named in its `GDA_CALLABLE` declaration
 runs, once, per request. Reading that declaration adds no point at all — the
 constant map is served by the compiled script, so learning what may be called
 executes nothing (ADR-0041).
+`gda game rect` (#852) contributes ONE narrow point too, and the caller does not
+name it: the command reads the addressed Control's intrinsic minimum, and
+`Control::get_minimum_size()` is the `_get_minimum_size` virtual with no cache,
+so where a class leaves that getter to `Control` the node's script override of it
+runs once per request, and twice where the combined read finds the minimum-size
+cache stale. `get_combined_minimum_size()`, the other minimum the same result
+reports, reads that cache first; where it is stale the read recomputes through
+the SAME virtual, so it adds no point of its own.
 All stay within the `Trusted project` assumption (ADR-0009); `script run`, the
 loaded-value assignment (ADR-0033), the startup preflight, the import pass, the
-declared method call, and the composed static validate widen this surface without
-adding a new trust axis.
+declared method call, the minimum-size read, and the composed static validate
+widen this surface without adding a new trust axis.
 _Avoid_: attack surface, code-execution risk
 
 **Concurrent external editor**:

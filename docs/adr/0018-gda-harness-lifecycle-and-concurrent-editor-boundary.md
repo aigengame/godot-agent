@@ -103,6 +103,11 @@ so two instances can touch the project at once.
 > with mixed line terminators, one with no final terminator, and a CR-only file), each
 > left documented rather than coded around.
 >
+> **Outcome (2026-09-13, #930)** — the excluded-shape list the module docstring owns grew to
+> five: an already-empty `[autoload]` section (PR #898 review) and a byte-order mark before a
+> first-line `[autoload]` header (#930). The summary of three above is the point-in-time record;
+> the module docstring is the authority, as this note already says.
+>
 > Both decisions are read off the file **at uninstall time**: no pre-install state is
 > recorded and no marker file is ever written into the project — the same reason point 1
 > keeps the write install-time. Two states therefore stay outside the guarantee, for two

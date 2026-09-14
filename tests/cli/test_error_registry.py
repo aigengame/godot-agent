@@ -260,6 +260,13 @@ def test_no_registered_code_grows_a_key_by_defaulting_the_optional_context():
 #: path, neither is recoverable from the envelope without parsing prose, and which of
 #: the two shapes it is decides whether the caller drops the redirect or installs
 #: templates. ADR-0004's paragraph carries this name too.
+#:
+#: The ninth arrives with #845: `path_case_mismatch_failure` types the two res://
+#: spellings of one file — the one the caller asked for and the one the project
+#: stores. The authority read the directory's own entries to reach the verdict, so
+#: both are already in hand; neither is recoverable from the envelope without reading
+#: the message; and the stored one is exactly what the caller re-issues with. ADR-0004's
+#: paragraph carries this name too.
 _EVIDENCE_PRODUCERS = {
     "launch_timeout_failure",
     "script_did_not_run_failure",
@@ -269,6 +276,7 @@ _EVIDENCE_PRODUCERS = {
     "target_outside_project_failure",
     "target_owned_by_another_project_failure",
     "export_templates_missing_failure",
+    "path_case_mismatch_failure",
 }
 
 
