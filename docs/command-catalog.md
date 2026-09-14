@@ -1450,6 +1450,10 @@ re-derives every verdict from a running engine.
   nothing was omitted, so the unbounded read pays nothing per node. Unbounded stays the
   default and the caller's choice; the follow-up read is a narrower `--root`, not a
   continuation token, which would page a snapshot the live tree has already left behind.
+  A tree nesting deeper than about 250 levels is refused (`tree_too_deep`; past about 500
+  the engine's own JSON writer cuts the reply short and the refusal is `contract_violation`):
+  bound such a read with `--root` and `--max-depth` (#929, the retained ceilings the help
+  names).
   `game find` (shipped, [#855](https://github.com/aigengame/godot-agent/issues/855),
   from GDA-DF-051, where a rebuilt screen moved an actor slot from `Enemy0` to `Enemy1`
   and a full-tree read was the only way to find it again) answers "which node is it
