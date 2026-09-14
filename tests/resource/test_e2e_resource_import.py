@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import struct
+import sys
 import zlib
 from pathlib import Path
 
@@ -455,8 +456,9 @@ def test_a_failed_asset_names_its_reason_and_the_engines_own_lines(tmp_path):
 
 @pytest.mark.e2e
 def test_a_neighbours_lines_are_never_the_assets_own(tmp_path):
-    # Fourth review of PR #937, against the real engine: assets whose paths
-    # EXTEND this one's — a space, a bracket, a second extension — all fail to
+    # Fourth and fifth reviews of PR #937, against the real engine: assets whose
+    # paths EXTEND this one's — a space, a bracket, a second extension — or carry
+    # a quote all fail to
     # import in the same pass, and the engine names each with its own quoted
     # path. Only the lines naming `res://icon.png` itself are its evidence, and
     # each neighbour keeps its own; a substring or prefix test would hand every
@@ -464,6 +466,11 @@ def test_a_neighbours_lines_are_never_the_assets_own(tmp_path):
     project = _project(tmp_path)
     gda = Gda(project, json_output=True, timeout=180)
     names = ["icon.png", "icon.png copy.png", "icon.png]backup.png", "icon.png.png"]
+    if sys.platform != "win32":
+        # Fifth review: a quote inside the path — the engine prints it inside its
+        # own quotes, and the asset's evidence must still be found. Not a legal
+        # file name on Windows.
+        names.append('icon"hero.png')
     for name in names:
         (project / name).write_text("this is not a png", encoding="utf-8")
 

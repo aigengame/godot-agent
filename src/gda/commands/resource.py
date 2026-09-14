@@ -923,59 +923,67 @@ def _asset_record(project: Path, res_path: str) -> ResourceImportAsset:
     )
 
 
-# Where a ``res://`` path ENDS in an engine line is decided by how the engine
-# printed it, never by which character follows the asset's name (fourth review
-# of PR #937): a path's own alphabet holds every punctuation mark a lookahead
-# could stop at, so ``res://icon.png`` is a prefix of the legal neighbours
-# ``res://icon.png copy``, ``res://icon.png]backup`` and
-# ``res://icon.png.import-backup``. Measured on the 4.6 sources, the import pass
-# and the loaders print a path in two shapes. QUOTED — ``'%s'`` in ``Error
-# importing``, ``Cannot open file``, ``Error opening file``, ``Cannot open
-# import file '%s.import'``, the editor's ``'%s.import:%d'`` / ``'%s.import.md5:%d'``
-# sidecar records; ``"%s"`` in the UID warnings — where the quote ends the
-# token. BARE — ended by whitespace, the end of the line, a sentence-final period
-# (``Failed loading resource: %s.``), a following ``(`` (``Resource file not
-# found: %s (expected type: …)``) or a ``:<line>`` (the core
-# ``ResourceFormatImporter::load - %s.import:%d error:``). A bare path that
-# itself contains whitespace is the one shape this cannot tell from a path
-# followed by prose; the engine quotes a path in every import-pass message
-# measured, so that residual is declared here rather than chased.
-_ENGINE_PATH_TOKEN = re.compile(
-    r"""(?P<quote>['"])(?P<quoted>res://[^'"]*)(?P=quote)"""
-    r"""|(?P<bare>res://\S*?)(?=\s|$|\.(?:\s|$)|:\d+\b)"""
-)
+# How an engine line delimits a path, measured on the 4.6 sources (fourth and
+# fifth reviews of PR #937). QUOTED — ``'%s'`` in ``Error importing``, ``Cannot
+# open file``, ``Error opening file``, ``Cannot open import file '%s.import'``, the
+# editor's ``'%s.import:%d'`` / ``'%s.import.md5:%d'`` sidecar records; ``"%s"`` in
+# the UID warnings — the path runs from the opening quote to the SAME quote
+# character, whatever it holds in between (a path can carry the other quote, or
+# this one). BARE — followed by whitespace, the end of the line, a sentence-final
+# period (``Failed loading resource: %s.``), a following ``(`` (``Resource file
+# not found: %s (expected type: …)``) or ``:<line>`` (the core
+# ``ResourceFormatImporter::load - %s.import:%d error:``). gda never has to cut
+# an UNKNOWN path out of the line — a path's alphabet holds every character a
+# cut could stop at, which is what defeated a substring, a lookahead and a
+# tokenizer in turn — because it KNOWS the path it is looking for: it finds that
+# spelling in the line and checks the two boundaries the engine's delimiting
+# fixes. The one shape this cannot decide is declared rather than chased: a
+# bare path that itself contains whitespace, or a quoted neighbour whose path
+# continues after a quote character identical to its delimiter — both read as
+# this asset, and the engine quotes a path in every import-pass message
+# measured.
+_BARE_PATH_END = re.compile(r"\s|$|\.(?:\s|$)|:\d+\b")
+
+
+def _names_asset(line: str, res_path: str) -> bool:
+    """Whether ``line`` names ``res_path`` (or its sidecar) as the engine delimits a path."""
+    for needle in (res_path, f"{res_path}.import", f"{res_path}.import.md5"):
+        at = line.find(needle)
+        while at != -1:
+            before = line[at - 1] if at else ""
+            after = line[at + len(needle) :]
+            if before in ("'", '"'):
+                # A quoted path closes with the SAME quote; a sidecar record may
+                # carry its ``:<line>`` inside the quotes.
+                match = re.match(r"(?::\d+)?" + re.escape(before), after)
+            else:
+                match = _BARE_PATH_END.match(after)
+            if match:
+                return True
+            at = line.find(needle, at + 1)
+    return False
 
 
 def _engine_output(stderr: "str | None", res_path: str) -> "tuple[list[str], bool]":
     """The pass's stderr lines that NAME one asset, bounded (#853).
 
-    A line names the asset when one of its path TOKENS — cut by
-    :data:`_ENGINE_PATH_TOKEN`, i.e. by the engine's own quoting and grammar —
-    EQUALS the asset's ``res://`` path, or is that path's sidecar
-    (``.import``, ``.import.md5``, either with the ``:<line>`` the engine
-    appends when it reports a parse position). Equality of the whole token,
-    never a prefix test with a lookahead: the third review's regex stopped at
-    the punctuation after the prefix, and a legal neighbouring path can carry
-    that same punctuation inside it. Deliberately literal otherwise: a broader
-    needle (the filename, the filesystem path) would attribute a neighbour's
-    error to this asset, and evidence that over-claims is worse than evidence
-    that is short. The engine's ``at:`` continuation lines name a source file,
-    not the asset, so they stay out.
+    A line names the asset when :func:`_names_asset` finds the asset's ``res://``
+    path — or its sidecar (``.import`` / ``.import.md5``, either with the
+    ``:<line>`` the engine appends when it reports a parse position) — spelled
+    whole and delimited as the engine delimits a path. Never a substring, a
+    prefix with a lookahead, or a token cut by a character class: a legal
+    neighbouring path can carry any punctuation inside it, and a legal asset
+    path can carry a quote. Deliberately literal otherwise: a broader needle
+    (the filename, the filesystem path) would attribute a neighbour's error to
+    this asset, and evidence that over-claims is worse than evidence that is
+    short. The engine's ``at:`` continuation lines name a source file, not the
+    asset, so they stay out.
 
     Returns the kept lines and whether any were dropped.
     """
     if not stderr:
         return [], False
-    sidecar = re.compile(re.escape(res_path) + r"\.import(?:\.md5)?(?::\d+)?")
-
-    def names_asset(line: str) -> bool:
-        for match in _ENGINE_PATH_TOKEN.finditer(line):
-            token = match.group("quoted") or match.group("bare")
-            if token == res_path or sidecar.fullmatch(token):
-                return True
-        return False
-
-    matched = [line for line in stderr.splitlines() if names_asset(line)]
+    matched = [line for line in stderr.splitlines() if _names_asset(line, res_path)]
     return matched[:ENGINE_OUTPUT_LINE_CAP], len(matched) > ENGINE_OUTPUT_LINE_CAP
 
 

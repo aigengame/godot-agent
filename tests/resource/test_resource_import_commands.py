@@ -784,7 +784,9 @@ def test_engine_output_names_the_asset_as_a_whole_token(monkeypatch, tmp_path):
     # Fourth review of PR #937: where a path ENDS is decided by how the engine
     # printed it, not by the character after the asset's name — the third
     # review's lookahead stopped at punctuation a legal neighbouring path can
-    # carry inside it. Every line in `ours` is an engine form measured on the
+    # carry inside it (and the fourth review's tokenizer cut a quoted path at
+    # EITHER quote character, missing a path that carries one — see the next
+    # test). Every line in `ours` is an engine form measured on the
     # 4.6 sources (message literal and quoting), with the asset's path where
     # that source puts it; every neighbour is a legal path that EXTENDS ours.
     project = icon_project(tmp_path)
@@ -835,6 +837,49 @@ def test_engine_output_names_the_asset_as_a_whole_token(monkeypatch, tmp_path):
     monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
 
     asset = json.loads(_run(project, "res://icon.png").stdout)["assets"][0]
+
+    assert asset["engine_output"] == ours
+    assert asset["engine_output_truncated"] is False
+
+
+@pytest.mark.parametrize(
+    "name",
+    ['icon"hero.png', "it's.png", "it's\"both.png"],
+    ids=["other-quote", "same-quote", "both-quotes"],
+)
+def test_engine_output_names_an_asset_whose_path_carries_a_quote(
+    monkeypatch, tmp_path, name
+):
+    # Fifth review of PR #937: `res://icon"hero.png` is a legal asset path and the
+    # real engine prints `Error importing 'res://icon"hero.png'.` for it; the
+    # tokenizer's `[^'"]*` cut the token at the inner quote and reported no
+    # evidence. gda knows the path it is looking for, so it finds THAT spelling
+    # and checks the engine's delimiters around it — the quote that opens the
+    # path closes it, whatever the path holds in between. The neighbour that
+    # extends this path stays out, as before.
+    project = icon_project(tmp_path)
+    (project / name).write_bytes((project / "icon.png").read_bytes())
+    res_path = f"res://{name}"
+    ours = [
+        f"ERROR: Error importing '{res_path}'.",
+        f"ERROR: Error loading image: '{res_path}'.",
+        f"ERROR: ResourceFormatImporter::load - '{res_path}.import:8' error 'x'.",
+        f"ERROR: Failed loading resource: {res_path}.",
+    ]
+    neighbours = [
+        f"ERROR: Error importing '{res_path}2'.",
+        f"ERROR: Error importing '{res_path} copy'.",
+        "ERROR: Error importing 'res://icon.png'.",
+    ]
+
+    def fake_launch(binary, args, *, cwd, timeout, timeout_label="Godot", watch=None):
+        sidecar(project, name, ".godot/imported/never-written.ctex")
+        stderr = "\n".join(neighbours + ours) + "\n"
+        return RunResult(stdout="", stderr=stderr, exit_code=0)
+
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+
+    asset = json.loads(_run(project, res_path).stdout)["assets"][0]
 
     assert asset["engine_output"] == ours
     assert asset["engine_output_truncated"] is False
