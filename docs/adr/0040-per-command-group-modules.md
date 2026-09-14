@@ -4,6 +4,15 @@ status: accepted
 
 # Per-command-group modules: vertical group slices over the shared descriptor core
 
+> **Scoped extension (2026-09-07):**
+> [ADR-0042](0042-asset-pipeline-supporting-context-integration.md) keeps the new
+> `asset-pipeline` group's gda params, rendering, descriptors, and dispatch together,
+> but delegates its cross-tool application workflow to the supporting context.
+> A gda integration adapter consumes that package's explicit API and implements its
+> Godot ports through one-way imports of returning gda operations. Existing group
+> ownership and the shared core's dependency direction remain in force. This is an
+> accepted design extension, pending implementation.
+
 > **Amendment (2026-08-20, #657):** the module-tree sketch below annotates
 > `daemon.py` as "recipe-backed, not LIVE". Since #657 the group carries ONE
 > `kind = LIVE` command — `daemon wait-ready`, which routes through the live

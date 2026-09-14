@@ -9,8 +9,12 @@ programmatic consumption.
 ### Components
 
 **gda**:
-The agent-facing Godot CLI — the bottom layer that exposes Godot operations with
-structured output. Other components build on it.
+The agent-facing Godot toolchain and its single CLI entry point. Its core context
+owns Godot operations and engine facts with structured output. The product can
+also expose an internal supporting context through a command group: the accepted
+`asset-pipeline` integration delegates asset workflows to `gda-assets`
+(ADR-0042; implementation tracked separately). That assembly does not move
+producer-specific behavior or project asset policy into the Godot core.
 _Avoid_: the CLI, godot-cli
 
 **gda-mcp**:
