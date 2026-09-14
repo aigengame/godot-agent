@@ -221,6 +221,53 @@ def test_wait_ready_human_output_says_nothing_extra_on_a_clean_start(
     )
 
 
+# The third state (third review of PR #940): the launch could not read the log
+# up to the handshake — no session log, or a read failure. Both keys are null,
+# never a clean start for a log nobody saw (ADR-0022 keeps unavailable apart
+# from empty); the session still serves.
+UNREAD = {
+    "pid": 4242,
+    "launched": True,
+    "startup_diagnostics": None,
+    "clean_start": None,
+}
+
+
+def test_wait_ready_passes_a_null_verdict_through_as_success(monkeypatch, tmp_path):
+    inject_live_runner(
+        monkeypatch, RunResult(stdout=sentinel(UNREAD), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path)), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["launched"] is True
+    assert data["startup_diagnostics"] is None
+    assert data["clean_start"] is None
+
+
+def test_wait_ready_human_output_names_an_unavailable_verdict(monkeypatch, tmp_path):
+    # Silence would read as a clean start, so the null verdict is one line.
+    inject_live_runner(
+        monkeypatch, RunResult(stdout=sentinel(UNREAD), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["daemon", "wait-ready", "--project", str(minimal_project(tmp_path))]
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines() == [
+        "engine session ready (launched now; daemon pid 4242)",
+        "  startup verdict unavailable: the session log up to the handshake was "
+        "not read (run `gda diag errors`)",
+    ]
+
+
 def test_wait_ready_schema_publishes_the_startup_verdict():
     result = CliRunner().invoke(app, ["daemon", "wait-ready", "--schema"])
     assert result.exit_code == 0, result.stdout

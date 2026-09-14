@@ -72,6 +72,13 @@ DAEMON_SERVED_OPS = (*LOG_OPS, WAIT_READY_OP)
 WAIT_READY_TIMEOUT_MAX = 50.0
 
 
+class _Unavailable:
+    """The startup verdict's third state: the log up to the handshake was not readable."""
+
+
+_UNAVAILABLE = _Unavailable()
+
+
 class SessionHandle(Protocol):
     """What the server consumes of a session (#723 review): a structural contract.
 
@@ -83,6 +90,9 @@ class SessionHandle(Protocol):
 
     log_file: Optional[Path]
     session_id: str
+    # The Session log's size at the instant the handshake completed (#848): the
+    # bound of the startup verdict, or None when the launch could not measure it.
+    handshake_log_size: Optional[int]
 
     def alive(self) -> bool: ...
 
@@ -182,7 +192,12 @@ class DaemonServer:
         # cannot disagree about which session they describe. ``None`` means no
         # session was established this daemon lifetime, which is NOT the same fact
         # as an empty list (a start with nothing recognized against it).
-        self._startup_diagnostics: list[ScriptError] | None = None
+        # The startup verdict (#848): None until a session has been established
+        # by this daemon; then the recognized records read from the Session log
+        # UP TO THE HANDSHAKE — or ``_UNAVAILABLE`` when that prefix could not be
+        # read, which is a verdict of its own (ADR-0022 keeps "unavailable" apart
+        # from "empty": an unreadable log is not a clean start).
+        self._startup_diagnostics: list[ScriptError] | _Unavailable | None = None
         self._pidfile_handle = None
 
     def serve(self) -> None:
@@ -574,8 +589,8 @@ class DaemonServer:
         # The startup verdict is read HERE, at the launch boundary (#848), so
         # every path that establishes a session records it — `wait-ready` and the
         # lazy launch a first live op triggers alike, since both come through
-        # here. Read ONCE, right after the handshake the launch just completed;
-        # what it sees is whatever the log held at that instant. Written only on
+        # here. Read ONCE, bounded to the bytes the log held at the instant the
+        # handshake completed (the launch measured that). Written only on
         # a SUCCESSFUL launch, beside the identity above and for the same reason
         # (PR #746 review ARC-746-001): a failed replacement replaced nothing,
         # so the verdict it did not replace stays readable — and the launcher
@@ -613,7 +628,11 @@ class DaemonServer:
         an empty list there would assert a clean start no launch backed.
         """
         recognized = self._startup_diagnostics
-        if recognized is None:
+        if recognized is None or isinstance(recognized, _Unavailable):
+            # No session established yet, or the log up to the handshake could
+            # not be read: no verdict either way. Never ``clean_start: true`` for
+            # a log gda did not see — ``diag errors`` names the second case
+            # ``live_log_unavailable`` (third review of PR #940).
             return {"startup_diagnostics": None, "clean_start": None}
         # ``mode="json"`` because this dict is a WIRE frame: the reply is JSON-
         # encoded for the CLI, so the kind must leave here as its string value
@@ -626,31 +645,37 @@ class DaemonServer:
             "clean_start": not recognized,
         }
 
-    def _read_startup_diagnostics(self) -> list[ScriptError]:
-        """Recognized script errors from the Session log, read at the handshake (#848).
+    def _read_startup_diagnostics(self) -> "list[ScriptError] | _Unavailable":
+        """Recognized script errors from the Session log UP TO THE HANDSHAKE (#848).
 
         A SECOND projection of the daemon-owned file ``diag errors`` reads, never a
-        competing authority over it (ADR-0022): this one is a SNAPSHOT taken at the
-        readiness boundary, the full-log read stays ``diag errors``.
+        competing authority over it (ADR-0022): this one is bounded to the prefix
+        the log held at the instant the harness handshake completed, the full-log
+        read stays ``diag errors``.
 
-        What the snapshot covers is decided by WHEN it is taken, and the honest
-        statement is that it is taken once, right after the harness handshake —
-        so it holds engine startup, the project's autoloads and the scene's own
-        scripts, and MAY also hold the game's first frames, because the game goes
-        on running while the launch returns and this read happens. A record
-        emitted in that instant can land on either side. gda does not chase that
-        edge with a log offset: the boundary is a convenience, and a caller who
-        needs the whole stream reads ``diag errors``.
+        The bound is the launch's own fact — :func:`launch_session` measures the
+        log at that instant and the session carries it — so what the verdict
+        covers does not depend on how long the launch takes to return afterwards.
+        It is still a moment inside a running game: engine startup, the project's
+        autoloads and the scene's own scripts print before the harness connects,
+        and a record the game emits during the handshake's own frames lands on
+        whichever side of that instant it was written. The whole stream is
+        ``diag errors``.
 
-        Best-effort like every read of that file — the engine flushes an error as
-        it writes it, but a log gda cannot read yields no diagnostics rather than
-        a failure, and this must not turn a serving session into a refusal.
+        A prefix gda cannot read — no bound measured, or the file unreadable — is
+        ``_UNAVAILABLE``: no verdict, never an empty one (third review of PR #940;
+        the first version returned ``[]`` here, which published ``clean_start:
+        true`` for a log nobody read). A serving session is not refused for it.
         """
+        session = self._session
+        bound = None if session is None else session.handshake_log_size
+        if bound is None:
+            return _UNAVAILABLE
         try:
             data = self.paths.session_log.read_bytes()
         except OSError:
-            return []
-        return parse_script_errors(data.decode("utf-8", "replace"))
+            return _UNAVAILABLE
+        return parse_script_errors(data[:bound].decode("utf-8", "replace"))
 
     def _read_session_log_tail(self, max_bytes: int = 2000) -> str:
         """The trailing bytes of the daemon-owned Session log, or "" if unreadable."""

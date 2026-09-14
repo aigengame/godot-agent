@@ -230,19 +230,23 @@ class DaemonStatusResult(BaseModel):
     startup_diagnostics: list[ScriptError] | None = Field(
         description=(
             "What the engine's error stream said about the scripts of the last "
-            "engine session this daemon established (#848). Read ONCE, right "
-            "after that session's harness handshake — everything the "
-            "daemon-owned session log held at that instant, so it covers engine "
-            "startup, the project's autoloads and the scene's own scripts, and "
-            "MAY also include the game's first frames — and remembered since, "
-            "so this reports the serving session without relaunching it. The "
-            "same records `script run` and `scene preflight` publish, from the "
-            "same recognizer; the whole log is `gda diag errors`. **null** — "
-            "together with `clean_start` — when no session was established this "
-            "daemon lifetime, no daemon is running, or the STATUS_OP round trip "
-            "missed transiently. Null and an empty list are different facts: "
-            "the second says a session started and nothing was recognized "
-            "against it."
+            "engine session this daemon established (#848): the daemon-owned "
+            "session log UP TO THE HANDSHAKE — the bytes it held at the instant "
+            "that session's harness handshake completed, a bound the launch "
+            "itself measures — remembered since, so this reports the serving "
+            "session without relaunching it. It covers engine startup, the "
+            "project's autoloads and the scene's own scripts; a record the game "
+            "emits during the handshake's own frames lands on whichever side of "
+            "that instant it was written, and everything after it is `gda diag "
+            "errors`. The same records `script run` and `scene preflight` "
+            "publish, from the same recognizer. **null** — together with "
+            "`clean_start` — when no session was established this daemon "
+            "lifetime, when gda could not read that prefix (no session log, or "
+            "a read failure; `gda diag errors` answers `live_log_unavailable`), "
+            "when no daemon is running, or when the STATUS_OP round trip missed "
+            "transiently. Null and an empty list are different facts: the "
+            "second says a session started and nothing was recognized in the "
+            "prefix."
         ),
     )
     clean_start: bool | None = Field(
@@ -252,10 +256,9 @@ class DaemonStatusResult(BaseModel):
             "as evidence about the scene (#848). false does NOT mean the session "
             "is unusable: a scene whose script failed to compile boots "
             "script-less and still serves, which is when the live reads matter "
-            "most. true means gda recognized nothing, which includes the case "
-            "where it could not read the session log at all; `gda diag errors` "
-            "answers `live_log_unavailable` for that condition and tells the "
-            "two apart. **null** exactly when `startup_diagnostics` is null."
+            "most. true means gda recognized nothing in a prefix it did read. "
+            "**null** exactly when `startup_diagnostics` is null — a log gda "
+            "did not see is not evidence of a clean start."
         ),
     )
 
@@ -317,34 +320,35 @@ class DaemonWaitReadyResult(BaseModel):
             "documented way to trigger that launch explicitly."
         )
     )
-    startup_diagnostics: list[ScriptError] = Field(
+    startup_diagnostics: list[ScriptError] | None = Field(
         description=(
             "What the engine's error stream said about the session's scripts "
-            "(#848). Read ONCE, right after the harness handshake: everything "
-            "the daemon-owned session log held at that instant. So it covers "
-            "engine startup, the project's autoloads and the scene's own "
-            "scripts, and it MAY also include the game's first frames — a "
-            "record emitted at that instant can land on either side of the "
-            "read. The same records `script run` and `scene preflight` publish, "
-            "from the same recognizer; the whole log is `gda diag errors`. "
-            "Empty when nothing was recognized. On an idempotent repeat "
-            "(`launched: false`) these are the establishing launch's, not a "
-            "fresh read."
+            "(#848): the daemon-owned session log UP TO THE HANDSHAKE — the bytes "
+            "it held at the instant the harness handshake completed, a bound the "
+            "launch itself measures. That covers engine startup, the project's "
+            "autoloads and the scene's own scripts; a record the game emits "
+            "during the handshake's own frames lands on whichever side of that "
+            "instant it was written, and everything after it is `gda diag "
+            "errors`. The same records `script run` and `scene preflight` "
+            "publish, from the same recognizer. Empty when nothing was "
+            "recognized in that prefix. Null when gda could not read the prefix "
+            "(no session log, or a read failure): no verdict, never a clean one; "
+            "`gda diag errors` answers `live_log_unavailable` for that condition. "
+            "On an idempotent repeat (`launched: false`) these are the "
+            "establishing launch's, not a fresh read."
         )
     )
-    clean_start: bool = Field(
+    clean_start: bool | None = Field(
         description=(
-            "Whether that read recognized no script error — the one boolean to "
-            "branch on before treating a screenshot or a runtime read as "
-            "evidence about the scene (#848). Readiness alone never meant this: "
-            "a scene whose root script did not compile boots script-less, and "
-            "the harness connects and serves regardless. false is a disclosure, "
-            "not a refusal — the session serves, which is exactly when `diag "
-            "errors`, `game tree` and a capture are wanted. true means gda "
-            "recognized nothing, which includes the case where it could not "
-            "read the session log at all; `gda diag errors` answers "
-            "`live_log_unavailable` for that condition and tells the two "
-            "apart."
+            "Whether that prefix held no recognized script error — the one "
+            "boolean to branch on before treating a screenshot or a runtime read "
+            "as evidence about the scene (#848). Readiness alone never meant "
+            "this: a scene whose root script did not compile boots script-less, "
+            "and the harness connects and serves regardless. false is a "
+            "disclosure, not a refusal — the session serves, which is exactly "
+            "when `diag errors`, `game tree` and a capture are wanted. Null when "
+            "the prefix could not be read, together with `startup_diagnostics`: "
+            "a log gda did not see is not evidence of a clean start."
         )
     )
 
@@ -1042,6 +1046,11 @@ def _startup_verdict(
         recognized = [ScriptError.model_validate(entry) for entry in raw]
     except ValidationError:
         return None, None
+    # The pair is ONE fact: the boolean is "that list is empty". A reply that
+    # says otherwise is a drifted daemon, and half a verdict is no verdict
+    # (third review of PR #940).
+    if clean != (not recognized):
+        return None, None
     return recognized, clean
 
 
@@ -1187,7 +1196,15 @@ def render_daemon_status(status: "DaemonStatusResult") -> str:
         head = (
             f"daemon running: pid {status.pid} on {status.socket_path}{mode}{session}"
         )
-        return "\n".join([head, *_startup_lines(status.startup_diagnostics)])
+        return "\n".join(
+            [
+                head,
+                *_startup_lines(
+                    status.startup_diagnostics,
+                    established=status.session_id is not None,
+                ),
+            ]
+        )
     return "daemon not running"
 
 
@@ -1195,18 +1212,36 @@ def render_daemon_wait_ready(ready: "DaemonWaitReadyResult") -> str:
     """Render a `gda daemon wait-ready` outcome for humans."""
     state = "launched now" if ready.launched else "already serving"
     head = f"engine session ready ({state}; daemon pid {ready.pid})"
-    return "\n".join([head, *_startup_lines(ready.startup_diagnostics)])
+    # Success IS an established session, so a null verdict here is the unread
+    # prefix, never "no session yet".
+    return "\n".join(
+        [head, *_startup_lines(ready.startup_diagnostics, established=True)]
+    )
 
 
-def _startup_lines(diagnostics: "list[ScriptError] | None") -> list[str]:
+_VERDICT_UNAVAILABLE_LINE = (
+    "  startup verdict unavailable: the session log up to the handshake was not "
+    "read (run `gda diag errors`)"
+)
+
+
+def _startup_lines(
+    diagnostics: "list[ScriptError] | None", *, established: bool
+) -> list[str]:
     """The human lines a degraded start adds, and nothing on a clean one (#848).
 
     Shared by both disclosing renderers so the two spell one fact one way. A
-    clean start and an undetermined one add NOTHING: the readiness sentence
-    already says the session serves, and a per-run "0 errors" would train the
-    reader to skip the block that matters. Each recognized error prints through
-    :func:`script_error_line`, the one text form of a script error.
+    clean start adds NOTHING: the readiness sentence already says the session
+    serves, and a per-run "0 errors" would train the reader to skip the block
+    that matters. An ESTABLISHED session with no verdict adds one line, because
+    a reader who sees nothing would take it for a clean start — the same
+    distinction the null pair draws for a machine (ADR-0022). Before a session
+    is established there is no startup to speak about, so nothing prints. Each
+    recognized error prints through :func:`script_error_line`, the one text
+    form of a script error.
     """
+    if diagnostics is None:
+        return [_VERDICT_UNAVAILABLE_LINE] if established else []
     if not diagnostics:
         return []
     return [
@@ -1452,8 +1487,10 @@ def daemon_status(
     (#660) and its startup verdict — `clean_start` and the `startup_diagnostics`
     read at that session's readiness boundary — so a later caller reads what
     `daemon wait-ready` saw without relaunching the game (#848). Both are null
-    together — when no session was established this daemon lifetime, when no
-    daemon is running, and when the status round trip missed transiently.
+    together — when no session was established this daemon lifetime, when gda
+    could not read the session log up to the handshake (`gda diag errors` says
+    `live_log_unavailable`), when no daemon is running, and when the status
+    round trip missed transiently.
 
     On an unsupported platform this reports `live_unsupported_platform`; the
     platform precondition is the structured `constraints` field of `--schema`.
@@ -1508,11 +1545,14 @@ def daemon_wait_ready(
     A connected harness is NOT a cleanly started scene: a script that fails to
     compile leaves its node script-less, and the session serves anyway. Success
     therefore reports `clean_start` and the `startup_diagnostics` gda recognized
-    in the session log, read ONCE right after the harness handshake — everything
-    the log held at that instant, so engine startup, the autoloads and the
-    scene's own scripts, and possibly the game's first frames. Read
-    `clean_start` before you treat a screenshot or a runtime read as evidence
-    about the scene, and read `gda diag errors` for the whole log (#848).
+    in the session log UP TO THE HANDSHAKE — the bytes it held at the instant the
+    handshake completed, which the launch measures — so engine startup, the
+    autoloads and the scene's own scripts; a record emitted during the
+    handshake's own frames lands on whichever side of that instant it was
+    written. Read `clean_start` before you treat a screenshot or a runtime read
+    as evidence about the scene; both keys are null when gda could not read that
+    prefix (`gda diag errors` says `live_log_unavailable`), never a clean start
+    it did not see; and read `gda diag errors` for the whole log (#848).
 
     A daemon started by an OLDER gda answers without these two keys, which the
     CLI reports as `contract_violation`; run `gda daemon stop`, then `gda daemon

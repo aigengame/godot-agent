@@ -337,7 +337,15 @@ def test_render_daemon_status_notes_the_windowed_session(tmp_path):
 
     # The session identity (#660) prints only when a session was established.
     identified = windowed.model_copy(update={"session_id": "a1b2c3d4e5f60718"})
-    assert render_daemon_status(identified).endswith(" session a1b2c3d4e5f60718")
+    rendered = render_daemon_status(identified).splitlines()
+    assert rendered[0].endswith(" session a1b2c3d4e5f60718")
+    # An established session with a null verdict says so (third review of PR
+    # #940): silence here would read as a clean start. Before a session is
+    # established (the `windowed` case above) there is nothing to say.
+    assert rendered[1:] == [
+        "  startup verdict unavailable: the session log up to the handshake was "
+        "not read (run `gda diag errors`)"
+    ]
 
     stopped = DaemonStatusResult(
         running=False,

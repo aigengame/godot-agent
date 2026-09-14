@@ -643,12 +643,103 @@ def _server_with_own_log(tmp_path, monkeypatch, log_text: str) -> DaemonServer:
 
     def _launch(*args, **kwargs):
         paths.session_log.write_text(log_text, encoding="utf-8")
-        return EngineSession(cast(subprocess.Popen, FakeProc()), conn=None)
+        # The launch measures the log at the instant the handshake completes
+        # (#848): here, everything written before it returned.
+        return EngineSession(
+            cast(subprocess.Popen, FakeProc()),
+            conn=None,
+            handshake_log_size=len(log_text.encode("utf-8")),
+        )
 
     server = DaemonServer(paths, godot="godot", launch=_launch)
     # launch is injected; the listener value is unused (just non-None).
     server._harness_listener = cast(socket.socket, object())
     return server
+
+
+def test_the_verdict_is_bounded_to_the_log_up_to_the_handshake(tmp_path, monkeypatch):
+    # Issue #848's boundary, restored (third review of PR #940): the verdict is the
+    # log UP TO THE HANDSHAKE — the size the launch measured at that instant — so
+    # a record the game emits after the handshake, however soon, is `diag errors`'
+    # to report, not a startup record. The launch below "handshakes" after the
+    # first record and the game "prints" a second one before the read.
+    paths = replace(
+        _project_with_marker(tmp_path), session_log=tmp_path / "session.log"
+    )
+    before = _PARSE_ERROR_LOG
+    after = "ERROR: boom on frame two\n   at: _process (res://main.gd:9)\n"
+
+    def _launch(*args, **kwargs):
+        paths.session_log.write_text(before, encoding="utf-8")
+        size = len(before.encode("utf-8"))
+        paths.session_log.write_text(before + after, encoding="utf-8")
+        return EngineSession(
+            cast(subprocess.Popen, FakeProc()), conn=None, handshake_log_size=size
+        )
+
+    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server._harness_listener = cast(socket.socket, object())
+
+    reply = server._handle({"op": "daemon-wait-ready", "params": {}})
+    assert reply is not None
+    ready = parse_result(reply["stdout"])
+    assert ready["clean_start"] is False
+    assert [error["kind"] for error in ready["startup_diagnostics"]] == [
+        "parse_error",
+        "compile_failed",
+    ]
+    assert all(
+        "frame two" not in error["message"] for error in ready["startup_diagnostics"]
+    )
+
+
+def test_a_log_gda_could_not_read_is_no_verdict_not_a_clean_start(
+    tmp_path, monkeypatch
+):
+    # ADR-0022 keeps "unavailable" apart from "empty" (third review of PR #940):
+    # the first version returned [] for an unreadable log and so published
+    # `clean_start: true` for a log nobody read. The session still serves.
+    paths = replace(
+        _project_with_marker(tmp_path), session_log=tmp_path / "missing" / "session.log"
+    )
+
+    def _launch(*args, **kwargs):
+        return EngineSession(
+            cast(subprocess.Popen, FakeProc()), conn=None, handshake_log_size=0
+        )
+
+    server = DaemonServer(paths, godot="godot", launch=_launch)
+    server._harness_listener = cast(socket.socket, object())
+
+    reply = server._handle({"op": "daemon-wait-ready", "params": {}})
+    assert reply is not None
+    ready = parse_result(reply["stdout"])
+    assert ready["launched"] is True
+    assert ready["startup_diagnostics"] is None
+    assert ready["clean_start"] is None
+    status = server._handle({"op": "__status__"})
+    assert status is not None
+    assert status["startup_diagnostics"] is None
+    assert status["clean_start"] is None
+
+
+def test_a_launch_that_could_not_measure_the_handshake_bound_reports_no_verdict(
+    tmp_path, monkeypatch
+):
+    # No bound, no prefix to read: the same null verdict, never an unbounded read
+    # dressed up as the startup one.
+    server = _server_with_own_log(tmp_path, monkeypatch, _PARSE_ERROR_LOG)
+
+    def _unbounded(*args, **kwargs):
+        server.paths.session_log.write_text(_PARSE_ERROR_LOG, encoding="utf-8")
+        return EngineSession(cast(subprocess.Popen, FakeProc()), conn=None)
+
+    server._launch = _unbounded
+    reply = server._handle({"op": "daemon-wait-ready", "params": {}})
+    assert reply is not None
+    ready = parse_result(reply["stdout"])
+    assert ready["startup_diagnostics"] is None
+    assert ready["clean_start"] is None
 
 
 def test_status_reports_no_startup_diagnostics_before_a_session_is_established(
@@ -739,13 +830,12 @@ def test_a_startup_that_printed_nothing_recognizable_is_a_clean_start(
 def test_the_startup_verdict_is_the_launchs_own_and_is_not_re_read_later(
     tmp_path, monkeypatch
 ):
-    # The verdict is a SNAPSHOT: read ONCE, right after the handshake, and then
-    # remembered. What this pins is the "once" — a later read of the same file
-    # must not rewrite the readiness verdict, or `diag errors` (the full-log
-    # read, ADR-0022) and this boundary would be competing authorities over one
-    # daemon-owned log. It does NOT pin what the snapshot CONTAINS: the game
-    # keeps running while the launch returns and the read happens, so the first
-    # frames may be in it. That edge is documented, not fenced off.
+    # The verdict is a SNAPSHOT: read ONCE, bounded to the log up to the
+    # handshake, and then remembered. What this pins is the "once" — a later
+    # read of the same file must not rewrite the readiness verdict, or `diag
+    # errors` (the full-log read, ADR-0022) and this boundary would be competing
+    # authorities over one daemon-owned log. What the snapshot CONTAINS is
+    # pinned by the two tests below it.
     server = _server_with_own_log(tmp_path, monkeypatch, _PARSE_ERROR_LOG)
 
     server._handle({"op": "daemon-wait-ready", "params": {}})

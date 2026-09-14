@@ -1781,17 +1781,17 @@ re-derives every verdict from a running engine.
   to compile leaves its node script-less and the session serves anyway (GDA-DF-047). A
   disclosure on SUCCESS, never a refusal — a broken scene is exactly when `diag errors`,
   `game tree` and a capture are wanted.
-  WHAT THE VERDICT COVERS is decided by WHEN it is read, and it is read ONCE, right after
-  the harness handshake: everything the daemon-owned `Session log` held at that instant.
-  So it covers engine startup, the project's autoloads and the scene's own scripts, and it
-  MAY also include the game's first frames — the game keeps running while the launch
-  returns and this read happens, so a record emitted in that instant can land on either
-  side of it. gda does not chase that edge with a log offset: the boundary is a
-  convenience, and the whole stream is `gda diag errors` (ADR-0022), which stays the
-  authority over the file — the two are projections of one daemon-owned log, not competing
-  readers of it. A `clean_start: true` therefore says gda recognized nothing, which
-  includes a log it could not read at all; `diag errors` answers `live_log_unavailable`
-  for that condition and tells the two apart. An idempotent repeat reports the establishing
+  WHAT THE VERDICT COVERS is the daemon-owned `Session log` UP TO THE HANDSHAKE: the launch
+  measures the log's size at the instant the harness handshake completes, and the verdict
+  is read from that prefix — so it covers engine startup, the project's autoloads and the
+  scene's own scripts, and a record the game emits during the handshake's own frames lands
+  on whichever side of that instant it was written. Everything after that instant is
+  `gda diag errors` (ADR-0022), which stays the authority over the file — the two are
+  projections of one daemon-owned log, not competing readers of it. A prefix gda could not
+  read — no session log, or a read failure — is NO verdict: both keys are null, never a
+  clean start for a log nobody saw, and `gda diag errors` names that condition
+  `live_log_unavailable`; the human rendering says so in one line, since a reader who sees
+  nothing would take it for a clean start. An idempotent repeat reports the establishing
   launch's verdict, not a fresh read.
   A daemon started by an OLDER gda answers without the two keys, which the CLI reports as
   `contract_violation`; run `gda daemon stop`, then `gda daemon start`, so the daemon
@@ -1813,9 +1813,10 @@ re-derives every verdict from a running engine.
   lifetime. `daemon status` reports that session's `startup_diagnostics` / `clean_start`
   too, so a caller arriving after the launch reads the verdict without relaunching the
   game; both are null together, when no session was established this daemon lifetime, when
-  no daemon is running, or when the status round trip missed transiently — null and an
-  empty list are different facts, the second saying a session started and nothing was
-  recognized against it. With no `--scene` selector, `daemon start` checks the project
+  gda could not read the log up to that session's handshake, when no daemon is running, or
+  when the status round trip missed transiently — null and an empty list are different
+  facts, the second saying a session started and nothing was recognized in the prefix.
+  With no `--scene` selector, `daemon start` checks the project
   files for an empty `application/run/main_scene` — `live_main_scene_undefined` (LIVE, exit
   6) — or a `uid://` main scene with no cache under the configured project data directory —
   `live_main_scene_unresolved`, remedy: run the import pass once. Refusal precedes daemon

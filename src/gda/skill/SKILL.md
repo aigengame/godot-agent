@@ -212,12 +212,15 @@ alive) — success means live reads serve. This matters for the read-only diagno
 Serving is NOT the same as a cleanly started scene: a script that fails to compile leaves
 its node script-less and the session serves anyway, leaving the tree without whatever the
 script would have built, and often a blank frame. So `wait-ready` also reports `clean_start`
-and the `startup_diagnostics` it recognized in the session log — the same records `script
-run` and `scene preflight` carry, read ONCE right after the harness handshake, so they cover
-engine startup, the autoloads and the scene's own scripts, and may include the game's first
-frames. Read `clean_start` before you treat a screenshot or a runtime read as evidence about
-the scene; `daemon status` repeats that verdict for the serving session without relaunching
-it, and `diag errors` reads the whole log, including everything printed after that instant.
+and the `startup_diagnostics` it recognized in the session log UP TO THE HANDSHAKE — the same
+records `script run` and `scene preflight` carry, read from the bytes the log held at the
+instant the harness handshake completed, so they cover engine startup, the autoloads and the
+scene's own scripts; a record emitted during the handshake's own frames lands on whichever
+side of that instant it was written. Read `clean_start` before you treat a screenshot or a
+runtime read as evidence about the scene. Both keys are null when gda could not read that
+prefix (`diag errors` then says `live_log_unavailable`) — never a clean start it did not see.
+`daemon status` repeats that verdict for the serving session without relaunching it, and
+`diag errors` reads the whole log, including everything printed after that instant.
 A `live_timeout` discards the session (its late reply can no longer be attributed), so the
 next operation starts a fresh game and the runtime state you had set is gone. Most often
 it means the game stopped returning to its main loop — look for a blocking loop or wait in

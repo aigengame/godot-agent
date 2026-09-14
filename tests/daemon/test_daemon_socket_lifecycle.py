@@ -164,9 +164,15 @@ class _ServedSession:
 
     log_file: "Path | None" = None
 
-    def __init__(self, session_id: str = "fake-session") -> None:
+    def __init__(
+        self, session_id: str = "fake-session", handshake_log_size: "int | None" = None
+    ) -> None:
         self.closed = False
         self.session_id = session_id
+        # The bound of the startup verdict (#848): the log's size at the instant
+        # the handshake completed. None models a launch that could not measure
+        # it, which the daemon reports as no verdict.
+        self.handshake_log_size = handshake_log_size
 
     def alive(self) -> bool:
         return True
@@ -497,10 +503,13 @@ def test_wait_ready_launches_once_and_reports_the_bounded_wait(
     # timeout and reports launched=true; a repeat while the session is alive is
     # idempotent (launched=false, no relaunch).
     launches: list = []
-    session = _ServedSession()
+    # A measured launch whose game printed nothing before the handshake: an
+    # empty log and a bound of zero (#848).
+    session = _ServedSession(handshake_log_size=0)
 
     def _launch(*args, **kwargs):
         launches.append(kwargs.get("deadline"))
+        paths.session_log.write_text("", encoding="utf-8")
         return session
 
     paths = daemon_paths(runnable_project(tmp_path))
@@ -513,8 +522,9 @@ def test_wait_ready_launches_once_and_reports_the_bounded_wait(
 
     assert first is not None
     verdict = parse_result(first["stdout"])
-    # The startup verdict rides success (#848); this fake launch writes no
-    # Session log, so nothing is recognized against the start it reports.
+    # The startup verdict rides success (#848); this launch measured an empty
+    # log at the handshake, so nothing is recognized against the start it
+    # reports.
     assert verdict == {
         "pid": os.getpid(),
         "launched": True,
@@ -651,8 +661,10 @@ _BROKEN_STARTUP_LOG = (
 class _MortalSession(_ServedSession):
     """A fake session that can be declared dead, forcing a relaunch."""
 
-    def __init__(self, session_id: str) -> None:
-        super().__init__(session_id)
+    def __init__(
+        self, session_id: str, handshake_log_size: "int | None" = None
+    ) -> None:
+        super().__init__(session_id, handshake_log_size)
         self.dead = False
 
     def alive(self) -> bool:
@@ -674,11 +686,12 @@ def test_a_relaunch_replaces_the_previous_sessions_startup_verdict(
     def _launch(*args, **kwargs):
         # Broken on the first launch, fixed on the second — as an edit between
         # the two would leave it.
-        paths.session_log.write_text(
-            _BROKEN_STARTUP_LOG if not launched else "", encoding="utf-8"
-        )
+        text = _BROKEN_STARTUP_LOG if not launched else ""
+        paths.session_log.write_text(text, encoding="utf-8")
         launched.append(kwargs["session_id"])
-        session = _MortalSession(kwargs["session_id"])
+        session = _MortalSession(
+            kwargs["session_id"], handshake_log_size=len(text.encode("utf-8"))
+        )
         sessions.append(session)
         return session
 
@@ -729,12 +742,13 @@ def test_a_failed_replacement_launch_retains_the_previous_startup_verdict(
         attempts.append(kwargs["session_id"])
         failing = len(attempts) == 2
         # What the real launcher does on EVERY attempt, failed ones included.
-        paths.session_log.write_text(
-            "" if failing else _BROKEN_STARTUP_LOG, encoding="utf-8"
-        )
+        text = "" if failing else _BROKEN_STARTUP_LOG
+        paths.session_log.write_text(text, encoding="utf-8")
         if failing:
             return None
-        session = _MortalSession(kwargs["session_id"])
+        session = _MortalSession(
+            kwargs["session_id"], handshake_log_size=len(text.encode("utf-8"))
+        )
         sessions.append(session)
         return session
 
