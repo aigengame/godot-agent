@@ -139,18 +139,23 @@ they answer *different* ones:
   `--frames` idle frames so startup work landing after `_ready` still prints, and reports
   `status` (`ready` / `not_ready` / `timeout`) plus the script errors gda recognized in the
   engine's error stream. Read `started`: true only when the scene reached `_ready` AND nothing was
-  recognized on stderr, which is the distinction the dogfooding note asks for (GDA-DF-030 —
-  static validation passed while the first live launch rejected every assembly). Recognition is
-  #651's closed set: the engine's own failure sentences (a runtime error, a failed assertion, a
+  recognized on stderr WHILE it started, which is the distinction the dogfooding note asks for
+  (GDA-DF-030 — static validation passed while the first live launch rejected every assembly).
+  Recognition is #651's closed set: the engine's own failure sentences (a runtime error, a failed assertion, a
   script that could not load, a script binding the engine refused) **and a project-raised
   `push_error()`** (#722), which is the most common way a Godot project reports exactly the
   invariant violation GDA-DF-030 describes. That one is recognized by its `at:` frame — which
   the engine fixes as `push_error` — never by its message, which is the project's own prose; its
   `kind` is `push_error` and its `path`/`line` are the call site named in the engine's GDScript
-  backtrace, or null when it attached none. Everything else the engine prints stays
-  unrecognized: a backtrace alone does not qualify a record, since the engine attaches one to
-  any error raised while GDScript is on the stack, including engine-side failures a script only
-  triggered indirectly.
+  backtrace, or null when it attached none. The set also holds **the engine's exit-time leak
+  report** (#844), `kind` `shutdown_leak`, and that one is DATA here: the engine prints it after
+  the scene ran and about the whole process — an autoload's leak reads exactly like the scene's
+  own — so a scene that comes up and leaks reads `status: ready` with `started: true`, the leak
+  records reported beside that verdict in `diagnostics`. Gating `started` on the record would
+  report a scene whose nodes carry no script at all as not started.
+  Everything else the engine prints stays unrecognized: a backtrace alone does not qualify a
+  record, since the engine attaches one to any error raised while GDScript is on the stack,
+  including engine-side failures a script only triggered indirectly.
 
 **A composed verdict, not a single-file one** (established by #721): a scene that references a
 broken one is broken too, and its own dependency walk can never see that — `res://child.tscn`
@@ -953,6 +958,24 @@ arms that abort even though it is recognized (#722): it interrupts nothing — e
 continues at the next statement — so a script that reports an invariant and then computes
 quietly is alive by construction. It does appear in the run's `diagnostics`, which are advisory:
 a project that uses `push_error` as ordinary logging sees entries on runs that still succeed.
+
+**`--strict` fails a run on either of two triggers** (#844): the non-zero status the script
+chose, or a `shutdown_leak` diagnostic — Godot's two exit-time leak records (`ObjectDB
+instances leaked at exit`, `<n> resources still in use at exit`), which it prints after the
+run. A suite can report a pass, `quit(0)` and still leave its objects and a loaded resource
+alive, so a status-only gate called that run clean and the production had to add "stderr must
+be empty" as a gate of its own (GDA-DF-063). ONE verdict, not two: the same `script_failed`
+code, the same `evidence.exit_status` / `evidence.script_errors` keys and the same producer;
+only the message differs, quoting the engine's leak sentence when the status is zero. Without
+`--strict` the diagnostic is data on the successful result, as #651 decided for every error
+the script survived. Recognition still keys on the engine's own format strings — one of the
+two records is the parser's only WARNING — so a project `push_warning()` spelling the same
+words is not a leak. Two boundaries the wording keeps: the leak is the PROCESS's, so an
+autoload's leak reads exactly like the script's own and the message says the engine reported
+a leak rather than that this script leaked; and the engine's OTHER exit-time leak family, the
+RID reports, is deliberately outside the recognized set, so a run that leaks only RIDs passes
+`--strict` with no diagnostic.
+
 `script run` takes the two portable script-path forms — a `res://` address and a
 project-relative path — and decides the whole path edge before any launch (ADR-0031). Six
 shapes are `invalid_path`: an absolute path, another engine scheme, a leading `~`, a path
@@ -1215,7 +1238,28 @@ gda's scoping is in the decision and the report. A real run settles each state
 every `invalid` request settles here without spending a pass) and lists every created
 file, classified against the explicit cache root: `cache_owned` (under `res://.godot`) vs
 `source_adjacent` (`.import` and `.uid` sidecars — the GDA-DF-038 noise, accounted file by
-file). `--dry-run` writes nothing and reports the decidable inventory: the per-asset
+file). An `invalid` or `failed` asset also says WHY (#853): `reason` names the check that
+decided it — `sidecar_marked_invalid` (the engine failed the last import),
+`sidecar_unparsable`, `receipt_unsupported`, or the settlement's own
+`dest_missing_after_pass` — and `detail` the offending line or path where the check
+knows one the record does not already carry (the malformed `dest_files=`/`files=` line,
+the derived `.md5` receipt). The three artifact reasons are decided in the evidence
+adapter and SURVIVE the settlement, so a real run's `failed` still names the pre-pass
+check that refused it; `dest_missing_after_pass` is the one only the command can decide
+— no check refused the asset, the pass ran, and it is still not cached. For a `failed`,
+`engine_output` carries the pass's stderr lines naming the asset's `res://` path,
+verbatim and in order, whenever THIS request ran a pass — empty when none ran — bounded
+to 20 with `engine_output_truncated` when more matched (#665's rule without its spill
+file; the engine's `at:` continuation lines name a source file, not the asset, so they
+stay out). It is independent of `reason`, deliberately: `reason` is gda's pre-pass
+evidence and `engine_output` is the engine's own words, and the engine NAMES an asset it
+then skips (an unparsable sidecar draws two `ResourceFormatImporter::load` errors before
+the skip; a receipt outside gda's narrower subset is re-imported and fails in the open).
+Those lines are the ones naming the asset, which for some importers is the verdict
+without its cause — pass the global `--user-data-root DIR` to keep the whole engine
+stream at `DIR/logs/godot.log`. PIPE-DF-191 is the caller who got the bare `failed` and
+had to prove the outcome from unchanged resource bytes.
+`--dry-run` writes nothing and reports the decidable inventory: the per-asset
 states, the requested assets' sidecars-to-be, and `pass_will_also_import` — the OTHER
 stale assets the project-wide pass will re-import (invalid ones excluded; assets under a
 nested project's, a `.gdignore`d or a **dot-prefixed** directory excluded too, since the
@@ -1440,6 +1484,10 @@ re-derives every verdict from a running engine.
   nothing was omitted, so the unbounded read pays nothing per node. Unbounded stays the
   default and the caller's choice; the follow-up read is a narrower `--root`, not a
   continuation token, which would page a snapshot the live tree has already left behind.
+  A tree nesting deeper than about 250 levels is refused (`tree_too_deep`; past about 500
+  the engine's own JSON writer cuts the reply short and the refusal is `contract_violation`):
+  bound such a read with `--root` and `--max-depth` (#929, the retained ceilings the help
+  names).
   `game find` (shipped, [#855](https://github.com/aigengame/godot-agent/issues/855),
   from GDA-DF-051, where a rebuilt screen moved an actor slot from `Enemy0` to `Enemy1`
   and a full-tree read was the only way to find it again) answers "which node is it
@@ -1782,9 +1830,38 @@ re-derives every verdict from a running engine.
   for waiting and for committing to new work rather than a hard wall clock — no phase gets a
   fresh grace, every timed wait uses what remains, and once it is spent nothing further is
   launched — but a synchronous step already in flight (a filesystem write, the spawn itself)
-  can delay when that expiry is observed. Success (`{pid, launched}`) means subsequent
-  live reads serve, and a repeat while the session is alive is idempotent (`launched:
-  false`, nothing relaunched). A session stops serving when its harness channel breaks OR
+  can delay when that expiry is observed. Success (`{pid, launched, startup_diagnostics,
+  clean_start}`) means subsequent live reads serve, and a repeat while the session is alive
+  is idempotent (`launched: false`, nothing relaunched). Success also carries the STARTUP
+  VERDICT of the session it established (#848): `startup_diagnostics` — the `ScriptError[]`
+  that `script run` and `scene preflight` publish — and `clean_start`, the one boolean
+  saying nothing was recognized against that start. It answers what readiness never did: a
+  harness that connected is not a scene that started cleanly, because a script that fails
+  to compile leaves its node script-less and the session serves anyway (GDA-DF-047). A
+  disclosure on SUCCESS, never a refusal — a broken scene is exactly when `diag errors`,
+  `game tree` and a capture are wanted.
+  WHAT THE VERDICT COVERS is the daemon-owned `Session log` UP TO THE HANDSHAKE: the launch
+  measures the log's size at the instant the harness handshake completes, and the verdict
+  is read from that prefix — so it covers engine startup, the project's autoloads and the
+  scene's own scripts, and a record the game emits during the handshake's own frames lands
+  on whichever side of that instant it was written. Everything after that instant is
+  `gda diag errors` (ADR-0022), which stays the authority over the file — the two are
+  projections of one daemon-owned log, not competing readers of it. A prefix gda could not
+  read — no session log, or a read failure — is NO verdict: both keys are null, never a
+  clean start for a log nobody saw, and `gda diag errors` names that condition
+  `live_log_unavailable`; the human rendering says so in one line, since a reader who sees
+  nothing would take it for a clean start. An idempotent repeat reports the establishing
+  launch's verdict, not a fresh read.
+  A daemon started by an OLDER gda answers without the two keys — and a drifted one with a
+  pair that contradicts itself (the pair is one fact: both null, or a list and exactly "that
+  list is empty") — which the CLI reports as `contract_violation`; run `gda daemon stop`,
+  then `gda daemon start`, so the daemon
+  serves the current contract. The skew is reachable because a daemon is a long-lived
+  per-project process and a repeat `daemon start` only reports `already_running`, so
+  upgrading gda while one runs leaves the older daemon serving. There is no CLI/daemon
+  version handshake and none is planned: a mixed-version session is not a compatibility
+  target — the CLI/daemon leg of ADR-0018's current-harness policy (2026-09-08).
+  A session stops serving when its harness channel breaks OR
   when a relay hits `live_timeout` — the one-op-at-a-time RPC carries no request id, so a
   late reply can no longer be attributed — and the next operation that requires a session
   relaunches it, losing runtime state (ADR-0017 amendment, ADR-0020). `daemon status`
@@ -1794,9 +1871,15 @@ re-derives every verdict from a running engine.
   retained across a failed replacement launch (nothing replaced the session it names)
   until a new session is established. It is the value a `screen capture` receipt's
   `session_id` correlates with; null before the first established session this daemon
-  lifetime. With no `--scene` selector, `daemon start` checks the project files for an empty
-  `application/run/main_scene` — `live_main_scene_undefined` (LIVE, exit 6) — or a `uid://`
-  main scene with no cache under the configured project data directory —
+  lifetime. `daemon status` reports that session's `startup_diagnostics` / `clean_start`
+  too, so a caller arriving after the launch reads the verdict without relaunching the
+  game; both are null together, when no session was established this daemon lifetime, when
+  gda could not read the log up to that session's handshake, when no daemon is running, or
+  when the status round trip missed transiently — null and an empty list are different
+  facts, the second saying a session started and nothing was recognized in the prefix.
+  With no `--scene` selector, `daemon start` checks the project
+  files for an empty `application/run/main_scene` — `live_main_scene_undefined` (LIVE, exit
+  6) — or a `uid://` main scene with no cache under the configured project data directory —
   `live_main_scene_unresolved`, remedy: run the import pass once. Refusal precedes daemon
   or session launch (the engine version probe is allowed), and the daemon repeats the
   check at its launch boundary. A determinate main-scene refusal precedes the

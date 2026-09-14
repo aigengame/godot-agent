@@ -123,10 +123,14 @@ class EngineSession:
         log_file: Optional[Path] = None,
         owned_pgid: Optional[int] = None,
         session_id: str = "",
+        handshake_log_size: Optional[int] = None,
     ) -> None:
         self._proc = proc
         self._conn = conn
         self.log_file = log_file
+        # The Session log's size at the instant the handshake completed (#848):
+        # the bound of the startup verdict. None when it could not be measured.
+        self.handshake_log_size = handshake_log_size
         # The session's identity (#660): minted by the daemon per launch, fixed for
         # this session's lifetime, and REMEMBERED like ``log_file`` — readable on
         # ``daemon status`` even after the process dies, so a capture receipt
@@ -500,8 +504,27 @@ def launch_session(
         _close(conn)
         _teardown()
         raise SceneMismatch(scene if scene is not None else "", str(current))
+    # The handshake is complete HERE — token and scene verification both accepted —
+    # and this is the instant the readiness verdict is bounded to (#848): the bytes
+    # the Session log held now are "the log up to the handshake". Captured as ONE
+    # fact on the session, because only this function knows the instant; the
+    # daemon reads that prefix when it forms the verdict, so a record the game
+    # emits while the launch returns does not become a startup record. A log that
+    # cannot be measured (no log, or a stat failure) yields no bound and the daemon
+    # reports no verdict rather than an unbounded one.
+    handshake_log_size: Optional[int] = None
+    if log_file is not None:
+        try:
+            handshake_log_size = log_file.stat().st_size
+        except OSError:
+            handshake_log_size = None
     return EngineSession(
-        proc, conn, log_file=log_file, owned_pgid=owned_pgid, session_id=session_id
+        proc,
+        conn,
+        log_file=log_file,
+        owned_pgid=owned_pgid,
+        session_id=session_id,
+        handshake_log_size=handshake_log_size,
     )
 
 

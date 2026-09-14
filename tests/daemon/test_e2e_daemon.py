@@ -33,7 +33,12 @@ from gda.harness.install import (
 
 from tests.support import Gda, assert_windowed_ok, import_project
 
-from tests.conftest import LIVE_MAIN_TSCN, LIVE_PROJECT_GODOT, project_godot
+from tests.conftest import (
+    LIVE_MAIN_TSCN,
+    LIVE_PROJECT_GODOT,
+    SCRIPTED_MAIN_TSCN,
+    project_godot,
+)
 
 # A main scene so the launched session has a runtime SceneTree to read; a Player
 # Node2D child carries a Vector2 storage property (position) for the game get/set
@@ -1405,3 +1410,92 @@ def test_daemon_serves_screen_capture_while_scenetree_paused(
         assert resumed_after > resumed_before
     finally:
         run("daemon", "stop")
+
+
+# --- the readiness boundary discloses a degraded start (#848) ------------------
+# GDA-DF-047: `daemon start --scene <fixture>` returned a successful pid although
+# the root's attached script failed to parse. The root booted script-less, the
+# first live tree held only it, and the automation captured a blank frame — the
+# failure was visible only in `diag errors`, after a live read had already
+# established the session. Only a real engine proves the fix: the verdict is read
+# out of the daemon-owned Session log the ENGINE wrote, at the moment the harness
+# handshake completed, so nothing short of a real launch produces that file.
+
+# A root script that does not compile. The scene still LOADS — Godot logs the
+# parse failure and leaves the root script-less — so the session serves.
+BROKEN_ROOT_GD = "extends Node2D\n\n\nfunc _ready() -> void:\n\tvar model: = broken\n"
+
+# The same shape, compiling: the contrast is the script's fate, not its presence.
+CLEAN_ROOT_GD = 'extends Node2D\n\n\nfunc _ready() -> void:\n\tprint("gda ready")\n'
+
+
+def _startup_verdict(project, script_source: str) -> tuple[dict, dict]:
+    """Boot ``script_source`` as the main scene's root script; return the verdicts.
+
+    The pair a caller reads at the readiness boundary: what ``daemon wait-ready``
+    answered, and what ``daemon status`` reports for the same serving session
+    afterwards (no relaunch).
+    """
+    (project / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
+    (project / "main.tscn").write_text(SCRIPTED_MAIN_TSCN, encoding="utf-8")
+    (project / "main.gd").write_text(script_source, encoding="utf-8")
+    run = Gda(project, json_output=True)
+    try:
+        # `--scene <fixture>` rather than the main_scene default, because that is
+        # how GDA-DF-047 was reported and what the acceptance criterion names.
+        # The two boot the same scene here (the fixture IS this project's
+        # main_scene), but the selector also runs the launch-boundary scene
+        # verification, so the disclosure is proven on the path the note used.
+        started = run("daemon", "start", "--scene", "res://main.tscn")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        ready = run("daemon", "wait-ready")
+        assert ready.returncode == 0, ready.stdout + ready.stderr
+        status = run("daemon", "status")
+        assert status.returncode == 0, status.stdout + status.stderr
+        return json.loads(ready.stdout), json.loads(status.stdout)
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_wait_ready_discloses_a_root_script_that_did_not_compile(
+    tmp_path, daemon_runtime_dir
+):
+    ready, status = _startup_verdict(tmp_path, BROKEN_ROOT_GD)
+
+    # A disclosure on SUCCESS, not a refusal: the session serves, which is exactly
+    # when `diag errors`, `game tree` and a capture are wanted.
+    assert ready["launched"] is True
+    assert ready["clean_start"] is False
+
+    # Every recognized record is about the script the scene bound, and the compile
+    # failure names the line. The engine may spell one broken declaration as
+    # several parse records, so the assertions are on WHAT was recognized, not on
+    # how many sentences this engine build prints for this source.
+    recognized = ready["startup_diagnostics"]
+    assert recognized, ready
+    assert {error["path"] for error in recognized} == {"res://main.gd"}
+    kinds = {error["kind"] for error in recognized}
+    assert "parse_error" in kinds and "compile_failed" in kinds
+    assert 5 in {
+        error["line"] for error in recognized if error["kind"] == "parse_error"
+    }
+
+    # `daemon status` reports the SAME verdict for the serving session, so a later
+    # caller reads it without relaunching the game.
+    assert status["clean_start"] is False
+    assert status["startup_diagnostics"] == ready["startup_diagnostics"]
+
+
+@pytest.mark.e2e
+def test_wait_ready_reports_a_clean_start_for_a_scene_that_compiles(
+    tmp_path, daemon_runtime_dir
+):
+    ready, status = _startup_verdict(tmp_path, CLEAN_ROOT_GD)
+
+    assert ready["launched"] is True
+    assert ready["clean_start"] is True
+    assert ready["startup_diagnostics"] == []
+    assert status["clean_start"] is True
+    assert status["startup_diagnostics"] == []
