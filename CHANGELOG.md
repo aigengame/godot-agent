@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.17.0](https://github.com/aigengame/godot-agent/compare/v0.16.0...v0.17.0) (2026-09-14)
+
+
+### Features
+
+* **gda:** daemon readiness reports the session's startup script errors ([#848](https://github.com/aigengame/godot-agent/issues/848)) ([85ff64f](https://github.com/aigengame/godot-agent/commit/85ff64f62a5d3bb3507a357234e93d160bb8bbd2))
+* **gda:** dogfooding II W3 — game tree depth, import reasons, project_file boundaries, readiness verdict, shutdown leaks, case mismatch, game rect sizes, perf summary ([ce10dfd](https://github.com/aigengame/godot-agent/commit/ce10dfd04797d9f06d5ba3375ece61b68a33474f))
+* **gda:** game rect reports the minimum sizes and the local rect ([#852](https://github.com/aigengame/godot-agent/issues/852)) ([ce398cc](https://github.com/aigengame/godot-agent/commit/ce398cc5e21f9f1b690df7853eecef96c5c72181))
+* **gda:** perf monitors --summary omits the rows, and a window reports what it retained ([#846](https://github.com/aigengame/godot-agent/issues/846)) ([2858630](https://github.com/aigengame/godot-agent/commit/2858630c562b89eb743b539a5936a170d65fdd7d))
+* **gda:** resource import says why an asset is invalid or failed ([#853](https://github.com/aigengame/godot-agent/issues/853)) ([d774f1b](https://github.com/aigengame/godot-agent/commit/d774f1bedcb73662157c910a2927571a610f3bc1))
+* **gda:** script run --strict fails a run the engine reports leaking at exit ([#844](https://github.com/aigengame/godot-agent/issues/844)) ([d0f30ce](https://github.com/aigengame/godot-agent/commit/d0f30cefd530a6998ba684cec796533f2008420f))
+
+
+### Bug Fixes
+
+* **gda:** a case-mismatched res:// path is a typed refusal ([#845](https://github.com/aigengame/godot-agent/issues/845)) ([d0886b9](https://github.com/aigengame/godot-agent/commit/d0886b9a27c8f2642cad475afb6be231983c39ce))
+* **gda:** game tree serializes every tree its result model accepts ([#929](https://github.com/aigengame/godot-agent/issues/929)) ([fe39fd8](https://github.com/aigengame/godot-agent/commit/fe39fd8e7bff2845e4d69208fff2ee23c0ad9753))
+
 ## [0.16.0](https://github.com/aigengame/godot-agent/compare/v0.15.0...v0.16.0) (2026-09-08)
 
 
