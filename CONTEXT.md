@@ -227,30 +227,32 @@ script and injects nothing into it (ADR-0031 rejected a gda-owned sentinel wrapp
 _Avoid_: sentinel, done marker, quit marker
 
 **Export artifact**:
-What `gda export run` produces for a preset: a macOS `.app` bundle; a Linux or
-Windows executable with its PCK beside it or embedded; a bare PCK in `pack` mode.
-Identified by the SHA-256 of its executable(s) and PCK, which `export run` reports
-where the artifact is born and an `Artifact smoke` echoes for what it launched
-(ADR-0042). The one thing gda produces that is NOT the project under the editor
-binary: release template, the PCK the export filters admitted, the harness stripped
-(ADR-0028), imported resources remapped. Every platform `export run` produces is an
-Export artifact, a Web directory and an Android or iOS output included; only a desktop
-artifact on its own host can be smoked.
-_Avoid_: build, bundle (macOS only), binary, release
+What `gda export run` produces for a preset, named by the `output_path` it reports:
+a macOS `.app` bundle; a Linux or Windows executable with its PCK beside it or
+embedded; a bare PCK in `pack` mode; a Web page with its siblings; an Android or
+iOS output. Named by path, never by content — gda keeps no identity, manifest or
+provenance of it (ADR-0042). The one thing gda produces that is NOT the project
+under the editor binary: release template, the PCK the export filters admitted, the
+harness stripped (ADR-0028), imported resources remapped. Only a desktop artifact on
+its own host can be smoked.
+_Avoid_: build, bundle (macOS only), binary, release, receipt
 
 **Artifact smoke**:
-The bounded run of an `Export artifact` that `gda export smoke` performs: the exported
-game itself, launched unsandboxed with caller-declared arguments on the `script run`
-mechanics (ADR-0031) and its own policy (ADR-0042) — the run ending is success, its
-exit status is data, `--strict` fails on a non-zero exit or a recognized exit-time
-leak, a `Completion marker` may end it early — headless by default, its `user://`
-placed privately by default. gda's only evidence about the exported game, and a
-point on the `Project-code execution surface`: the widest one, since it runs the
-game's startup path and whatever code that run reaches within the caller's bound —
-never every script the PCK carries. NOT a `Startup preflight`, which boots one scene
-under the editor binary, and not a `Live operation`, which needs an `Engine session`.
-The caller names the artifact; gda extends the `Trusted project` assumption to it and
-does not verify where it came from.
+The bounded run of a same-host desktop `Export artifact` that `gda export smoke`
+performs: the exported game itself, launched unsandboxed with caller-declared
+arguments on the shared launch mechanics (ADR-0031's streaming, timeout, placement,
+recognizer and `Completion marker`) under the smoke's own policy and verdict codes
+(ADR-0042) — the run ending is success, its exit status is data, `--strict` fails on
+a non-zero exit or a recognized exit-time leak, a `Completion marker` may end it
+early — headless by default, its `user://` placed privately by default, reporting the
+launch target it used (the executable, and a separate PCK beside it) as an
+observation of what ran, not as an identity. gda's only evidence about the exported
+game, and a point on the `Project-code execution surface`: the widest one, since it
+runs the game's startup path and whatever code that run reaches within the caller's
+bound — never every script the PCK carries. NOT a `Startup preflight`, which boots
+one scene under the editor binary, and not a `Live operation`, which needs an
+`Engine session`. Its trust subject is the caller-selected artifact, distinct from
+the resolved `Trusted project` (ADR-0042 §1).
 _Avoid_: post-export test, launch check, release verify, smoke test (the project's
 own tests are its own)
 
@@ -403,8 +405,9 @@ frames, beside the autoloads — the widest point on this list until the
 `Artifact smoke` (ADR-0042, #841): `gda export smoke` runs the **exported game
 itself** — its startup path and whatever code that run reaches within the
 caller's bound, never every script the PCK carries — the widest point of all,
-and the only one on an `Export artifact` rather than on the project under the
-editor binary; the artifact is caller-named and executed unsandboxed. `gda resource import` (#668) contributes two DISTINCT points: a fully
+and the only one whose subject is not the resolved project but a
+caller-selected `Export artifact`, executed unsandboxed with no verified
+provenance (ADR-0042 §1). `gda resource import` (#668) contributes two DISTINCT points: a fully
 cached request starts no engine at all (nothing on this surface runs), while
 a missing or stale cache runs the **engine import pass** — importer code (and
 any import plugins the project registers) over project content, WITHOUT the
@@ -431,8 +434,9 @@ reports, reads that cache first; where it is stale the read recomputes through
 the SAME virtual, so it adds no point of its own.
 All stay within the `Trusted project` assumption (ADR-0009); `script run`, the
 loaded-value assignment (ADR-0033), the startup preflight, the import pass, the
-declared method call, the minimum-size read, the composed static validate, and
-the artifact smoke widen this surface without adding a new trust axis.
+declared method call, the minimum-size read, and the composed static validate
+widen this surface without adding a new trust axis. The artifact smoke is the one
+point with a second trust subject, stated once in ADR-0042 §1.
 _Avoid_: attack surface, code-execution risk
 
 **Concurrent external editor**:
