@@ -139,18 +139,23 @@ they answer *different* ones:
   `--frames` idle frames so startup work landing after `_ready` still prints, and reports
   `status` (`ready` / `not_ready` / `timeout`) plus the script errors gda recognized in the
   engine's error stream. Read `started`: true only when the scene reached `_ready` AND nothing was
-  recognized on stderr, which is the distinction the dogfooding note asks for (GDA-DF-030 —
-  static validation passed while the first live launch rejected every assembly). Recognition is
-  #651's closed set: the engine's own failure sentences (a runtime error, a failed assertion, a
+  recognized on stderr WHILE it started, which is the distinction the dogfooding note asks for
+  (GDA-DF-030 — static validation passed while the first live launch rejected every assembly).
+  Recognition is #651's closed set: the engine's own failure sentences (a runtime error, a failed assertion, a
   script that could not load, a script binding the engine refused) **and a project-raised
   `push_error()`** (#722), which is the most common way a Godot project reports exactly the
   invariant violation GDA-DF-030 describes. That one is recognized by its `at:` frame — which
   the engine fixes as `push_error` — never by its message, which is the project's own prose; its
   `kind` is `push_error` and its `path`/`line` are the call site named in the engine's GDScript
-  backtrace, or null when it attached none. Everything else the engine prints stays
-  unrecognized: a backtrace alone does not qualify a record, since the engine attaches one to
-  any error raised while GDScript is on the stack, including engine-side failures a script only
-  triggered indirectly.
+  backtrace, or null when it attached none. The set also holds **the engine's exit-time leak
+  report** (#844), `kind` `shutdown_leak`, and that one is DATA here: the engine prints it after
+  the scene ran and about the whole process — an autoload's leak reads exactly like the scene's
+  own — so a scene that comes up and leaks reads `status: ready` with `started: true`, the leak
+  records reported beside that verdict in `diagnostics`. Gating `started` on the record would
+  report a scene whose nodes carry no script at all as not started.
+  Everything else the engine prints stays unrecognized: a backtrace alone does not qualify a
+  record, since the engine attaches one to any error raised while GDScript is on the stack,
+  including engine-side failures a script only triggered indirectly.
 
 **A composed verdict, not a single-file one** (established by #721): a scene that references a
 broken one is broken too, and its own dependency walk can never see that — `res://child.tscn`
@@ -950,6 +955,24 @@ arms that abort even though it is recognized (#722): it interrupts nothing — e
 continues at the next statement — so a script that reports an invariant and then computes
 quietly is alive by construction. It does appear in the run's `diagnostics`, which are advisory:
 a project that uses `push_error` as ordinary logging sees entries on runs that still succeed.
+
+**`--strict` fails a run on either of two triggers** (#844): the non-zero status the script
+chose, or a `shutdown_leak` diagnostic — Godot's two exit-time leak records (`ObjectDB
+instances leaked at exit`, `<n> resources still in use at exit`), which it prints after the
+run. A suite can report a pass, `quit(0)` and still leave its objects and a loaded resource
+alive, so a status-only gate called that run clean and the production had to add "stderr must
+be empty" as a gate of its own (GDA-DF-063). ONE verdict, not two: the same `script_failed`
+code, the same `evidence.exit_status` / `evidence.script_errors` keys and the same producer;
+only the message differs, quoting the engine's leak sentence when the status is zero. Without
+`--strict` the diagnostic is data on the successful result, as #651 decided for every error
+the script survived. Recognition still keys on the engine's own format strings — one of the
+two records is the parser's only WARNING — so a project `push_warning()` spelling the same
+words is not a leak. Two boundaries the wording keeps: the leak is the PROCESS's, so an
+autoload's leak reads exactly like the script's own and the message says the engine reported
+a leak rather than that this script leaked; and the engine's OTHER exit-time leak family, the
+RID reports, is deliberately outside the recognized set, so a run that leaks only RIDs passes
+`--strict` with no diagnostic.
+
 `script run` takes the two portable script-path forms — a `res://` address and a
 project-relative path — and decides the whole path edge before any launch (ADR-0031). Six
 shapes are `invalid_path`: an absolute path, another engine scheme, a leading `~`, a path
