@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=3bfcc94147cc0d0fa0c63b14646550a7083e63c225d09905c9125289be23b2c8 -->
+<!-- gda-readme-i18n: source=README.md sha256=ffd6346b637cf849942e1fed5d619cb5f7cfc1adebea294312c9e7b81e68f771 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -525,7 +525,7 @@ en el resultado.
 
 | Comando | Qué hace |
 | ------- | ------------ |
-| `perf monitors` | Toma una instantánea de los contadores del motor — o, con `--frames`, muestrea una ventana con estadísticas y veredictos de presupuesto. |
+| `perf monitors` | Toma una instantánea de los contadores del motor — o, con `--frames`, muestrea una ventana con estadísticas y veredictos de presupuesto (`--summary` omite las muestras por frame). |
 | `perf monitor` | Muestrea una propiedad o señal de nodo a lo largo de una ventana de frames (línea de tiempo). |
 
 **`input`** — simulación de entrada
