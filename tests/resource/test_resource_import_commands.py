@@ -781,27 +781,51 @@ def test_a_pass_that_leaves_the_asset_uncached_reports_the_settlement_reason(
 
 
 def test_engine_output_names_the_asset_as_a_whole_token(monkeypatch, tmp_path):
-    # Third review of PR #937: the matcher was a bare substring test, so a line
-    # naming a PREFIX neighbour — `res://icon.png2`, `res://icon.png.backup`,
-    # both legal asset names — was attributed to `res://icon.png` and spent its
-    # line cap. The asset is matched as a whole token: its path, then what the
-    # engine puts after a path (a closing quote, its own `.import:<line>`
-    # sidecar, a colon, whitespace, the end of the line) — never another path
-    # character.
+    # Fourth review of PR #937: where a path ENDS is decided by how the engine
+    # printed it, not by the character after the asset's name — the third
+    # review's lookahead stopped at punctuation a legal neighbouring path can
+    # carry inside it. Every line in `ours` is an engine form measured on the
+    # 4.6 sources (message literal and quoting), with the asset's path where
+    # that source puts it; every neighbour is a legal path that EXTENDS ours.
     project = icon_project(tmp_path)
     ours = [
+        # editor/file_system/editor_file_system.cpp — 'Error importing '%s'.'
         "ERROR: Error importing 'res://icon.png'.",
+        # core/io/image_loader.cpp — "Error loading image: '%s'."
+        "ERROR: Error loading image: 'res://icon.png'.",
+        # core/io/resource_format_binary.cpp — "Cannot open file '%s'."
+        "ERROR: Cannot open file 'res://icon.png'.",
+        # editor sidecar record — 'ResourceFormatImporter::load - '%s.import:%d' …'
         "ERROR: ResourceFormatImporter::load - 'res://icon.png.import:8' error 'x'.",
-        "ERROR: res://icon.png: importer failed",
-        "ERROR: could not read res://icon.png",
+        # core/io/resource_importer.cpp — bare path, ".import:%d error:"
+        "ERROR: ResourceFormatImporter::load - res://icon.png.import:8 error: x.",
+        "ERROR: Cannot open import file 'res://icon.png.import'.",
+        # core/io/resource_loader.cpp — bare path, sentence-final period
+        "ERROR: Failed loading resource: res://icon.png. The file doesn't seem to exist.",
+        "ERROR: Failed loading resource: res://icon.png.",
+        # bare path followed by " (expected type: …)"
+        "ERROR: Resource file not found: res://icon.png (expected type: Texture2D)",
+        # double-quoted, the UID warnings
+        'WARNING: Missing .uid file for path "res://icon.png". The file was re-created from cache.',
     ]
     neighbours = [
+        # prefix neighbours (third review) …
         "ERROR: Error importing 'res://icon.png2'.",
         "ERROR: Error importing 'res://icon.png.backup'.",
         "ERROR: ResourceFormatImporter::load - 'res://icon.png2.import:3' error 'y'.",
+        "ERROR: Failed loading resource: res://icon.png2.",
+        # … and the neighbours whose paths carry the very separators the old
+        # lookahead stopped at (fourth review): a sidecar-looking suffix, a
+        # space, a bracket, a second extension.
+        "ERROR: Error importing 'res://icon.png.import-backup'.",
+        "ERROR: Error importing 'res://icon.png copy'.",
+        "ERROR: Error importing 'res://icon.png]backup'.",
+        "ERROR: Resource file not found: res://icon.png.png (expected type: Texture2D)",
+        'WARNING: Missing .uid file for path "res://icon.png copy". The file was re-created from cache.',
     ]
-    # Neighbour lines beyond the cap would have been counted as the asset's own.
-    flood = [f"ERROR: {i} 'res://icon.png2' failed." for i in range(25)]
+    # A neighbour flood beyond the cap: none of it is the asset's, so none of it
+    # can spend the asset's cap or mark it truncated.
+    flood = [f"ERROR: Error importing 'res://icon.png copy {i}'." for i in range(25)]
 
     def fake_launch(binary, args, *, cwd, timeout, timeout_label="Godot", watch=None):
         sidecar(project, "icon.png", ".godot/imported/never-written.ctex")

@@ -625,7 +625,10 @@ class ResourceImportAsset(BaseModel):
         max_length=ENGINE_OUTPUT_LINE_CAP,
         description=(
             "The import pass's stderr lines that name this asset's res:// "
-            "path, verbatim and in order, for a `failed` asset when this "
+            "path as a whole path token — the engine's own quoting decides "
+            "where a path ends, so a neighbour whose path extends this one is "
+            "never this asset's evidence — verbatim and in order, for a "
+            "`failed` asset when this "
             f"request ran a pass; at most {ENGINE_OUTPUT_LINE_CAP}. Empty on "
             "every other status, and when no pass ran. Independent of "
             "`reason`: that is gda's pre-pass evidence, this is what the "
@@ -920,29 +923,59 @@ def _asset_record(project: Path, res_path: str) -> ResourceImportAsset:
     )
 
 
+# Where a ``res://`` path ENDS in an engine line is decided by how the engine
+# printed it, never by which character follows the asset's name (fourth review
+# of PR #937): a path's own alphabet holds every punctuation mark a lookahead
+# could stop at, so ``res://icon.png`` is a prefix of the legal neighbours
+# ``res://icon.png copy``, ``res://icon.png]backup`` and
+# ``res://icon.png.import-backup``. Measured on the 4.6 sources, the import pass
+# and the loaders print a path in two shapes. QUOTED — ``'%s'`` in ``Error
+# importing``, ``Cannot open file``, ``Error opening file``, ``Cannot open
+# import file '%s.import'``, the editor's ``'%s.import:%d'`` / ``'%s.import.md5:%d'``
+# sidecar records; ``"%s"`` in the UID warnings — where the quote ends the
+# token. BARE — ended by whitespace, the end of the line, a sentence-final period
+# (``Failed loading resource: %s.``), a following ``(`` (``Resource file not
+# found: %s (expected type: …)``) or a ``:<line>`` (the core
+# ``ResourceFormatImporter::load - %s.import:%d error:``). A bare path that
+# itself contains whitespace is the one shape this cannot tell from a path
+# followed by prose; the engine quotes a path in every import-pass message
+# measured, so that residual is declared here rather than chased.
+_ENGINE_PATH_TOKEN = re.compile(
+    r"""(?P<quote>['"])(?P<quoted>res://[^'"]*)(?P=quote)"""
+    r"""|(?P<bare>res://\S*?)(?=\s|$|\.(?:\s|$)|:\d+\b)"""
+)
+
+
 def _engine_output(stderr: "str | None", res_path: str) -> "tuple[list[str], bool]":
     """The pass's stderr lines that NAME one asset, bounded (#853).
 
-    The match is the asset's ``res://`` path as a WHOLE TOKEN: the path, then
-    whatever the engine puts after a path — the closing quote of ``Error
-    importing 'res://x.png'`` and of the loader errors above it, the
-    ``.import:<line>`` of the ``ResourceFormatImporter::load`` errors it prints
-    for a sidecar it is about to SKIP (``res://x.png.import:8``), or a colon,
-    a comma, a bracket, whitespace or the end of the line. A bare substring
-    test was the third-review defect here: ``res://icon.png`` matched the
-    neighbours ``res://icon.png2`` and ``res://icon.png.backup``, attributing
-    their lines to this asset and spending its line cap on them. Deliberately
-    literal otherwise: a broader needle (the filename, the filesystem path)
-    would attribute a neighbour's error to this asset, and evidence that
-    over-claims is worse than evidence that is short. The engine's ``at:``
-    continuation lines name a source file, not the asset, so they stay out.
+    A line names the asset when one of its path TOKENS — cut by
+    :data:`_ENGINE_PATH_TOKEN`, i.e. by the engine's own quoting and grammar —
+    EQUALS the asset's ``res://`` path, or is that path's sidecar
+    (``.import``, ``.import.md5``, either with the ``:<line>`` the engine
+    appends when it reports a parse position). Equality of the whole token,
+    never a prefix test with a lookahead: the third review's regex stopped at
+    the punctuation after the prefix, and a legal neighbouring path can carry
+    that same punctuation inside it. Deliberately literal otherwise: a broader
+    needle (the filename, the filesystem path) would attribute a neighbour's
+    error to this asset, and evidence that over-claims is worse than evidence
+    that is short. The engine's ``at:`` continuation lines name a source file,
+    not the asset, so they stay out.
 
     Returns the kept lines and whether any were dropped.
     """
     if not stderr:
         return [], False
-    names_asset = re.compile(re.escape(res_path) + r"(?=$|['\"\s:,)\]]|\.import\b)")
-    matched = [line for line in stderr.splitlines() if names_asset.search(line)]
+    sidecar = re.compile(re.escape(res_path) + r"\.import(?:\.md5)?(?::\d+)?")
+
+    def names_asset(line: str) -> bool:
+        for match in _ENGINE_PATH_TOKEN.finditer(line):
+            token = match.group("quoted") or match.group("bare")
+            if token == res_path or sidecar.fullmatch(token):
+                return True
+        return False
+
+    matched = [line for line in stderr.splitlines() if names_asset(line)]
     return matched[:ENGINE_OUTPUT_LINE_CAP], len(matched) > ENGINE_OUTPUT_LINE_CAP
 
 

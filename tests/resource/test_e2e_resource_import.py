@@ -454,6 +454,36 @@ def test_a_failed_asset_names_its_reason_and_the_engines_own_lines(tmp_path):
 
 
 @pytest.mark.e2e
+def test_a_neighbours_lines_are_never_the_assets_own(tmp_path):
+    # Fourth review of PR #937, against the real engine: assets whose paths
+    # EXTEND this one's — a space, a bracket, a second extension — all fail to
+    # import in the same pass, and the engine names each with its own quoted
+    # path. Only the lines naming `res://icon.png` itself are its evidence, and
+    # each neighbour keeps its own; a substring or prefix test would hand every
+    # neighbour's line to `res://icon.png`.
+    project = _project(tmp_path)
+    gda = Gda(project, json_output=True, timeout=180)
+    names = ["icon.png", "icon.png copy.png", "icon.png]backup.png", "icon.png.png"]
+    for name in names:
+        (project / name).write_text("this is not a png", encoding="utf-8")
+
+    result = json.loads(
+        gda("resource", "import", *(f"res://{name}" for name in names)).stdout
+    )
+
+    by_path = {asset["path"]: asset for asset in result["assets"]}
+    for name in names:
+        asset = by_path[f"res://{name}"]
+        assert asset["status"] == "failed", asset
+        assert asset["engine_output"], asset
+        assert all(f"'res://{name}'" in line for line in asset["engine_output"]), (
+            name,
+            asset["engine_output"],
+        )
+        assert asset["engine_output_truncated"] is False
+
+
+@pytest.mark.e2e
 def test_the_engine_names_a_sidecar_it_skips_and_those_lines_ride_along(tmp_path):
     # PR #937 review round 2, the assumption round 1 got wrong, pinned against
     # the real engine: gda's verdict for an unparsable sidecar is a SKIP the
