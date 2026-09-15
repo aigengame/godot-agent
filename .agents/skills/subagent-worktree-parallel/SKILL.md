@@ -39,15 +39,21 @@ the cost/benefit table).
   **dependent follow-up slices**. A foundation slice establishes the smallest shared
   contract or scaffold that its follow-ups require; parallel follow-ups before it lands
   duplicate that foundation and collide.
-- **Small batches (≤ ~5), merge before the next wave.** Each rebase then lands on a
-  stable base; large waves create a merge *treadmill* (every merge re-conflicts the
-  rest) and raise the odds a subagent is truncated at a run limit.
+- **Small batches (≤ ~5 by default), merge before the next wave.** Each rebase then
+  lands on a stable base; large waves create a merge *treadmill* (every merge
+  re-conflicts the rest) and raise the odds a subagent is truncated at a run limit.
+  Bigger waves are workable only with the REFERENCE §2 lifting discipline (owned
+  hotspots with pre-tested resolutions, wave-batched reviews, one serial merge pass).
 - **The real integration boundary is part of Definition of Done.** A fast tier that stubs
   that boundary can pass on a broken merge. Run every locally reproducible gate that covers
   the change, including the real integration/e2e/compile/parse path and relevant non-test
   checks. Classify gates that require protected infrastructure, secrets, policy evaluation,
   or unavailable hardware as **CI-only**. If a gate cannot run, record why, the substitute
-  evidence, and the remaining risk; never report it as passed. (REFERENCE §3, §6)
+  evidence, and the remaining risk; never report it as passed. A capability-gated test must
+  demonstrably execute in at least one enforced tier — split the core behavior out of the
+  gate. Report the numbers you MEASURED, quoting the tool's own summary line and naming the
+  host: a count from memory, or a capability-rich host's total presented as CI's, reads as a
+  defect in the claim. (REFERENCE §3, §6)
 - **The orchestrator (the "lead") independently re-verifies before merging.** Subagent implements and
   produces the authorized local artifact in its worktree; the lead re-runs locally
   reproducible gates and spot-checks the diff. "Done but no artifact" = needs takeover.
@@ -87,9 +93,11 @@ choose mode/permissions → decompose + dependency analysis → plan waves
 2. **Decompose + analyze dependencies.** Split the work into end-to-end slices. Mark which
    are independent (parallel-safe) vs. coupled (must serialize). Up front, identify the
    **append hotspots** — central registries, enums, dispatch tables, render/plugin maps,
-   shared test files that *every* slice edits — that is where merge cost concentrates —
-   and give each hotspot exactly **one owner slice** for the wave; the others flag needed
-   changes instead of editing. (REFERENCE §1)
+   generated/stamped artifacts (translation stamps, lockfiles), shared test files that
+   *every* slice edits — that is where merge cost concentrates — and give each hotspot
+   exactly **one owner slice** for the wave; the others flag needed changes instead of
+   editing. A flagged change still lands in a file before that slice merges, and
+   ownership expires when the owner finishes without it. (REFERENCE §1)
 3. **Plan waves.** Group independent slices into waves of ≤ ~5; sequence each foundation
    slice before its dependent follow-up slices. Decide the integration order now. In
    planning-only mode, return the plan here. (REFERENCE §2)
@@ -98,15 +106,21 @@ choose mode/permissions → decompose + dependency analysis → plan waves
    requires early durable local artifacts when authorized, and includes the applicable
    validation gates. (REFERENCE §3)
 5. **Verify, hand off, or publish.** As each implementer finishes, run locally reproducible
-   gates, serialize shared-global-resource tests, audit affected public surfaces, and record
+   gates, serialize shared-global-resource tests (REFERENCE §6: lock-directory protocol and
+   stale-lock arbitration), red-proof each fix round's regression against the head that was
+   reviewed — from COMMITTED state, since the red-proof swaps the source tree — audit
+   affected public surfaces, and record
    every CI-only or unavailable gate with substitute evidence and remaining risk. If remote
    writes are not authorized, return the local artifact and stop. If they are authorized,
    the orchestrator performs only the listed remote actions. (REFERENCE §6, §7)
 6. **Merge serially in dependency order when authorized.** Foundation slice first → rebase followers onto the new
    base → independent groups can merge in any order; a *clean* rebase still gets the
-   applicable integration gate. Re-poll mergeability after each merge. For stacked changes,
+   applicable integration gate — including re-running the consuming slice's tests on the
+   rebased tree, because two independently-green slices can collide only there (one changes
+   what a shared function guarantees, the other adds a caller relying on the old
+   guarantee). Re-poll mergeability after each merge. For stacked changes,
    retarget followers after the base lands and update stale descriptions, completion
-   semantics, or verification text before merging. Watch for the two marker-free conflict traps.
+   semantics, or verification text before merging. Watch for the marker-free conflict traps.
    (REFERENCE §4, §5)
 
 This path is **not one-shot**: independent review sends merged-ready slices back, and
