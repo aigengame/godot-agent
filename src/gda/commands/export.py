@@ -17,9 +17,12 @@ is imported by nothing but the composition root (``gda.cli``).
 ``operations.gd`` — see the operation section below.
 """
 
+import hashlib
+import os
 import re
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Optional
@@ -49,6 +52,11 @@ from gda.headless import (
     make_subprocess_runner,
     params_json_option,
     project_option,
+)
+from gda.import_evidence import (
+    CACHE_ROOT_REL,
+    CreatedFileClass,
+    classify_created_file,
 )
 from gda.runner import RunResult, engine_data_path
 
@@ -282,6 +290,138 @@ class ExportRunParams(BaseModel):
     )
 
 
+class ExportCreatedFile(BaseModel):
+    """One file the export run added to the project tree (#839).
+
+    ``classification`` is :func:`gda.import_evidence.classify_created_file`'s
+    verdict — the same ``cache_owned`` / ``source_adjacent`` vocabulary ``resource
+    import`` reports, from the same function, because the native export runs the
+    same editor import pass. ``size`` is what the file holds after the export, and
+    the entries' sizes add up to ``created_bytes``.
+    """
+
+    path: str = Field(description="The created file's res:// path.")
+    classification: CreatedFileClass = Field(
+        description="cache_owned (under the cache root) or source_adjacent."
+    )
+    size: int = Field(description="The created file's size in bytes.")
+
+
+class ExportModifiedFile(BaseModel):
+    """One pre-existing project file the export run rewrote (#839).
+
+    Content, never timestamps: the import pass touches files it does not rewrite,
+    and that noise would bury the few generated resources the record is about.
+    ``size_before`` is the fact only the pre-export walk can state — after the
+    export the earlier bytes are gone.
+    """
+
+    path: str = Field(description="The rewritten file's res:// path.")
+    size: int = Field(description="The file's size in bytes after the export.")
+    size_before: int = Field(description="The file's size in bytes before the export.")
+
+
+class ProjectTreeMutations(BaseModel):
+    """The project-tree mutation report of one ``gda export run`` (#839).
+
+    The native export runs the editor import pass over the project, so an export
+    against a cold cache creates the whole cache tree plus the sidecars beside the
+    sources, and can rewrite generated resources that are tracked in git. None of
+    that was observable in the result before (GDA-DF-067: about 14,000 new files
+    and two to four rewritten ``.translation`` resources, reported as
+    ``warnings: []``). The report is DISCLOSURE — the export deletes and restores
+    nothing — so an agent can review, stage or restore the tree without a manual
+    git snapshot.
+
+    What it covers, and what it deliberately leaves out:
+
+    * ``created`` is every file the tree gained, classified against ``cache_root``
+      so the cache half can be cleaned as one unit.
+    * ``modified`` is every pre-existing file OUTSIDE ``cache_root`` whose CONTENT
+      changed. A pre-existing cache file stays out by design: the cache is
+      reported as one unit, and hashing it before every export would cost far more
+      than the fact is worth (the dogfooding case holds about 1.1 GiB there).
+    * The artifact, the parent directories gda created for it, and everything
+      under the output path are out of both lists; so is a top-level ``.git``
+      directory, which the engine never writes to.
+    * Deletions are not reported: the pass adds and rewrites.
+    * ``skipped`` counts the files neither walk could read (a vanished or
+      unreadable file, a dangling symlink). They stay out of both lists, so a file
+      the inventory cannot read never turns a successful export into a failure.
+
+    The report covers the engine's DEFAULT cache directory. A project that sets
+    ``application/config/use_hidden_project_data_directory=false`` keeps its cache
+    under ``godot/``, whose files then read as ``source_adjacent``; that case is
+    out of scope for this report (#839).
+    """
+
+    cache_root: str = Field(
+        default="res://" + CACHE_ROOT_REL,
+        description=(
+            "The cache root created files are classified against (res://.godot)."
+        ),
+    )
+    created: list[ExportCreatedFile] = Field(
+        default_factory=list,
+        description="Every file the export added, classified, ordered by path.",
+    )
+    modified: list[ExportModifiedFile] = Field(
+        default_factory=list,
+        description=(
+            "Every pre-existing file outside the cache root whose content the "
+            "export rewrote, ordered by path."
+        ),
+    )
+    created_count: int = Field(default=0, description="Files the export created.")
+    created_cache_owned: int = Field(
+        default=0, description="Created files under the cache root."
+    )
+    created_source_adjacent: int = Field(
+        default=0, description="Created files beside the sources."
+    )
+    created_bytes: int = Field(
+        default=0, description="Total size in bytes of the created files."
+    )
+    modified_count: int = Field(default=0, description="Files the export rewrote.")
+    modified_bytes: int = Field(
+        default=0,
+        description="Total size in bytes of the rewritten files after the export.",
+    )
+    skipped: int = Field(
+        default=0,
+        description=(
+            "Files neither list could account for because they could not be read."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _counts_match_the_lists(self) -> "ProjectTreeMutations":
+        # gda's own invariant, not input validation: the counts exist so a caller
+        # can read the summary without walking a list that holds thousands of cache
+        # files, which is only worth anything while the two agree (the #732 lesson,
+        # as `resource import` pins it for its own summary).
+        owned = sum(
+            1 for entry in self.created if entry.classification == "cache_owned"
+        )
+        if (
+            self.created_count,
+            self.created_cache_owned,
+            self.created_source_adjacent,
+            self.created_bytes,
+            self.modified_count,
+            self.modified_bytes,
+        ) != (
+            len(self.created),
+            owned,
+            len(self.created) - owned,
+            sum(entry.size for entry in self.created),
+            len(self.modified),
+            sum(entry.size for entry in self.modified),
+        ):
+            raise ValueError("the mutation counts must match the reported lists.")
+        return self
+
+
 class ExportRunResult(BaseModel):
     """The result of ``gda export run``: the artifact that was produced (issue #121).
 
@@ -299,6 +439,11 @@ class ExportRunResult(BaseModel):
     ``export run`` is a native Godot export (the export subsystem is editor-only,
     ADR-0002 sentinels do not apply), so this result is synthesized by ``gda``
     from the export's exit code + stderr.
+
+    ``project_tree_mutations`` reports what the export did to the PROJECT (#839) —
+    the cache and sidecars it created, the generated resources it rewrote — which
+    ``warnings`` never said and never will: that key keeps its own meaning, the
+    engine's advisories.
     """
 
     preset: str = Field(description="The export preset's display name.")
@@ -317,6 +462,14 @@ class ExportRunResult(BaseModel):
     warnings: list[str] = Field(
         default_factory=list,
         description="The engine's non-fatal export warnings, parsed from stderr; empty on a clean export.",
+    )
+    project_tree_mutations: ProjectTreeMutations = Field(
+        default_factory=ProjectTreeMutations,
+        description=(
+            "What the export changed in the project tree: the files it created "
+            "(classified) and the pre-existing files it rewrote, with counts and "
+            "total bytes."
+        ),
     )
 
 
@@ -355,18 +508,44 @@ def render_export_get(got: "ExportGetResult") -> str:
     return "\n".join(lines)
 
 
+def _render_mutations(mutations: "ProjectTreeMutations") -> str:
+    """Summarize the project-tree mutation report in one line (#839).
+
+    Counts only: the lists hold one entry per created cache file, which is
+    thousands of them on a cold cache, and a human channel that printed them
+    would bury the export it is reporting. The JSON result carries the entries.
+    """
+    if not (mutations.created or mutations.modified or mutations.skipped):
+        return "  project tree: unchanged"
+    parts = [
+        f"{mutations.created_count} created "
+        f"({mutations.created_cache_owned} under {mutations.cache_root}, "
+        f"{mutations.created_source_adjacent} beside the sources, "
+        f"{mutations.created_bytes} bytes)",
+        f"{mutations.modified_count} rewritten ({mutations.modified_bytes} bytes)",
+    ]
+    if mutations.skipped:
+        parts.append(f"{mutations.skipped} unreadable")
+    return "  project tree: " + ", ".join(parts)
+
+
 def render_export_run(ran: "ExportRunResult") -> str:
     """Render a completed export as ``exported <preset> (<platform>, <mode>) -> <path>``.
 
     Echoes the artifact that was produced, then one ``warning: …`` line per
-    non-fatal engine warning (a clean export prints just the header line).
+    non-fatal engine warning, then the one-line project-tree mutation summary
+    (#839) — appended last so the warning block keeps the shape it had.
     """
     header = (
         f"exported {ran.preset} ({ran.platform}, {ran.mode.value}) -> {ran.output_path}"
     )
-    if not ran.warnings:
-        return header
-    return "\n".join([header, *[f"  warning: {w}" for w in ran.warnings]])
+    return "\n".join(
+        [
+            header,
+            *[f"  warning: {w}" for w in ran.warnings],
+            _render_mutations(ran.project_tree_mutations),
+        ]
+    )
 
 
 # A non-fatal export warning the engine prints to stderr. WARNING is Godot's
@@ -389,6 +568,234 @@ def parse_export_warnings(stderr: str) -> list[str]:
     return [m.group("message") for m in _EXPORT_WARNING_LINE.finditer(stderr)]
 
 
+# --- The project-tree mutation report's two walks (#839) ---------------------
+#
+# `resource import` walks the same tree for the same reason and keeps its own
+# walker (#741, open item 9): the SHARED part is the classification — both take it
+# from `gda.import_evidence`, which is also where the cache root is spelled — not
+# the walk. This one differs where the export differs. It hashes, because a
+# rewritten file's earlier bytes exist only before the run; it excludes the
+# artifact gda asked the engine to write; and it runs around a native export
+# instead of around a sentinel launch.
+
+# Read in chunks so a large asset costs no memory. The digest decides ONE thing —
+# whether a file's bytes changed between the two walks — and is never published,
+# so blake2b is gda's own choice here rather than a contract with anybody.
+_HASH_CHUNK = 1 << 20
+
+# The top-level directory both walks drop, on the same ground `resource import`'s
+# walker drops it: the engine never writes there, and hashing an object database
+# would dominate the cost of a report about the project's own files.
+_VCS_DIR = ".git"
+
+
+@dataclass(frozen=True)
+class _FileFacts:
+    """What the pre-export walk records about one file (#839).
+
+    ``digest`` is ``None`` for a file under the cache root — those are never
+    hashed, so they can never enter ``modified``; the cache is reported as one
+    unit. Everything else is hashed, because ``modified`` means the content
+    changed and the earlier content is gone once the export has run.
+    """
+
+    size: int
+    mtime_ns: int
+    digest: str | None
+
+
+def _digest_file(path: Path) -> str:
+    """The content digest the two walks compare (#839)."""
+    digest = hashlib.blake2b(digest_size=16)
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(_HASH_CHUNK), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _file_facts(path: Path, *, digest: bool) -> "_FileFacts | None":
+    """One file's facts, or ``None`` when it cannot be read (#839).
+
+    A file that vanished between the walk and the read, a dangling symlink, an
+    unreadable one: none of them is a reason to fail an export that SUCCEEDED, so
+    the caller counts it as skipped and reports nothing about it.
+    """
+    try:
+        stat = path.stat()
+        content = _digest_file(path) if digest else None
+    except OSError:
+        return None
+    return _FileFacts(size=stat.st_size, mtime_ns=stat.st_mtime_ns, digest=content)
+
+
+def _excluded_prefixes(
+    project: Path, output_path: str, created_dirs: list[str]
+) -> tuple[str, ...]:
+    """The project-relative paths neither walk reports (#839).
+
+    The artifact, the parent directories gda created for it (#402), and — a macOS
+    export writes an ``.app`` DIRECTORY — everything under them: that is the
+    export's own output, not a mutation of the project. A destination outside the
+    project is dropped here, since the walk never reaches it; so is a virtual
+    (``://``) path, which no walk can resolve.
+    """
+    prefixes = [_VCS_DIR]
+    root = project.resolve()
+    for raw in [output_path, *created_dirs]:
+        if not raw or "://" in raw:
+            continue
+        try:
+            rel = Path(raw).resolve().relative_to(root).as_posix()
+        except (OSError, ValueError):
+            continue
+        if rel not in ("", "."):
+            prefixes.append(rel)
+    return tuple(prefixes)
+
+
+def _excluded(rel: str, prefixes: tuple[str, ...]) -> bool:
+    """Whether ``rel`` is one of ``prefixes`` or sits under one."""
+    return any(rel == prefix or rel.startswith(prefix + "/") for prefix in prefixes)
+
+
+def _walk_project(
+    project: Path, excluded: tuple[str, ...]
+) -> Iterator[tuple[str, Path]]:
+    """Every file under ``project`` as ``(project-relative posix path, path)``.
+
+    The cache root is walked like anything else — its files are what ``created``
+    classifies as ``cache_owned`` — while an excluded subtree is PRUNED rather
+    than filtered out per file: an ``.app`` bundle holds thousands of files, and
+    walking it would spend the report's budget on entries it then drops.
+    """
+    for dirpath, dirnames, filenames in os.walk(project):
+        base = Path(dirpath)
+        rel_dir = base.relative_to(project).as_posix()
+        prefix = "" if rel_dir == "." else rel_dir + "/"
+        dirnames[:] = [
+            name for name in dirnames if not _excluded(prefix + name, excluded)
+        ]
+        for name in filenames:
+            rel = prefix + name
+            if not _excluded(rel, excluded):
+                yield rel, base / name
+
+
+@dataclass(frozen=True)
+class _PreExportInventory:
+    """The pre-export walk of the project tree, and its settlement (#839).
+
+    Captured before the export, settled after it: :meth:`settle` walks the tree a
+    second time and reports the difference. The two halves live in one object
+    because the second walk is meaningless without the first — a file is
+    ``created`` only against a recorded tree, and ``modified`` only against a
+    recorded digest.
+    """
+
+    project: Path
+    excluded: tuple[str, ...]
+    files: dict[str, _FileFacts]
+    unreadable: frozenset[str]
+
+    @classmethod
+    def capture(
+        cls, project: Path, *, output_path: str, created_dirs: list[str]
+    ) -> "_PreExportInventory":
+        """Record the tree as it stands before the native export (#839)."""
+        excluded = _excluded_prefixes(project, output_path, created_dirs)
+        files: dict[str, _FileFacts] = {}
+        unreadable: set[str] = set()
+        for rel, path in _walk_project(project, excluded):
+            # The shared classifier decides what to hash, asked of a file that
+            # already exists: `cache_owned` is "under the cache root", the one
+            # thing this walk needs to know about it. Asking it here is what keeps
+            # the cache-root rule spelled once (#741) — the export path states no
+            # rule of its own, here or in the settlement below.
+            facts = _file_facts(
+                path, digest=classify_created_file(rel) != "cache_owned"
+            )
+            if facts is None:
+                unreadable.add(rel)
+            else:
+                files[rel] = facts
+        return cls(
+            project=project,
+            excluded=excluded,
+            files=files,
+            unreadable=frozenset(unreadable),
+        )
+
+    def settle(self) -> ProjectTreeMutations:
+        """Walk the tree again and report what the export changed (#839).
+
+        The rules, in the order the loop asks them: a path the pre-export walk
+        could not read is accounted for as skipped and nothing more (calling it
+        created would be a guess); a path that was not there is ``created`` and
+        carries the shared classifier's verdict; a pre-existing cache file is
+        passed over, because the cache is reported as one unit; and a pre-existing
+        file elsewhere is a CANDIDATE only when its size or mtime moved, and
+        enters ``modified`` only when its digest then differs. The candidate rule
+        is what bounds the cost — the import pass touches far more files than it
+        rewrites — and it is also this report's one blind spot: a rewrite that
+        preserves both the size and the timestamp is not seen.
+        """
+        created: list[ExportCreatedFile] = []
+        modified: list[ExportModifiedFile] = []
+        skipped = set(self.unreadable)
+        for rel, path in _walk_project(self.project, self.excluded):
+            if rel in skipped:
+                continue
+            before = self.files.get(rel)
+            if before is None:
+                facts = _file_facts(path, digest=False)
+                if facts is None:
+                    skipped.add(rel)
+                    continue
+                created.append(
+                    ExportCreatedFile(
+                        path="res://" + rel,
+                        classification=classify_created_file(rel),
+                        size=facts.size,
+                    )
+                )
+                continue
+            if classify_created_file(rel) == "cache_owned":
+                continue
+            after = _file_facts(path, digest=False)
+            if after is None:
+                skipped.add(rel)
+                continue
+            if (after.size, after.mtime_ns) == (before.size, before.mtime_ns):
+                continue
+            hashed = _file_facts(path, digest=True)
+            if hashed is None or hashed.digest is None:
+                skipped.add(rel)
+                continue
+            if hashed.digest == before.digest:
+                continue
+            modified.append(
+                ExportModifiedFile(
+                    path="res://" + rel,
+                    size=hashed.size,
+                    size_before=before.size,
+                )
+            )
+        created.sort(key=lambda entry: entry.path)
+        modified.sort(key=lambda entry: entry.path)
+        owned = sum(1 for entry in created if entry.classification == "cache_owned")
+        return ProjectTreeMutations(
+            created=created,
+            modified=modified,
+            created_count=len(created),
+            created_cache_owned=owned,
+            created_source_adjacent=len(created) - owned,
+            created_bytes=sum(entry.size for entry in created),
+            modified_count=len(modified),
+            modified_bytes=sum(entry.size for entry in modified),
+            skipped=len(skipped),
+        )
+
+
 def classify_export_run(
     output: RunResult,
     binary: Path,
@@ -398,6 +805,7 @@ def classify_export_run(
     mode: ExportRunMode,
     output_path: str,
     created_dirs: list[str],
+    inventory: "_PreExportInventory | None" = None,
 ) -> ExportRunResult | Failure:
     """Classify a native Godot export into a typed result or a ``Failure`` (issue #121).
 
@@ -417,6 +825,14 @@ def classify_export_run(
     so a missing binary or hung export is reported identically across both
     channels (#185); only the non-zero-exit tail differs from the sentinel
     channel (synthesize-from-exit-code, no sentinel parse).
+
+    The project-tree mutation report is SETTLED here, on the success branch only
+    (#839): the second walk is work a failed export should not pay for, and the
+    report is a property of a completed export — a failure answers through the
+    `Error envelope`, which carries no such record. ``inventory`` is the
+    pre-export walk :func:`run_export_operation` takes for every resolved project;
+    ``None`` is reachable only without a project, and then there is no tree to
+    report on.
     """
     prefix = classify_launch_or_crash(output, binary)
     if prefix is not None:
@@ -439,6 +855,9 @@ def classify_export_run(
         output_path=output_path,
         created_dirs=created_dirs,
         warnings=parse_export_warnings(output.stderr),
+        project_tree_mutations=(
+            inventory.settle() if inventory is not None else ProjectTreeMutations()
+        ),
     )
 
 
@@ -650,6 +1069,21 @@ def run_export_operation(
     # a failure PART WAY THROUGH it (an unlink that hits a permission error, say) is
     # exactly the case the restore exists for. Capturing outside and stripping inside
     # means the `finally` covers a partial strip too, not just a failed export.
+    #
+    # The mutation report's pre-export walk (#839) is taken HERE, outside the
+    # guarded region: the snapshot restores the harness byte for byte, so its
+    # files are present in both walks with equal content and the restore's fresh
+    # timestamps meet the content rule rather than the timestamp. Capturing inside
+    # would instead make gda's own strip a mutation of the project it is reporting
+    # on. The destination is known by now, so the artifact is excluded from the
+    # first walk rather than filtered out of the second.
+    inventory = (
+        _PreExportInventory.capture(
+            project, output_path=output_path, created_dirs=created_dirs
+        )
+        if project is not None
+        else None
+    )
     snapshot = HarnessSnapshot.capture(project) if project is not None else None
     try:
         if project is not None:
@@ -670,6 +1104,7 @@ def run_export_operation(
         mode=mode,
         output_path=output_path,
         created_dirs=created_dirs,
+        inventory=inventory,
     )
 
 
