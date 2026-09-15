@@ -1723,7 +1723,7 @@ def run_script_run_operation(
     # the diagnostics already parsed above — no second reading of the stderr.
     if strict and (raw.exit_code != 0 or leaked_at_exit(diagnostics) is not None):
         return script_exit_status_failure(
-            script, raw.exit_code, raw.stdout, raw.stderr, diagnostics
+            script, raw.exit_code, raw.stdout, raw.stderr, diagnostics, raw.user_data
         )
 
     # The public promotion of the internal Raw run: the boundary DTO built by
@@ -1817,6 +1817,7 @@ def _classify_ended_run(
             script_errors=recognized,
             stdout=raw.stdout,
             stderr=raw.stderr,
+            user_data=raw.user_data,
         )
     if raw.launch_failure is LaunchFailure.TIMEOUT:
         return script_run_timeout_failure(
@@ -1827,6 +1828,7 @@ def _classify_ended_run(
             script_errors=recognized,
             stdout=raw.stdout,
             stderr=raw.stderr,
+            user_data=raw.user_data,
         )
     return None
 

@@ -217,6 +217,9 @@ _EVIDENCE_SAMPLES = {
     "templates_root_host": "/home/dev/data/Godot/export_templates",
     "requested_path": "res://Content/combat_session.gd",
     "stored_path": "res://content/combat_session.gd",
+    "engine_data_path": "/tmp/udr/Library/Application Support",
+    "user_data_root": "/tmp/udr",
+    "log_file": "/tmp/udr/logs/godot.log",
 }
 
 

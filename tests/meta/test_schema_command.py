@@ -95,6 +95,12 @@ def test_the_published_error_schema_declares_the_optional_evidence_key():
         # address the caller asked for, and the one the project stores.
         "requested_path",
         "stored_path",
+        # The launch's `User-data placement` on `script run`'s three run-reporting
+        # envelopes (#862): where the engine resolved `user://`, the root it was
+        # redirected under, and the log that then outlives the launch.
+        "engine_data_path",
+        "user_data_root",
+        "log_file",
     }
     assert doc["error"]["$defs"]["TerminationPhase"]["enum"] == [
         "launched",
