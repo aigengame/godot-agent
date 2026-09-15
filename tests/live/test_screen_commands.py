@@ -192,8 +192,9 @@ def test_screen_capture_writes_a_png_and_returns_its_path(monkeypatch, tmp_path)
     assert data.get("inline") is None
     # The file is the decoded PNG on disk (the magic the e2e asserts).
     assert out.read_bytes() == _PNG_1X1
-    # Routed through the LIVE seam, dispatching the screen-capture op (no params).
-    assert fake.calls == [("screen-capture", {})]
+    # Routed through the LIVE seam, dispatching the screen-capture op; the
+    # settle rides every request, at its 0 default (#847).
+    assert fake.calls == [("screen-capture", {"settle_frames": 0})]
 
 
 def test_screen_capture_inline_embeds_the_base64(monkeypatch, tmp_path):
@@ -357,8 +358,8 @@ def test_screen_frames_writes_each_png_and_returns_paths(monkeypatch, tmp_path):
         assert Path(frame["path"]).read_bytes() == _PNG_1X1
     # Distinct paths, one per frame.
     assert len({f["path"] for f in data["frames"]}) == 3
-    # The requested frame count is threaded to the op.
-    assert fake.calls == [("screen-frames", {"frames": 3})]
+    # The requested frame count and the settle are threaded to the op (#847).
+    assert fake.calls == [("screen-frames", {"frames": 3, "settle_frames": 0})]
 
 
 def test_screen_frames_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_path):
@@ -504,14 +505,18 @@ def _predicate_report(**overrides):
     return report
 
 
-def _align_receipt(reply):
-    # The harness stamps the receipt at the SAME tick it evaluates the predicate
-    # (#660), so a coherent fake gated reply mirrors the report's observed value
-    # and frame into the receipt — exactly what the CLI's receipt gate checks.
+def _align_receipt(reply, settle=0):
+    # The harness stamps the receipt at the tick it READS the pixels (#660): the
+    # predicate's own tick with no settle, `settle` ticks later with one (#847).
+    # A coherent fake gated reply therefore mirrors the report's observed value
+    # and offsets its frame — exactly what the CLI's receipt gate checks.
     report = reply["predicate"]
     reply["receipt"].update(
-        observed=report.get("observed"), engine_frame=report.get("engine_frame", 0)
+        observed=report.get("observed"),
+        engine_frame=report.get("engine_frame", 0) + settle,
+        render_frame=report.get("engine_frame", 0) + settle,
     )
+    reply["settle_frames"] = settle
     return reply
 
 
@@ -535,12 +540,13 @@ def test_await_predicate_rides_the_wire_with_the_default_ceiling(monkeypatch, tm
         (
             "screen-capture",
             {
+                "settle_frames": 0,
                 "await": {
                     "node": "/root/Main/VFX",
                     "property": "frame",
                     "value": 3,
                     "frames": 60,
-                }
+                },
             },
         )
     ]
@@ -1014,7 +1020,9 @@ def test_capture_receipt_surfaces_with_the_written_file_hash(monkeypatch, tmp_pa
     import hashlib
 
     reply = screen_capture_reply(_PNG_B64, width=8, height=8)
-    reply["receipt"].update(scene_uid="uid://c4qn8xbhw6kmv", engine_frame=412)
+    reply["receipt"].update(
+        scene_uid="uid://c4qn8xbhw6kmv", engine_frame=412, render_frame=409
+    )
     inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
@@ -1030,6 +1038,10 @@ def test_capture_receipt_surfaces_with_the_written_file_hash(monkeypatch, tmp_pa
         "scene_path": "res://main.tscn",
         "scene_uid": "uid://c4qn8xbhw6kmv",
         "engine_frame": 412,
+        # Distinct from engine_frame: the engine skipped three draws, so the
+        # pixels are a frame older than the boundary the read was taken at
+        # (#847).
+        "render_frame": 409,
         "observed": None,
         # The hash of EXACTLY the decoded bytes written to --output.
         "sha256": hashlib.sha256(_PNG_1X1).hexdigest(),
@@ -1156,7 +1168,7 @@ def test_capture_render_carries_the_receipt_line(monkeypatch, tmp_path):
     assert result.exit_code == 0, result.stdout + result.stderr
     assert (
         "receipt session a1b2c3d4e5f60718 scene res://main.tscn frame 400 "
-        f"sha256 {hashlib.sha256(_PNG_1X1).hexdigest()}"
+        f"render 400 sha256 {hashlib.sha256(_PNG_1X1).hexdigest()}"
     ) in result.stdout
 
 
@@ -1176,6 +1188,7 @@ def test_capture_schema_publishes_the_receipt_contract():
         "scene_path",
         "scene_uid",
         "engine_frame",
+        "render_frame",
         "observed",
         "sha256",
     } <= set(receipt_def["properties"])
@@ -1187,6 +1200,7 @@ def test_capture_schema_publishes_the_receipt_contract():
         "scene_path",
         "scene_uid",
         "engine_frame",
+        "render_frame",
         "observed",
         "sha256",
     }
@@ -1649,7 +1663,7 @@ def test_frames_budget_mismatch_is_contract_violation(monkeypatch, tmp_path):
     inject_live_runner(
         monkeypatch,
         RunResult(
-            stdout=sentinel({"count": 0, "frames": []}),
+            stdout=sentinel({"count": 0, "settle_frames": 0, "frames": []}),
             stderr="",
             exit_code=0,
         ),

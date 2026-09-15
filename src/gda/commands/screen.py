@@ -127,6 +127,26 @@ class ScreenCaptureParams(RelayedLiveParams):
         default=False,
         description="Also embed the base64-encoded PNG in the result (default: path only).",
     )
+    settle_frames: int = Field(
+        default=0,
+        ge=0,
+        le=MAX_WINDOW_FRAMES - 1,
+        strict=True,
+        description=(
+            "Process frames to let the game run BEFORE the viewport is read "
+            "(#847), for a visual that settles over several frames after a "
+            "state change. The default is 0, not `input tap`'s 2: a tap has a "
+            "release the game must still observe, a capture has nothing "
+            "pending, so waiting would only age every image by default. With "
+            "an await predicate the settle runs AFTER the predicate first "
+            "holds: the predicate report keeps naming its own frame and the "
+            "receipt's engine_frame is exactly that frame plus this count. An "
+            "event scheduled beyond the settle still fires before the reply, "
+            "but is not in the image. Bounded to "
+            f"{MAX_WINDOW_FRAMES - 1} so the settle plus the read stays inside "
+            "the shared per-window ceiling."
+        ),
+    )
     await_node: str | None = Field(
         default=None,
         description=(
@@ -244,6 +264,16 @@ class ScreenCaptureResult(BaseModel):
         default=None,
         description="The base64-encoded PNG, present only when --inline was passed.",
     )
+    settle_frames: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "The process frames the game ran before the viewport was read "
+            "(#847); 0 on the default immediate capture. Echoed from the "
+            "request and VERIFIED against the harness reply, so the number is "
+            "what the engine actually ran, not what was asked for."
+        ),
+    )
     predicate: "CapturePredicateReport | None" = Field(
         default=None,
         description=(
@@ -268,8 +298,9 @@ class CaptureReceipt(BaseModel):
     ``session_id`` correlates with ``gda daemon status`` (stable for one
     `Engine session`, minted anew per relaunch — a receipt from a stale
     session is detectable by the mismatch); ``scene_path``/``scene_uid`` are
-    the LAUNCHED scene's identity (#660); ``engine_frame`` is the frame the
-    pixels belong to; ``sha256`` is the hash of the bytes gda wrote to
+    the LAUNCHED scene's identity (#660); ``engine_frame`` is the process frame
+    the read was taken at and ``render_frame`` identifies the drawn frame the
+    pixels ARE (#847); ``sha256`` is the hash of the bytes gda wrote to
     ``path``. For a gated capture the receipt also echoes the predicate's
     ``observed`` value at that same frame; the full predicate evidence (node,
     property, expected) lives in the sibling ``predicate`` report, so a gated
@@ -304,9 +335,29 @@ class CaptureReceipt(BaseModel):
     engine_frame: int = Field(
         ge=0,
         description=(
-            "The engine's absolute process-frame counter at the capture "
-            "boundary — the frame the image presents. For a gated capture this "
-            "is also the predicate's evaluation frame."
+            "The engine's absolute process-frame counter at the CAPTURE "
+            "BOUNDARY — the frame the read was taken at. For a gated capture "
+            "it is the predicate's evaluation frame plus the request's "
+            "settle_frames. It is NOT the frame the image presents: the "
+            "engine draws a frame after each process frame's callbacks, so a "
+            "read taken during those callbacks returns the PRECEDING drawn "
+            "frame, and a frame the engine chose not to draw (a window that "
+            "is not visible, low-processor-usage mode with no change) widens "
+            "that gap without bound. render_frame names the drawn frame "
+            "instead (#847)."
+        ),
+    )
+    render_frame: int = Field(
+        ge=0,
+        description=(
+            "The engine's drawn-frame counter (Engine.get_frames_drawn()) at "
+            "the capture boundary: the ordinal of the drawn frame these pixels "
+            "ARE, the Nth frame this engine run has drawn (#847). Two captures "
+            "reporting the SAME value present the same drawn frame — the "
+            "engine drew nothing between them, so identical pixels are the "
+            "engine's doing and not the game's. It advances with engine_frame "
+            "while the engine draws on every process frame, and stands still "
+            "when it does not."
         ),
     )
     observed: "bool | int | float | str | None" = Field(
@@ -384,6 +435,19 @@ class ScreenFramesParams(RelayedLiveParams):
             "Part of the input contract (ADR-0004/ADR-0015), ~-normalized (ADR-0006)."
         )
     )
+    settle_frames: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Process frames to let the game run ONCE, before the FIRST frame "
+            "of the sequence is captured (#847) — not between frames, which "
+            "would change what the window samples. The default is 0, not "
+            "`input tap`'s 2: a tap has a release the game must still observe, "
+            "a capture has nothing pending, so waiting would only age every "
+            "sequence by default. The settle and the frames share the "
+            f"{MAX_WINDOW_FRAMES}-frame per-window ceiling."
+        ),
+    )
     summary: bool = Field(
         default=False,
         description=(
@@ -394,6 +458,20 @@ class ScreenFramesParams(RelayedLiveParams):
             "grow with the frame count. Default false returns the full list."
         ),
     )
+
+    @model_validator(mode="after")
+    def _check_window(self) -> "ScreenFramesParams":
+        # The settle frames are ticks of the SAME window (ADR-0015, #223), so
+        # the pair is bounded where the pair is built — the rule `input tap`
+        # already applies to hold + settle + 1.
+        window = self.frames + self.settle_frames
+        if window > MAX_WINDOW_FRAMES:
+            raise ValueError(
+                f"the capture requests a {window}-frame window (frames + "
+                f"settle_frames), exceeding the maximum of {MAX_WINDOW_FRAMES} "
+                "(the gda harness's per-window ceiling). Use smaller counts."
+            )
+        return self
 
 
 class ScreenFrame(BaseModel):
@@ -533,6 +611,15 @@ class ScreenFramesResult(BaseModel):
     count: int = Field(
         ge=1, description="The number of frames captured over the requested window."
     )
+    settle_frames: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "The process frames the game ran before the FIRST frame was "
+            "captured (#847); 0 on the default immediate sequence. Echoed from "
+            "the request and VERIFIED against the harness reply."
+        ),
+    )
     frames: "list[ScreenFrame] | None" = Field(
         description=(
             "The captured frames, in window order, each a written PNG path; "
@@ -618,6 +705,7 @@ class _ReceiptReply(BaseModel):
     scene_path: str
     scene_uid: "str | None"
     engine_frame: int = Field(ge=0)
+    render_frame: int = Field(ge=0)
     observed: "bool | int | float | str | None"
 
 
@@ -627,6 +715,10 @@ class _CaptureReply(BaseModel):
     format: str = Field(default="png")
     bytes: int
     png_base64: str
+    # Required (#847): the harness echoes the settle it ran, so the CLI can
+    # refuse a reply that captured at a different boundary than the one asked
+    # for instead of publishing the REQUEST's number as if it were evidence.
+    settle_frames: int = Field(ge=0)
     predicate: "_PredicateReply | None" = None
     # Required (#660): a capture reply without the receipt is an old or drifted
     # harness, surfaced as the typed contract_violation by classify_live.
@@ -643,6 +735,7 @@ class _FrameReply(BaseModel):
 
 class _FramesReply(BaseModel):
     count: int
+    settle_frames: int = Field(ge=0)
     frames: list[_FrameReply]
 
     @model_validator(mode="after")
@@ -751,16 +844,22 @@ def _predicate_correlation_error(
 
 
 def _receipt_correlation_error(
-    predicate: "_PredicateReply | None", receipt: "_ReceiptReply"
+    predicate: "_PredicateReply | None",
+    receipt: "_ReceiptReply",
+    settle_frames: int,
 ) -> "str | None":
     """Why the reply's receipt does not answer this request, or None (#660).
 
     The receipt's predicate echo must agree with the predicate report it rides
-    beside — same observed value, same frame — because both claim to describe
-    the ONE capture boundary; a reply where they disagree is describing two
-    different events and cannot be evidence for either. A plain capture must
-    echo nothing (mirroring the unsolicited-predicate refusal). Checked BEFORE
-    the output file is written, like the predicate gate.
+    beside — same observed value — because both claim to describe the ONE
+    capture event; a reply where they disagree is describing two different
+    events and cannot be evidence for either. The two frames are the same
+    number only at ``settle_frames`` 0; a settle moves the READ that many
+    process frames past the evaluation, so the exact offset is what is checked
+    (#847) — that turns the settle from a described delay into a verified one.
+    A plain capture must echo nothing (mirroring the unsolicited-predicate
+    refusal). Checked BEFORE the output file is written, like the predicate
+    gate.
     """
     if predicate is None:
         if receipt.observed is not None:
@@ -778,11 +877,31 @@ def _receipt_correlation_error(
             f"does not match the predicate report's observed value "
             f"{predicate.observed!r}"
         )
-    if receipt.engine_frame != predicate.engine_frame:
+    expected_frame = predicate.engine_frame + settle_frames
+    if receipt.engine_frame != expected_frame:
         return (
             f"the harness reply's receipt names engine frame "
             f"{receipt.engine_frame}, but the predicate report was evaluated "
-            f"at frame {predicate.engine_frame}"
+            f"at frame {predicate.engine_frame} and the request asked to "
+            f"settle {settle_frames} frames (expected {expected_frame})"
+        )
+    return None
+
+
+def _settle_correlation_error(
+    requested: int, reported: int, label: str
+) -> "str | None":
+    """Why the reply's settle echo does not answer this request, or None (#847).
+
+    The result publishes how many frames the game ran before the read. Taking
+    that number from the REQUEST would make it a restatement of the flag; taking
+    it from the reply and refusing a mismatch makes it evidence that the engine
+    ran them.
+    """
+    if reported != requested:
+        return (
+            f"the harness reply settled {reported} frames before {label}, but "
+            f"the request asked for {requested}"
         )
     return None
 
@@ -806,7 +925,7 @@ def run_screen_capture_operation(
     embeds the base64; the default reply is path + dims + bytes + format.
     """
     runner = (make_runner or _default_runner)(None, project)
-    op_params: dict[str, object] = {}
+    op_params: dict[str, object] = {"settle_frames": params.settle_frames}
     if params.await_node is not None:
         op_params["await"] = {
             "node": params.await_node,
@@ -824,9 +943,15 @@ def run_screen_capture_operation(
     reply = classify_live(result, None, _CaptureReply)
     if isinstance(reply, Failure):
         return reply
-    correlation = _predicate_correlation_error(
-        params, reply.predicate
-    ) or _receipt_correlation_error(reply.predicate, reply.receipt)
+    correlation = (
+        _predicate_correlation_error(params, reply.predicate)
+        or _settle_correlation_error(
+            params.settle_frames, reply.settle_frames, "the capture"
+        )
+        or _receipt_correlation_error(
+            reply.predicate, reply.receipt, reply.settle_frames
+        )
+    )
     if correlation is not None:
         return make_failure("contract_violation", correlation, result.stdout)
     output = Path(params.output)
@@ -838,6 +963,7 @@ def run_screen_capture_operation(
         bytes=written,
         format=reply.format,
         inline=reply.png_base64 if params.inline else None,
+        settle_frames=reply.settle_frames,
         predicate=(
             CapturePredicateReport(**reply.predicate.model_dump())
             if reply.predicate is not None
@@ -864,10 +990,18 @@ def run_screen_frames_operation(
     completion envelope does not grow with the frame count.
     """
     runner = (make_runner or _default_runner)(None, project)
-    result = runner.run("screen-frames", {"frames": params.frames})
+    result = runner.run(
+        "screen-frames",
+        {"frames": params.frames, "settle_frames": params.settle_frames},
+    )
     reply = classify_live(result, None, _FramesReply)
     if isinstance(reply, Failure):
         return reply
+    settle_error = _settle_correlation_error(
+        params.settle_frames, reply.settle_frames, "the first frame"
+    )
+    if settle_error is not None:
+        return make_failure("contract_violation", settle_error, result.stdout)
     if reply.count != params.frames:
         # #748 re-review (ARC-748-F007): the operation has no partial-success
         # semantics — a self-consistent reply for a DIFFERENT frame budget is
@@ -902,6 +1036,7 @@ def run_screen_frames_operation(
         uniform = sizes.pop() if len(sizes) == 1 else (None, None)
         return ScreenFramesResult(
             count=reply.count,
+            settle_frames=reply.settle_frames,
             frames=None,
             summary=ScreenFramesSummary(
                 output_dir=str(output_dir),
@@ -911,19 +1046,30 @@ def run_screen_frames_operation(
                 total_bytes=sum(frame.bytes for frame in written),
             ),
         )
-    return ScreenFramesResult(count=reply.count, frames=written, summary=None)
+    return ScreenFramesResult(
+        count=reply.count,
+        settle_frames=reply.settle_frames,
+        frames=written,
+        summary=None,
+    )
 
 
 def render_screen_capture(captured: "ScreenCaptureResult") -> str:
     """Render a captured viewport frame as ``captured WxH -> path`` (#222).
 
-    The receipt line (#660) carries the binding evidence — session, scene,
-    frame, hash — so the human read is verifiable without opening the JSON.
+    The receipt line (#660) carries the binding evidence — session, scene, the
+    capture boundary's process frame, the drawn frame the pixels are (#847),
+    and the hash — so the human read is verifiable without opening the JSON.
     """
     inline = " (+inline)" if captured.inline else ""
+    settled = (
+        f" after {captured.settle_frames} settle frames"
+        if captured.settle_frames
+        else ""
+    )
     head = (
         f"captured {captured.width}x{captured.height} "
-        f"({captured.bytes} bytes) -> {captured.path}{inline}"
+        f"({captured.bytes} bytes) -> {captured.path}{inline}{settled}"
     )
     receipt = captured.receipt
     scene = receipt.scene_path or "(no scene)"
@@ -932,7 +1078,8 @@ def render_screen_capture(captured: "ScreenCaptureResult") -> str:
         head,
         (
             f"  receipt session {receipt.session_id} scene {scene}{uid} "
-            f"frame {receipt.engine_frame} sha256 {receipt.sha256}"
+            f"frame {receipt.engine_frame} render {receipt.render_frame} "
+            f"sha256 {receipt.sha256}"
         ),
     ]
     if captured.predicate is not None:
@@ -951,7 +1098,12 @@ def render_screen_frames(captured: "ScreenFramesResult") -> str:
     The ``--summary`` form (#665) renders the aggregate on one line instead of a
     row per frame, mirroring the compact JSON envelope.
     """
-    header = f"captured {captured.count} frames"
+    settled = (
+        f" after {captured.settle_frames} settle frames"
+        if captured.settle_frames
+        else ""
+    )
+    header = f"captured {captured.count} frames{settled}"
     if captured.summary is not None:
         aggregate = captured.summary
         size = (
@@ -1052,6 +1204,18 @@ def screen_capture(
         "--inline",
         help="Also embed the base64-encoded PNG in the result (default: path only).",
     ),
+    settle_frames: int = typer.Option(
+        0,
+        "--settle-frames",
+        min=0,
+        max=MAX_WINDOW_FRAMES - 1,
+        help=(
+            "Process frames to let the game run before the viewport is read "
+            "(#847). Default 0, not `input tap`'s 2: a tap has a release the "
+            "game must still observe, a capture has nothing pending. With "
+            "--await-* the settle runs after the predicate first holds."
+        ),
+    ),
     await_node: Optional[str] = typer.Option(
         None,
         "--await-node",
@@ -1108,16 +1272,35 @@ def screen_capture(
     capture event: the engine session's identity (the same `session_id` that
     `gda daemon status` reports; a new session mints a new one), the LAUNCHED
     scene's path and header uid (uid null when the project provides none), the
-    engine frame the pixels belong to, and the written file's SHA-256. A gated
-    capture's receipt also echoes the predicate's observed value at that same
-    frame; the full predicate evidence is the sibling `predicate` report.
+    two frame counters, and the written file's SHA-256. A gated capture's
+    receipt also echoes the predicate's observed value; the full predicate
+    evidence is the sibling `predicate` report.
+
+    The two counters say different things (#847). `engine_frame` is the process
+    frame the READ was taken at. `render_frame` is the engine's drawn-frame
+    counter — the drawn frame the pixels ARE. The engine draws a frame after
+    each process frame's callbacks, so a read taken during them returns the
+    PRECEDING drawn frame; and a frame the engine chose not to draw (a window
+    that is not visible, low-processor-usage mode with no change) widens that
+    gap without bound. Two captures reporting the same `render_frame` present
+    the same drawn frame, so identical pixels there are the engine's doing and
+    not the game's.
+
+    `--settle-frames N` runs N more process frames before the read, for a
+    visual that settles over several frames after a state change. The default
+    is 0, not `input tap`'s 2: a tap has a release the game must still observe,
+    a capture has nothing pending, so a default wait would only age every
+    image. The result reports what the harness actually ran, not the flag.
 
     The `--await-*` predicate (#661) holds the capture game-side until
     `node.property == value` first holds (checked once per process frame, up to
     `--await-frames`), then captures at that SAME frame boundary — the property
     and the pixels both belong to the frame that just completed — and reports
     the predicate evidence; a predicate that never holds is the typed
-    `live_predicate_unmet`. `--await-events` additionally injects input-sequence
+    `live_predicate_unmet`. With `--settle-frames N` the predicate is still
+    observed at its own first holding frame and the report still names it,
+    while the read moves N frames later — the receipt's `engine_frame` is then
+    the predicate's frame plus N, on purpose. `--await-events` additionally injects input-sequence
     events inside the same window (the atomic input-and-capture form) so a short
     transient triggered by the input cannot be missed by a second round trip;
     every declared event fires before the reply, even when the predicate
@@ -1157,6 +1340,7 @@ def screen_capture(
         ScreenCaptureParams,
         output=str(output),
         inline=inline,
+        settle_frames=settle_frames,
         await_node=await_node,
         await_property=await_property,
         await_value=value,
@@ -1190,6 +1374,18 @@ def screen_frames(
         "-d",
         help="The directory to write the captured PNG frames into (frame_NNNN.png).",
     ),
+    settle_frames: int = typer.Option(
+        0,
+        "--settle-frames",
+        min=0,
+        max=MAX_WINDOW_FRAMES - 1,
+        help=(
+            "Process frames to let the game run once, before the FIRST frame "
+            "is captured (#847). Default 0, not `input tap`'s 2: a tap has a "
+            "release the game must still observe, a capture has nothing "
+            "pending. The settle and --frames share the per-window ceiling."
+        ),
+    ),
     summary: bool = typer.Option(
         False,
         "--summary",
@@ -1214,8 +1410,13 @@ def screen_frames(
     the agent's context). `--summary` (#665) keeps the completion envelope
     COMPACT for large captures: every frame is still written, and the result
     carries the aggregate (directory, filename pattern, frame size, total
-    bytes) instead of the per-frame list. Needs a WINDOWED session; a headless
-    one is `live_display_unavailable`. With no daemon it reports
+    bytes) instead of the per-frame list. `--settle-frames N` (#847) runs N
+    process frames ONCE before the FIRST frame is captured — not between
+    frames, which would change what the window samples — for a visual that
+    settles after a state change; the default is 0, not `input tap`'s 2,
+    because a capture has no release to observe. The settle and `--frames`
+    share the per-window ceiling. Needs a WINDOWED session; a headless one is
+    `live_display_unavailable`. With no daemon it reports
     `daemon_not_running`.
     """
     # Same params model the --params-json path builds (ADR-0015): `output_dir` is
@@ -1223,7 +1424,13 @@ def screen_frames(
     # through the descriptor's recipe, exactly as the --params-json path (ADR-0023).
     dispatch_recipe(
         SCREEN_FRAMES_COMMAND,
-        ScreenFramesParams(frames=frames, output_dir=str(output_dir), summary=summary),
+        params_or_bad_parameter(
+            ScreenFramesParams,
+            frames=frames,
+            output_dir=str(output_dir),
+            summary=summary,
+            settle_frames=settle_frames,
+        ),
         json_output=json_output,
         godot=godot,
         project=project,

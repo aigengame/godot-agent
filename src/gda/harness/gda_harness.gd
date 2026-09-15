@@ -1781,6 +1781,25 @@ func _apply_sequence_event(event: Dictionary) -> Variant:
 # scene is up (the _process loop only dispatches once current_scene != null), by
 # which point a frame has rendered. `screen capture` is a 1-frame window; `screen
 # frames` an N-frame one. No _process change — same sampler/finalizer base as perf.
+#
+# WHICH frame that is, measured on 4.6.3-stable (#847 phase 1): Main::iteration
+# runs _process, then MessageQueue::flush (where a Container's deferred re-sort
+# and a Control's minimum-size update land), then RenderingServer::draw, then
+# _process_frames++. A read taken in _process of iteration i therefore returns
+# the frame DRAWN in iteration i-1, while Engine.get_process_frames() reads i —
+# a lag of exactly one, on 12 of 12 measured captures. The draw step is also
+# CONDITIONAL (a window that is not visible, or low-processor-usage mode with no
+# RenderingServer change, skips it), so the gap can be far wider than one: 4
+# consecutive captures were byte-identical across 694 process frames. So the
+# capture reports TWO counters — `engine_frame`, the process frame the read was
+# taken at, and `render_frame`, Engine.get_frames_drawn(), which identifies the
+# drawn frame the pixels ARE and stands still whenever the engine drew nothing.
+#
+# `settle_frames` (#847) lets a caller run N more process frames before the read,
+# for a game whose visual settles over several frames after a state change. It is
+# the ONLY control that moves the pixels forward; the read itself is NOT moved to
+# RenderingServer.frame_post_draw, because that would pair a tick's observation
+# with the NEXT frame's pixels and break the #661/#743 same-boundary binding.
 
 
 # True when the running session has no real display — the dummy "headless"
@@ -1826,8 +1845,12 @@ func _capture_frame() -> Dictionary:
 # not a claim about what an individual frame presents (a game that switches
 # scenes mid-session still receipts under its launched scene; the uid is the
 # scene FILE's own header declaration, null for a gda-authored scene, ADR-0036).
-# `engine_frame` is read at the SAME frame boundary as the pixels; `observed` is
-# the predicate echo for a gated capture (null on a plain one — the CLI refuses
+# `engine_frame` is the process frame the read was TAKEN at — for a gated capture
+# also the predicate's evaluation frame — and `render_frame` is
+# Engine.get_frames_drawn(), which identifies the drawn frame the pixels are (see
+# the section header: the two counters advance together while the engine draws
+# every frame, and only `render_frame` stands still when it does not). `observed`
+# is the predicate echo for a gated capture (null on a plain one — the CLI refuses
 # an unsolicited echo). The CLI adds the output hash after writing the file.
 func _capture_receipt(observed: Variant) -> Dictionary:
 	return {
@@ -1835,6 +1858,7 @@ func _capture_receipt(observed: Variant) -> Dictionary:
 		"scene_path": _launched_scene_path,
 		"scene_uid": _launched_scene_uid,
 		"engine_frame": Engine.get_process_frames(),
+		"render_frame": Engine.get_frames_drawn(),
 		"observed": observed,
 	}
 
@@ -1866,53 +1890,74 @@ func _scene_header_uid(scene_path: String) -> Variant:
 
 
 # screen capture: capture ONE viewport frame, returned as a base64 PNG + dims (the
-# CLI writes the file). A 1-frame window so the capture lands on a _process tick
-# after the scene is up and a frame has rendered (the GPU-timing fix). A headless
-# session is the typed live_display_unavailable, refused up front.
+# CLI writes the file). A `settle_frames + 1`-frame window so the capture lands on
+# a _process tick after the scene is up and a frame has rendered (the GPU-timing
+# fix), and `settle_frames` frames later than that when the caller asked the game
+# to settle first (#847). A headless session is the typed live_display_unavailable,
+# refused up front.
 func _handle_screen_capture(params: Dictionary) -> Variant:
 	if _display_is_headless():
 		return _error(LIVE_ERROR_DISPLAY_UNAVAILABLE,
 				"the engine session is headless (no DisplayServer to render pixels); "
 				+ "start the daemon with `gda daemon start --windowed`")
+	var settle := _int_param(params, "settle_frames", 0)
 	var await_spec: Variant = params.get("await", null)
 	if typeof(await_spec) == TYPE_DICTIONARY:
-		return _begin_predicate_capture(await_spec, params.get("events", []))
+		return _begin_predicate_capture(await_spec, params.get("events", []), settle)
+	var index := {"n": 0}
 	var sample := func() -> Variant:
+		var current := int(index["n"])
+		index["n"] = current + 1
+		if current < settle:
+			return current  # let the game run one more frame; nothing read yet
 		var frame := _capture_frame()
 		if frame.has("error"):
 			return frame  # abort the window with the typed error envelope
 		# The receipt is built INSIDE the sample (#660), at the same frame
-		# boundary the pixels were read at, so its engine_frame is the frame
-		# the image presents. A plain capture echoes no predicate (null).
+		# boundary the pixels were read at, so its engine_frame names that
+		# boundary and its render_frame the drawn frame the pixels are. A plain
+		# capture echoes no predicate (null).
 		frame["receipt"] = _capture_receipt(null)
+		frame["settle_frames"] = settle
 		return frame
 	var finalize := func(samples: Array) -> String:
-		# A 1-frame window: the single sample is the captured frame, returned flat.
-		return _ok(samples[0])
-	return _begin_window(1, sample, finalize)
+		# The window ends on the capturing sample: it is the last one collected.
+		return _ok(samples[samples.size() - 1])
+	return _begin_window(settle + 1, sample, finalize)
 
 
 # screen frames: capture a WINDOW of N viewport frames, one per frame boundary,
 # returned as the per-frame base64 PNG list (the CLI writes one file per frame).
 # Reuses the #223 time-windowed base with its own capture sampler/finalizer — no
-# _process change. A headless session is the typed live_display_unavailable.
+# _process change. `settle_frames` (#847) runs ONCE, before the FIRST frame is
+# captured, so the whole sequence starts after the game has settled rather than
+# spending its budget on the frames the caller wanted to skip. A headless session
+# is the typed live_display_unavailable.
 func _handle_screen_frames(params: Dictionary) -> Variant:
 	if _display_is_headless():
 		return _error(LIVE_ERROR_DISPLAY_UNAVAILABLE,
 				"the engine session is headless (no DisplayServer to render pixels); "
 				+ "start the daemon with `gda daemon start --windowed`")
 	var frames := _int_param(params, "frames", 1)
+	var settle := _int_param(params, "settle_frames", 0)
+	var index := {"n": 0}
 	var sample := func() -> Variant:
+		var current := int(index["n"])
+		index["n"] = current + 1
+		if current < settle:
+			return current  # a settle frame: let the game run, capture nothing
 		var frame := _capture_frame()
 		if frame.has("error"):
 			return frame  # abort the window with the typed error envelope
 		return frame
 	var finalize := func(samples: Array) -> String:
+		var captured: Array = samples.slice(settle)
 		return _ok({
-			"count": samples.size(),
-			"frames": samples,
+			"count": captured.size(),
+			"settle_frames": settle,
+			"frames": captured,
 		})
-	return _begin_window(frames, sample, finalize)
+	return _begin_window(frames + settle, sample, finalize)
 
 
 # screen capture --await (#661): the predicate-gated capture, GDA-DF-023. Input
@@ -1940,7 +1985,16 @@ func _handle_screen_frames(params: Dictionary) -> Variant:
 # capture payload is discarded, later events still drain, and the CLI writes
 # no file. A predicate that never holds within `frames` is the typed
 # live_predicate_unmet, carrying the last observed value.
-func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Variant:
+#
+# `settle` (#847) moves ONLY the pixels: the predicate is still observed at its
+# own first holding frame and the report still names that frame, but the read
+# happens `settle` process frames later, so the image is a frame the game drew
+# after that tick's own work — the tick's deferred layout included. The reply
+# still waits for every declared event, and an event scheduled beyond the settle
+# still fires; it is simply not in the image. `settle` 0 is the unchanged
+# same-boundary capture.
+func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant,
+		settle: int = 0) -> Variant:
 	var node_path := String(await_spec.get("node", ""))
 	var node := _resolve_runtime_node(node_path)
 	if node == null:
@@ -1962,8 +2016,24 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Va
 					"a predicate capture applies its events on the process clock; "
 					+ "'physics_frame' offsets are not accepted")
 		last_event = maxi(last_event, _sequence_event_offset(event))
-	var state := {"n": 0, "observed": null, "outcome": null}
+	var state := {"n": 0, "observed": null, "outcome": null,
+			"report": null, "capture_at": -1}
 	_injected_mouse_button_mask = 0
+	var capture := func() -> void:
+		var report: Dictionary = state["report"]
+		var captured := _capture_frame()
+		if captured.has("error"):
+			state["outcome"] = captured
+			return
+		captured["predicate"] = report
+		# The receipt is stamped at the READ boundary (#660): with settle 0 that
+		# is the evaluation tick, so its engine_frame IS the predicate's frame
+		# and its echo IS the predicate's — the CLI refuses a reply where the
+		# two disagree. With settle N the read is N frames later and the CLI
+		# requires exactly that offset instead (#847).
+		captured["receipt"] = _capture_receipt(report["observed"])
+		captured["settle_frames"] = settle
+		state["outcome"] = {"complete": captured}
 	var sample := func() -> Variant:
 		var current := int(state["n"])
 		state["n"] = current + 1
@@ -1973,7 +2043,7 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Va
 		# callback. The value is read HERE only; the up-front resolution is
 		# metadata-only, so a scripted getter runs exactly once per sampled
 		# frame (#743 review, ARC-743-002).
-		if state["outcome"] == null:
+		if state["outcome"] == null and state["report"] == null:
 			if not is_instance_valid(node):
 				state["outcome"] = {"error": {
 					"code": LIVE_ERROR_NODE_NOT_FOUND,
@@ -1983,28 +2053,22 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Va
 				var observed: Variant = node.get(prop)
 				state["observed"] = observed
 				if _predicate_matches(observed, expected):
-					# Capture at the SAME boundary the predicate was observed
-					# at — property and presentation both belong to the frame
-					# that just completed (verified live, see above).
-					var captured := _capture_frame()
-					if captured.has("error"):
-						state["outcome"] = captured
-					else:
-						captured["predicate"] = {
-							"node": node_path,
-							"property": prop,
-							"expected": expected,
-							"observed": _predicate_echo(observed),
-							"engine_frame": Engine.get_process_frames(),
-							"frames_waited": current,
-						}
-						# Same tick as the evaluation and the pixels (#660), so
-						# the receipt's engine_frame IS the evaluation frame and
-						# its echo IS the predicate's — the CLI refuses a reply
-						# where the two disagree.
-						captured["receipt"] = _capture_receipt(
-								_predicate_echo(observed))
-						state["outcome"] = {"complete": captured}
+					# The report names the frame the predicate was observed at,
+					# whatever the settle does to the read (#847).
+					state["report"] = {
+						"node": node_path,
+						"property": prop,
+						"expected": expected,
+						"observed": _predicate_echo(observed),
+						"engine_frame": Engine.get_process_frames(),
+						"frames_waited": current,
+					}
+					state["capture_at"] = current + settle
+					if settle == 0:
+						# Capture at the SAME boundary the predicate was
+						# observed at — property and presentation both belong
+						# to the frame that just completed (verified live).
+						capture.call()
 				elif current + 1 >= frames:
 					state["outcome"] = {"error": {
 						"code": LIVE_ERROR_PREDICATE_UNMET,
@@ -2014,6 +2078,9 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Va
 								+ " frames (last observed: "
 								+ str(state["observed"]) + ")",
 					}}
+		elif state["outcome"] == null and current >= int(state["capture_at"]):
+			# The settle frames have run: read now, and read only once.
+			capture.call()
 		# Then inject: every ACCEPTED event fires at its offset, even after
 		# the outcome is decided, so a press injected early is never left held
 		# (#743 review). A declared event FAILURE becomes the reply — it
@@ -2042,7 +2109,10 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant) -> Va
 				+ _json(expected) + " did not hold within "
 				+ str(frames) + " frames (last observed: "
 				+ str(state["observed"]) + ")")
-	return _begin_window(maxi(frames, last_event + 1) + 1, sample, finalize)
+	# The budget covers the latest tick any branch can still need: the predicate
+	# may hold as late as tick `frames - 1`, its settle read `settle` ticks after
+	# that, and every declared event fires at its own offset (#847).
+	return _begin_window(maxi(frames + settle, last_event + 1) + 1, sample, finalize)
 
 
 # The one runtime-property resolution rule, metadata only (#743 review,
