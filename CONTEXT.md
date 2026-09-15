@@ -250,15 +250,19 @@ smoke` performs. It runs the resolved Godot executable unsandboxed with ordered
 caller arguments through the shared one-shot launch mechanics (streaming capture,
 timeout, private `user://`, and diagnostics), but owns its small public policy:
 normal completion returns exit status as data, while `--strict` reports
-`smoke_failed` for a non-zero status or `shutdown_leak` (ADR-0042). The result adds
-only the caller artifact path and resolved executable path to the shared completed
-run fields. It has no completion marker, windowed mode, artifact identity,
-platform-format model, provenance, or release-policy contract. This is a separate
-caller-artifact execution point, outside the `Project-code execution surface`
-because gda cannot tie the artifact to the resolved project. NOT a `Startup
-preflight`, which boots one scene under the editor binary, and not a `Live
-operation`, which needs an `Engine session`. Its trust subject is the
-caller-selected artifact, distinct from the resolved `Trusted project` (ADR-0042).
+`smoke_failed` for a non-zero status or `shutdown_leak` (ADR-0042). Optional
+`--quit-after FRAMES`, placed before Godot's `--`, asks the engine to exit normally
+after that many process frames so shutdown diagnostics can run; omission or zero
+disables it, and the wall-clock `--timeout` remains the external hard bound. This
+engine flag asserts no project-specific completion. The result adds only the caller
+artifact path and resolved executable path to the shared completed-run fields. It
+has no completion marker, windowed mode, artifact identity, platform-format model,
+provenance, or release-policy contract. This is a separate caller-artifact
+execution point, outside the `Project-code execution surface` because gda cannot
+tie the artifact to the resolved project. NOT a `Startup preflight`, which boots
+one scene under the editor binary, and not a `Live operation`, which needs an
+`Engine session`. Its trust subject is the caller-selected artifact, distinct from
+the resolved `Trusted project` (ADR-0042).
 _Avoid_: post-export test, launch check, release verify, smoke test (the project's
 own tests are its own)
 

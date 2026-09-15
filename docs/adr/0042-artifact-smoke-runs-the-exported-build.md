@@ -24,12 +24,24 @@ log file omitted; and redirecting `HOME` redirected the game's `user://`. Linux 
 Windows behavior was not measured, so the implementation must not claim more than
 its own host probes establish.
 
+A follow-up probe on the same Godot 4.6.3 release template found one missing
+functional condition. With `--quit-after 30` before Godot's `--` separator, the
+game exited normally and both leak records appeared on stderr. When an external
+six-second bound sent `SIGTERM`, the game emitted no leak record. Passing the same
+words after `--` made them user arguments and the game did not exit. Godot's 4.6.3
+source [parses `--quit-after` outside the editor-only
+guard](https://github.com/godotengine/godot/blob/4.6.3-stable/main/main.cpp#L1628-L1640)
+and [ends the main loop after that many process
+frames](https://github.com/godotengine/godot/blob/4.6.3-stable/main/main.cpp#L4682-L4690);
+the normal engine shutdown then runs cleanup. A wall-clock termination cannot
+provide equivalent shutdown evidence.
+
 ## Decision
 
 gda adds one command:
 
 ```text
-gda export smoke <artifact> [--arg VALUE ...] [--timeout SECONDS] [--strict]
+gda export smoke <artifact> [--arg VALUE ...] [--quit-after FRAMES] [--timeout SECONDS] [--strict]
 ```
 
 The command is a separate caller-artifact execution point. It is not part of the
@@ -47,11 +59,18 @@ provenance claim.
   is `export_artifact_not_found`; any present input that cannot be resolved to a
   host-runnable Godot executable is `export_artifact_not_runnable`. The resolver
   does not classify every export platform or model formats that it does not run.
-- The executable is invoked with `--headless`, a gda-owned `--log-file`, then
-  Godot's `--` separator and every `--arg` value in order. There is no windowed
-  mode in this capability.
-- The run uses the existing timeout and streaming capture. A timeout remains the
-  existing `launch_timeout` and preserves the output captured before termination.
+- The executable is invoked with `--headless`, a gda-owned `--log-file`, and an
+  optional `--quit-after FRAMES`, then Godot's `--` separator and every `--arg`
+  value in order. `FRAMES` is a non-negative integer; omission or zero disables
+  the engine-owned exit. There is no windowed mode in this capability.
+- `--quit-after` asks Godot to end its main loop normally after the selected number
+  of process frames, so engine cleanup and its exit-time diagnostics can run. The
+  game can still exit earlier by itself. This is not a completion assertion and
+  does not say that project-specific work finished.
+- The existing `--timeout` and streaming capture remain the external wall-clock
+  hard bound. A timeout is `launch_timeout`, preserves the output captured before
+  termination, and makes no claim about diagnostics that Godot emits only during
+  normal shutdown.
 - A completed run returns the caller's artifact path, the resolved executable
   path, exit status, bounded stdout and its existing spill metadata, stderr, and
   recognized diagnostics. Exit status is data by default.
@@ -66,8 +85,9 @@ provenance claim.
 
 There is no completion marker and no `smoke_aborted`. An exported game has no
 single entry script whose continued output can serve the liveness contract that
-ADR-0031 defines for `script run`. The bounded timeout is the only generic end
-condition that the requirement supports.
+ADR-0031 defines for `script run`. `--quit-after` is only Godot's normal-exit
+mechanism; `--timeout` is still the external hard bound. Neither is a
+project-specific completion protocol.
 
 ### Necessary shared abstraction
 
@@ -108,16 +128,20 @@ completion-marker policy, placement fields, and `script_failed` /
 `script_aborted` meanings unchanged. Project-specific release checks remain with
 the caller: multiple completion markers, warning bans, signing checks, soak time,
 network policy, and combinations of those checks are policies over the returned
-evidence, not additions to this command.
+evidence, not additions to this command. The smoke's direct `--quit-after` mapping
+does not interpret any of them.
 
 ### Validation required by the implementation slice
 
 - Feed the `output_path` from a real `export run` result to `export smoke`.
-- Prove that ordered `--arg` values reach the exported game and that the game can
-  exit by itself.
+- Prove that ordered `--arg` values reach the exported game after Godot's `--`.
+- Prove that omitted or zero `--quit-after` adds no engine exit, while a positive
+  value appears before `--`, ends the release template normally, and exposes its
+  exit-time diagnostics.
 - Prove that a normal non-zero exit is returned as data, while `--strict` maps a
   non-zero exit or `shutdown_leak` to `smoke_failed`.
-- Prove that a timeout preserves partial stdout and stderr.
+- Prove that a timeout preserves partial stdout and stderr but does not claim a
+  normal cleanup or the absence of shutdown-only diagnostics.
 - Prove that the default private `user://` does not touch the real user directory
   and is removed, and that the existing explicit global override still works.
 - Keep every existing Headless launch caller behavior unchanged.
@@ -147,6 +171,12 @@ without resetting the contract that produced it:
    binaries and headless/windowed modes. Digest caveats, placement disclosure,
    cleanup rules, and failure-evidence rules accumulated to defend commitments
    that were not part of the user outcome.
+5. The first-principles reset removed those mechanisms but overcorrected once: it
+   assumed the exported game would exit by itself and called timeout the only
+   supported end condition. The representative defect appears during normal
+   engine cleanup, while timeout termination does not run that path. Direct
+   release-template evidence restored the existing engine flag without restoring
+   a project protocol or platform abstraction.
 
 The root cause was reuse at public-contract boundaries instead of at the lowest
 stable mechanism. Small technical possibilities were promoted into product
@@ -158,6 +188,10 @@ the second consumer, and delete the compensating contract around unneeded NFRs.
 
 - **Reuse `script run` verbatim — rejected.** Its entry-script validation and
   completion marker are not properties of an exported game.
+- **Require every exported game to implement its own exit protocol — rejected.**
+  It would move a Godot engine capability into every project and would not exercise
+  the normal exit path by default. The optional engine `--quit-after` flag is the
+  smaller mechanism; callers still own any assertion that project work completed.
 - **Restore Headless launch to editor-only — rejected.** The exported game is
   still a Godot executable and needs the same one-shot headless mechanics. An
   editor-only definition would misdescribe the real shared abstraction.
@@ -181,6 +215,9 @@ the second consumer, and delete the compensating contract around unneeded NFRs.
 - The implementation adds three operation codes:
   `export_artifact_not_found`, `export_artifact_not_runnable`, and
   `smoke_failed`. It adds no `smoke_aborted` and no new `FailureEvidence` shape.
+- `--quit-after` maps one optional non-negative value to Godot's existing engine
+  flag before `--`. It adds no result field, error code, marker protocol, or
+  termination abstraction.
 - `CONTEXT.md` defines Headless launch by its stable Godot/headless semantics and
   names the two known executable sources. Existing Phase-1 callers retain their
   current behavior.
