@@ -4,6 +4,13 @@ The shared language of gda-balancing: a standalone, engine- and game-agnostic to
 designing a game's numerics before development and validating balance quantitatively during
 it, with structured output suitable for programmatic consumption. (Requirements: PRD #501.)
 
+**Terminology transition (2026-09-06):**
+[bADR-0028](docs/badr/0028-current-language-refactor-and-pre-1.0-retirement.md) adopts one current
+language and removes historical package/Operation selection and redundant execution bindings.
+Existing wire-specific definitions below remain descriptions of the implementation until their
+coordinated replacement. They do not impose historical retention. The new direction retains
+content integrity, nominal ownership, actual execution policies, and consistent in-flight inputs.
+
 ## Language
 
 ### Product
@@ -16,6 +23,15 @@ gda's conventions (PRD #501 addendum). bADR-0007…0011 preserve the historical 
 used only to define migration input; bADR-0015/0021 are the forward Standard Schema 2.x invocation
 and taxonomy contract.
 _Avoid_: gda balancing module, balancing plugin
+
+**Current language**:
+The complete admitted Kernel/LDB definitions selected for current toolkit use, with one definition
+per package namespace and explicit closed dependency and capability relationships. Internal
+definitions may be replaced or withdrawn; independent historical package, Type, and Operation
+version selection is removed by the refactor. A content identity still identifies exact bytes and
+cannot truthfully be reused for changed content. It does not promise permanent support or
+availability. Formal compatibility is considered no earlier than toolkit v1.0 under bADR-0028.
+_Avoid_: latest-version fallback, rolling rule mutation, historical release registry
 
 **Standard Schema**:
 The versioned language, runtime, artifact, and evidence specification for game numeric systems
@@ -39,7 +55,9 @@ global authority for the others (bADR-0012).
 _Avoid_: global source of truth, authority layer
 
 **Language Definition Bundle**:
-The sole immutable language-content authority under one exact `Schema-major Kernel Specification`.
+The sole admitted language-content authority under one exact `Schema-major Kernel Specification`.
+Its content stays consistent within an admitted request/session. bADR-0028 permits replacement or
+withdrawal of internal content; exact identity is not a promise of historical retention.
 It is one sealed artifact graph: a canonical root manifest owns the exact ordered package
 membership, and each root-declared descriptor binds one complete `Domain package release`. A
 release is a sealed one-level aggregate whose manifest owns runtime language semantics and binds
@@ -110,11 +128,11 @@ The versioned, non-self-hosted authority that defines bundle structure and inter
 judgment execution, the irreducible Semantic kernel, exact Numeric and RNG sampling laws,
 event-transition primitives, resource accounting, Kernel/LDB-admission meta-diagnostics, and their
 conformance interface. Each executable Kernel law closes its parameters, result, transitive
-effects, refusals, resource units, and canonical behavior. The Standard Schema 2.0 Kernel remains a
-provisional baseline until Gate 5 and Gate 6 complete and a maintainer records `Kernel baseline
-frozen` in PRD #534. Before that event, demonstrated gaps may reopen the architecture gate and
-replace the exact baseline. After it, another irreducible Kernel addition requires the next Schema
-major (bADR-0022).
+effects, refusals, resource units, and canonical behavior. A fixed baseline identifies an exact
+conformance input. Under bADR-0028, Gate 5/Gate 6 or the former `Kernel baseline frozen` record
+does not create a pre-v1.0 compatibility commitment: demonstrated gaps may replace the internal
+baseline, with a new content identity and fresh affected evidence. Formal compatibility requires
+the later explicit release decision. Current machine contracts remain binding until replaced.
 Its identity law also names every authority-artifact identity domain; package meta-format contracts
 own package id/version grammar. Every Language Definition Bundle binds one exact
 kernel-specification identity. Host implementations conform to the kernel and bundle; a Python function, reference
@@ -127,8 +145,8 @@ literals, reads, calls, value selection, typed requirements, single-level guard 
 bindings, bounded aggregation, lookup, sampling, and transition/event primitives. Language
 Definition Bundle rules compose those primitives into language and domain behavior. Each addition
 requires formal laws, independent conforming implementations, normative vectors, and a replacement
-Kernel identity; the frozen-baseline rule determines whether it enters the current or next Schema
-major (bADR-0022).
+Kernel identity. The pre-v1.0 replacement policy is owned by bADR-0028; the list describes intended
+coverage, not proof that bounded aggregation or the complete primitive basis is implemented.
 _Avoid_: standard library, evaluator built-ins, host functions
 
 **Guard block**:
@@ -157,7 +175,9 @@ specification declares and bounds the same effects (bADR-0016/0022).
 _Avoid_: Effect specification (gameplay concept), side-effect flag, purity hint
 
 **Resolved symbol identity**:
-The exact package-version, module, and declaration identity produced by explicit name resolution.
+The exact owning package, module, and declaration identity produced by explicit name resolution.
+The current wire representation includes a package-version coordinate; bADR-0028 removes that
+selection dimension while retaining unique nominal ownership inside the current language.
 Source uses explicit imports/aliases and no wildcard imports or shadowing; Typed HIR/RIR carry the
 resolved identity rather than source spelling or lookup order (bADR-0022).
 _Avoid_: string reference, qualified name (before resolution), registry key
@@ -234,6 +254,10 @@ both identities remain unchanged (bADR-0013/0016/0024).
 _Avoid_: Resolved Model (the authority wrapper), compiled source tree, evaluator plan
 
 **Resolved Model**:
+_Current wire definition; bADR-0028 replaces irrelevant whole-LDB execution binding after actual
+execution-input closure. The replacement must delete the obsolete fields, gates and fallback
+reads, not merely add a narrower projection beside them._
+
 The immutable, content-addressed public execution-authority artifact for one exact build. Its
 identity binds the exact Schema-major Kernel Specification, exact whole `Language Definition
 Bundle`, canonical selected-closure `Package Lock`, RIR `semantic_identity`, and exact RIR
@@ -265,6 +289,9 @@ compiler produces it before publication. A separate Artifact-set receipt owns pu
 Compiler and resolver implementation identities belong in provenance receipts and never
 participate in RIR or Resolved Model content identity, so independent conforming tools can produce
 the same semantic artifacts (bADR-0013).
+Under bADR-0028, producing provenance must also cease to be an unnecessary prerequisite or
+identity input for Experiment admission and execution. The receipt may remain truthful provenance;
+its obsolete execution fields, equality gates and propagation must be deleted after closure.
 _Avoid_: compiler identity in RIR, semantic build id, Resolved Model provenance field
 
 **Artifact-set receipt**:
@@ -275,6 +302,9 @@ domain member such as a Build receipt, Resolution receipt, or Reproduction recei
 _Avoid_: Build receipt, outcome receipt, member receipt
 
 **Package Lock**:
+_Current wire definition; historical version selection and locking are superseded as the target
+by bADR-0028. The replacement preserves exact selected dependency, nominal and capability closure._
+
 The generated, content-addressed proof of the exact **selected transitive closure**: dependency
 graph and constraints, exact package-release identities, capability-provider bindings,
 type/conversion closure,
@@ -289,6 +319,9 @@ candidate/capability ambiguity and the selected closure is otherwise identical (
 _Avoid_: dependency config, package manifest, lock authority
 
 **Domain package release**:
+_Current wire term. The accepted replacement is one complete current Domain package definition
+per namespace; historical selection and retention are removed under bADR-0028._
+
 One immutable, content-addressed, namespaced, one-level aggregate admitted by a Language Definition
 Bundle. Its package-specific directory contains exactly two authority JSON members: one Package
 Release manifest and one bound `Package conformance vector set`. The manifest closes metadata and
@@ -518,21 +551,23 @@ bijection: an omitted, duplicate, reserved-Kernel, or extra member refuses the w
 _Avoid_: representative token sample, package-name-only rename, implementation symbol list
 
 **Domain package**:
-A versioned, namespaced Standard Schema extension that composes core types into nominal types,
+A namespaced Standard Schema extension that composes core types into nominal types,
 records/components, operations, capabilities, diagnostics, conversions, and declared runtime
-effects. Its manifest declares dependencies and compatibility; it cannot mutate another package's
-types, add implicit syntax, or bypass the Language Definition Bundle (bADR-0016).
+effects. Its manifest declares dependencies and capabilities; it cannot mutate another package's
+types, add implicit syntax, or bypass the Language Definition Bundle. bADR-0028 replaces current
+release-version selection with one complete definition per namespace (bADR-0016).
 _Avoid_: plugin (implies host code), schema fragment, profile
 
 **Capability**:
-A versioned, namespaced contract a Domain package provides or requires. Dependency resolution binds
+A namespaced contract a Domain package provides or requires. Dependency resolution binds
 required capabilities and explicitly selected optional ones, then records the exact set in Package
 Lock and Resolved Model. Missing or incompatible capability is a `resolution` refusal; capability
-presence never enables undeclared fallback behavior (bADR-0016).
+presence never enables undeclared fallback behavior. Current version-coordinate selection is
+removed under bADR-0028; contract compatibility still must be checked (bADR-0016).
 _Avoid_: feature flag, optional behavior, duck-typed extension
 
 **Operation specification**:
-The Language Definition Bundle entry that gives a versioned operation its complete static and
+The Language Definition Bundle entry that gives an Operation its complete static and
 runtime contract: named `Formal port`s and result, unit rules, purity, resource bounds, Numeric
 profiles, declared reads, writes, emitted signals, scheduled events, Named random streams, and a
 body whose nested calls use explicit port-to-operand bindings. An evaluator implements this
@@ -655,6 +690,9 @@ not the full Modelica language or a general DAE solver contract (bADR-0020).
 _Avoid_: Modelica support, equation script, symbolic escape hatch
 
 **Design document (Standard Schema 1.x)**:
+_Historical source kind; S1b dispositions known inputs and removes toolkit source conversion under
+bADR-0028. The converter-specific terms below describe current behavior until that deletion._
+
 The legacy single root JSON document holding one game's complete numeric design — an instance of
 Standard Schema 1.x declaring the `schema_version` it targets. Subsystems are sections within it;
 there is no multi-file document set (bADR-0001). Standard Schema 2.x supersedes this authoring
@@ -698,6 +736,9 @@ The high-level intermediate representation after complete name resolution, type 
 checking, and static legality checks. It retains source-level structure and provenance useful for
 diagnostics, but every semantically relevant reference and operation is explicit. Its lowering to
 the `RIR semantic payload` must preserve the specified observable behavior (bADR-0013).
+Under bADR-0028, reusable preparation is private and owned by one admitted request. Specialization
+returns complete explicit projections rather than relying on shared-object mutations. This does
+not create a persisted cache, a new public artifact, or another semantic authority.
 _Avoid_: typed AST (when resolution is incomplete), runtime model, execution plan
 
 **Execution IR (EIR)**:

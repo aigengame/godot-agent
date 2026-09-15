@@ -1,0 +1,26 @@
+import sys,json,hashlib
+from pathlib import Path
+import os
+R=Path(os.environ['GDA_PROBE_ROOT']);O=Path(os.environ['GDA_PROBE_OUT']);mode=sys.argv[1]
+sys.path.insert(0,str((O if mode=='prepared' else R)/'src'));sys.path.insert(1,str(R/'tests'))
+from gda_balancing.domain.model import _checking as checking,_compilation as compilation,_lowering as lowering,CheckedModel
+from gda_balancing.domain.authority.context import packaged_authority_context,admit_authority_context
+from gda_balancing.domain.canonical import canonical_bytes
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
+from test_schema2_model_cli import _model_source,_reidentify_language_bundle
+from schema2_authority_support import mutable_authorities
+checked=checking.check_model_source_value(_model_source());values=lowering.lowering_inputs(checked);budget=lowering._runtime_projection_budget(checked.kernel,checked.language_bundle);lowering._runtime_projection(*values[:3],budget);steps=budget.used
+results={'mode':mode,'required_steps':steps,'boundaries':{}}
+for limit in (steps-1,steps,steps+1):
+    kernel,ldb=mutable_authorities();ldb['resources']['max_runtime_projection_steps']=limit
+    for identifier,value in [('model.accept.runtime-projection-step-boundary',limit),('model.refuse.runtime-projection-step-budget',limit+1)]:next(v for v in ldb['vectors'] if v['id']==identifier)['input']['value']=value
+    _reidentify_language_bundle(ldb)
+    checked=checking.check_model_source_value(_model_source(),kernel=kernel,language_bundle=ldb)
+    if limit<steps:
+        assert isinstance(checked,Schema2RefusalReport)
+        results['boundaries'][limit]=checked.model_dump(mode='json')
+    else:
+        assert isinstance(checked,CheckedModel),repr(checked)
+        artifacts=compilation.compile_checked_model(checked)
+        results['boundaries'][limit]={'sha256':hashlib.sha256(canonical_bytes(artifacts)).hexdigest()}
+(O/f'{mode}-boundary.json').write_text(json.dumps(results,indent=2));print(json.dumps(results,indent=2))
