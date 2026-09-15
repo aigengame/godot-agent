@@ -50,6 +50,12 @@ ties the caller-selected artifact to the resolved [Trusted
 project](../../CONTEXT.md). It executes the artifact unsandboxed and makes no
 provenance claim.
 
+The command is projectless. Its `HeadlessCommand` descriptor sets
+`inherits_project=False`, its CLI signature does not declare `--project`, and its
+recipe neither resolves nor uses the invocation cwd or `GDA_PROJECT` as a project.
+A relative filesystem `<artifact>` resolves against the invocation cwd. The
+absolute `output_path` reported by `export run` therefore passes through directly.
+
 ### Product contract
 
 - `<artifact>` is the path returned by `export run`, or another path selected by
@@ -57,8 +63,9 @@ provenance claim.
 - The first implementation accepts a directly runnable file on the current host.
   On macOS it also resolves the main executable of a `.app` bundle. An absent path
   is `export_artifact_not_found`; any present input that cannot be resolved to a
-  host-runnable Godot executable is `export_artifact_not_runnable`. The resolver
-  does not classify every export platform or model formats that it does not run.
+  host-runnable Godot executable is `export_artifact_not_runnable`. Both are
+  classifier-source `operation` codes with process exit 4. The resolver does not
+  classify export platforms or model inputs that it does not run.
 - The executable is invoked with `--headless`, a gda-owned `--log-file`, and an
   optional `--quit-after FRAMES`, then Godot's `--` separator and every `--arg`
   value in order. `FRAMES` is a non-negative integer; omission or zero disables
@@ -76,12 +83,18 @@ provenance claim.
   recognized diagnostics. Exit status is data by default.
 - `--strict` returns `smoke_failed` when the completed process has a non-zero exit
   status or the existing recognizer reports `shutdown_leak`. No other diagnostic
-  becomes a release policy inside gda.
+  becomes a release policy inside gda. `smoke_failed` is also a classifier-source
+  `operation` code with process exit 4. Its builder carries the existing
+  `FailureEvidence.exit_status` and `FailureEvidence.script_errors` values from the
+  completed run; it adds no evidence field or command-specific envelope.
 - The existing global `--user-data-root` and `GDA_USER_DATA_ROOT` override are
-  honored. Without either, Artifact smoke uses a fresh private root so the
-  exported game cannot mutate the user's real `user://`; gda removes that root on
-  completion. The temporary placement is an internal safety mechanism, not a
-  result field or a durable product artifact.
+  honored. Without either, Artifact smoke creates a fresh private root after it
+  resolves the artifact and before launch, so the exported game cannot mutate the
+  user's real `user://`. It owns that root and attempts to remove it in `finally`
+  for every outcome that created it, including launch and command failures,
+  timeouts, and unexpected exceptions. Cleanup is best-effort internal hygiene:
+  deletion failure does not replace the command outcome and adds no result field,
+  error code, or `FailureEvidence`. An explicit override remains caller-owned.
 
 There is no completion marker and no `smoke_aborted`. An exported game has no
 single entry script whose continued output can serve the liveness contract that
@@ -139,17 +152,29 @@ does not interpret any of them.
   value appears before `--`, ends the release template normally, and exposes its
   exit-time diagnostics.
 - Prove that a normal non-zero exit is returned as data, while `--strict` maps a
-  non-zero exit or `shutdown_leak` to `smoke_failed`.
+  non-zero exit or `shutdown_leak` to `smoke_failed`, with the existing typed exit
+  status and script-error evidence.
 - Prove that a timeout preserves partial stdout and stderr but does not claim a
   normal cleanup or the absence of shutdown-only diagnostics.
-- Prove that the default private `user://` does not touch the real user directory
-  and is removed, and that the existing explicit global override still works.
+- Prove that an invocation outside a Godot project ignores inherited project
+  context, that the command rejects `--project`, and that relative filesystem
+  artifact paths resolve against the invocation cwd.
+- Prove that the default private `user://` does not touch the real user directory;
+  cleanup is attempted after completed, timeout, launch-failure, strict-failure,
+  and unexpected-exception paths; a simulated deletion failure does not replace
+  the outcome; and the existing explicit global override still works and is not
+  removed.
 - Keep every existing Headless launch caller behavior unchanged.
 - Keep CLI help, per-command schema, aggregate schema, and MCP discovery
   consistent with the new command and `ExecutionKind`.
-- Assert that the result and schema contain no digest, PCK discovery, identity,
-  completion marker, windowed mode, transient placement field, or platform-model
-  object.
+- Update ADR-0004's `FailureEvidence` producer-set authority, the descriptions of
+  the two reused fields, and its registry guard tests when the `smoke_failed`
+  builder is implemented.
+- Assert through public help, schema, and result regression tests that the removed
+  digest/PCK/inventory, windowed-mode, completion-marker, transient-placement, and
+  `smoke_aborted` surfaces do not return. Keep the generic-runner and ownership
+  exclusions as architecture-review boundaries; add a focused test only where an
+  observable public seam exists.
 
 ## Causal correction
 
@@ -212,9 +237,13 @@ the second consumer, and delete the compensating contract around unneeded NFRs.
 
 - #841 and this ADR define one bounded headless run, not a release-verification
   platform.
-- The implementation adds three operation codes:
+- The implementation adds three classifier-source `operation` codes with process
+  exit 4:
   `export_artifact_not_found`, `export_artifact_not_runnable`, and
-  `smoke_failed`. It adds no `smoke_aborted` and no new `FailureEvidence` shape.
+  `smoke_failed`. The strict failure reuses `FailureEvidence.exit_status` and
+  `FailureEvidence.script_errors`; the implementation updates ADR-0004's producer
+  set, field descriptions, and guard tests. It adds no `smoke_aborted` and no new
+  `FailureEvidence` shape.
 - `--quit-after` maps one optional non-negative value to Godot's existing engine
   flag before `--`. It adds no result field, error code, marker protocol, or
   termination abstraction.

@@ -159,19 +159,22 @@ file that concurrent invocations contend over. Normally the target is a private
 temporary file, so a read-only application-data directory is not fatal; the
 per-invocation `--user-data-root`, which overrides `GDA_USER_DATA_ROOT`, instead
 places the log *and* `user://` under a caller-chosen directory, since Godot has no
-`--user-data-dir` flag and the platform data variable is the only lever. Artifact
-smoke supplies a fresh private root through a narrow internal placement input when
-neither existing override names one, so a caller-selected exported game cannot
-write the real user directory. Existing callers keep their current placement
-resolution. The placement is **created, not inspected**, before the spawn — that
-creation IS the
+`--user-data-dir` flag and the platform data variable is the only lever. After it
+resolves the artifact, Artifact smoke creates and owns a fresh private root when
+neither existing override names one, then supplies that root through the narrow
+internal placement input so a caller-selected exported game cannot write the real
+user directory. It attempts to remove only that owned root in `finally` after every
+outcome. Cleanup is best-effort internal hygiene: failure does not replace the
+command outcome or add a result field, error code, or `Failure evidence`. Existing
+callers keep their current placement resolution. The placement is **created, not
+inspected**, before the spawn — that creation IS the
 preflight — and a placement gda cannot make usable is a typed refusal
 (`user_data_unwritable`) rather than an engine crash. It is also REPORTED, not only
 prepared: the placement rides the `Raw run` out of the launch that dropped it, and
 `gda script run` publishes it on a SUCCESSFUL result, so a failed `user://` write
 is attributable to the environment instead of read as a game regression (#850).
-Artifact smoke uses the placement internally, removes its private default, and
-does not publish transient placement paths or extend `Failure evidence`. The
+Artifact smoke uses the placement internally and does not publish transient
+placement paths or extend `Failure evidence`. The
 engine's export-template lookup follows the same placement, so a
 redirected export can miss templates the host holds — `export run` says so and
 `export get` reports both roots (#840). Headless only: a live `Engine session`'s log
@@ -232,25 +235,26 @@ script and injects nothing into it (ADR-0031 rejected a gda-owned sentinel wrapp
 _Avoid_: sentinel, done marker, quit marker
 
 **Export artifact**:
-What `gda export run` produces for a preset, named by the `output_path` it reports:
-a macOS `.app` bundle; a Linux or Windows executable with its PCK beside it or
-embedded; a bare PCK in `pack` mode; a Web page with its siblings; an Android or
-iOS output. Named by path, never by content — gda defines no artifact-level content
-identity, manifest or provenance contract (ADR-0042). The one thing gda produces
-that is NOT the project
-under the editor binary: release template, the PCK the export filters admitted, the
-harness stripped (ADR-0028), imported resources remapped. Artifact smoke accepts
-only a direct host-runnable file, plus a resolved `.app` executable on macOS; it
-does not infer or publish a general platform-format classification.
+What `gda export run` produces for a selected preset and names in its `output_path`.
+Its format and contents remain Godot- and preset-owned; gda defines no
+artifact-level content identity, manifest, provenance, or platform-format
+classification (ADR-0042). Artifact smoke accepts only a direct host-runnable file,
+plus a resolved `.app` executable on macOS; it does not infer or publish a broader
+format model.
 _Avoid_: build, bundle (macOS only), binary, release, receipt
 
 **Artifact smoke**:
 The bounded headless run of a caller-selected `Export artifact` that `gda export
-smoke` performs. It runs the resolved Godot executable unsandboxed with ordered
-caller arguments through the shared one-shot launch mechanics (streaming capture,
-timeout, private `user://`, and diagnostics), but owns its small public policy:
-normal completion returns exit status as data, while `--strict` reports
-`smoke_failed` for a non-zero status or `shutdown_leak` (ADR-0042). Optional
+smoke` performs. It is projectless: its descriptor does not inherit the cwd or
+`GDA_PROJECT`, its command signature has no `--project`, and a relative filesystem
+artifact path resolves against the invocation cwd. It runs the resolved Godot
+executable unsandboxed with ordered caller arguments through the shared one-shot
+launch mechanics (streaming capture, timeout, private `user://`, and diagnostics),
+but owns its small public policy: normal completion returns exit status as data,
+while `--strict` reports `smoke_failed` for a non-zero status or `shutdown_leak`.
+The two artifact refusals and `smoke_failed` are classifier-source `operation`
+codes with process exit 4; `smoke_failed` reuses `FailureEvidence.exit_status` and
+`FailureEvidence.script_errors` (ADR-0042). Optional
 `--quit-after FRAMES`, placed before Godot's `--`, asks the engine to exit normally
 after that many process frames so shutdown diagnostics can run; omission or zero
 disables it, and the wall-clock `--timeout` remains the external hard bound. This
@@ -442,7 +446,7 @@ loaded-value assignment (ADR-0033), the startup preflight, the import pass, the
 declared method call, the minimum-size read, and the composed static validate
 widen this surface without adding a new trust axis. Artifact smoke is outside this
 surface: it is the separate caller-artifact execution point, with the second trust
-subject stated once in ADR-0042 §1.
+subject stated in ADR-0042's Decision trust paragraph.
 _Avoid_: attack surface, code-execution risk
 
 **Concurrent external editor**:
