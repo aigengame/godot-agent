@@ -2753,8 +2753,12 @@ def run_script(
     was: ``engine_data_path``, the directory the engine resolved ``user://``
     beneath, is always present; ``user_data_root`` and ``log_file`` are reported
     only when a root was given — the one case in which the log outlives the launch,
-    since by default it is a private temporary file gda removes. A failure envelope
-    (``--strict``'s ``script_failed``, a ``launch_timeout``) does not carry them.
+    since by default it is a private temporary file gda removes. The three failure
+    envelopes that report on a RUN say the same, under ``evidence``: ``script_failed``,
+    ``launch_timeout`` and ``script_aborted``. There the keys follow the
+    omitted-never-null rule of that object, so an unresolved ``engine_data_path`` is
+    absent rather than null. A verdict about a script that never RAN carries none of
+    them.
 
     A script that never RAN is a failure either way. Godot reports these on stderr and
     still exits 0, so gda decides them from the engine's error stream, not its exit

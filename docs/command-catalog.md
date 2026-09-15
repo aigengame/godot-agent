@@ -1027,10 +1027,20 @@ outlives the launch, the default being a private temporary file gda removes. Bot
 omitted rather than null when they are not facts. The facts come off the shared launch
 primitive's `Raw run`, and `script run` is the only channel that publishes them:
 `scene preflight`, `export run`, `resource import` and the sentinel commands read the
-same run and disclose none. So does a FAILURE of this command — `--strict`'s
-`script_failed`, a `launch_timeout` — which keeps its pre-#850 shape: disclosing the
-placement there means extending ADR-0004's `Failure evidence` producer set, which is
-that ADR's decision and a follow-up, not this one.
+same run and disclose none.
+
+The three failure verdicts that report on a RUN carry the same placement as
+`evidence` (#862) — `--strict`'s `script_failed`, this command's own `launch_timeout`
+and `script_aborted` — because that is where the record it answers actually lands: a
+`--strict` run whose `user://` write failed, and a timeout burned on the same cause.
+On the timeout and the abort the `log_file` is the point of it, since gda stopped
+waiting for a verdict and the engine's own account of the run is what to read next.
+The presence rules are the success result's with ONE difference: every field of
+`Failure evidence` is omitted rather than null, so an `engine_data_path` the platform
+did not resolve is absent here and null there. A verdict about a script that never RAN
+(`script_not_found` / `script_compile_failed` / `incompatible_script_type`), the
+pre-launch `target_outside_project` refusal, and every other channel's
+`launch_timeout` carry none of the three.
 
 The script executes in full, within the trusted-project assumption (ADR-0009).
 

@@ -52,8 +52,10 @@ commands (no group).
   directory the engine resolved `user://` beneath) always, plus `user_data_root`
   and `log_file` when you gave a root — the one case in which the log survives the
   run, so read it there rather than hunting for it. Check those before you read a
-  failed save as a game bug; a FAILURE envelope (`--strict`, a timeout) does not
-  carry them. Two limits: Godot reads the **export templates** from that same
+  failed save as a game bug — and check them on a failure too: `script_failed`,
+  `launch_timeout` and `script_aborted` carry the same three keys under `evidence`,
+  omitted rather than null where a path is not a fact. A script that never RAN
+  carries none of them. Two limits: Godot reads the **export templates** from that same
   directory, so a `release`/`debug` `export run` under it reports none installed
   unless you put templates there — the `export_templates_missing` failure then names
   both directories and carries them as `evidence.templates_root_checked` /

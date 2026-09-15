@@ -366,6 +366,38 @@ status: accepted
 > every pre-#687 consumer already reads. The typed key is additive on the wire and in
 > the reading.
 
+> **Outcome (2026-09-15, #862): the producer SET is unchanged; what grows is the FACT
+> set three of them report.** `script_exit_status_failure`,
+> `script_run_timeout_failure` and `script_run_aborted_failure` — `script run`'s three
+> run-reporting verdicts, already on the axis since #687 — now also carry the launch's
+> `User-data placement` as `engine_data_path`, `user_data_root` and `log_file`. No
+> builder joins the set, so the count above stands and
+> `tests/cli/test_error_registry.py` asserts the same nine.
+>
+> The facts pass the criterion above on all three clauses: the `Raw run` holds the
+> placement at every one of those call sites (#850), the directory the engine resolved
+> `user://` beneath is not recoverable from `diagnostics` without parsing engine prose,
+> and it decides the caller's next move — re-run under `--user-data-root` instead of
+> debugging the game. The record is [ADR-0031's #850 note](0031-headless-script-run-passthrough-execution.md)'s
+> own: a persistence-bearing `--strict` run whose `user://` write failed was read as a
+> game regression, and later runs burned three 120-second ceilings on the same cause.
+> Those are the two paths that end in an `Error envelope`, which is why #850's success
+> half did not close it.
+>
+> Three boundaries. The facts stay the LAUNCH's, read off the raw run rather than
+> resolved a second time, so an envelope cannot name a placement the run did not have.
+> The omitted-never-null rule of this object's fields holds and produces the one
+> divergence from the success result worth stating: there `engine_data_path` is
+> required-but-nullable, here an unresolved path is an absent key. And the boundary is
+> ONE channel's, which this schema cannot express — `FailureEvidence` is shared by
+> every command — so it is held at the builder instead: a test reads which builders
+> construct the object with a placement key, the same AST shape the producer-set guard
+> uses, and the shared `launch_timeout_failure` is pinned by behaviour to disclose
+> nothing of the placement it is handed. What stays out is what #850 kept out:
+> `script_did_not_run_failure` and `script_escapes_project_failure` report on a run
+> that never started, so the caller's next step is the script, not the environment;
+> every other channel's `launch_timeout` and every sentinel envelope keep their bytes.
+
 ADR-0000 lists `--schema` as a core capability without defining it. We fix its
 semantics here, and deliberately scope out an overloaded interpretation.
 
