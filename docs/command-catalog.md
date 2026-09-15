@@ -1809,8 +1809,9 @@ re-derives every verdict from a running engine.
   reply, but is not in the image. On `screen frames` the settle runs ONCE, before the
   FIRST frame, so the sequence still carries exactly `--frames` frames; the settle and
   `--frames` share the 600-frame per-window ceiling, and the pair is bounded
-  model-side. Both results report the settle the HARNESS ran, not the flag: a reply
-  that settled another count is refused before any file is written.
+  model-side. Both results publish a settle the HARNESS confirmed: a reply that
+  settled another count is refused before any file is written, so the number is
+  never an unchecked restatement of the flag.
   What `--settle-frames` does NOT fix, because #847 phase 1 could not reproduce it on
   a real windowed macOS desktop (218 captures decoded, 0 mixing two frames): a capture
   that presents a PARTIAL frame. The read is therefore unchanged, and it is not moved

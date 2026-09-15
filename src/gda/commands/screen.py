@@ -265,13 +265,14 @@ class ScreenCaptureResult(BaseModel):
         description="The base64-encoded PNG, present only when --inline was passed.",
     )
     settle_frames: int = Field(
-        default=0,
         ge=0,
         description=(
             "The process frames the game ran before the viewport was read "
-            "(#847); 0 on the default immediate capture. Echoed from the "
-            "request and VERIFIED against the harness reply, so the number is "
-            "what the engine actually ran, not what was asked for."
+            "(#847); 0 on the default immediate capture. The requested count, "
+            "VERIFIED against the harness's own echo before this result is "
+            "built — a reply that settled a different number is a "
+            "contract_violation — so the published number is one the engine "
+            "confirmed it ran. Always present."
         ),
     )
     predicate: "CapturePredicateReport | None" = Field(
@@ -612,12 +613,13 @@ class ScreenFramesResult(BaseModel):
         ge=1, description="The number of frames captured over the requested window."
     )
     settle_frames: int = Field(
-        default=0,
         ge=0,
         description=(
             "The process frames the game ran before the FIRST frame was "
-            "captured (#847); 0 on the default immediate sequence. Echoed from "
-            "the request and VERIFIED against the harness reply."
+            "captured (#847); 0 on the default immediate sequence. The "
+            "requested count, VERIFIED against the harness's own echo before "
+            "this result is built — a reply that settled a different number is "
+            "a contract_violation. Always present."
         ),
     )
     frames: "list[ScreenFrame] | None" = Field(

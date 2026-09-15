@@ -1557,7 +1557,7 @@ def test_frames_result_carries_exactly_one_projection():
     )
     for frames, summary in ((None, None), ([frame], aggregate)):
         try:
-            ScreenFramesResult(count=1, frames=frames, summary=summary)
+            ScreenFramesResult(count=1, settle_frames=0, frames=frames, summary=summary)
         except pydantic.ValidationError as error:
             assert "exactly one projection" in str(error)
         else:
@@ -1573,7 +1573,7 @@ def test_frames_result_count_list_identity_is_model_side_and_disclosed():
     import pydantic
 
     frame = {"path": "/tmp/f.png", "width": 1, "height": 1, "bytes": 1, "format": "png"}
-    document = {"count": 2, "frames": [frame], "summary": None}
+    document = {"count": 2, "settle_frames": 0, "frames": [frame], "summary": None}
 
     with pytest.raises(pydantic.ValidationError):
         ScreenFramesResult.model_validate(document)
@@ -1582,7 +1582,7 @@ def test_frames_result_count_list_identity_is_model_side_and_disclosed():
 
     # A requested window is never empty; unlike the cross-field identity, this
     # lower bound is schema-expressible and therefore rejected by both owners.
-    empty = {"count": 0, "frames": [], "summary": None}
+    empty = {"count": 0, "settle_frames": 0, "frames": [], "summary": None}
     with pytest.raises(pydantic.ValidationError):
         ScreenFramesResult.model_validate(empty)
     assert not validator.is_valid(empty)
@@ -1784,7 +1784,9 @@ def test_frames_xor_is_published_and_parity_held():
     }
 
     def check(frames, summary) -> bool:
-        return validator.is_valid({"count": 1, "frames": frames, "summary": summary})
+        return validator.is_valid(
+            {"count": 1, "settle_frames": 0, "frames": frames, "summary": summary}
+        )
 
     assert check([frame], None)
     assert check(None, aggregate)
