@@ -1273,6 +1273,18 @@ def run_export(
     debug run under it finds none installed unless you put templates there.
     The failure then names both directories and the remedies; ``--mode pack``
     needs no export templates at all.
+
+    The result also reports what the export did to the PROJECT
+    (``project_tree_mutations``, #839). The native export runs the editor import
+    pass, so an export against a cold cache creates the whole ``.godot/`` cache
+    plus the ``.import`` and ``.uid`` sidecars beside the sources, and a stale
+    asset makes it rewrite the generated resources it owns. Each created file is
+    classified ``cache_owned`` or ``source_adjacent`` against the reported
+    ``cache_root``, so the cache half can be cleaned as one unit; a pre-existing
+    file enters ``modified`` only when its CONTENT changed, never on a timestamp
+    alone. The artifact, the directories gda created for it, and a top-level
+    ``.git`` are excluded. The report is disclosure: gda deletes and restores
+    nothing.
     """
     # Build the params model from the argv options (the single source of truth,
     # ADR-0015): ExportRunParams.output is an ExportOutputPath, so argv and

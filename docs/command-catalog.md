@@ -1313,6 +1313,26 @@ before the native export and reported in `created_dirs`, outermost to innermost;
 an uncreatable parent is reported as `export_output_parent_failed` before Godot
 runs.
 
+`gda export run` also reports what the export did to the project tree
+(`project_tree_mutations`, #839). The native export runs the editor import pass, so
+an export against a cold cache creates the whole `.godot/` cache plus the `.import`
+and `.uid` sidecars beside the sources, and a stale asset makes it rewrite the
+generated resources it owns — GDA-DF-067 saw about 14,000 such files reported as
+`warnings: []`. Every created file carries `resource import`'s own classification
+(`cache_owned` / `source_adjacent`, from `gda.import_evidence.classify_created_file`)
+against the reported `cache_root`, so the cache half can be cleaned as one unit. A
+pre-existing file enters `modified` only when its CONTENT changed: the pass touches
+far more files than it rewrites, and a changed timestamp alone would bury the few
+rewrites the record is about. A pre-existing file under `cache_root` is left out of
+`modified` (the cache is reported as one unit), as are the artifact, the parent
+directories gda created for it, everything under the output path, and a top-level
+`.git`. `skipped` counts the files neither walk could read, so an unreadable file
+never turns a successful export into a failure. The report is disclosure — the
+export deletes and restores nothing — and it covers the engine's default cache
+directory: a project that sets
+`application/config/use_hidden_project_data_directory=false` keeps its cache under
+`godot/`, whose files then read as `source_adjacent`.
+
 Export-template discovery follows the user-data placement (#840). Godot reads the
 templates from its data directory, and `--user-data-root` relocates exactly that,
 so a release/debug run under an isolated root finds none even where the host has

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ffd6346b637cf849942e1fed5d619cb5f7cfc1adebea294312c9e7b81e68f771 -->
+<!-- gda-readme-i18n: source=README.md sha256=256508b343eeb8ae140d97460fc38fda802c2b1c3a6ee8a9c39904741cd97f97 -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -460,7 +460,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | ------- | ------------ |
 | `export list` | プロジェクトのエクスポートプリセット(名前、プラットフォームなど)を列挙します。 |
 | `export get` | 1 つのプリセットの詳細と、エクスポートテンプレートのインストール状況を報告します。 |
-| `export run` | 名前付きプリセット(`release` / `debug` / `pack`)を指定先にエクスポートします。 |
+| `export run` | 名前付きプリセット(`release` / `debug` / `pack`)を指定先にエクスポートし、今回のエクスポートがプロジェクト内で作成または書き換えたすべてのファイルを報告します。キャッシュが空の場合は数千個が残ります。 |
 
 **`shader`** — シェーダーファイル(`.gdshader`)
 

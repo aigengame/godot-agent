@@ -81,8 +81,9 @@ CreatedFileClass = Literal["cache_owned", "source_adjacent"]
 
 # The engine's DEFAULT cache directory name, project-relative: the authority for
 # gda's cache-layout READS — `resource import`'s explicit `cache_root` and its
-# created-file classification, and `export run`'s tree-mutation report (#839) —
-# so those spell it once (#741). Godot derives the name from
+# created-file classification, and `export run`'s project-tree mutation report
+# (#839, which reports this constant as its own `cache_root` and classifies
+# against it through `classify_created_file`) — so those spell it once (#741). Godot derives the name from
 # `application/config/use_hidden_project_data_directory` (`godot/` when false),
 # which this module does not read; `gda.project` models both spellings for its
 # UID-cache probe, and `operations.gd` carries the engine-side `ENGINE_CACHE_DIR`.
