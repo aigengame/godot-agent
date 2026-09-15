@@ -2080,7 +2080,7 @@ def test_an_unknown_platform_data_path_is_reported_as_null_not_omitted():
     assert emitted["engine_data_path"] is None
 
 
-# --- The same placement on the FAILURE envelopes that report on a run (#862).
+# --- The same placement on THREE named failure envelopes of this channel (#862).
 #
 # #850 published the placement on the success result alone, which left the two
 # paths the dogfooding record is actually about without it: `--strict` and the

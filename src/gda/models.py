@@ -276,7 +276,7 @@ class FailureEvidence(BaseModel):
         default=None,
         description=(
             "The engine log of this run, reported only under a --user-data-root: "
-            "the one case in which it outlives the launch, and on a run gda ended "
+            "the one case in which it outlives the launch. On a run gda ended, it is "
             "the file to read next. By default the log is a private temporary file "
             "gda removes."
         ),

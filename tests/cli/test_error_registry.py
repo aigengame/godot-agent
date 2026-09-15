@@ -310,7 +310,10 @@ def test_only_the_recorded_producers_put_evidence_on_the_envelope():
 
 
 #: The three `User-data placement` keys `Failure evidence` publishes (#862), and the
-#: builders allowed to set them: `script run`'s three RUN-REPORTING verdicts. The
+#: builders allowed to set them: the three ADR-0004's #862 note names. THREE codes,
+#: not a category — `script run` has other verdicts about a run that ran
+#: (`engine_crashed`, `stdout_spill_failed`) and they carry no evidence at all, so the
+#: licensed reading is "the run-reporting verdicts that ALREADY carried evidence". The
 #: boundary is held HERE, at the builder, because neither of the two guards that
 #: already exist can hold it. `FailureEvidence` is ONE schema shared by every command
 #: (ADR-0004), so the model's shape cannot say "this channel only"; and
@@ -335,15 +338,18 @@ _PLACEMENT_EVIDENCE_PRODUCERS = {
 }
 
 
-def test_only_script_runs_run_reporting_builders_put_the_placement_on_evidence():
+def test_only_the_three_named_builders_put_the_placement_on_evidence():
     # Same AST shape as the producer-set guard above, one level in: which builders
     # construct a `FailureEvidence` with a placement key. Read out of the source, so a
     # fourth builder cannot start disclosing where a run's `user://` was without this
     # set — and ADR-0004's producer paragraph — being revisited in the same change.
     #
-    # Its limit is the same one the guard above has: it reads KEYWORDS at the call, so
-    # a `FailureEvidence(**something)` would pass unseen. Every producer in the module
-    # spells its fields, and this test is what keeps that true.
+    # Two limits, both inherited from the #687 guard above rather than introduced
+    # here. It reads KEYWORDS at the call, so a `FailureEvidence(**something)` would
+    # pass unseen; and it parses ONE module, `gda.errors`, which is where every
+    # evidence-carrying builder lives by convention — a `FailureEvidence(...)` built
+    # anywhere else would be invisible to both guards. Every producer today is in that
+    # module and spells its fields, and these two tests are what keep that true.
     module = ast.parse(Path(errors_module.__file__).read_text(encoding="utf-8"))
 
     producers = {
