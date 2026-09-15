@@ -278,21 +278,29 @@ def test_a_top_level_git_directory_is_not_walked(tmp_path):
 
 def test_a_file_the_walk_cannot_read_is_skipped_not_failed(tmp_path):
     # The disclosure rule: a vanished or unreadable file must not turn a SUCCESSFUL
-    # export into a failure. Both sides are counted — one dangling link is there
-    # before the export, one appears during it — and neither enters a list, because
-    # "created" and "rewritten" are both claims the walk cannot make about it.
+    # export into a failure. All three shapes are counted and none enters a list,
+    # because "created" and "rewritten" are both claims the walk cannot make about
+    # a file it never read. The third one is the reason the settlement asks first
+    # whether the pre-export walk could read the path at all: the link RESOLVES
+    # after the export, so a settlement that only asked "was this path recorded?"
+    # would announce a file the project already had as one the export created.
     project = minimal_project(tmp_path)
     os.symlink("nowhere", project / "before.tres")
+    os.symlink("target.tres", project / "resolves.tres")
 
     def mutate() -> None:
         os.symlink("nowhere", project / "during.tres")
+        _write(project / "target.tres", "generated")
         _write(project / "icon.png.import", "[remap]")
 
     outcome = _export(project, mutate)
     mutations = _mutations(outcome)
 
-    assert mutations.skipped == 2
-    assert [entry.path for entry in mutations.created] == ["res://icon.png.import"]
+    assert mutations.skipped == 3
+    assert [entry.path for entry in mutations.created] == [
+        "res://icon.png.import",
+        "res://target.tres",
+    ]
     assert mutations.modified == []
 
 
