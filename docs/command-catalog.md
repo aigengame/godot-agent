@@ -1330,10 +1330,12 @@ INSIDE `cache_root` is not reported at all — the cache is reported as one unit
 a warm export rewrites its bookkeeping files on every run — so an empty `modified`
 says nothing about the cache. Out of both lists: the artifact, the parent
 directories gda created for it, everything under the output path, and a top-level
-`.git`. `skipped` counts what neither walk could read — a file, or a directory
-whose whole subtree is then uncovered — because an unreadable corner of the tree
-must not fail an export that succeeded; it is a count rather than a path list, so
-the remedy is to repair the permissions and run again. A FAILED export reports no
+`.git`. `skipped` counts what neither walk could account for — an entry that
+is not a regular file (a FIFO, a socket, a device; gda never opens one), or a file
+that could not be read, or a directory whose whole subtree is then uncovered —
+because an unreadable corner of the tree must not fail an export that succeeded;
+it is a count rather than a path list, so the remedy is to repair the tree and run
+again. A FAILED export reports no
 mutations: the failure answers through the error envelope. The report is disclosure
 — the export deletes and restores nothing — and it covers the engine's default
 cache directory: a project that sets

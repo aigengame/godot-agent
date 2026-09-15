@@ -25,6 +25,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from stat import S_ISREG
 from typing import Annotated, Optional
 
 import typer
@@ -349,11 +350,12 @@ class ProjectTreeMutations(BaseModel):
       under the output path are out of both lists; so is a top-level ``.git``
       directory, which the engine never writes to.
     * Deletions are not reported: the pass adds and rewrites.
-    * ``skipped`` counts what neither walk could read — a vanished or unreadable
+    * ``skipped`` counts what neither walk could account for — an entry that is
+      not a regular file (a FIFO, a socket, a device), a vanished or unreadable
       file, a dangling symlink, a directory that cannot be listed (whose whole
-      subtree is then outside both lists). None of it fails an export that
-      succeeded; it is a COUNT, not a path list, so the remedy is to repair the
-      permissions and run again for a complete record.
+      subtree is then outside both lists). gda never opens a non-regular entry.
+      None of it fails an export that succeeded; it is a COUNT, not a path list,
+      so the remedy is to repair the tree and run again for a complete record.
 
     The report covers the engine's DEFAULT cache directory. A project that sets
     ``application/config/use_hidden_project_data_directory=false`` keeps its cache
@@ -402,9 +404,10 @@ class ProjectTreeMutations(BaseModel):
     skipped: int = Field(
         default=0,
         description=(
-            "What neither list could account for because it could not be read: a "
-            "file, or a directory whose whole subtree is then uncovered. A count "
-            "only — repair the permissions and run again for a complete record."
+            "What neither list could account for: entries that are not regular "
+            "files, or could not be read — including a directory whose whole "
+            "subtree is then uncovered. A count only; repair the tree and run "
+            "again for a complete record."
         ),
     )
 
@@ -638,18 +641,30 @@ def _digest_file(path: Path) -> str:
 
 
 def _file_facts(path: Path, *, digest: bool) -> "_FileFacts | None":
-    """One file's facts, or ``None`` when it cannot be read (#839).
+    """One REGULAR file's facts, or ``None`` when there are none to take (#839).
 
     A file that vanished between the walk and the read, a dangling symlink, an
     unreadable one: none of them is a reason to fail an export that SUCCEEDED, so
     the caller counts it as skipped and reports nothing about it.
+
+    An entry that is not a regular file takes that same path, and the check comes
+    BEFORE the open: a FIFO in the project tree blocks ``open()`` until a writer
+    appears, which hung the whole command outside any timeout (PR #981 review
+    round 2) — no result, no envelope, no exit. A socket or a device answers with
+    an ``OSError`` instead, so the family reached the skipped channel by two
+    different routes and one of them was unbounded. The rule is now the same for
+    every non-regular entry, whatever its kind: gda never opens it, and the report
+    counts it. ``Path.stat()`` follows a symlink, so a link to a regular file is
+    still inventoried as one.
     """
     try:
-        stat = path.stat()
+        st = path.stat()
+        if not S_ISREG(st.st_mode):
+            return None
         content = _digest_file(path) if digest else None
     except OSError:
         return None
-    return _FileFacts(size=stat.st_size, mtime_ns=stat.st_mtime_ns, digest=content)
+    return _FileFacts(size=st.st_size, mtime_ns=st.st_mtime_ns, digest=content)
 
 
 def _excluded_prefixes(
@@ -1345,9 +1360,10 @@ def run_export(
     rewrites INSIDE the root are not reported at all, so an empty ``modified``
     says nothing about the cache. The artifact, the directories gda created for
     it, everything under the output path and a top-level ``.git`` stay out of both
-    lists. ``skipped`` counts what could not be read (a file, or a directory whose
-    whole subtree is then uncovered) — a count, not a path list, so repair the
-    permissions and run again for a complete record. The report is disclosure: gda
+    lists. ``skipped`` counts what neither walk could account for — an entry that
+    is not a regular file (a FIFO, a socket, a device), or one that could not be
+    read, including a directory whose whole subtree is then uncovered — a count,
+    not a path list, so repair the tree and run again for a complete record. The report is disclosure: gda
     deletes and restores nothing. A FAILED export carries no report; the failure
     answers through the error envelope instead.
     """

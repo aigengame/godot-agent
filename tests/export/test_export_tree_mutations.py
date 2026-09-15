@@ -15,6 +15,7 @@ is about the report the recipe now carries. The real-engine proof is
 """
 
 import os
+import threading
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -372,6 +373,92 @@ def test_a_file_under_a_locked_directory_is_not_announced_as_created(tmp_path):
     assert [entry.path for entry in mutations.created] == []
     assert mutations.modified == []
     assert mutations.skipped == 1
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs only")
+def test_a_non_regular_entry_is_counted_and_never_opened(tmp_path):
+    # The inventory reads REGULAR files only. A FIFO answers `stat` like any file
+    # and then blocks `open()` until a writer appears, which hung the whole
+    # command — outside every timeout, with no result and no envelope (PR #981
+    # review round 2). Sockets and devices reached the skipped channel already,
+    # by raising instead of blocking; the rule is now one rule for the family.
+    #
+    # The export runs on a thread with a deadline, so a regression reads RED here
+    # instead of wedging the suite.
+    project = minimal_project(tmp_path)
+    fifo = project / "pipe.dat"
+    os.mkfifo(fifo)
+    outcome: list = []
+    worker = threading.Thread(
+        target=lambda: outcome.append(_export(project)), daemon=True
+    )
+
+    worker.start()
+    worker.join(timeout=15)
+    if worker.is_alive():
+        # Release the blocked reader so the worker can unwind, then fail.
+        try:
+            os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+        except OSError:
+            pass
+        worker.join(timeout=5)
+        raise AssertionError("the inventory opened a FIFO and blocked on it")
+
+    mutations = _mutations(outcome[0])
+    assert mutations.skipped == 1
+    assert mutations.created == []
+    assert mutations.modified == []
+
+
+def test_a_same_size_rewrite_with_a_newer_timestamp_is_reported(tmp_path):
+    # The candidate gate is size OR timestamp, and this is the timestamp half: a
+    # rewrite of the same length still moves the mtime, so the file is compared
+    # and its changed bytes reach `modified`. A size-only gate would drop every
+    # same-size rewrite — the record's headline fact — and stay green everywhere
+    # else, because the e2e's translations grow (PR #981 review round 2).
+    project = minimal_project(tmp_path)
+    generated = _write(project / "ui.translation", "aaaa")
+
+    def mutate() -> None:
+        generated.write_text("bbbb", encoding="utf-8")
+        later = os.stat(generated).st_mtime_ns + 5_000_000_000
+        os.utime(generated, ns=(later, later))
+
+    mutations = _mutations(_export(project, mutate))
+
+    assert [
+        (entry.path, entry.size, entry.size_before) for entry in mutations.modified
+    ] == [("res://ui.translation", 4, 4)]
+
+
+def test_the_exclusions_match_whole_path_components(tmp_path):
+    # The exclusions are PREFIX-of-path-components, never prefix-of-string. That
+    # separator is what keeps `.gitignore` and `.github/` out of the `.git`
+    # exclusion — and it is what makes a file the export writes BESIDE the
+    # artifact visible, which the PR body states as a boundary of this report.
+    #
+    # The artifact's parent exists already, so gda creates no directory and the
+    # only excluded output path is the artifact itself; that is the case in which
+    # the sibling is reported at all.
+    project = minimal_project(tmp_path)
+    (project / "build").mkdir()
+
+    def mutate() -> None:
+        _write(project / ".git" / "objects" / "ab", "object")
+        _write(project / ".gitignore", "*.tmp")
+        _write(project / ".github" / "ci.yml", "on: push")
+        _write(project / "build" / "game.x86_64", "binary")
+        _write(project / "build" / "game.x86_64.pck", "pack")
+
+    outcome = _export(project, mutate)
+    assert isinstance(outcome, ExportRunResult), outcome
+    assert outcome.created_dirs == []
+
+    assert [entry.path for entry in _mutations(outcome).created] == [
+        "res://.github/ci.yml",
+        "res://.gitignore",
+        "res://build/game.x86_64.pck",
+    ]
 
 
 def test_a_deleted_file_is_reported_nowhere(tmp_path):
