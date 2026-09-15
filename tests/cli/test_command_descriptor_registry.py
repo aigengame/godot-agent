@@ -19,7 +19,7 @@ from pydantic import BaseModel
 import gda.commands
 import gda.render as render_mod
 from gda.cli import app
-from gda.runner import UserDataReport
+from gda.runner import PLACEMENT_FIELD_NAMES, UserDataReport
 
 
 def _leaf_commands(command, path):
@@ -258,7 +258,10 @@ def test_every_dispatchable_command_resolves_to_exactly_one_channel():
 # The user-data placement `gda script run` publishes (#850). Every launch-backed
 # channel gets the same facts from the ONE launch primitive, so nothing but a
 # result-model field stops the disclosure leaking into the others' `--json`.
-_PLACEMENT_FIELDS = {"user_data_root", "engine_data_path", "log_file"}
+# Read from `gda.runner`, which owns the projection these names come out of, so this
+# guard and the error-envelope one in `tests/cli/test_error_registry.py` cannot drift
+# apart on a rename (#862 review, P3-4).
+_PLACEMENT_FIELDS = set(PLACEMENT_FIELD_NAMES)
 
 
 def _annotation_classes(annotation) -> list:

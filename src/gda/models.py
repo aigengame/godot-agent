@@ -242,6 +242,45 @@ class FailureEvidence(BaseModel):
             "to re-issue with, on a path_case_mismatch."
         ),
     )
+    # Where the launch that produced this failure put Godot's user data (#862) — the
+    # `User-data placement` #850 published on the SUCCESS result, now on the failure
+    # half of the same channel. Three of that channel's builders set them and nothing
+    # else does — the three ADR-0004's #862 note names, which are the ones that
+    # already carried evidence: a persistence-bearing run that fails because `user://`
+    # was not writable reads as a game regression until the envelope says which
+    # directory the engine actually resolved, and on a timeout the log is where the
+    # caller looks next.
+    #
+    # The presence rules are the success result's, with ONE difference that the
+    # omitted-never-null rule of this object decides: `engine_data_path` is
+    # required-but-nullable there and OMITTED here when the platform's own data
+    # variable is unset.
+    engine_data_path: str | None = Field(
+        default=None,
+        description=(
+            "The directory the engine resolved 'user://' beneath for the run this "
+            "failure reports — under 'user_data_root' when one was given. Omitted "
+            "when the platform's own data variable is unset, which the success "
+            "result reports as null instead."
+        ),
+    )
+    user_data_root: str | None = Field(
+        default=None,
+        description=(
+            "The --user-data-root / $GDA_USER_DATA_ROOT directory this run was "
+            "placed under. Omitted when none was given — gda then redirects only "
+            "the engine log."
+        ),
+    )
+    log_file: str | None = Field(
+        default=None,
+        description=(
+            "The engine log of this run, reported only under a --user-data-root: "
+            "the one case in which it outlives the launch. On a run gda ended, it is "
+            "the file to read next. By default the log is a private temporary file "
+            "gda removes."
+        ),
+    )
 
     @field_serializer("script_errors")
     def _keep_the_published_script_error_shape(

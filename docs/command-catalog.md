@@ -1027,10 +1027,26 @@ outlives the launch, the default being a private temporary file gda removes. Bot
 omitted rather than null when they are not facts. The facts come off the shared launch
 primitive's `Raw run`, and `script run` is the only channel that publishes them:
 `scene preflight`, `export run`, `resource import` and the sentinel commands read the
-same run and disclose none. So does a FAILURE of this command — `--strict`'s
-`script_failed`, a `launch_timeout` — which keeps its pre-#850 shape: disclosing the
-placement there means extending ADR-0004's `Failure evidence` producer set, which is
-that ADR's decision and a follow-up, not this one.
+same run and disclose none.
+
+Three failure verdicts carry the same placement as `evidence` (#862) — `--strict`'s
+`script_failed`, this command's own `launch_timeout` and `script_aborted` — because
+that is where the misdiagnosis they answer actually lands: a `--strict` run whose
+`user://` write failed, and a timeout burned on the same cause. On the timeout and
+the abort the `log_file` is the point of it, since gda stopped waiting for a verdict
+and the engine's own account of the run is what to read next. The presence rules are
+the success result's with ONE difference: every field of `Failure evidence` is
+omitted rather than null, so an `engine_data_path` the platform did not resolve is
+absent here and null there.
+
+Those three by name, not a category — every other failure carries none of the three,
+whether or not the script ran. That is the verdicts about a script that never RAN
+(`script_not_found` / `script_compile_failed` / `incompatible_script_type`) and the
+pre-launch `target_outside_project` refusal; it is also `engine_crashed` and
+`stdout_spill_failed`, which do report on a run that ran but carry no `evidence` at
+all — `engine_crashed` is the shared classifier's verdict for every channel, and its
+`diagnostics` already carries the crash account (ADR-0004's #862 note). And it is
+every other channel's `launch_timeout`.
 
 The script executes in full, within the trusted-project assumption (ADR-0009).
 

@@ -217,6 +217,9 @@ _EVIDENCE_SAMPLES = {
     "templates_root_host": "/home/dev/data/Godot/export_templates",
     "requested_path": "res://Content/combat_session.gd",
     "stored_path": "res://content/combat_session.gd",
+    "engine_data_path": "/tmp/udr/Library/Application Support",
+    "user_data_root": "/tmp/udr",
+    "log_file": "/tmp/udr/logs/godot.log",
 }
 
 
@@ -238,6 +241,31 @@ def test_every_evidence_field_alone_reaches_the_human_block(field):
 
     assert text.splitlines()[2] == "evidence:", field
     assert len(text.splitlines()) > 3, field
+
+
+def test_the_placement_renders_as_three_labelled_lines():
+    # The per-field guard above proves each of the three REACHES the block; it cannot
+    # see which label a value is printed under, so a swapped pair shipped green across
+    # the whole fast tier (#862 review, P2-2). These three are PATHS a caller acts on
+    # — re-run under this root, read this log — so a mislabelled one is worse than a
+    # missing line. Rendered TOGETHER, and asserted as exact lines in the model's own
+    # declaration order, which is the order `_evidence_lines` reads them in.
+    text = render_failure(
+        _error(
+            evidence=FailureEvidence(
+                engine_data_path="/tmp/udr/Library/Application Support",
+                user_data_root="/tmp/udr",
+                log_file="/tmp/udr/logs/godot.log",
+            )
+        )
+    )
+
+    assert text.splitlines()[2:] == [
+        "evidence:",
+        "  engine data path: /tmp/udr/Library/Application Support",
+        "  user data root: /tmp/udr",
+        "  log file: /tmp/udr/logs/godot.log",
+    ]
 
 
 def test_recognizing_no_script_error_is_reported_rather_than_read_as_absent():

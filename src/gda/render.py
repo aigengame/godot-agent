@@ -109,8 +109,8 @@ def _evidence_lines(evidence: FailureEvidence) -> list[str]:
     It is a HAND-WRITTEN branch per field, not a loop over ``model_fields``: each field
     reads differently (a clock to two decimals, an enum by value, a list as a
     sub-block), so a generic loop would print the model's key names at the reader. The
-    JSON channel is model-driven (``model_dump_json``), which means a sixth field would
-    ship there whatever this function does — so the model's field set is not an
+    JSON channel is model-driven (``model_dump_json``), which means a further field
+    would ship there whatever this function does — so the model's field set is not an
     authority this code inherits, it is one a TEST has to hold it to (#798 review).
     ``tests/cli/test_human_failure_output.py`` does that in two halves: a sample table
     asserted equal to ``FailureEvidence.model_fields``, and one render per sample.
@@ -128,7 +128,7 @@ def _evidence_lines(evidence: FailureEvidence) -> list[str]:
     the empty list gets a sentence of its own instead of the bare header the layout
     rule forbids. Uniform ``is not None`` is also what lets one test assert that the
     fields read here are exactly ``FailureEvidence.model_fields``, which is the guard
-    against a sixth field shipping on ``--json`` and silently missing here.
+    against a further field shipping on ``--json`` and silently missing here.
     """
     body: list[str] = []
     if evidence.exit_status is not None:
@@ -161,6 +161,12 @@ def _evidence_lines(evidence: FailureEvidence) -> list[str]:
         body.append(f"  requested path: {evidence.requested_path}")
     if evidence.stored_path is not None:
         body.append(f"  stored path: {evidence.stored_path}")
+    if evidence.engine_data_path is not None:
+        body.append(f"  engine data path: {evidence.engine_data_path}")
+    if evidence.user_data_root is not None:
+        body.append(f"  user data root: {evidence.user_data_root}")
+    if evidence.log_file is not None:
+        body.append(f"  log file: {evidence.log_file}")
     return ["evidence:", *body] if body else []
 
 

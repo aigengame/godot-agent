@@ -66,7 +66,13 @@ from gda.project import (
     ForeignOwnerViolation,
     containment_violation,
 )
-from gda.runner import DEFAULT_TIMEOUT_LABEL, LaunchFailure, RunResult
+from gda.runner import (
+    DEFAULT_TIMEOUT_LABEL,
+    PLACEMENT_FIELD_NAMES,
+    LaunchFailure,
+    RunResult,
+    UserDataReport,
+)
 from gda.script_errors import ScriptError, leaked_at_exit, script_error_line
 
 # The minimum supported Godot version (ADR-0003): the floor where the modern
@@ -1073,12 +1079,49 @@ def script_did_not_run_failure(
     )
 
 
+def _placement_evidence(
+    user_data: UserDataReport | None,
+) -> tuple[str | None, str | None, str | None]:
+    """The placement's evidence triple: ``(engine_data_path, user_data_root, log_file)``.
+
+    Shared by ``script_exit_status_failure``, ``script_run_timeout_failure`` and
+    ``script_run_aborted_failure`` (#862). The projection itself is the launch's own
+    (:meth:`~gda.runner.UserDataReport.as_strings`), so the failure half states the
+    placement by exactly the rules the success half does; what this adds is the
+    SHAPE those builders need — three positional values they spell as explicit
+    keyword arguments, rather than a mapping to splat, so the boundary guard in
+    ``tests/cli/test_error_registry.py`` can still read which builders disclose the
+    placement out of the source.
+
+    ``None`` for a hand-built run at a test seam: every real launch attaches a report
+    unless the placement was REFUSED, and that refusal (``user_data_unwritable``) is
+    the shared classifier's, with its own diagnostics naming what was attempted. The
+    three builders take it as a REQUIRED keyword argument even so (#862 review): a
+    default would make a dropped call-site argument a silent revert to the pre-#862
+    envelope rather than a type error, and "this run reported no placement" is a
+    thing a caller states, not a thing it omits.
+
+    A value is ``None`` — so the key is OMITTED — where the launch reported no such
+    fact. That is the one divergence from the success result, which reports a null
+    ``engine_data_path`` when the platform's data variable is unset: the fields of
+    `Failure evidence` are omitted, never null (ADR-0004's #687 amendment), and the
+    caller reads the absence the same way either channel spells it.
+    """
+    facts = user_data.as_strings() if user_data is not None else {}
+    engine_data_path, user_data_root, log_file = (
+        facts.get(name) for name in PLACEMENT_FIELD_NAMES
+    )
+    return engine_data_path, user_data_root, log_file
+
+
 def script_exit_status_failure(
     script: str,
     exit_status: int,
     stdout: str,
     stderr: str,
     script_errors: Sequence[ScriptError],
+    *,
+    user_data: UserDataReport | None,
 ) -> Failure:
     """The ``script run --strict`` verdict for a failed run: a status, or a leak (#651).
 
@@ -1120,6 +1163,11 @@ def script_exit_status_failure(
     out of an English sentence. ``exit_status`` is the CHILD's status — the gda
     process still exits ``4``, since a script's ``quit(3)`` must not alias a registry
     exit code.
+
+    Since #862 the launch's `User-data placement` rides here too. The dogfooding
+    record it answers is this verdict's own: a ``--strict`` run whose ``user://``
+    write failed under a restricted profile was read as a game regression, because
+    the envelope named the status and not the directory (GDA-DF-049, PIPE-DF-077).
     """
     # The read is the parser's, not a second one: `leaked_at_exit` is what the
     # strict rule itself calls, so the verdict and the sentence explaining it
@@ -1128,6 +1176,7 @@ def script_exit_status_failure(
     message = f"script run --strict: {script} exited with status {exit_status}"
     if leak is not None:
         message = f"{message}, but the engine reported a leak at exit — {leak.message}"
+    engine_data_path, user_data_root, log_file = _placement_evidence(user_data)
     return make_failure(
         "script_failed",
         message,
@@ -1135,6 +1184,9 @@ def script_exit_status_failure(
         evidence=FailureEvidence(
             exit_status=exit_status,
             script_errors=list(script_errors),
+            engine_data_path=engine_data_path,
+            user_data_root=user_data_root,
+            log_file=log_file,
         ),
     )
 
@@ -1177,6 +1229,7 @@ def script_run_timeout_failure(
     script_errors: Sequence[ScriptError],
     stdout: str,
     stderr: str,
+    user_data: UserDataReport | None,
 ) -> Failure:
     """The ``launch_timeout`` verdict for a ``script run`` gda stopped waiting for (#655).
 
@@ -1205,7 +1258,14 @@ def script_run_timeout_failure(
     that rule workable rather than merely stated: the parsed errors ride ``evidence``
     as DATA under the honest timeout verdict, so an agent gets the precise cause
     without gda having to infer one from a partial capture.
+
+    Since #862 the launch's `User-data placement` rides here too, and the log file it
+    names is the point of it on THIS envelope: under a ``--user-data-root`` the log
+    outlives the launch, so a run gda stopped waiting for leaves the engine's own
+    account of it on disk. Dogfooding burned three of these ceilings on an
+    unwritable ``user://`` (PIPE-DF-077).
     """
+    engine_data_path, user_data_root, log_file = _placement_evidence(user_data)
     return make_failure(
         "launch_timeout",
         f"script run: {script} did not return before the --timeout of {timeout}s "
@@ -1222,6 +1282,9 @@ def script_run_timeout_failure(
             timeout_seconds=timeout,
             termination_phase=phase,
             script_errors=list(script_errors),
+            engine_data_path=engine_data_path,
+            user_data_root=user_data_root,
+            log_file=log_file,
         ),
     )
 
@@ -1237,6 +1300,7 @@ def script_run_aborted_failure(
     script_errors: Sequence[ScriptError],
     stdout: str,
     stderr: str,
+    user_data: UserDataReport | None,
 ) -> Failure:
     """The ``script_aborted`` verdict for a run gda ended early (#655).
 
@@ -1263,12 +1327,17 @@ def script_run_aborted_failure(
     abort is unreachable without a declared marker, and naming the condition without
     quoting the string is a better answer to an impossible state than an assertion
     that would kill the command (and be stripped under ``-O``).
+
+    Since #862 the launch's `User-data placement` rides here too, by the same rule as
+    the timeout beside it: gda ended a run that produced no verdict, so where the
+    engine wrote is a fact the caller cannot otherwise get.
     """
     declared = (
         f"the --completion-marker {marker!r}"
         if marker is not None
         else "the declared completion marker"
     )
+    engine_data_path, user_data_root, log_file = _placement_evidence(user_data)
     return make_failure(
         "script_aborted",
         f"script run: {script} was ended after {elapsed:.2f}s — an error naming the "
@@ -1290,6 +1359,9 @@ def script_run_aborted_failure(
             # names it; the field stays the reached ceiling only.
             termination_phase=phase,
             script_errors=list(script_errors),
+            engine_data_path=engine_data_path,
+            user_data_root=user_data_root,
+            log_file=log_file,
         ),
     )
 
