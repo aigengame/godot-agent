@@ -18,7 +18,12 @@ import gda.errors as errors_module
 from gda.errors import make_failure
 from gda.exit_codes import EXIT_LIVE
 from gda.models import ErrorCategory, GdaErrorEnvelope, TerminationPhase
-from gda.runner import LaunchFailure, RunResult, UserDataReport
+from gda.runner import (
+    PLACEMENT_FIELD_NAMES,
+    LaunchFailure,
+    RunResult,
+    UserDataReport,
+)
 
 # The live execution channel's failure codes (ADR-0017 / ADR-0021). Registered
 # here as the first Phase-2 slice's error contract; emitted by the daemon IPC
@@ -319,7 +324,10 @@ def test_only_the_recorded_producers_put_evidence_on_the_envelope():
 #: the placement to EVERY launch-backed channel; `script run` reaches its own timeout
 #: through `script_run_timeout_failure` instead, which is why this channel can be
 #: extended alone.
-_PLACEMENT_EVIDENCE_FIELDS = {"engine_data_path", "user_data_root", "log_file"}
+#: Read from `gda.runner`, the module that owns the projection, so a rename of a
+#: public key moves both this guard and the result-model one in
+#: `tests/cli/test_command_descriptor_registry.py` at once (#862 review, P3-4).
+_PLACEMENT_EVIDENCE_FIELDS = set(PLACEMENT_FIELD_NAMES)
 _PLACEMENT_EVIDENCE_PRODUCERS = {
     "script_exit_status_failure",
     "script_run_timeout_failure",
@@ -392,7 +400,9 @@ def test_no_producer_can_emit_an_empty_evidence_object():
     # this list because their builders cannot be called with nothing; each pins the
     # same rule in a dedicated test
     # (e.g. `test_no_evidence_at_all_when_no_directory_was_reported`). Each producer
-    # is called with the LEAST it can be given.
+    # is called with the LEAST it can be given — which for the three `script run`
+    # builders that carry the placement includes an explicit `user_data=None`, since
+    # #862 made it a required argument rather than a defaulted one.
     raw = RunResult(
         stdout="", stderr="", exit_code=124, launch_failure=LaunchFailure.TIMEOUT
     )
@@ -401,7 +411,9 @@ def test_no_producer_can_emit_an_empty_evidence_object():
         errors_module.script_did_not_run_failure(
             "script_not_found", "res://t.gd", "detail", "", []
         ),
-        errors_module.script_exit_status_failure("res://t.gd", 3, "", "", []),
+        errors_module.script_exit_status_failure(
+            "res://t.gd", 3, "", "", [], user_data=None
+        ),
         errors_module.script_run_timeout_failure(
             "res://t.gd",
             timeout=1.0,
@@ -410,6 +422,7 @@ def test_no_producer_can_emit_an_empty_evidence_object():
             script_errors=[],
             stdout="",
             stderr="",
+            user_data=None,
         ),
         errors_module.script_run_aborted_failure(
             "res://t.gd",
@@ -421,6 +434,7 @@ def test_no_producer_can_emit_an_empty_evidence_object():
             script_errors=[],
             stdout="",
             stderr="",
+            user_data=None,
         ),
     ]
 

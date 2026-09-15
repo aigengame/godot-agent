@@ -93,6 +93,14 @@ class TimeoutBound:
     seconds: float
 
 
+#: The public key names a `User-data placement` projects to, in the order the
+#: `script run` result model and `Failure evidence` declare them. ONE authority for
+#: the trio: :meth:`UserDataReport.as_strings` builds it, and the two boundary
+#: guards that hold the disclosure to this channel read it instead of each keeping a
+#: hand-written copy (#862).
+PLACEMENT_FIELD_NAMES = ("engine_data_path", "user_data_root", "log_file")
+
+
 @dataclass(frozen=True)
 class UserDataReport:
     """Where one launch PUT Godot's user data — the disclosable facts (issue #850).
@@ -124,6 +132,33 @@ class UserDataReport:
     data_path: Optional[Path]
     log_file: Optional[Path]
 
+    def as_strings(self) -> dict[str, str]:
+        """The placement's paths as the public key names, PRESENT facts only (#862).
+
+        The single projection of this record into the strings a result or an
+        `Error envelope` publishes. It lives here, beside the lifetime rule that
+        decides which paths are facts, because both halves of ``gda script run``
+        need it and neither owns that rule: the success result reads it for its
+        three flattened keys, and the three failure builders named in ADR-0004's
+        #862 note read it for `Failure evidence`.
+
+        A key is ABSENT whenever its path is ``None``, so the caller asks for what
+        it wants and gets the fact or nothing. That one shape serves the two
+        different null contracts without either side re-deciding them: the success
+        model declares ``engine_data_path`` with a ``None`` default, so a missing
+        key still publishes ``null`` there, while every field of `Failure evidence`
+        is omitted rather than nulled, so a missing key publishes nothing.
+        """
+        return {
+            name: str(value)
+            for name, value in zip(
+                PLACEMENT_FIELD_NAMES,
+                (self.data_path, self.root, self.log_file),
+                strict=True,
+            )
+            if value is not None
+        }
+
 
 @dataclass
 class RunResult:
@@ -151,11 +186,11 @@ class RunResult:
     # :class:`UserDataReport`. Set by :func:`launch` on every result it returns from
     # a prepared placement, whatever the outcome, so that a channel CAN publish it
     # wherever it decides to — not because every outcome publishes it today. One
-    # channel does: ``script run``, on its SUCCESS result (#850) and on the three
-    # failure envelopes that report on a RUN — ``script_failed``, its own
-    # ``launch_timeout`` and ``script_aborted`` — where the facts ride ADR-0004's
-    # `Failure evidence` (#862). Every other channel's results and envelopes keep
-    # their pre-#850 shape.
+    # channel does: ``script run``, on its SUCCESS result (#850) and on three of its
+    # failure envelopes — ``script_failed``, its own ``launch_timeout`` and
+    # ``script_aborted`` — where the facts ride ADR-0004's `Failure evidence` (#862).
+    # Those three codes and no others: this channel's remaining verdicts disclose
+    # nothing, and neither does any other channel's result or envelope.
     # ``None`` on a launch REFUSED before a placement existed
     # (``USER_DATA_UNWRITABLE``, whose own diagnostics name what was attempted) and
     # on a hand-built result at a test seam.

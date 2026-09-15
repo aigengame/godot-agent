@@ -1649,6 +1649,7 @@ def test_the_abort_envelope_names_the_condition_without_a_marker_string():
         script_errors=[],
         stdout="",
         stderr="",
+        user_data=None,
     )
 
     assert failure.error.code == "script_aborted"
@@ -2083,9 +2084,11 @@ def test_an_unknown_platform_data_path_is_reported_as_null_not_omitted():
 #
 # #850 published the placement on the success result alone, which left the two
 # paths the dogfooding record is actually about without it: `--strict` and the
-# timeout (GDA-DF-049, PIPE-DF-077). Both end in an Error envelope. So the three
-# verdicts that report on a RUN carry the same facts on `Failure evidence`, read off
-# the same Raw run — and the never-ran verdicts, which report on no run, do not.
+# timeout (GDA-DF-049, PIPE-DF-077). Both end in an Error envelope. So THREE named
+# verdicts carry the same facts on `Failure evidence`, read off the same Raw run.
+# Three codes, not a category: the never-ran verdicts report on no run, and
+# `engine_crashed` / `stdout_spill_failed` report on one that ran and still carry
+# nothing — they are on no evidence axis at all (ADR-0004's #862 note).
 
 
 def _evidence(outcome: Failure) -> dict:
@@ -2164,7 +2167,7 @@ def test_a_timed_out_run_reports_the_placement_beside_its_clocks():
 
 
 def test_an_aborted_run_reports_the_placement_too():
-    # The third run-reporting verdict. gda ended it short of the ceiling, so it has
+    # The third of the three. gda ended it short of the ceiling, so it has
     # no less need of the environment than the timeout beside it.
     outcome, _ = _run(
         RunResult(

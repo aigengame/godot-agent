@@ -68,6 +68,7 @@ from gda.project import (
 )
 from gda.runner import (
     DEFAULT_TIMEOUT_LABEL,
+    PLACEMENT_FIELD_NAMES,
     LaunchFailure,
     RunResult,
     UserDataReport,
@@ -1083,28 +1084,34 @@ def _placement_evidence(
 ) -> tuple[str | None, str | None, str | None]:
     """The placement's evidence triple: ``(engine_data_path, user_data_root, log_file)``.
 
-    Shared by the three ``script run`` verdicts that report on a RUN (#862), so the
-    failure half of that channel states the placement by the same rules its success
-    result does — the reading is the launch's, taken off the `Raw run`, and this
-    function only renders the paths as strings.
+    Shared by ``script_exit_status_failure``, ``script_run_timeout_failure`` and
+    ``script_run_aborted_failure`` (#862). The projection itself is the launch's own
+    (:meth:`~gda.runner.UserDataReport.as_strings`), so the failure half states the
+    placement by exactly the rules the success half does; what this adds is the
+    SHAPE those builders need — three positional values they spell as explicit
+    keyword arguments, rather than a mapping to splat, so the boundary guard in
+    ``tests/cli/test_error_registry.py`` can still read which builders disclose the
+    placement out of the source.
 
     ``None`` for a hand-built run at a test seam: every real launch attaches a report
     unless the placement was REFUSED, and that refusal (``user_data_unwritable``) is
-    the shared classifier's, with its own diagnostics naming what was attempted.
+    the shared classifier's, with its own diagnostics naming what was attempted. The
+    three builders take it as a REQUIRED keyword argument even so (#862 review): a
+    default would make a dropped call-site argument a silent revert to the pre-#862
+    envelope rather than a type error, and "this run reported no placement" is a
+    thing a caller states, not a thing it omits.
 
-    Each path is ``None`` — so the key is OMITTED — where it is not a fact. That
-    is the one divergence from the success result, which reports a null
+    A value is ``None`` — so the key is OMITTED — where the launch reported no such
+    fact. That is the one divergence from the success result, which reports a null
     ``engine_data_path`` when the platform's data variable is unset: the fields of
     `Failure evidence` are omitted, never null (ADR-0004's #687 amendment), and the
     caller reads the absence the same way either channel spells it.
     """
-    if user_data is None:
-        return None, None, None
-    return (
-        str(user_data.data_path) if user_data.data_path is not None else None,
-        str(user_data.root) if user_data.root is not None else None,
-        str(user_data.log_file) if user_data.log_file is not None else None,
+    facts = user_data.as_strings() if user_data is not None else {}
+    engine_data_path, user_data_root, log_file = (
+        facts.get(name) for name in PLACEMENT_FIELD_NAMES
     )
+    return engine_data_path, user_data_root, log_file
 
 
 def script_exit_status_failure(
@@ -1113,7 +1120,8 @@ def script_exit_status_failure(
     stdout: str,
     stderr: str,
     script_errors: Sequence[ScriptError],
-    user_data: UserDataReport | None = None,
+    *,
+    user_data: UserDataReport | None,
 ) -> Failure:
     """The ``script run --strict`` verdict for a failed run: a status, or a leak (#651).
 
@@ -1221,7 +1229,7 @@ def script_run_timeout_failure(
     script_errors: Sequence[ScriptError],
     stdout: str,
     stderr: str,
-    user_data: UserDataReport | None = None,
+    user_data: UserDataReport | None,
 ) -> Failure:
     """The ``launch_timeout`` verdict for a ``script run`` gda stopped waiting for (#655).
 
@@ -1292,7 +1300,7 @@ def script_run_aborted_failure(
     script_errors: Sequence[ScriptError],
     stdout: str,
     stderr: str,
-    user_data: UserDataReport | None = None,
+    user_data: UserDataReport | None,
 ) -> Failure:
     """The ``script_aborted`` verdict for a run gda ended early (#655).
 

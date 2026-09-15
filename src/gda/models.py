@@ -244,8 +244,9 @@ class FailureEvidence(BaseModel):
     )
     # Where the launch that produced this failure put Godot's user data (#862) — the
     # `User-data placement` #850 published on the SUCCESS result, now on the failure
-    # half of the same channel. `script run`'s three run-reporting builders set them
-    # and nothing else does: a persistence-bearing run that fails because `user://`
+    # half of the same channel. Three of that channel's builders set them and nothing
+    # else does — the three ADR-0004's #862 note names, which are the ones that
+    # already carried evidence: a persistence-bearing run that fails because `user://`
     # was not writable reads as a game regression until the envelope says which
     # directory the engine actually resolved, and on a timeout the log is where the
     # caller looks next.

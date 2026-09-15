@@ -368,8 +368,8 @@ status: accepted
 
 > **Outcome (2026-09-15, #862): the producer SET is unchanged; what grows is the FACT
 > set three of them report.** `script_exit_status_failure`,
-> `script_run_timeout_failure` and `script_run_aborted_failure` — `script run`'s three
-> run-reporting verdicts, already on the axis since #687 — now also carry the launch's
+> `script_run_timeout_failure` and `script_run_aborted_failure` — three of `script
+> run`'s verdicts, already on the axis since #687 — now also carry the launch's
 > `User-data placement` as `engine_data_path`, `user_data_root` and `log_file`. No
 > builder joins the set, so the count above stands and
 > `tests/cli/test_error_registry.py` asserts the same nine.
@@ -397,6 +397,22 @@ status: accepted
 > `script_did_not_run_failure` and `script_escapes_project_failure` report on a run
 > that never started, so the caller's next step is the script, not the environment;
 > every other channel's `launch_timeout` and every sentinel envelope keep their bytes.
+>
+> **Three named producers, not a category, and the two verdicts that show why.**
+> `script run` reaches two more verdicts about a run that DID run, and neither
+> carries the placement: `engine_crashed` and `stdout_spill_failed`. Neither is on
+> this axis at all — they compute no evidence and carry no `evidence` key — so
+> admitting the placement to them would ADD a producer, which this note does not do.
+> Each also fails a clause on its own. `engine_crashed` is the SHARED
+> `classify_launch_or_crash` verdict every launch-backed channel reaches, so putting
+> the placement there would disclose it on `export run`, `resource import` and
+> `scene preflight` in one edit; and its `diagnostics` already carries the engine's
+> crash account, which is the second clause. `stdout_spill_failed` is about a file
+> gda itself could not write and names that path in its own message, so the
+> placement would not change what the caller does next. Recorded because "the
+> verdicts that report on a run" would be the wrong rule to read off this change:
+> the three are named, and they are the run-reporting verdicts that ALREADY carried
+> evidence.
 
 ADR-0000 lists `--schema` as a core capability without defining it. We fix its
 semantics here, and deliberately scope out an overloaded interpretation.

@@ -1290,7 +1290,7 @@ def test_script_run_under_a_user_data_root_reports_the_placement_it_ran_with(
     assert data["log_file"].startswith(str(root))
 
 
-# --- The placement on the three run-reporting FAILURE envelopes (#862).
+# --- The placement on the three FAILURE envelopes ADR-0004's #862 note names.
 #
 # #850's success-result disclosure is covered above. These are the paths the
 # dogfooding record is actually about — a `--strict` run whose `user://` write
@@ -1386,7 +1386,7 @@ def test_script_run_timeout_under_a_root_reports_the_placement_beside_its_clocks
 def test_script_run_abort_under_a_root_reports_the_placement_too(
     godot_project, tmp_path
 ):
-    # AC2's second half: the third run-reporting verdict. gda ended this run short of
+    # AC2's second half: the third of the three. gda ended this run short of
     # its ceiling on the declared marker's contract, so it has no less need of the
     # environment than the timeout above.
     (godot_project / "aborts.gd").write_text(ABORTS_BEFORE_QUIT_GD, encoding="utf-8")

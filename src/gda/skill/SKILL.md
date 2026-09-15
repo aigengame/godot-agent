@@ -54,8 +54,9 @@ commands (no group).
   run, so read it there rather than hunting for it. Check those before you read a
   failed save as a game bug — and check them on a failure too: `script_failed`,
   `launch_timeout` and `script_aborted` carry the same three keys under `evidence`,
-  omitted rather than null where a path is not a fact. A script that never RAN
-  carries none of them. Two limits: Godot reads the **export templates** from that same
+  omitted rather than null where a path is not a fact. Those three codes and no
+  others: every other `script run` failure carries no placement, `engine_crashed`
+  and a script that never ran included. Two limits: Godot reads the **export templates** from that same
   directory, so a `release`/`debug` `export run` under it reports none installed
   unless you put templates there — the `export_templates_missing` failure then names
   both directories and carries them as `evidence.templates_root_checked` /

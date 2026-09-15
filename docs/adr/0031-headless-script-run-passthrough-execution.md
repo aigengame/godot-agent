@@ -638,17 +638,23 @@ added incrementally under ADR-0025 if a concrete need appears.
 > registry.
 
 > **Outcome (2026-09-15, #862) — the failure-envelope half of the #850 note's
-> byte-identity clause is superseded; the other channels' half stands.** That note
-> closes with "byte identity is what the OTHER launch-backed channels and this
-> channel's failure envelopes keep", and names the follow-up rather than taking it.
-> This is the follow-up. `script run`'s three verdicts that report on a RUN —
-> `--strict`'s `script_failed`, this channel's own `launch_timeout`, and
+> byte-identity clause is superseded, and so is its "SUCCESS result alone" boundary;
+> the other channels' half of both stands.** That note closes its third boundary with
+> "And it is the SUCCESS result alone: this channel's failure envelopes … keep the
+> shape the #687 outcome above gave them", and with "byte identity is what the OTHER
+> launch-backed channels and this channel's failure envelopes keep" — then names the
+> follow-up rather than taking it. This is the follow-up. THREE of `script run`'s
+> verdicts — `--strict`'s `script_failed`, this channel's own `launch_timeout`, and
 > `script_aborted` — now carry the launch's `User-data placement` as
-> `evidence.engine_data_path` / `user_data_root` / `log_file`. So the clause now
-> reads: byte identity is what the other launch-backed channels keep, and what this
-> channel's OTHER envelopes keep — the never-ran verdicts (`script_not_found` /
-> `script_compile_failed` / `incompatible_script_type`) and the pre-launch
-> `target_outside_project` refusal, which report on a run that never started.
+> `evidence.engine_data_path` / `user_data_root` / `log_file`. So both sentences now
+> read the same way: the success result is no longer alone, and byte identity is what
+> the other launch-backed channels keep, and what this channel's OTHER envelopes
+> keep — the never-ran verdicts (`script_not_found` / `script_compile_failed` /
+> `incompatible_script_type`), the pre-launch `target_outside_project` refusal, and
+> the two verdicts about a run that DID run and are on no evidence axis,
+> `engine_crashed` and `stdout_spill_failed`. Three named codes, not a category;
+> [ADR-0004's #862 note](0004-schema-flag-self-description.md) is the authority for
+> why those last two stay out.
 >
 > Nothing else in that note moves. The success result is unchanged, the facts are
 > still the ONE launch primitive's and still read off the raw run, and this is still
