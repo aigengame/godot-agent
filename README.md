@@ -449,7 +449,7 @@ gda restores the explicit lines it drops and reports the rest on the result.
 | ------- | ------------ |
 | `export list` | Enumerate the project's export presets (name, platform, …). |
 | `export get` | Report one preset's details plus export-template install status. |
-| `export run` | Export a named preset (`release` / `debug` / `pack`) to a destination, and report every project file the export created or rewrote — a cold cache leaves thousands behind. |
+| `export run` | Export a named preset (`release` / `debug` / `pack`) to a destination, and report what it left in the project: every file created (classified), and the rewritten files outside the `.godot/` cache — a cold cache leaves thousands behind, and rewrites inside the cache are not reported. |
 
 **`shader`** — shader files (`.gdshader`)
 

@@ -335,19 +335,25 @@ class ProjectTreeMutations(BaseModel):
 
     What it covers, and what it deliberately leaves out:
 
-    * ``created`` is every file the tree gained, classified against ``cache_root``
-      so the cache half can be cleaned as one unit.
+    * ``created`` is every file the tree gained, ANYWHERE under the project,
+      classified against ``cache_root`` so the cache half can be cleaned as one
+      unit.
     * ``modified`` is every pre-existing file OUTSIDE ``cache_root`` whose CONTENT
-      changed. A pre-existing cache file stays out by design: the cache is
-      reported as one unit, and hashing it before every export would cost far more
-      than the fact is worth (the dogfooding case holds about 1.1 GiB there).
+      changed. A pre-existing file is a CANDIDATE only when its size or timestamp
+      moved, so a rewrite that preserves both is not seen. A pre-existing cache
+      file stays out altogether: the cache is reported as one unit, a warm export
+      rewrites its bookkeeping files on every run, and hashing it beforehand would
+      cost far more than the fact is worth (the dogfooding case holds about
+      1.1 GiB there). So an unchanged ``modified`` says nothing about the cache.
     * The artifact, the parent directories gda created for it, and everything
       under the output path are out of both lists; so is a top-level ``.git``
       directory, which the engine never writes to.
     * Deletions are not reported: the pass adds and rewrites.
-    * ``skipped`` counts the files neither walk could read (a vanished or
-      unreadable file, a dangling symlink). They stay out of both lists, so a file
-      the inventory cannot read never turns a successful export into a failure.
+    * ``skipped`` counts what neither walk could read — a vanished or unreadable
+      file, a dangling symlink, a directory that cannot be listed (whose whole
+      subtree is then outside both lists). None of it fails an export that
+      succeeded; it is a COUNT, not a path list, so the remedy is to repair the
+      permissions and run again for a complete record.
 
     The report covers the engine's DEFAULT cache directory. A project that sets
     ``application/config/use_hidden_project_data_directory=false`` keeps its cache
@@ -358,18 +364,24 @@ class ProjectTreeMutations(BaseModel):
     cache_root: str = Field(
         default="res://" + CACHE_ROOT_REL,
         description=(
-            "The cache root created files are classified against (res://.godot)."
+            f"The cache root created files are classified against "
+            f"(res://{CACHE_ROOT_REL})."
         ),
     )
     created: list[ExportCreatedFile] = Field(
         default_factory=list,
-        description="Every file the export added, classified, ordered by path.",
+        description=(
+            "Every file the export added anywhere under the project, classified, "
+            "ordered by path."
+        ),
     )
     modified: list[ExportModifiedFile] = Field(
         default_factory=list,
         description=(
             "Every pre-existing file outside the cache root whose content the "
-            "export rewrote, ordered by path."
+            "export rewrote, ordered by path. Only a file whose size or timestamp "
+            "moved is compared, so a rewrite that preserves both is not reported; "
+            "rewrites inside the cache root are not reported at all."
         ),
     )
     created_count: int = Field(default=0, description="Files the export created.")
@@ -390,7 +402,9 @@ class ProjectTreeMutations(BaseModel):
     skipped: int = Field(
         default=0,
         description=(
-            "Files neither list could account for because they could not be read."
+            "What neither list could account for because it could not be read: a "
+            "file, or a directory whose whole subtree is then uncovered. A count "
+            "only — repair the permissions and run again for a complete record."
         ),
     )
 
@@ -514,16 +528,24 @@ def _render_mutations(mutations: "ProjectTreeMutations") -> str:
     Counts only: the lists hold one entry per created cache file, which is
     thousands of them on a cold cache, and a human channel that printed them
     would bury the export it is reporting. The JSON result carries the entries.
+
+    The quiet line says "unchanged OUTSIDE the cache root" rather than
+    "unchanged", because that is the scope the report vouches for: a warm export
+    rewrites its own cache bookkeeping on every run, and those rewrites are
+    deliberately outside what the walks compare. An unreadable path is named on
+    either line — a record that could not read part of the tree must not print
+    as a clean one.
     """
-    if not (mutations.created or mutations.modified or mutations.skipped):
-        return "  project tree: unchanged"
-    parts = [
-        f"{mutations.created_count} created "
-        f"({mutations.created_cache_owned} under {mutations.cache_root}, "
-        f"{mutations.created_source_adjacent} beside the sources, "
-        f"{mutations.created_bytes} bytes)",
-        f"{mutations.modified_count} rewritten ({mutations.modified_bytes} bytes)",
-    ]
+    if mutations.created or mutations.modified:
+        parts = [
+            f"{mutations.created_count} created "
+            f"({mutations.created_cache_owned} under {mutations.cache_root}, "
+            f"{mutations.created_source_adjacent} beside the sources, "
+            f"{mutations.created_bytes} bytes)",
+            f"{mutations.modified_count} rewritten ({mutations.modified_bytes} bytes)",
+        ]
+    else:
+        parts = [f"unchanged outside {mutations.cache_root}"]
     if mutations.skipped:
         parts.append(f"{mutations.skipped} unreadable")
     return "  project tree: " + ", ".join(parts)
@@ -585,7 +607,9 @@ _HASH_CHUNK = 1 << 20
 
 # The top-level directory both walks drop, on the same ground `resource import`'s
 # walker drops it: the engine never writes there, and hashing an object database
-# would dominate the cost of a report about the project's own files.
+# would dominate the cost of a report about the project's own files. The rule is
+# stated twice, once per walk, because #741's open item 9 keeps the two walks
+# separate — the shared part is the classification, not the walk.
 _VCS_DIR = ".git"
 
 
@@ -659,7 +683,9 @@ def _excluded(rel: str, prefixes: tuple[str, ...]) -> bool:
 
 
 def _walk_project(
-    project: Path, excluded: tuple[str, ...]
+    project: Path,
+    excluded: tuple[str, ...],
+    on_unreadable_dir: "Callable[[str], None] | None" = None,
 ) -> Iterator[tuple[str, Path]]:
     """Every file under ``project`` as ``(project-relative posix path, path)``.
 
@@ -667,8 +693,28 @@ def _walk_project(
     classifies as ``cache_owned`` — while an excluded subtree is PRUNED rather
     than filtered out per file: an ``.app`` bundle holds thousands of files, and
     walking it would spend the report's budget on entries it then drops.
+
+    ``on_unreadable_dir`` receives the project-relative path of a directory the
+    walk cannot list. ``os.walk`` swallows that error by default, which would drop
+    the whole subtree from the report AND from its skipped count — the one channel
+    that says the record is incomplete (PR #981 review). The caller decides what
+    to do with the path; this function still yields everything it CAN read,
+    because an unreadable corner of the tree is not a reason to fail an export
+    that succeeded.
     """
-    for dirpath, dirnames, filenames in os.walk(project):
+
+    def note(error: OSError) -> None:
+        if on_unreadable_dir is None:
+            return
+        filename = getattr(error, "filename", None)
+        if filename is None:
+            return
+        try:
+            on_unreadable_dir(Path(filename).relative_to(project).as_posix())
+        except ValueError:
+            return
+
+    for dirpath, dirnames, filenames in os.walk(project, onerror=note):
         base = Path(dirpath)
         rel_dir = base.relative_to(project).as_posix()
         prefix = "" if rel_dir == "." else rel_dir + "/"
@@ -696,6 +742,12 @@ class _PreExportInventory:
     excluded: tuple[str, ...]
     files: dict[str, _FileFacts]
     unreadable: frozenset[str]
+    # The directories the pre-export walk could not list, kept apart from the
+    # rest because they are PREFIXES: the settlement must pass over everything
+    # beneath one. A file under such a directory existed before the export, so
+    # reporting it as created once the directory becomes readable would state a
+    # fact the walks never observed (PR #981 review).
+    unlistable_dirs: tuple[str, ...]
 
     @classmethod
     def capture(
@@ -705,7 +757,8 @@ class _PreExportInventory:
         excluded = _excluded_prefixes(project, output_path, created_dirs)
         files: dict[str, _FileFacts] = {}
         unreadable: set[str] = set()
-        for rel, path in _walk_project(project, excluded):
+        unlistable: set[str] = set()
+        for rel, path in _walk_project(project, excluded, unlistable.add):
             # The shared classifier decides what to hash, asked of a file that
             # already exists: `cache_owned` is "under the cache root", the one
             # thing this walk needs to know about it. Asking it here is what keeps
@@ -722,7 +775,8 @@ class _PreExportInventory:
             project=project,
             excluded=excluded,
             files=files,
-            unreadable=frozenset(unreadable),
+            unreadable=frozenset(unreadable | unlistable),
+            unlistable_dirs=tuple(sorted(unlistable)),
         )
 
     def settle(self) -> ProjectTreeMutations:
@@ -738,12 +792,16 @@ class _PreExportInventory:
         is what bounds the cost — the import pass touches far more files than it
         rewrites — and it is also this report's one blind spot: a rewrite that
         preserves both the size and the timestamp is not seen.
+
+        A directory neither walk could list is counted once, and everything
+        beneath it is passed over: the pre-export walk never read those files, so
+        the settlement can state nothing about them either way.
         """
         created: list[ExportCreatedFile] = []
         modified: list[ExportModifiedFile] = []
         skipped = set(self.unreadable)
-        for rel, path in _walk_project(self.project, self.excluded):
-            if rel in skipped:
+        for rel, path in _walk_project(self.project, self.excluded, skipped.add):
+            if rel in skipped or _excluded(rel, self.unlistable_dirs):
                 continue
             before = self.files.get(rel)
             if before is None:
@@ -1276,15 +1334,22 @@ def run_export(
 
     The result also reports what the export did to the PROJECT
     (``project_tree_mutations``, #839). The native export runs the editor import
-    pass, so an export against a cold cache creates the whole ``.godot/`` cache
-    plus the ``.import`` and ``.uid`` sidecars beside the sources, and a stale
-    asset makes it rewrite the generated resources it owns. Each created file is
-    classified ``cache_owned`` or ``source_adjacent`` against the reported
-    ``cache_root``, so the cache half can be cleaned as one unit; a pre-existing
-    file enters ``modified`` only when its CONTENT changed, never on a timestamp
-    alone. The artifact, the directories gda created for it, and a top-level
-    ``.git`` are excluded. The report is disclosure: gda deletes and restores
-    nothing.
+    pass, so an export against a cold cache creates the whole engine cache
+    directory — the one the result names as ``cache_root`` — plus the ``.import``
+    and ``.uid`` sidecars beside the sources, and a stale asset makes it rewrite
+    the generated resources it owns. ``created`` carries every file the export
+    added anywhere under the project, each classified ``cache_owned`` or
+    ``source_adjacent`` against that root, so the cache half can be cleaned as one
+    unit. ``modified`` carries the pre-existing files OUTSIDE that root whose
+    CONTENT changed, and only a file whose size or timestamp moved is compared;
+    rewrites INSIDE the root are not reported at all, so an empty ``modified``
+    says nothing about the cache. The artifact, the directories gda created for
+    it, everything under the output path and a top-level ``.git`` stay out of both
+    lists. ``skipped`` counts what could not be read (a file, or a directory whose
+    whole subtree is then uncovered) — a count, not a path list, so repair the
+    permissions and run again for a complete record. The report is disclosure: gda
+    deletes and restores nothing. A FAILED export carries no report; the failure
+    answers through the error envelope instead.
     """
     # Build the params model from the argv options (the single source of truth,
     # ADR-0015): ExportRunParams.output is an ExportOutputPath, so argv and

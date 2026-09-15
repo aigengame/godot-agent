@@ -146,17 +146,34 @@ def test_the_classification_is_the_shared_function_not_a_local_rule(
     tmp_path, monkeypatch
 ):
     # #839's reuse criterion, pinned rather than described: the export path asks
-    # `gda.import_evidence.classify_created_file` for every verdict. A stub answer
-    # therefore reaches the report; a rule restated here would ignore it.
+    # `gda.import_evidence.classify_created_file` at BOTH of the places it needs a
+    # verdict, and a rule restated at either one would stop asking.
+    #
+    # The settlement's use is visible in the answer — a stub verdict reaches the
+    # report. The PRE-EXPORT walk's use is not: it only decides which files to
+    # hash, and a wrongly hashed cache file is passed over by the settlement
+    # anyway, so the stub RECORDS what it was asked about and the export runner
+    # snapshots that record before it mutates anything. Whatever is in the
+    # snapshot was asked during the first walk (PR #981 review found the second
+    # half pinned by nothing).
     project = minimal_project(tmp_path)
-    monkeypatch.setattr(
-        "gda.commands.export.classify_created_file", lambda rel: "cache_owned"
-    )
+    _write(project / "already_here.tres", "old")
+    asked: list[str] = []
+    asked_before_the_export: list[str] = []
 
-    mutations = _mutations(
-        _export(project, lambda: _write(project / "beside_the_source.import", "x"))
-    )
+    def recording_stub(rel: str) -> str:
+        asked.append(rel)
+        return "cache_owned"
 
+    monkeypatch.setattr("gda.commands.export.classify_created_file", recording_stub)
+
+    def mutate() -> None:
+        asked_before_the_export.extend(asked)
+        _write(project / "beside_the_source.import", "x")
+
+    mutations = _mutations(_export(project, mutate))
+
+    assert "already_here.tres" in asked_before_the_export
     assert [entry.classification for entry in mutations.created] == ["cache_owned"]
     assert mutations.created_cache_owned == 1
     assert mutations.created_source_adjacent == 0
@@ -304,6 +321,59 @@ def test_a_file_the_walk_cannot_read_is_skipped_not_failed(tmp_path):
     assert mutations.modified == []
 
 
+def _unlistable(directory: Path) -> bool:
+    """Make ``directory`` unlistable, and say whether the platform agreed."""
+    directory.chmod(0o000)
+    try:
+        os.listdir(directory)
+    except OSError:
+        return True
+    directory.chmod(0o755)
+    return False
+
+
+def test_a_directory_the_walk_cannot_list_is_counted_not_ignored(tmp_path):
+    # `os.walk` swallows a listdir failure by default, which would drop the whole
+    # subtree from the report AND from the one channel that says the record is
+    # incomplete. The directory is counted once — not its unknown contents, which
+    # neither walk ever saw (PR #981 review).
+    project = minimal_project(tmp_path)
+    locked = project / "locked"
+    _write(locked / "secret.tres", "old")
+    if not _unlistable(locked):
+        pytest.skip("this platform lets the owner list a mode-000 directory")
+
+    try:
+        mutations = _mutations(_export(project))
+    finally:
+        locked.chmod(0o755)
+
+    assert mutations.skipped == 1
+    assert mutations.created == []
+    assert mutations.modified == []
+
+
+def test_a_file_under_a_locked_directory_is_not_announced_as_created(tmp_path):
+    # The readable-after case, which is the one that states a FALSE fact rather
+    # than an incomplete one: the pre-export walk could not list the directory, so
+    # a file the project already had must not be reported as one the export
+    # created once the directory opens up.
+    project = minimal_project(tmp_path)
+    locked = project / "locked"
+    _write(locked / "secret.tres", "old")
+    if not _unlistable(locked):
+        pytest.skip("this platform lets the owner list a mode-000 directory")
+
+    try:
+        mutations = _mutations(_export(project, lambda: locked.chmod(0o755)))
+    finally:
+        locked.chmod(0o755)
+
+    assert [entry.path for entry in mutations.created] == []
+    assert mutations.modified == []
+    assert mutations.skipped == 1
+
+
 def test_a_deleted_file_is_reported_nowhere(tmp_path):
     # The report covers what the pass ADDS and REWRITES. A deletion is neither, and
     # inventing a third list for something the export does not do would be scope
@@ -348,9 +418,9 @@ def test_a_failed_export_reports_no_mutations_and_pays_for_no_second_walk(
     project = minimal_project(tmp_path)
     walks: list[Path] = []
 
-    def counting_walk(walk_project, excluded):
+    def counting_walk(walk_project, excluded, on_unreadable_dir=None):
         walks.append(walk_project)
-        return real_walk(walk_project, excluded)
+        return real_walk(walk_project, excluded, on_unreadable_dir)
 
     monkeypatch.setattr("gda.commands.export._walk_project", counting_walk)
 
@@ -390,10 +460,12 @@ def test_the_human_render_summarizes_the_counts(tmp_path):
     assert "res://icon.png.import" not in rendered
 
 
-def test_the_human_render_says_unchanged_when_the_export_touched_nothing(tmp_path):
-    # A warm-cache export that changes nothing says so, rather than printing a row
-    # of zeros or nothing at all — an absent line would read the same as an older
-    # gda that could not tell.
+def test_the_quiet_render_names_the_scope_it_vouches_for(tmp_path):
+    # An export that changed nothing the report covers says exactly that, rather
+    # than "unchanged": a warm export rewrites its own cache bookkeeping on every
+    # run, and the walks deliberately do not compare those files, so the bare word
+    # would claim more than the report holds (PR #981 review measured a warm export
+    # rewriting `.godot/editor/filesystem_cache10` under an "unchanged" line).
     project = minimal_project(tmp_path)
 
     outcome = _export(project)
@@ -401,20 +473,23 @@ def test_the_human_render_says_unchanged_when_the_export_touched_nothing(tmp_pat
 
     assert render_export_run(outcome).splitlines() == [
         f"exported Linux/X11 (Linux/X11, release) -> {project / 'build' / 'game.x86_64'}",
-        "  project tree: unchanged",
+        f"  project tree: unchanged outside res://{CACHE_ROOT_REL}",
     ]
 
 
 def test_an_unreadable_file_is_named_in_the_render(tmp_path):
     # The skipped count is the whole disclosure, and it reaches the human channel
-    # too: an export that could not read part of the tree says so on the same line.
+    # too — on the quiet line as much as on the counted one, because a record that
+    # could not read part of the tree must not print as a clean one.
     project = minimal_project(tmp_path)
     os.symlink("nowhere", project / "dangling.tres")
 
     outcome = _export(project)
     assert isinstance(outcome, ExportRunResult), outcome
 
-    assert render_export_run(outcome).splitlines()[-1].endswith("1 unreadable")
+    assert render_export_run(outcome).splitlines()[-1] == (
+        f"  project tree: unchanged outside res://{CACHE_ROOT_REL}, 1 unreadable"
+    )
 
 
 def test_the_counts_must_match_the_reported_lists():

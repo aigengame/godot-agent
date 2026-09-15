@@ -86,6 +86,24 @@ reason into the `failed` it settles, and decides on its own the one reason no
 artifact check can state, `dest_missing_after_pass`.
 _Avoid_: cache check, freshness probe, validity scan
 
+**Project-tree mutation report**:
+What `gda export run` reports about the PROJECT it exported, beside the artifact
+it produced. The native export runs the editor import pass, so it can create a
+whole cache tree and the sidecars beside the sources, and rewrite generated
+resources that are tracked. The report names the files the export CREATED
+anywhere under the project — each classified in `Import evidence`'s own
+`cache_owned` / `source_adjacent` vocabulary, against the cache root the report
+names, so the cache half can be cleaned as one unit — and the pre-existing files
+OUTSIDE that root it REWROTE, decided by content rather than by timestamp: only a
+file whose size or timestamp moved is compared, so a rewrite that preserves both
+is not seen. A count of what neither walk could read rides along, because an
+unreadable corner of the tree must not fail an export that succeeded. It is NOT a
+deletion list, and it says nothing about rewrites INSIDE the cache root — a warm
+export rewrites its own bookkeeping there on every run — so an unchanged
+`modified` is not a statement about the cache. Disclosure only: the export
+restores nothing, and a failed export carries no report at all (#839).
+_Avoid_: inventory, diff, changeset
+
 **Engine session**:
 A single transient run of a gda-owned Godot game, launched and held by `gda-daemon`
 with the `gda harness` injected, against which `Live operation`s are served. The
