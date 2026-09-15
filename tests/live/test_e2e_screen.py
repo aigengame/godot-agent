@@ -782,3 +782,288 @@ def test_late_event_failure_is_the_reply_and_writes_no_file(
         assert _game_get(run, "act_down") is False
     finally:
         run("daemon", "stop")
+
+
+# --- --settle-frames and the render frame (#847) --------------------------------
+
+# The GDA-DF-065 shape, as a windowed fixture: a TabBar switch gives the body
+# page a different minimum size per tab, so the VBoxContainer re-sorts and lays
+# out every header sibling again - a title swatch, a title Label, a close Button
+# and a close swatch, none of which CHANGES. The swatches are solid Controls, so
+# one unchanged Control's pixels can be asserted exactly. `tab_x` / `tab_y` carry
+# the live tab-rect centres, so the click targets a tab without hard-coded
+# coordinates.
+TABBAR_GD = (
+    "extends Control\n"
+    "var tab := 0\n"
+    "var switches := 0\n"
+    "var tab_x := [0.0, 0.0, 0.0]\n"
+    "var tab_y := 0.0\n"
+    "const PAGE_COLORS := [Color(0.9, 0.3, 0.2, 1), Color(0.3, 0.5, 0.9, 1),"
+    " Color(0.9, 0.8, 0.2, 1)]\n"
+    "func _ready() -> void:\n"
+    "\tvar tabs: TabBar = $Root/Tabs\n"
+    '\ttabs.add_tab("ALPHA")\n'
+    '\ttabs.add_tab("BRAVO")\n'
+    '\ttabs.add_tab("CHARLIE")\n'
+    "\ttabs.tab_changed.connect(_on_tab_changed)\n"
+    "func _process(_delta: float) -> void:\n"
+    "\tvar tabs: TabBar = $Root/Tabs\n"
+    "\tif tabs.get_tab_count() > 2:\n"
+    "\t\ttab_y = tabs.global_position.y + tabs.size.y * 0.5\n"
+    "\t\tfor i in 3:\n"
+    "\t\t\tvar r := tabs.get_tab_rect(i)\n"
+    "\t\t\ttab_x[i] = tabs.global_position.x + r.position.x + r.size.x * 0.5\n"
+    "func _on_tab_changed(which: int) -> void:\n"
+    "\ttab = which\n"
+    "\tswitches += 1\n"
+    "\tvar page: ColorRect = $Root/Body/Page\n"
+    "\tpage.custom_minimum_size = Vector2(240 + which * 160, 120 + which * 120)\n"
+    "\tpage.color = PAGE_COLORS[which]\n"
+)
+TABBAR_TSCN = (
+    "[gd_scene load_steps=2 format=3]\n\n"
+    '[ext_resource type="Script" path="res://main.gd" id="1"]\n\n'
+    '[node name="Main" type="Control"]\n'
+    "anchor_right = 1.0\nanchor_bottom = 1.0\n"
+    'script = ExtResource("1")\n\n'
+    '[node name="BG" type="ColorRect" parent="."]\n'
+    "anchor_right = 1.0\nanchor_bottom = 1.0\n"
+    "color = Color(0.05, 0.07, 0.12, 1)\n\n"
+    '[node name="Root" type="VBoxContainer" parent="."]\n'
+    "anchor_right = 1.0\nanchor_bottom = 1.0\nalignment = 1\n\n"
+    '[node name="Header" type="HBoxContainer" parent="Root"]\n\n'
+    '[node name="TitleSwatch" type="ColorRect" parent="Root/Header"]\n'
+    "custom_minimum_size = Vector2(160, 48)\n"
+    "color = Color(0.2, 0.9, 0.3, 1)\n\n"
+    '[node name="Title" type="Label" parent="Root/Header"]\n'
+    'text = "KUNG FU"\n\n'
+    '[node name="Close" type="Button" parent="Root/Header"]\n'
+    'text = "CLOSE"\n\n'
+    '[node name="CloseSwatch" type="ColorRect" parent="Root/Header"]\n'
+    "custom_minimum_size = Vector2(90, 48)\n"
+    "color = Color(0.95, 0.35, 0.85, 1)\n\n"
+    '[node name="Tabs" type="TabBar" parent="Root"]\n\n'
+    '[node name="Body" type="PanelContainer" parent="Root"]\n\n'
+    '[node name="Page" type="ColorRect" parent="Root/Body"]\n'
+    "custom_minimum_size = Vector2(240, 120)\n"
+    "color = Color(0.9, 0.3, 0.2, 1)\n"
+)
+TABBAR_PROJECT = project_godot(
+    extra=(
+        'run/main_scene="res://main.tscn"\n\n'
+        "[display]\n\n"
+        "window/size/viewport_width=1440\n"
+        "window/size/viewport_height=900\n"
+    )
+)
+# The declared fill of each solid header Control, as bytes: Godot writes the
+# ColorRect's channels straight into the 8-bit PNG (0.2 -> 51, 0.9 -> 229).
+SWATCH_RGB = {"TitleSwatch": (51, 229, 77), "CloseSwatch": (242, 89, 217)}
+BACKGROUND_RGB = (13, 18, 31)
+
+
+def _tabbar_scaffold(tmp_path):
+    (tmp_path / "project.godot").write_text(TABBAR_PROJECT, encoding="utf-8")
+    (tmp_path / "main.gd").write_text(TABBAR_GD, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(TABBAR_TSCN, encoding="utf-8")
+
+
+def _rect_centre(run, path):
+    got = run("game", "rect", path)
+    assert got.returncode == 0, got.stdout + got.stderr
+    doc = json.loads(got.stdout)
+    return (
+        int(doc["position"][0] + doc["size"][0] / 2),
+        int(doc["position"][1] + doc["size"][1] / 2),
+    )
+
+
+def _assert_close(actual, expected, label):
+    assert all(abs(a - e) <= 3 for a, e in zip(actual, expected)), (
+        f"{label}: {actual} is not {expected}"
+    )
+
+
+@pytest.mark.e2e
+@_needs_display
+def test_a_capture_after_a_tab_switch_shows_the_unchanged_controls(
+    tmp_path, daemon_runtime_dir
+):
+    # #847 AC2, the GDA-DF-065 shape: a TabBar switch re-lays-out the header's
+    # siblings, and an IMMEDIATE capture must still show them. The assertion is
+    # one unchanged Control's pixels - the title swatch keeps its declared fill
+    # at the rect `game rect` reports, and is not the background colour the
+    # dogfooding report saw in its place. The close swatch rides along as the
+    # second Control the report named.
+    _tabbar_scaffold(tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
+
+    try:
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        ready = run("daemon", "wait-ready")
+        assert ready.returncode == 0, ready.stdout + ready.stderr
+        before = _rect_centre(run, "/root/Main/Root/Header/TitleSwatch")
+        centres = json.loads(
+            run("game", "get", "/root/Main", "--property", "tab_x").stdout
+        )["properties"][0]["value"]
+        row = json.loads(
+            run("game", "get", "/root/Main", "--property", "tab_y").stdout
+        )["properties"][0]["value"]
+
+        clicked = run("input", "mouse-click", str(int(centres[2])), str(int(row)))
+        assert clicked.returncode == 0, clicked.stdout + clicked.stderr
+        out = tmp_path / "after-switch.png"
+        cap = assert_windowed_ok(run("screen", "capture", "--output", str(out)))
+
+        switched = json.loads(
+            run("game", "get", "/root/Main", "--property", "switches").stdout
+        )["properties"][0]["value"]
+        assert switched == 1, "the click did not reach the TabBar"
+        # The header MOVED (the body page grew), so this is the re-laid-out case
+        # the report describes, not a static screen.
+        after = _rect_centre(run, "/root/Main/Root/Header/TitleSwatch")
+        assert after != before, (before, after)
+        for name, rgb in SWATCH_RGB.items():
+            x, y = _rect_centre(run, f"/root/Main/Root/Header/{name}")
+            pixel = _png_pixel(out, x, y)
+            _assert_close(pixel, rgb, name)
+            assert pixel != BACKGROUND_RGB
+        # And the receipt says which drawn frame those pixels are (#847).
+        receipt = json.loads(cap.stdout)["receipt"]
+        assert receipt["render_frame"] >= 0
+        assert json.loads(cap.stdout)["settle_frames"] == 0
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@_needs_display
+def test_settle_frames_moves_the_gated_capture_by_the_declared_frames(
+    tmp_path, daemon_runtime_dir
+):
+    # #847 AC3 on the real engine, in PIXELS. `phase` cycles 0..7 once per
+    # process frame and the rect is RED on the `phase == 5` frame alone, so the
+    # image says which frame was read: settle 0 captures the matched frame (red),
+    # settle 4 captures four frames later (phase 1, not red), and settle 8 lands
+    # a whole cycle on (red again). The predicate report keeps naming the frame
+    # it was observed at, while the receipt names the read boundary.
+    _predicate_scaffold(tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
+
+    try:
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        for settle, red in ((0, True), (4, False), (8, True)):
+            out = tmp_path / f"settle{settle}.png"
+            cap = assert_windowed_ok(
+                _await_capture(run, out, "phase", "5", "--settle-frames", str(settle))
+            )
+            doc = json.loads(cap.stdout)
+            assert doc["settle_frames"] == settle, doc
+            # The predicate evidence is unchanged by the settle.
+            assert doc["predicate"]["observed"] == 5, doc
+            assert doc["predicate"]["frames_waited"] < 60
+            # ...and the read boundary is exactly that frame plus the settle.
+            assert (
+                doc["receipt"]["engine_frame"]
+                == doc["predicate"]["engine_frame"] + settle
+            ), doc
+            r, g, b = _png_pixel(out, 50, 50)
+            assert (r > 200 and b < 80) is red, (settle, r, g, b)
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@_needs_display
+def test_the_receipt_render_frame_tracks_the_frames_the_engine_drew(
+    tmp_path, daemon_runtime_dir
+):
+    # #847 AC4 on the real engine: the receipt carries the drawn-frame counter
+    # beside the process-frame one. A running game draws between two captures,
+    # so the counter advances; it never runs backwards inside one session, and
+    # it is a different quantity from the boundary `engine_frame` names.
+    _predicate_scaffold(tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
+
+    try:
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        receipts = []
+        for n in range(3):
+            cap = assert_windowed_ok(
+                run("screen", "capture", "--output", str(tmp_path / f"r{n}.png"))
+            )
+            receipts.append(json.loads(cap.stdout)["receipt"])
+        frames = [r["render_frame"] for r in receipts]
+        assert frames == sorted(frames), frames
+        assert frames[-1] > frames[0], frames
+        # Three round trips over a running game are three different drawn
+        # frames. (Different drawn frames need NOT be different bytes: this
+        # fixture's visual repeats on an 8-frame cycle, so the hashes may
+        # legitimately collide - the implication runs the other way, same
+        # render_frame means the same drawn frame.)
+        assert len(set(frames)) == 3, frames
+        # The drawn counter can never overtake the process counter: the engine
+        # draws at most once per process frame, and sometimes not at all.
+        assert all(r["engine_frame"] >= r["render_frame"] for r in receipts)
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@_needs_display
+def test_screen_frames_settles_once_before_the_first_frame(
+    tmp_path, daemon_runtime_dir
+):
+    # #847 on `screen frames`: the settle runs ONCE before the first frame, so
+    # the sequence still carries exactly `--frames` frames - the settle is not
+    # spent out of the frame budget and is not captured.
+    _scaffold(tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
+
+    try:
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        for settle in (0, 12):
+            out_dir = tmp_path / f"frames{settle}"
+            frames = assert_windowed_ok(
+                run(
+                    "screen",
+                    "frames",
+                    "--frames",
+                    "3",
+                    "--settle-frames",
+                    str(settle),
+                    "--output-dir",
+                    str(out_dir),
+                )
+            )
+            doc = json.loads(frames.stdout)
+            assert doc["settle_frames"] == settle, doc
+            assert doc["count"] == 3
+            assert len(doc["frames"]) == 3
+            assert len(list(out_dir.glob("frame_*.png"))) == 3
+            for frame in doc["frames"]:
+                assert open(frame["path"], "rb").read().startswith(PNG_MAGIC)
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_a_settled_capture_on_a_headless_session_is_still_refused(
+    tmp_path, daemon_runtime_dir
+):
+    # The display guard runs BEFORE the settle window opens, so a headless
+    # session refuses at once with the same typed code instead of spending the
+    # settle frames first and refusing afterwards.
+    _scaffold(tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
+    out = tmp_path / "shot.png"
+
+    try:
+        assert run("daemon", "start").returncode == 0  # no --windowed
+        cap = run("screen", "capture", "--settle-frames", "30", "--output", str(out))
+        assert cap.returncode == 6, cap.stdout + cap.stderr  # EXIT_LIVE
+        assert json.loads(cap.stdout)["error"]["code"] == "live_display_unavailable"
+        assert not out.exists()
+    finally:
+        run("daemon", "stop")

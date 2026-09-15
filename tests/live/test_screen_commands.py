@@ -1856,3 +1856,315 @@ def test_await_events_reuses_action_event_mode_without_capability_metadata(
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert out.exists()
+
+
+# --- --settle-frames and the render frame (#847) --------------------------------
+
+
+def test_settle_frames_rides_the_capture_wire_and_is_reported(monkeypatch, tmp_path):
+    # The request reaches the harness, and the number the result publishes is
+    # the HARNESS's echo — the frames the engine actually ran.
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8, settle_frames=4)
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(
+        app, _capture_argv(out, minimal_project(tmp_path), "--settle-frames", "4")
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert fake.calls == [("screen-capture", {"settle_frames": 4})]
+    assert json.loads(result.stdout)["settle_frames"] == 4
+
+
+def test_capture_settle_echo_that_disagrees_is_contract_violation(
+    monkeypatch, tmp_path
+):
+    # Publishing the REQUEST's number would make `settle_frames` a restatement
+    # of the flag. A harness that settled a different count is refused, and no
+    # file is written.
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8, settle_frames=1)
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(
+        app, _capture_argv(out, minimal_project(tmp_path), "--settle-frames", "4")
+    )
+
+    data = json.loads(result.stdout)
+    assert data["error"]["code"] == "contract_violation", data
+    assert "settled 1 frames before the capture" in data["error"]["message"]
+    assert "asked for 4" in data["error"]["message"]
+    assert not out.exists()
+
+
+def test_capture_reply_without_the_settle_echo_is_contract_violation(
+    monkeypatch, tmp_path
+):
+    # An older or drifted harness that never ran the settle cannot silently
+    # answer a settled request: the key is required on the wire.
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    del reply["settle_frames"]
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(app, _capture_argv(out, minimal_project(tmp_path)))
+
+    assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
+    assert not out.exists()
+
+
+def test_gated_capture_settle_offsets_the_receipt_not_the_report(monkeypatch, tmp_path):
+    # The interaction the issue states: the predicate keeps naming the frame it
+    # was observed at, and the receipt names the READ boundary — that frame plus
+    # the settle.
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report()
+    _align_receipt(reply, settle=3)
+
+    result, out = _await_capture(monkeypatch, tmp_path, reply, "--settle-frames", "3")
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["settle_frames"] == 3
+    assert data["predicate"]["engine_frame"] == 240
+    assert data["predicate"]["frames_waited"] == 5
+    assert data["receipt"]["engine_frame"] == 243
+    assert out.exists()
+
+
+def test_gated_receipt_at_the_wrong_settle_offset_is_contract_violation(
+    monkeypatch, tmp_path
+):
+    # Both directions of the offset are refused: a receipt still stamped at the
+    # predicate's own frame when a settle was asked for, and one stamped past
+    # the declared settle.
+    for engine_frame, needle in ((240, "expected 243"), (250, "expected 243")):
+        reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+        reply["predicate"] = _predicate_report()
+        _align_receipt(reply, settle=3)
+        reply["receipt"]["engine_frame"] = engine_frame
+
+        result, out = _await_capture(
+            monkeypatch, tmp_path, reply, "--settle-frames", "3"
+        )
+
+        _assert_contract_violation(result, out, needle)
+
+
+def test_settle_frames_rides_the_frames_wire_and_is_reported(monkeypatch, tmp_path):
+    reply = screen_frames_reply(
+        [_PNG_B64, _PNG_B64], width=8, height=8, settle_frames=6
+    )
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out_dir = tmp_path / "frames"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            "2",
+            "--settle-frames",
+            "6",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert fake.calls == [("screen-frames", {"frames": 2, "settle_frames": 6})]
+    data = json.loads(result.stdout)
+    assert data["settle_frames"] == 6
+    assert data["count"] == 2
+
+
+def test_frames_settle_echo_that_disagrees_is_contract_violation(monkeypatch, tmp_path):
+    reply = screen_frames_reply([_PNG_B64, _PNG_B64], settle_frames=0)
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out_dir = tmp_path / "frames"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            "2",
+            "--settle-frames",
+            "5",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    data = json.loads(result.stdout)
+    assert data["error"]["code"] == "contract_violation", data
+    assert "settled 0 frames before the first frame" in data["error"]["message"]
+    # Refused before any file effect, like the count mismatch.
+    assert not out_dir.exists()
+
+
+def test_frames_plus_settle_over_the_window_ceiling_is_refused(monkeypatch, tmp_path):
+    # The settle frames are ticks of the SAME window, so the PAIR is bounded —
+    # each half is legal alone. Both input channels refuse the sum, each in its
+    # own registered form: argv a usage error, --params-json the structured
+    # invalid_params (the rule the over-range --frames pair above states).
+    out_dir = tmp_path / "frames"
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(screen_frames_reply([_PNG_B64])), stderr="", exit_code=0
+        ),
+    )
+
+    argv_result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--frames",
+            str(MAX_WINDOW_FRAMES),
+            "--settle-frames",
+            "1",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert argv_result.exit_code == 2, argv_result.stdout + argv_result.stderr
+    assert f"{MAX_WINDOW_FRAMES + 1}-frame window" in argv_result.stderr
+
+    json_result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "frames",
+            "--project",
+            str(minimal_project(tmp_path)),
+            "--json",
+            "--params-json",
+            json.dumps(
+                {
+                    "frames": MAX_WINDOW_FRAMES,
+                    "settle_frames": 1,
+                    "output_dir": str(out_dir),
+                }
+            ),
+        ],
+    )
+
+    data = json.loads(json_result.stdout)
+    assert data["error"]["code"] == "invalid_params", data
+    assert f"{MAX_WINDOW_FRAMES + 1}-frame window" in data["error"]["message"]
+    # Neither channel reached the engine, and neither wrote anything.
+    assert fake.calls == []
+    assert not out_dir.exists()
+
+
+def test_settle_renders_only_when_it_ran(monkeypatch, tmp_path):
+    # The default capture's human line is unchanged; a settled one says so.
+    for settle, present in ((0, False), (7, True)):
+        reply = screen_capture_reply(_PNG_B64, width=8, height=8, settle_frames=settle)
+        inject_live_runner(
+            monkeypatch,
+            RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+        )
+        out = tmp_path / f"shot{settle}.png"
+        argv = _capture_argv(
+            out, minimal_project(tmp_path), "--settle-frames", str(settle)
+        )
+        argv.remove("--json")
+
+        result = CliRunner().invoke(app, argv)
+
+        assert result.exit_code == 0, result.stdout + result.stderr
+        assert ("after 7 settle frames" in result.stdout) is present
+
+
+def test_render_frame_is_published_as_the_drawn_frame_it_names(monkeypatch, tmp_path):
+    # The field exists because the two counters can disagree: a capture whose
+    # pixels are an older drawn frame reports the older number, and the schema
+    # says which counter each one is.
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["receipt"].update(engine_frame=900, render_frame=12)
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(app, _capture_argv(out, minimal_project(tmp_path)))
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    receipt = json.loads(result.stdout)["receipt"]
+    assert receipt["engine_frame"] == 900
+    assert receipt["render_frame"] == 12
+
+    schema = json.loads(
+        CliRunner().invoke(app, ["screen", "capture", "--schema"]).stdout
+    )
+    receipt_def = schema["output"]["$defs"]["CaptureReceipt"]
+    assert (
+        "Engine.get_frames_drawn()"
+        in receipt_def["properties"]["render_frame"]["description"]
+    )
+    engine_frame_doc = receipt_def["properties"]["engine_frame"]["description"]
+    assert "NOT the frame the image presents" in engine_frame_doc
+
+
+def test_capture_reply_without_the_render_frame_is_contract_violation(
+    monkeypatch, tmp_path
+):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    del reply["receipt"]["render_frame"]
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(app, _capture_argv(out, minimal_project(tmp_path)))
+
+    assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
+    assert not out.exists()
+
+
+def test_both_screen_commands_publish_the_settle_input_and_output(monkeypatch):
+    # ADR-0004: the option is part of the published contract on BOTH commands,
+    # on the input side and as the result's own field.
+    for command, default_frames in (("capture", None), ("frames", 2)):
+        schema = json.loads(
+            CliRunner().invoke(app, ["screen", command, "--schema"]).stdout
+        )
+        assert "settle_frames" in schema["input"]["properties"], command
+        assert schema["input"]["properties"]["settle_frames"]["default"] == 0
+        assert "settle_frames" in schema["output"]["properties"], command
+        assert default_frames is None or (
+            schema["input"]["properties"]["frames"]["default"] == default_frames
+        )
