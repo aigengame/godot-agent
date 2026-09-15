@@ -633,13 +633,17 @@ def capture_receipt_reply(**overrides) -> dict:
 
     The identity half the harness stamps into every capture reply; the CLI adds
     ``sha256`` after writing the file. Defaults describe a plain capture of a
-    gda-authored scene (no uid, no predicate echo).
+    gda-authored scene (no uid, no predicate echo). ``render_frame`` (#847) is
+    the drawn-frame counter, distinct from the process frame the read was taken
+    at; the default pair is the ordinary case where the engine drew on every
+    process frame.
     """
     receipt = {
         "session_id": "a1b2c3d4e5f60718",
         "scene_path": "res://main.tscn",
         "scene_uid": None,
         "engine_frame": 400,
+        "render_frame": 400,
         "observed": None,
     }
     receipt.update(overrides)
@@ -655,15 +659,18 @@ PNG_1X1_B64 = (
 )
 
 
-def screen_capture_reply(png_base64: str, *, width: int, height: int) -> dict:
+def screen_capture_reply(
+    png_base64: str, *, width: int, height: int, settle_frames: int = 0
+) -> dict:
     """A canned ``screen capture`` HARNESS reply payload (#222).
 
     The wire shape the gda harness emits in the ADR-0002 sentinel for a single
     frame: the PNG bytes base64-encoded plus the frame's dims and format — and,
     since #660, the capture ``receipt`` (always present on the wire; a test
-    exercising the missing-receipt violation deletes the key explicitly). The
-    CLI recipe decodes ``png_base64`` and WRITES a file, so a command test
-    drives the real decode/write path with a tiny real PNG.
+    exercising the missing-receipt violation deletes the key explicitly) and,
+    since #847, the ``settle_frames`` the harness actually ran. The CLI recipe
+    decodes ``png_base64`` and WRITES a file, so a command test drives the real
+    decode/write path with a tiny real PNG.
     """
     import base64
 
@@ -674,18 +681,24 @@ def screen_capture_reply(png_base64: str, *, width: int, height: int) -> dict:
         "format": "png",
         "bytes": len(raw),
         "png_base64": png_base64,
+        "settle_frames": settle_frames,
         "receipt": capture_receipt_reply(),
     }
 
 
 def screen_frames_reply(
-    png_base64s: list[str], *, width: int = 16, height: int = 16
+    png_base64s: list[str],
+    *,
+    width: int = 16,
+    height: int = 16,
+    settle_frames: int = 0,
 ) -> dict:
     """A canned ``screen frames`` HARNESS reply payload (#222).
 
     The wire shape the gda harness emits for a multi-frame window: a list of
     per-frame entries, each carrying its PNG base64 + dims + format, plus the
-    window's frame ``count``. The CLI recipe writes one PNG file per frame.
+    window's frame ``count`` and, since #847, the ``settle_frames`` it ran
+    before the FIRST of them. The CLI recipe writes one PNG file per frame.
     """
     import base64
 
@@ -699,7 +712,11 @@ def screen_frames_reply(
         }
         for b64 in png_base64s
     ]
-    return {"count": len(frames), "frames": frames}
+    return {
+        "count": len(frames),
+        "settle_frames": settle_frames,
+        "frames": frames,
+    }
 
 
 # A sample ``gda info`` result, shaped as ``Engine.get_version_info()`` reports

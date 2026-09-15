@@ -125,6 +125,23 @@ Action/tap routes are projected from decoded harness replies; sequence phases ar
 derived from the accepted request after its event count is confirmed (ADR-0023).
 _Avoid_: input mode, injection method, path
 
+**Render frame**:
+The drawn frame a captured image IS: the engine's drawn-frame counter
+(`Engine.get_frames_drawn()`) read at the capture boundary, and the second of the
+two frame counters every `screen capture` receipt carries. The first is
+`engine_frame`, the PROCESS-frame index at that boundary — on a gated capture the
+predicate's evaluation frame plus the request's settle frames. The two are
+different counters because the engine draws a frame AFTER each process frame's
+callbacks: a read taken during them returns the frame the PRECEDING iteration
+drew, so on a session that draws every frame the render frame trails the capture
+boundary by one. They also come apart without bound, because that draw is
+conditional — a window that is not visible, or low-processor-usage mode with
+nothing changed, skips it, and `engine_frame` then advances while the render frame
+stands still. That is how two captures come back byte-identical with no game
+change (the GDA-DF-065 shape), and why only the render frame tells such a pair
+from two captures that really do present different frames (#847).
+_Avoid_: frame number, frame id, presented frame
+
 **Headless launch**:
 The one-shot Godot-process primitive that the Phase-1 channels share, in fixed
 headless mode. Existing channels use the configured editor executable: the sentinel

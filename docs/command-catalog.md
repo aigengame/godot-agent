@@ -1756,7 +1756,9 @@ re-derives every verdict from a running engine.
   numerically, strings against the String rendering). The coherence contract,
   verified live on both trigger paths (ADR-0020 amendment): each tick EVALUATES
   BEFORE it injects, so the observed property is always the state of the previously
-  COMPLETED frame — exactly the frame the captured texture presents. A
+  COMPLETED frame — with `--settle-frames` 0, the default, exactly the frame the
+  captured texture presents; a settle moves the texture that many frames on and
+  leaves the observation where it was read (#847). A
   `_process`-driven flip is observed with its own presentation; a state written by an
   injected event's synchronous callback is observed one boundary later, together with
   its presentation. Consequences: the predicate sees frame-boundary state only (a
@@ -1767,13 +1769,26 @@ re-derives every verdict from a running engine.
   trails by that game-side frame — gate on the visual's own property when exact
   pixels matter.
   Every `screen capture` result also carries an evidence **receipt** (shipped, #660;
-  ADR-0017 amendment): `{session_id, scene_path, scene_uid, engine_frame, observed,
-  sha256}`, every key always present (the nullable ones required-but-nullable in the
+  ADR-0017 amendment): `{session_id, scene_path, scene_uid, engine_frame,
+  render_frame, observed, sha256}`, every key always present (the nullable ones
+  required-but-nullable in the
   published schema). `scene_path`/`scene_uid` are the LAUNCHED scene's identity —
   remembered at the session handshake, the same value the daemon verified; a launch
   fact, not a claim about what an individual frame presents — with the `uid://` read
   from the scene file's header (ADR-0036; gda-authored scenes report null).
-  `engine_frame` is read at the SAME frame boundary as the pixels; `session_id` is
+  The two FRAME counters say different things (#847). `engine_frame` is the process
+  frame the read was taken at — for a gated capture the predicate's evaluation frame
+  plus `settle_frames`. `render_frame` is the engine's drawn-frame counter
+  (`Engine.get_frames_drawn()`), the ordinal of the drawn frame the pixels ARE. They
+  advance together while the engine draws on every process frame, and diverge when it
+  does not: the engine draws a frame AFTER each process frame's callbacks, so a read
+  taken during them returns the preceding drawn frame, and a frame the engine chose
+  not to draw (a window that is not visible, low-processor-usage mode with no change)
+  widens the gap without bound — measured on 4.6.3-stable, four consecutive captures
+  stayed byte-identical across 694 process frames while `render_frame` stood still
+  (#847 phase 1). Two captures reporting the same `render_frame` therefore present the
+  same drawn frame, so identical pixels there are the engine's doing, not the game's.
+  `session_id` is
   the daemon-minted engine session identity that `gda daemon status` reports (a new
   session mints a new one, so a receipt from a stale session is detectable by the
   mismatch); `sha256` is computed CLI-side over exactly the bytes written to
@@ -1784,6 +1799,31 @@ re-derives every verdict from a running engine.
   value). A reply whose receipt is missing, echoes an observation no predicate asked
   for, or disagrees with the predicate report beside it is refused as
   `contract_violation` before any file is written.
+  `--settle-frames N` (shipped, #847) runs N more process frames before the read, on
+  BOTH `screen capture` and `screen frames`, for a visual that settles over several
+  frames after a state change. The default is 0, not `input tap`'s 2, because a
+  capture has no release to observe, so a wait by default would return an older
+  image on every call.
+  With `--await-*` the settle runs AFTER the predicate first holds and after that
+  tick's `--await-events` were injected: the predicate report keeps naming the frame
+  it was observed at, and the receipt's `engine_frame` is exactly that frame plus the
+  declared count — verified CLI-side, so a harness that read at another boundary is a
+  `contract_violation`. An event scheduled beyond the settle still fires before the
+  reply, but is not in the image. On `screen frames` the settle runs ONCE, before the
+  FIRST frame, so the sequence still carries exactly `--frames` frames; the settle and
+  `--frames` share the 600-frame per-window ceiling, and the pair is bounded
+  model-side. Both results publish the count the HARNESS's own wait loop reports,
+  not the requested one, and a reply whose count differs from the request is
+  refused before any file is written — so a harness that skipped the wait cannot
+  answer with the number it was asked for.
+  `--settle-frames` does NOT fix the PARTIAL frame #847 reports. Phase 1 could not
+  reproduce that shape on a real windowed macOS desktop: 10 click-driven and
+  predicate-bound trials compared each unchanged Control's pixels against the
+  settled frame, and 3 sweeps of 60 consecutive frames did the same at
+  single-frame resolution across the switch. No capture omitted a Control. The
+  read is therefore unchanged. It is also not moved to
+  `RenderingServer.frame_post_draw`, which would pair a tick's observation with
+  the NEXT frame's pixels and break the `--await-*` binding above.
 - **`perf` (runtime performance monitoring):** `perf monitors` snapshots the running
   game's instantaneous Performance counters in one frame (shipped, #223); `perf
   monitor --property … --frames N` / `--signal … --frames N` collects a per-frame
