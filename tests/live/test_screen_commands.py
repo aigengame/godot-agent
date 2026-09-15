@@ -24,6 +24,7 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.exit_codes import EXIT_LIVE
 from gda.commands.screen import (
+    DEFAULT_AWAIT_FRAMES,
     ScreenCaptureParams,
     ScreenFrame,
     ScreenFramesParams,
@@ -2090,7 +2091,9 @@ def test_frames_plus_settle_over_the_window_ceiling_is_refused(monkeypatch, tmp_
 
 
 def test_settle_renders_only_when_it_ran(monkeypatch, tmp_path):
-    # The default capture's human line is unchanged; a settled one says so.
+    # The default capture's human line is unchanged; a settled one says so. The
+    # 0 case asserts the ABSENCE of the whole clause, not of the number 7 it
+    # could never contain (#847 review P3-1).
     for settle, present in ((0, False), (7, True)):
         reply = screen_capture_reply(_PNG_B64, width=8, height=8, settle_frames=settle)
         inject_live_runner(
@@ -2106,7 +2109,9 @@ def test_settle_renders_only_when_it_ran(monkeypatch, tmp_path):
         result = CliRunner().invoke(app, argv)
 
         assert result.exit_code == 0, result.stdout + result.stderr
-        assert ("after 7 settle frames" in result.stdout) is present
+        assert ("settle frames" in result.stdout) is present
+        if present:
+            assert "after 7 settle frames" in result.stdout
 
 
 def test_render_frame_is_published_as_the_drawn_frame_it_names(monkeypatch, tmp_path):
@@ -2170,3 +2175,151 @@ def test_both_screen_commands_publish_the_settle_input_and_output(monkeypatch):
         assert default_frames is None or (
             schema["input"]["properties"]["frames"]["default"] == default_frames
         )
+
+
+# --- #847 review round 1 --------------------------------------------------------
+
+
+def test_gated_await_and_settle_share_the_window_ceiling(monkeypatch, tmp_path):
+    # P2-1: the gated window is the PAIR. The harness opens `await_frames +
+    # settle_frames` ticks plus the read, so an unbounded pair blocks the
+    # one-shot RPC past the daemon's operation timeout. Each half stays legal
+    # alone — the pre-settle worst case, --await-frames at the full ceiling, is
+    # still accepted — and both input channels refuse the sum.
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report()
+    _align_receipt(reply)
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+    project = minimal_project(tmp_path)
+
+    argv_result = CliRunner().invoke(
+        app,
+        _await_argv(
+            out,
+            project,
+            "--await-frames",
+            str(MAX_WINDOW_FRAMES),
+            "--settle-frames",
+            "1",
+        ),
+    )
+    assert argv_result.exit_code == 2, argv_result.stdout + argv_result.stderr
+    assert f"{MAX_WINDOW_FRAMES + 1}-frame predicate window" in argv_result.stderr
+
+    json_result = CliRunner().invoke(
+        app,
+        [
+            "screen",
+            "capture",
+            "--project",
+            str(project),
+            "--json",
+            "--params-json",
+            json.dumps(
+                {
+                    "output": str(out),
+                    "await_node": "/root/Main/VFX",
+                    "await_property": "frame",
+                    "await_value": 3,
+                    "await_frames": MAX_WINDOW_FRAMES,
+                    "settle_frames": 1,
+                }
+            ),
+        ],
+    )
+    data = json.loads(json_result.stdout)
+    assert data["error"]["code"] == "invalid_params", data
+    assert f"{MAX_WINDOW_FRAMES + 1}-frame predicate window" in data["error"]["message"]
+
+    # The ceiling alone is unchanged: this request was legal before the settle
+    # existed and stays legal.
+    legal = CliRunner().invoke(
+        app, _await_argv(out, project, "--await-frames", str(MAX_WINDOW_FRAMES))
+    )
+    assert legal.exit_code == 0, legal.stdout + legal.stderr
+    # The default ceiling counts too when --await-frames is omitted.
+    over_default = CliRunner().invoke(
+        app,
+        _await_argv(
+            out,
+            project,
+            "--settle-frames",
+            str(MAX_WINDOW_FRAMES - DEFAULT_AWAIT_FRAMES + 1),
+        ),
+    )
+    assert over_default.exit_code == 2, over_default.stdout
+    # Exactly one request reached the runner: the legal one. The three refusals
+    # were decided model-side, before any engine round trip.
+    assert len(fake.calls) == 1, fake.calls
+
+
+def test_both_settle_options_refuse_the_same_non_integers(monkeypatch, tmp_path):
+    # P2-3: one flag name, one acceptance rule. `--params-json` is the loose
+    # channel — argv is already typed by Typer — so a float, a numeric string
+    # and a bool must be refused identically on BOTH commands.
+    project = minimal_project(tmp_path)
+    cases = [2.0, "3", True]
+    for value in cases:
+        capture = CliRunner().invoke(
+            app,
+            [
+                "screen",
+                "capture",
+                "--project",
+                str(project),
+                "--json",
+                "--params-json",
+                json.dumps({"output": str(tmp_path / "s.png"), "settle_frames": value}),
+            ],
+        )
+        frames = CliRunner().invoke(
+            app,
+            [
+                "screen",
+                "frames",
+                "--project",
+                str(project),
+                "--json",
+                "--params-json",
+                json.dumps({"output_dir": str(tmp_path / "d"), "settle_frames": value}),
+            ],
+        )
+        for result, label in ((capture, "capture"), (frames, "frames")):
+            data = json.loads(result.stdout)
+            assert data["error"]["code"] == "invalid_params", (label, value, data)
+
+    # And both publish the same bound, which argv already enforced.
+    for command in ("capture", "frames"):
+        schema = json.loads(
+            CliRunner().invoke(app, ["screen", command, "--schema"]).stdout
+        )
+        published = schema["input"]["properties"]["settle_frames"]
+        assert published["maximum"] == MAX_WINDOW_FRAMES - 1, command
+        assert published["minimum"] == 0, command
+
+
+def test_the_settle_the_harness_counted_is_what_is_published(monkeypatch, tmp_path):
+    # P2-2: the reply's count comes from the harness's own wait loop, so a
+    # harness that echoes the request without running the wait reports a
+    # different number and is refused. Proven from the CLI side by a reply whose
+    # count is 0 while the request asked for 5 — the shape a skipping harness
+    # produces.
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8, settle_frames=0)
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+    out = tmp_path / "shot.png"
+
+    result = CliRunner().invoke(
+        app, _capture_argv(out, minimal_project(tmp_path), "--settle-frames", "5")
+    )
+
+    data = json.loads(result.stdout)
+    assert data["error"]["code"] == "contract_violation", data
+    assert "settled 0 frames before the capture" in data["error"]["message"]
+    assert not out.exists()

@@ -1756,7 +1756,9 @@ re-derives every verdict from a running engine.
   numerically, strings against the String rendering). The coherence contract,
   verified live on both trigger paths (ADR-0020 amendment): each tick EVALUATES
   BEFORE it injects, so the observed property is always the state of the previously
-  COMPLETED frame — exactly the frame the captured texture presents. A
+  COMPLETED frame — with `--settle-frames` 0, the default, exactly the frame the
+  captured texture presents; a settle moves the texture that many frames on and
+  leaves the observation where it was read (#847). A
   `_process`-driven flip is observed with its own presentation; a state written by an
   injected event's synchronous callback is observed one boundary later, together with
   its presentation. Consequences: the predicate sees frame-boundary state only (a
@@ -1800,7 +1802,8 @@ re-derives every verdict from a running engine.
   `--settle-frames N` (shipped, #847) runs N more process frames before the read, on
   BOTH `screen capture` and `screen frames`, for a visual that settles over several
   frames after a state change. The default is 0, not `input tap`'s 2, because a
-  capture has no release to observe, so a default wait would only age every image.
+  capture has no release to observe, so a wait by default would return an older
+  image on every call.
   With `--await-*` the settle runs AFTER the predicate first holds and after that
   tick's `--await-events` were injected: the predicate report keeps naming the frame
   it was observed at, and the receipt's `engine_frame` is exactly that frame plus the
@@ -1809,14 +1812,18 @@ re-derives every verdict from a running engine.
   reply, but is not in the image. On `screen frames` the settle runs ONCE, before the
   FIRST frame, so the sequence still carries exactly `--frames` frames; the settle and
   `--frames` share the 600-frame per-window ceiling, and the pair is bounded
-  model-side. Both results publish a settle the HARNESS confirmed: a reply that
-  settled another count is refused before any file is written, so the number is
-  never an unchecked restatement of the flag.
-  What `--settle-frames` does NOT fix, because #847 phase 1 could not reproduce it on
-  a real windowed macOS desktop (218 captures decoded, 0 mixing two frames): a capture
-  that presents a PARTIAL frame. The read is therefore unchanged, and it is not moved
-  to `RenderingServer.frame_post_draw` — that would pair a tick's observation with the
-  NEXT frame's pixels and break the `--await-*` binding above.
+  model-side. Both results publish the count the HARNESS's own wait loop reports,
+  not the requested one, and a reply whose count differs from the request is
+  refused before any file is written — so a harness that skipped the wait cannot
+  answer with the number it was asked for.
+  `--settle-frames` does NOT fix the PARTIAL frame #847 reports. Phase 1 could not
+  reproduce that shape on a real windowed macOS desktop: 10 click-driven and
+  predicate-bound trials compared each unchanged Control's pixels against the
+  settled frame, and 3 sweeps of 60 consecutive frames did the same at
+  single-frame resolution across the switch. No capture omitted a Control. The
+  read is therefore unchanged. It is also not moved to
+  `RenderingServer.frame_post_draw`, which would pair a tick's observation with
+  the NEXT frame's pixels and break the `--await-*` binding above.
 - **`perf` (runtime performance monitoring):** `perf monitors` snapshots the running
   game's instantaneous Performance counters in one frame (shipped, #223); `perf
   monitor --property … --frames N` / `--signal … --frames N` collects a per-frame

@@ -1067,3 +1067,109 @@ def test_a_settled_capture_on_a_headless_session_is_still_refused(
         assert not out.exists()
     finally:
         run("daemon", "stop")
+
+
+# The settle a PLAIN capture and a PLAIN frames window really run is not
+# observable from the reply alone — the harness could report a count it never
+# spent. These two tests bracket the operation with the engine's own clock, so a
+# harness that skips the wait moves the clock by a round trip instead of by the
+# settle (#847 review P2-2). The bracket is self-calibrating: each test first
+# measures what a round trip costs in the SAME session and asserts that the
+# margin it relies on is real.
+SETTLE_E2E_FRAMES = 90
+
+
+@pytest.mark.e2e
+@_needs_display
+def test_a_plain_settled_capture_reads_a_later_boundary(tmp_path, daemon_runtime_dir):
+    # The observable for a plain `screen capture --settle-frames N`: the read
+    # boundary the receipt names moved at least N process frames past the
+    # previous capture's, which no round trip alone can do here.
+    _predicate_scaffold(tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
+
+    def capture(name, *extra):
+        got = assert_windowed_ok(
+            run("screen", "capture", "--output", str(tmp_path / name), *extra)
+        )
+        return json.loads(got.stdout)
+
+    try:
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        first = capture("p0.png")
+        second = capture("p1.png")
+        settled = capture("p2.png", "--settle-frames", str(SETTLE_E2E_FRAMES))
+
+        round_trip = (
+            second["receipt"]["engine_frame"] - first["receipt"]["engine_frame"]
+        )
+        settled_gap = (
+            settled["receipt"]["engine_frame"] - second["receipt"]["engine_frame"]
+        )
+        # Calibration: the margin this test relies on exists in this session.
+        assert 0 < round_trip < SETTLE_E2E_FRAMES, round_trip
+        # The claim: the settled read is at least the declared frames later.
+        assert settled_gap >= SETTLE_E2E_FRAMES, (settled_gap, round_trip)
+        assert first["settle_frames"] == second["settle_frames"] == 0
+        assert settled["settle_frames"] == SETTLE_E2E_FRAMES
+        # The drawn counter moved with it: this session draws on every process
+        # frame (asserted over the unsettled gap first), so it must over the
+        # settled one too.
+        assert (
+            second["receipt"]["render_frame"] - first["receipt"]["render_frame"]
+            == round_trip
+        ), "the session did not draw on every process frame"
+        assert (
+            settled["receipt"]["render_frame"] - second["receipt"]["render_frame"]
+            == settled_gap
+        )
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+@_needs_display
+def test_screen_frames_spends_its_settle_on_the_engines_clock(
+    tmp_path, daemon_runtime_dir
+):
+    # `screen frames` carries no receipt, so the bracket is the game's own
+    # per-process-frame counter read either side of the window.
+    _predicate_scaffold(tmp_path)
+    run = Gda(tmp_path, json_output=True, timeout=120)
+
+    def tick():
+        return _game_get(run, "tick")
+
+    def window(name, *extra):
+        got = assert_windowed_ok(
+            run(
+                "screen",
+                "frames",
+                "--frames",
+                "2",
+                "--output-dir",
+                str(tmp_path / name),
+                *extra,
+            )
+        )
+        return json.loads(got.stdout)
+
+    try:
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        before = tick()
+        plain = window("w0")
+        base = tick() - before
+
+        before = tick()
+        settled = window("w1", "--settle-frames", str(SETTLE_E2E_FRAMES))
+        spent = tick() - before
+
+        assert plain["settle_frames"] == 0
+        assert settled["settle_frames"] == SETTLE_E2E_FRAMES
+        # Calibration, then the claim: the settled window ran the extra frames.
+        assert 0 < base < SETTLE_E2E_FRAMES, base
+        assert spent >= SETTLE_E2E_FRAMES + 2, (spent, base)
+        # Both windows still captured exactly the frames that were asked for.
+        assert plain["count"] == settled["count"] == 2
+    finally:
+        run("daemon", "stop")

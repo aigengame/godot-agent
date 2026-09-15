@@ -137,14 +137,17 @@ class ScreenCaptureParams(RelayedLiveParams):
             "(#847), for a visual that settles over several frames after a "
             "state change. The default is 0, not `input tap`'s 2: a tap has a "
             "release the game must still observe, a capture has nothing "
-            "pending, so waiting would only age every image by default. With "
+            "pending, so a wait by default would return an older image on every "
+            "call. With "
             "an await predicate the settle runs AFTER the predicate first "
             "holds: the predicate report keeps naming its own frame and the "
             "receipt's engine_frame is exactly that frame plus this count. An "
             "event scheduled beyond the settle still fires before the reply, "
-            "but is not in the image. Bounded to "
-            f"{MAX_WINDOW_FRAMES - 1} so the settle plus the read stays inside "
-            "the shared per-window ceiling."
+            "but is not in the image. On its own it is bounded to "
+            f"{MAX_WINDOW_FRAMES - 1}, so a plain capture's settle plus its "
+            "read stays inside the shared per-window ceiling; with an await "
+            "predicate it shares that ceiling with await_frames, whose sum is "
+            f"bounded to {MAX_WINDOW_FRAMES}."
         ),
     )
     await_node: str | None = Field(
@@ -167,9 +170,11 @@ class ScreenCaptureParams(RelayedLiveParams):
         description=(
             "Predicate value, a JSON scalar: the capture fires on the first frame "
             "boundary where the property equals it (numbers compare numerically, "
-            "strings against the String rendering; null is not supported). The "
-            "property and the pixels are read at the SAME boundary — both belong "
-            "to the frame that just completed; a game that updates a visual one "
+            "strings against the String rendering; null is not supported). With "
+            "settle_frames 0, the default, the property and the pixels are read "
+            "at the SAME boundary — both belong to the frame that just "
+            "completed; a settle moves the pixels that many frames on and leaves "
+            "the property where it was read. A game that updates a visual one "
             "frame after the property it gates on trails by that game-side frame, "
             "so gate on the visual's own property when exact pixels matter."
         ),
@@ -220,6 +225,26 @@ class ScreenCaptureParams(RelayedLiveParams):
                 "'await_value' together (a JSON null value is not supported)."
             )
         has_await = all(trio)
+        if has_await:
+            # The gated window is the PAIR, not the settle alone (#847 review):
+            # the harness opens `await_frames + settle_frames` ticks plus the
+            # read, so an unbounded pair blocks the one-shot RPC past the
+            # daemon's operation timeout. Bounded where the pair is built, the
+            # rule `screen frames` and `input tap` already apply to theirs. The
+            # sum keeps the pre-settle worst case legal: await_frames alone may
+            # still be the full ceiling.
+            window = (
+                self.await_frames
+                if self.await_frames is not None
+                else DEFAULT_AWAIT_FRAMES
+            ) + self.settle_frames
+            if window > MAX_WINDOW_FRAMES:
+                raise ValueError(
+                    f"the capture requests a {window}-frame predicate window "
+                    "(await_frames + settle_frames), exceeding the maximum of "
+                    f"{MAX_WINDOW_FRAMES} (the gda harness's per-window "
+                    "ceiling). Use smaller counts."
+                )
         if self.await_frames is not None and not has_await:
             raise ValueError(
                 "'await_frames' needs the await predicate "
@@ -268,11 +293,11 @@ class ScreenCaptureResult(BaseModel):
         ge=0,
         description=(
             "The process frames the game ran before the viewport was read "
-            "(#847); 0 on the default immediate capture. The requested count, "
-            "VERIFIED against the harness's own echo before this result is "
-            "built — a reply that settled a different number is a "
-            "contract_violation — so the published number is one the engine "
-            "confirmed it ran. Always present."
+            "(#847); 0 on the default immediate capture. COUNTED by the "
+            "harness's own wait loop and checked against the request before "
+            "this result is built, so a harness that skipped the wait is a "
+            "contract_violation and not a silently unsettled capture. Always "
+            "present."
         ),
     )
     predicate: "CapturePredicateReport | None" = Field(
@@ -303,9 +328,11 @@ class CaptureReceipt(BaseModel):
     the read was taken at and ``render_frame`` identifies the drawn frame the
     pixels ARE (#847); ``sha256`` is the hash of the bytes gda wrote to
     ``path``. For a gated capture the receipt also echoes the predicate's
-    ``observed`` value at that same frame; the full predicate evidence (node,
-    property, expected) lives in the sibling ``predicate`` report, so a gated
-    capture's complete evidence is the pair, receipt + predicate report.
+    ``observed`` value from the frame it was evaluated at, which is
+    ``engine_frame`` minus the request's ``settle_frames``; the full predicate
+    evidence (node, property, expected) lives in the sibling ``predicate``
+    report, so a gated capture's complete evidence is the pair, receipt +
+    predicate report.
     Every key is always present (required-but-nullable where null is a value).
     """
 
@@ -356,17 +383,17 @@ class CaptureReceipt(BaseModel):
             "ARE, the Nth frame this engine run has drawn (#847). Two captures "
             "reporting the SAME value present the same drawn frame — the "
             "engine drew nothing between them, so identical pixels are the "
-            "engine's doing and not the game's. It advances with engine_frame "
-            "while the engine draws on every process frame, and stands still "
-            "when it does not."
+            "engine's doing and not the game's. render_frame advances with "
+            "engine_frame while the engine draws on every process frame, and "
+            "stands still when the engine draws nothing."
         ),
     )
     observed: "bool | int | float | str | None" = Field(
         description=(
             "The predicate echo for a gated capture: the observed value the "
-            "predicate matched, evaluated at engine_frame (identical to "
-            "predicate.observed). Null on a plain capture. Always present. "
-            + LIVE_ENGINE_PRECISION
+            "predicate matched, evaluated at engine_frame minus the request's "
+            "settle_frames (identical to predicate.observed, which names that "
+            "frame). Null on a plain capture. Always present. " + LIVE_ENGINE_PRECISION
         ),
     )
     sha256: str = Field(
@@ -385,7 +412,9 @@ class CapturePredicateReport(BaseModel):
     The synchronization evidence: the frame the predicate held (``engine_frame``
     is the engine's absolute process-frame counter; ``frames_waited`` is the
     window-relative wait), and the property's ``observed`` value at that frame —
-    the fields #660's capture receipt echoes onward.
+    the fields #660's capture receipt echoes onward. A ``settle_frames`` request
+    moves the READ that many frames past this one and leaves this report where
+    the predicate was observed (#847).
     """
 
     node: str = Field(description="The awaited node's absolute runtime path.")
@@ -397,11 +426,17 @@ class CapturePredicateReport(BaseModel):
         description=(
             "The property's value on the frame the predicate held (scalars "
             "verbatim; anything else its diagnostic String form). Read at the "
-            "same frame boundary as the captured pixels. " + LIVE_ENGINE_PRECISION
+            "predicate's own frame boundary; with settle_frames 0, the default, "
+            "that is also the captured pixels' boundary. " + LIVE_ENGINE_PRECISION
         ),
     )
     engine_frame: int = Field(
-        ge=0, description="The engine's absolute process-frame counter at capture."
+        ge=0,
+        description=(
+            "The engine's absolute process-frame counter at the predicate's "
+            "EVALUATION — the receipt's engine_frame minus the request's "
+            "settle_frames. A settle never moves it."
+        ),
     )
     frames_waited: int = Field(
         ge=0, description="How many window frames passed before the predicate held."
@@ -439,13 +474,15 @@ class ScreenFramesParams(RelayedLiveParams):
     settle_frames: int = Field(
         default=0,
         ge=0,
+        le=MAX_WINDOW_FRAMES - 1,
+        strict=True,
         description=(
             "Process frames to let the game run ONCE, before the FIRST frame "
             "of the sequence is captured (#847) — not between frames, which "
             "would change what the window samples. The default is 0, not "
             "`input tap`'s 2: a tap has a release the game must still observe, "
-            "a capture has nothing pending, so waiting would only age every "
-            "sequence by default. The settle and the frames share the "
+            "a capture has nothing pending, so a wait by default would return "
+            "older frames on every call. The settle and the frames share the "
             f"{MAX_WINDOW_FRAMES}-frame per-window ceiling."
         ),
     )
@@ -616,10 +653,10 @@ class ScreenFramesResult(BaseModel):
         ge=0,
         description=(
             "The process frames the game ran before the FIRST frame was "
-            "captured (#847); 0 on the default immediate sequence. The "
-            "requested count, VERIFIED against the harness's own echo before "
-            "this result is built — a reply that settled a different number is "
-            "a contract_violation. Always present."
+            "captured (#847); 0 on the default immediate sequence. COUNTED by "
+            "the harness's own wait loop and checked against the request "
+            "before this result is built, so a harness that skipped the wait "
+            "is a contract_violation. Always present."
         ),
     )
     frames: "list[ScreenFrame] | None" = Field(
@@ -893,12 +930,13 @@ def _receipt_correlation_error(
 def _settle_correlation_error(
     requested: int, reported: int, label: str
 ) -> "str | None":
-    """Why the reply's settle echo does not answer this request, or None (#847).
+    """Why the reply's settle count does not answer this request, or None (#847).
 
-    The result publishes how many frames the game ran before the read. Taking
-    that number from the REQUEST would make it a restatement of the flag; taking
-    it from the reply and refusing a mismatch makes it evidence that the engine
-    ran them.
+    The harness counts the ticks its wait loop actually spent settling and
+    reports THAT, not the number it was asked for, so a harness that skipped
+    the wait answers with a different count. Refusing the mismatch here is what
+    turns the published number into a fact about the engine rather than a
+    restatement of the flag.
     """
     if reported != requested:
         return (
@@ -1291,8 +1329,8 @@ def screen_capture(
     `--settle-frames N` runs N more process frames before the read, for a
     visual that settles over several frames after a state change. The default
     is 0, not `input tap`'s 2: a tap has a release the game must still observe,
-    a capture has nothing pending, so a default wait would only age every
-    image. The result reports what the harness actually ran, not the flag.
+    a capture has nothing pending, so a wait by default would return an older
+    image on every call.
 
     The `--await-*` predicate (#661) holds the capture game-side until
     `node.property == value` first holds (checked once per process frame, up to
@@ -1302,8 +1340,9 @@ def screen_capture(
     `live_predicate_unmet`. With `--settle-frames N` the predicate is still
     observed at its own first holding frame and the report still names it,
     while the read moves N frames later — the receipt's `engine_frame` is then
-    the predicate's frame plus N, on purpose. `--await-events` additionally injects input-sequence
-    events inside the same window (the atomic input-and-capture form) so a short
+    the predicate's frame plus N, on purpose. `--await-events` additionally
+    injects input-sequence events inside the same window (the atomic
+    input-and-capture form) so a short
     transient triggered by the input cannot be missed by a second round trip;
     every declared event fires before the reply, even when the predicate
     matches first, and a declared event that fails makes the whole capture that

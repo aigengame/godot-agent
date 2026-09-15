@@ -1904,12 +1904,17 @@ func _handle_screen_capture(params: Dictionary) -> Variant:
 	var await_spec: Variant = params.get("await", null)
 	if typeof(await_spec) == TYPE_DICTIONARY:
 		return _begin_predicate_capture(await_spec, params.get("events", []), settle)
-	var index := {"n": 0}
+	var index := {"n": 0, "settled": 0}
 	var sample := func() -> Variant:
 		var current := int(index["n"])
 		index["n"] = current + 1
 		if current < settle:
-			return current  # let the game run one more frame; nothing read yet
+			# A settle tick: let the game run one more frame, read nothing, and
+			# COUNT it. The reply reports this counter rather than the request
+			# (#847 review), so a harness that skipped the wait cannot answer
+			# with the number it was asked for.
+			index["settled"] = int(index["settled"]) + 1
+			return current
 		var frame := _capture_frame()
 		if frame.has("error"):
 			return frame  # abort the window with the typed error envelope
@@ -1918,7 +1923,7 @@ func _handle_screen_capture(params: Dictionary) -> Variant:
 		# boundary and its render_frame the drawn frame the pixels are. A plain
 		# capture echoes no predicate (null).
 		frame["receipt"] = _capture_receipt(null)
-		frame["settle_frames"] = settle
+		frame["settle_frames"] = int(index["settled"])
 		return frame
 	var finalize := func(samples: Array) -> String:
 		# The window ends on the capturing sample: it is the last one collected.
@@ -1940,21 +1945,25 @@ func _handle_screen_frames(params: Dictionary) -> Variant:
 				+ "start the daemon with `gda daemon start --windowed`")
 	var frames := _int_param(params, "frames", 1)
 	var settle := _int_param(params, "settle_frames", 0)
-	var index := {"n": 0}
+	var index := {"n": 0, "settled": 0}
 	var sample := func() -> Variant:
 		var current := int(index["n"])
 		index["n"] = current + 1
 		if current < settle:
-			return current  # a settle frame: let the game run, capture nothing
+			# A settle frame: let the game run, capture nothing, COUNT it — the
+			# reply reports the counter, not the request (#847 review).
+			index["settled"] = int(index["settled"]) + 1
+			return current
 		var frame := _capture_frame()
 		if frame.has("error"):
 			return frame  # abort the window with the typed error envelope
 		return frame
 	var finalize := func(samples: Array) -> String:
-		var captured: Array = samples.slice(settle)
+		var ran := int(index["settled"])
+		var captured: Array = samples.slice(ran)
 		return _ok({
 			"count": captured.size(),
-			"settle_frames": settle,
+			"settle_frames": ran,
 			"frames": captured,
 		})
 	return _begin_window(frames + settle, sample, finalize)
@@ -2017,7 +2026,7 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant,
 					+ "'physics_frame' offsets are not accepted")
 		last_event = maxi(last_event, _sequence_event_offset(event))
 	var state := {"n": 0, "observed": null, "outcome": null,
-			"report": null, "capture_at": -1}
+			"report": null, "capture_at": -1, "settled": 0}
 	_injected_mouse_button_mask = 0
 	var capture := func() -> void:
 		var report: Dictionary = state["report"]
@@ -2032,7 +2041,7 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant,
 		# two disagree. With settle N the read is N frames later and the CLI
 		# requires exactly that offset instead (#847).
 		captured["receipt"] = _capture_receipt(report["observed"])
-		captured["settle_frames"] = settle
+		captured["settle_frames"] = int(state["settled"])
 		state["outcome"] = {"complete": captured}
 	var sample := func() -> Variant:
 		var current := int(state["n"])
@@ -2078,9 +2087,13 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant,
 								+ " frames (last observed: "
 								+ str(state["observed"]) + ")",
 					}}
-		elif state["outcome"] == null and current >= int(state["capture_at"]):
-			# The settle frames have run: read now, and read only once.
-			capture.call()
+		elif state["outcome"] == null:
+			# A tick spent settling: COUNT it, and read once the declared count
+			# has passed. The reply reports this counter, not the request
+			# (#847 review).
+			state["settled"] = int(state["settled"]) + 1
+			if current >= int(state["capture_at"]):
+				capture.call()
 		# Then inject: every ACCEPTED event fires at its offset, even after
 		# the outcome is decided, so a press injected early is never left held
 		# (#743 review). A declared event FAILURE becomes the reply — it
