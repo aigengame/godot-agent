@@ -832,6 +832,16 @@ adds its own step and the selected body's actual charge; static closure includes
 complete body bound. These nodes add no second arm, label jump, loop, Runtime phase, package
 dispatch, or evaluator callback.
 
+Issue #547 records the next planned reopening. A Target query must filter, order, truncate, and
+count an admitted `List`, and no provisional node can. bADR-0028 admits four bounded collection
+primitives in the expression family: `where-equal` keeps the elements whose field is canonically
+equal to an operand, `order-by` sorts by one exact-int64 field with a declared direction, a tie
+field, and input order as the final tie-breaker, `take` keeps the first `count` elements, and
+`count` returns the element count. Each node reads one bounded `List`, produces one local, charges
+`1 + n` steps, and defines its own element order. `standard.schema@2.5.0` exposes them as
+structured Operations. The nodes construct no element, update no `List`, and add no loop, map,
+join, or nested body; a consumer that needs one of those reopens the gate again before the freeze.
+
 Runtime executes each Operation body and selected guard body in authored array order. Node families
 do not reorder the body. bADR-0015 defines how a terminal audit identifies a refusing node in that
 guard-expanded order. The replacement Kernel removes the unused
@@ -1128,14 +1138,18 @@ that test falsifies Standard Schema 2.0's architecture and reopens its design ga
 papered over with a genre exception. Shipping support artifacts for every genre is out of scope,
 but preserving this extension route for every later genre is not.
 
-Issues #640 and #546 record successive provisional-baseline reopenings. The #585 Roguelike
-product-feedback slice showed that the earlier Kernel could not observe empty admitted Lists, raise
-an Operation-declared typed refusal, or skip RNG, lookup, and effect nodes on an unselected path.
-Issue #640 added the generic `is-empty`, `require`, and `guard-block` primitives. The later
-`RPG-STAT-01` tracer showed that exact integer percentage rules also require
-`integer-floor-divide`. Evidence bound to either superseded Kernel identity does not carry to the
-current #546 replacement. Gate 5 and Gate 6 must validate the current baseline again. Section 12.2
-records these dogfooding results and their open boundaries.
+Issues #640 and #546 record two completed provisional-baseline reopenings, and #547 records the
+next planned one. The #585 Roguelike product-feedback slice showed that the earlier Kernel could not
+observe empty admitted Lists, raise an Operation-declared typed refusal, or skip RNG, lookup, and
+effect nodes on an unselected path. Issue #640 added the generic `is-empty`, `require`, and
+`guard-block` primitives. The later `RPG-STAT-01` tracer showed that exact integer percentage rules
+also require `integer-floor-divide`; the #546 identity is the current baseline. The `RPG-TARGET-01`
+requirement exposes a vocabulary gap in that baseline: a Target query cannot filter, order,
+truncate, or count an admitted `List`. bADR-0028 (proposed) admits the generic `where-equal`,
+`order-by`, `take`, and `count` primitives, and its implementation will replace the #546 identity.
+Evidence bound to a superseded Kernel identity does not carry to its replacement, so Gate 5 and
+Gate 6 must validate each replacement baseline again. Section 12.2 records the completed #640 and
+#546 dogfooding results and their open boundaries; #547 has no product-run evidence yet.
 
 ### 7.2 Package ownership and boundaries
 
@@ -2089,6 +2103,7 @@ Use this map when a macro statement needs its detailed decision or live acceptan
 | Host implementation dependencies | [bADR-0025](badr/0025-dependency-directed-implementation-layers.md) | Import-direction gate, Interface-boundary regressions, and source/wheel parity |
 | Local Execution HTTP Interface | [bADR-0026](badr/0026-local-http-execution-service.md) | Loopback service, closed protocol, exact revisions, and CLI/HTTP parity vectors |
 | Execution OHS and Published Language | [bADR-0027](badr/0027-execution-open-host-service-and-published-language.md) | Issue #789 design acceptance, shared-contract extraction, authority conformance, and semantic HTTP parity |
+| Bounded collection primitives | [bADR-0028](badr/0028-kernel-bounded-collection-primitives.md) | Kernel node contract probes, `standard.schema@2.5.0` package vectors, production/independent evaluator agreement, and the `rpg.target-check-v1` Golden path |
 
 PRD #534 remains the live answer to “is this accepted and complete?” This document answers “what
 system are we building, where does each responsibility belong, and in what order can we prove it?”
