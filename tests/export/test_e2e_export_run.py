@@ -28,6 +28,7 @@ structured-failure paths that need no templates (unknown preset, unset path) run
 unconditionally.
 """
 
+import base64
 import json
 import os
 import sys
@@ -42,7 +43,8 @@ from gda.harness.install import (
     HARNESS_RES_DIR,
     install_harness,
 )
-from tests.support import Gda, templates_installed
+from gda.import_evidence import CACHE_ROOT_REL
+from tests.support import PNG_1X1_B64, Gda, templates_installed
 
 # A runnable Linux preset writing to build/game.x86_64, plus a non-runnable
 # preset with NO export_path (to exercise export_path_unset). Sibling `.options`
@@ -549,3 +551,132 @@ def test_templates_installed_is_true_when_host_templates_are_on_disk(godot_proje
         "host export templates are present on disk but `gda export get` reports "
         "templates_installed=false — the template-path detection regressed (#304)"
     )
+
+
+# The two assets the mutation-report e2e stands on (#839). The PNG is the
+# imported texture the acceptance criterion names; the CSV is the shape
+# GDA-DF-067 reported, because Godot's csv_translation importer writes a
+# `<name>.<locale>.translation` resource BESIDE the source — a tracked, generated
+# file the pass rewrites whenever the CSV changes under it.
+_TRANSLATION_CSV = "keys,en,fr\nGREET,Hello,Bonjour\n"
+_TRANSLATION_CSV_EDITED = (
+    "keys,en,fr\nGREET,Hello there,Bonjour a tous\nBYE,Goodbye,Au revoir\n"
+)
+
+
+@pytest.mark.e2e
+def test_export_run_reports_what_the_native_export_did_to_the_project(godot_project):
+    # #839 ACCEPTANCE, live, and on ONE project, because the three verdicts are
+    # stages of the same history: a cold cache, the same export again, and the
+    # export after a source changed under the cache.
+    #
+    # `--mode pack` runs the SAME editor import pass as a release export — verified
+    # here: the cold run below creates `.godot/` and the sidecars — and needs no
+    # export templates, so this proof does not skip on a template-less machine,
+    # the policy the pack tests above already follow.
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    (godot_project / "icon.png").write_bytes(base64.b64decode(PNG_1X1_B64))
+    (godot_project / "i18n").mkdir()
+    (godot_project / "i18n" / "ui.csv").write_text(_TRANSLATION_CSV, encoding="utf-8")
+    artifact = godot_project / "dist" / "packed.pck"
+    gda = Gda(godot_project, json_output=True, timeout=180)
+    export = [
+        "export",
+        "run",
+        "--preset",
+        "Linux/X11",
+        "--mode",
+        "pack",
+        "--output",
+        str(artifact),
+    ]
+
+    # (1) COLD CACHE. The export creates the whole cache plus the sidecars and the
+    # generated translations beside the sources — the GDA-DF-067 inventory at this
+    # fixture's scale — and every entry carries its classification.
+    cold = gda.json(*export)["project_tree_mutations"]
+
+    assert cold["cache_root"] == "res://" + CACHE_ROOT_REL
+    assert {
+        entry["path"]
+        for entry in cold["created"]
+        if entry["classification"] == "source_adjacent"
+    } == {
+        "res://i18n/ui.csv.import",
+        "res://i18n/ui.en.translation",
+        "res://i18n/ui.fr.translation",
+        "res://icon.png.import",
+    }
+    # The cache half is asserted by its ROOT rather than file by file: which files
+    # the engine puts there is its own business and changes between versions, while
+    # "all of it is under one root, so it can be cleaned as one unit" is the
+    # property the report promises.
+    cache_owned = [
+        entry["path"]
+        for entry in cold["created"]
+        if entry["classification"] == "cache_owned"
+    ]
+    assert cache_owned, cold
+    assert all(path.startswith(cold["cache_root"] + "/") for path in cache_owned)
+    assert (godot_project / CACHE_ROOT_REL).is_dir()
+    assert cold["created_count"] == len(cold["created"])
+    assert cold["created_source_adjacent"] == 4
+    assert cold["created_cache_owned"] == len(cache_owned)
+    assert cold["created_bytes"] == sum(entry["size"] for entry in cold["created"])
+    assert cold["modified"] == []
+    assert cold["skipped"] == 0
+    # AC4: the artifact is the export's OUTPUT, not a mutation of the project —
+    # even though this one lands inside the project directory.
+    assert artifact.is_file()
+    assert not any(entry["path"].startswith("res://dist/") for entry in cold["created"])
+
+    # (2) THE SAME EXPORT AGAIN. The cache is warm and no source changed, so the
+    # pass writes nothing into the project: zero created, zero rewritten (AC2).
+    warm = gda.json(*export)["project_tree_mutations"]
+
+    assert warm["created"] == []
+    assert warm["modified"] == []
+    assert warm["skipped"] == 0
+
+    # (3) A SOURCE CHANGED UNDER THE CACHE. The pass re-imports the CSV and
+    # rewrites the two tracked `.translation` resources, while it TOUCHES the
+    # `.import` sidecar without changing a byte of it. The rewrite is reported with
+    # both sizes; the touch is not reported at all (AC3) — which is the whole
+    # reason the second walk hashes instead of trusting a timestamp.
+    sidecar = godot_project / "i18n" / "ui.csv.import"
+    sidecar_before = sidecar.stat()
+    sidecar_bytes = sidecar.read_bytes()
+    (godot_project / "i18n" / "ui.csv").write_text(
+        _TRANSLATION_CSV_EDITED, encoding="utf-8"
+    )
+
+    rewrote = gda.json(*export)["project_tree_mutations"]
+
+    rewritten = {entry["path"]: entry for entry in rewrote["modified"]}
+    assert set(rewritten) == {
+        "res://i18n/ui.en.translation",
+        "res://i18n/ui.fr.translation",
+    }
+    for rel in ("i18n/ui.en.translation", "i18n/ui.fr.translation"):
+        entry = rewritten["res://" + rel]
+        assert entry["size"] == (godot_project / rel).stat().st_size
+        # The edited CSV has a longer greeting and one more row, so the compiled
+        # translation can only have grown.
+        assert entry["size_before"] < entry["size"], entry
+    assert rewrote["modified_count"] == 2
+    assert rewrote["modified_bytes"] == sum(
+        entry["size"] for entry in rewrote["modified"]
+    )
+    assert sidecar.read_bytes() == sidecar_bytes
+    assert sidecar.stat().st_mtime_ns != sidecar_before.st_mtime_ns, (
+        "the engine no longer touches the re-imported asset's sidecar, so this "
+        "case no longer proves that a touched-but-equal file stays out of `modified`"
+    )
+    assert "res://i18n/ui.csv.import" not in rewritten
+    # What the re-import DID create is cache bookkeeping, nothing beside the
+    # sources: the sidecars and translations already exist.
+    assert all(
+        entry["classification"] == "cache_owned" for entry in rewrote["created"]
+    ), rewrote["created"]
