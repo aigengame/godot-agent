@@ -1767,13 +1767,26 @@ re-derives every verdict from a running engine.
   trails by that game-side frame — gate on the visual's own property when exact
   pixels matter.
   Every `screen capture` result also carries an evidence **receipt** (shipped, #660;
-  ADR-0017 amendment): `{session_id, scene_path, scene_uid, engine_frame, observed,
-  sha256}`, every key always present (the nullable ones required-but-nullable in the
+  ADR-0017 amendment): `{session_id, scene_path, scene_uid, engine_frame,
+  render_frame, observed, sha256}`, every key always present (the nullable ones
+  required-but-nullable in the
   published schema). `scene_path`/`scene_uid` are the LAUNCHED scene's identity —
   remembered at the session handshake, the same value the daemon verified; a launch
   fact, not a claim about what an individual frame presents — with the `uid://` read
   from the scene file's header (ADR-0036; gda-authored scenes report null).
-  `engine_frame` is read at the SAME frame boundary as the pixels; `session_id` is
+  The two FRAME counters say different things (#847). `engine_frame` is the process
+  frame the read was taken at — for a gated capture the predicate's evaluation frame
+  plus `settle_frames`. `render_frame` is the engine's drawn-frame counter
+  (`Engine.get_frames_drawn()`), the ordinal of the drawn frame the pixels ARE. They
+  advance together while the engine draws on every process frame, and diverge when it
+  does not: the engine draws a frame AFTER each process frame's callbacks, so a read
+  taken during them returns the preceding drawn frame, and a frame the engine chose
+  not to draw (a window that is not visible, low-processor-usage mode with no change)
+  widens the gap without bound — measured on 4.6.3-stable, four consecutive captures
+  stayed byte-identical across 694 process frames while `render_frame` stood still
+  (#847 phase 1). Two captures reporting the same `render_frame` therefore present the
+  same drawn frame, so identical pixels there are the engine's doing, not the game's.
+  `session_id` is
   the daemon-minted engine session identity that `gda daemon status` reports (a new
   session mints a new one, so a receipt from a stale session is detectable by the
   mismatch); `sha256` is computed CLI-side over exactly the bytes written to
@@ -1784,6 +1797,25 @@ re-derives every verdict from a running engine.
   value). A reply whose receipt is missing, echoes an observation no predicate asked
   for, or disagrees with the predicate report beside it is refused as
   `contract_violation` before any file is written.
+  `--settle-frames N` (shipped, #847) runs N more process frames before the read, on
+  BOTH `screen capture` and `screen frames`, for a visual that settles over several
+  frames after a state change. The default is 0, not `input tap`'s 2, because a
+  capture has no release to observe, so a default wait would only age every image.
+  With `--await-*` the settle runs AFTER the predicate first holds and after that
+  tick's `--await-events` were injected: the predicate report keeps naming the frame
+  it was observed at, and the receipt's `engine_frame` is exactly that frame plus the
+  declared count — verified CLI-side, so a harness that read at another boundary is a
+  `contract_violation`. An event scheduled beyond the settle still fires before the
+  reply, but is not in the image. On `screen frames` the settle runs ONCE, before the
+  FIRST frame, so the sequence still carries exactly `--frames` frames; the settle and
+  `--frames` share the 600-frame per-window ceiling, and the pair is bounded
+  model-side. Both results report the settle the HARNESS ran, not the flag: a reply
+  that settled another count is refused before any file is written.
+  What `--settle-frames` does NOT fix, because #847 phase 1 could not reproduce it on
+  a real windowed macOS desktop (218 captures decoded, 0 mixing two frames): a capture
+  that presents a PARTIAL frame. The read is therefore unchanged, and it is not moved
+  to `RenderingServer.frame_post_draw` — that would pair a tick's observation with the
+  NEXT frame's pixels and break the `--await-*` binding above.
 - **`perf` (runtime performance monitoring):** `perf monitors` snapshots the running
   game's instantaneous Performance counters in one frame (shipped, #223); `perf
   monitor --property … --frames N` / `--signal … --frames N` collects a per-frame

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ffd6346b637cf849942e1fed5d619cb5f7cfc1adebea294312c9e7b81e68f771 -->
+<!-- gda-readme-i18n: source=README.md sha256=928c5de0bc0a522fd8b87c9c9f85739e315790e995e9a8ff4c2ccd7e9fe10bbd -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -521,8 +521,10 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `screen capture` | 捕获一帧视口并保存为一张 PNG。 |
-| `screen frames` | 捕获一个 N 帧的 PNG 序列（`--summary` 返回紧凑的聚合结果）。 |
+| `screen capture` | 捕获一帧视口并保存为一张 PNG；`--settle-frames N` 先让游戏运行 N 帧。 |
+| `screen frames` | 捕获一个 N 帧的 PNG 序列（`--summary` 返回紧凑的聚合结果；`--settle-frames` 只在第一帧之前运行一次）。 |
+
+一次捕获的回执带有两个帧计数器：`engine_frame` 是读取发生的边界，`render_frame` 是这些像素所属的已绘制帧。
 
 ### 全局 flag
 

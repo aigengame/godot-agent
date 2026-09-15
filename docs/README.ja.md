@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ffd6346b637cf849942e1fed5d619cb5f7cfc1adebea294312c9e7b81e68f771 -->
+<!-- gda-readme-i18n: source=README.md sha256=928c5de0bc0a522fd8b87c9c9f85739e315790e995e9a8ff4c2ccd7e9fe10bbd -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -541,8 +541,11 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 
 | コマンド | 機能 |
 | ------- | ------------ |
-| `screen capture` | ビューポートの 1 フレームを PNG にキャプチャします。 |
-| `screen frames` | N フレームの PNG シーケンスをキャプチャします(`--summary` でコンパクトな集約結果を返します)。 |
+| `screen capture` | ビューポートの 1 フレームを PNG にキャプチャします。`--settle-frames N` は先に N フレーム走らせます。 |
+| `screen frames` | N フレームの PNG シーケンスをキャプチャします(`--summary` でコンパクトな集約結果を返します。`--settle-frames` は最初のフレームの前に 1 回だけ走ります)。 |
+
+キャプチャのレシートは 2 つのフレームカウンタを持ちます。`engine_frame` は読み取りを行った境界、
+`render_frame` はピクセルが属する描画済みフレームです。
 
 ### グローバルフラグ
 
