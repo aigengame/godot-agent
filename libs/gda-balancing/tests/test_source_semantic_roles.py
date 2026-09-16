@@ -477,6 +477,18 @@ def test_source_interval_schema_can_narrow_integer_syntax_without_changing_owner
         assert result["admitted"], (consumer.__name__, result)
 
 
+def test_source_family_discriminator_metadata_is_authoritative():
+    kernel, language = mutable_authorities()
+    law = kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
+        "source_notation"
+    ]["semantic_roles"]
+    law["children"]["conditional"]["condition"]["discriminator_member"] = "node"
+    graph = _graph(kernel, _authored(language))
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, graph)
+        assert not result["admitted"], (consumer.__name__, result)
+
+
 @pytest.mark.parametrize(
     "case",
     [

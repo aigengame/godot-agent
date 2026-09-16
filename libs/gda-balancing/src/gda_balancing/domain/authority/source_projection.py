@@ -161,14 +161,13 @@ def _source_expected_roles(kernel: dict[str, Any], contract: Any) -> set[str]:
             if item["node"] == contract["callee"]
         }
     family = contract["family"]
-    discriminator = "node" if family == "body_nodes" else "kind"
+    discriminator = contract["discriminator_member"]
     result = set()
     for value in formula[family]:
         matches = [
             role
             for role, owner in law["roles"].items()
             if owner.get("discriminator", {}).get(discriminator) == value
-            and role != "inline-parameter"
         ]
         if len(matches) != 1:
             raise ValueError("Kernel Formula family has no unique Source semantic role")
