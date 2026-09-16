@@ -985,6 +985,53 @@ def test_game_rect_reply_keys_mirror_its_published_result_model():
     )
 
 
+# --- The capture receipt: what the harness stamps, and what gda publishes (#847)
+
+
+# The keys `_capture_receipt` puts in the receipt it stamps into every capture
+# reply. One `return {...}` literal, readable off the source like the rect reply.
+HARNESS_CAPTURE_RECEIPT = re.compile(
+    r"^func _capture_receipt\(.*?\n\treturn \{\n(?P<body>.*?)\n\t\}$",
+    re.MULTILINE | re.DOTALL,
+)
+
+
+def test_capture_receipt_keys_mirror_its_published_model():
+    """The receipt is stamped in GDScript and published by a Python model (#660/#847).
+
+    `screen capture` is recipe-borne, so gda validates the harness's receipt
+    against `_ReceiptReply` and copies it into the public `CaptureReceipt`. A key
+    the models require and the harness never stamps is a `contract_violation` on
+    a real engine only — PR CI runs no Godot e2e — and a key the harness stamps
+    and the models omit is evidence the caller never sees. `sha256` is the one
+    public field the harness cannot stamp: gda computes it over the bytes it
+    wrote, so it is excluded here and asserted to be the ONLY difference.
+    """
+    from gda.commands.screen import CaptureReceipt, _ReceiptReply
+
+    source = GDA_HARNESS_GD.read_text(encoding="utf-8")
+    match = HARNESS_CAPTURE_RECEIPT.search(source)
+    assert match is not None, (
+        f"could not read _capture_receipt's literal from {GDA_HARNESS_GD.name}; "
+        "fix HARNESS_CAPTURE_RECEIPT rather than letting this guard pass vacuously"
+    )
+    keys = set(HARNESS_REPLY_KEY.findall(match.group("body")))
+    assert keys == set(_ReceiptReply.model_fields), (
+        f"harness receipt keys {sorted(keys)} != _ReceiptReply fields "
+        f"{sorted(_ReceiptReply.model_fields)}"
+    )
+    assert set(CaptureReceipt.model_fields) - keys == {"sha256"}, (
+        "the public receipt must add exactly the CLI-computed sha256 to what the "
+        f"harness stamps: {sorted(set(CaptureReceipt.model_fields) - keys)}"
+    )
+    # The two frame counters are DIFFERENT engine calls (#847): a capture that
+    # stamped the process frame twice would publish a render frame that never
+    # stands still, which is the one thing the field exists to show.
+    body = match.group("body")
+    assert '"engine_frame": Engine.get_process_frames()' in body, body
+    assert '"render_frame": Engine.get_frames_drawn()' in body, body
+
+
 def test_game_get_names_game_rect_for_the_control_reads_it_cannot_serve():
     # `game get` reads the storage surface, and a Control's laid-out geometry is
     # not on it (#852, GDA-DF-071): `position` and `size` carry editor usage only,

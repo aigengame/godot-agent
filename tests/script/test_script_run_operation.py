@@ -52,7 +52,7 @@ from gda.errors import (
     Failure,
 )
 from gda.execution import ExecutionKind
-from gda.models import TerminationPhase
+from gda.models import GdaErrorEnvelope, TerminationPhase
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_OPERATION, EXIT_TIMEOUT
 from gda.runner import LaunchFailure, LaunchWatch, RunResult, UserDataReport
 from tests.support import minimal_project
@@ -749,17 +749,24 @@ def test_not_a_main_loop_entry_is_a_failure_despite_the_zero_exit():
     assert "SceneTree" in outcome.error.message
 
 
-def test_every_entry_failure_kind_has_a_verdict_code():
-    # A kind in the precedence list with no row in the code map would be a KeyError
-    # on a real failure path — the one way this pair can break. Pin them in lockstep,
-    # and pin that every code they name is actually registered.
-    from gda.commands.script import _ENTRY_FAILURE_CODES
+def test_every_derived_entry_verdict_code_is_registered():
+    # The map is DERIVED from the precedence since #976, so a kind with no row is
+    # no longer a thing that can happen — this used to pin the two in lockstep
+    # because a missing row was a KeyError on a real failure path. What a test can
+    # still catch is a code naming nothing in the registry, which would reach a
+    # caller as a verdict it cannot branch on. The second assertion keeps the
+    # derivation honest the other way round: a more-specific code for a kind
+    # OUTSIDE the precedence is a dead row no verdict ever reads.
+    from gda.commands.script import (
+        _ENTRY_FAILURE_CODES,
+        _SPECIFIC_ENTRY_FAILURE_CODES,
+    )
     from gda.error_codes import ERROR_CODE_BY_CODE
-    from gda.script_errors import _ENTRY_FAILURE_PRECEDENCE
+    from gda.script_errors import ENTRY_FAILURE_PRECEDENCE
 
-    assert set(_ENTRY_FAILURE_CODES) == set(_ENTRY_FAILURE_PRECEDENCE)
     for code in _ENTRY_FAILURE_CODES.values():
         assert code in ERROR_CODE_BY_CODE
+    assert set(_SPECIFIC_ENTRY_FAILURE_CODES) <= set(ENTRY_FAILURE_PRECEDENCE)
 
 
 def test_strict_maps_a_non_zero_exit_onto_the_registered_failure():
@@ -967,7 +974,12 @@ ABORTED_STDERR = (
 )
 
 
-def _timed_out(stdout: str = "", stderr: str = "", elapsed: float = 120.4) -> RunResult:
+def _timed_out(
+    stdout: str = "",
+    stderr: str = "",
+    elapsed: float = 120.4,
+    user_data: UserDataReport | None = None,
+) -> RunResult:
     """The RunResult shape the STREAMING capture returns for a timed-out run."""
     return RunResult(
         stdout=stdout,
@@ -975,6 +987,7 @@ def _timed_out(stdout: str = "", stderr: str = "", elapsed: float = 120.4) -> Ru
         exit_code=EXIT_TIMEOUT,
         launch_failure=LaunchFailure.TIMEOUT,
         elapsed_seconds=elapsed,
+        user_data=user_data,
     )
 
 
@@ -1437,6 +1450,25 @@ def test_an_entry_load_failure_arms_the_abort_too():
     assert verdicts == [False, False, True]
 
 
+def test_a_non_canonical_entry_spelling_still_arms_the_abort():
+    # Attribution (3), end to end: the engine reports the spelling it resolved,
+    # while the caller addresses the entry however they spelled it, and the abort
+    # must still arm — a raw comparison anywhere on this path would leave a dead run
+    # waiting out the whole --timeout (the #651 failure mode, on the #655 path).
+    # The property held before #976 and holds after it; what changed is WHERE the
+    # identity is folded — the watch stored a canonical entry, the recognizer's
+    # predicates now own the comparison. The unit pin on that predicate is
+    # `test_names_entry_script_is_the_canonical_identity_on_both_sides`; this one
+    # pins that the abort path as a whole still asks the question canonically.
+    watch = _CompletionMarkerWatch(
+        "SUITE DONE", entry="res://tests/../tests/logic.gd", silence=3.0
+    )
+
+    verdicts = _drive(watch, [("", ABORTED_STDERR, 0.5), ("", "", 2.9), ("", "", 3.6)])
+
+    assert verdicts == [False, False, True]
+
+
 def test_output_after_the_error_resets_the_silence_window():
     # A run that keeps working keeps printing, and any output must restart the wait
     # from scratch: under the declared contract, output is itself the liveness the
@@ -1643,6 +1675,7 @@ def test_the_abort_envelope_names_the_condition_without_a_marker_string():
         script_errors=[],
         stdout="",
         stderr="",
+        user_data=None,
     )
 
     assert failure.error.code == "script_aborted"
@@ -2071,3 +2104,160 @@ def test_an_unknown_platform_data_path_is_reported_as_null_not_omitted():
     assert isinstance(outcome, ScriptRunResult)
     emitted = json.loads(outcome.model_dump_json())
     assert emitted["engine_data_path"] is None
+
+
+# --- The same placement on THREE named failure envelopes of this channel (#862).
+#
+# #850 published the placement on the success result alone, which left the two
+# paths the dogfooding record is actually about without it: `--strict` and the
+# timeout (GDA-DF-049, PIPE-DF-077). Both end in an Error envelope. So THREE named
+# verdicts carry the same facts on `Failure evidence`, read off the same Raw run.
+# Three codes, not a category: the never-ran verdicts report on no run, and
+# `engine_crashed` / `stdout_spill_failed` report on one that ran and still carry
+# nothing — they are on no evidence axis at all (ADR-0004's #862 note).
+
+
+def _evidence(outcome: Failure) -> dict:
+    """The envelope's `evidence` object as a consumer reads it — omitted keys absent."""
+    emitted = json.loads(
+        GdaErrorEnvelope(error=outcome.error).model_dump_json(exclude_none=True)
+    )
+    return emitted["error"].get("evidence", {})
+
+
+def _redirected() -> UserDataReport:
+    return _report(
+        Path("/tmp/udr"),
+        Path("/tmp/udr/Library/Application Support"),
+        Path("/tmp/udr/logs/godot.log"),
+    )
+
+
+def test_a_strict_failure_reports_the_engine_data_path_of_a_default_run():
+    # The default: no root, so the log was a private temporary file the launch
+    # removed. One key is a fact, and it is the one that settles the question the
+    # record is about — whether the script's `user://` write had a writable
+    # directory — so a failed save stops reading as a game regression.
+    outcome, _ = _run(
+        RunResult(
+            stdout="",
+            stderr="",
+            exit_code=1,
+            user_data=_report(None, Path("/home/u/.local/share"), None),
+        ),
+        strict=True,
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "script_failed"
+    evidence = _evidence(outcome)
+    assert evidence["engine_data_path"] == "/home/u/.local/share"
+    assert "user_data_root" not in evidence
+    assert "log_file" not in evidence
+    # Beside, not instead of: the keys #687 put here are untouched.
+    assert evidence["exit_status"] == 1
+    assert evidence["script_errors"] == []
+
+
+def test_a_strict_failure_under_a_root_reports_all_three():
+    # With `--user-data-root DIR` every path is a fact, and the log is the one the
+    # caller can still read after the command returned.
+    outcome, _ = _run(
+        RunResult(stdout="", stderr="", exit_code=1, user_data=_redirected()),
+        strict=True,
+    )
+
+    assert isinstance(outcome, Failure)
+    assert _evidence(outcome)["user_data_root"] == "/tmp/udr"
+    assert (
+        _evidence(outcome)["engine_data_path"] == "/tmp/udr/Library/Application Support"
+    )
+    assert _evidence(outcome)["log_file"] == "/tmp/udr/logs/godot.log"
+
+
+def test_a_timed_out_run_reports_the_placement_beside_its_clocks():
+    # The path that burned three 120s ceilings on one unwritable `user://`. The log
+    # matters most here: gda stopped waiting for a verdict, so the engine's own
+    # account of the run is what the caller reads next.
+    outcome, _ = _run(_timed_out(elapsed=30.5, user_data=_redirected()))
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "launch_timeout"
+    evidence = _evidence(outcome)
+    assert evidence["log_file"] == "/tmp/udr/logs/godot.log"
+    assert evidence["user_data_root"] == "/tmp/udr"
+    assert evidence["engine_data_path"] == "/tmp/udr/Library/Application Support"
+    # The clocks this envelope already carried are unchanged.
+    assert evidence["elapsed_seconds"] == 30.5
+    assert evidence["timeout_seconds"] == 120.0
+
+
+def test_an_aborted_run_reports_the_placement_too():
+    # The third of the three. gda ended it short of the ceiling, so it has
+    # no less need of the environment than the timeout beside it.
+    outcome, _ = _run(
+        RunResult(
+            stdout="",
+            stderr=ABORTED_STDERR,
+            exit_code=0,
+            launch_failure=LaunchFailure.ABORTED,
+            elapsed_seconds=4.1,
+            user_data=_redirected(),
+        ),
+        completion_marker="SUITE DONE",
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "script_aborted"
+    evidence = _evidence(outcome)
+    assert evidence["engine_data_path"] == "/tmp/udr/Library/Application Support"
+    assert evidence["user_data_root"] == "/tmp/udr"
+    assert evidence["log_file"] == "/tmp/udr/logs/godot.log"
+    # Still no `timeout_seconds`: an abort stops short of its ceiling (#687).
+    assert "timeout_seconds" not in evidence
+
+
+def test_an_unknown_platform_data_path_is_omitted_from_a_failure_envelope():
+    # The ONE divergence from the success result, and it is `Failure evidence`'s own
+    # rule rather than an accident: the success result reports a null
+    # `engine_data_path` when the platform's variable is unset, while every field of
+    # this object is omitted rather than nulled (ADR-0004's #687 amendment).
+    outcome, _ = _run(
+        RunResult(
+            stdout="", stderr="", exit_code=1, user_data=_report(None, None, None)
+        ),
+        strict=True,
+    )
+
+    assert isinstance(outcome, Failure)
+    evidence = _evidence(outcome)
+    assert "engine_data_path" not in evidence
+    assert evidence["exit_status"] == 1
+
+
+def test_a_run_with_no_placement_report_carries_no_placement_keys():
+    # A hand-built run at a test seam — every real launch attaches a report unless
+    # the placement was REFUSED, and that refusal is the shared classifier's. gda
+    # knows no placement, so it claims none.
+    outcome, _ = _run(RunResult(stdout="", stderr="", exit_code=1), strict=True)
+
+    assert isinstance(outcome, Failure)
+    evidence = _evidence(outcome)
+    assert not {"engine_data_path", "user_data_root", "log_file"} & set(evidence)
+
+
+def test_a_never_ran_verdict_carries_no_placement():
+    # The boundary #850 drew and this slice keeps: a script that never STARTED fails
+    # the criterion's third clause — the caller's next step is the script, not the
+    # environment — so the verdict stays byte-identical even though the raw run that
+    # produced it holds the placement.
+    outcome, _ = _run(
+        RunResult(
+            stdout="", stderr=MISSING_STDERR, exit_code=0, user_data=_redirected()
+        )
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "script_not_found"
+    evidence = _evidence(outcome)
+    assert not {"engine_data_path", "user_data_root", "log_file"} & set(evidence)

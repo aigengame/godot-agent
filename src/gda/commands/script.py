@@ -66,6 +66,7 @@ from gda.models import (
     NormalizedPath,
     ProjectRootedResult,
     TerminationPhase,
+    placement_fields,
 )
 from gda.project import (
     RES_PREFIX,
@@ -75,10 +76,12 @@ from gda.project import (
 )
 from gda.runner import LaunchFailure, LaunchFn, RunResult, launch
 from gda.script_errors import (
+    ENTRY_FAILURE_PRECEDENCE,
     ScriptError,
     ScriptErrorKind,
     entry_load_failure,
     leaked_at_exit,
+    names_entry_script,
     parse_script_errors,
     script_error_line,
 )
@@ -1376,7 +1379,10 @@ def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
     - plus a ``RUNTIME_ERROR`` naming the entry, which that function excludes **by
       construction** (one of the two kinds proving the script DID run) and which is
       exactly the dogfooded case: an error raised inside the entry's own
-      ``_initialize`` aborts it before its ``quit()``.
+      ``_initialize`` aborts it before its ``quit()``. WHETHER that record names the
+      entry is :func:`gda.script_errors.names_entry_script`'s answer (#976) — the
+      same canonical comparison ``entry_load_failure`` already makes, asked of the
+      module that owns it rather than re-spelled here beside the kind test.
 
     ``PUSH_ERROR`` is deliberately NOT here (#722), though it too can name the
     entry. The watch's whole premise is that something interrupted the run: a
@@ -1400,9 +1406,7 @@ def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
     if entry_load_failure(errors, entry) is not None:
         return True
     return any(
-        error.kind is ScriptErrorKind.RUNTIME_ERROR
-        and error.path is not None
-        and canonical_res_path(error.path) == entry
+        error.kind is ScriptErrorKind.RUNTIME_ERROR and names_entry_script(error, entry)
         for error in errors
     )
 
@@ -1483,7 +1487,10 @@ class _CompletionMarkerWatch:
         # it is here so the hazard cannot be reintroduced from a third call site.
         stripped = completion_marker.strip() if completion_marker is not None else ""
         self._marker = stripped or None
-        self._entry = canonical_res_path(entry)
+        # Stored as the caller spelled it: the identity is folded where the
+        # comparison happens, by the recognizer's own predicates (#976), so a second
+        # canonicalization here would be a rule kept in two places again.
+        self._entry = entry
         self._silence = silence
         self._partial: dict[str, str] = {"stdout": "", "stderr": ""}
         # A bounded tail of stderr lines, re-parsed as new ones arrive. A window,
@@ -1548,25 +1555,35 @@ class _CompletionMarkerWatch:
 # are the ones it already names (ADR-0002 — reuse the code, discriminate via the
 # message):
 #
-# - ``script_compile_failed`` — this script does not compile. The engine's explicit
-#   load-failure sentence (COMPILE_FAILED), the parse diagnostic behind it
-#   (PARSE_ERROR), and the generic give-up (LOAD_FAILED) all land here: whichever
-#   sentence the engine chose, what gda knows is that the entry could not be loaded
-#   or compiled.
+# - ``script_compile_failed`` — this script does not compile. It is the GENERAL
+#   verdict of the set, the one every kind takes that names no more specific
+#   condition: the engine's explicit load-failure sentence (COMPILE_FAILED), the
+#   parse diagnostic behind it (PARSE_ERROR), the generic give-up (LOAD_FAILED) and
+#   the resource-layer cascade under them (RESOURCE_LOAD_FAILED) all land here —
+#   whichever sentence the engine chose, what gda knows is that the entry could not
+#   be loaded or compiled.
 # - ``incompatible_script_type`` — this script compiles, but its base type is wrong
 #   for the requested use. ``script attach`` means "wrong for the target node";
 #   ``script run`` means "does not extend SceneTree/MainLoop, so it cannot be a
 #   one-shot entry point". Same condition, different target.
 #
-# Every kind in ``_ENTRY_FAILURE_PRECEDENCE`` MUST have a row here — a missing row
-# would be a KeyError on a real failure path, so a test pins the two in lockstep.
-_ENTRY_FAILURE_CODES: dict[ScriptErrorKind, str] = {
+# The map is DERIVED from the precedence rather than restated beside it (#976): it
+# is built over ``ENTRY_FAILURE_PRECEDENCE``, so every kind that can produce this
+# verdict has a row BY CONSTRUCTION and no live failure path can raise a KeyError —
+# which is what the two held in lockstep by a test could not promise. A kind names
+# its own code only where its condition is more specific than what the set as a
+# whole says; the rest take that general verdict.
+#
+# The codes stay HERE, in the command layer: ``gda.script_errors`` is a pure
+# function of the engine text and learns nothing about gda's failure registry.
+_ENTRY_NOT_LOADABLE_CODE = "script_compile_failed"
+_SPECIFIC_ENTRY_FAILURE_CODES: dict[ScriptErrorKind, str] = {
     ScriptErrorKind.SCRIPT_MISSING: "script_not_found",
-    ScriptErrorKind.COMPILE_FAILED: "script_compile_failed",
-    ScriptErrorKind.PARSE_ERROR: "script_compile_failed",
-    ScriptErrorKind.LOAD_FAILED: "script_compile_failed",
-    ScriptErrorKind.RESOURCE_LOAD_FAILED: "script_compile_failed",
     ScriptErrorKind.NOT_A_MAIN_LOOP: "incompatible_script_type",
+}
+_ENTRY_FAILURE_CODES: dict[ScriptErrorKind, str] = {
+    kind: _SPECIFIC_ENTRY_FAILURE_CODES.get(kind, _ENTRY_NOT_LOADABLE_CODE)
+    for kind in ENTRY_FAILURE_PRECEDENCE
 }
 
 
@@ -1723,7 +1740,12 @@ def run_script_run_operation(
     # the diagnostics already parsed above — no second reading of the stderr.
     if strict and (raw.exit_code != 0 or leaked_at_exit(diagnostics) is not None):
         return script_exit_status_failure(
-            script, raw.exit_code, raw.stdout, raw.stderr, diagnostics
+            script,
+            raw.exit_code,
+            raw.stdout,
+            raw.stderr,
+            diagnostics,
+            user_data=raw.user_data,
         )
 
     # The public promotion of the internal Raw run: the boundary DTO built by
@@ -1741,14 +1763,15 @@ def run_script_run_operation(
     # The launch's own placement, published as strings (#850). Read off the Raw run
     # rather than resolved again here: the root and the platform-derived data path
     # are the launch's answers, and asking a second time would let this channel
-    # report a placement the run did not have.
+    # report a placement the run did not have. The rendering is the contract core's
+    # (`gda.models.placement_fields`), which is the ONE projection this channel's two
+    # halves share (#862 review) — a key it omits is a path the launch did not have.
     # A missing report is a hand-built run at a test seam — every real launch
     # attaches one — and reads as "gda knows no placement", which the model then
-    # renders as one nullable key and two omitted ones.
-    placement = raw.user_data
-    root = placement.root if placement is not None else None
-    data_path = placement.data_path if placement is not None else None
-    log_file = placement.log_file if placement is not None else None
+    # renders as one nullable key and two omitted ones, because `engine_data_path`
+    # declares a None default and the other two are dropped by this model's own
+    # serializer.
+    placement = placement_fields(raw.user_data)
     return ScriptRunResult(
         path=script,
         exit_status=raw.exit_code,
@@ -1758,9 +1781,9 @@ def run_script_run_operation(
         stdout_truncated=truncated,
         stdout_file=spill,
         diagnostics=diagnostics,
-        engine_data_path=str(data_path) if data_path is not None else None,
-        user_data_root=str(root) if root is not None else None,
-        log_file=str(log_file) if log_file is not None else None,
+        engine_data_path=placement.get("engine_data_path"),
+        user_data_root=placement.get("user_data_root"),
+        log_file=placement.get("log_file"),
     )
 
 
@@ -1781,10 +1804,11 @@ def _classify_ended_run(
     envelope that contained only "timed out" (GDA-DF-012), and a healthy suite that
     outgrew its ceiling and looked identical to a hang (GDA-DF-032).
 
-    All of it is PROSE in the message and ``diagnostics``. Structured envelope
-    fields would change ADR-0004's uniform failure ABI; **#687 owns that decision**,
-    and ADR-0031's amendment records that this path adopts its outcome. Do not add
-    envelope fields here.
+    It reaches the caller as PROSE in the message and ``diagnostics``, plus the typed
+    keys ADR-0004 has since admitted to ``evidence`` — the clocks, the phase and the
+    parsed errors of #687, and the launch's `User-data placement` of #862. A new
+    envelope FIELD beside `Gda error code` would change that ADR's uniform failure
+    ABI, and it owns that decision: do not add one here.
 
     The recognized script errors are read with the SAME parser stack the rest of
     ``script run`` uses — :mod:`gda.engine_log` through
@@ -1817,6 +1841,7 @@ def _classify_ended_run(
             script_errors=recognized,
             stdout=raw.stdout,
             stderr=raw.stderr,
+            user_data=raw.user_data,
         )
     if raw.launch_failure is LaunchFailure.TIMEOUT:
         return script_run_timeout_failure(
@@ -1827,6 +1852,7 @@ def _classify_ended_run(
             script_errors=recognized,
             stdout=raw.stdout,
             stderr=raw.stderr,
+            user_data=raw.user_data,
         )
     return None
 
@@ -2751,8 +2777,12 @@ def run_script(
     was: ``engine_data_path``, the directory the engine resolved ``user://``
     beneath, is always present; ``user_data_root`` and ``log_file`` are reported
     only when a root was given — the one case in which the log outlives the launch,
-    since by default it is a private temporary file gda removes. A failure envelope
-    (``--strict``'s ``script_failed``, a ``launch_timeout``) does not carry them.
+    since by default it is a private temporary file gda removes. Three failure
+    envelopes say the same, under ``evidence``: ``script_failed``, ``launch_timeout``
+    and ``script_aborted``. There the keys follow the omitted-never-null rule of that
+    object, so an unresolved ``engine_data_path`` is absent rather than null. Those
+    three and no others — every other failure of this command, ``engine_crashed`` and
+    ``stdout_spill_failed`` included, carries no placement.
 
     A script that never RAN is a failure either way. Godot reports these on stderr and
     still exits 0, so gda decides them from the engine's error stream, not its exit

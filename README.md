@@ -449,7 +449,7 @@ gda restores the explicit lines it drops and reports the rest on the result.
 | ------- | ------------ |
 | `export list` | Enumerate the project's export presets (name, platform, …). |
 | `export get` | Report one preset's details plus export-template install status. |
-| `export run` | Export a named preset (`release` / `debug` / `pack`) to a destination. |
+| `export run` | Export a named preset (`release` / `debug` / `pack`) to a destination, and report what it left in the project: every file created (classified), and the rewritten files outside the `.godot/` cache — a cold cache leaves thousands behind, and rewrites inside the cache are not reported. |
 
 **`shader`** — shader files (`.gdshader`)
 
@@ -531,8 +531,11 @@ Read injected mouse coordinates from `event.position` — in a daemon session
 
 | Command | What it does |
 | ------- | ------------ |
-| `screen capture` | Capture one viewport frame to a PNG. |
-| `screen frames` | Capture an N-frame PNG sequence (`--summary` for a compact aggregate result). |
+| `screen capture` | Capture one viewport frame to a PNG; `--settle-frames N` lets the game run N frames first. |
+| `screen frames` | Capture an N-frame PNG sequence (`--summary` for a compact aggregate result; `--settle-frames` runs once, before the first frame). |
+
+A capture's receipt carries two frame counters: `engine_frame` is the boundary the read
+was taken at, `render_frame` the drawn frame the pixels are.
 
 ### Global flags
 

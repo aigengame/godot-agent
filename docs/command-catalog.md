@@ -1027,10 +1027,26 @@ outlives the launch, the default being a private temporary file gda removes. Bot
 omitted rather than null when they are not facts. The facts come off the shared launch
 primitive's `Raw run`, and `script run` is the only channel that publishes them:
 `scene preflight`, `export run`, `resource import` and the sentinel commands read the
-same run and disclose none. So does a FAILURE of this command — `--strict`'s
-`script_failed`, a `launch_timeout` — which keeps its pre-#850 shape: disclosing the
-placement there means extending ADR-0004's `Failure evidence` producer set, which is
-that ADR's decision and a follow-up, not this one.
+same run and disclose none.
+
+Three failure verdicts carry the same placement as `evidence` (#862) — `--strict`'s
+`script_failed`, this command's own `launch_timeout` and `script_aborted` — because
+that is where the misdiagnosis they answer actually lands: a `--strict` run whose
+`user://` write failed, and a timeout burned on the same cause. On the timeout and
+the abort the `log_file` is the point of it, since gda stopped waiting for a verdict
+and the engine's own account of the run is what to read next. The presence rules are
+the success result's with ONE difference: every field of `Failure evidence` is
+omitted rather than null, so an `engine_data_path` the platform did not resolve is
+absent here and null there.
+
+Those three by name, not a category — every other failure carries none of the three,
+whether or not the script ran. That is the verdicts about a script that never RAN
+(`script_not_found` / `script_compile_failed` / `incompatible_script_type`) and the
+pre-launch `target_outside_project` refusal; it is also `engine_crashed` and
+`stdout_spill_failed`, which do report on a run that ran but carry no `evidence` at
+all — `engine_crashed` is the shared classifier's verdict for every channel, and its
+`diagnostics` already carries the crash account (ADR-0004's #862 note). And it is
+every other channel's `launch_timeout`.
 
 The script executes in full, within the trusted-project assumption (ADR-0009).
 
@@ -1312,6 +1328,43 @@ resolved absolute artifact path. Missing output parent directories are created
 before the native export and reported in `created_dirs`, outermost to innermost;
 an uncreatable parent is reported as `export_output_parent_failed` before Godot
 runs.
+
+`gda export run` also reports what the export did to the project tree
+(`project_tree_mutations`, #839). The native export runs the editor import pass, so
+an export against a cold cache creates the whole `.godot/` cache plus the `.import`
+and `.uid` sidecars beside the sources, and a stale asset makes it rewrite the
+generated resources it owns — GDA-DF-067 saw about 14,000 such files appear on
+disk while `warnings` stayed empty. `created` covers every file the export added
+ANYWHERE under the project, each carrying `resource import`'s own classification
+(`cache_owned` / `source_adjacent`, from
+`gda.import_evidence.classify_created_file`) against the reported `cache_root`, so
+the cache half can be cleaned as one unit; directory links are walked as the
+engine reads them, once each. `modified` covers the pre-existing files OUTSIDE
+that root whose CONTENT changed, and only a file whose size or timestamp moved is
+compared: the pass touches far more files
+than it rewrites, a changed timestamp alone would bury the few rewrites the record
+is about, and the price is that a rewrite preserving both is not seen. A rewrite
+INSIDE `cache_root` is not reported at all — the cache is reported as one unit, and
+a warm export rewrites its bookkeeping files on every run — so an empty `modified`
+says nothing about the cache. Out of both lists: the artifact with everything under
+it (a directory artifact such as a macOS `.app` bundle included) and a top-level
+`.git`. The exclusion stops there — a file the export writes BESIDE the artifact,
+such as the `game.pck` a Linux binary with `binary_format/embed_pck=false` gets next
+to it, is reported like any other created file.
+`skipped` counts what neither walk could account for — an entry that
+is not a regular file (a FIFO, a socket, a device; gda never opens one), or a file
+that could not be read, or a directory whose whole subtree is then uncovered —
+because an unreadable corner of the tree must not fail an export that succeeded;
+it is a count rather than a path list, so the remedy is to repair the tree and run
+again. A FAILED export reports no
+mutations: the failure answers through the error envelope. The report is the
+difference between gda's walk before the export and its walk after; gda assumes it
+is the project's sole driver during the export (ADR-0018), so a change another
+writer makes in that interval is attributed to the export. The report is disclosure
+— the export deletes and restores nothing — and it covers the engine's default
+cache directory: a project that sets
+`application/config/use_hidden_project_data_directory=false` keeps its cache under
+`godot/`, whose files then read as `source_adjacent`.
 
 Export-template discovery follows the user-data placement (#840). Godot reads the
 templates from its data directory, and `--user-data-root` relocates exactly that,
@@ -1736,7 +1789,8 @@ re-derives every verdict from a running engine.
   `--await-*` predicate (shipped, #661) holds a `screen capture` game-side until
   `node.property == value` first holds — checked once per PROCESS frame, up to
   `--await-frames` (default 60, ceiling 600) — then captures at that SAME frame
-  boundary and reports the predicate evidence (`observed` value, absolute
+  boundary at the default `--settle-frames` 0 (a settle moves the read that many
+  frames on) and reports the predicate evidence (`observed` value, absolute
   `engine_frame`, window-relative `frames_waited`); a predicate that never holds is
   the typed `live_predicate_unmet` carrying the last observed value. `--await-events`
   additionally applies input-sequence events (the same discriminated union `input
@@ -1756,7 +1810,9 @@ re-derives every verdict from a running engine.
   numerically, strings against the String rendering). The coherence contract,
   verified live on both trigger paths (ADR-0020 amendment): each tick EVALUATES
   BEFORE it injects, so the observed property is always the state of the previously
-  COMPLETED frame — exactly the frame the captured texture presents. A
+  COMPLETED frame — with `--settle-frames` 0, the default, exactly the frame the
+  captured texture presents; a settle moves the texture that many frames on and
+  leaves the observation where it was read (#847). A
   `_process`-driven flip is observed with its own presentation; a state written by an
   injected event's synchronous callback is observed one boundary later, together with
   its presentation. Consequences: the predicate sees frame-boundary state only (a
@@ -1767,23 +1823,62 @@ re-derives every verdict from a running engine.
   trails by that game-side frame — gate on the visual's own property when exact
   pixels matter.
   Every `screen capture` result also carries an evidence **receipt** (shipped, #660;
-  ADR-0017 amendment): `{session_id, scene_path, scene_uid, engine_frame, observed,
-  sha256}`, every key always present (the nullable ones required-but-nullable in the
+  ADR-0017 amendment): `{session_id, scene_path, scene_uid, engine_frame,
+  render_frame, observed, sha256}`, every key always present (the nullable ones
+  required-but-nullable in the
   published schema). `scene_path`/`scene_uid` are the LAUNCHED scene's identity —
   remembered at the session handshake, the same value the daemon verified; a launch
   fact, not a claim about what an individual frame presents — with the `uid://` read
   from the scene file's header (ADR-0036; gda-authored scenes report null).
-  `engine_frame` is read at the SAME frame boundary as the pixels; `session_id` is
+  The two FRAME counters say different things (#847). `engine_frame` is the process
+  frame the read was taken at — for a gated capture the predicate's evaluation frame
+  plus `settle_frames`. `render_frame` is the engine's drawn-frame counter
+  (`Engine.get_frames_drawn()`), the ordinal of the drawn frame the pixels ARE. They
+  advance together while the engine draws on every process frame, and diverge when it
+  does not: the engine draws a frame AFTER each process frame's callbacks, so a read
+  taken during them returns the preceding drawn frame, and a frame the engine chose
+  not to draw (a window that is not visible, low-processor-usage mode with no change)
+  widens the gap without bound — measured on 4.6.3-stable, four consecutive captures
+  stayed byte-identical across 694 process frames while `render_frame` stood still
+  (#847 phase 1). Two captures reporting the same `render_frame` therefore present the
+  same drawn frame, so identical pixels there are the engine's doing, not the game's.
+  `session_id` is
   the daemon-minted engine session identity that `gda daemon status` reports (a new
   session mints a new one, so a receipt from a stale session is detectable by the
   mismatch); `sha256` is computed CLI-side over exactly the bytes written to
   `--output`. A plain capture's receipt binds session, scene, and frame and removes
   the local hashing step; a gated capture's receipt additionally echoes the
-  predicate's `observed` value at that same frame, and its COMPLETE evidence is the
-  pair receipt + `predicate` report (which carries the node, property, and expected
-  value). A reply whose receipt is missing, echoes an observation no predicate asked
+  predicate's `observed` value, read at the predicate's own frame — the read's own
+  frame too at the default `--settle-frames` 0, that frame plus the settle
+  otherwise — and its COMPLETE evidence is the pair receipt + `predicate` report
+  (which carries the node, property, and expected value). A reply whose receipt is missing, echoes an observation no predicate asked
   for, or disagrees with the predicate report beside it is refused as
   `contract_violation` before any file is written.
+  `--settle-frames N` (shipped, #847) runs N more process frames before the read, on
+  BOTH `screen capture` and `screen frames`, for a visual that settles over several
+  frames after a state change. The default is 0, not `input tap`'s 2, because a
+  capture has no release to observe, so a wait by default would move every read to
+  a LATER boundary and could miss a short transient.
+  With `--await-*` the settle runs AFTER the predicate first holds and after that
+  tick's `--await-events` were injected: the predicate report keeps naming the frame
+  it was observed at, and the receipt's `engine_frame` is exactly that frame plus the
+  declared count — verified CLI-side, so a harness that read at another boundary is a
+  `contract_violation`. An event scheduled beyond the settle still fires before the
+  reply, but is not in the image. On `screen frames` the settle runs ONCE, before the
+  FIRST frame, so the sequence still carries exactly `--frames` frames; the settle and
+  `--frames` share the 600-frame per-window ceiling, and the pair is bounded
+  model-side. Both results publish the count the HARNESS's own wait loop reports,
+  not the requested one, and a reply whose count differs from the request is
+  refused before any file is written — so a harness that skipped the wait cannot
+  answer with the number it was asked for.
+  `--settle-frames` does NOT fix the PARTIAL frame #847 reports. Phase 1 could not
+  reproduce that shape on a real windowed macOS desktop: 10 click-driven and
+  predicate-bound trials compared each unchanged Control's pixels against the
+  settled frame, and 3 sweeps of 60 consecutive frames did the same at
+  single-frame resolution across the switch. No capture omitted a Control. The
+  read is therefore unchanged. It is also not moved to
+  `RenderingServer.frame_post_draw`, which would pair a tick's observation with
+  the NEXT frame's pixels and break the `--await-*` binding above.
 - **`perf` (runtime performance monitoring):** `perf monitors` snapshots the running
   game's instantaneous Performance counters in one frame (shipped, #223); `perf
   monitor --property … --frames N` / `--signal … --frames N` collects a per-frame
@@ -1904,7 +1999,11 @@ re-derives every verdict from a running engine.
   is idempotent (`launched: false`, nothing relaunched). Success also carries the STARTUP
   VERDICT of the session it established (#848): `startup_diagnostics` — the `ScriptError[]`
   that `script run` and `scene preflight` publish — and `clean_start`, the one boolean
-  saying nothing was recognized against that start. It answers what readiness never did: a
+  saying no record about the RUN was recognized against that start — a record about the
+  PROCESS, if the prefix holds one, is reported beside it and does not gate it, the same
+  exclusion `scene preflight`'s `started` makes; the one such record today, the exit-time
+  leak, is printed as the engine exits, after that prefix ends, so it does not reach this
+  list on a live path. It answers what readiness never did: a
   harness that connected is not a scene that started cleanly, because a script that fails
   to compile leaves its node script-less and the session serves anyway (GDA-DF-047). A
   disclosure on SUCCESS, never a refusal — a broken scene is exactly when `diag errors`,
@@ -1921,15 +2020,15 @@ re-derives every verdict from a running engine.
   `live_log_unavailable`; the human rendering says so in one line, since a reader who sees
   nothing would take it for a clean start. An idempotent repeat reports the establishing
   launch's verdict, not a fresh read.
-  A daemon started by an OLDER gda answers without the two keys — and a drifted one with a
-  pair that contradicts itself (the pair is one fact: both null, or a list and exactly "that
-  list is empty") — which the CLI reports as `contract_violation`; run `gda daemon stop`,
-  then `gda daemon start`, so the daemon
-  serves the current contract. The skew is reachable because a daemon is a long-lived
-  per-project process and a repeat `daemon start` only reports `already_running`, so
-  upgrading gda while one runs leaves the older daemon serving. There is no CLI/daemon
-  version handshake and none is planned: a mixed-version session is not a compatibility
-  target — the CLI/daemon leg of ADR-0018's current-harness policy (2026-09-08).
+  A daemon started by an OLDER gda answers without the two keys — and a drifted one with
+  a pair that contradicts itself (the pair is one fact: both null, or a list and exactly
+  "no record about the run among them") — which the CLI reports as `contract_violation`;
+  run `gda daemon stop`, then `gda daemon start`, so the daemon serves the current
+  contract. The skew is reachable because a daemon is a long-lived per-project process
+  and a repeat `daemon start` only reports `already_running`, so upgrading gda while one
+  runs leaves the older daemon serving. There is no CLI/daemon version handshake and
+  none is planned: a mixed-version session is not a compatibility target — the
+  CLI/daemon leg of ADR-0018's current-harness policy (2026-09-08).
   A session stops serving when its harness channel breaks OR
   when a relay hits `live_timeout` — the one-op-at-a-time RPC carries no request id, so a
   late reply can no longer be attributed — and the next operation that requires a session

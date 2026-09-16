@@ -310,3 +310,31 @@ headless.
 - "State consistency" (#5) is now concretely scoped: the property of a per-project
   daemon holding one engine session across one-shot CLI calls and across multiple
   clients — **defined in ADR-0020** (which closes #5).
+
+> **Outcome (2026-09-16, #847 / PR #982) — the capture receipt carries a SECOND
+> frame counter, and a declared settle moves the read away from the
+> observation.** The #660 enumeration above is now `{session_id, scene_path,
+> scene_uid, engine_frame, render_frame, observed, sha256}`. `render_frame`
+> (`Engine.get_frames_drawn()`) is a REQUIRED key and names the drawn frame the
+> pixels ARE; `engine_frame` (`Engine.get_process_frames()`) stays the process
+> frame the READ was taken at. Two counters are needed because the engine draws
+> AFTER each process frame's callbacks and can skip the draw entirely (a window
+> that is not visible, low-processor-usage mode with nothing changed): measured
+> on 4.6.3-stable, four consecutive captures stayed byte-identical while
+> `engine_frame` advanced 40 → 326 and the drawn counter stood at 1. Only the
+> drawn counter tells such a pair apart, so "read at the SAME frame boundary as
+> the pixels" keeps naming the read BOUNDARY, while the identity of the frame
+> those pixels are is now published instead of inferred from it.
+>
+> `screen capture` and `screen frames` also take `--settle-frames N` (default
+> 0), which runs N more process frames before the read. The clause above — a
+> gated capture's receipt "echoes the predicate's observed value at that frame"
+> — holds at that default, where the observation and the read share one
+> boundary. With `settle_frames > 0` the two come apart on purpose: the
+> predicate is observed at frame t, the read is taken at t + N, `engine_frame`
+> is t + N, the `predicate` report keeps naming t, and the echo is the value
+> observed at t. The CLI's correlation gate follows — it requires
+> `receipt.engine_frame == predicate.engine_frame + settle_frames` instead of
+> equality, so a harness that read at any other boundary is still a
+> `contract_violation` before a file is written. No other receipt key changes
+> shape, presence, or value.

@@ -92,3 +92,19 @@ headless CLI (ADR-0001). Recorded here and via a pointer on ADR-0000.
 - `state consistency` becomes a defined CONTEXT.md glossary term, closing #5.
 - **Multi-writer is the explicit no.** A future need supersedes this ADR rather than
   stretching it.
+
+> **Outcome (2026-09-16, #847 / PR #982) — the #661 amendment's same-boundary
+> binding is the DEFAULT, and the caller can opt out of it.** `screen capture`
+> and `screen frames` now take `--settle-frames N` (default 0), which runs N
+> more process frames before the viewport is read, for a visual that settles
+> over several frames after a state change. At the default the amendment above
+> is unchanged: the predicate-gated capture reads its two facts at the SAME
+> frame boundary. With N > 0 the two facts are read at two boundaries, on
+> purpose — the predicate is observed at frame t, the pixels are read at t + N,
+> the receipt's `engine_frame` is t + N, and the `predicate` report keeps
+> naming t. Decision 3 (frame-coherent) is not weakened: each of the two reads
+> is still taken at a frame boundary on the engine's main thread, and each is
+> still a coherent single-frame snapshot. What changes is that the caller, not
+> gda, declares the distance between them, in the request and reported back in
+> the result. The receipt also gains a REQUIRED `render_frame`, the drawn frame
+> the pixels are — see ADR-0017's note of the same date.

@@ -28,6 +28,24 @@ Consumers (the reason this is a module and not a helper inside one command):
   not a one-shot launch, which is why "pure function of the stderr text" below is
   worth keeping: the text's SOURCE is the caller's business, not this module's.
 
+**Per-kind policy has ONE owner here, the table beside the enum** (#976). What a
+kind MEANS to a verdict that reads it — is the record about the RUN (what became
+of a script) or about the PROCESS (what became of the run itself), and can its
+``path`` be the entry script — is answered by ``_KIND_POLICY`` and read through
+the two predicates its consumers ask, :func:`has_run_record` and
+:func:`names_entry_script`. It is a table rather than a convention each consumer
+keeps for itself because that is what it replaced: ``scene preflight`` excluded
+the exit-time record by hand, the daemon's readiness verdict excluded nothing at
+all (unstated and untested), and ``script run``'s abort re-spelled the canonical
+path match this module keeps private. The table is complete BY CONSTRUCTION — a
+kind with no row fails at IMPORT (:func:`_complete_policy`), never on a live
+path — so a kind added to the closed set states its policy here instead of
+inheriting a silent default from whichever consumer reads it first. What the
+table does NOT hold is a `Gda error code`: this module stays a pure function of
+the engine text and learns nothing about gda's failure registry, so ``script
+run``'s kind -> code map is DERIVED in the command layer from
+:data:`ENTRY_FAILURE_PRECEDENCE`.
+
 Everything here is a **pure function of the stderr text**: no engine, no I/O.
 Recognition is deliberately closed — only the records below are classified, so
 ``diagnostics`` stays a curated high-signal list rather than a re-encoding of the
@@ -46,7 +64,7 @@ so the criterion has to outlive the record that motivated it):
    SCRIPT's fate, or about the fate of the PROCESS the run was, which is the one
    exit-time record the set holds (#844) — beyond "the engine printed something";
 3. the new kind states, in the enum, whether it proves the script never ran —
-   which is what puts it in (or keeps it out of) ``_ENTRY_FAILURE_PRECEDENCE``.
+   which is what puts it in (or keeps it out of) ``ENTRY_FAILURE_PRECEDENCE``.
 
 The rule is what rules out the tempting shortcut for ``push_error``: "any
 ``ERROR:`` that carries a GDScript backtrace" fails (1), because
@@ -77,7 +95,7 @@ test), where a leak that only sat inside the raw stderr string made the
 production add "stderr must be empty" as its own gate (GDA-DF-063). (3) The kind
 states that the PROCESS REACHED SHUTDOWN — the engine prints these while it
 exits, about everything the process held, so they say nothing about whether the
-entry script ran: it stays out of ``_ENTRY_FAILURE_PRECEDENCE`` and names no
+entry script ran: it stays out of ``ENTRY_FAILURE_PRECEDENCE`` and names no
 resource, so it can never decide an entry verdict. What stays skipped is the warning LEVEL, not merely this
 one sentence of it.
 
@@ -135,8 +153,9 @@ sentence is whatever the project wrote (#722)::
 """
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from enum import Enum
+from typing import NamedTuple
 
 from pydantic import BaseModel, Field
 
@@ -245,7 +264,7 @@ _PUSH_ERROR_FUNCTION = "push_error"
 # `Cannot open file` from the format loader, `Failed loading resource` from
 # ResourceLoader. A missing SCRIPT also produces the second one, beside its own
 # more specific `Attempt to open script` sentence — which outranks it, so the
-# verdict is unaffected (see ``_ENTRY_FAILURE_PRECEDENCE``).
+# verdict is unaffected (see ``ENTRY_FAILURE_PRECEDENCE``).
 _CANNOT_OPEN_FILE = re.compile(r"^Cannot open file '(?P<path>[^']*)'")
 
 # `ERROR: Failed loading resource: <path>.` — `resource_loader.cpp:343`,
@@ -372,6 +391,75 @@ class ScriptErrorKind(str, Enum):
     INCOMPATIBLE_SCRIPT = "incompatible_script"
 
 
+class _KindPolicy(NamedTuple):
+    """What one recognized kind means to the verdicts that read it (#976).
+
+    ``about_the_run`` — is the record about the RUN (what became of a script) or
+    about the PROCESS (what became of the run itself)? Only a RUN record gates a
+    BOOT verdict, and both boot verdicts ask it through :func:`has_run_record`:
+    ``scene preflight``'s ``started`` and the daemon's ``clean_start`` each answer
+    "how did the start go", while the engine prints a process record AFTER the run
+    and about everything the process held — an autoload's leak reads exactly like
+    the scene's own, so gating on one reported a scene whose nodes carry no script
+    at all as not started (#844). ``SHUTDOWN_LEAK`` is the one process record
+    today; this column is what a SECOND process-lifecycle kind states for itself, so
+    no consumer has to discover it on a live path.
+
+    ``can_name_entry`` — can this kind's ``path`` be the entry script? False for
+    the two kinds that carry NO path by construction, so neither can decide an
+    entry verdict even from a hand-built record: ``SHUTDOWN_LEAK`` (the engine
+    names nothing it still held) and ``INCOMPATIBLE_SCRIPT`` (neither refusal
+    sentence names a file). It says the record CAN name the entry, never that
+    naming it failed the run — ``PUSH_ERROR`` names the entry whenever the entry
+    raised it and proves the script RAN. Which of these kinds a given verdict acts
+    on stays that verdict's own policy: :func:`entry_load_failure` walks
+    :data:`ENTRY_FAILURE_PRECEDENCE`, while ``script run``'s abort adds the runtime
+    kind and deliberately omits ``PUSH_ERROR`` (#722).
+    """
+
+    about_the_run: bool
+    can_name_entry: bool
+
+
+def _complete_policy(
+    policy: dict[ScriptErrorKind, _KindPolicy],
+) -> Mapping[ScriptErrorKind, _KindPolicy]:
+    """``policy`` when it has a row for every kind, else raise at IMPORT time (#976).
+
+    The completeness half of "one owner". A kind added to the closed enum without
+    deciding what it means to a verdict fails HERE, where its author is, rather
+    than inside a running command — as a ``KeyError`` on a live path, or as a
+    silent default invented by whichever consumer reads the kind first, which is
+    the spread this table replaced.
+    """
+    missing = sorted(kind.value for kind in ScriptErrorKind if kind not in policy)
+    if missing:
+        raise RuntimeError(
+            f"ScriptErrorKind has no per-kind policy row for: {', '.join(missing)}"
+        )
+    return policy
+
+
+#: The per-kind policy of the closed enum above: the ONE place that answers, for
+#: every kind, the two questions a verdict asks of a record (#976). See
+#: :class:`_KindPolicy` for what each column decides and why.
+_KIND_POLICY: Mapping[ScriptErrorKind, _KindPolicy] = _complete_policy(
+    # _KindPolicy(about_the_run, can_name_entry).
+    {
+        ScriptErrorKind.PARSE_ERROR: _KindPolicy(True, True),
+        ScriptErrorKind.RUNTIME_ERROR: _KindPolicy(True, True),
+        ScriptErrorKind.PUSH_ERROR: _KindPolicy(True, True),
+        ScriptErrorKind.SCRIPT_MISSING: _KindPolicy(True, True),
+        ScriptErrorKind.LOAD_FAILED: _KindPolicy(True, True),
+        ScriptErrorKind.COMPILE_FAILED: _KindPolicy(True, True),
+        ScriptErrorKind.NOT_A_MAIN_LOOP: _KindPolicy(True, True),
+        ScriptErrorKind.RESOURCE_LOAD_FAILED: _KindPolicy(True, True),
+        ScriptErrorKind.INCOMPATIBLE_SCRIPT: _KindPolicy(True, False),
+        ScriptErrorKind.SHUTDOWN_LEAK: _KindPolicy(False, False),
+    }
+)
+
+
 #: The kinds that prove a script never ran, in verdict precedence — the order
 #: :func:`entry_load_failure` returns them in when a run emits several. It runs
 #: EARLIEST-STAGE, MOST SPECIFIC first, because the engine reports the whole
@@ -399,7 +487,7 @@ class ScriptErrorKind(str, Enum):
 #: process reaching shutdown, which says nothing about the entry script either
 #: way, and it names no resource, so it could not match an entry even if it were
 #: listed here.
-_ENTRY_FAILURE_PRECEDENCE = (
+ENTRY_FAILURE_PRECEDENCE = (
     ScriptErrorKind.SCRIPT_MISSING,
     ScriptErrorKind.COMPILE_FAILED,
     ScriptErrorKind.PARSE_ERROR,
@@ -549,13 +637,13 @@ def entry_load_failure(
     unresolvable preload as "Failed to load script" naming the **entry** script
     (verified against Godot 4.6.3), so no dependency walk is needed here.
 
-    Returns the most specific matching error (see ``_ENTRY_FAILURE_PRECEDENCE``);
+    Returns the most specific matching error (see ``ENTRY_FAILURE_PRECEDENCE``);
     ``None`` when the entry point loaded, whatever else went wrong afterwards.
     """
     entry = canonical_res_path(script)
-    for kind in _ENTRY_FAILURE_PRECEDENCE:
+    for kind in ENTRY_FAILURE_PRECEDENCE:
         for error in errors:
-            if error.kind is kind and _matches(error.path, entry):
+            if error.kind is kind and _names_entry(error, entry):
                 return error
     return None
 
@@ -580,9 +668,55 @@ def leaked_at_exit(errors: Sequence[ScriptError]) -> ScriptError | None:
     return None
 
 
-def _matches(path: str | None, entry: str) -> bool:
-    """Does a diagnostic's path name the (already canonical) entry script?"""
-    return path is not None and canonical_res_path(path) == entry
+def has_run_record(errors: Sequence[ScriptError]) -> bool:
+    """Is any of ``errors`` about the run — the ONE boot-verdict question (#976)?
+
+    The policy table's first column, asked of a whole list — the only way a verdict
+    asks it. Both boot verdicts are its negation: ``scene preflight``'s ``started``
+    (with the engine's own status beside it) and the daemon's ``clean_start`` on
+    ``daemon wait-ready`` / ``daemon status`` each mean "no record about the run
+    among these", so they agree by construction rather than by two consumers keeping
+    one exclusion in step by hand. An empty list has no run record and is therefore
+    clean — which is what both verdicts already meant, since the only process record
+    today gates neither verdict. It once gated ``scene preflight``'s: a scene whose
+    nodes carry no script at all read ``started: false`` because an autoload leaked
+    at exit, which is the false negative #844 removed and this table now owns.
+
+    It answers about the RECORDS alone. Whether the boot is clean OVERALL is the
+    consumer's verdict: ``scene preflight`` also requires the engine's own ``ready``
+    status, and the daemon reports no verdict at all for a log it could not read.
+    """
+    return any(_KIND_POLICY[error.kind].about_the_run for error in errors)
+
+
+def names_entry_script(error: ScriptError, script: str) -> bool:
+    """Does ``error`` name ``script`` as the resource it is about (#976)?
+
+    The public entry-attribution predicate. A consumer that needs the question for a
+    kind that :func:`entry_load_failure` does not cover asks THIS module instead of
+    re-spelling its canonical path comparison beside it. That consumer is ``script
+    run``'s completion-marker abort, which adds the runtime kind (#655).
+
+    Canonical on both sides, like every comparison in this module: the engine
+    reports the canonical spelling of whatever it was given, so a raw
+    ``res://dir/../bad.gd`` from a caller must still match the ``res://bad.gd`` the
+    engine named. The kind decides first — a kind that carries no path by
+    construction names no entry, whatever a hand-built record claims.
+
+    Naming the entry is not a verdict: ``PUSH_ERROR`` names it whenever the entry
+    raised one and proves the script RAN. What a caller does with the answer is the
+    caller's policy.
+    """
+    return _names_entry(error, canonical_res_path(script))
+
+
+def _names_entry(error: ScriptError, entry: str) -> bool:
+    """:func:`names_entry_script` with ``entry`` already canonical."""
+    return (
+        _KIND_POLICY[error.kind].can_name_entry
+        and error.path is not None
+        and canonical_res_path(error.path) == entry
+    )
 
 
 def _classify(record: dict) -> ScriptError | None:

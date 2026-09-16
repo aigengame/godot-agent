@@ -636,3 +636,66 @@ added incrementally under ADR-0025 if a concrete need appears.
 > deliberately outside it, so a run that leaks only RIDs is a clean `--strict`. No
 > new `Gda error code`, no new `FailureEvidence` field, no change to ADR-0002's
 > registry.
+
+> **Outcome (2026-09-15, #862) — the failure-envelope half of the #850 note's
+> byte-identity clause is superseded, and so is its "SUCCESS result alone" boundary;
+> the other channels' half of both stands.** That note closes its third boundary with
+> "And it is the SUCCESS result alone: this channel's failure envelopes … keep the
+> shape the #687 outcome above gave them", and with "byte identity is what the OTHER
+> launch-backed channels and this channel's failure envelopes keep" — then names the
+> follow-up rather than taking it. This is the follow-up. THREE of `script run`'s
+> verdicts — `--strict`'s `script_failed`, this channel's own `launch_timeout`, and
+> `script_aborted` — now carry the launch's `User-data placement` as
+> `evidence.engine_data_path` / `user_data_root` / `log_file`. So both sentences now
+> read the same way: the success result is no longer alone, and byte identity is what
+> the other launch-backed channels keep, and what this channel's OTHER envelopes
+> keep — the never-ran verdicts (`script_not_found` / `script_compile_failed` /
+> `incompatible_script_type`), the pre-launch `target_outside_project` refusal, and
+> the two verdicts about a run that DID run and are on no evidence axis,
+> `engine_crashed` and `stdout_spill_failed`. Three named codes, not a category;
+> [ADR-0004's #862 note](0004-schema-flag-self-description.md) is the authority for
+> why those last two stay out.
+>
+> Nothing else in that note moves. The success result is unchanged, the facts are
+> still the ONE launch primitive's and still read off the raw run, and this is still
+> the only channel that publishes them at all. The human rendering of a `script run`
+> success stays the script's own output, per this ADR's passthrough decision; the
+> human rendering of a FAILURE is the `Error envelope`'s shared one, which prints the
+> three as their own `evidence` lines.
+>
+> The decision to extend ADR-0004's `Failure evidence` is that ADR's, and it made it:
+> see its `Outcome (2026-09-15, #862)` note for the admission argument, the
+> omitted-never-null divergence from the success result's nullable
+> `engine_data_path`, and the builder-level guard that keeps the extension to this
+> one channel.
+
+> **Outcome (2026-09-16, #976) — the per-kind policy of `ScriptErrorKind` has ONE
+> owner; the wire-shape debt the #844 note records is untouched.** That note records
+> the debt: a process-lifecycle record travels in `ScriptError` /
+> `evidence.script_errors`, a per-script shape, and a SECOND such record is the
+> trigger for a broader diagnostic type. The trigger is unchanged and still open —
+> this refactor pays no part of it and moves no wire shape. What moves is where the
+> per-kind policy lives. A table beside the enum in `gda.script_errors` now answers,
+> for every kind, whether the record is about the RUN or about the PROCESS and
+> whether it can name the entry script, and it is complete by construction: a kind
+> added without a row fails at import, not on a live path. The table backs TWO
+> predicates, one per question it answers, and they have different consumers.
+> `has_run_record` answers the BOOT question, and it is where the answer the #844
+> note gives `scene preflight` — the leak is DATA there, never a `started` verdict —
+> now lives for both boot verdicts: `scene preflight`'s `started`, which spelled that
+> exclusion by hand, and the daemon's `clean_start`, which did not state it at all.
+> `names_entry_script` answers the ENTRY-ATTRIBUTION question for `script run`'s
+> completion-marker abort, which re-derived the recognizer's own path match beside it
+> because it could not import it. What the table owns is what a KIND means; each
+> consumer keeps its own verdict — that abort still decides which kinds it acts on,
+> and `started` still requires the engine's own `ready` status beside the records. A
+> second process-lifecycle kind therefore gets its POLICY row here by construction,
+> whatever is later decided about its wire shape.
+>
+> The entry-failure verdict's kind -> `Gda error code` map stays in the command layer
+> and is derived from the precedence, so this module still learns nothing about gda's
+> failure registry and stays a pure function of the engine text. The refactor carries
+> one description-only schema change: the daemon's two `clean_start` descriptions now
+> say "no record about the run", the exclusion that boundary silently lacked. No
+> published verdict moves — the prefix the daemon reads ends at the harness handshake
+> and the engine prints its exit-time records long after it.

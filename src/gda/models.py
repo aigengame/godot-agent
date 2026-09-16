@@ -8,7 +8,7 @@ hand-maintaining the contract twice.
 
 from enum import Enum
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import (
     AfterValidator,
@@ -23,6 +23,13 @@ from gda.execution import ExecutionKind
 from gda.live_numbers import find_unrepresentable
 from gda.project import is_engine_virtual_path
 from gda.script_errors import ScriptError
+
+if TYPE_CHECKING:
+    # Type-only: :func:`placement_fields` below reads the launch primitive's raw
+    # placement record. The edge is not taken at runtime, because `gda.runner` and
+    # this contract core sit on the SAME tier of ADR-0040 §5's chain — the core
+    # names what the wire calls those paths, the primitive owns the paths.
+    from gda.runner import UserDataReport
 
 
 class ErrorCategory(str, Enum):
@@ -242,6 +249,49 @@ class FailureEvidence(BaseModel):
             "to re-issue with, on a path_case_mismatch."
         ),
     )
+    # Where the launch that produced this failure put Godot's user data (#862) — the
+    # `User-data placement` #850 published on the SUCCESS result, now on the failure
+    # half of the same channel. Three of that channel's builders set them and nothing
+    # else does — the three ADR-0004's #862 note names, which are the ones that
+    # already carried evidence: a persistence-bearing run that fails because `user://`
+    # was not writable reads as a game regression until the envelope says which
+    # directory the engine actually resolved, and on a timeout the log is where the
+    # caller looks next.
+    #
+    # The presence rules are the success result's, with ONE difference that the
+    # omitted-never-null rule of this object decides: `engine_data_path` is
+    # required-but-nullable there and OMITTED here when the platform's own data
+    # variable is unset.
+    #
+    # The three names are `PLACEMENT_FIELD_NAMES` and the projection that fills them
+    # is `placement_fields`, both below this class: the launch primitive keeps the
+    # raw paths and their lifetimes, this core owns what they are called on the wire.
+    engine_data_path: str | None = Field(
+        default=None,
+        description=(
+            "The directory the engine resolved 'user://' beneath for the run this "
+            "failure reports — under 'user_data_root' when one was given. Omitted "
+            "when the platform's own data variable is unset, which the success "
+            "result reports as null instead."
+        ),
+    )
+    user_data_root: str | None = Field(
+        default=None,
+        description=(
+            "The --user-data-root / $GDA_USER_DATA_ROOT directory this run was "
+            "placed under. Omitted when none was given — gda then redirects only "
+            "the engine log."
+        ),
+    )
+    log_file: str | None = Field(
+        default=None,
+        description=(
+            "The engine log of this run, reported only under a --user-data-root: "
+            "the one case in which it outlives the launch. On a run gda ended, it is "
+            "the file to read next. By default the log is a private temporary file "
+            "gda removes."
+        ),
+    )
 
     @field_serializer("script_errors")
     def _keep_the_published_script_error_shape(
@@ -269,6 +319,52 @@ class FailureEvidence(BaseModel):
             if errors is None
             else [error.model_dump(mode="json") for error in errors]
         )
+
+
+#: The public key names a `User-data placement` projects to, in the order
+#: :class:`FailureEvidence` above and ``script run``'s result model declare them.
+#: ONE authority for the trio: :func:`placement_fields` builds the projection, and
+#: the two boundary guards that hold the disclosure to that one channel read these
+#: names rather than each keeping a hand-written copy (#862).
+PLACEMENT_FIELD_NAMES = ("engine_data_path", "user_data_root", "log_file")
+
+
+def placement_fields(report: "UserDataReport | None") -> dict[str, str]:
+    """A launch's `User-data placement` as the public keys, PRESENT facts only (#862).
+
+    The single projection of the launch primitive's raw record into the strings a
+    result or an `Error envelope` publishes. It lives HERE, beside the
+    :class:`FailureEvidence` fields that declare the three names, rather than on the
+    record itself: :class:`~gda.runner.UserDataReport` owns which paths are facts and
+    how long each one lives, and this contract core owns what they are CALLED on the
+    wire (ADR-0040 §5). Both halves of ``gda script run`` read it — the success result
+    for its three flattened keys, and the three failure builders ADR-0004's #862 note
+    names for `Failure evidence` — so the two halves cannot spell or omit a placement
+    differently.
+
+    A key is ABSENT whenever its path is ``None``, so the caller asks for what it
+    wants and gets the fact or nothing. That one shape serves the two different null
+    contracts without either side re-deciding them: the success model declares
+    ``engine_data_path`` with a ``None`` default, so a missing key still publishes
+    ``null`` there, while every field of `Failure evidence` is omitted rather than
+    nulled, so a missing key publishes nothing.
+
+    A ``None`` report projects to no keys at all. That is a hand-built run at a test
+    seam — every real launch attaches a report — or a launch REFUSED before a
+    placement existed (``user_data_unwritable``, whose own diagnostics name what was
+    attempted).
+    """
+    if report is None:
+        return {}
+    return {
+        name: str(value)
+        for name, value in zip(
+            PLACEMENT_FIELD_NAMES,
+            (report.data_path, report.root, report.log_file),
+            strict=True,
+        )
+        if value is not None
+    }
 
 
 class GdaError(BaseModel):
