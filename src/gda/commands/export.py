@@ -329,10 +329,10 @@ class ProjectTreeMutations(BaseModel):
     against a cold cache creates the whole cache tree plus the sidecars beside the
     sources, and can rewrite generated resources that are tracked in git. None of
     that was observable in the result before (GDA-DF-067: about 14,000 new files
-    and two to four rewritten ``.translation`` resources, reported as
-    ``warnings: []``). The report is DISCLOSURE — the export deletes and restores
-    nothing — so an agent can review, stage or restore the tree without a manual
-    git snapshot.
+    and two to four rewritten ``.translation`` resources appeared on disk while
+    ``warnings`` stayed empty). The report is DISCLOSURE — the export deletes and
+    restores nothing — so an agent can review, stage or restore the tree without a
+    manual git snapshot.
 
     What it covers, and what it deliberately leaves out:
 
@@ -491,7 +491,10 @@ class ExportRunResult(BaseModel):
         description=(
             "What the export changed in the project tree: the files it created "
             "(classified) and the pre-existing files it rewrote, with counts and "
-            "total bytes."
+            "total bytes. The report is the difference between gda's walk before "
+            "the export and its walk after; gda assumes it is the project's sole "
+            "driver during the export (ADR-0018), so a change another writer makes "
+            "in that interval is attributed to the export."
         ),
     )
 
@@ -1421,9 +1424,13 @@ def run_export(
     ``skipped`` counts what neither walk could account for — an entry that
     is not a regular file (a FIFO, a socket, a device), or one that could not be
     read, including a directory whose whole subtree is then uncovered — a count,
-    not a path list, so repair the tree and run again for a complete record. The report is disclosure: gda
-    deletes and restores nothing. A FAILED export carries no report; the failure
-    answers through the error envelope instead.
+    not a path list, so repair the tree and run again for a complete record. The
+    report is the difference between gda's walk before the export and its walk
+    after; gda assumes it is the project's sole driver during the export
+    (ADR-0018), so a change another writer makes in that interval is attributed to
+    the export. The report is disclosure: gda deletes and restores nothing. A
+    FAILED export carries no report; the failure answers through the error
+    envelope instead.
     """
     # Build the params model from the argv options (the single source of truth,
     # ADR-0015): ExportRunParams.output is an ExportOutputPath, so argv and

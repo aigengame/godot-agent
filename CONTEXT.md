@@ -97,14 +97,15 @@ creates, from the shared `import_evidence` module, against the cache root the
 report names, so the cache half can be cleaned as one unit — and the pre-existing
 files OUTSIDE that root it REWROTE, decided by content rather than by timestamp:
 only a file whose size or timestamp moved is compared, so a rewrite that
-preserves both is not seen. A count of what neither walk could account for rides
-along — an entry that is not a regular file, or one that could not be read —
-because such a corner of the tree must not fail an export that succeeded. It is
-NOT a deletion list, and it says nothing about rewrites INSIDE the cache root — a
-warm export rewrites its own bookkeeping there on every run — so an unchanged
-`modified` is not a statement about the cache. Disclosure only: the export
-deletes and restores nothing, and a failed export carries no report at all
-(#839).
+preserves both is not seen. Both are attributed to the export under the
+`Concurrent external editor` assumption. A count of what neither walk could
+account for rides along — an entry that is not a regular file, or one that could
+not be read — because such a corner of the tree must not fail an export that
+succeeded. It is NOT a deletion list, and it says nothing about rewrites INSIDE
+the cache root — a warm export rewrites its own bookkeeping there on every run —
+so an unchanged `modified` is not a statement about the cache. Disclosure only:
+the export deletes and restores nothing, and a failed export carries no report at
+all (#839).
 _Avoid_: inventory, diff, changeset
 
 **Engine session**:

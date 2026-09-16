@@ -2,12 +2,12 @@
 
 The native export runs the editor import pass over the project, so it creates the
 cache and the sidecars beside the sources and can rewrite generated resources.
-GDA-DF-067 saw about 14,000 such files reported as ``warnings: []``. These tests
-drive the real recipe — :func:`gda.commands.export.run_export_operation` — with an
-export runner that MUTATES the project the way the pass does, so every rule the
-report states is exercised end to end: what is created, what counts as rewritten,
-what is excluded, and what a file the walk cannot read does to a successful
-export.
+GDA-DF-067 saw about 14,000 such files appear on disk while ``warnings`` stayed
+empty. These tests drive the real recipe —
+:func:`gda.commands.export.run_export_operation` — with an export runner that
+MUTATES the project the way the pass does, so every rule the report states is
+exercised end to end: what is created, what counts as rewritten, what is
+excluded, and what a file the walk cannot read does to a successful export.
 
 The recipe's own suite is ``tests/export/test_export_run_operation.py``; this one
 is about the report the recipe now carries. The real-engine proof is

@@ -1317,14 +1317,15 @@ runs.
 (`project_tree_mutations`, #839). The native export runs the editor import pass, so
 an export against a cold cache creates the whole `.godot/` cache plus the `.import`
 and `.uid` sidecars beside the sources, and a stale asset makes it rewrite the
-generated resources it owns — GDA-DF-067 saw about 14,000 such files reported as
-`warnings: []`. `created` covers every file the export added ANYWHERE under the
-project, each carrying `resource import`'s own classification (`cache_owned` /
-`source_adjacent`, from `gda.import_evidence.classify_created_file`) against the
-reported `cache_root`, so the cache half can be cleaned as one unit; directory
-links are walked as the engine reads them, once each. `modified`
-covers the pre-existing files OUTSIDE that root whose CONTENT changed, and only a
-file whose size or timestamp moved is compared: the pass touches far more files
+generated resources it owns — GDA-DF-067 saw about 14,000 such files appear on
+disk while `warnings` stayed empty. `created` covers every file the export added
+ANYWHERE under the project, each carrying `resource import`'s own classification
+(`cache_owned` / `source_adjacent`, from
+`gda.import_evidence.classify_created_file`) against the reported `cache_root`, so
+the cache half can be cleaned as one unit; directory links are walked as the
+engine reads them, once each. `modified` covers the pre-existing files OUTSIDE
+that root whose CONTENT changed, and only a file whose size or timestamp moved is
+compared: the pass touches far more files
 than it rewrites, a changed timestamp alone would bury the few rewrites the record
 is about, and the price is that a rewrite preserving both is not seen. A rewrite
 INSIDE `cache_root` is not reported at all — the cache is reported as one unit, and
@@ -1340,7 +1341,10 @@ that could not be read, or a directory whose whole subtree is then uncovered —
 because an unreadable corner of the tree must not fail an export that succeeded;
 it is a count rather than a path list, so the remedy is to repair the tree and run
 again. A FAILED export reports no
-mutations: the failure answers through the error envelope. The report is disclosure
+mutations: the failure answers through the error envelope. The report is the
+difference between gda's walk before the export and its walk after; gda assumes it
+is the project's sole driver during the export (ADR-0018), so a change another
+writer makes in that interval is attributed to the export. The report is disclosure
 — the export deletes and restores nothing — and it covers the engine's default
 cache directory: a project that sets
 `application/config/use_hidden_project_data_directory=false` keeps its cache under
