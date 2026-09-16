@@ -11,9 +11,13 @@ from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     admit_authority_context,
 )
+from gda_balancing.domain.authority.source_projection import validate_source_roles
 from gda_balancing.domain.model import CheckedModel, check_model_source_value
 from schema2_authority_support import mutable_authorities
-from schema2_bootstrap_conformance_support import _consumer_b
+from schema2_bootstrap_conformance_support import (
+    _consumer_b,
+    _consumer_b_source_roles_are_closed,
+)
 from schema2_bootstrap_production_support import _consumer_a
 from test_source_wire_owners import _source_schema
 from test_trace_protocol_structure import _authored, _graph, _index
@@ -479,14 +483,17 @@ def test_source_interval_schema_can_narrow_integer_syntax_without_changing_owner
 
 def test_source_family_discriminator_metadata_is_authoritative():
     kernel, language = mutable_authorities()
+    schema = _source_schema(_authored(language))
+    assert validate_source_roles(kernel, schema)
+    assert _consumer_b_source_roles_are_closed(language, kernel["meta_format"])
     law = kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
         "source_notation"
     ]["semantic_roles"]
     law["children"]["conditional"]["condition"]["discriminator_member"] = "node"
-    graph = _graph(kernel, _authored(language))
-    for consumer in (_consumer_a, _consumer_b):
-        result = consumer(kernel, graph)
-        assert not result["admitted"], (consumer.__name__, result)
+    # Admission pins the released Kernel identity, so inspect both role interpreters
+    # directly to prove this semantic mutation is refused beyond the ingress seal.
+    assert not validate_source_roles(kernel, schema)
+    assert not _consumer_b_source_roles_are_closed(language, kernel["meta_format"])
 
 
 @pytest.mark.parametrize(
