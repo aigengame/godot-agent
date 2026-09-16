@@ -182,6 +182,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_schema2_evidence_cli.py",
         "test_schema2_template_cli.py",
     ),
+    "fixed-build": ("test_priority_fixed_build.py",),
     "smoke": ("test_e2e_cli.py",),
 }
 REQUIRED_TEST_SHARDS: Final = tuple(name for name in SHARDS if name != "smoke")
