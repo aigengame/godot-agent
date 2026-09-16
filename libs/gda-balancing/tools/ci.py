@@ -152,6 +152,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_trace_protocol_structure.py",
         "test_runtime_evidence_protocol_structure.py",
     ),
+    "extension-graph": ("test_full_graph_extension_inventory.py",),
     "bounded-fold": (
         "test_bounded_fold_formula.py",
         "test_bounded_fold_independent.py",
