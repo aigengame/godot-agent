@@ -66,6 +66,7 @@ from gda.models import (
     NormalizedPath,
     ProjectRootedResult,
     TerminationPhase,
+    placement_fields,
 )
 from gda.project import (
     RES_PREFIX,
@@ -1746,15 +1747,15 @@ def run_script_run_operation(
     # The launch's own placement, published as strings (#850). Read off the Raw run
     # rather than resolved again here: the root and the platform-derived data path
     # are the launch's answers, and asking a second time would let this channel
-    # report a placement the run did not have. The rendering is the launch's too
-    # (`UserDataReport.as_strings`), which is the ONE projection this channel's two
+    # report a placement the run did not have. The rendering is the contract core's
+    # (`gda.models.placement_fields`), which is the ONE projection this channel's two
     # halves share (#862 review) — a key it omits is a path the launch did not have.
     # A missing report is a hand-built run at a test seam — every real launch
     # attaches one — and reads as "gda knows no placement", which the model then
     # renders as one nullable key and two omitted ones, because `engine_data_path`
     # declares a None default and the other two are dropped by this model's own
     # serializer.
-    placement = raw.user_data.as_strings() if raw.user_data is not None else {}
+    placement = placement_fields(raw.user_data)
     return ScriptRunResult(
         path=script,
         exit_status=raw.exit_code,

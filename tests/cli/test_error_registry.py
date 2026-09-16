@@ -17,9 +17,13 @@ from gda.error_codes import (
 import gda.errors as errors_module
 from gda.errors import make_failure
 from gda.exit_codes import EXIT_LIVE
-from gda.models import ErrorCategory, GdaErrorEnvelope, TerminationPhase
-from gda.runner import (
+from gda.models import (
     PLACEMENT_FIELD_NAMES,
+    ErrorCategory,
+    GdaErrorEnvelope,
+    TerminationPhase,
+)
+from gda.runner import (
     LaunchFailure,
     RunResult,
     UserDataReport,
@@ -327,8 +331,8 @@ def test_only_the_recorded_producers_put_evidence_on_the_envelope():
 #: the placement to EVERY launch-backed channel; `script run` reaches its own timeout
 #: through `script_run_timeout_failure` instead, which is why this channel can be
 #: extended alone.
-#: Read from `gda.runner`, the module that owns the projection, so a rename of a
-#: public key moves both this guard and the result-model one in
+#: Read from `gda.models`, the contract core that owns these public names, so a
+#: rename of a public key moves both this guard and the result-model one in
 #: `tests/cli/test_command_descriptor_registry.py` at once (#862 review, P3-4).
 _PLACEMENT_EVIDENCE_FIELDS = set(PLACEMENT_FIELD_NAMES)
 _PLACEMENT_EVIDENCE_PRODUCERS = {

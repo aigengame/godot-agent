@@ -53,12 +53,14 @@ from gda.error_codes import (
     OPERATION_ERROR_CODES,
 )
 from gda.models import (
+    PLACEMENT_FIELD_NAMES,
     EnvironmentProbe,
     FailureEvidence,
     GdaError,
     LiveErrorEnvelope,
     OperationErrorEnvelope,
     TerminationPhase,
+    placement_fields,
 )
 from gda.parser import parse_result
 from gda.project import (
@@ -68,7 +70,6 @@ from gda.project import (
 )
 from gda.runner import (
     DEFAULT_TIMEOUT_LABEL,
-    PLACEMENT_FIELD_NAMES,
     LaunchFailure,
     RunResult,
     UserDataReport,
@@ -1085,13 +1086,13 @@ def _placement_evidence(
     """The placement's evidence triple: ``(engine_data_path, user_data_root, log_file)``.
 
     Shared by ``script_exit_status_failure``, ``script_run_timeout_failure`` and
-    ``script_run_aborted_failure`` (#862). The projection itself is the launch's own
-    (:meth:`~gda.runner.UserDataReport.as_strings`), so the failure half states the
-    placement by exactly the rules the success half does; what this adds is the
-    SHAPE those builders need — three positional values they spell as explicit
-    keyword arguments, rather than a mapping to splat, so the boundary guard in
-    ``tests/cli/test_error_registry.py`` can still read which builders disclose the
-    placement out of the source.
+    ``script_run_aborted_failure`` (#862). The projection itself is the contract
+    core's (:func:`~gda.models.placement_fields`), the one both halves of ``script
+    run`` read, so the failure half states the placement by exactly the rules the
+    success half does; what this adds is the SHAPE those builders need — three
+    positional values they spell as explicit keyword arguments, rather than a mapping
+    to splat, so the boundary guard in ``tests/cli/test_error_registry.py`` can still
+    read which builders disclose the placement out of the source.
 
     ``None`` for a hand-built run at a test seam: every real launch attaches a report
     unless the placement was REFUSED, and that refusal (``user_data_unwritable``) is
@@ -1107,7 +1108,7 @@ def _placement_evidence(
     `Failure evidence` are omitted, never null (ADR-0004's #687 amendment), and the
     caller reads the absence the same way either channel spells it.
     """
-    facts = user_data.as_strings() if user_data is not None else {}
+    facts = placement_fields(user_data)
     engine_data_path, user_data_root, log_file = (
         facts.get(name) for name in PLACEMENT_FIELD_NAMES
     )
