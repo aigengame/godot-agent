@@ -378,11 +378,12 @@ status: accepted
 > placement at every one of those call sites (#850), the directory the engine resolved
 > `user://` beneath is not recoverable from `diagnostics` without parsing engine prose,
 > and it decides the caller's next move — re-run under `--user-data-root` instead of
-> debugging the game. The record is [ADR-0031's #850 note](0031-headless-script-run-passthrough-execution.md)'s
-> own: a persistence-bearing `--strict` run whose `user://` write failed was read as a
-> game regression, and later runs burned three 120-second ceilings on the same cause.
-> Those are the two paths that end in an `Error envelope`, which is why #850's success
-> half did not close it.
+> debugging the game. The record has two halves and two sources.
+> [ADR-0031's #850 note](0031-headless-script-run-passthrough-execution.md) holds the
+> first: a persistence-bearing `--strict` run whose `user://` write failed was read as
+> a game regression. Issue #862's dogfooding source holds the second: later runs
+> burned three 120-second ceilings on the same cause. Those are the two paths that end
+> in an `Error envelope`, which is why #850's success half did not close it.
 >
 > Three boundaries. The facts stay the LAUNCH's, read off the raw run rather than
 > resolved a second time, so an envelope cannot name a placement the run did not have.
@@ -403,16 +404,19 @@ status: accepted
 > carries the placement: `engine_crashed` and `stdout_spill_failed`. Neither is on
 > this axis at all — they compute no evidence and carry no `evidence` key — so
 > admitting the placement to them would ADD a producer, which this note does not do.
-> Each also fails a clause on its own. `engine_crashed` is the SHARED
-> `classify_launch_or_crash` verdict every launch-backed channel reaches, so putting
-> the placement there would disclose it on `export run`, `resource import` and
-> `scene preflight` in one edit; and its `diagnostics` already carries the engine's
-> crash account, which is the second clause. `stdout_spill_failed` is about a file
-> gda itself could not write and names that path in its own message, so the
-> placement would not change what the caller does next. Recorded because "the
-> verdicts that report on a run" would be the wrong rule to read off this change:
-> the three are named, and they are the run-reporting verdicts that ALREADY carried
-> evidence.
+> Each also fails a clause on its own, and for both of them it is the THIRD.
+> `engine_crashed` is the SHARED `classify_launch_or_crash` verdict every
+> launch-backed channel reaches, so putting the placement there would disclose it
+> on `export run`, `resource import` and `scene preflight` in one edit; and an
+> unusable placement never reaches that verdict, because the same classifier
+> refuses the launch before the spawn (`user_data_unwritable`, the branch that
+> exists because the engine dies on a log it cannot open). A signal death is
+> therefore not the placement's doing, and naming it would not change what the
+> caller does next. `stdout_spill_failed` is about a file gda itself could not
+> write and names that path in its own message, so the placement would not change
+> what the caller does next either. Recorded because "the verdicts that report on a
+> run" would be the wrong rule to read off this change: the three are named, and
+> they are the run-reporting verdicts that ALREADY carried evidence.
 
 ADR-0000 lists `--schema` as a core capability without defining it. We fix its
 semantics here, and deliberately scope out an overloaded interpretation.
