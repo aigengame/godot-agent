@@ -76,10 +76,12 @@ from gda.project import (
 )
 from gda.runner import LaunchFailure, LaunchFn, RunResult, launch
 from gda.script_errors import (
+    ENTRY_FAILURE_PRECEDENCE,
     ScriptError,
     ScriptErrorKind,
     entry_load_failure,
     leaked_at_exit,
+    names_entry_script,
     parse_script_errors,
     script_error_line,
 )
@@ -1377,7 +1379,10 @@ def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
     - plus a ``RUNTIME_ERROR`` naming the entry, which that function excludes **by
       construction** (one of the two kinds proving the script DID run) and which is
       exactly the dogfooded case: an error raised inside the entry's own
-      ``_initialize`` aborts it before its ``quit()``.
+      ``_initialize`` aborts it before its ``quit()``. WHETHER that record names the
+      entry is :func:`gda.script_errors.names_entry_script`'s answer (#976) — the
+      same canonical comparison ``entry_load_failure`` already makes, asked of the
+      module that owns it rather than re-spelled here beside the kind test.
 
     ``PUSH_ERROR`` is deliberately NOT here (#722), though it too can name the
     entry. The watch's whole premise is that something interrupted the run: a
@@ -1401,9 +1406,7 @@ def _entry_attributable(errors: list[ScriptError], entry: str) -> bool:
     if entry_load_failure(errors, entry) is not None:
         return True
     return any(
-        error.kind is ScriptErrorKind.RUNTIME_ERROR
-        and error.path is not None
-        and canonical_res_path(error.path) == entry
+        error.kind is ScriptErrorKind.RUNTIME_ERROR and names_entry_script(error, entry)
         for error in errors
     )
 
@@ -1549,25 +1552,35 @@ class _CompletionMarkerWatch:
 # are the ones it already names (ADR-0002 — reuse the code, discriminate via the
 # message):
 #
-# - ``script_compile_failed`` — this script does not compile. The engine's explicit
-#   load-failure sentence (COMPILE_FAILED), the parse diagnostic behind it
-#   (PARSE_ERROR), and the generic give-up (LOAD_FAILED) all land here: whichever
-#   sentence the engine chose, what gda knows is that the entry could not be loaded
-#   or compiled.
+# - ``script_compile_failed`` — this script does not compile. It is the GENERAL
+#   verdict of the set, the one every kind takes that names no more specific
+#   condition: the engine's explicit load-failure sentence (COMPILE_FAILED), the
+#   parse diagnostic behind it (PARSE_ERROR), the generic give-up (LOAD_FAILED) and
+#   the resource-layer cascade under them (RESOURCE_LOAD_FAILED) all land here —
+#   whichever sentence the engine chose, what gda knows is that the entry could not
+#   be loaded or compiled.
 # - ``incompatible_script_type`` — this script compiles, but its base type is wrong
 #   for the requested use. ``script attach`` means "wrong for the target node";
 #   ``script run`` means "does not extend SceneTree/MainLoop, so it cannot be a
 #   one-shot entry point". Same condition, different target.
 #
-# Every kind in ``_ENTRY_FAILURE_PRECEDENCE`` MUST have a row here — a missing row
-# would be a KeyError on a real failure path, so a test pins the two in lockstep.
-_ENTRY_FAILURE_CODES: dict[ScriptErrorKind, str] = {
+# The map is DERIVED from the precedence rather than restated beside it (#976): it
+# is built over ``ENTRY_FAILURE_PRECEDENCE``, so every kind that can produce this
+# verdict has a row BY CONSTRUCTION and no live failure path can raise a KeyError —
+# which is what the two held in lockstep by a test could not promise. A kind names
+# its own code only where its condition is more specific than what the set as a
+# whole says; the rest take that general verdict.
+#
+# The codes stay HERE, in the command layer: ``gda.script_errors`` is a pure
+# function of the engine text and learns nothing about gda's failure registry.
+_ENTRY_NOT_LOADABLE_CODE = "script_compile_failed"
+_SPECIFIC_ENTRY_FAILURE_CODES: dict[ScriptErrorKind, str] = {
     ScriptErrorKind.SCRIPT_MISSING: "script_not_found",
-    ScriptErrorKind.COMPILE_FAILED: "script_compile_failed",
-    ScriptErrorKind.PARSE_ERROR: "script_compile_failed",
-    ScriptErrorKind.LOAD_FAILED: "script_compile_failed",
-    ScriptErrorKind.RESOURCE_LOAD_FAILED: "script_compile_failed",
     ScriptErrorKind.NOT_A_MAIN_LOOP: "incompatible_script_type",
+}
+_ENTRY_FAILURE_CODES: dict[ScriptErrorKind, str] = {
+    kind: _SPECIFIC_ENTRY_FAILURE_CODES.get(kind, _ENTRY_NOT_LOADABLE_CODE)
+    for kind in ENTRY_FAILURE_PRECEDENCE
 }
 
 

@@ -36,7 +36,7 @@ from gda.project import main_scene_unrunnable
 # script — so the answer is one recognizer's, not a second daemon-side copy.
 # What it recognizes is that module's own rule, read there and never restated
 # here: a paraphrase would be a second authority over a closed set that widens.
-from gda.script_errors import ScriptError, parse_script_errors
+from gda.script_errors import ScriptError, has_run_record, parse_script_errors
 
 # Control ops on the CLI socket — daemon lifetime, not project domain ops.
 STATUS_OP = "__status__"
@@ -622,10 +622,20 @@ class DaemonServer:
 
         One projection for both, so ``daemon wait-ready`` and ``__status__``
         cannot spell the same fact differently. ``clean_start`` is what the list
-        MEANS at this boundary — no recognized script error was read — carried so
+        MEANS at this boundary — no record about the RUN was read — carried so
         a caller branches on one boolean instead of on a list's emptiness. Both
         are null together when no session was established this daemon lifetime:
         an empty list there would assert a clean start no launch backed.
+
+        The exclusion is :func:`gda.script_errors.has_run_record`'s, the same one
+        ``scene preflight``'s ``started`` asks (#976), so the two boot verdicts
+        cannot drift: a record about the PROCESS rather than about the run is
+        reported and does not gate. It changes nothing observable today — this
+        verdict reads the Session log only up to the harness handshake, and the
+        engine prints its exit-time records long after that instant, so no process
+        record has ever reached this prefix. What it removes is the drift: the rule
+        was previously unstated here, and stating it in one place is what keeps the
+        next process-lifecycle kind from meaning two things at two boundaries.
         """
         recognized = self._startup_diagnostics
         if recognized is None or isinstance(recognized, _Unavailable):
@@ -642,7 +652,7 @@ class DaemonServer:
             "startup_diagnostics": [
                 error.model_dump(mode="json") for error in recognized
             ],
-            "clean_start": not recognized,
+            "clean_start": not has_run_record(recognized),
         }
 
     def _read_startup_diagnostics(self) -> "list[ScriptError] | _Unavailable":

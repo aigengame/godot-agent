@@ -76,7 +76,7 @@ from gda.headless import (
     project_option,
 )
 from gda.project import main_scene_unrunnable
-from gda.script_errors import ScriptError, script_error_line
+from gda.script_errors import ScriptError, has_run_record, script_error_line
 
 
 class DaemonStartParams(BaseModel):
@@ -197,21 +197,32 @@ def check_startup_verdict_pair(
     """Raise ``ValueError`` unless the startup verdict is ONE fact (#848).
 
     Either both values are null — no verdict — or ``startup_diagnostics`` is a
-    list and ``clean_start`` is exactly "that list is empty". Owned HERE, on the
-    published values, and enforced by both result models below: the daemon
-    computing the boolean in one place is a property of ONE deployment, and the
-    CLI/daemon skew this slice makes reachable is exactly a second one (fourth
-    review of PR #940). ``wait-ready`` lets the violation fail output validation
-    (`contract_violation`, the channel a missing key already takes); ``status``
-    degrades it to the null pair before it builds its result, through this same
-    function, because a status read must not crash on a drifted daemon.
+    list and ``clean_start`` is exactly "no record about the RUN among them".
+    Owned HERE, on the published values, and enforced by both result models below:
+    the daemon computing the boolean in one place is a property of ONE deployment,
+    and the CLI/daemon skew this slice makes reachable is exactly a second one
+    (fourth review of PR #940). ``wait-ready`` lets the violation fail output
+    validation (`contract_violation`, the channel a missing key already takes);
+    ``status`` degrades it to the null pair before it builds its result, through
+    this same function, because a status read must not crash on a drifted daemon.
+
+    The rule reads the per-kind policy table rather than the list's emptiness
+    (#976), so this invariant, the daemon's own projection and ``scene
+    preflight``'s ``started`` all exclude the same records. No published verdict
+    moves: the prefix this list is read from ends at the harness handshake, and
+    the engine prints its only process record — the exit-time leak — long after
+    that instant, so a list holding nothing but process records is unreachable on
+    a live path today. Pinning it here is what a SECOND process-lifecycle kind
+    lands on, instead of on two boundaries that answer differently.
     """
     if (diagnostics is None) != (clean_start is None):
         raise ValueError(
             "startup_diagnostics and clean_start are null together or not at all"
         )
-    if diagnostics is not None and clean_start != (not diagnostics):
-        raise ValueError("clean_start must be exactly 'startup_diagnostics is empty'")
+    if diagnostics is not None and clean_start != (not has_run_record(diagnostics)):
+        raise ValueError(
+            "clean_start must be exactly 'no run-record among startup_diagnostics'"
+        )
 
 
 class DaemonStatusResult(BaseModel):
@@ -274,12 +285,16 @@ class DaemonStatusResult(BaseModel):
     )
     clean_start: bool | None = Field(
         description=(
-            "Whether that startup read recognized no script error — the one "
-            "boolean to branch on before treating a screenshot or a runtime read "
-            "as evidence about the scene (#848). false does NOT mean the session "
-            "is unusable: a scene whose script failed to compile boots "
+            "Whether that startup read recognized no record about the RUN — the "
+            "one boolean to branch on before treating a screenshot or a runtime "
+            "read as evidence about the scene (#848). false does NOT mean the "
+            "session is unusable: a scene whose script failed to compile boots "
             "script-less and still serves, which is when the live reads matter "
-            "most. true means gda recognized nothing in a prefix it did read. "
+            "most. true means gda recognized nothing about the run in a prefix it "
+            "did read; a record about the PROCESS rather than about a script — "
+            "the exit-time 'shutdown_leak' — is reported in "
+            "`startup_diagnostics` and does not gate this, the same exclusion "
+            "`gda scene preflight`'s `started` makes. "
             "**null** exactly when `startup_diagnostics` is null — a log gda "
             "did not see is not evidence of a clean start."
         ),
@@ -368,18 +383,21 @@ class DaemonWaitReadyResult(BaseModel):
     )
     clean_start: bool | None = Field(
         description=(
-            "Whether that prefix held no recognized script error — the one "
+            "Whether that prefix held no record about the RUN — the one "
             "boolean to branch on before treating a screenshot or a runtime read "
             "as evidence about the scene (#848). Readiness alone never meant "
             "this: a scene whose root script did not compile boots script-less, "
             "and the harness connects and serves regardless. false is a "
             "disclosure, not a refusal — the session serves, which is exactly "
-            "when `diag errors`, `game tree` and a capture are wanted. Null when "
-            "the prefix could not be read, together with `startup_diagnostics`: "
-            "a log gda did not see is not evidence of a clean start. The pair "
-            "is one fact — both null, or a list and exactly `that list is "
-            "empty`; a reply that says otherwise fails output validation as "
-            "`contract_violation`."
+            "when `diag errors`, `game tree` and a capture are wanted. A record "
+            "about the PROCESS rather than about a script — the exit-time "
+            "'shutdown_leak' — is reported in `startup_diagnostics` and does not "
+            "gate this, the same exclusion `gda scene preflight`'s `started` "
+            "makes. Null when the prefix could not be read, together with "
+            "`startup_diagnostics`: a log gda did not see is not evidence of a "
+            "clean start. The pair is one fact — both null, or a list and "
+            "exactly `no record about the run among them`; a reply that says "
+            "otherwise fails output validation as `contract_violation`."
         )
     )
 

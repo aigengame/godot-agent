@@ -56,7 +56,7 @@ from gda.render import (
 from gda.runner import LaunchFailure, LaunchFn, RunResult, launch, sentinel_args
 from gda.script_errors import (
     ScriptError,
-    ScriptErrorKind,
+    has_run_record,
     parse_script_errors,
     script_error_line,
 )
@@ -1132,8 +1132,14 @@ def _startup_was_clean(diagnostics: list[ScriptError]) -> bool:
     Both derivations of ``started`` ask through here — the ordinary verdict and the
     splash-quit route in :func:`_ended_before_the_verdict` — so the field cannot
     come to mean two things by which route produced it.
+
+    WHICH records are about the boot is not this command's own reading any more
+    (#976): :func:`gda.script_errors.has_run_record` answers it from the per-kind
+    policy table beside the enum, so this verdict and the daemon's ``clean_start``
+    exclude the same records by construction — the exclusion above used to be spelt
+    here, kind by kind, and the daemon's was not spelt at all.
     """
-    return all(d.kind is ScriptErrorKind.SHUTDOWN_LEAK for d in diagnostics)
+    return not has_run_record(diagnostics)
 
 
 def _preflight_verdict(
