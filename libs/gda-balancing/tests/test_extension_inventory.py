@@ -334,7 +334,9 @@ def test_bijection_refuses_missing_extra_duplicate_reserved_or_misowned_tokens(
 
 def test_uncovered_roles_cannot_be_certified_by_a_self_consistent_mapping(witness):
     _, _, inventory = witness
-    assert any(gap.pointer == "/vector_sets" for gap in inventory.uncovered)
+    assert {gap.pointer for gap in inventory.uncovered} == {
+        "/packages/12/semantic_closure/25/definitions/0"
+    }
     pairs = token_bijection_from_names(
         inventory,
         {
@@ -1143,7 +1145,6 @@ def test_resolution_inventory_closes_every_actual_source_selector(witness):
     assert Counter(gap.reason for gap in inventory.uncovered) == Counter(
         {
             "nested language.wire_schemas roles are not yet traversed": 1,
-            "remaining vector families: source-or-rule-or-reason": 1,
         }
     )
     assert all(token.name != "operation_result_source" for token in inventory.tokens)
@@ -1600,7 +1601,7 @@ def test_assignment_modes_follow_selected_policy_and_symbol_role(witness):
             o for o in inventory.occurrences if o.token.role != "assignment-mode"
         ),
     )
-    with pytest.raises(InventoryRefusal, match="missing or incorrectly owned"):
+    with pytest.raises(InventoryRefusal, match="incomplete or misowned"):
         validate_extension_inventory(kernel, graph, incomplete_class)
 
 
