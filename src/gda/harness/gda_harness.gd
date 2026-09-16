@@ -1846,7 +1846,8 @@ func _capture_frame() -> Dictionary:
 # scenes mid-session still receipts under its launched scene; the uid is the
 # scene FILE's own header declaration, null for a gda-authored scene, ADR-0036).
 # `engine_frame` is the process frame the read was TAKEN at — for a gated capture
-# also the predicate's evaluation frame — and `render_frame` is
+# the predicate's evaluation frame plus the settle
+# (`predicate.engine_frame + settle_frames`) — and `render_frame` is
 # Engine.get_frames_drawn(), which identifies the drawn frame the pixels are (see
 # the section header: the two counters advance together while the engine draws
 # every frame, and only `render_frame` stands still when it does not). `observed`
@@ -1979,8 +1980,9 @@ func _handle_screen_frames(params: Dictionary) -> Variant:
 # `node.property == value`. Each tick EVALUATES BEFORE it injects (#743
 # re-review, ARC-743-004): the property is read before this tick's events run,
 # so the observed value is always the state of the previously COMPLETED frame —
-# exactly the frame the viewport texture presents — and the pixels are read at
-# that same boundary. This holds for both trigger paths, verified live: a
+# and at the default settle 0 the pixels are read at that same boundary, so the
+# texture presents exactly that frame (a settle moves the read on; see the
+# settle paragraph below). This holds for both trigger paths, verified live: a
 # _process-driven flip is observed with its own presentation, and a state an
 # injected event writes (a synchronous _input callback) is observed one
 # boundary LATER, together with its presentation. Two declared consequences:
@@ -2047,9 +2049,9 @@ func _begin_predicate_capture(await_spec: Dictionary, raw_events: Variant,
 		var current := int(state["n"])
 		state["n"] = current + 1
 		# Evaluate BEFORE this tick's events run (#743 re-review): the read
-		# then always sees the previously completed frame — the same frame the
-		# texture presents — never a mid-tick write from a synchronous input
-		# callback. The value is read HERE only; the up-front resolution is
+		# then always sees the previously completed frame — the frame the
+		# texture presents at the default settle 0 — never a mid-tick write
+		# from a synchronous input callback. The value is read HERE only; the up-front resolution is
 		# metadata-only, so a scripted getter runs exactly once per sampled
 		# frame (#743 review, ARC-743-002).
 		if state["outcome"] == null and state["report"] == null:
