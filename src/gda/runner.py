@@ -150,12 +150,12 @@ class RunResult:
     # Where this launch put Godot's user data (issue #850) — see
     # :class:`UserDataReport`. Set by :func:`launch` on every result it returns from
     # a prepared placement, whatever the outcome, so that a channel CAN publish it
-    # wherever it decides to — not because every outcome publishes it today. Today
-    # exactly one does: ``script run``'s SUCCESS result. The failure envelopes of
-    # this and every other channel keep their pre-#850 shape, because putting a fact
-    # on an ``Error envelope`` means entering ADR-0004's `Failure evidence` producer
-    # set, which #850 did not scope. Follow-up: extend `Failure evidence` with
-    # ``engine_data_path`` on ``script_failed`` / ``launch_timeout``.
+    # wherever it decides to — not because every outcome publishes it today. One
+    # channel does: ``script run``, on its SUCCESS result (#850) and on three of its
+    # failure envelopes — ``script_failed``, its own ``launch_timeout`` and
+    # ``script_aborted`` — where the facts ride ADR-0004's `Failure evidence` (#862).
+    # Those three codes and no others: this channel's remaining verdicts disclose
+    # nothing, and neither does any other channel's result or envelope.
     # ``None`` on a launch REFUSED before a placement existed
     # (``USER_DATA_UNWRITABLE``, whose own diagnostics name what was attempted) and
     # on a hand-built result at a test seam.

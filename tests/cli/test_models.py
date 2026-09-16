@@ -44,6 +44,7 @@ from gda.commands.export import (
     ExportListResult,
     ExportRunMode,
     ExportRunResult,
+    ProjectTreeMutations,
 )
 from gda.commands.project import (
     InputActionJoyAxisEvent,
@@ -287,6 +288,12 @@ def test_every_evidence_field_is_optional_in_the_published_schema():
         # address the caller asked for, and the one the project stores.
         "requested_path",
         "stored_path",
+        # The launch's `User-data placement` on the three `script run` envelopes
+        # ADR-0004's #862 note names: where the engine resolved `user://`, the root
+        # it was redirected under, and the log that then outlives the launch.
+        "engine_data_path",
+        "user_data_root",
+        "log_file",
     }
 
 
@@ -915,7 +922,12 @@ def test_export_run_result_round_trips_each_mode():
         assert ran.mode is mode
         assert ran.output_path == "/tmp/project/build/game.x86_64"
         assert ran.created_dirs == []
-        assert json.loads(ran.model_dump_json()) == payload
+        # The project-tree mutation report (#839) is additive: a payload written
+        # before it round-trips, carrying the report of an export that changed
+        # nothing.
+        assert json.loads(ran.model_dump_json()) == payload | {
+            "project_tree_mutations": ProjectTreeMutations().model_dump(mode="json")
+        }
 
 
 def test_export_run_result_reports_overridden_output_path():
@@ -937,7 +949,9 @@ def test_export_run_result_reports_overridden_output_path():
     assert ran.output_path == "/tmp/dist/game.pck"
     assert ran.created_dirs == ["/tmp/dist"]
     assert ran.warnings == ["No export template found at the expected icon path."]
-    assert json.loads(ran.model_dump_json()) == payload
+    assert json.loads(ran.model_dump_json()) == payload | {
+        "project_tree_mutations": ProjectTreeMutations().model_dump(mode="json")
+    }
 
 
 def test_node_set_result_round_trips_the_coerced_property():

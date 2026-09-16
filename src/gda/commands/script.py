@@ -66,6 +66,7 @@ from gda.models import (
     NormalizedPath,
     ProjectRootedResult,
     TerminationPhase,
+    placement_fields,
 )
 from gda.project import (
     RES_PREFIX,
@@ -1723,7 +1724,12 @@ def run_script_run_operation(
     # the diagnostics already parsed above — no second reading of the stderr.
     if strict and (raw.exit_code != 0 or leaked_at_exit(diagnostics) is not None):
         return script_exit_status_failure(
-            script, raw.exit_code, raw.stdout, raw.stderr, diagnostics
+            script,
+            raw.exit_code,
+            raw.stdout,
+            raw.stderr,
+            diagnostics,
+            user_data=raw.user_data,
         )
 
     # The public promotion of the internal Raw run: the boundary DTO built by
@@ -1741,14 +1747,15 @@ def run_script_run_operation(
     # The launch's own placement, published as strings (#850). Read off the Raw run
     # rather than resolved again here: the root and the platform-derived data path
     # are the launch's answers, and asking a second time would let this channel
-    # report a placement the run did not have.
+    # report a placement the run did not have. The rendering is the contract core's
+    # (`gda.models.placement_fields`), which is the ONE projection this channel's two
+    # halves share (#862 review) — a key it omits is a path the launch did not have.
     # A missing report is a hand-built run at a test seam — every real launch
     # attaches one — and reads as "gda knows no placement", which the model then
-    # renders as one nullable key and two omitted ones.
-    placement = raw.user_data
-    root = placement.root if placement is not None else None
-    data_path = placement.data_path if placement is not None else None
-    log_file = placement.log_file if placement is not None else None
+    # renders as one nullable key and two omitted ones, because `engine_data_path`
+    # declares a None default and the other two are dropped by this model's own
+    # serializer.
+    placement = placement_fields(raw.user_data)
     return ScriptRunResult(
         path=script,
         exit_status=raw.exit_code,
@@ -1758,9 +1765,9 @@ def run_script_run_operation(
         stdout_truncated=truncated,
         stdout_file=spill,
         diagnostics=diagnostics,
-        engine_data_path=str(data_path) if data_path is not None else None,
-        user_data_root=str(root) if root is not None else None,
-        log_file=str(log_file) if log_file is not None else None,
+        engine_data_path=placement.get("engine_data_path"),
+        user_data_root=placement.get("user_data_root"),
+        log_file=placement.get("log_file"),
     )
 
 
@@ -1781,10 +1788,11 @@ def _classify_ended_run(
     envelope that contained only "timed out" (GDA-DF-012), and a healthy suite that
     outgrew its ceiling and looked identical to a hang (GDA-DF-032).
 
-    All of it is PROSE in the message and ``diagnostics``. Structured envelope
-    fields would change ADR-0004's uniform failure ABI; **#687 owns that decision**,
-    and ADR-0031's amendment records that this path adopts its outcome. Do not add
-    envelope fields here.
+    It reaches the caller as PROSE in the message and ``diagnostics``, plus the typed
+    keys ADR-0004 has since admitted to ``evidence`` — the clocks, the phase and the
+    parsed errors of #687, and the launch's `User-data placement` of #862. A new
+    envelope FIELD beside `Gda error code` would change that ADR's uniform failure
+    ABI, and it owns that decision: do not add one here.
 
     The recognized script errors are read with the SAME parser stack the rest of
     ``script run`` uses — :mod:`gda.engine_log` through
@@ -1817,6 +1825,7 @@ def _classify_ended_run(
             script_errors=recognized,
             stdout=raw.stdout,
             stderr=raw.stderr,
+            user_data=raw.user_data,
         )
     if raw.launch_failure is LaunchFailure.TIMEOUT:
         return script_run_timeout_failure(
@@ -1827,6 +1836,7 @@ def _classify_ended_run(
             script_errors=recognized,
             stdout=raw.stdout,
             stderr=raw.stderr,
+            user_data=raw.user_data,
         )
     return None
 
@@ -2751,8 +2761,12 @@ def run_script(
     was: ``engine_data_path``, the directory the engine resolved ``user://``
     beneath, is always present; ``user_data_root`` and ``log_file`` are reported
     only when a root was given — the one case in which the log outlives the launch,
-    since by default it is a private temporary file gda removes. A failure envelope
-    (``--strict``'s ``script_failed``, a ``launch_timeout``) does not carry them.
+    since by default it is a private temporary file gda removes. Three failure
+    envelopes say the same, under ``evidence``: ``script_failed``, ``launch_timeout``
+    and ``script_aborted``. There the keys follow the omitted-never-null rule of that
+    object, so an unresolved ``engine_data_path`` is absent rather than null. Those
+    three and no others — every other failure of this command, ``engine_crashed`` and
+    ``stdout_spill_failed`` included, carries no placement.
 
     A script that never RAN is a failure either way. Godot reports these on stderr and
     still exits 0, so gda decides them from the engine's error stream, not its exit

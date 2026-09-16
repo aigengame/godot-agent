@@ -1027,10 +1027,26 @@ outlives the launch, the default being a private temporary file gda removes. Bot
 omitted rather than null when they are not facts. The facts come off the shared launch
 primitive's `Raw run`, and `script run` is the only channel that publishes them:
 `scene preflight`, `export run`, `resource import` and the sentinel commands read the
-same run and disclose none. So does a FAILURE of this command — `--strict`'s
-`script_failed`, a `launch_timeout` — which keeps its pre-#850 shape: disclosing the
-placement there means extending ADR-0004's `Failure evidence` producer set, which is
-that ADR's decision and a follow-up, not this one.
+same run and disclose none.
+
+Three failure verdicts carry the same placement as `evidence` (#862) — `--strict`'s
+`script_failed`, this command's own `launch_timeout` and `script_aborted` — because
+that is where the misdiagnosis they answer actually lands: a `--strict` run whose
+`user://` write failed, and a timeout burned on the same cause. On the timeout and
+the abort the `log_file` is the point of it, since gda stopped waiting for a verdict
+and the engine's own account of the run is what to read next. The presence rules are
+the success result's with ONE difference: every field of `Failure evidence` is
+omitted rather than null, so an `engine_data_path` the platform did not resolve is
+absent here and null there.
+
+Those three by name, not a category — every other failure carries none of the three,
+whether or not the script ran. That is the verdicts about a script that never RAN
+(`script_not_found` / `script_compile_failed` / `incompatible_script_type`) and the
+pre-launch `target_outside_project` refusal; it is also `engine_crashed` and
+`stdout_spill_failed`, which do report on a run that ran but carry no `evidence` at
+all — `engine_crashed` is the shared classifier's verdict for every channel, and its
+`diagnostics` already carries the crash account (ADR-0004's #862 note). And it is
+every other channel's `launch_timeout`.
 
 The script executes in full, within the trusted-project assumption (ADR-0009).
 
@@ -1312,6 +1328,43 @@ resolved absolute artifact path. Missing output parent directories are created
 before the native export and reported in `created_dirs`, outermost to innermost;
 an uncreatable parent is reported as `export_output_parent_failed` before Godot
 runs.
+
+`gda export run` also reports what the export did to the project tree
+(`project_tree_mutations`, #839). The native export runs the editor import pass, so
+an export against a cold cache creates the whole `.godot/` cache plus the `.import`
+and `.uid` sidecars beside the sources, and a stale asset makes it rewrite the
+generated resources it owns — GDA-DF-067 saw about 14,000 such files appear on
+disk while `warnings` stayed empty. `created` covers every file the export added
+ANYWHERE under the project, each carrying `resource import`'s own classification
+(`cache_owned` / `source_adjacent`, from
+`gda.import_evidence.classify_created_file`) against the reported `cache_root`, so
+the cache half can be cleaned as one unit; directory links are walked as the
+engine reads them, once each. `modified` covers the pre-existing files OUTSIDE
+that root whose CONTENT changed, and only a file whose size or timestamp moved is
+compared: the pass touches far more files
+than it rewrites, a changed timestamp alone would bury the few rewrites the record
+is about, and the price is that a rewrite preserving both is not seen. A rewrite
+INSIDE `cache_root` is not reported at all — the cache is reported as one unit, and
+a warm export rewrites its bookkeeping files on every run — so an empty `modified`
+says nothing about the cache. Out of both lists: the artifact with everything under
+it (a directory artifact such as a macOS `.app` bundle included) and a top-level
+`.git`. The exclusion stops there — a file the export writes BESIDE the artifact,
+such as the `game.pck` a Linux binary with `binary_format/embed_pck=false` gets next
+to it, is reported like any other created file.
+`skipped` counts what neither walk could account for — an entry that
+is not a regular file (a FIFO, a socket, a device; gda never opens one), or a file
+that could not be read, or a directory whose whole subtree is then uncovered —
+because an unreadable corner of the tree must not fail an export that succeeded;
+it is a count rather than a path list, so the remedy is to repair the tree and run
+again. A FAILED export reports no
+mutations: the failure answers through the error envelope. The report is the
+difference between gda's walk before the export and its walk after; gda assumes it
+is the project's sole driver during the export (ADR-0018), so a change another
+writer makes in that interval is attributed to the export. The report is disclosure
+— the export deletes and restores nothing — and it covers the engine's default
+cache directory: a project that sets
+`application/config/use_hidden_project_data_directory=false` keeps its cache under
+`godot/`, whose files then read as `source_adjacent`.
 
 Export-template discovery follows the user-data placement (#840). Godot reads the
 templates from its data directory, and `--user-data-root` relocates exactly that,

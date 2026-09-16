@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=928c5de0bc0a522fd8b87c9c9f85739e315790e995e9a8ff4c2ccd7e9fe10bbd -->
+<!-- gda-readme-i18n: source=README.md sha256=8729fd87e8807164c2d43ca24430c74b6f30bd3373251fb5fe6e1d716694bd6c -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -440,7 +440,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | ------- | ------------ |
 | `export list` | 枚举项目的导出预设（名称、平台等）。 |
 | `export get` | 报告某个预设的详情以及导出模板的安装状态。 |
-| `export run` | 把一个具名预设（`release` / `debug` / `pack`）导出到目标位置。 |
+| `export run` | 把一个具名预设（`release` / `debug` / `pack`）导出到目标位置，并报告它在项目里留下的东西：新建的每个文件（带分类），以及 `.godot/` 缓存之外被改写的文件——缓存为空时会留下成千上万个，缓存内部的改写则不会报告。 |
 
 **`shader`** — 着色器文件（`.gdshader`）
 

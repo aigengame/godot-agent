@@ -17,8 +17,17 @@ from gda.error_codes import (
 import gda.errors as errors_module
 from gda.errors import make_failure
 from gda.exit_codes import EXIT_LIVE
-from gda.models import ErrorCategory, GdaErrorEnvelope, TerminationPhase
-from gda.runner import LaunchFailure, RunResult
+from gda.models import (
+    PLACEMENT_FIELD_NAMES,
+    ErrorCategory,
+    GdaErrorEnvelope,
+    TerminationPhase,
+)
+from gda.runner import (
+    LaunchFailure,
+    RunResult,
+    UserDataReport,
+)
 
 # The live execution channel's failure codes (ADR-0017 / ADR-0021). Registered
 # here as the first Phase-2 slice's error contract; emitted by the daemon IPC
@@ -282,7 +291,7 @@ _EVIDENCE_PRODUCERS = {
 
 def test_only_the_recorded_producers_put_evidence_on_the_envelope():
     # A criterion in prose is not a boundary anyone can check (#687 review). Read out
-    # of the source rather than kept by hand, so a sixth builder cannot join the axis
+    # of the source rather than kept by hand, so a TENTH builder cannot join the axis
     # without this test — and the ADR paragraph it mirrors — being updated in the same
     # change. `make_failure` itself is excluded by construction: this looks only at
     # CALLS to it, and it is the one that forwards the parameter.
@@ -304,16 +313,106 @@ def test_only_the_recorded_producers_put_evidence_on_the_envelope():
     assert producers == _EVIDENCE_PRODUCERS
 
 
+#: The three `User-data placement` keys `Failure evidence` publishes (#862), and the
+#: builders allowed to set them: the three ADR-0004's #862 note names. THREE codes,
+#: not a category — `script run` has other verdicts about a run that ran
+#: (`engine_crashed`, `stdout_spill_failed`) and they carry no evidence at all, so the
+#: licensed reading is "the run-reporting verdicts that ALREADY carried evidence". The
+#: boundary is held HERE, at the builder, because neither of the two guards that
+#: already exist can hold it. `FailureEvidence` is ONE schema shared by every command
+#: (ADR-0004), so the model's shape cannot say "this channel only"; and
+#: `tests/cli/test_command_descriptor_registry.py`'s placement guard walks RESULT
+#: models, so it never looks at an error envelope.
+#:
+#: What stays out is what #850's one-channel boundary keeps out, and each for its own
+#: reason. `script_did_not_run_failure` and `script_escapes_project_failure` are
+#: `script run`'s too, but report on a run that never started — the caller's next step
+#: is the script, not the environment. The shared `launch_timeout_failure` would carry
+#: the placement to EVERY launch-backed channel; `script run` reaches its own timeout
+#: through `script_run_timeout_failure` instead, which is why this channel can be
+#: extended alone.
+#: Read from `gda.models`, the contract core that owns these public names, so a
+#: rename of a public key moves both this guard and the result-model one in
+#: `tests/cli/test_command_descriptor_registry.py` at once (#862 review, P3-4).
+_PLACEMENT_EVIDENCE_FIELDS = set(PLACEMENT_FIELD_NAMES)
+_PLACEMENT_EVIDENCE_PRODUCERS = {
+    "script_exit_status_failure",
+    "script_run_timeout_failure",
+    "script_run_aborted_failure",
+}
+
+
+def test_only_the_three_named_builders_put_the_placement_on_evidence():
+    # Same AST shape as the producer-set guard above, one level in: which builders
+    # construct a `FailureEvidence` with a placement key. Read out of the source, so a
+    # fourth builder cannot start disclosing where a run's `user://` was without this
+    # set — and ADR-0004's producer paragraph — being revisited in the same change.
+    #
+    # Two limits, both inherited from the #687 guard above rather than introduced
+    # here. It reads KEYWORDS at the call, so a `FailureEvidence(**something)` would
+    # pass unseen; and it parses ONE module, `gda.errors`, which is where every
+    # evidence-carrying builder lives by convention — a `FailureEvidence(...)` built
+    # anywhere else would be invisible to both guards. Every producer today is in that
+    # module and spells its fields, and these two tests are what keep that true.
+    module = ast.parse(Path(errors_module.__file__).read_text(encoding="utf-8"))
+
+    producers = {
+        node.name
+        for node in ast.walk(module)
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Name)
+            and call.func.id == "FailureEvidence"
+            and any(
+                keyword.arg in _PLACEMENT_EVIDENCE_FIELDS for keyword in call.keywords
+            )
+            for call in ast.walk(node)
+        )
+    }
+
+    assert producers == _PLACEMENT_EVIDENCE_PRODUCERS
+
+
+def test_the_shared_launch_timeout_discloses_no_placement_it_was_handed():
+    # The other half of the boundary, asserted on BEHAVIOUR rather than on source: the
+    # shared builder is given the whole `Raw run`, which since #850 carries the
+    # placement, so nothing but this keeps `export run`, `resource import` and
+    # `scene preflight` timeouts byte-identical to their pre-#862 envelopes.
+    raw = RunResult(
+        stdout="",
+        stderr="",
+        exit_code=124,
+        launch_failure=LaunchFailure.TIMEOUT,
+        user_data=UserDataReport(
+            root=Path("/tmp/udr"),
+            data_path=Path("/tmp/udr/Library/Application Support"),
+            log_file=Path("/tmp/udr/logs/godot.log"),
+        ),
+    )
+
+    emitted = json.loads(
+        GdaErrorEnvelope(
+            error=errors_module.launch_timeout_failure(raw).error
+        ).model_dump_json(exclude_none=True)
+    )
+
+    assert _PLACEMENT_EVIDENCE_FIELDS.isdisjoint(emitted["error"]["evidence"])
+
+
 def test_no_producer_can_emit_an_empty_evidence_object():
     # The fourth state the amendment's argument does not cover: `FailureEvidence()`
     # with every field unset serializes to `"evidence": {}` — a key that says nothing,
     # on a failure that byte-identity says should carry no key at all. Unreachable
     # through the first five producers today, but only incidentally, so it is pinned
-    # rather than assumed. Producers six to eight (the two `target_*` refusals and
-    # `export_templates_missing_failure`) are not in this list because their builders
-    # cannot be called with nothing; each pins the same rule in a dedicated test
+    # rather than assumed. Producers six to nine (the two `target_*` refusals,
+    # `export_templates_missing_failure` and `path_case_mismatch_failure`) are not in
+    # this list because their builders cannot be called with nothing; each pins the
+    # same rule in a dedicated test
     # (e.g. `test_no_evidence_at_all_when_no_directory_was_reported`). Each producer
-    # is called with the LEAST it can be given.
+    # is called with the LEAST it can be given — which for the three `script run`
+    # builders that carry the placement includes an explicit `user_data=None`, since
+    # #862 made it a required argument rather than a defaulted one.
     raw = RunResult(
         stdout="", stderr="", exit_code=124, launch_failure=LaunchFailure.TIMEOUT
     )
@@ -322,7 +421,9 @@ def test_no_producer_can_emit_an_empty_evidence_object():
         errors_module.script_did_not_run_failure(
             "script_not_found", "res://t.gd", "detail", "", []
         ),
-        errors_module.script_exit_status_failure("res://t.gd", 3, "", "", []),
+        errors_module.script_exit_status_failure(
+            "res://t.gd", 3, "", "", [], user_data=None
+        ),
         errors_module.script_run_timeout_failure(
             "res://t.gd",
             timeout=1.0,
@@ -331,6 +432,7 @@ def test_no_producer_can_emit_an_empty_evidence_object():
             script_errors=[],
             stdout="",
             stderr="",
+            user_data=None,
         ),
         errors_module.script_run_aborted_failure(
             "res://t.gd",
@@ -342,6 +444,7 @@ def test_no_producer_can_emit_an_empty_evidence_object():
             script_errors=[],
             stdout="",
             stderr="",
+            user_data=None,
         ),
     ]
 

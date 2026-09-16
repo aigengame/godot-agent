@@ -666,7 +666,16 @@ def test_script_run_strict_fails_on_an_explicit_non_zero_quit(godot_project):
     # no termination phase, so those are absent rather than zeroed. An EQUALITY, not
     # a subset (#687 review): `<=` could not tell a present `script_errors` from a
     # missing one, which is the very distinction the line below pins.
-    assert set(err["evidence"]) == {"exit_status", "script_errors"}
+    #
+    # `engine_data_path` joins them on a DEFAULT run (#862): gda redirected no root,
+    # so the other two placement keys stay absent — the log was a private temporary
+    # file this launch removed, and there is no root to name. This is AC1's first
+    # shape, and the equality is what proves the other two did not slip in.
+    assert set(err["evidence"]) == {
+        "exit_status",
+        "script_errors",
+        "engine_data_path",
+    }
     # The middle of `script_errors`' three states, on a real engine: this channel DID
     # parse the stderr and recognized nothing — a clean script that simply chose a
     # non-zero status. `[]` says that, where an absent key would say "gda did not
@@ -795,9 +804,14 @@ def test_script_run_strict_fails_a_leaking_run_that_exited_zero(godot_project):
     assert err["category"] == "operation"
     assert "status 0" in err["message"]
     assert "the engine reported a leak at exit" in err["message"]
-    # The evidence keys are the ones this producer already carried (#687): the
-    # CHILD's status, and the parsed records. No new key, no new producer.
-    assert set(err["evidence"]) == {"exit_status", "script_errors"}
+    # The evidence keys are the ones this producer carried for #687 — the CHILD's
+    # status and the parsed records — plus the placement of the launch that produced
+    # it (#862). No new producer either time.
+    assert set(err["evidence"]) == {
+        "exit_status",
+        "script_errors",
+        "engine_data_path",
+    }
     assert err["evidence"]["exit_status"] == 0
     kinds = [e["kind"] for e in err["evidence"]["script_errors"]]
     assert kinds == ["shutdown_leak", "shutdown_leak"], kinds
@@ -1274,3 +1288,155 @@ def test_script_run_under_a_user_data_root_reports_the_placement_it_ran_with(
     # The log outlives the launch — the whole reason this key is reported only here.
     assert Path(data["log_file"]).exists()
     assert data["log_file"].startswith(str(root))
+
+
+# --- The placement on the three FAILURE envelopes ADR-0004's #862 note names.
+#
+# #850's success-result disclosure is covered above. These are the paths the
+# dogfooding record is actually about — a `--strict` run whose `user://` write
+# failed, and a ceiling burned on the same cause — and both end in an Error
+# envelope. They run under `--user-data-root DIR` because that is the shape in
+# which all three keys are facts and the log file is still on disk to check.
+
+
+def _placement_of(err: dict) -> tuple[str, str, str]:
+    """The three placement keys of an envelope, asserted present."""
+    evidence = err["evidence"]
+    for key in ("engine_data_path", "user_data_root", "log_file"):
+        assert key in evidence, evidence
+    return (
+        evidence["engine_data_path"],
+        evidence["user_data_root"],
+        evidence["log_file"],
+    )
+
+
+@pytest.mark.e2e
+def test_script_run_strict_failure_under_a_root_reports_the_placement_it_ran_with(
+    godot_project, tmp_path
+):
+    # AC1's second shape, against the real engine: the same quit(1) under a root
+    # carries all three keys, the data path really is DERIVED under the root (the
+    # engine appends its platform layout), and the log is still readable after the
+    # command returned — which is what makes a failed `user://` write attributable to
+    # the environment instead of read as a game regression.
+    (godot_project / "fail.gd").write_text(FAIL_GD, encoding="utf-8")
+    root = tmp_path / "udr-strict"
+
+    run = gda(
+        "--user-data-root",
+        str(root),
+        "script",
+        "run",
+        "res://fail.gd",
+        "--strict",
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    assert run.returncode == 4, run.stdout + run.stderr
+    err = json.loads(run.stdout)["error"]
+    assert err["code"] == "script_failed"
+    data_path, reported_root, log_file = _placement_of(err)
+    assert reported_root == str(root)
+    assert data_path.startswith(str(root))
+    assert log_file.startswith(str(root))
+    assert Path(log_file).exists()
+    # Beside the keys this envelope already carried, not instead of them.
+    assert err["evidence"]["exit_status"] == 1
+
+
+@pytest.mark.e2e
+def test_script_run_timeout_under_a_root_reports_the_placement_beside_its_clocks(
+    godot_project, tmp_path
+):
+    # AC2's first half. The log matters most here: gda stopped waiting for a verdict,
+    # so the engine's own account of the run is what the caller reads next — and
+    # under a root it is the one case in which that file outlives the launch.
+    (godot_project / "slow.gd").write_text(SLOW_BUT_HEALTHY_GD, encoding="utf-8")
+    root = tmp_path / "udr-timeout"
+
+    run = gda(
+        "--user-data-root",
+        str(root),
+        "script",
+        "run",
+        "res://slow.gd",
+        "--timeout",
+        "4",
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    assert run.returncode == 124, run.stdout + run.stderr
+    err = json.loads(run.stdout)["error"]
+    assert err["code"] == "launch_timeout"
+    _data_path, reported_root, log_file = _placement_of(err)
+    assert reported_root == str(root)
+    assert Path(log_file).exists()
+    # The clocks #687 put on this envelope are untouched.
+    assert err["evidence"]["timeout_seconds"] == 4.0
+    assert err["evidence"]["elapsed_seconds"] >= 4.0
+    assert err["evidence"]["termination_phase"] == "output_seen"
+
+
+@pytest.mark.e2e
+def test_script_run_abort_under_a_root_reports_the_placement_too(
+    godot_project, tmp_path
+):
+    # AC2's second half: the third of the three. gda ended this run short of
+    # its ceiling on the declared marker's contract, so it has no less need of the
+    # environment than the timeout above.
+    (godot_project / "aborts.gd").write_text(ABORTS_BEFORE_QUIT_GD, encoding="utf-8")
+    root = tmp_path / "udr-abort"
+
+    run = gda(
+        "--user-data-root",
+        str(root),
+        "script",
+        "run",
+        "res://aborts.gd",
+        "--completion-marker",
+        "SUITE DONE",
+        "--timeout",
+        "60",
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    assert run.returncode == 4, run.stdout + run.stderr
+    err = json.loads(run.stdout)["error"]
+    assert err["code"] == "script_aborted"
+    _data_path, reported_root, log_file = _placement_of(err)
+    assert reported_root == str(root)
+    assert Path(log_file).exists()
+    # An abort stops SHORT of its ceiling, so it still reports no `timeout_seconds`.
+    assert "timeout_seconds" not in err["evidence"]
+
+
+@pytest.mark.e2e
+def test_script_run_never_ran_verdict_carries_no_placement(godot_project, tmp_path):
+    # The boundary, on a real run: a missing entry script fails the admission
+    # criterion's third clause — the caller's next step is the script, not the
+    # environment — so the verdict stays byte-identical even under a root that makes
+    # every placement path a fact.
+    root = tmp_path / "udr-missing"
+
+    run = gda(
+        "--user-data-root",
+        str(root),
+        "script",
+        "run",
+        "res://nope.gd",
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    assert run.returncode == 4, run.stdout + run.stderr
+    err = json.loads(run.stdout)["error"]
+    assert err["code"] == "script_not_found"
+    assert set(err["evidence"]) == {"script_errors"}
