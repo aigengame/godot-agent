@@ -17,6 +17,7 @@ from gda.cli import app
 from gda.commands.daemon import DaemonStatusResult, DaemonWaitReadyResult
 from gda.exit_codes import EXIT_LIVE
 from gda.runner import RunResult
+from gda.script_errors import parse_script_errors
 from tests.support import (
     assert_operation_error,
     inject_live_runner,
@@ -272,9 +273,10 @@ def test_wait_ready_human_output_names_an_unavailable_verdict(monkeypatch, tmp_p
 
 
 # The pair is ONE fact (fourth review of PR #940): both null, or a list and
-# exactly "that list is empty". A reply that says otherwise is a drifted daemon,
-# and on `wait-ready` it fails OUTPUT validation the way a missing key does —
-# never a success carrying half a verdict.
+# exactly "no record about the RUN among them" (#976 — it read "that list is
+# empty" until the two boot verdicts were given one predicate). A reply that says
+# otherwise is a drifted daemon, and on `wait-ready` it fails OUTPUT validation the
+# way a missing key does — never a success carrying half a verdict.
 CONTRADICTIONS = [
     (None, True),
     ([], None),
@@ -301,24 +303,83 @@ def test_wait_ready_rejects_a_contradictory_verdict_pair(
     assert json.loads(result.stdout)["error"]["code"] == "contract_violation"
 
 
+# The non-verdict half of either result model, so one verdict pair is all a test
+# below has to spell.
+_MODEL_BASE = {
+    "pid": 4242,
+    "launched": True,
+    "running": True,
+    "socket_path": "/tmp/x.sock",
+    "session_id": None,
+}
+
+
 @pytest.mark.parametrize("model", [DaemonWaitReadyResult, DaemonStatusResult])
 @pytest.mark.parametrize("diagnostics,clean", CONTRADICTIONS)
 def test_both_result_models_own_the_one_verdict_rule(model, diagnostics, clean):
     # The rule lives on the published values, not in the daemon that computed
     # them: a second deployment (the reachable CLI/daemon skew) is exactly where
     # "the daemon derives the boolean in one place" stops being evidence.
-    base = {
-        "pid": 4242,
-        "launched": True,
-        "running": True,
-        "socket_path": "/tmp/x.sock",
-        "session_id": None,
-    }
-    fields = {k: v for k, v in base.items() if k in model.model_fields}
+    fields = {k: v for k, v in _MODEL_BASE.items() if k in model.model_fields}
     with pytest.raises(ValidationError):
         model(**fields, startup_diagnostics=diagnostics, clean_start=clean)
     for good_diagnostics, good_clean in ((None, None), ([], True)):
         model(**fields, startup_diagnostics=good_diagnostics, clean_start=good_clean)
+
+
+# A record about the PROCESS rather than about a script: the engine prints it as it
+# exits, about everything the process held.
+LEAK_RECORD = {
+    "kind": "shutdown_leak",
+    "message": "ObjectDB instances leaked at exit (run with --verbose for details).",
+    "path": None,
+    "line": None,
+}
+
+
+@pytest.mark.parametrize("model", [DaemonWaitReadyResult, DaemonStatusResult])
+def test_a_process_record_alone_is_still_a_clean_start(model):
+    # #976, on the published values: the pair rule reads the per-kind policy table,
+    # so a prefix holding nothing but the exit-time leak is a CLEAN start that
+    # reports the record — the exclusion `scene preflight`'s `started` already made
+    # and this boundary did not make at all. `false` beside that list is now the
+    # contradiction, because the record says nothing about how the start went.
+    #
+    # Nothing observable moves: this prefix ends at the harness handshake and the
+    # engine prints the record long after, so no live path reaches the list below.
+    # It is pinned here so a SECOND process-lifecycle kind lands on one rule
+    # instead of on two boundaries that answer differently.
+    fields = {k: v for k, v in _MODEL_BASE.items() if k in model.model_fields}
+
+    model(**fields, startup_diagnostics=[LEAK_RECORD], clean_start=True)
+    with pytest.raises(ValidationError):
+        model(**fields, startup_diagnostics=[LEAK_RECORD], clean_start=False)
+
+
+def test_the_preflight_verdict_satisfies_the_daemon_pair_rule():
+    # The two boot verdicts are ONE rule (#976). `scene preflight` derives
+    # `started` from the same predicate this pair invariant reads, so the boolean
+    # it computes for a set of records is exactly the one the daemon must publish
+    # beside them — including for the leak-only list, which is where the old
+    # emptiness rule and the preflight exclusion disagreed without either side
+    # noticing.
+    from gda.commands.daemon import check_startup_verdict_pair
+    from gda.commands.scene import _startup_was_clean
+
+    leak = parse_script_errors(
+        "WARNING: ObjectDB instances leaked at exit (run with --verbose for "
+        "details).\n"
+        "   at: cleanup (core/object/object.cpp:2663)\n"
+    )
+    failed = parse_script_errors(
+        'ERROR: Failed to load script "res://main.gd" with error "Parse error".\n'
+        "   at: load (modules/gdscript/gdscript.cpp:2907)\n"
+    )
+    assert [e.kind.value for e in leak] == ["shutdown_leak"]
+    assert [e.kind.value for e in failed] == ["compile_failed"]
+
+    for records in ([], leak, failed, leak + failed):
+        check_startup_verdict_pair(records, _startup_was_clean(records))
 
 
 def test_wait_ready_schema_publishes_the_startup_verdict():

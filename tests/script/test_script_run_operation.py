@@ -749,17 +749,24 @@ def test_not_a_main_loop_entry_is_a_failure_despite_the_zero_exit():
     assert "SceneTree" in outcome.error.message
 
 
-def test_every_entry_failure_kind_has_a_verdict_code():
-    # A kind in the precedence list with no row in the code map would be a KeyError
-    # on a real failure path — the one way this pair can break. Pin them in lockstep,
-    # and pin that every code they name is actually registered.
-    from gda.commands.script import _ENTRY_FAILURE_CODES
+def test_every_derived_entry_verdict_code_is_registered():
+    # The map is DERIVED from the precedence since #976, so a kind with no row is
+    # no longer a thing that can happen — this used to pin the two in lockstep
+    # because a missing row was a KeyError on a real failure path. What a test can
+    # still catch is a code naming nothing in the registry, which would reach a
+    # caller as a verdict it cannot branch on. The second assertion keeps the
+    # derivation honest the other way round: a more-specific code for a kind
+    # OUTSIDE the precedence is a dead row no verdict ever reads.
+    from gda.commands.script import (
+        _ENTRY_FAILURE_CODES,
+        _SPECIFIC_ENTRY_FAILURE_CODES,
+    )
     from gda.error_codes import ERROR_CODE_BY_CODE
-    from gda.script_errors import _ENTRY_FAILURE_PRECEDENCE
+    from gda.script_errors import ENTRY_FAILURE_PRECEDENCE
 
-    assert set(_ENTRY_FAILURE_CODES) == set(_ENTRY_FAILURE_PRECEDENCE)
     for code in _ENTRY_FAILURE_CODES.values():
         assert code in ERROR_CODE_BY_CODE
+    assert set(_SPECIFIC_ENTRY_FAILURE_CODES) <= set(ENTRY_FAILURE_PRECEDENCE)
 
 
 def test_strict_maps_a_non_zero_exit_onto_the_registered_failure():
@@ -1439,6 +1446,22 @@ def test_an_entry_load_failure_arms_the_abort_too():
         watch,
         [("", not_a_main_loop, 0.5), ("", "", 2.9), ("", "", 3.6)],
     )
+
+    assert verdicts == [False, False, True]
+
+
+def test_a_non_canonical_entry_spelling_still_arms_the_abort():
+    # Attribution (3): whether a record names the ENTRY is
+    # `gda.script_errors.names_entry_script`'s answer since #976, and what it
+    # answers about is the CANONICAL identity on both sides — the engine reports
+    # the spelling it resolved, while the caller addresses the entry however they
+    # spelled it. A raw comparison would leave a dead run waiting out the whole
+    # --timeout: the #651 failure mode, on the #655 path.
+    watch = _CompletionMarkerWatch(
+        "SUITE DONE", entry="res://tests/../tests/logic.gd", silence=3.0
+    )
+
+    verdicts = _drive(watch, [("", ABORTED_STDERR, 0.5), ("", "", 2.9), ("", "", 3.6)])
 
     assert verdicts == [False, False, True]
 
