@@ -116,10 +116,6 @@ def _fixture(*, renamed=False, input_member=None, domain_renamed=False):
             rename_term(predicate["right"])
         for field in recipe["fields"]:
             rename_term(field["term"])
-    for check in _definitions(authored, "language.model_checks"):
-        for selector in ("selector", "scope_selector"):
-            if selector in check:
-                check[selector] = [names.get(part, part) for part in check[selector]]
     for module in source[modules]:
         for symbol in module[symbols]:
             for member in ("symbol", "type", "domain"):

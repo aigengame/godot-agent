@@ -76,7 +76,6 @@ def _source_case(mutation=None, *, renamed=False, input_member=None):
         "symbol": source_schema_member(symbol_schema, "symbol")[0],
         "type": source_schema_member(symbol_schema, "type")[0],
     }
-    checks = _definitions(authored, "language.model_checks")
     if renamed or input_member is not None:
         if renamed:
             names.update(
@@ -105,10 +104,6 @@ def _source_case(mutation=None, *, renamed=False, input_member=None):
                 term = field["term"]
                 if term.get("root") == "binding" and term.get("binding") == "symbol":
                     term["path"] = [names[part] for part in term["path"]]
-        for check in checks:
-            for field in ("selector", "scope_selector"):
-                if field in check:
-                    check[field] = [names.get(part, part) for part in check[field]]
         source[names["modules"]] = source.pop("modules")
         for module in source[names["modules"]]:
             module[names["symbols"]] = module.pop("symbols")
@@ -120,9 +115,6 @@ def _source_case(mutation=None, *, renamed=False, input_member=None):
     nominal = [row for row in source[modules][0][symbols] if "domain" not in row]
     if mutation == "domain-rename":
         _rename_member(symbol_schema, "domain", "opaque_domain")
-        for check in checks:
-            if check["selector"][-1] == "domain":
-                check["selector"][-1] = "opaque_domain"
         for row in quantity:
             row["opaque_domain"] = row.pop("domain")
     elif mutation == "missing":

@@ -35,7 +35,7 @@ from test_schema2_model_lowerer_conformance import (
 _EXAMPLES = Path(__file__).parents[1] / "examples/schema2"
 
 
-def _authorities(member, *, complete=True):
+def _authorities(member):
     kernel, language = mutable_authorities()
     schema = next(
         row["schema"]
@@ -66,12 +66,6 @@ def _authorities(member, *, complete=True):
                     rename(child)
 
         rename(profile["relation_recipes"])
-        if complete:
-            # Model checks retain authored paths; Lowering consumes semantic rows.
-            for check in language["language"]["model_checks"]:
-                for field in ("selector", "scope_selector"):
-                    if check.get(field, [])[:1] == [previous]:
-                        check[field][0] = member
         _reidentify_language_bundle(language)
     return kernel, language
 

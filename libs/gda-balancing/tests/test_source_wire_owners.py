@@ -94,10 +94,6 @@ def test_source_entrypoints_coherent_rename_reaches_public_and_independent_compi
         ):
             if term.get("root") == "source" and term["path"]:
                 term["path"][0] = names.get(term["path"][0], term["path"][0])
-    for check in _definitions(authored, "language.model_checks"):
-        for member in ("selector", "scope_selector"):
-            if check.get(member):
-                check[member][0] = names.get(check[member][0], check[member][0])
     graph = _graph(kernel, authored)
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, graph)
