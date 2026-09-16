@@ -376,6 +376,9 @@ def _source_role_nodes(schema, selected):
         "inherited-symbol-child-role",
         "conditional-operand-discriminator",
         "missing-value-policy-mode-member",
+        "native-interval-child-annotation",
+        "native-boolean-child-annotation",
+        "native-typed-literal-child-annotation",
         "boolean-domain",
         "typed-literal-envelope",
     ],
@@ -428,6 +431,23 @@ def test_source_native_and_contextual_roles_refuse_semantic_schema_drift(defect)
     elif defect == "missing-value-policy-mode-member":
         policy = _source_role_nodes(schema, "value-policy")[0]
         del policy["properties"]["mode"]["semantic_member"]
+    elif defect == "native-interval-child-annotation":
+        symbol = _source_role_nodes(schema, "symbol")[0]
+        symbol["properties"]["domain"]["properties"]["minimum"]["semantic_member"] = (
+            "minimum"
+        )
+    elif defect == "native-boolean-child-annotation":
+        contract = _source_role_nodes(schema, "boolean-value-contract")[0]
+        contract["properties"]["domain"]["properties"]["kind"]["semantic_member"] = (
+            "kind"
+        )
+    elif defect == "native-typed-literal-child-annotation":
+        literal = _source_role_nodes(schema, "literal")[0]
+        for branch in literal["properties"]["value"].get("oneOf", []):
+            if branch.get("type") == "object":
+                branch["properties"]["type"]["properties"]["id"]["semantic_member"] = (
+                    "id"
+                )
     elif defect == "boolean-domain":
         contract = _source_role_nodes(schema, "boolean-value-contract")[0]
         contract["properties"]["domain"]["properties"]["kind"]["const"] = "not-boolean"

@@ -2797,6 +2797,27 @@ def _consumer_b_semantic_property_schemas(
 def _consumer_b_native_source_member_is_closed(
     fields: list[dict[str, Any]], law: str, meta: Mapping[str, Any]
 ) -> bool:
+    # The owner annotation belongs to the property itself, never its native payload.
+    for field in fields:
+        pending = [
+            {key: value for key, value in field.items() if key != _SOURCE_MEMBER_KEY}
+        ]
+        while pending:
+            node = pending.pop()
+            if _SOURCE_MEMBER_KEY in node or _SOURCE_ROLE_KEY in node:
+                return False
+            properties = node.get("properties")
+            if isinstance(properties, dict):
+                pending.extend(
+                    child for child in properties.values() if isinstance(child, dict)
+                )
+            if isinstance(node.get("items"), dict):
+                pending.append(node["items"])
+            branches = node.get("oneOf")
+            if isinstance(branches, list):
+                pending.extend(
+                    branch for branch in branches if isinstance(branch, dict)
+                )
     if law == "canonical-value":
         return (
             bool(fields)
