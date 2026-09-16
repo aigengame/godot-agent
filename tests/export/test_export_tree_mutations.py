@@ -298,6 +298,48 @@ def test_a_res_output_artifact_is_the_output_not_a_mutation(tmp_path):
     assert _mutations(outcome).skipped == 0
 
 
+@pytest.mark.parametrize("use_res_path", [True, False])
+def test_an_output_under_a_directory_link_is_excluded_by_identity(
+    tmp_path, use_res_path
+):
+    project = minimal_project(tmp_path / "game")
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (project / "assets").symlink_to(shared, target_is_directory=True)
+    output = (
+        "res://assets/out.pck" if use_res_path else str(project / "assets" / "out.pck")
+    )
+
+    def mutate() -> None:
+        _write(shared / "out.pck", "pack")
+        _write(shared / "sibling.import", "sidecar")
+
+    mutations = _mutations(_export(project, mutate, output_override=output))
+
+    assert [entry.path for entry in mutations.created] == [
+        "res://assets/sibling.import"
+    ]
+    assert mutations.skipped == 0
+
+
+def test_an_output_is_excluded_when_the_walk_uses_another_link_spelling(tmp_path):
+    project = minimal_project(tmp_path)
+    target = project / "z_assets"
+    target.mkdir()
+    (project / "a_alias").symlink_to(target, target_is_directory=True)
+
+    mutations = _mutations(
+        _export(
+            project,
+            lambda: _write(target / "out.pck", "pack"),
+            output_override="res://z_assets/out.pck",
+        )
+    )
+
+    assert mutations.created == []
+    assert mutations.skipped == 0
+
+
 def test_a_file_beside_the_artifact_is_reported_in_a_gda_created_parent(tmp_path):
     # The exclusion is the artifact and its OWN subtree, one rule for both cases.
     # A Linux preset with `binary_format/embed_pck=false` writes `game.pck` beside

@@ -758,3 +758,22 @@ def test_export_run_reports_the_mutations_under_a_linked_directory(
     for entry in rewrote["modified"]:
         assert entry["size_before"] < entry["size"], entry
     assert rewrote["skipped"] == 0
+
+    # The output can itself be placed through the linked directory. The tree
+    # walk follows that link, so it must still exclude the export's own pack.
+    linked_output = gda.json(
+        "export",
+        "run",
+        "--preset",
+        "Linux/X11",
+        "--mode",
+        "pack",
+        "--output",
+        "res://assets/out.pck",
+    )["project_tree_mutations"]
+
+    assert (shared / "out.pck").is_file()
+    assert "res://assets/out.pck" not in {
+        entry["path"] for entry in linked_output["created"]
+    }
+    assert linked_output["skipped"] == 0

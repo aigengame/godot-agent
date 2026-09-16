@@ -682,41 +682,32 @@ def _file_facts(path: Path, *, digest: bool) -> "_FileFacts | None":
     return _FileFacts(size=st.st_size, mtime_ns=st.st_mtime_ns, digest=content)
 
 
-def _excluded_prefixes(project: Path, output_path: str) -> tuple[str, ...]:
-    """The project-relative paths neither walk reports (#839).
+@dataclass(frozen=True)
+class _ProjectTreeExclusions:
+    prefixes: tuple[str, ...]
+    artifact: Path | None
 
-    The artifact and — a macOS export writes an ``.app`` DIRECTORY — everything
-    under IT: the export's own output is not a mutation of the project. The rule
-    stops at the artifact's OWN subtree, so a file the export writes BESIDE the
-    artifact (a Linux binary with ``binary_format/embed_pck=false`` gets a
-    ``game.pck`` next to it) is reported like any other created file. The parent
-    directories gda made for the artifact (#402) need no exclusion of their own: a
-    ``created_dirs`` entry is a DIRECTORY and both walks report FILES, so pruning
-    it would only have hidden those siblings — and it hid them in exactly one of
-    the two cases, since the same sibling was reported when the parent already
-    existed (PR #981 review round 3).
 
-    A destination outside the project is dropped here, since the walk never
-    reaches it. A virtual path is dropped too — EXCEPT ``res://``, which names a
-    path inside the project and is resolved against the root the way the engine
-    resolves it. Dropping every ``://`` spelling put a ``--output res://out.pck``
-    artifact in ``created``, reproduced on a real pack export (round 3);
-    ``user://`` stays dropped, because it cannot name a path in the project tree.
+def _project_tree_exclusions(project: Path, output_path: str) -> _ProjectTreeExclusions:
+    """Keep the output artifact out of both walks, under any directory alias.
+
+    A ``res://`` destination is relative to the project; other virtual paths
+    cannot name an artifact in this tree. Filesystem destinations can be outside
+    the project but visible through a directory link inside it. The walk reports
+    the first project-relative spelling that reaches each directory, which need
+    not match the destination's spelling. The walk therefore compares the output
+    parent's filesystem identity and the artifact's name, not two path strings.
+    This also excludes an ``.app`` subtree without hiding files beside it.
     """
-    prefixes = [_VCS_DIR]
-    root = project.resolve()
-    raw = output_path
-    if raw.startswith(_RES_SCHEME):
-        rest = raw[len(_RES_SCHEME) :].lstrip("/")
-        raw = str(project / rest) if rest else str(project)
-    if raw and "://" not in raw:
-        try:
-            rel = Path(raw).resolve().relative_to(root).as_posix()
-        except (OSError, ValueError):
-            rel = ""
-        if rel not in ("", "."):
-            prefixes.append(rel)
-    return tuple(prefixes)
+    if output_path.startswith(_RES_SCHEME):
+        rest = output_path[len(_RES_SCHEME) :].lstrip("/")
+        artifact = project / rest if rest else None
+    elif not output_path or "://" in output_path:
+        artifact = None
+    else:
+        path = Path(output_path)
+        artifact = path if path.is_absolute() else project / path
+    return _ProjectTreeExclusions(prefixes=(_VCS_DIR,), artifact=artifact)
 
 
 def _excluded(rel: str, prefixes: tuple[str, ...]) -> bool:
@@ -726,7 +717,7 @@ def _excluded(rel: str, prefixes: tuple[str, ...]) -> bool:
 
 def _walk_project(
     project: Path,
-    excluded: tuple[str, ...],
+    excluded: _ProjectTreeExclusions,
     on_unreadable_dir: "Callable[[str], None] | None" = None,
 ) -> Iterator[tuple[str, Path]]:
     """Every file under ``project`` as ``(project-relative posix path, path)``.
@@ -750,9 +741,9 @@ def _walk_project(
     re-entered: a cycle (``sub/loop -> ..``) ends by rule instead of at the OS path
     limit. A cycle is NOT counted as skipped — nothing is unaccounted for, the
     content is reported under its first spelling. The entries are sorted, so the
-    first spelling is the same on both walks. What a file is reported under is
-    therefore the spelling the walk reached it by, which is the ``res://`` path the
-    engine names it by too.
+    first spelling is the same on both walks. A file is reported under that
+    project-relative ``res://`` spelling, even if the destination was addressed
+    through another alias of the same directory.
 
     ``on_unreadable_dir`` receives the project-relative path of a directory the
     walk cannot list, or cannot stat. ``os.walk`` swallows the listing error by
@@ -774,6 +765,14 @@ def _walk_project(
         except ValueError:
             return
 
+    artifact_parent_id: tuple[int, int] | None = None
+    if excluded.artifact is not None:
+        try:
+            parent = excluded.artifact.parent.stat()
+            artifact_parent_id = (parent.st_dev, parent.st_ino)
+        except OSError:
+            # A parent absent before the export can exist in the second walk.
+            pass
     walked: set[tuple[int, int]] = set()
     for dirpath, dirnames, filenames in os.walk(
         project, onerror=note, followlinks=True
@@ -796,12 +795,19 @@ def _walk_project(
             dirnames[:] = []
             continue
         walked.add(identity)
+        artifact_name = (
+            excluded.artifact.name
+            if excluded.artifact is not None and identity == artifact_parent_id
+            else None
+        )
         dirnames[:] = sorted(
-            name for name in dirnames if not _excluded(prefix + name, excluded)
+            name
+            for name in dirnames
+            if name != artifact_name and not _excluded(prefix + name, excluded.prefixes)
         )
         for name in filenames:
             rel = prefix + name
-            if not _excluded(rel, excluded):
+            if name != artifact_name and not _excluded(rel, excluded.prefixes):
                 yield rel, base / name
 
 
@@ -817,7 +823,7 @@ class _PreExportInventory:
     """
 
     project: Path
-    excluded: tuple[str, ...]
+    excluded: _ProjectTreeExclusions
     files: dict[str, _FileFacts]
     unreadable: frozenset[str]
     # The directories the pre-export walk could not list, kept apart from the
@@ -830,7 +836,7 @@ class _PreExportInventory:
     @classmethod
     def capture(cls, project: Path, *, output_path: str) -> "_PreExportInventory":
         """Record the tree as it stands before the native export (#839)."""
-        excluded = _excluded_prefixes(project, output_path)
+        excluded = _project_tree_exclusions(project, output_path)
         files: dict[str, _FileFacts] = {}
         unreadable: set[str] = set()
         unlistable: set[str] = set()
