@@ -137,8 +137,8 @@ class ScreenCaptureParams(RelayedLiveParams):
             "(#847), for a visual that settles over several frames after a "
             "state change. The default is 0, not `input tap`'s 2: a tap has a "
             "release the game must still observe, a capture has nothing "
-            "pending, so a wait by default would return an older image on every "
-            "call. With "
+            "pending, so a wait by default would move every read to a "
+            "LATER boundary and could miss a short transient. With "
             "an await predicate the settle runs AFTER the predicate first "
             "holds: the predicate report keeps naming its own frame and the "
             "receipt's engine_frame is exactly that frame plus this count. An "
@@ -481,8 +481,9 @@ class ScreenFramesParams(RelayedLiveParams):
             "of the sequence is captured (#847) — not between frames, which "
             "would change what the window samples. The default is 0, not "
             "`input tap`'s 2: a tap has a release the game must still observe, "
-            "a capture has nothing pending, so a wait by default would return "
-            "older frames on every call. The settle and the frames share the "
+            "a capture has nothing pending, so a wait by default would move "
+            "every sequence to a LATER start and could miss a short "
+            "transient. The settle and the frames share the "
             f"{MAX_WINDOW_FRAMES}-frame per-window ceiling."
         ),
     )
@@ -1329,28 +1330,29 @@ def screen_capture(
     `--settle-frames N` runs N more process frames before the read, for a
     visual that settles over several frames after a state change. The default
     is 0, not `input tap`'s 2: a tap has a release the game must still observe,
-    a capture has nothing pending, so a wait by default would return an older
-    image on every call.
+    a capture has nothing pending, so a wait by default would move every read
+    to a LATER boundary and could miss a short transient.
 
     The `--await-*` predicate (#661) holds the capture game-side until
     `node.property == value` first holds (checked once per process frame, up to
-    `--await-frames`), then captures at that SAME frame boundary — the property
-    and the pixels both belong to the frame that just completed — and reports
-    the predicate evidence; a predicate that never holds is the typed
-    `live_predicate_unmet`. With `--settle-frames N` the predicate is still
-    observed at its own first holding frame and the report still names it,
-    while the read moves N frames later — the receipt's `engine_frame` is then
-    the predicate's frame plus N, on purpose. `--await-events` additionally
-    injects input-sequence events inside the same window (the atomic
-    input-and-capture form) so a short
+    `--await-frames`), then captures at that SAME frame boundary at the default
+    `--settle-frames` 0 — the property and the pixels then both belong to the
+    frame that just completed — and reports the predicate evidence; a predicate
+    that never holds is the typed `live_predicate_unmet`. With
+    `--settle-frames N` the predicate is still observed at its own first
+    holding frame and the report still names it, while the read moves N frames
+    later — the receipt's `engine_frame` is then the predicate's frame plus N,
+    on purpose. `--await-events` additionally injects input-sequence events
+    inside the same window (the atomic input-and-capture form) so a short
     transient triggered by the input cannot be missed by a second round trip;
     every declared event fires before the reply, even when the predicate
     matches first, and a declared event that fails makes the whole capture that
-    typed failure. Each tick evaluates BEFORE it injects, so the observed
-    property and the captured pixels always belong to the same completed frame
-    (state an event writes is observed one boundary later, with its
-    presentation). Needs a WINDOWED
-    session (`gda daemon start --windowed`); a headless one is
+    typed failure. Each tick evaluates BEFORE it injects, so at the default
+    `--settle-frames` 0 the observed property and the captured pixels belong to
+    the same completed frame, and a settle moves the pixels on while the
+    property stays where it was read (state an event writes is observed one
+    boundary later, with its presentation). Needs a WINDOWED session
+    (`gda daemon start --windowed`); a headless one is
     `live_display_unavailable`. With no daemon it reports `daemon_not_running`.
 
     A value the engine reports crosses the wire at full binary64 precision — the

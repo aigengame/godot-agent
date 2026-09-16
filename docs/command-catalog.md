@@ -1736,7 +1736,8 @@ re-derives every verdict from a running engine.
   `--await-*` predicate (shipped, #661) holds a `screen capture` game-side until
   `node.property == value` first holds — checked once per PROCESS frame, up to
   `--await-frames` (default 60, ceiling 600) — then captures at that SAME frame
-  boundary and reports the predicate evidence (`observed` value, absolute
+  boundary at the default `--settle-frames` 0 (a settle moves the read that many
+  frames on) and reports the predicate evidence (`observed` value, absolute
   `engine_frame`, window-relative `frames_waited`); a predicate that never holds is
   the typed `live_predicate_unmet` carrying the last observed value. `--await-events`
   additionally applies input-sequence events (the same discriminated union `input
@@ -1794,16 +1795,17 @@ re-derives every verdict from a running engine.
   mismatch); `sha256` is computed CLI-side over exactly the bytes written to
   `--output`. A plain capture's receipt binds session, scene, and frame and removes
   the local hashing step; a gated capture's receipt additionally echoes the
-  predicate's `observed` value at that same frame, and its COMPLETE evidence is the
-  pair receipt + `predicate` report (which carries the node, property, and expected
-  value). A reply whose receipt is missing, echoes an observation no predicate asked
+  predicate's `observed` value, read at the predicate's own frame — the read's own
+  frame too at the default `--settle-frames` 0, that frame plus the settle
+  otherwise — and its COMPLETE evidence is the pair receipt + `predicate` report
+  (which carries the node, property, and expected value). A reply whose receipt is missing, echoes an observation no predicate asked
   for, or disagrees with the predicate report beside it is refused as
   `contract_violation` before any file is written.
   `--settle-frames N` (shipped, #847) runs N more process frames before the read, on
   BOTH `screen capture` and `screen frames`, for a visual that settles over several
   frames after a state change. The default is 0, not `input tap`'s 2, because a
-  capture has no release to observe, so a wait by default would return an older
-  image on every call.
+  capture has no release to observe, so a wait by default would move every read to
+  a LATER boundary and could miss a short transient.
   With `--await-*` the settle runs AFTER the predicate first holds and after that
   tick's `--await-events` were injected: the predicate report keeps naming the frame
   it was observed at, and the receipt's `engine_frame` is exactly that frame plus the
