@@ -2172,6 +2172,9 @@ def test_both_screen_commands_publish_the_settle_input_and_output(monkeypatch):
         assert "settle_frames" in schema["input"]["properties"], command
         assert schema["input"]["properties"]["settle_frames"]["default"] == 0
         assert "settle_frames" in schema["output"]["properties"], command
+        # Round 2: REQUIRED on both results, not defaulted — a defaulted count
+        # would be the one key a consumer could not rely on (#847).
+        assert "settle_frames" in schema["output"].get("required", []), command
         assert default_frames is None or (
             schema["input"]["properties"]["frames"]["default"] == default_frames
         )

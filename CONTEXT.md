@@ -133,8 +133,9 @@ two frame counters every `screen capture` receipt carries. The first is
 predicate's evaluation frame plus the request's settle frames. The two are
 different counters because the engine draws a frame AFTER each process frame's
 callbacks: a read taken during them returns the frame the PRECEDING iteration
-drew, so on a session that draws every frame the render frame trails the capture
-boundary by one. They also come apart without bound, because that draw is
+drew, so on a session that draws every frame the two counters read the SAME
+number, and that number names the frame the preceding iteration drew, not the
+one this boundary will draw. They also come apart without bound, because that draw is
 conditional — a window that is not visible, or low-processor-usage mode with
 nothing changed, skips it, and `engine_frame` then advances while the render frame
 stands still. That is how two captures come back byte-identical with no game
