@@ -195,6 +195,14 @@ preflight — and a placement gda cannot make usable is a typed refusal
 prepared: the placement rides the `Raw run` out of the launch that dropped it, and
 `gda script run` publishes it on a SUCCESSFUL result, so a failed `user://` write
 is attributable to the environment instead of read as a game regression (#850).
+Three of that channel's failure envelopes carry it too, on `Failure evidence` —
+`script_failed`, `launch_timeout` and `script_aborted` — since that same
+misdiagnosis is exactly what a `--strict` failure and a timeout report. Those three
+codes and no others: every other `script run` verdict carries no placement, whether
+or not the script ran (`engine_crashed` and `stdout_spill_failed` did run and carry
+none), and so does every other channel's envelope (#862). The presence rules are the
+success result's, with the one difference that object imposes: a field that is not a
+fact is omitted, never null.
 Artifact smoke uses the placement internally and does not publish transient
 placement paths or extend `Failure evidence`. The
 engine's export-template lookup follows the same placement, so a

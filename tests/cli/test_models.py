@@ -288,6 +288,12 @@ def test_every_evidence_field_is_optional_in_the_published_schema():
         # address the caller asked for, and the one the project stores.
         "requested_path",
         "stored_path",
+        # The launch's `User-data placement` on the three `script run` envelopes
+        # ADR-0004's #862 note names: where the engine resolved `user://`, the root
+        # it was redirected under, and the log that then outlives the launch.
+        "engine_data_path",
+        "user_data_root",
+        "log_file",
     }
 
 
