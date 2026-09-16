@@ -15,7 +15,7 @@ from gda_balancing.domain.diagnostics import ArtifactLocation
 from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_production_support import _consumer_a
 from test_current_namespace_public import _PublicCandidate, _members
-from test_resolution_parse_reason import _definitions, _profile
+from test_resolution_parse_reason import _definitions
 from test_source_semantic_roles import _rename_role_field
 from test_source_wire_owners import _source_schema
 from test_trace_protocol_structure import _authored, _graph, _index
@@ -32,17 +32,6 @@ def _renamed_candidate(target="source.modules/~"):
     )
     schema = _source_schema(authored)
     _rename_role_field(schema, {"source"}, "modules", target)
-    for recipe in _profile(authored)["relation_recipes"]:
-        terms = [binding["source"] for binding in recipe["bindings"]]
-        terms.extend(field["term"] for field in recipe["fields"])
-        terms.extend(
-            predicate[side]
-            for predicate in recipe["predicates"]
-            for side in ("left", "right")
-        )
-        for term in terms:
-            if term["root"] == "source" and term["path"][:1] == ["modules"]:
-                term["path"][0] = target
     renamed = deepcopy(source)
     renamed[target] = renamed.pop("modules")
     return kernel, language, authored, source, renamed, target

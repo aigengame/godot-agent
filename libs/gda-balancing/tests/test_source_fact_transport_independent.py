@@ -66,11 +66,6 @@ def _fixture(*, renamed=False, input_member=None, domain_renamed=False):
     assert [symbol_schema["semantic_role"]] == law["children"]["module"]["symbols"][
         "items"
     ]
-    profile = next(
-        row
-        for row in _definitions(authored, "language.resolution_profiles")
-        if row["default"]
-    )
     names = {name: name for name in (modules, symbols, "symbol", "type", "domain")}
     if renamed:
         names.update(
@@ -94,28 +89,6 @@ def _fixture(*, renamed=False, input_member=None, domain_renamed=False):
         old, _ = _member(owner, member)
         _rename_member(owner, old, names[old])
 
-    # Existing relation/check terms name authored fields. Schema annotations
-    # own their canonical meaning; no retired Resolution selector is restored.
-    def rename_term(term):
-        selected = {}
-        if term["root"] == "source":
-            selected = {modules: names[modules]}
-        elif term["root"] == "binding" and term["binding"] == "module":
-            selected = {symbols: names[symbols]}
-        elif term["root"] == "binding" and term["binding"] == "symbol":
-            selected = {
-                member: names[member] for member in ("symbol", "type", "domain")
-            }
-        term["path"] = [selected.get(part, part) for part in term["path"]]
-
-    for recipe in profile["relation_recipes"]:
-        for binding in recipe["bindings"]:
-            rename_term(binding["source"])
-        for predicate in recipe["predicates"]:
-            rename_term(predicate["left"])
-            rename_term(predicate["right"])
-        for field in recipe["fields"]:
-            rename_term(field["term"])
     for module in source[modules]:
         for symbol in module[symbols]:
             for member in ("symbol", "type", "domain"):

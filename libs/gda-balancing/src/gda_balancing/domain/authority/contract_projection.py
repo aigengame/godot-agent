@@ -68,6 +68,62 @@ def _contract_schema(contract: dict[str, Any]) -> dict[str, object]:
     raise ValueError(f"unsupported Kernel package contract type: {value_type!r}")
 
 
+def owned_contract_schema(contract: dict[str, Any]) -> dict[str, Any]:
+    """Project an existing language or Fact contract, including semantic holes."""
+    value_type = contract.get("type")
+    if value_type == "canonical-value":
+        return {}
+    if value_type in {"inventory-member", "inventory-list-path", "signed-int64-path"}:
+        return {"type": "string", "minLength": 1}
+    if value_type == "closed-int64-interval":
+        integer = _contract_schema({"type": "signed-int64"})
+        return {
+            "type": "object",
+            "properties": {"minimum": integer, "maximum": integer},
+            "required": ["minimum", "maximum"],
+            "unevaluatedProperties": False,
+        }
+    if value_type == "path-segments":
+        return {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+        }
+    if value_type == "closed-discriminated-object":
+        return {
+            "oneOf": [
+                owned_contract_schema(value) for value in contract["variants"].values()
+            ]
+        }
+    if value_type == "list-of":
+        return {
+            "type": "array",
+            "items": owned_contract_schema(contract["items"]),
+        }
+    if value_type == "one-of":
+        return {
+            "oneOf": [
+                owned_contract_schema(value) for value in contract["alternatives"]
+            ]
+        }
+    if value_type == "closed-object" or (
+        value_type is None and "required_members" in contract
+    ):
+        fields = contract["field_types"]
+        required = contract["required_members"]
+        optional = contract.get("optional_members", [])
+        if set(fields) != set(required) | set(optional):
+            raise ValueError("owned record contract is incomplete")
+        return {
+            "type": "object",
+            "properties": {
+                name: owned_contract_schema(value) for name, value in fields.items()
+            },
+            "required": list(required),
+            "unevaluatedProperties": False,
+        }
+    return _contract_schema(contract)
+
+
 def _closed_contract_schema(contract: dict[str, Any]) -> dict[str, object]:
     required = contract.get("required_members")
     optional = contract.get("optional_members", [])

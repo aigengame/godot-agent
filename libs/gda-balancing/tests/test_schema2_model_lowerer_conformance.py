@@ -26,7 +26,10 @@ from gda_balancing.domain.authority.graph import (
     derive_language_index,
 )
 from gda_balancing.domain.authority.admission import admit_authorities
-from gda_balancing.domain.authority.source_projection import SourceProjection
+from gda_balancing.domain.authority.source_projection import (
+    SourceProjection,
+    project_source_value,
+)
 from gda_balancing.domain.canonical import JsonValue
 from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
@@ -55,10 +58,9 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_operation_composition_subjects,
     _consumer_b_project_source,
     _consumer_b_source_fact_transport_is_supported,
-    _consumer_b_source_role_member_paths,
     _consumer_b_source_semantic_selector,
 )
-from schema2_formula_conformance_support import normalize_source_body
+from schema2_formula_conformance_support import normalize_semantic_body
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
@@ -233,6 +235,17 @@ def _write_source(path: Path, source: dict[str, Any]) -> None:
         json.dumps(source, separators=(",", ":")),
         encoding="utf-8",
     )
+
+
+def _production_source_projection(
+    source: dict[str, Any], kernel: dict[str, Any], language_bundle: dict[str, Any]
+) -> SourceProjection:
+    schema = next(
+        item["schema"]
+        for item in language_bundle["language"]["wire_schemas"]
+        if item.get("protocol_role") == "model-source-package"
+    )
+    return project_source_value(source, kernel, schema)
 
 
 def _reference_select_with_paths(
@@ -571,17 +584,6 @@ def _reference_check_source(
         for check in language["model_checks"]
     ]
     if schema_errors:
-        symbol_collection_paths = _consumer_b_source_role_member_paths(
-            source_schema, "module", "symbols"
-        )
-
-        def is_symbol_item_path(path: tuple[object, ...]) -> bool:
-            return (
-                bool(path)
-                and isinstance(path[-1], int)
-                and tuple(part for part in path if isinstance(part, str))
-                in symbol_collection_paths
-            )
 
         def pointer_count(error: jsonschema.ValidationError) -> int:
             if error.validator == "required" and isinstance(error.instance, dict):
@@ -624,25 +626,73 @@ def _reference_check_source(
                     else None
                 )
                 branches.setdefault(branch, []).append(child)
-            selected = min(
-                branches.values(),
-                key=lambda items: (
-                    sum(pointer_count(item) for item in items),
-                    tuple(str(item.schema_path) for item in items),
-                ),
+            alternatives = (
+                error.schema.get(error.validator, [])
+                if isinstance(error.schema, dict) and isinstance(error.validator, str)
+                else []
             )
-            return [
+
+            def affinity(branch: object) -> tuple[int, int, int, int]:
+                if not isinstance(branch, int) or not isinstance(error.instance, dict):
+                    return (0, 0, 0, 0)
+                if not isinstance(alternatives, list) or branch >= len(alternatives):
+                    return (0, 0, 0, 0)
+                candidate = alternatives[branch]
+                if not isinstance(candidate, dict):
+                    return (0, 0, 0, 0)
+                properties = candidate.get("properties", {})
+                if not isinstance(properties, dict):
+                    return (0, 0, 0, 0)
+                fixed = [
+                    (name, child["const"])
+                    for name, child in properties.items()
+                    if isinstance(child, dict) and "const" in child
+                ]
+                different = sum(
+                    name in error.instance and error.instance[name] != value
+                    for name, value in fixed
+                )
+                matching = sum(
+                    name in error.instance and error.instance[name] == value
+                    for name, value in fixed
+                )
+                present = len(set(properties) & set(error.instance))
+                required = candidate.get("required", [])
+                covered = (
+                    len(set(required) & set(error.instance))
+                    if isinstance(required, list)
+                    else 0
+                )
+                return (different, -matching, -present, -covered)
+
+            if any(affinity(branch)[0] > 0 for branch in branches) and not any(
+                affinity(branch)[1] < 0 for branch in branches
+            ):
+                return [error]
+
+            selected = min(
+                branches.items(),
+                key=lambda row: (
+                    *affinity(row[0]),
+                    sum(pointer_count(item) for item in row[1]),
+                    tuple(str(item.schema_path) for item in row[1]),
+                ),
+            )[1]
+            preferred = [
                 preferred for child in selected for preferred in preferred_errors(child)
             ]
+            return (
+                [error]
+                if any(
+                    item.validator in {"oneOf", "anyOf"} and item.context
+                    for item in preferred
+                )
+                else preferred
+            )
 
         diagnostics = []
         for schema_error in schema_errors:
-            schema_path = tuple(schema_error.absolute_path)
-            selected_errors = (
-                preferred_errors(schema_error)
-                if is_symbol_item_path(schema_path)
-                else [schema_error]
-            )
+            selected_errors = preferred_errors(schema_error)
             for preferred in selected_errors:
                 paths = [tuple(preferred.absolute_path)]
                 if preferred.validator == "required" and isinstance(
@@ -696,10 +746,6 @@ def _reference_check_source(
         authored_paths=independent_projection.authored_paths,
         authored_source=source,
     )
-    authored_to_canonical = {
-        authored: canonical
-        for canonical, authored in independent_projection.authored_paths.items()
-    }
 
     def authored_pointer(canonical: tuple[object, ...] | str) -> str:
         pointer = (
@@ -810,21 +856,11 @@ def _reference_check_source(
     def source_term(
         value: Any,
         canonical_base: tuple[object, ...],
-        authored_segments: list[str],
+        semantic_segments: list[str],
     ) -> tuple[Any, tuple[object, ...]]:
-        canonical_base_pointer = _reference_pointer(list(canonical_base))
-        authored_base = independent_projection.authored_paths[canonical_base_pointer]
-        authored_target = authored_base + "".join(
-            "/" + segment.replace("~", "~0").replace("/", "~1")
-            for segment in authored_segments
-        )
-        canonical_target = authored_to_canonical.get(authored_target)
-        if canonical_target is None:
-            raise KeyError("Source recipe path has no semantic projection")
-        target: Any = canonical_source
-        target_parts: list[object] = []
-        for encoded in canonical_target.split("/")[1:]:
-            segment = encoded.replace("~1", "/").replace("~0", "~")
+        target = value
+        target_parts = list(canonical_base)
+        for segment in semantic_segments:
             if isinstance(target, list):
                 part: object = int(segment)
                 target = target[cast(int, part)]
@@ -834,8 +870,6 @@ def _reference_check_source(
             else:
                 raise KeyError("Source recipe path traverses a scalar")
             target_parts.append(part)
-        if tuple(target_parts[: len(canonical_base)]) != canonical_base:
-            raise KeyError("Source recipe path escapes its semantic binding")
         return target, tuple(target_parts)
 
     def read_term(
@@ -1632,10 +1666,8 @@ def _reference_formulas_and_bindings(
         }
         for source_formula in module.get("formulas", []):
             key = (module_id, source_formula["id"])
-            source_body = normalize_source_body(
-                source_formula["body"],
-                checked.language_bundle,
-                kernel=checked.kernel,
+            source_body = normalize_semantic_body(
+                source_formula["body"], kernel=checked.kernel
             )
             parameters = [
                 {
@@ -5035,7 +5067,7 @@ def test_resolution_step_budget_drives_both_independent_consumers():
     assert admit_authorities(kernel, language_bundle).admitted
 
     production = model_module._resolution_diagnostics(
-        source,
+        _production_source_projection(source, kernel, language_bundle),
         _reference_content_identity("model-source-package-v2", source),
         kernel,
         language_bundle,
@@ -5107,7 +5139,7 @@ def test_resolution_law_fields_drive_both_independent_interpreters(tmp_path):
     operation["law"]["key"] = ["package"]
 
     production = model_module._resolution_diagnostics(
-        source,
+        _production_source_projection(source, kernel, language_bundle),
         _reference_content_identity("model-source-package-v2", source),
         kernel,
         language_bundle,
@@ -5146,7 +5178,7 @@ def test_resolution_relation_recipes_drive_both_independent_interpreters(tmp_pat
     alias_field["term"]["path"] = ["package"]
 
     production = model_module._resolution_diagnostics(
-        source,
+        _production_source_projection(source, kernel, language_bundle),
         _reference_content_identity("model-source-package-v2", source),
         kernel,
         language_bundle,
@@ -5275,7 +5307,7 @@ def test_independent_consumer_refuses_unowned_model_check_semantic_selectors():
             assert result["diagnostics"] == [expected]
 
 
-def test_model_source_routing_follows_schema_roles_without_host_tokens(
+def test_model_source_routing_follows_the_selected_ldb_profile_without_host_tokens(
     tmp_path, monkeypatch
 ):
     original = _source([_symbol("health", "state")])
@@ -5309,7 +5341,6 @@ def test_model_source_routing_follows_schema_roles_without_host_tokens(
     _write_source(path, source)
     kernel, candidate_ldb = mutable_authorities()
     language = candidate_ldb["language"]
-    profile = language["resolution_profiles"][0]
 
     def rename_role_member(
         schema: dict[str, Any],
@@ -5357,43 +5388,6 @@ def test_model_source_routing_follows_schema_roles_without_host_tokens(
         ("symbol", "type", "type_ref"),
     ):
         rename_role_member(source_schema, role, old, new)
-
-    def rewrite_relation_term(term: dict[str, Any]) -> None:
-        if term["root"] == "source":
-            source_paths = {
-                ("manifest", "id"): ["header", "model_key"],
-                ("manifest", "entry_module"): ["header", "start_module"],
-                ("package_requirements",): ["dependencies"],
-                ("modules",): ["*"],
-            }
-            term["path"] = source_paths.get(tuple(term["path"]), term["path"])
-            return
-        if term["root"] != "binding":
-            return
-        field_renames = {
-            "module": {
-                "id": "module_key",
-                "imports": "uses",
-                "symbols": "declarations",
-            },
-            "import": {
-                "alias": "prefix",
-                "package": "package_id",
-                "symbol": "export_name",
-            },
-            "symbol": {"symbol": "name", "type": "type_ref"},
-        }
-        renames = field_renames.get(term["binding"], {})
-        term["path"] = [renames.get(segment, segment) for segment in term["path"]]
-
-    for recipe in profile["relation_recipes"]:
-        for binding in recipe["bindings"]:
-            rewrite_relation_term(binding["source"])
-        for predicate in recipe["predicates"]:
-            rewrite_relation_term(predicate["left"])
-            rewrite_relation_term(predicate["right"])
-        for field in recipe["fields"]:
-            rewrite_relation_term(field["term"])
 
     for vector in candidate_ldb["vectors"]:
         fixture = vector.get("source_fixture")

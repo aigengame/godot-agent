@@ -2778,11 +2778,7 @@ def _invalid_source_value_policy_pointer(
 def _formula_failure_pointer(
     source: dict[str, Any],
     message: str,
-    language_bundle: dict[str, Any],
-    kernel: dict[str, Any],
 ) -> str:
-    profile = _resolution_profile(language_bundle)
-    profile["formula_resolution"]
     binding_pointer = _pointer(("formula_bindings",))
     if "binding" in message.lower() or "derived Symbol" in message:
         return binding_pointer

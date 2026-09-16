@@ -58,11 +58,6 @@ def _source_case(mutation=None, *, renamed=False, input_member=None):
         for row in _definitions(authored, "language.wire_schemas")
         if row.get("protocol_role") == "model-source-package"
     )
-    profile = next(
-        row
-        for row in _definitions(authored, "language.resolution_profiles")
-        if row["default"]
-    )
     modules, module_array = source_schema_member(schema, "modules")
     module_schema = module_array["items"]
     symbols, symbol_array = source_schema_member(module_schema, "symbols")
@@ -91,19 +86,6 @@ def _source_case(mutation=None, *, renamed=False, input_member=None):
         _rename_member(module_schema, "symbols", names["symbols"])
         _rename_member(symbol_schema, "symbol", names["symbol"])
         _rename_member(symbol_schema, "type", names["type"])
-        # Only the actual authored Source address terms are renamed. Import
-        # references and the Kernel's Fact/compiled Symbol fields retain owners.
-        for recipe in profile["relation_recipes"]:
-            for binding in recipe["bindings"]:
-                term = binding["source"]
-                if term.get("root") == "source" and term["path"] == ["modules"]:
-                    term["path"] = [names["modules"]]
-                elif term.get("root") == "binding" and term["path"] == ["symbols"]:
-                    term["path"] = [names["symbols"]]
-            for field in recipe["fields"]:
-                term = field["term"]
-                if term.get("root") == "binding" and term.get("binding") == "symbol":
-                    term["path"] = [names[part] for part in term["path"]]
         source[names["modules"]] = source.pop("modules")
         for module in source[names["modules"]]:
             module[names["symbols"]] = module.pop("symbols")

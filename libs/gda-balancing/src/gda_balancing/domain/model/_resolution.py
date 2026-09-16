@@ -593,8 +593,6 @@ def _formula_pair_diagnostics(
 ) -> list[Schema2Diagnostic]:
     source = projection.value
     diagnostics: list[Schema2Diagnostic] = []
-    profile = _resolution_profile(authority_context.language_bundle)
-    profile["formula_resolution"]
     modules_member = "modules"
     formulas_member = "formulas"
     requirements = source.get("package_requirements")
@@ -721,16 +719,72 @@ def _preferred_schema_errors(
             else None
         )
         branches.setdefault(branch, []).append(child)
-    selected = min(
-        branches.values(),
-        key=lambda items: (
-            sum(_schema_error_pointer_count(item) for item in items),
-            tuple(str(item.schema_path) for item in items),
+    alternatives = (
+        error.schema.get(error.validator, [])
+        if isinstance(error.schema, dict) and isinstance(error.validator, str)
+        else []
+    )
+
+    def branch_affinity(branch: object) -> tuple[int, int, int, int]:
+        if not isinstance(branch, int) or not isinstance(error.instance, dict):
+            return (0, 0, 0, 0)
+        if not isinstance(alternatives, list) or branch >= len(alternatives):
+            return (0, 0, 0, 0)
+        schema = alternatives[branch]
+        if not isinstance(schema, dict):
+            return (0, 0, 0, 0)
+        properties = schema.get("properties", {})
+        if not isinstance(properties, dict):
+            return (0, 0, 0, 0)
+        constants = [
+            (name, child["const"])
+            for name, child in properties.items()
+            if isinstance(child, dict) and "const" in child
+        ]
+        mismatches = sum(
+            name in error.instance and error.instance[name] != expected
+            for name, expected in constants
+        )
+        matches = sum(
+            name in error.instance and error.instance[name] == expected
+            for name, expected in constants
+        )
+        overlap = len(set(properties) & set(error.instance))
+        required = schema.get("required", [])
+        required_present = (
+            len(set(required) & set(error.instance))
+            if isinstance(required, list)
+            else 0
+        )
+        return (mismatches, -matches, -overlap, -required_present)
+
+    if any(
+        isinstance(branch, int) and branch_affinity(branch)[0] > 0
+        for branch in branches
+    ) and not any(
+        isinstance(branch, int) and branch_affinity(branch)[1] < 0
+        for branch in branches
+    ):
+        return [error]
+
+    _selected_branch, selected = min(
+        branches.items(),
+        key=lambda row: (
+            *branch_affinity(row[0]),
+            sum(_schema_error_pointer_count(item) for item in row[1]),
+            tuple(str(item.schema_path) for item in row[1]),
         ),
     )
-    return [
+    preferred = [
         preferred for child in selected for preferred in _preferred_schema_errors(child)
     ]
+    return (
+        [error]
+        if any(
+            item.validator in {"oneOf", "anyOf"} and item.context for item in preferred
+        )
+        else preferred
+    )
 
 
 def _schema_error_diagnostics(
@@ -738,21 +792,18 @@ def _schema_error_diagnostics(
     source_identity: str,
     language_bundle: dict[str, Any],
 ) -> list[Schema2Diagnostic]:
-    if (
-        error.validator in {"oneOf", "anyOf"}
-        and error.context
-        and isinstance(error.schema, dict)
-        and error.schema.get("semantic_role") == "symbol"
-    ):
-        return [
-            diagnostic
-            for preferred in _preferred_schema_errors(error)
-            for diagnostic in _schema_error_diagnostics(
-                preferred,
-                source_identity,
-                language_bundle,
-            )
-        ]
+    if error.validator in {"oneOf", "anyOf"} and error.context:
+        preferred_errors = _preferred_schema_errors(error)
+        if len(preferred_errors) != 1 or preferred_errors[0] is not error:
+            return [
+                diagnostic
+                for preferred in preferred_errors
+                for diagnostic in _schema_error_diagnostics(
+                    preferred,
+                    source_identity,
+                    language_bundle,
+                )
+            ]
     code = _schema_error_code(error, language_bundle)
     base = tuple(error.absolute_path)
     pointers: list[tuple[object, ...]] = []
@@ -787,19 +838,21 @@ def _schema_error_diagnostics(
 
 
 def _resolution_relations(
-    source: dict[str, Any],
+    source_projection: SourceProjection,
     language_bundle: dict[str, Any],
     profile: dict[str, Any],
     budget: _ResolutionBudget,
-    projection: NamespaceClosureProjection,
+    namespace_projection: NamespaceClosureProjection,
 ) -> dict[str, list[dict[str, Any]]]:
+    source = source_projection.value
     language = _language(language_bundle)
     available_packages = {
         package["id"]: package
         for package in cast(list[dict[str, Any]], language["packages"])
     }
     selected_package_values = [
-        available_packages[package.namespace] for package in projection.packages
+        available_packages[package.namespace]
+        for package in namespace_projection.packages
     ]
 
     def evaluate_term(
@@ -872,7 +925,9 @@ def _resolution_relations(
                         raise ValueError(
                             "admitted relation pointer has no source location"
                         )
-                    pointers[field["name"]] = _pointer(pointer)
+                    pointers[field["name"]] = source_projection.authored_pointer(
+                        _pointer(pointer)
+                    )
             rows.append({"values": values, "pointers": pointers})
         relations[recipe["id"]] = rows
     return relations
@@ -933,7 +988,7 @@ def _resolution_law_failures(
 
 
 def _resolution_diagnostics(
-    source: dict[str, Any],
+    source_projection: SourceProjection,
     source_identity: str,
     kernel: dict[str, Any],
     language_bundle: dict[str, Any],
@@ -975,7 +1030,7 @@ def _resolution_diagnostics(
     diagnostics: list[Schema2Diagnostic] = []
     try:
         relations = _resolution_relations(
-            source, language_bundle, profile, budget, projection
+            source_projection, language_bundle, profile, budget, projection
         )
         for judgment in cast(list[dict[str, Any]], profile["judgment_chain"]):
             operation_spec = operation_specs[judgment["operation"]]

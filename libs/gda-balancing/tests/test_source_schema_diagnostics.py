@@ -52,3 +52,33 @@ def test_true_symbol_resource_refusal_survives_the_renamed_schema_boundary():
         == f"/source.modules~1~0/0/symbols/{bound}"
         for row in result.diagnostics
     )
+
+
+@pytest.mark.parametrize(
+    "case,pointer",
+    [
+        ("entrypoint-result", "/entrypoints/0/result/module"),
+        (
+            "formula-operand",
+            "/modules/0/formulas/0/body/nodes/0/arguments/0/operand/parameter",
+        ),
+    ],
+)
+def test_union_schema_refusal_reports_the_selected_leaf_without_role_branches(
+    case, pointer
+):
+    _kernel, _sealed, _renamed_context, _renamed, source = _candidate("routing")
+    context = packaged_authority_context()
+    if case == "entrypoint-result":
+        source["entrypoints"][0]["result"]["module"] = 7
+    else:
+        operand = source["modules"][0]["formulas"][0]["body"]["nodes"][0]["arguments"][
+            0
+        ]["operand"]
+        assert operand["kind"] == "parameter"
+        operand["parameter"] = 7
+    result = check_model_source_value(source, authority_context=context)
+    assert isinstance(result, Schema2RefusalReport)
+    assert [
+        (row.code, row.primary.model_dump()["pointer"]) for row in result.diagnostics
+    ] == [("language.source_contract_mismatch", pointer)]

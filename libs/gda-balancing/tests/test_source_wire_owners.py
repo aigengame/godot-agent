@@ -67,7 +67,6 @@ def test_source_entrypoints_coherent_rename_reaches_public_and_independent_compi
 
     kernel, index = mutable_authorities()
     authored = _authored(index)
-    profile = _profile(authored)
     names: dict[str, str] = {"entrypoints": "opaque/entry~points"}
     if all_roots:
         names.update(
@@ -86,14 +85,6 @@ def test_source_entrypoints_coherent_rename_reaches_public_and_independent_compi
     for original, renamed in names.items():
         schema["properties"][renamed] = schema["properties"].pop(original)
     schema["required"] = [names.get(name, name) for name in schema["required"]]
-    for recipe in profile["relation_recipes"]:
-        for term in (
-            [row["source"] for row in recipe["bindings"]]
-            + [row["term"] for row in recipe["fields"]]
-            + [row[side] for row in recipe["predicates"] for side in ("left", "right")]
-        ):
-            if term.get("root") == "source" and term["path"]:
-                term["path"][0] = names.get(term["path"][0], term["path"][0])
     graph = _graph(kernel, authored)
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, graph)
@@ -273,21 +264,6 @@ def test_template_instantiation_updates_the_annotation_owned_manifest_identity()
     header["required"] = [
         "opaque_id" if key == "id" else key for key in header["required"]
     ]
-    for recipe in profile["relation_recipes"]:
-        terms = (
-            [row["source"] for row in recipe["bindings"]]
-            + [row["term"] for row in recipe["fields"]]
-            + [row[side] for row in recipe["predicates"] for side in ("left", "right")]
-        )
-        for term in terms:
-            if (
-                term.get("root") == "source"
-                and term["path"]
-                and term["path"][0] == "manifest"
-            ):
-                term["path"][0] = "opaque_header"
-                if term["path"][-1] == "id":
-                    term["path"][-1] = "opaque_id"
     graph = _graph(kernel, authored)
     for consumer in (_consumer_a, _consumer_b):
         assert consumer(kernel, graph)["admitted"]

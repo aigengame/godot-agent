@@ -42,9 +42,6 @@ def _authorities(member):
         for row in language["language"]["wire_schemas"]
         if row.get("protocol_role") == "model-source-package"
     )
-    profile = next(
-        row for row in language["language"]["resolution_profiles"] if row.get("default")
-    )
     previous, modules_schema = source_schema_member(schema, "modules")
     assert modules_schema["items"]["semantic_role"] == "module"
     if member != previous:
@@ -53,19 +50,6 @@ def _authorities(member):
             member if key == previous else key for key in schema["required"]
         ]
 
-        def rename(value):
-            if isinstance(value, dict):
-                if value.get("root") == "source" and value.get("path", [])[:1] == [
-                    previous
-                ]:
-                    value["path"][0] = member
-                for child in value.values():
-                    rename(child)
-            elif isinstance(value, list):
-                for child in value:
-                    rename(child)
-
-        rename(profile["relation_recipes"])
         _reidentify_language_bundle(language)
     return kernel, language
 
@@ -270,7 +254,7 @@ def test_public_combined_root_module_import_and_symbol_routes_preserve_rir(tmp_p
     ).admitted
 
 
-def test_incomplete_module_route_refuses_before_source_compilation():
+def test_unknown_semantic_module_route_refuses_before_source_compilation():
     kernel, language = _authorities("opaque/modules~")
     profile = next(
         row for row in language["language"]["resolution_profiles"] if row.get("default")
@@ -278,7 +262,7 @@ def test_incomplete_module_route_refuses_before_source_compilation():
     modules = next(row for row in profile["relation_recipes"] if row["id"] == "modules")
     assert modules["bindings"][0]["source"] == {
         "root": "source",
-        "path": ["opaque/modules~"],
+        "path": ["modules"],
     }
     modules["bindings"][0]["source"]["path"] = ["missing-route"]
     _reidentify_language_bundle(language)

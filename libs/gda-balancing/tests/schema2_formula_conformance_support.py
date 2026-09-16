@@ -82,14 +82,48 @@ def _inline_source_parameter(
     ]["semantic_roles"]["roles"]["inline-parameter"]
     discriminator = role.get("discriminator")
     members = role.get("members")
+    source_members = (
+        set(members) - set(discriminator)
+        if isinstance(discriminator, dict) and isinstance(members, list)
+        else set()
+    )
     if (
         not isinstance(discriminator, dict)
         or discriminator != {"node": kind}
         or not isinstance(members, list)
-        or set(members) != {"node", reference}
+        or len(source_members) != 1
     ):
         raise ValueError("independent inline Formula role is ambiguous")
-    return kind, reference, reference
+    return kind, reference, source_members.pop()
+
+
+def _inline_authored_source_member(
+    language_bundle: dict[str, Any], *, kernel: dict[str, Any]
+) -> str:
+    _kind, _reference, semantic_member = _inline_source_parameter(kernel)
+    matches: list[str] = []
+
+    def collect(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        if node.get("semantic_role") == "inline-parameter":
+            matches.extend(
+                name
+                for name, child in node.get("properties", {}).items()
+                if isinstance(child, dict)
+                and child.get("semantic_member") == semantic_member
+            )
+        for child in node.get("properties", {}).values():
+            collect(child)
+        if "items" in node:
+            collect(node["items"])
+        for child in node.get("oneOf", []):
+            collect(child)
+
+    collect(_source_schema(language_bundle))
+    if len(matches) != 1:
+        raise ValueError("independent inline Formula address is ambiguous")
+    return matches[0]
 
 
 def normalize_source_body(
@@ -102,15 +136,39 @@ def normalize_source_body(
             body, "inline-parameter", kernel, language_bundle
         ).value
     except ValueError:
-        return _consumer_b_project_source_role(
-            body, "program", kernel, language_bundle
-        ).value
+        try:
+            return _consumer_b_project_source_role(
+                body, "program", kernel, language_bundle
+            ).value
+        except ValueError as program_error:
+            raise ValueError(
+                "independent inline Formula body is malformed"
+            ) from program_error
     if not isinstance(projected.get(source_member), str):
         raise ValueError("independent inline Formula parameter is malformed")
     return {
         "nodes": [],
         "result": {"kind": kind, reference: projected[source_member]},
     }
+
+
+def normalize_semantic_body(
+    body: dict[str, Any], *, kernel: dict[str, Any]
+) -> dict[str, Any]:
+    """Independently lower a body already projected to Source semantic members."""
+    kind, reference, source_member = _inline_source_parameter(kernel)
+    if body.get("node") == kind:
+        if set(body) != {"node", source_member} or not isinstance(
+            body.get(source_member), str
+        ):
+            raise ValueError("independent inline Formula body is malformed")
+        return {
+            "nodes": [],
+            "result": {"kind": kind, reference: body[source_member]},
+        }
+    if isinstance(body.get("nodes"), list) and isinstance(body.get("result"), dict):
+        return deepcopy(body)
+    raise ValueError("independent Formula program body is malformed")
 
 
 def _validate_context(
@@ -978,11 +1036,17 @@ def parse_canonical(
             result_contract = expected
         if result_contract != expected:
             raise ValueError("independent Formula result contract is incompatible")
-        parameter_kind, parameter_reference, source_member = _inline_source_parameter(
+        parameter_kind, parameter_reference, _source_member = _inline_source_parameter(
             kernel
         )
         if operand.get("kind") == parameter_kind:
-            return {"node": parameter_kind, source_member: operand[parameter_reference]}
+            authored_member = _inline_authored_source_member(
+                language_bundle, kernel=kernel
+            )
+            return {
+                "node": parameter_kind,
+                authored_member: operand[parameter_reference],
+            }
         return {"nodes": [], "result": operand}
 
     for line in lines[:-1]:
@@ -1131,10 +1195,18 @@ def admit_pair(
         ).value
         body = cast(dict[str, Any], formula["body"])
         expression = cast(str, formula["expression"])
-        rendered = render_body(body, request, language_bundle, kernel=kernel)
+        rendered = render_semantic_body(body, request, language_bundle, kernel=kernel)
         parsed = parse_canonical(expression, request, language_bundle, kernel=kernel)
+        try:
+            parsed_semantic = _consumer_b_project_source_role(
+                parsed, "inline-parameter", kernel, language_bundle
+            ).value
+        except ValueError:
+            parsed_semantic = _consumer_b_project_source_role(
+                parsed, "program", kernel, language_bundle
+            ).value
     except (KeyError, TypeError, ValueError):
         return False
     return expression == rendered and canonical_bytes(
-        cast(JsonValue, parsed)
+        cast(JsonValue, parsed_semantic)
     ) == canonical_bytes(cast(JsonValue, body))

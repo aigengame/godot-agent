@@ -152,12 +152,15 @@ def test_public_unsynchronized_inline_source_is_refused_before_resolution(tmp_pa
     public.write_source(original)
     result = public.cli("model", "check", str(public.source), success=False)
     assert result["error"]["stage"] == "static"
-    assert [row["code"] for row in result["error"]["diagnostics"]] == [
-        "language.source_contract_mismatch"
+    diagnostics = result["error"]["diagnostics"]
+    assert [row["code"] for row in diagnostics] == [
+        "language.source_contract_mismatch",
+        "language.source_contract_mismatch",
     ]
-    assert result["error"]["diagnostics"][0]["primary"]["pointer"].startswith(
-        "/modules/0/formulas/0/body"
-    )
+    assert {row["primary"]["pointer"] for row in diagnostics} == {
+        "/modules/0/formulas/0/body/input_parameter",
+        "/modules/0/formulas/0/body/parameter",
+    }
     request = _formula_request(source)
     request["formula"]["body"] = original["modules"][0]["formulas"][0]["body"]
     path = tmp_path / "request.json"

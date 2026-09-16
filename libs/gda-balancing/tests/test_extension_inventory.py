@@ -1902,13 +1902,12 @@ def test_typed_source_selector_publishes_only_complete_schema_addresses(witness)
 
     kernel, language = mutable_authorities()
     profile = language["language"]["resolution_profiles"][0]
-    resolution = kernel["meta_format"]["resolution_judgment"]
     addresses = {}
     assert _consumer_b_relation_paths_are_typed(
         profile,
-        resolution,
         language,
         kernel["meta_format"]["package_release"],
+        kernel["meta_format"],
         schema_addresses=addresses,
     )
     ri, recipe = next(
@@ -1926,9 +1925,9 @@ def test_typed_source_selector_publishes_only_complete_schema_addresses(witness)
     malformed["relation_recipes"][ri]["bindings"][0]["source"]["path"] = ["missing"]
     assert not _consumer_b_relation_paths_are_typed(
         malformed,
-        resolution,
         language,
         kernel["meta_format"]["package_release"],
+        kernel["meta_format"],
         schema_addresses=addresses,
     )
     assert addresses == {}, "a refused selector must not expose stale or partial proof"
@@ -2031,20 +2030,6 @@ def test_inventory_consumes_the_complete_declared_source_module_mapping(renamed)
                         renamed if name == original else name
                         for name in schema["required"]
                     ]
-                elif role == "language.resolution_profiles":
-                    for recipe in row["relation_recipes"]:
-                        terms = [binding["source"] for binding in recipe["bindings"]]
-                        terms.extend(field["term"] for field in recipe["fields"])
-                        terms.extend(
-                            predicate[side]
-                            for predicate in recipe["predicates"]
-                            for side in ("left", "right")
-                        )
-                        for term in terms:
-                            if term["root"] == "source" and term["path"][:1] == [
-                                original
-                            ]:
-                                term["path"][0] = renamed
         _reidentify_package_release(package, kernel)
     _reidentify_graph_root(language)
     a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)

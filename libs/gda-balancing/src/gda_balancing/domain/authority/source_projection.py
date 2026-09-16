@@ -8,6 +8,8 @@ from typing import Any
 
 import jsonschema
 
+from gda_balancing.domain.authority.contract_projection import owned_contract_schema
+
 
 def _pointer(parts: tuple[Any, ...]) -> str:
     return "".join("/" + str(x).replace("~", "~0").replace("/", "~1") for x in parts)
@@ -40,12 +42,10 @@ def _native_source_schema(
             == "canonical-value"
         )
     if native == "closed-interval":
-        from gda_balancing.domain.authority.rir_projection import _owned_contract_schema
-
         contract = kernel["meta_format"]["fact"]["field_contracts"]["quantity-symbol"][
             "domain"
         ]
-        expected = _owned_contract_schema(contract)
+        expected = owned_contract_schema(contract)
         return (
             schema.get("type") == "object"
             and set(schema.get("properties", {})) == set(expected["properties"])
@@ -143,38 +143,9 @@ def source_semantic_selector(
     return authored
 
 
-def source_member_paths(
-    schema: dict[str, Any], role: str, member: str
-) -> set[tuple[str, ...]]:
-    """Read authored addresses from annotations for existing Resolution constraints."""
-    result: set[tuple[str, ...]] = set()
-
-    def walk(node: dict[str, Any], path: tuple[str, ...]) -> None:
-        if node.get("semantic_role") == role:
-            name, _ = source_schema_member(node, member)
-            result.add(path + (name,))
-        for name, child in node.get("properties", {}).items():
-            walk(child, path + (name,))
-        if "items" in node:
-            walk(node["items"], path)
-        for child in node.get("oneOf", []):
-            walk(child, path)
-
-    walk(schema, ())
-    return result
-
-
 def _source_child_roles(kernel: dict[str, Any], role: str, member: str) -> Any:
     """Read contextual ownership, reusing the existing Formula role families."""
     law = source_role_contract(kernel)
-    if (
-        role == "conditional"
-        and member
-        in kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
-            "rir_structure"
-        ]["containers"]["conditional_operands"]["required_members"]
-    ):
-        return {"family": "operand_kinds"}
     return law["children"].get(role, {}).get(member)
 
 
@@ -220,7 +191,9 @@ def validate_source_roles(kernel: dict[str, Any], schema: dict[str, Any]) -> boo
 
     def walk(
         node: dict[str, Any],
-        inherited: dict[str, str] | None = None,
+        inherited_role: str | None = None,
+        inherited_members: dict[str, str] | None = None,
+        inherited_properties: dict[str, dict[str, Any]] | None = None,
         native: bool = False,
         property_member: bool = False,
     ) -> None:
@@ -238,18 +211,19 @@ def validate_source_roles(kernel: dict[str, Any], schema: dict[str, Any]) -> boo
             return
         role = node.get("semantic_role")
         if role is not None:
-            if inherited is not None or role not in law["roles"]:
+            if inherited_role is not None or role not in law["roles"]:
                 raise ValueError(
                     "Source semantic object has duplicate or unknown ownership"
                 )
             seen.add(role)
-        owner = law["roles"][role] if role is not None else None
+        effective_role = role if role is not None else inherited_role
+        owner = law["roles"][effective_role] if effective_role is not None else None
         mapping = {
             name: child.get("semantic_member")
             for name, child in node.get("properties", {}).items()
         }
         if mapping:
-            if owner is None and inherited is None:
+            if owner is None:
                 raise ValueError("Source object has no semantic owner")
             if any(member is None for member in mapping.values()) or len(
                 set(mapping.values())
@@ -257,20 +231,26 @@ def validate_source_roles(kernel: dict[str, Any], schema: dict[str, Any]) -> boo
                 raise ValueError(
                     "Source member has missing or duplicate semantic ownership"
                 )
-            if owner is not None and set(mapping.values()) != set(owner["members"]):
+            if role is not None and set(mapping.values()) != set(owner["members"]):
                 raise ValueError("Source role has missing or extra semantic members")
-            if inherited is not None and any(
-                inherited.get(name) != member for name, member in mapping.items()
+            if inherited_members is not None and any(
+                inherited_members.get(name) != member
+                for name, member in mapping.items()
             ):
                 raise ValueError(
                     "Source same-instance branch assigns a different member owner"
                 )
         for name, child in node.get("properties", {}).items():
             member = mapping[name]
-            if role is not None:
-                anchor = _source_child_roles(kernel, role, member)
+            selected_child = (
+                {**inherited_properties[name], **child}
+                if inherited_properties is not None and name in inherited_properties
+                else child
+            )
+            if effective_role is not None:
+                anchor = _source_child_roles(kernel, effective_role, member)
                 if anchor is not None:
-                    selected = child
+                    selected = selected_child
                     if isinstance(anchor, dict) and "items" in anchor:
                         if child.get("type") != "array":
                             raise ValueError(
@@ -285,11 +265,14 @@ def validate_source_roles(kernel: dict[str, Any], schema: dict[str, Any]) -> boo
                         )
             native_kind = owner.get("native_members", {}).get(member) if owner else None
             if native_kind is not None:
-                if not _native_source_schema(kernel, child, native_kind):
-                    raise ValueError("Source payload changes its native boundary")
+                if not _native_source_schema(kernel, selected_child, native_kind):
+                    raise ValueError(
+                        f"Source payload changes its native boundary: "
+                        f"{effective_role}.{member}"
+                    )
                 payload = {
                     key: value
-                    for key, value in child.items()
+                    for key, value in selected_child.items()
                     if key != "semantic_member"
                 }
                 walk(payload, native=True)
@@ -297,16 +280,24 @@ def validate_source_roles(kernel: dict[str, Any], schema: dict[str, Any]) -> boo
                 if (
                     owner
                     and member in owner.get("discriminator", {})
-                    and child.get("const") != owner["discriminator"][member]
+                    and selected_child.get("const") != owner["discriminator"][member]
                 ):
                     raise ValueError(
                         "Source discriminator has a different semantic meaning"
                     )
-                walk(child, property_member=True)
+                walk(selected_child, property_member=True)
         if "items" in node:
             walk(node["items"])
         for child in node.get("oneOf", []):
-            walk(child, mapping or inherited)
+            walk(
+                child,
+                inherited_role=effective_role,
+                inherited_members=mapping or inherited_members,
+                inherited_properties={
+                    **(inherited_properties or {}),
+                    **node.get("properties", {}),
+                },
+            )
 
     try:
         if schema.get("semantic_role") != law["root"]:
@@ -405,12 +396,14 @@ def _map_source_value(
         if "oneOf" in node and "properties" not in node:
             matching = semantic_source_schema(kernel, node) if write_authored else node
             # Validation has already established oneOf uniqueness; use its matched branch.
-            branch = next(
+            branches = [
                 branch
                 for branch, test in zip(node["oneOf"], matching["oneOf"], strict=True)
                 if jsonschema.Draft202012Validator(test).is_valid(value)
-            )
-            return walk(value, branch, wire, semantic)
+            ]
+            if len(branches) != 1:
+                raise ValueError("Source value has no unique semantic branch")
+            return walk(value, branches[0], wire, semantic)
         role = node.get("semantic_role")
         if role is not None:
             owner = law["roles"][role]

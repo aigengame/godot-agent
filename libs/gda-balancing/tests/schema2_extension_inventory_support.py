@@ -845,7 +845,6 @@ def _source_address_links(
         raise InventoryRefusal("Source address has no unique schema owner")
     schema_role, _, schema_pointer = schema_rows[0]
     language = _attached_language(kernel, graph)
-    resolution = kernel["meta_format"]["resolution_judgment"]
     law = "/meta_format/resolution_judgment/relation_recipe_format"
 
     def pointer(root: str, path: Sequence[str | int]) -> str:
@@ -955,27 +954,25 @@ def _source_address_links(
     ].get("source_fact_transport")
     if not _consumer_b_source_fact_transport_is_supported(transport):
         raise InventoryRefusal("Source address transport law is unsupported")
+    if not _consumer_b_source_roles_are_closed(language, kernel["meta_format"]):
+        raise InventoryRefusal("Source semantic roles do not close")
 
-    for _, profile, pp in _authority_path_rows(
+    for _, profile, _ in _authority_path_rows(
         kernel, graph, "language_bundle.language.resolution_profiles"
     ):
         addresses: dict[tuple[str | int, ...], tuple[str | int, ...]] = {}
         if not _consumer_b_relation_paths_are_typed(
             profile,
-            resolution,
             language,
             kernel["meta_format"]["package_release"],
+            kernel["meta_format"],
             schema_addresses=addresses,
         ):
             raise InventoryRefusal("Source schema-address judgement did not close")
-        for term_path, address in addresses.items():
-            selected = token(address)
-            yield selected, pointer(pp, term_path), "reference", "value", "", law
+        for address in addresses.values():
             yield from schema_links(address, law)
         # Membership and contextual anchors are independently checked by B. The
         # annotation query supplies actual paths, not a second selector grammar.
-        if not _consumer_b_source_roles_are_closed(language, kernel["meta_format"]):
-            raise InventoryRefusal("Source semantic roles do not close")
         roles = kernel["meta_format"]["language_definitions"][
             "wire_schema_protocol_roles"
         ]["source_notation"]["semantic_roles"]["roles"]

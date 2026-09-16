@@ -43,7 +43,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:c17dedce17a0321186f0b040f3a41a867f08f04ce8a5f57f5dd20840710b4fac"
+    "sha256:de822af7e139873c1413736b5c576b6da94f7e503af84a4740ff347cb2210368"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:60036c5682b9f6a1a4c66dc68162b1dd2f387c8c881f2bd966782f7b9db1a96a"
@@ -2797,37 +2797,95 @@ def _consumer_b_semantic_property_schemas(
 def _consumer_b_native_source_member_is_closed(
     fields: list[dict[str, Any]], law: str, meta: Mapping[str, Any]
 ) -> bool:
-    if law != "closed-interval":
-        return True
-    range_members = meta["literal_typing"]["range_members"]
-    if (
-        not isinstance(range_members, dict)
-        or not range_members
-        or not all(
-            isinstance(member, str) and member for member in range_members.values()
+    if law == "canonical-value":
+        return (
+            bool(fields)
+            and meta["fact"]["field_contracts"]["quantity-symbol"]["value_policy"][
+                "type"
+            ]
+            == "canonical-value"
         )
-        or len(set(range_members.values())) != len(range_members)
-    ):
+    if law == "closed-interval":
+        range_members = meta["literal_typing"]["range_members"]
+        if (
+            not isinstance(range_members, dict)
+            or not range_members
+            or not all(
+                isinstance(member, str) and member for member in range_members.values()
+            )
+            or len(set(range_members.values())) != len(range_members)
+        ):
+            return False
+        expected = set(range_members.values())
+        declared = [field for field in fields if "properties" in field]
+        return bool(declared) and all(
+            field.get("type") == "object"
+            and field.get("unevaluatedProperties") is False
+            and set(field)
+            == {
+                _SOURCE_MEMBER_KEY,
+                "properties",
+                "required",
+                "type",
+                "unevaluatedProperties",
+            }
+            and isinstance(field.get("properties"), dict)
+            and set(field["properties"]) == expected
+            and set(field.get("required", [])) == expected
+            and all(
+                child == {"type": "integer"} for child in field["properties"].values()
+            )
+            for field in declared
+        )
+    if law == "boolean-domain":
+        domain = meta["runtime_program"]["fixed_value_contracts"]["kernel-boolean"][
+            "domain"
+        ]
+        return bool(fields) and all(
+            field.get("type") == "object"
+            and isinstance(field.get("properties"), dict)
+            and set(field["properties"]) == set(domain)
+            and set(field.get("required", [])) == set(domain)
+            and all(
+                field["properties"][name].get("const") == value
+                for name, value in domain.items()
+            )
+            for field in fields
+        )
+    if law != "typed-literal":
         return False
-    expected = set(range_members.values())
-    declared = [field for field in fields if "properties" in field]
-    return bool(declared) and all(
-        field.get("type") == "object"
-        and field.get("unevaluatedProperties") is False
-        and set(field)
-        == {
-            _SOURCE_MEMBER_KEY,
-            "properties",
-            "required",
-            "type",
-            "unevaluatedProperties",
-        }
-        and isinstance(field.get("properties"), dict)
-        and set(field["properties"]) == expected
-        and set(field.get("required", [])) == expected
-        and all(child == {"type": "integer"} for child in field["properties"].values())
-        for field in declared
-    )
+    typed = meta["literal_typing"]["typed_envelope_profile"]
+    nominal = typed["admission"]["nominal_type_reference"]
+    coordinate = set(nominal["coordinate_members"])
+    for field in fields:
+        alternatives = [field]
+        alternatives.extend(
+            branch for branch in field.get("oneOf", []) if isinstance(branch, dict)
+        )
+        for branch in alternatives:
+            if branch.get("type") != "object":
+                continue
+            if set(branch.get("properties", {})) != set(
+                typed["admission"]["envelope_members"]
+            ) or set(branch.get("required", [])) != set(
+                typed["admission"]["envelope_members"]
+            ):
+                return False
+            reference = branch["properties"][typed["type_member"]]
+            members = reference.get("properties", {})
+            if not coordinate <= set(members) <= coordinate | {
+                nominal["optional_kind_member"]
+            } or not coordinate <= set(reference.get("required", [])):
+                return False
+            if any(members[name].get("type") != "string" for name in coordinate):
+                return False
+            marker = nominal["optional_kind_member"]
+            if (
+                marker in members
+                and members[marker].get("const") != nominal["optional_kind_value"]
+            ):
+                return False
+    return bool(fields)
 
 
 def _consumer_b_source_roles_are_closed(
@@ -5051,7 +5109,6 @@ def _consumer_b_resolution_contract_is_closed(value: Any) -> bool:
             "parse_reason_stage",
             "relation_schemas",
             "relation_recipe_format",
-            "routing_equivalences",
             "resource_accounting",
             "law_format",
         }
@@ -5064,7 +5121,6 @@ def _consumer_b_resolution_contract_is_closed(value: Any) -> bool:
     operations = value.get("operations")
     law_format = value.get("law_format")
     recipe_format = value.get("relation_recipe_format")
-    routing_equivalences = value.get("routing_equivalences")
     resource_accounting = value.get("resource_accounting")
     if (
         not isinstance(stages, list)
@@ -5126,47 +5182,11 @@ def _consumer_b_resolution_contract_is_closed(value: Any) -> bool:
         }
         or recipe_format.get("root_typing")
         != {
-            "source": "model-source-wire-schema",
+            "source": "semantic-model-source-schema",
             "language": "kernel-declared-language-contracts",
             "selected-packages": "required-transitive-package-closure",
             "binding": "expanded-binding-item",
         }
-        or not isinstance(routing_equivalences, list)
-        or not routing_equivalences
-        or any(
-            not isinstance(item, dict)
-            or set(item)
-            != {
-                "recipe",
-                "subject_kind",
-                "subject",
-                "projection",
-                "source_role",
-                "source_member",
-            }
-            or not all(
-                isinstance(item.get(member), str) and item[member]
-                for member in (
-                    "recipe",
-                    "subject",
-                    "source_role",
-                    "source_member",
-                )
-            )
-            or item.get("subject_kind") not in {"field-binding-source", "field-term"}
-            or item.get("projection") not in {"dot-path", "last-segment"}
-            for item in routing_equivalences
-        )
-        or len(
-            {
-                (item["source_role"], item["source_member"])
-                for item in routing_equivalences
-                if isinstance(item, dict)
-                and "source_role" in item
-                and "source_member" in item
-            }
-        )
-        != len(routing_equivalences)
         or resource_accounting
         != {
             "limit_member": "max_rule_match_steps",
@@ -5385,11 +5405,45 @@ def _consumer_b_kind(value: Any, *, schema: bool = False) -> str | None:
     return None
 
 
+def _consumer_b_semantic_source_schema(
+    schema: dict[str, Any], meta: Mapping[str, Any]
+) -> dict[str, Any]:
+    roles = meta["language_definitions"]["wire_schema_protocol_roles"][
+        "source_notation"
+    ]["semantic_roles"]["roles"]
+
+    def project(
+        node: dict[str, Any], owner: Mapping[str, Any] | None = None
+    ) -> dict[str, Any]:
+        result = deepcopy(node)
+        role = node.get(_SOURCE_ROLE_KEY)
+        if isinstance(role, str):
+            owner = roles[role]
+        if "properties" in node:
+            properties: dict[str, Any] = {}
+            names: dict[str, str] = {}
+            for authored, child in node["properties"].items():
+                member = child[_SOURCE_MEMBER_KEY]
+                names[authored] = member
+                native = owner is not None and member in owner.get("native_members", {})
+                properties[member] = deepcopy(child) if native else project(child)
+            result["properties"] = properties
+            if "required" in node:
+                result["required"] = [names[name] for name in node["required"]]
+        if "items" in node:
+            result["items"] = project(node["items"])
+        if "oneOf" in node:
+            result["oneOf"] = [project(branch, owner) for branch in node["oneOf"]]
+        return result
+
+    return project(schema)
+
+
 def _consumer_b_relation_paths_are_typed(
     profile: dict[str, Any],
-    resolution: dict[str, Any],
     ldb: dict[str, Any],
     package_release: dict[str, Any],
+    meta: Mapping[str, Any],
     *,
     schema_addresses: dict[tuple[str | int, ...], tuple[str | int, ...]] | None = None,
 ) -> bool:
@@ -5410,8 +5464,20 @@ def _consumer_b_relation_paths_are_typed(
         or not isinstance(source[0], dict)
     ):
         return False
+    authored_source_schema = source[0]
+    try:
+        source_schema = _consumer_b_semantic_source_schema(authored_source_schema, meta)
+    except (KeyError, TypeError, ValueError):
+        return False
     recipes = profile["relation_recipes"]
-    recipes_by_id = {item["id"]: item for item in recipes}
+
+    def authored_node(address: tuple[str | int, ...]) -> dict[str, Any] | None:
+        node: Any = authored_source_schema
+        for segment in address:
+            if not isinstance(node, dict) or segment not in node:
+                return None
+            node = node[segment]
+        return node if isinstance(node, dict) else None
 
     def select(
         term: dict[str, Any],
@@ -5419,7 +5485,12 @@ def _consumer_b_relation_paths_are_typed(
         term_path: tuple[str | int, ...],
     ) -> tuple[str, Any, str, tuple[str | int, ...] | None] | None:
         if term["root"] == "source":
-            representation, payload, origin, address = "schema", source[0], "source", ()
+            representation, payload, origin, address = (
+                "schema",
+                source_schema,
+                "source",
+                (),
+            )
         elif term["root"] == "language":
             if term["path"] != ["packages"]:
                 return None
@@ -5433,11 +5504,27 @@ def _consumer_b_relation_paths_are_typed(
         else:
             return None
         if representation == "schema":
-            selected = _consumer_b_schema_path(payload, term["path"])
-            if selected is None or address is None:
+            if address is None:
                 return None
+            selected = payload
             for index, segment in enumerate(term["path"]):
-                address = (*address, "properties", segment)
+                selected = _consumer_b_schema_path(selected, [segment])
+                physical = authored_node(address)
+                matches = (
+                    [
+                        (name, child)
+                        for properties in _consumer_b_role_properties(physical)
+                        for name, child in properties.items()
+                        if isinstance(child, dict)
+                        and child.get(_SOURCE_MEMBER_KEY) == segment
+                    ]
+                    if physical is not None
+                    else []
+                )
+                names = {name for name, _child in matches}
+                if selected is None or len(names) != 1:
+                    return None
+                address = (*address, "properties", next(iter(names)))
                 derived_addresses[(*term_path, "path", index)] = address
             return ("schema", selected, origin, address)
         if representation == "contract":
@@ -5564,44 +5651,6 @@ def _consumer_b_relation_paths_are_typed(
                 or (field["pointer"] and shape[2] != "source")
             ):
                 return False
-    for equivalence in resolution["routing_equivalences"]:
-        recipe = recipes_by_id.get(equivalence["recipe"])
-        if recipe is None:
-            return False
-        fields = [
-            field["term"]
-            for field in recipe["fields"]
-            if field["name"] == equivalence["subject"]
-        ]
-        if len(fields) != 1:
-            return False
-        if equivalence["subject_kind"] == "field-binding-source":
-            selected_field = fields[0]
-            if selected_field["root"] != "binding":
-                return False
-            candidates = [
-                binding["source"]
-                for binding in recipe["bindings"]
-                if binding["name"] == selected_field["binding"]
-            ]
-        else:
-            candidates = fields
-        if len(candidates) != 1 or not candidates[0]["path"]:
-            return False
-        selected_path = (
-            ".".join(candidates[0]["path"])
-            if equivalence["projection"] == "dot-path"
-            else candidates[0]["path"][-1]
-        )
-        role_paths = _consumer_b_source_role_member_paths(
-            source[0], equivalence["source_role"], equivalence["source_member"]
-        )
-        expected = {
-            ".".join(path) if equivalence["projection"] == "dot-path" else path[-1]
-            for path in role_paths
-        }
-        if len(expected) != 1 or selected_path not in expected:
-            return False
     if schema_addresses is not None:
         schema_addresses.update(derived_addresses)
     return True
@@ -5612,6 +5661,7 @@ def _consumer_b_relation_recipes_are_closed(
     resolution: dict[str, Any],
     ldb: dict[str, Any],
     package_release: dict[str, Any],
+    meta: Mapping[str, Any],
 ) -> bool:
     recipes = profile.get("relation_recipes")
     schemas = resolution.get("relation_schemas")
@@ -5709,9 +5759,9 @@ def _consumer_b_relation_recipes_are_closed(
             return False
     return _consumer_b_relation_paths_are_typed(
         profile,
-        resolution,
         ldb,
         package_release,
+        meta,
     )
 
 
@@ -7348,6 +7398,7 @@ def _consumer_b_language_definitions_are_closed(
                 resolution_contract,
                 ldb,
                 meta["package_release"],
+                meta,
             )
             or [item.get("operation") for item in chain if isinstance(item, dict)]
             != operation_order

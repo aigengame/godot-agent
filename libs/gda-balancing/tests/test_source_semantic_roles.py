@@ -90,18 +90,7 @@ def _candidate(case):
             schema, {"source"}, "package_requirements", "wire/requirements~"
         )
         source["wire/requirements~"] = source.pop("package_requirements")
-        from test_resolution_parse_reason import _profile
-
-        for recipe in _profile(authored)["relation_recipes"]:
-            for binding in recipe["bindings"]:
-                term = binding["source"]
-                if term["root"] == "source" and term["path"] == [
-                    "package_requirements"
-                ]:
-                    term["path"] = ["wire/requirements~"]
     elif case == "routing":
-        from test_resolution_parse_reason import _profile
-
         members = {
             "source": {
                 "manifest": "header/~",
@@ -141,28 +130,6 @@ def _candidate(case):
                 for old, new in members[role].items():
                     obj[new] = obj.pop(old)
 
-        def rename_term(term):
-            if term["root"] == "source":
-                path = term["path"]
-                if path[:1] == ["manifest"]:
-                    term["path"] = [
-                        members["source"]["manifest"],
-                        members["manifest"][path[1]],
-                    ]
-                else:
-                    term["path"] = [members["source"].get(part, part) for part in path]
-            elif term["root"] == "binding":
-                names = members.get(term["binding"], {})
-                term["path"] = [names.get(part, part) for part in term["path"]]
-
-        for recipe in _profile(authored)["relation_recipes"]:
-            for binding in recipe["bindings"]:
-                rename_term(binding["source"])
-            for predicate in recipe["predicates"]:
-                rename_term(predicate["left"])
-                rename_term(predicate["right"])
-            for field in recipe["fields"]:
-                rename_term(field["term"])
     elif case == "entrypoint-id":
         _rename_role_field(schema, {"entrypoint"}, "id", "wire/id~")
         for entrypoint in source["entrypoints"]:
@@ -331,7 +298,6 @@ def test_source_template_provenance_roles_reach_the_real_public_writer(tmp_path)
         "missing-member-role",
         "duplicate-member-role",
         "branch-only-field",
-        "unsynced-recipe",
         "dangling-member-role",
     ],
 )
@@ -378,16 +344,95 @@ def test_source_semantic_role_contract_refuses_incomplete_or_misowned_schema(def
         symbols["oneOf"][0]["properties"]["domain"] = domain
     elif defect == "dangling-member-role":
         schema["semantic_member"] = "source"
-    elif defect == "unsynced-recipe":
-        _rename_role_field(
-            schema, {"source"}, "package_requirements", "wire/requirements~"
-        )
     else:
         entrypoint["properties"]["ignored"] = {"type": "string"}
     graph = _graph(kernel, authored)
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, graph)
         assert not result["admitted"], result
+
+
+def _source_role_nodes(schema, selected):
+    result = []
+
+    def visit(node):
+        if node.get("semantic_role") == selected:
+            result.append(node)
+        for child in node.get("properties", {}).values():
+            visit(child)
+        if "items" in node:
+            visit(node["items"])
+        for child in node.get("oneOf", []):
+            visit(child)
+
+    visit(schema)
+    return result
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "conditional-child-role",
+        "inherited-symbol-child-role",
+        "boolean-domain",
+        "typed-literal-envelope",
+    ],
+)
+def test_source_native_and_contextual_roles_refuse_semantic_schema_drift(defect):
+    kernel, language = mutable_authorities()
+    authored = _authored(language)
+    schema = _source_schema(authored)
+    if defect == "conditional-child-role":
+        conditional = _source_role_nodes(schema, "conditional")[0]
+        member = conditional["properties"]["condition"]
+        semantic_member = member["semantic_member"]
+        member.clear()
+        member.update(
+            {
+                "semantic_member": semantic_member,
+                "semantic_role": "value-policy",
+                "type": "object",
+                "properties": {
+                    "mode": {"semantic_member": "mode", "type": "string"},
+                    "value": {"semantic_member": "value", "type": "integer"},
+                },
+                "required": ["mode"],
+                "unevaluatedProperties": False,
+            }
+        )
+    elif defect == "inherited-symbol-child-role":
+        symbol = _source_role_nodes(schema, "symbol")[0]
+        policy = symbol["oneOf"][0]["properties"]["value_policy"]
+        semantic_member = policy["semantic_member"]
+        policy.clear()
+        policy.update(
+            {
+                "semantic_member": semantic_member,
+                "semantic_role": "formula-coordinate",
+                "type": "object",
+                "properties": {
+                    "module": {"semantic_member": "module", "type": "string"},
+                    "id": {"semantic_member": "id", "type": "string"},
+                },
+                "required": ["module", "id"],
+                "unevaluatedProperties": False,
+            }
+        )
+    elif defect == "boolean-domain":
+        contract = _source_role_nodes(schema, "boolean-value-contract")[0]
+        contract["properties"]["domain"]["properties"]["kind"]["const"] = "not-boolean"
+    else:
+        for literal in _source_role_nodes(schema, "literal"):
+            value = literal["properties"]["value"]
+            for alternative in value.get("oneOf", []):
+                if alternative.get("type") == "object":
+                    alternative["properties"]["type"]["properties"]["id"]["type"] = (
+                        "integer"
+                    )
+    graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, graph)
+        assert not result["admitted"], (defect, result)
 
 
 @pytest.mark.parametrize(

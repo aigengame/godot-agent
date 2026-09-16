@@ -202,11 +202,18 @@ def _check_model_source_bytes(
         dict[str, Any],
         cast(dict[str, Any], kernel["meta_format"])["resolution_judgment"],
     )
-    projection = (
-        project_source_value(source, kernel, source_schema) if not errors else None
-    )
+    try:
+        projection = project_source_value(source, kernel, source_schema)
+    except (KeyError, TypeError, ValueError):
+        if not structural_diagnostics:
+            raise
+        projection = None
+    if projection is not None and not set(source_schema["required"]) <= set(source):
+        projection = None
     raw_requirements = (
-        projection.value["package_requirements"] if projection is not None else []
+        projection.value.get("package_requirements", [])
+        if projection is not None
+        else []
     )
     namespace_projection = project_required_namespace_closure(
         authority_context.current_namespace_packages(),
@@ -216,20 +223,21 @@ def _check_model_source_bytes(
     )
     for stage in cast(list[str], resolution_contract["stage_order"]):
         diagnostics = list(static_diagnostics) if stage == "static" else []
-        try:
-            diagnostics.extend(
-                _resolution_diagnostics(
-                    source,
-                    source_identity,
-                    kernel,
-                    ldb,
-                    namespace_projection,
-                    stage=stage,
+        if projection is not None:
+            try:
+                diagnostics.extend(
+                    _resolution_diagnostics(
+                        projection,
+                        source_identity,
+                        kernel,
+                        ldb,
+                        namespace_projection,
+                        stage=stage,
+                    )
                 )
-            )
-        except (KeyError, TypeError, ValueError):
-            if not structural_diagnostics:
-                raise
+            except (KeyError, TypeError, ValueError):
+                if not structural_diagnostics:
+                    raise
         refusal = _bounded_refusal(diagnostics, ldb)
         if refusal is not None:
             return refusal
@@ -329,7 +337,7 @@ def _check_model_source_bytes(
                 projection.authored_pointer(err.pointer)
                 if isinstance(err, _FormulaResolutionError)
                 else projection.authored_pointer(
-                    _formula_failure_pointer(source, message, ldb, kernel)
+                    _formula_failure_pointer(source, message)
                 )
             ),
             f"Model Formula resolution failed: {message}",

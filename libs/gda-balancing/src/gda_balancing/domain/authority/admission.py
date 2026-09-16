@@ -84,7 +84,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:c17dedce17a0321186f0b040f3a41a867f08f04ce8a5f57f5dd20840710b4fac"
+    "sha256:de822af7e139873c1413736b5c576b6da94f7e503af84a4740ff347cb2210368"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1106,7 +1106,6 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
             "stage_order",
             "relation_schemas",
             "relation_recipe_format",
-            "routing_equivalences",
             "resource_accounting",
             "law_format",
         }
@@ -1119,7 +1118,6 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
     operations = contract.get("operations")
     law_format = contract.get("law_format")
     recipe_format = contract.get("relation_recipe_format")
-    routing_equivalences = contract.get("routing_equivalences")
     resource_accounting = contract.get("resource_accounting")
     if (
         not isinstance(stages, list)
@@ -1181,40 +1179,11 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
         }
         or recipe_format.get("root_typing")
         != {
-            "source": "model-source-wire-schema",
+            "source": "semantic-model-source-schema",
             "language": "kernel-declared-language-contracts",
             "selected-packages": "required-transitive-package-closure",
             "binding": "expanded-binding-item",
         }
-        or not isinstance(routing_equivalences, list)
-        or not routing_equivalences
-        or any(
-            not isinstance(item, dict)
-            or set(item)
-            != {
-                "source_role",
-                "source_member",
-                "recipe",
-                "subject_kind",
-                "subject",
-                "projection",
-            }
-            or not all(
-                isinstance(item.get(member), str) and item[member]
-                for member in ("source_role", "source_member", "recipe", "subject")
-            )
-            or item.get("subject_kind") not in {"field-binding-source", "field-term"}
-            or item.get("projection") not in {"dot-path", "last-segment"}
-            for item in routing_equivalences
-        )
-        or len(
-            {
-                (item["source_role"], item["source_member"])
-                for item in routing_equivalences
-                if isinstance(item, dict) and "source_role" in item
-            }
-        )
-        != len(routing_equivalences)
         or resource_accounting
         != {
             "limit_member": "max_rule_match_steps",
@@ -1494,8 +1463,8 @@ def _contract_value_kind(contract: Any) -> str | None:
 def _relation_recipe_paths_are_typed(
     profile: dict[str, Any],
     language_bundle: dict[str, Any],
-    resolution_contract: dict[str, Any],
     package_release_contract: dict[str, Any],
+    meta_format: dict[str, Any],
 ) -> bool:
     language = language_bundle.get("language")
     wire_schemas = language.get("wire_schemas") if isinstance(language, dict) else None
@@ -1509,9 +1478,12 @@ def _relation_recipe_paths_are_typed(
     ]
     if len(source_schemas) != 1 or not isinstance(source_schemas[0], dict):
         return False
-    source_schema = source_schemas[0]
+    from gda_balancing.domain.authority.source_projection import semantic_source_schema
+
+    source_schema = semantic_source_schema(
+        {"meta_format": meta_format}, source_schemas[0]
+    )
     recipes = profile["relation_recipes"]
-    recipe_by_id = {recipe["id"]: recipe for recipe in recipes}
 
     # A shape is (representation, schema-or-values, source-origin).
     def term_shape(
@@ -1624,47 +1596,6 @@ def _relation_recipe_paths_are_typed(
             ):
                 return False
 
-    for equivalence in resolution_contract["routing_equivalences"]:
-        recipe = recipe_by_id.get(equivalence["recipe"])
-        if recipe is None:
-            return False
-        if equivalence["subject_kind"] == "field-binding-source":
-            fields = [
-                field
-                for field in recipe["fields"]
-                if field["name"] == equivalence["subject"]
-            ]
-            if len(fields) != 1 or fields[0]["term"]["root"] != "binding":
-                return False
-            matches = [
-                binding["source"]
-                for binding in recipe["bindings"]
-                if binding["name"] == fields[0]["term"]["binding"]
-            ]
-        else:
-            matches = [
-                field["term"]
-                for field in recipe["fields"]
-                if field["name"] == equivalence["subject"]
-            ]
-        if len(matches) != 1 or not matches[0]["path"]:
-            return False
-        expected = (
-            ".".join(matches[0]["path"])
-            if equivalence["projection"] == "dot-path"
-            else matches[0]["path"][-1]
-        )
-        from gda_balancing.domain.authority.source_projection import source_member_paths
-
-        annotated = source_member_paths(
-            source_schema, equivalence["source_role"], equivalence["source_member"]
-        )
-        actual = {
-            ".".join(path) if equivalence["projection"] == "dot-path" else path[-1]
-            for path in annotated
-        }
-        if actual != {expected}:
-            return False
     return True
 
 
@@ -1673,6 +1604,7 @@ def _relation_recipes_are_closed(
     resolution_contract: dict[str, Any],
     language_bundle: dict[str, Any],
     package_release_contract: dict[str, Any],
+    meta_format: dict[str, Any],
 ) -> bool:
     recipes = profile.get("relation_recipes")
     schemas = resolution_contract.get("relation_schemas")
@@ -1794,8 +1726,8 @@ def _relation_recipes_are_closed(
     return _relation_recipe_paths_are_typed(
         profile,
         language_bundle,
-        resolution_contract,
         package_release_contract,
+        meta_format,
     )
 
 
@@ -2734,6 +2666,7 @@ def _language_definitions_are_closed(
                 resolution_contract,
                 language_bundle,
                 cast(dict[str, Any], meta_format["package_release"]),
+                meta_format,
             )
             or [item.get("operation") for item in chain if isinstance(item, dict)]
             != operation_order
