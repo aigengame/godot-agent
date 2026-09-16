@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ffd6346b637cf849942e1fed5d619cb5f7cfc1adebea294312c9e7b81e68f771 -->
+<!-- gda-readme-i18n: source=README.md sha256=580ecc08900150b2a55126d01ec095cc99cdcc2291f53960e43831a8463ec216 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -465,7 +465,7 @@ en el resultado.
 | ------- | ------------ |
 | `export list` | Enumera los presets de exportación del proyecto (nombre, plataforma, …). |
 | `export get` | Informa los detalles de un preset más el estado de instalación de la plantilla de exportación. |
-| `export run` | Exporta un preset con nombre (`release` / `debug` / `pack`) a un destino. |
+| `export run` | Exporta un preset con nombre (`release` / `debug` / `pack`) a un destino e informa de lo que dejó en el proyecto: cada archivo creado (clasificado) y los archivos reescritos fuera de la caché `.godot/`; con la caché fría deja miles, y las reescrituras dentro de la caché no se informan. |
 
 **`shader`** — archivos de shader (`.gdshader`)
 

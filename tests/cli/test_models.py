@@ -44,6 +44,7 @@ from gda.commands.export import (
     ExportListResult,
     ExportRunMode,
     ExportRunResult,
+    ProjectTreeMutations,
 )
 from gda.commands.project import (
     InputActionJoyAxisEvent,
@@ -915,7 +916,12 @@ def test_export_run_result_round_trips_each_mode():
         assert ran.mode is mode
         assert ran.output_path == "/tmp/project/build/game.x86_64"
         assert ran.created_dirs == []
-        assert json.loads(ran.model_dump_json()) == payload
+        # The project-tree mutation report (#839) is additive: a payload written
+        # before it round-trips, carrying the report of an export that changed
+        # nothing.
+        assert json.loads(ran.model_dump_json()) == payload | {
+            "project_tree_mutations": ProjectTreeMutations().model_dump(mode="json")
+        }
 
 
 def test_export_run_result_reports_overridden_output_path():
@@ -937,7 +943,9 @@ def test_export_run_result_reports_overridden_output_path():
     assert ran.output_path == "/tmp/dist/game.pck"
     assert ran.created_dirs == ["/tmp/dist"]
     assert ran.warnings == ["No export template found at the expected icon path."]
-    assert json.loads(ran.model_dump_json()) == payload
+    assert json.loads(ran.model_dump_json()) == payload | {
+        "project_tree_mutations": ProjectTreeMutations().model_dump(mode="json")
+    }
 
 
 def test_node_set_result_round_trips_the_coerced_property():

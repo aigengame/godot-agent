@@ -31,6 +31,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from gda.cli import app
+from gda.commands.export import ProjectTreeMutations
 from gda.runner import RunResult
 from tests.support import (
     ENGINE_BANNER,
@@ -174,6 +175,10 @@ def test_export_run_json_keeps_native_progress_on_stderr(monkeypatch, tmp_path):
         "output_path": _configured_output(tmp_path),
         "created_dirs": [str(tmp_path / "build")],
         "warnings": [],
+        # The fake export runner writes nothing, so the project-tree mutation
+        # report (#839) is the empty one — and it rides the SAME single result
+        # object this test is about.
+        "project_tree_mutations": ProjectTreeMutations().model_dump(mode="json"),
     }
     assert result.stdout == json.dumps(expected, separators=(",", ":")) + "\n"
     assert plain_text(result.stderr) == (
