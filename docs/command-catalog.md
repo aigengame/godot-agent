@@ -1976,15 +1976,15 @@ re-derives every verdict from a running engine.
   `live_log_unavailable`; the human rendering says so in one line, since a reader who sees
   nothing would take it for a clean start. An idempotent repeat reports the establishing
   launch's verdict, not a fresh read.
-  A daemon started by an OLDER gda answers without the two keys — and a drifted one with a
-  pair that contradicts itself (the pair is one fact: both null, or a list and exactly
+  A daemon started by an OLDER gda answers without the two keys — and a drifted one with
+  a pair that contradicts itself (the pair is one fact: both null, or a list and exactly
   "no record about the run among them") — which the CLI reports as `contract_violation`;
   run `gda daemon stop`, then `gda daemon start`, so the daemon serves the current
-  contract. The skew is reachable because a daemon is a long-lived
-  per-project process and a repeat `daemon start` only reports `already_running`, so
-  upgrading gda while one runs leaves the older daemon serving. There is no CLI/daemon
-  version handshake and none is planned: a mixed-version session is not a compatibility
-  target — the CLI/daemon leg of ADR-0018's current-harness policy (2026-09-08).
+  contract. The skew is reachable because a daemon is a long-lived per-project process
+  and a repeat `daemon start` only reports `already_running`, so upgrading gda while one
+  runs leaves the older daemon serving. There is no CLI/daemon version handshake and
+  none is planned: a mixed-version session is not a compatibility target — the
+  CLI/daemon leg of ADR-0018's current-harness policy (2026-09-08).
   A session stops serving when its harness channel breaks OR
   when a relay hits `live_timeout` — the one-op-at-a-time RPC carries no request id, so a
   late reply can no longer be attributed — and the next operation that requires a session
