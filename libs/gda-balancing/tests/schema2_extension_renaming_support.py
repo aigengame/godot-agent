@@ -6,6 +6,7 @@ artifacts and results; relabelled producer outputs are never returned as proof.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from typing import Any, cast
@@ -23,6 +24,7 @@ from schema2_extension_inventory_support import (
     AuthorityToken,
     InventoryRefusal,
     _attached_language,
+    _call_path_segments,
     _child,
     _formula_projections,
     _json_pointer_segments,
@@ -94,6 +96,38 @@ def _json_pointer_values(
         for index, target in edits.items():
             segments[index] = target
         result[pointer] = "".join(_child("", segment) for segment in segments)
+    return result
+
+
+def _call_path_values(
+    graph: Mapping[str, Any], paths: Mapping[str, Mapping[int, str]]
+) -> dict[str, str]:
+    """Rewrite only the named segments in a Kernel Runtime call path."""
+    result = {}
+    for pointer, edits in paths.items():
+        segments = _call_path_segments(_pointer_value(graph, pointer))
+        for index, target in edits.items():
+            segments[index] = target
+        result[pointer] = "/".join(
+            segment
+            if re.fullmatch(r"@[0-9]+", segment)
+            else segment.replace("~", "~0").replace("/", "~1")
+            for segment in segments
+        )
+    return result
+
+
+def _snapshot_name_values(
+    graph: Mapping[str, Any], paths: Mapping[str, tuple[str, str]]
+) -> dict[str, str]:
+    """Replace the Scenario-owned prefix while preserving display-only suffixes."""
+    result = {}
+    for pointer, (source, target) in paths.items():
+        value = _pointer_value(graph, pointer)
+        prefix = source + ":"
+        if not isinstance(value, str) or not value.startswith(prefix):
+            raise InventoryRefusal("invalid Snapshot display name")
+        result[pointer] = target + value[len(source) :]
     return result
 
 
@@ -211,6 +245,8 @@ def apply_extension_renaming(
     formula_values: dict[str, dict[str, str]] = {}
     member_paths: dict[str, dict[int, str]] = {}
     json_pointers: dict[str, dict[int, str]] = {}
+    call_paths: dict[str, dict[int, str]] = {}
+    snapshot_names: dict[str, tuple[str, str]] = {}
     for occurrence in inventory.occurrences:
         target = correspondence.get(occurrence.token, occurrence.token).name
         if occurrence.location == "formula":
@@ -227,14 +263,44 @@ def apply_extension_renaming(
             json_pointers.setdefault(occurrence.pointer, {})[
                 int(occurrence.projection)
             ] = target
+        elif occurrence.location == "call-path":
+            call_paths.setdefault(occurrence.pointer, {})[
+                int(occurrence.projection)
+            ] = target
+        elif occurrence.location == "snapshot-name":
+            snapshot_names[occurrence.pointer] = (occurrence.token.name, target)
         else:
             values[occurrence.pointer] = target
-    if values.keys() & (member_paths.keys() | json_pointers.keys()):
+    projected = (
+        member_paths.keys()
+        | json_pointers.keys()
+        | call_paths.keys()
+        | snapshot_names.keys()
+    )
+    if values.keys() & projected:
         raise InventoryRefusal("path also has a whole-value rename")
-    if member_paths.keys() & json_pointers.keys():
+    if any(
+        left & right
+        for index, left in enumerate(
+            (
+                member_paths.keys(),
+                json_pointers.keys(),
+                call_paths.keys(),
+                snapshot_names.keys(),
+            )
+        )
+        for right in (
+            member_paths.keys(),
+            json_pointers.keys(),
+            call_paths.keys(),
+            snapshot_names.keys(),
+        )[index + 1 :]
+    ):
         raise InventoryRefusal("path has conflicting encodings")
     values.update(_member_path_values(graph, member_paths))
     values.update(_json_pointer_values(graph, json_pointers))
+    values.update(_call_path_values(graph, call_paths))
+    values.update(_snapshot_name_values(graph, snapshot_names))
     inputs = {k: v for k, v in graph.items() if k not in {"artifacts", "results"}}
     candidate = _rewrite_positions(inputs, values, keys)
     bodies = {

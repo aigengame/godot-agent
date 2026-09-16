@@ -125,6 +125,24 @@ def _json_pointer_segments(value: str) -> list[str]:
     return [part.replace("~1", "/").replace("~0", "~") for part in value.split("/")[1:]]
 
 
+def _call_path_segments(value: str) -> list[str]:
+    """Decode the Kernel invocation path without treating fold indices as names."""
+    if not isinstance(value, str) or not value:
+        raise InventoryRefusal("invalid Runtime call path")
+    parts = value.split("/")
+    if any(not part for part in parts):
+        raise InventoryRefusal("invalid Runtime call path")
+    decoded = []
+    for part in parts:
+        if re.fullmatch(r"@[0-9]+", part):
+            decoded.append(part)
+            continue
+        if re.fullmatch(r"(?:[^~]|~[01])+", part) is None:
+            raise InventoryRefusal("invalid Runtime call path segment")
+        decoded.append(part.replace("~1", "/").replace("~0", "~"))
+    return decoded
+
+
 def _occurrence_value(
     graph: Any, occurrence: TokenOccurrence, formula_projections: Mapping[str, Any]
 ) -> Any:
@@ -149,6 +167,21 @@ def _occurrence_value(
         return _json_pointer_segments(_pointer_value(graph, occurrence.pointer))[
             int(occurrence.projection)
         ]
+    if occurrence.location == "call-path":
+        if (
+            not occurrence.projection.isdecimal()
+            or str(int(occurrence.projection)) != occurrence.projection
+        ):
+            raise InventoryRefusal("noncanonical call-path projection")
+        return _call_path_segments(_pointer_value(graph, occurrence.pointer))[
+            int(occurrence.projection)
+        ]
+    if occurrence.location == "snapshot-name":
+        value = _pointer_value(graph, occurrence.pointer)
+        prefix = occurrence.token.name + ":"
+        if not isinstance(value, str) or not value.startswith(prefix):
+            raise InventoryRefusal("invalid Snapshot display name")
+        return occurrence.token.name
     if occurrence.projection:
         raise InventoryRefusal("only Formula occurrences may have an AST projection")
     if occurrence.location == "value":
@@ -647,6 +680,87 @@ def _experiment_judgment_links(kernel: Mapping[str, Any], graph: Mapping[str, An
                 pointer + "/selector",
                 law + "/field_types/selector",
             )
+
+
+def _experiment_input_judgment_links(
+    kernel: Mapping[str, Any], graph: Mapping[str, Any]
+):
+    experiment = graph.get("experiment")
+    if experiment is None:
+        return
+    judgments = [
+        definition
+        for _, definition, _ in _authority_path_rows(
+            kernel, graph, "language_bundle.language.experiment_metric_judgments"
+        )
+    ]
+    paths = (
+        ("kind",),
+        ("aggregation",),
+        ("missing",),
+        ("censoring",),
+        ("replication", "unit"),
+        ("window", "kind"),
+        ("observation", "source"),
+    )
+    law = "/meta_format/language_definitions/wire_schema_protocol_roles/experiment_input_structure"
+    for index, metric in enumerate(experiment["metrics"]):
+        matches = [
+            judgment
+            for judgment in judgments
+            if all(
+                _at(judgment["selector"], path) == _at(metric, path) for path in paths
+            )
+        ]
+        if len(matches) != 1:
+            raise InventoryRefusal(
+                "Experiment Metric selector has no unique judgment owner"
+            )
+        for path in paths:
+            pointer = f"/experiment/metrics/{index}" + "".join(
+                "/" + member for member in path
+            )
+            yield TokenOccurrence(
+                AuthorityToken("experiment-metric-label", path, _at(metric, path)),
+                pointer,
+                "reference",
+                law,
+            )
+
+
+def _resolved_judgment_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+    results = graph.get("results")
+    if not isinstance(results, dict):
+        return ()
+    profiles = [
+        (label, value)
+        for label, value in results.items()
+        if isinstance(value, dict)
+        and value.get("artifact_kind") == "resolved-runtime-profile"
+    ]
+    if len(profiles) != 1:
+        raise InventoryRefusal("Runtime results have no unique resolved profile")
+    label, profile = profiles[0]
+    definitions = [
+        (definition, pointer)
+        for _, definition, pointer in _authority_path_rows(
+            kernel, graph, "language_bundle.language.experiment_metric_judgments"
+        )
+    ]
+    projections: list[tuple[str, str]] = []
+    root = _child("/results", label) + "/experiment_judgments/metrics"
+    for index, row in enumerate(profile["experiment_judgments"]["metrics"]):
+        matches = [
+            pointer
+            for definition, pointer in definitions
+            if _consumer_b_canonical_equal(definition, row["judgment"])
+        ]
+        if len(matches) != 1:
+            raise InventoryRefusal("resolved Metric judgment has no unique owner")
+        projections.append((matches[0], f"{root}/{index}/judgment"))
+    return _close_projection_occurrences(
+        graph, tuple(_experiment_judgment_links(kernel, graph)), projections
+    )
 
 
 def _evidence_claim_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
@@ -4209,6 +4323,10 @@ class _Reader:
         self.types: dict[tuple[str, str], dict[str, Any]] = {}
         _, self.constructors = _typed_context(kernel, graph)
         self.nodes = {row["id"]: row for row in self.meta["runtime_program"]["nodes"]}
+        self.kernel_node_tokens = {
+            AuthorityToken("kernel.meta_format.runtime_program.nodes", (), name)
+            for name in self.nodes
+        }
         self.node_laws = {
             row["id"]: f"/meta_format/runtime_program/nodes/{i}"
             for i, row in enumerate(self.meta["runtime_program"]["nodes"])
@@ -5217,13 +5335,1389 @@ class _Reader:
         for (owner, role, _), (definition, pointer) in self.definitions.items():
             if role == "language.operations":
                 self.operation(owner, definition, pointer)
-        for surface in ("experiment", "artifacts", "results"):
-            if self.graph.get(surface):
-                self.gap(
-                    "/" + surface,
-                    "/meta_format",
-                    f"{surface} traversal is not yet complete",
+
+    def known(
+        self,
+        token: AuthorityToken,
+        pointer: str,
+        law: str,
+        *,
+        location: str = "value",
+        projection: str = "",
+    ) -> None:
+        if token not in self.tokens | self.reserved:
+            raise InventoryRefusal(f"generated reference has no owner at {pointer}")
+        self.occurrence(
+            token,
+            pointer,
+            "reference",
+            law,
+            location=location,
+            projection=projection,
+        )
+
+    def kernel_node(self, name: str, pointer: str) -> None:
+        token = AuthorityToken("kernel.meta_format.runtime_program.nodes", (), name)
+        if token not in self.kernel_node_tokens:
+            raise InventoryRefusal(
+                f"generated instruction node has no Kernel owner at {pointer}"
+            )
+        self.reserved.add(token)
+        self.occurrence(
+            token,
+            pointer,
+            "reference",
+            "/meta_format/runtime_program/nodes",
+        )
+
+    def source_coordinate(self, value: Any, pointer: str, law: str) -> None:
+        if not isinstance(value, dict) or set(value) != {"model", "module", "name"}:
+            raise InventoryRefusal(f"resolved Symbol has an unknown shape at {pointer}")
+        model, module, name = value["model"], value["module"], value["name"]
+        self.known(AuthorityToken("source-model", (), model), pointer + "/model", law)
+        self.known(
+            AuthorityToken("source-module", (model,), module),
+            pointer + "/module",
+            law,
+        )
+        self.known(
+            AuthorityToken("source-symbol", (model, module), name),
+            pointer + "/name",
+            law,
+        )
+
+    def operation_reference(
+        self, value: Any, pointer: str, law: str
+    ) -> tuple[str, str]:
+        if not isinstance(value, dict) or set(value) != {"package", "id"}:
+            raise InventoryRefusal(
+                f"Operation reference has an unknown shape at {pointer}"
+            )
+        owner, name = value["package"], value["id"]
+        self.known(AuthorityToken("namespace", (), owner), pointer + "/package", law)
+        self.known(
+            AuthorityToken("language.operations", (owner,), name),
+            pointer + "/id",
+            law,
+        )
+        return owner, name
+
+    def artifact_rows(
+        self, surface: str, expected: set[str]
+    ) -> dict[str, tuple[dict[str, Any], str]]:
+        values = self.graph.get(surface)
+        if not isinstance(values, dict) or len(values) != len(expected):
+            raise InventoryRefusal(
+                f"{surface} does not contain its complete member set"
+            )
+        language = self.language["language"]
+        contracts = {
+            row["artifact_kind"]: row["schema_kind"]
+            for row in language["artifact_contracts"]
+        }
+        schemas = {
+            row["artifact_kind"]: row["schema"]
+            for row in language["artifact_wire_schemas"]
+        }
+        result: dict[str, tuple[dict[str, Any], str]] = {}
+        for label, value in values.items():
+            pointer = _child("/" + surface, label)
+            if not isinstance(value, dict):
+                raise InventoryRefusal(f"{surface} member is not an Artifact")
+            kind = value.get("artifact_kind")
+            if kind not in expected or kind in result:
+                raise InventoryRefusal(
+                    f"{surface} Artifact kind is missing or duplicated"
                 )
+            schema = schemas.get(contracts.get(kind, ""))
+            if schema is None:
+                raise InventoryRefusal(
+                    f"{surface} Artifact has no projected Wire Schema"
+                )
+            try:
+                jsonschema.Draft202012Validator(schema).validate(value)
+            except jsonschema.ValidationError as error:
+                raise InventoryRefusal(
+                    f"{surface} Artifact does not close its Wire Schema"
+                ) from error
+            self.known(
+                AuthorityToken("language.artifact_contracts", (), kind),
+                pointer + "/artifact_kind",
+                "/meta_format/language_definitions/collections/artifact_contracts",
+            )
+            result[kind] = value, pointer
+        if set(result) != expected:
+            raise InventoryRefusal(f"{surface} Artifact roles do not close")
+        return result
+
+    def experiment_surface(self) -> None:
+        value = self.graph.get("experiment")
+        if value is None:
+            return
+        schema = next(
+            row["schema"]
+            for row in self.language["language"]["artifact_wire_schemas"]
+            if row.get("protocol_role") == "experiment-specification"
+        )
+        try:
+            jsonschema.Draft202012Validator(schema).validate(value)
+        except jsonschema.ValidationError as error:
+            raise InventoryRefusal(
+                "Experiment input does not close its projected Schema"
+            ) from error
+        model_tokens = [token for token in self.tokens if token.role == "source-model"]
+        if len(model_tokens) != 1:
+            raise InventoryRefusal("Experiment input has no unique Source Model owner")
+        model = model_tokens[0].name
+        law = "/meta_format/language_definitions/wire_schema_protocol_roles/experiment_input_structure"
+        experiment = AuthorityToken("experiment", (), value["id"])
+        self.occurrence(experiment, "/experiment/id", "declaration", law)
+        self.known(
+            AuthorityToken(
+                "language.runtime_profiles", (), value["runtime"]["profile"]
+            ),
+            "/experiment/runtime/profile",
+            law,
+        )
+        self.known(
+            AuthorityToken(
+                "language.experiment_acceptance_judgments",
+                (),
+                value["acceptance"]["policy"],
+            ),
+            "/experiment/acceptance/policy",
+            law,
+        )
+        metric_ids = [metric["id"] for metric in value["metrics"]]
+        if len(metric_ids) != len(set(metric_ids)):
+            raise InventoryRefusal("Experiment Metric declaration is duplicated")
+        for mi, metric in enumerate(value["metrics"]):
+            mp = f"/experiment/metrics/{mi}"
+            metric_token = AuthorityToken(
+                "experiment-metric", (value["id"],), metric["id"]
+            )
+            self.occurrence(metric_token, mp + "/id", "declaration", law)
+            self.known(
+                AuthorityToken("language.quantity.units", (), metric["unit"]),
+                mp + "/unit",
+                law,
+            )
+            member = metric["observation"]["member"]
+            candidates = [
+                token
+                for token in self.tokens
+                if token.role == "source-symbol" and token.name == member
+            ]
+            if len(candidates) != 1:
+                raise InventoryRefusal(
+                    "Metric observation member has no unique Symbol owner"
+                )
+            self.known(candidates[0], mp + "/observation/member", law)
+            observation = AuthorityToken(
+                "experiment-observation",
+                (value["id"], metric["id"]),
+                metric["observation"]["name"],
+            )
+            self.occurrence(observation, mp + "/observation/name", "declaration", law)
+            window = AuthorityToken(
+                "experiment-window",
+                (value["id"], metric["id"]),
+                metric["window"]["name"],
+            )
+            self.occurrence(window, mp + "/window/name", "declaration", law)
+        for occurrence in _experiment_input_judgment_links(self.kernel, self.graph):
+            self.known(
+                occurrence.token,
+                occurrence.pointer,
+                occurrence.law,
+                location=occurrence.location,
+                projection=occurrence.projection,
+            )
+        scenario_ids = [scenario["id"] for scenario in value["scenarios"]]
+        if len(scenario_ids) != len(set(scenario_ids)):
+            raise InventoryRefusal("Experiment Scenario declaration is duplicated")
+        for si, scenario in enumerate(value["scenarios"]):
+            sp = f"/experiment/scenarios/{si}"
+            scenario_token = AuthorityToken(
+                "experiment-scenario", (value["id"],), scenario["id"]
+            )
+            self.occurrence(scenario_token, sp + "/id", "declaration", law)
+            roots: set[str] = set()
+            for ai, assignment in enumerate(scenario["assignments"]):
+                ap = f"{sp}/assignments/{ai}"
+                self.source_coordinate(assignment["target"], ap + "/target", law)
+                self.typed_literal(assignment["value"], ap + "/value")
+            for ei, event in enumerate(scenario["event_plan"]):
+                ep = f"{sp}/event_plan/{ei}"
+                root = event["root_event_ref"]
+                if root in roots:
+                    raise InventoryRefusal(
+                        "Experiment root Event reference is duplicated"
+                    )
+                roots.add(root)
+                self.occurrence(
+                    AuthorityToken(
+                        "experiment-root-event", (value["id"], scenario["id"]), root
+                    ),
+                    ep + "/root_event_ref",
+                    "declaration",
+                    law,
+                )
+                if event["kind"] == "transition-invocation":
+                    self.known(
+                        AuthorityToken(
+                            "source-entrypoint",
+                            (model,),
+                            event["entrypoint"],
+                        ),
+                        ep + "/entrypoint",
+                        law,
+                    )
+                    for pi, payload in enumerate(event["payload"]):
+                        pp = f"{ep}/payload/{pi}"
+                        self.source_coordinate(payload["target"], pp + "/target", law)
+                        self.typed_literal(payload["value"], pp + "/value")
+                    for ri, reference in enumerate(event.get("event_references", [])):
+                        self.known(
+                            AuthorityToken(
+                                "experiment-root-event",
+                                (value["id"], scenario["id"]),
+                                reference["root_event_ref"],
+                            ),
+                            f"{ep}/event_references/{ri}/root_event_ref",
+                            law,
+                        )
+                else:
+                    for fi, fact in enumerate(event["facts"]):
+                        fp = f"{ep}/facts/{fi}"
+                        self.source_coordinate(fact["target"], fp + "/target", law)
+                        self.typed_literal(fact["value"], fp + "/value")
+
+    def _projection(
+        self, source: str, target: str, projections: list[tuple[str, str]]
+    ) -> None:
+        if not _consumer_b_canonical_equal(
+            _pointer_value(self.graph, source), _pointer_value(self.graph, target)
+        ):
+            raise InventoryRefusal("generated projection does not equal its owner")
+        projections.append((source, target))
+
+    def _project_selected_rows(
+        self,
+        rows: list[Any],
+        pointer: str,
+        projections: list[tuple[str, str]],
+        *,
+        excluded_members: tuple[str, ...] = (),
+    ) -> None:
+        """Join selected semantic rows to exact package-owned definitions."""
+        sources = [
+            (definition, source)
+            for (_, _, _), (definition, source) in self.definitions.items()
+        ]
+        for index, row in enumerate(rows):
+            target = f"{pointer}/{index}"
+            if isinstance(row, dict) and set(row) >= {"package", "definition"}:
+                self.known(
+                    AuthorityToken("namespace", (), row["package"]),
+                    target + "/package",
+                    "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+                )
+                candidates = [
+                    (definition, source)
+                    for (owner, _, _), (definition, source) in self.definitions.items()
+                    if owner == row["package"]
+                ]
+                matches = [
+                    source
+                    for definition, source in candidates
+                    if _consumer_b_canonical_equal(definition, row["definition"])
+                ]
+                target += "/definition"
+                if not matches and isinstance(row["definition"], dict):
+                    reduced = [
+                        (definition, source)
+                        for definition, source in candidates
+                        if isinstance(definition, dict)
+                        and set(definition) - set(row["definition"])
+                        == set(excluded_members)
+                        and all(
+                            _consumer_b_canonical_equal(definition[member], value)
+                            for member, value in row["definition"].items()
+                        )
+                    ]
+                    if len(reduced) == 1:
+                        definition, source = reduced[0]
+                        for member in row["definition"]:
+                            self._projection(
+                                _child(source, member),
+                                _child(target, member),
+                                projections,
+                            )
+                        continue
+            else:
+                matches = [
+                    source
+                    for definition, source in sources
+                    if _consumer_b_canonical_equal(definition, row)
+                ]
+            if len(matches) != 1:
+                raise InventoryRefusal(
+                    f"selected semantic row at {target} has no unique exact owner"
+                )
+            self._projection(matches[0], target, projections)
+
+    def _rir_surfaces(
+        self,
+        rir: dict[str, Any],
+        pointer: str,
+        projections: list[tuple[str, str]],
+    ) -> None:
+        law = (
+            "/meta_format/language_definitions/wire_schema_protocol_roles/rir_structure"
+        )
+        model_tokens = [token for token in self.tokens if token.role == "source-model"]
+        if len(model_tokens) != 1:
+            raise InventoryRefusal("RIR has no unique Source Model owner")
+        model = model_tokens[0].name
+        for di, declaration in enumerate(rir["declarations"]):
+            dp = f"{pointer}/declarations/{di}"
+            self.source_coordinate(
+                declaration["resolved_symbol"], dp + "/resolved_symbol", law
+            )
+            coordinate = declaration["resolved_symbol"]
+            self.known(
+                AuthorityToken(
+                    "source-symbol",
+                    (coordinate["model"], coordinate["module"]),
+                    declaration["symbol"],
+                ),
+                dp + "/symbol",
+                law,
+            )
+            self.type_reference(declaration["type_identity"], dp + "/type_identity")
+            self.value_contract(declaration, dp)
+
+        def target_contract(value: dict[str, Any], target_pointer: str) -> None:
+            target = value["target"]
+            self.source_coordinate(target, target_pointer + "/target", law)
+            if "value_contract" in value:
+                self.value_contract(
+                    value["value_contract"], target_pointer + "/value_contract"
+                )
+
+        def operation_binding(
+            value: dict[str, Any], binding_pointer: str
+        ) -> tuple[str, str]:
+            coordinate = self.operation_reference(
+                value["operation"], binding_pointer + "/operation", law
+            )
+            for ai, argument in enumerate(value["arguments"]):
+                ap = f"{binding_pointer}/arguments/{ai}"
+                port = argument["port"]
+                owner = self.operation_reference(
+                    port["operation"], ap + "/port/operation", law
+                )
+                self.known(
+                    AuthorityToken("operation-port", owner, port["name"]),
+                    ap + "/port/name",
+                    law,
+                )
+                operand = argument["operand"]
+                if operand["kind"] == "symbol":
+                    self.source_coordinate(
+                        operand["symbol"], ap + "/operand/symbol", law
+                    )
+                elif operand["kind"] == "port":
+                    self.known(
+                        AuthorityToken("operation-port", coordinate, operand["port"]),
+                        ap + "/operand/port",
+                        law,
+                    )
+                elif operand["kind"] == "local":
+                    self.known(
+                        AuthorityToken("operation-local", coordinate, operand["local"]),
+                        ap + "/operand/local",
+                        law,
+                    )
+                elif operand["kind"] == "literal":
+                    self.typed_literal(operand["value"], ap + "/operand/value")
+            closure = value.get("closure", {"effects": [], "refusals": []})
+            for effect_index, effect in enumerate(closure["effects"]):
+                self.known(
+                    AuthorityToken("runtime-effect", (), effect),
+                    f"{binding_pointer}/closure/effects/{effect_index}",
+                    law,
+                )
+            for reason_index, reason in enumerate(closure["refusals"]):
+                self.known(
+                    AuthorityToken("language.reasons", (), reason),
+                    f"{binding_pointer}/closure/refusals/{reason_index}",
+                    law,
+                )
+            for oi, outcome in enumerate(value.get("outcomes", [])):
+                op = f"{binding_pointer}/outcomes/{oi}"
+                self.known(
+                    AuthorityToken("operation-outcome", coordinate, outcome["outcome"]),
+                    op + "/outcome",
+                    law,
+                )
+                action = outcome["action"]
+                if action["kind"] == "propagate":
+                    self.known(
+                        AuthorityToken(
+                            "operation-outcome", coordinate, action["outcome"]
+                        ),
+                        op + "/action/outcome",
+                        law,
+                    )
+            return coordinate
+
+        for ei, entrypoint in enumerate(rir["entrypoints"]):
+            ep = f"{pointer}/entrypoints/{ei}"
+            self.known(
+                AuthorityToken("source-entrypoint", (model,), entrypoint["id"]),
+                ep + "/id",
+                law,
+            )
+            coordinate = operation_binding(entrypoint, ep)
+            for member in (
+                "scenario_input_contract",
+                "event_local_payload_contract",
+                "external_fact_contract",
+            ):
+                for ti, target in enumerate(entrypoint[member]["targets"]):
+                    target_contract(target, f"{ep}/{member}/targets/{ti}")
+            for effect_index, effect in enumerate(entrypoint["effects"]):
+                self.known(
+                    AuthorityToken("runtime-effect", (), effect),
+                    f"{ep}/effects/{effect_index}",
+                    law,
+                )
+            for reason_index, reason in enumerate(entrypoint["refusals"]):
+                self.known(
+                    AuthorityToken("language.reasons", (), reason),
+                    f"{ep}/refusals/{reason_index}",
+                    law,
+                )
+            result = entrypoint["result"]
+            if result["kind"] == "value":
+                self.type_reference(result["type"], ep + "/result/type")
+            if entrypoint.get("default_outcome") is not None:
+                self.known(
+                    AuthorityToken(
+                        "operation-outcome", coordinate, entrypoint["default_outcome"]
+                    ),
+                    ep + "/default_outcome",
+                    law,
+                )
+        for ci, call_site in enumerate(rir["call_sites"]):
+            cp = f"{pointer}/call_sites/{ci}"
+            parent = self.operation_reference(
+                call_site["parent_operation"], cp + "/parent_operation", law
+            )
+            self.known(
+                AuthorityToken("operation-site", parent, call_site["site"]),
+                cp + "/site",
+                law,
+            )
+            operation_binding(call_site, cp)
+        selected = rir["selected_semantics"]
+        roles = self.meta["language_definitions"]["wire_schema_protocol_roles"][
+            "rir_structure"
+        ]["selected_collections"]
+        selected_sources: list[tuple[str | None, Any, str]] = []
+        for source_member, source_rows in selected.items():
+            if source_member in {
+                "packages",
+                "package_semantic_closures",
+            } or not isinstance(source_rows, list):
+                continue
+            for source_index, source_row in enumerate(source_rows):
+                source_pointer = (
+                    f"{pointer}/selected_semantics/{source_member}/{source_index}"
+                )
+                if isinstance(source_row, dict) and set(source_row) >= {
+                    "package",
+                    "definition",
+                }:
+                    selected_sources.append(
+                        (
+                            source_row["package"],
+                            source_row["definition"],
+                            source_pointer + "/definition",
+                        )
+                    )
+                else:
+                    selected_sources.append((None, source_row, source_pointer))
+        for member, rows in selected.items():
+            if member == "packages":
+                for index, row in enumerate(rows):
+                    self.known(
+                        AuthorityToken("namespace", (), row["id"]),
+                        f"{pointer}/selected_semantics/packages/{index}/id",
+                        law,
+                    )
+                continue
+            if member == "capability_bindings":
+                for index, row in enumerate(rows):
+                    rp = f"{pointer}/selected_semantics/capability_bindings/{index}"
+                    self.known(
+                        AuthorityToken("language.capabilities", (), row["capability"]),
+                        rp + "/capability",
+                        law,
+                    )
+                    self.known(
+                        AuthorityToken("namespace", (), row["provider_package"]),
+                        rp + "/provider_package",
+                        law,
+                    )
+                continue
+            if member == "types":
+                for index, row in enumerate(rows):
+                    rp = f"{pointer}/selected_semantics/types/{index}"
+                    self.known(
+                        AuthorityToken("namespace", (), row["package"]),
+                        rp + "/package",
+                        law,
+                    )
+                    self.known(
+                        AuthorityToken("type", (row["package"],), row["id"]),
+                        rp + "/id",
+                        law,
+                    )
+                    self.known(
+                        AuthorityToken("language.constructors", (), row["constructor"]),
+                        rp + "/constructor",
+                        law,
+                    )
+                continue
+            if member == "language_rules":
+                for index, name in enumerate(rows):
+                    self.known(
+                        AuthorityToken("language.rules", (), name),
+                        f"{pointer}/selected_semantics/language_rules/{index}",
+                        law,
+                    )
+                continue
+            if member == "package_semantic_closures":
+                for closure_index, closure in enumerate(rows):
+                    closure_pointer = (
+                        f"{pointer}/selected_semantics/package_semantic_closures/"
+                        f"{closure_index}"
+                    )
+                    package = closure["package"]
+                    self.known(
+                        AuthorityToken("namespace", (), package),
+                        closure_pointer + "/package",
+                        law,
+                    )
+                    for entry_index, entry in enumerate(closure["definitions"]):
+                        for definition_index, definition in enumerate(
+                            entry["definitions"]
+                        ):
+                            matches = [
+                                source_pointer
+                                for source_package, source_value, source_pointer in selected_sources
+                                if source_package in {None, package}
+                                and _consumer_b_canonical_equal(
+                                    source_value, definition
+                                )
+                            ]
+                            if not matches:
+                                matches = [
+                                    source_pointer
+                                    for (
+                                        owner,
+                                        authority_path,
+                                        _,
+                                    ), (
+                                        source_value,
+                                        source_pointer,
+                                    ) in self.definitions.items()
+                                    if owner == package
+                                    and authority_path == entry["authority_path"]
+                                    and _consumer_b_canonical_equal(
+                                        source_value, definition
+                                    )
+                                ]
+                            if len(matches) != 1:
+                                raise InventoryRefusal(
+                                    "RIR closure definition at "
+                                    f"{closure_pointer}/definitions/{entry_index}/"
+                                    f"definitions/{definition_index} has "
+                                    f"{len(matches)} selected owners"
+                                )
+                            self._projection(
+                                matches[0],
+                                f"{closure_pointer}/definitions/{entry_index}/"
+                                f"definitions/{definition_index}",
+                                projections,
+                            )
+                continue
+            if isinstance(rows, list) and rows:
+                excluded = tuple(roles.get(member, {}).get("excluded_members", []))
+                self._project_selected_rows(
+                    rows,
+                    f"{pointer}/selected_semantics/{member}",
+                    projections,
+                    excluded_members=excluded,
+                )
+
+    def model_artifact_surface(self) -> None:
+        if self.graph.get("artifacts") is None:
+            return
+        model = self.meta["language_definitions"]["wire_schema_protocol_roles"][
+            "model_structure"
+        ]
+        expected = (set(model["containers"]) - {"model-build-command-input"}) | {
+            "rir-semantic-payload"
+        }
+        rows = self.artifact_rows("artifacts", expected)
+        projections: list[tuple[str, str]] = []
+        lock, lp = rows["package-lock"]
+        package_index = {
+            package["id"]: (i, package)
+            for i, package in enumerate(self.graph["packages"])
+        }
+        for i, package in enumerate(lock["packages"]):
+            self.known(
+                AuthorityToken("namespace", (), package["id"]),
+                f"{lp}/packages/{i}/id",
+                "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+            )
+        for i, name in enumerate(lock["root_requirements"]):
+            self.known(
+                AuthorityToken("namespace", (), name),
+                f"{lp}/root_requirements/{i}",
+                "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+            )
+        for i, edge in enumerate(lock["dependency_edges"]):
+            for member in ("from_package", "to_package"):
+                self.known(
+                    AuthorityToken("namespace", (), edge[member]),
+                    f"{lp}/dependency_edges/{i}/{member}",
+                    "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+                )
+        for i, closure in enumerate(lock["package_semantic_closures"]):
+            owner = closure["package"]
+            self.known(
+                AuthorityToken("namespace", (), owner),
+                f"{lp}/package_semantic_closures/{i}/package",
+                "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+            )
+            pi, package = package_index[owner]
+            by_role = {
+                entry["authority_path"]: (ci, entry)
+                for ci, entry in enumerate(package["semantic_closure"])
+            }
+            for ci, entry in enumerate(closure["definitions"]):
+                source_index, source_entry = by_role[entry["authority_path"]]
+                source = f"/packages/{pi}/semantic_closure/{source_index}/definitions"
+                target = (
+                    f"{lp}/package_semantic_closures/{i}/definitions/{ci}/definitions"
+                )
+                if _consumer_b_canonical_equal(
+                    source_entry["definitions"], entry["definitions"]
+                ):
+                    self._projection(source, target, projections)
+                    continue
+                key = next(
+                    projection["key_member"]
+                    for projection in self.projections
+                    if projection["authority_path"] == entry["authority_path"]
+                )
+                if key is None:
+                    raise InventoryRefusal("selected closure scalar projection changed")
+                source_rows = {
+                    row[key]: (j, row)
+                    for j, row in enumerate(source_entry["definitions"])
+                }
+                for j, row in enumerate(entry["definitions"]):
+                    source_j, source_row = source_rows[row[key]]
+                    if set(source_row) - set(row) != {"extensions"} or any(
+                        not _consumer_b_canonical_equal(source_row[member], value)
+                        for member, value in row.items()
+                    ):
+                        raise InventoryRefusal(
+                            "selected closure is not an exact extension-free projection"
+                        )
+                    for member in row:
+                        self._projection(
+                            f"{source}/{source_j}/{member}",
+                            f"{target}/{j}/{member}",
+                            projections,
+                        )
+        for member in model["namespace_structure"]["shared_collections"]:
+            if member not in lock or not isinstance(lock[member], list):
+                continue
+            if member in {"capability_bindings", "types"}:
+                continue
+            if member == "language_rules":
+                for i, name in enumerate(lock[member]):
+                    self.known(
+                        AuthorityToken("language.rules", (), name),
+                        f"{lp}/{member}/{i}",
+                        "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+                    )
+                continue
+            self._project_selected_rows(lock[member], f"{lp}/{member}", projections)
+        for i, row in enumerate(lock["types"]):
+            tp = f"{lp}/types/{i}"
+            self.known(
+                AuthorityToken("namespace", (), row["package"]),
+                tp + "/package",
+                "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+            )
+            self.known(
+                AuthorityToken("type", (row["package"],), row["id"]),
+                tp + "/id",
+                "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+            )
+            self.known(
+                AuthorityToken("language.constructors", (), row["constructor"]),
+                tp + "/constructor",
+                "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+            )
+        for i, binding in enumerate(lock["capability_bindings"]):
+            bp = f"{lp}/capability_bindings/{i}"
+            self.known(
+                AuthorityToken("language.capabilities", (), binding["capability"]),
+                bp + "/capability",
+                "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+            )
+            self.known(
+                AuthorityToken("namespace", (), binding["provider_package"]),
+                bp + "/provider_package",
+                "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+            )
+        if lock["resolution_profile"]:
+            matches = [
+                source
+                for (owner, role, _), (definition, source) in self.definitions.items()
+                if role == "language.resolution_profiles"
+                and _consumer_b_canonical_equal(definition, lock["resolution_profile"])
+            ]
+            if len(matches) != 1:
+                raise InventoryRefusal(
+                    "Package Lock resolution profile has no exact owner"
+                )
+            self._projection(matches[0], lp + "/resolution_profile", projections)
+        for index, code in enumerate(lock["diagnostics"]):
+            self.known(
+                AuthorityToken("diagnostics", (), code),
+                f"{lp}/diagnostics/{index}",
+                "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+            )
+        self._project_selected_rows(
+            lock["diagnostic_reasons"],
+            lp + "/diagnostic_reasons",
+            projections,
+        )
+        for member, value in lock["selected_semantics"].items():
+            if member in lock and _consumer_b_canonical_equal(lock[member], value):
+                self._projection(
+                    lp + "/" + member, lp + "/selected_semantics/" + member, projections
+                )
+            elif member == "packages":
+                for index, row in enumerate(value):
+                    self.known(
+                        AuthorityToken("namespace", (), row["id"]),
+                        f"{lp}/selected_semantics/packages/{index}/id",
+                        "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+                    )
+            elif isinstance(value, list) and value:
+                self._project_selected_rows(
+                    value, lp + "/selected_semantics/" + member, projections
+                )
+        capability, cp = rows["capability-manifest"]
+        for index, package in enumerate(capability["packages"]):
+            self.known(
+                AuthorityToken("namespace", (), package["id"]),
+                f"{cp}/packages/{index}/id",
+                "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+            )
+        for member in model["namespace_structure"]["shared_collections"]:
+            if member in capability and member in lock:
+                self._projection(lp + "/" + member, cp + "/" + member, projections)
+        rir, rp = rows["rir-semantic-payload"]
+        self._rir_surfaces(rir, rp, projections)
+        explanation, ep = rows["model-explanation"]
+        for i, row in enumerate(explanation["declaration_explanations"]):
+            target = f"{ep}/declaration_explanations/{i}"
+            self.source_coordinate(
+                row["resolved_symbol"],
+                target + "/resolved_symbol",
+                "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+            )
+            self.type_reference(row["type_identity"], target + "/type_identity")
+        for i, row in enumerate(explanation["operation_explanations"]):
+            target = f"{ep}/operation_explanations/{i}"
+            coordinate = self.operation_reference(
+                {"package": row["package"], "id": row["id"]},
+                target,
+                "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+            )
+            for j, effect in enumerate(row["effects"]):
+                self.known(
+                    AuthorityToken("runtime-effect", (), effect),
+                    f"{target}/effects/{j}",
+                    "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+                )
+            for j, reason in enumerate(row["refusals"]):
+                self.known(
+                    AuthorityToken("language.reasons", (), reason),
+                    f"{target}/refusals/{j}",
+                    "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+                )
+            for j, node in enumerate(row["control_nodes"]):
+                self.kernel_node(node, f"{target}/control_nodes/{j}")
+            for j, stream in enumerate(row["rng_streams"]):
+                self.known(
+                    AuthorityToken("named-stream", coordinate, stream),
+                    f"{target}/rng_streams/{j}",
+                    "/meta_format/runtime_program/named_rng",
+                )
+            for j, outcome in enumerate(row["outcomes"]):
+                self.known(
+                    AuthorityToken("operation-outcome", coordinate, outcome["id"]),
+                    f"{target}/outcomes/{j}/id",
+                    "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+                )
+            if row["default_outcome"] is not None:
+                self.known(
+                    AuthorityToken(
+                        "operation-outcome", coordinate, row["default_outcome"]
+                    ),
+                    target + "/default_outcome",
+                    "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+                )
+        debug, dp = rows["debug-map"]
+        key_occurrences = {
+            row.pointer: row.token
+            for row in self.occurrences
+            if row.location == "key" and row.token.role == "source-field"
+        }
+        for i, entry in enumerate(debug["entries"]):
+            source_pointer = entry["source_pointer"]
+            segments = _json_pointer_segments(source_pointer)
+            current = "/source"
+            for index, segment in enumerate(segments):
+                current = _child(current, segment)
+                token = key_occurrences.get(current)
+                if token is not None:
+                    self.known(
+                        token,
+                        f"{dp}/entries/{i}/source_pointer",
+                        "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+                        location="json-pointer",
+                        projection=str(index),
+                    )
+        receipt, receipt_pointer = rows["resolution-receipt"]
+        self.known(
+            AuthorityToken(
+                "language.resolution_profiles", (), receipt["resolution_profile"]
+            ),
+            receipt_pointer + "/resolution_profile",
+            "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+        )
+        for index, code in enumerate(receipt["diagnostics"]):
+            self.known(
+                AuthorityToken("diagnostics", (), code),
+                f"{receipt_pointer}/diagnostics/{index}",
+                "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
+            )
+        for row in _close_projection_occurrences(
+            self.graph, self.occurrences, projections
+        ):
+            self.occurrence(
+                row.token,
+                row.pointer,
+                row.use,
+                row.law,
+                location=row.location,
+                projection=row.projection,
+            )
+
+    def runtime_result_surface(self) -> None:
+        if self.graph.get("results") is None:
+            return
+        if self.graph.get("experiment") is None or self.graph.get("artifacts") is None:
+            raise InventoryRefusal(
+                "Runtime results need their Experiment and Model owners"
+            )
+        protocols = self.meta["language_definitions"]["wire_schema_protocol_roles"]
+        base_kinds = {
+            "resolved-runtime-profile",
+            "evaluator-capability-manifest",
+            "event-trace",
+            "snapshot-series",
+            "metric-dataset",
+        }
+        actual_kinds = {
+            value.get("artifact_kind") for value in self.graph["results"].values()
+        }
+        primary_kinds = actual_kinds.intersection(
+            protocols["metric_outcome_structure"]["outcomes"]
+        )
+        if len(primary_kinds) != 1:
+            raise InventoryRefusal(
+                "Runtime output protocol does not select one primary outcome"
+            )
+        expected = base_kinds | primary_kinds
+        rows = self.artifact_rows("results", expected)
+        experiment = self.graph["experiment"]
+        exp_id = experiment["id"]
+        artifacts = self.graph["artifacts"]
+        rir = next(
+            value
+            for value in artifacts.values()
+            if value.get("artifact_kind") == "rir-semantic-payload"
+        )
+        model_tokens = [token for token in self.tokens if token.role == "source-model"]
+        if len(model_tokens) != 1:
+            raise InventoryRefusal("Runtime result has no unique Model owner")
+        model = model_tokens[0].name
+        entrypoints = {row["id"]: row for row in rir["entrypoints"]}
+        operations = {
+            (row["package"], row["definition"]["id"]): row["definition"]
+            for row in rir["selected_semantics"]["operations"]
+        }
+        declarations = {row["symbol"]: row for row in rir["declarations"]}
+        if len(declarations) != len(rir["declarations"]):
+            raise InventoryRefusal("Runtime Symbol display names are ambiguous")
+        law = "/meta_format/language_definitions/wire_schema_protocol_roles/trace_structure"
+
+        def scenario_token(name: str) -> AuthorityToken:
+            return AuthorityToken("experiment-scenario", (exp_id,), name)
+
+        def metric_token(name: str) -> AuthorityToken:
+            return AuthorityToken("experiment-metric", (exp_id,), name)
+
+        def root_token(scenario: str, name: str) -> AuthorityToken:
+            return AuthorityToken("experiment-root-event", (exp_id, scenario), name)
+
+        def symbol_name(name: str, pointer: str) -> None:
+            declaration = declarations.get(name)
+            if declaration is None:
+                raise InventoryRefusal("Runtime value name has no RIR declaration")
+            coordinate = declaration["resolved_symbol"]
+            self.known(
+                AuthorityToken(
+                    "source-symbol", (coordinate["model"], coordinate["module"]), name
+                ),
+                pointer,
+                law,
+            )
+
+        def named_value(row: dict[str, Any], pointer: str) -> None:
+            symbol_name(row["name"], pointer + "/name")
+            if "value" in row:
+                self.typed_literal(row["value"], pointer + "/value")
+
+        def root_map(value: list[dict[str, Any]], pointer: str) -> None:
+            for i, row in enumerate(value):
+                rp = f"{pointer}/{i}"
+                self.known(scenario_token(row["scenario"]), rp + "/scenario", law)
+                self.known(
+                    root_token(row["scenario"], row["root_event_ref"]),
+                    rp + "/root_event_ref",
+                    law,
+                )
+
+        def terminal_statuses(value: list[dict[str, Any]], pointer: str) -> None:
+            for i, row in enumerate(value):
+                self.known(
+                    scenario_token(row["scenario"]), f"{pointer}/{i}/scenario", law
+                )
+
+        call_sites = {
+            row["identity"]: (
+                (row["parent_operation"]["package"], row["parent_operation"]["id"]),
+                row["site"],
+                (row["operation"]["package"], row["operation"]["id"]),
+            )
+            for row in rir["call_sites"]
+        }
+
+        def call_path(value: str, pointer: str) -> tuple[str, str]:
+            segments = _call_path_segments(value)
+            root = segments[0]
+            entrypoint = entrypoints.get(root)
+            if entrypoint is None:
+                raise InventoryRefusal("Runtime call path has no Entry Point root")
+            self.known(
+                AuthorityToken("source-entrypoint", (model,), root),
+                pointer,
+                law,
+                location="call-path",
+                projection="0",
+            )
+            parent = (entrypoint["operation"]["package"], entrypoint["operation"]["id"])
+            for index, segment in enumerate(segments[1:], start=1):
+                if re.fullmatch(r"@[0-9]+", segment):
+                    continue
+                candidates = [
+                    row
+                    for row in call_sites.values()
+                    if row[0] == parent and row[1] == segment
+                ]
+                if len(candidates) != 1:
+                    raise InventoryRefusal("Runtime call path site is unresolved")
+                self.known(
+                    AuthorityToken("operation-site", parent, segment),
+                    pointer,
+                    law,
+                    location="call-path",
+                    projection=str(index),
+                )
+                parent = candidates[0][2]
+            return parent
+
+        def event_spec(value: dict[str, Any], pointer: str) -> None:
+            kind = value["kind"]
+            if kind == "external-input":
+                self.known(
+                    root_token(current_scenario, value["root_event_ref"]),
+                    pointer + "/root_event_ref",
+                    law,
+                )
+                for i, fact in enumerate(value["facts"]):
+                    fp = f"{pointer}/facts/{i}"
+                    self.source_coordinate(fact["target"], fp + "/target", law)
+                    self.typed_literal(fact["value"], fp + "/value")
+            elif kind == "transition-invocation":
+                self.known(
+                    AuthorityToken("source-entrypoint", (model,), value["entrypoint"]),
+                    pointer + "/entrypoint",
+                    law,
+                )
+                self.known(
+                    root_token(current_scenario, value["root_event_ref"]),
+                    pointer + "/root_event_ref",
+                    law,
+                )
+                for i, payload in enumerate(value["payload"]):
+                    pp = f"{pointer}/payload/{i}"
+                    self.source_coordinate(payload["target"], pp + "/target", law)
+                    self.typed_literal(payload["value"], pp + "/value")
+            elif kind == "scheduled-transition":
+                coordinate = self.operation_reference(
+                    value["operation"], pointer + "/operation", law
+                )
+                for i, argument in enumerate(value["arguments"]):
+                    ap = f"{pointer}/arguments/{i}"
+                    symbol_name(argument["name"], ap + "/name")
+                    self.typed_literal(argument["value"], ap + "/value")
+                for i, reference in enumerate(value["state_references"]):
+                    rp = f"{pointer}/state_references/{i}"
+                    symbol_name(reference["name"], rp + "/name")
+                    self.source_coordinate(reference["target"], rp + "/target", law)
+                if coordinate not in operations:
+                    raise InventoryRefusal("scheduled Operation has no selected owner")
+            elif kind != "observation":
+                raise InventoryRefusal("Runtime Event Spec kind is unclassified")
+
+        trace, tp = rows["event-trace"]
+        current_scenario = trace["scenario"]
+        self.known(scenario_token(current_scenario), tp + "/scenario", law)
+        root_map(trace["root_event_map"], tp + "/root_event_map")
+        terminal_statuses(trace["terminal_statuses"], tp + "/terminal_statuses")
+        for i, event in enumerate(trace["events"]):
+            ep = f"{tp}/events/{i}"
+            event_operation: tuple[str, str] | None = None
+            if event.get("root_event_ref") is not None:
+                self.known(
+                    root_token(current_scenario, event["root_event_ref"]),
+                    ep + "/root_event_ref",
+                    law,
+                )
+            if event.get("entrypoint") is not None:
+                self.known(
+                    AuthorityToken(
+                        "source-entrypoint", (model,), event["entrypoint"]["id"]
+                    ),
+                    ep + "/entrypoint/id",
+                    law,
+                )
+            if event.get("operation") is not None:
+                if event.get("entrypoint") is not None:
+                    entrypoint = entrypoints[event["entrypoint"]["id"]]
+                    coordinate = (
+                        entrypoint["operation"]["package"],
+                        entrypoint["operation"]["id"],
+                    )
+                    if event["operation"] != coordinate[1]:
+                        raise InventoryRefusal(
+                            "Trace Operation disagrees with its RIR Entry Point owner"
+                        )
+                else:
+                    candidates = [
+                        coordinate
+                        for coordinate in operations
+                        if coordinate[1] == event["operation"]
+                    ]
+                    if len(candidates) != 1:
+                        raise InventoryRefusal(
+                            "Trace Operation has no unique selected RIR owner"
+                        )
+                    coordinate = candidates[0]
+                self.known(
+                    AuthorityToken(
+                        "language.operations", coordinate[:1], coordinate[1]
+                    ),
+                    ep + "/operation",
+                    law,
+                )
+                event_operation = coordinate
+            if event_operation is not None:
+                self.known(
+                    AuthorityToken(
+                        "operation-outcome",
+                        event_operation,
+                        event["outcome"]["id"],
+                    ),
+                    ep + "/outcome/id",
+                    law,
+                )
+            for j, row in enumerate(event["facts"]):
+                named_value(row, f"{ep}/facts/{j}")
+            for member in ("state_before", "state_after"):
+                for j, row in enumerate(event[member]):
+                    named_value(row, f"{ep}/{member}/{j}")
+            for j, call in enumerate(event["calls"]):
+                cp = f"{ep}/calls/{j}"
+                coordinate = self.operation_reference(
+                    call["operation"], cp + "/operation", law
+                )
+                site = call_sites.get(call["call_site_identity"])
+                if site is None or site[2] != coordinate:
+                    raise InventoryRefusal("Trace call site has no RIR owner")
+                segments = _call_path_segments(call["site"])
+                if segments != [site[0][1], site[1]]:
+                    raise InventoryRefusal(
+                        "Trace call site label disagrees with its RIR owner"
+                    )
+                self.known(
+                    AuthorityToken("language.operations", site[0][:1], site[0][1]),
+                    cp + "/site",
+                    law,
+                    location="call-path",
+                    projection="0",
+                )
+                self.known(
+                    AuthorityToken("operation-site", site[0], site[1]),
+                    cp + "/site",
+                    law,
+                    location="call-path",
+                    projection="1",
+                )
+                self.known(
+                    AuthorityToken(
+                        "operation-outcome", coordinate, call["outcome"]["id"]
+                    ),
+                    cp + "/outcome/id",
+                    law,
+                )
+            for j, schedule in enumerate(event["schedules"]):
+                sp = f"{ep}/schedules/{j}"
+                self.operation_reference(schedule["operation"], sp + "/operation", law)
+                parent = call_path(schedule["call_path"], sp + "/call_path")
+                if schedule["parent_operation"] != parent[1]:
+                    raise InventoryRefusal(
+                        "scheduled parent Operation disagrees with its call path"
+                    )
+                self.known(
+                    AuthorityToken("language.operations", parent[:1], parent[1]),
+                    sp + "/parent_operation",
+                    law,
+                )
+                for k, row in enumerate(schedule["arguments"]):
+                    named_value(row, f"{sp}/arguments/{k}")
+                for k, row in enumerate(schedule["state_references"]):
+                    rp = f"{sp}/state_references/{k}"
+                    symbol_name(row["name"], rp + "/name")
+                    self.source_coordinate(row["target"], rp + "/target", law)
+            observation = event.get("observation")
+            if observation is not None:
+                self.known(
+                    metric_token(observation["metric"]), ep + "/observation/metric", law
+                )
+                self.known(
+                    AuthorityToken(
+                        "experiment-window",
+                        (exp_id, observation["metric"]),
+                        observation["window"]["name"],
+                    ),
+                    ep + "/observation/window/name",
+                    law,
+                )
+            for j, draw in enumerate(event["rng_draws"]):
+                if event_operation is None:
+                    raise InventoryRefusal("RNG draw has no Operation owner")
+                self.known(
+                    AuthorityToken(
+                        "named-stream",
+                        event_operation,
+                        draw["stream"],
+                    ),
+                    f"{ep}/rng_draws/{j}/stream",
+                    law,
+                )
+
+        series, sp = rows["snapshot-series"]
+        self.known(scenario_token(series["scenario"]), sp + "/scenario", law)
+        root_map(series["root_event_map"], sp + "/root_event_map")
+        for i, record in enumerate(series["event_catalog"]):
+            rp = f"{sp}/event_catalog/{i}"
+            self.known(scenario_token(record["scenario"]), rp + "/scenario", law)
+            current_scenario = record["scenario"]
+            event_spec(record["event_spec"], rp + "/event_spec")
+        for i, snapshot in enumerate(series["snapshots"]):
+            pp = f"{sp}/snapshots/{i}"
+            self.known(scenario_token(snapshot["scenario"]), pp + "/scenario", law)
+            self.known(
+                scenario_token(snapshot["scenario"]),
+                pp + "/name",
+                law,
+                location="snapshot-name",
+            )
+            for j, row in enumerate(snapshot["values"]):
+                named_value(row, f"{pp}/values/{j}")
+
+        dataset, dp = rows["metric-dataset"]
+        for i, sample in enumerate(dataset["samples"]):
+            pp = f"{dp}/samples/{i}"
+            self.known(metric_token(sample["metric"]), pp + "/metric", law)
+            self.known(scenario_token(sample["scenario"]), pp + "/scenario", law)
+            if sample["replication_identity"] != sample["scenario"]:
+                raise InventoryRefusal(
+                    "scenario replication identity disagrees with its owner"
+                )
+            self.known(
+                scenario_token(sample["replication_identity"]),
+                pp + "/replication_identity",
+                law,
+            )
+            self.known(
+                AuthorityToken("language.quantity.units", (), sample["unit"]),
+                pp + "/unit",
+                law,
+            )
+            self.known(
+                AuthorityToken(
+                    "experiment-window", (exp_id, sample["metric"]), sample["window"]
+                ),
+                pp + "/window",
+                law,
+            )
+            symbol_name(sample["member"], pp + "/member")
+            self.known(
+                scenario_token(sample["provenance"]["scenario"]),
+                pp + "/provenance/scenario",
+                law,
+            )
+            self.known(
+                AuthorityToken(
+                    "experiment-observation",
+                    (exp_id, sample["metric"]),
+                    sample["provenance"]["observation_name"],
+                ),
+                pp + "/provenance/observation_name",
+                law,
+            )
+            symbol_name(
+                sample["provenance"]["observation_member"],
+                pp + "/provenance/observation_member",
+            )
+
+        profile, pp = rows["resolved-runtime-profile"]
+        selected_profile = profile["runtime_profile"]
+        matches = [
+            source
+            for (owner, role, _), (definition, source) in self.definitions.items()
+            if role == "language.runtime_profiles"
+            and _consumer_b_canonical_equal(definition, selected_profile)
+        ]
+        if len(matches) != 1:
+            raise InventoryRefusal("resolved Runtime profile has no exact owner")
+        projections: list[tuple[str, str]] = []
+        self._projection(matches[0], pp + "/runtime_profile", projections)
+        judgments = profile["experiment_judgments"]
+        self.known(
+            AuthorityToken(
+                "language.experiment_acceptance_judgments",
+                (),
+                judgments["acceptance"]["id"],
+            ),
+            pp + "/experiment_judgments/acceptance/id",
+            law,
+        )
+        for i, row in enumerate(judgments["metrics"]):
+            jp = f"{pp}/experiment_judgments/metrics/{i}"
+            self.known(metric_token(row["metric"]), jp + "/metric", law)
+            matches = [
+                source
+                for (owner, role, _), (definition, source) in self.definitions.items()
+                if role == "language.experiment_metric_judgments"
+                and _consumer_b_canonical_equal(definition, row["judgment"])
+            ]
+            if len(matches) != 1:
+                raise InventoryRefusal("resolved Metric judgment has no exact owner")
+            self._projection(matches[0], jp + "/judgment", projections)
+
+        manifest, mp = rows["evaluator-capability-manifest"]
+        for i, effect in enumerate(manifest["effects"]):
+            self.known(
+                AuthorityToken("runtime-effect", (), effect), f"{mp}/effects/{i}", law
+            )
+        for i, policy in enumerate(manifest["numeric_policies"]):
+            self.known(
+                AuthorityToken("language.quantity.numeric_policies", (), policy),
+                f"{mp}/numeric_policies/{i}",
+                law,
+            )
+        for i, profile_name in enumerate(manifest["runtime_profiles"]):
+            self.known(
+                AuthorityToken("language.runtime_profiles", (), profile_name),
+                f"{mp}/runtime_profiles/{i}",
+                law,
+            )
+        for i, node in enumerate(manifest["instruction_nodes"]):
+            self.kernel_node(node, f"{mp}/instruction_nodes/{i}")
+
+        primary_kind = next(
+            kind
+            for kind in protocols["metric_outcome_structure"]["outcomes"]
+            if kind in rows
+        )
+        primary, primary_pointer = rows[primary_kind]
+        root_map(primary["root_event_map"], primary_pointer + "/root_event_map")
+        terminal_statuses(
+            primary["terminal_statuses"], primary_pointer + "/terminal_statuses"
+        )
+        for i, name in enumerate(primary.get("failed_metrics", [])):
+            self.known(metric_token(name), f"{primary_pointer}/failed_metrics/{i}", law)
+        self._projection(tp + "/root_event_map", sp + "/root_event_map", projections)
+        self._projection(
+            tp + "/root_event_map", primary_pointer + "/root_event_map", projections
+        )
+        self._projection(
+            tp + "/terminal_statuses",
+            primary_pointer + "/terminal_statuses",
+            projections,
+        )
+        for row in _close_projection_occurrences(
+            self.graph, self.occurrences, projections
+        ):
+            self.occurrence(
+                row.token,
+                row.pointer,
+                row.use,
+                row.law,
+                location=row.location,
+                projection=row.projection,
+            )
 
     def contract_vectors(self) -> None:
         handled = (
@@ -6387,6 +7881,9 @@ class _Reader:
         self.assignment_policies()
         self.formula_aliases()
         self.source()
+        self.experiment_surface()
+        self.model_artifact_surface()
+        self.runtime_result_surface()
         for token, pointer, use, law in _reason_vector_links(self.kernel, self.graph):
             self.occurrence(token, pointer, use, law)
         for row in (
@@ -7013,7 +8510,11 @@ def validate_extension_inventory(
     is implemented; require_complete still refuses that inventory.
     """
     validate_inventory_occurrences(kernel, graph, inventory)
-    judgment_expected = set(_experiment_judgment_links(kernel, graph))
+    judgment_expected = {
+        *_experiment_judgment_links(kernel, graph),
+        *_experiment_input_judgment_links(kernel, graph),
+        *_resolved_judgment_links(kernel, graph),
+    }
     judgment_roots = {
         pointer + "/selector"
         for _, _, pointer in _authority_path_rows(
@@ -7261,6 +8762,7 @@ def validate_extension_inventory(
             (o.token, o.pointer, o.use, o.location, o.projection)
             for o in model_expected
         }
+        and not row[1].startswith("/artifacts/")
         for row in vector_actual
     ):
         raise InventoryRefusal(
@@ -7322,7 +8824,9 @@ def validate_extension_inventory(
     ):
         raise InventoryRefusal("Source field address occurrence has a wrong owner")
     if any(
-        row[3] == "member-path" and row not in address_expected
+        row[3] == "member-path"
+        and row not in address_expected
+        and not row[1].startswith(("/artifacts/", "/results/"))
         for row in address_actual
     ):
         raise InventoryRefusal(
@@ -8114,6 +9618,20 @@ def _renamed_owner(
         )
     if token.role in {"assignment-policy", "projection-collection"}:
         return (name(AuthorityToken("language.model_lowerings", (), token.owner[0])),)
+    if token.role in {"experiment-scenario", "experiment-metric"}:
+        return (name(AuthorityToken("experiment", (), token.owner[0])),)
+    if token.role == "experiment-root-event":
+        return (
+            name(AuthorityToken("experiment", (), token.owner[0])),
+            name(
+                AuthorityToken("experiment-scenario", token.owner[:1], token.owner[1])
+            ),
+        )
+    if token.role in {"experiment-observation", "experiment-window"}:
+        return (
+            name(AuthorityToken("experiment", (), token.owner[0])),
+            name(AuthorityToken("experiment-metric", token.owner[:1], token.owner[1])),
+        )
     if token.role == "assignment-mode":
         return (
             name(AuthorityToken("language.model_lowerings", (), token.owner[0])),
