@@ -156,7 +156,9 @@ def test_relation_inventory_closes_only_actual_policy_and_projection_surfaces(wi
         for root in surfaces | vectors
     )
     assert inventory.uncovered
-    assert any("Runtime profile extension" in gap.reason for gap in inventory.uncovered)
+    assert any(
+        "nested language.wire_schemas" in gap.reason for gap in inventory.uncovered
+    )
     assert any("remaining vector families" in gap.reason for gap in inventory.uncovered)
     members = [
         row

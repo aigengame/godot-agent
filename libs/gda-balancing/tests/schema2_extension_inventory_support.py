@@ -47,6 +47,7 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_semantic_item_contract,
     _consumer_b_source_fact_transport_is_supported,
     _consumer_b_template_admission_is_closed,
+    _identity_from_kernel,
 )
 
 from schema2_value_program_reference_support import (
@@ -732,11 +733,13 @@ def _resolved_judgment_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]
     results = graph.get("results")
     if not isinstance(results, dict):
         return ()
+    profile_kind = _artifact_protocol_binding(
+        kernel, graph, "resolved-runtime-profile"
+    )[0]
     profiles = [
         (label, value)
         for label, value in results.items()
-        if isinstance(value, dict)
-        and value.get("artifact_kind") == "resolved-runtime-profile"
+        if isinstance(value, dict) and value.get("artifact_kind") == profile_kind
     ]
     if len(profiles) != 1:
         raise InventoryRefusal("Runtime results have no unique resolved profile")
@@ -761,6 +764,76 @@ def _resolved_judgment_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]
     return _close_projection_occurrences(
         graph, tuple(_experiment_judgment_links(kernel, graph)), projections
     )
+
+
+def _runtime_metric_selector_links(
+    kernel: Mapping[str, Any], graph: Mapping[str, Any]
+) -> set[TokenOccurrence]:
+    """Derive Runtime selector echoes from the authored Experiment Metric."""
+    results = graph.get("results")
+    experiment = graph.get("experiment")
+    if not isinstance(results, dict) or not isinstance(experiment, dict):
+        return set()
+    metrics = {row["id"]: row for row in experiment["metrics"]}
+    protocol_law = "/meta_format/language_definitions/wire_schema_protocol_roles"
+
+    def member(role: str) -> tuple[dict[str, Any], str]:
+        kind = _artifact_protocol_binding(kernel, graph, role)[0]
+        rows = [
+            (value, _child("/results", label))
+            for label, value in results.items()
+            if isinstance(value, dict) and value.get("artifact_kind") == kind
+        ]
+        if len(rows) != 1:
+            raise InventoryRefusal(f"Runtime selector {role} member is ambiguous")
+        return rows[0]
+
+    expected: set[TokenOccurrence] = set()
+
+    def add(
+        metric: str, path: tuple[str, ...], value: str, pointer: str, law: str
+    ) -> None:
+        definition = metrics.get(metric)
+        if definition is None or _at(definition, path) != value:
+            raise InventoryRefusal("Runtime selector has no Experiment Metric owner")
+        expected.add(
+            TokenOccurrence(
+                AuthorityToken("experiment-metric-label", path, value),
+                pointer,
+                "reference",
+                law,
+            )
+        )
+
+    trace, pointer = member("event-trace")
+    for index, event in enumerate(trace["events"]):
+        observation = event.get("observation")
+        if observation is not None:
+            add(
+                observation["metric"],
+                ("window", "kind"),
+                observation["window"]["kind"],
+                f"{pointer}/events/{index}/observation/window/kind",
+                protocol_law + "/trace_structure",
+            )
+    dataset, pointer = member("metric-dataset")
+    for index, sample in enumerate(dataset["samples"]):
+        root = f"{pointer}/samples/{index}"
+        add(
+            sample["metric"],
+            ("observation", "source"),
+            sample["source"],
+            root + "/source",
+            protocol_law + "/metric_outcome_structure",
+        )
+        add(
+            sample["metric"],
+            ("observation", "source"),
+            sample["provenance"]["observation_source"],
+            root + "/provenance/observation_source",
+            protocol_law + "/metric_outcome_structure",
+        )
+    return expected
 
 
 def _evidence_claim_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
@@ -894,6 +967,38 @@ def _protocol_schema(
     if len(matches) != 1:
         raise InventoryRefusal("wire protocol role has no unique schema owner")
     return matches[0]
+
+
+def _artifact_protocol_binding(
+    kernel: Mapping[str, Any], graph: Mapping[str, Any], role: str
+) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    """Resolve one Kernel protocol role through its Schema to its producer kind."""
+    schema = _protocol_schema(kernel, graph, role)
+    schema_kind = schema["artifact_kind"]
+    matches = [
+        row
+        for _, row, _ in _authority_path_rows(
+            kernel, graph, "language_bundle.language.artifact_contracts"
+        )
+        if row["schema_kind"] == schema_kind
+    ]
+    if len(matches) != 1:
+        raise InventoryRefusal("artifact protocol role has no unique producer binding")
+    contract = matches[0]
+    effective = schema
+    if "schema" not in effective:
+        language = _attached_language(kernel, graph)["language"]
+        projected = [
+            row
+            for row in language["artifact_wire_schemas"]
+            if row["artifact_kind"] == schema_kind
+        ]
+        if len(projected) != 1 or "schema" not in projected[0]:
+            raise InventoryRefusal(
+                "artifact protocol role has no unique projected Schema"
+            )
+        effective = projected[0]
+    return contract["artifact_kind"], effective["schema"], contract
 
 
 def _wire_protocol_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
@@ -4314,9 +4419,9 @@ class _Reader:
         }
         self.tokens: set[AuthorityToken] = set()
         self.occurrences: set[TokenOccurrence] = set()
-        self.occurrence_positions: set[tuple[AuthorityToken, str, str, str, str]] = (
-            set()
-        )
+        self.occurrence_positions: set[
+            tuple[AuthorityToken, str, str, str, str, str]
+        ] = set()
         self.uncovered: set[UncoveredRole] = set()
         self.reserved: set[AuthorityToken] = set()
         self.definitions: dict[tuple[str, str, str], tuple[Any, str]] = {}
@@ -4367,7 +4472,15 @@ class _Reader:
                 f"token occurrence does not match bytes at {pointer}"
             )
         self.tokens.add(token)
-        position = (token, pointer, use, location, projection)
+        # Preserve distinct consuming-law claims on the execution graph. Older
+        # authority surfaces have their own projection verifiers and retain
+        # their established one-position representation.
+        execution_law = (
+            law
+            if pointer.startswith(("/experiment/", "/artifacts/", "/results/"))
+            else ""
+        )
+        position = (token, pointer, use, execution_law, location, projection)
         if position in self.occurrence_positions:
             return
         self.occurrence_positions.add(position)
@@ -5403,50 +5516,60 @@ class _Reader:
         return owner, name
 
     def artifact_rows(
-        self, surface: str, expected: set[str]
+        self, surface: str, expected_roles: set[str]
     ) -> dict[str, tuple[dict[str, Any], str]]:
         values = self.graph.get(surface)
-        if not isinstance(values, dict) or len(values) != len(expected):
+        if not isinstance(values, dict) or len(values) != len(expected_roles):
             raise InventoryRefusal(
                 f"{surface} does not contain its complete member set"
             )
-        language = self.language["language"]
-        contracts = {
-            row["artifact_kind"]: row["schema_kind"]
-            for row in language["artifact_contracts"]
+        bindings = {
+            role: _artifact_protocol_binding(self.kernel, self.graph, role)
+            for role in expected_roles
         }
-        schemas = {
-            row["artifact_kind"]: row["schema"]
-            for row in language["artifact_wire_schemas"]
-        }
+        roles_by_kind = {kind: role for role, (kind, _, _) in bindings.items()}
+        if len(roles_by_kind) != len(bindings):
+            raise InventoryRefusal(f"{surface} protocol roles share a producer kind")
         result: dict[str, tuple[dict[str, Any], str]] = {}
         for label, value in values.items():
             pointer = _child("/" + surface, label)
             if not isinstance(value, dict):
                 raise InventoryRefusal(f"{surface} member is not an Artifact")
             kind = value.get("artifact_kind")
-            if kind not in expected or kind in result:
+            if not isinstance(kind, str):
+                raise InventoryRefusal(f"{surface} Artifact has no producer kind")
+            role = roles_by_kind.get(kind)
+            if role is None or role in result:
                 raise InventoryRefusal(
                     f"{surface} Artifact kind is missing or duplicated"
                 )
-            schema = schemas.get(contracts.get(kind, ""))
-            if schema is None:
-                raise InventoryRefusal(
-                    f"{surface} Artifact has no projected Wire Schema"
-                )
+            _, schema, contract = bindings[role]
             try:
                 jsonschema.Draft202012Validator(schema).validate(value)
             except jsonschema.ValidationError as error:
                 raise InventoryRefusal(
                     f"{surface} Artifact does not close its Wire Schema"
                 ) from error
+            expected_wire_identity = _identity_from_kernel(
+                dict(self.kernel), contract["wire_schema_identity_domain"], schema
+            )
+            expected_content_identity = _identity_from_kernel(
+                dict(self.kernel), contract["identity_domain"], value
+            )
+            if (
+                value["wire_schema_identity"] != expected_wire_identity
+                or value["content_identity"] != expected_content_identity
+            ):
+                raise InventoryRefusal(
+                    f"{surface} Artifact identity does not close its declared contract"
+                )
             self.known(
                 AuthorityToken("language.artifact_contracts", (), kind),
                 pointer + "/artifact_kind",
                 "/meta_format/language_definitions/collections/artifact_contracts",
             )
-            result[kind] = value, pointer
-        if set(result) != expected:
+            result[role] = value, pointer
+        if set(result) != expected_roles:
             raise InventoryRefusal(f"{surface} Artifact roles do not close")
         return result
 
@@ -5608,12 +5731,14 @@ class _Reader:
         pointer: str,
         projections: list[tuple[str, str]],
         *,
+        authority_path: str,
         excluded_members: tuple[str, ...] = (),
     ) -> None:
         """Join selected semantic rows to exact package-owned definitions."""
         sources = [
             (definition, source)
-            for (_, _, _), (definition, source) in self.definitions.items()
+            for (_, role, _), (definition, source) in self.definitions.items()
+            if role == authority_path
         ]
         for index, row in enumerate(rows):
             target = f"{pointer}/{index}"
@@ -5625,8 +5750,11 @@ class _Reader:
                 )
                 candidates = [
                     (definition, source)
-                    for (owner, _, _), (definition, source) in self.definitions.items()
-                    if owner == row["package"]
+                    for (owner, role, _), (
+                        definition,
+                        source,
+                    ) in self.definitions.items()
+                    if owner == row["package"] and role == authority_path
                 ]
                 matches = [
                     source
@@ -5957,10 +6085,24 @@ class _Reader:
                 continue
             if isinstance(rows, list) and rows:
                 excluded = tuple(roles.get(member, {}).get("excluded_members", []))
+                if member not in roles:
+                    # Runtime projection companions are owned by separate
+                    # Kernel lanes, not RIR selected-collection selectors.
+                    if member == "diagnostic_reasons":
+                        authority_path = "language.reasons"
+                    elif member == "diagnostics":
+                        authority_path = "diagnostics"
+                    else:
+                        raise InventoryRefusal(
+                            "RIR selected collection has no declared authority path"
+                        )
+                else:
+                    authority_path = roles[member]["source"]["authority_path"]
                 self._project_selected_rows(
                     rows,
                     f"{pointer}/selected_semantics/{member}",
                     projections,
+                    authority_path=authority_path,
                     excluded_members=excluded,
                 )
 
@@ -6061,7 +6203,15 @@ class _Reader:
                         "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure",
                     )
                 continue
-            self._project_selected_rows(lock[member], f"{lp}/{member}", projections)
+            source_contract = self.meta["language_definitions"][
+                "wire_schema_protocol_roles"
+            ]["rir_structure"]["selected_collections"][member]["source"]
+            self._project_selected_rows(
+                lock[member],
+                f"{lp}/{member}",
+                projections,
+                authority_path=source_contract["authority_path"],
+            )
         for i, row in enumerate(lock["types"]):
             tp = f"{lp}/types/{i}"
             self.known(
@@ -6113,6 +6263,7 @@ class _Reader:
             lock["diagnostic_reasons"],
             lp + "/diagnostic_reasons",
             projections,
+            authority_path="language.reasons",
         )
         for member, value in lock["selected_semantics"].items():
             if member in lock and _consumer_b_canonical_equal(lock[member], value):
@@ -6128,7 +6279,14 @@ class _Reader:
                     )
             elif isinstance(value, list) and value:
                 self._project_selected_rows(
-                    value, lp + "/selected_semantics/" + member, projections
+                    value,
+                    lp + "/selected_semantics/" + member,
+                    projections,
+                    authority_path=self.meta["language_definitions"][
+                        "wire_schema_protocol_roles"
+                    ]["rir_structure"]["selected_collections"][member]["source"][
+                        "authority_path"
+                    ],
                 )
         capability, cp = rows["capability-manifest"]
         for index, package in enumerate(capability["packages"]):
@@ -6257,22 +6415,28 @@ class _Reader:
         actual_kinds = {
             value.get("artifact_kind") for value in self.graph["results"].values()
         }
-        primary_kinds = actual_kinds.intersection(
-            protocols["metric_outcome_structure"]["outcomes"]
-        )
-        if len(primary_kinds) != 1:
+        primary_roles = {
+            role
+            for role in protocols["metric_outcome_structure"]["outcomes"]
+            if _artifact_protocol_binding(self.kernel, self.graph, role)[0]
+            in actual_kinds
+        }
+        if len(primary_roles) != 1:
             raise InventoryRefusal(
                 "Runtime output protocol does not select one primary outcome"
             )
-        expected = base_kinds | primary_kinds
+        expected = base_kinds | primary_roles
         rows = self.artifact_rows("results", expected)
         experiment = self.graph["experiment"]
         exp_id = experiment["id"]
         artifacts = self.graph["artifacts"]
+        rir_kind = _artifact_protocol_binding(
+            self.kernel, self.graph, "rir-semantic-payload"
+        )[0]
         rir = next(
             value
             for value in artifacts.values()
-            if value.get("artifact_kind") == "rir-semantic-payload"
+            if value.get("artifact_kind") == rir_kind
         )
         model_tokens = [token for token in self.tokens if token.role == "source-model"]
         if len(model_tokens) != 1:
@@ -6283,16 +6447,40 @@ class _Reader:
             (row["package"], row["definition"]["id"]): row["definition"]
             for row in rir["selected_semantics"]["operations"]
         }
+        runtime_law = rir["selected_semantics"]["execution_laws"]["runtime_program"]
+        node_operators = {
+            node["id"]: node["semantics"]["operator"] for node in runtime_law["nodes"]
+        }
+        schedule_domain = runtime_law["scheduler"]["call_site_identity"]["schedule"][
+            "domain"
+        ]
         declarations = {row["symbol"]: row for row in rir["declarations"]}
         if len(declarations) != len(rir["declarations"]):
             raise InventoryRefusal("Runtime Symbol display names are ambiguous")
-        law = "/meta_format/language_definitions/wire_schema_protocol_roles/trace_structure"
+        protocol_law = "/meta_format/language_definitions/wire_schema_protocol_roles"
+        law = protocol_law + "/trace_structure"
 
         def scenario_token(name: str) -> AuthorityToken:
             return AuthorityToken("experiment-scenario", (exp_id,), name)
 
         def metric_token(name: str) -> AuthorityToken:
             return AuthorityToken("experiment-metric", (exp_id,), name)
+
+        metric_definitions = {row["id"]: row for row in experiment["metrics"]}
+
+        def metric_selector(
+            metric_name: str, path: tuple[str, ...], value: str, pointer: str
+        ) -> None:
+            metric = metric_definitions.get(metric_name)
+            if metric is None or _at(metric, path) != value:
+                raise InventoryRefusal(
+                    "Runtime Metric selector disagrees with its Experiment owner"
+                )
+            self.known(
+                AuthorityToken("experiment-metric-label", path, value),
+                pointer,
+                law,
+            )
 
         def root_token(scenario: str, name: str) -> AuthorityToken:
             return AuthorityToken("experiment-root-event", (exp_id, scenario), name)
@@ -6420,12 +6608,26 @@ class _Reader:
 
         trace, tp = rows["event-trace"]
         current_scenario = trace["scenario"]
+        schedule_provenance: dict[str, tuple[str, str, tuple[str, str]]] = {}
+        for parent_event in trace["events"]:
+            for schedule in parent_event["schedules"]:
+                child = schedule["event_id"]
+                if child in schedule_provenance:
+                    raise InventoryRefusal(
+                        "scheduled child Event provenance is ambiguous"
+                    )
+                schedule_provenance[child] = (
+                    parent_event["event_id"],
+                    schedule["call_site_identity"],
+                    (schedule["operation"]["package"], schedule["operation"]["id"]),
+                )
         self.known(scenario_token(current_scenario), tp + "/scenario", law)
         root_map(trace["root_event_map"], tp + "/root_event_map")
         terminal_statuses(trace["terminal_statuses"], tp + "/terminal_statuses")
         for i, event in enumerate(trace["events"]):
             ep = f"{tp}/events/{i}"
             event_operation: tuple[str, str] | None = None
+            execution_paths: set[str] = set()
             if event.get("root_event_ref") is not None:
                 self.known(
                     root_token(current_scenario, event["root_event_ref"]),
@@ -6433,6 +6635,7 @@ class _Reader:
                     law,
                 )
             if event.get("entrypoint") is not None:
+                execution_paths.add(event["entrypoint"]["id"])
                 self.known(
                     AuthorityToken(
                         "source-entrypoint", (model,), event["entrypoint"]["id"]
@@ -6452,16 +6655,23 @@ class _Reader:
                             "Trace Operation disagrees with its RIR Entry Point owner"
                         )
                 else:
-                    candidates = [
-                        coordinate
-                        for coordinate in operations
-                        if coordinate[1] == event["operation"]
-                    ]
-                    if len(candidates) != 1:
+                    provenance = schedule_provenance.get(event["event_id"])
+                    if (
+                        provenance is None
+                        or event.get("parent_event_id") != provenance[0]
+                        or event.get("schedule_call_site_identity") != provenance[1]
+                    ):
                         raise InventoryRefusal(
-                            "Trace Operation has no unique selected RIR owner"
+                            "Trace Operation has no scheduled Event provenance owner"
                         )
-                    coordinate = candidates[0]
+                    coordinate = provenance[2]
+                    if (
+                        coordinate not in operations
+                        or event["operation"] != coordinate[1]
+                    ):
+                        raise InventoryRefusal(
+                            "scheduled Trace Operation disagrees with its RIR owner"
+                        )
                 self.known(
                     AuthorityToken(
                         "language.operations", coordinate[:1], coordinate[1]
@@ -6498,6 +6708,7 @@ class _Reader:
                     raise InventoryRefusal(
                         "Trace call site label disagrees with its RIR owner"
                     )
+                execution_paths.add(call["site"])
                 self.known(
                     AuthorityToken("language.operations", site[0][:1], site[0][1]),
                     cp + "/site",
@@ -6521,11 +6732,64 @@ class _Reader:
                 )
             for j, schedule in enumerate(event["schedules"]):
                 sp = f"{ep}/schedules/{j}"
-                self.operation_reference(schedule["operation"], sp + "/operation", law)
+                scheduled = self.operation_reference(
+                    schedule["operation"], sp + "/operation", law
+                )
+                if scheduled not in operations:
+                    raise InventoryRefusal(
+                        "scheduled child Operation has no selected RIR owner"
+                    )
+                if schedule["call_path"] not in execution_paths:
+                    raise InventoryRefusal(
+                        "scheduled call path has no selected execution owner"
+                    )
                 parent = call_path(schedule["call_path"], sp + "/call_path")
                 if schedule["parent_operation"] != parent[1]:
                     raise InventoryRefusal(
                         "scheduled parent Operation disagrees with its call path"
+                    )
+                parent_definition = operations.get(parent)
+                if parent_definition is None:
+                    raise InventoryRefusal("scheduled parent has no selected RIR owner")
+
+                def selected_schedule_instructions(
+                    instructions: list[dict[str, Any]],
+                ) -> list[dict[str, Any]]:
+                    found: list[dict[str, Any]] = []
+                    for instruction in instructions:
+                        operator = node_operators.get(instruction["node"])
+                        if operator == "schedule-operation":
+                            found.append(instruction)
+                        elif operator == "guarded-outcome-block":
+                            found.extend(
+                                selected_schedule_instructions(instruction["body"])
+                            )
+                    return found
+
+                matches = [
+                    instruction
+                    for instruction in selected_schedule_instructions(
+                        parent_definition["body"]
+                    )
+                    if instruction["operation"] == schedule["operation"]
+                    and instruction["logical_time"]
+                    == schedule["ordering_key"]["logical_time"]
+                    and instruction["priority"] == schedule["ordering_key"]["priority"]
+                    and _identity_from_kernel(
+                        dict(self.kernel),
+                        schedule_domain,
+                        {
+                            "parent_event_id": event["event_id"],
+                            "parent_operation": parent[1],
+                            "site": instruction["site"],
+                            "operation": instruction["operation"],
+                        },
+                    )
+                    == schedule["call_site_identity"]
+                ]
+                if len(matches) != 1:
+                    raise InventoryRefusal(
+                        "scheduled child has no exact selected instruction owner"
                     )
                 self.known(
                     AuthorityToken("language.operations", parent[:1], parent[1]),
@@ -6552,6 +6816,12 @@ class _Reader:
                     ep + "/observation/window/name",
                     law,
                 )
+                metric_selector(
+                    observation["metric"],
+                    ("window", "kind"),
+                    observation["window"]["kind"],
+                    ep + "/observation/window/kind",
+                )
             for j, draw in enumerate(event["rng_draws"]):
                 if event_operation is None:
                     raise InventoryRefusal("RNG draw has no Operation owner")
@@ -6565,6 +6835,7 @@ class _Reader:
                     law,
                 )
 
+        law = protocol_law + "/runtime_evidence_structure"
         series, sp = rows["snapshot-series"]
         self.known(scenario_token(series["scenario"]), sp + "/scenario", law)
         root_map(series["root_event_map"], sp + "/root_event_map")
@@ -6585,10 +6856,23 @@ class _Reader:
             for j, row in enumerate(snapshot["values"]):
                 named_value(row, f"{pp}/values/{j}")
 
+        law = protocol_law + "/metric_outcome_structure"
         dataset, dp = rows["metric-dataset"]
         for i, sample in enumerate(dataset["samples"]):
             pp = f"{dp}/samples/{i}"
             self.known(metric_token(sample["metric"]), pp + "/metric", law)
+            metric_selector(
+                sample["metric"],
+                ("observation", "source"),
+                sample["source"],
+                pp + "/source",
+            )
+            metric_selector(
+                sample["metric"],
+                ("observation", "source"),
+                sample["provenance"]["observation_source"],
+                pp + "/provenance/observation_source",
+            )
             self.known(scenario_token(sample["scenario"]), pp + "/scenario", law)
             if sample["replication_identity"] != sample["scenario"]:
                 raise InventoryRefusal(
@@ -6631,6 +6915,7 @@ class _Reader:
                 pp + "/provenance/observation_member",
             )
 
+        law = protocol_law + "/runtime_capability_structure"
         profile, pp = rows["resolved-runtime-profile"]
         selected_profile = profile["runtime_profile"]
         matches = [
@@ -6686,12 +6971,9 @@ class _Reader:
         for i, node in enumerate(manifest["instruction_nodes"]):
             self.kernel_node(node, f"{mp}/instruction_nodes/{i}")
 
-        primary_kind = next(
-            kind
-            for kind in protocols["metric_outcome_structure"]["outcomes"]
-            if kind in rows
-        )
-        primary, primary_pointer = rows[primary_kind]
+        primary_role = next(iter(primary_roles))
+        law = protocol_law + "/metric_outcome_structure"
+        primary, primary_pointer = rows[primary_role]
         root_map(primary["root_event_map"], primary_pointer + "/root_event_map")
         terminal_statuses(
             primary["terminal_statuses"], primary_pointer + "/terminal_statuses"
@@ -7973,7 +8255,16 @@ def validate_inventory_occurrences(
     """Independently check exact bytes and uniqueness of a supplied occurrence set."""
     projections = _formula_projections(kernel, graph)
     positions = {
-        (row.token, row.pointer, row.use, row.location, row.projection)
+        (
+            row.token,
+            row.pointer,
+            row.use,
+            row.law
+            if row.pointer.startswith(("/experiment/", "/artifacts/", "/results/"))
+            else "",
+            row.location,
+            row.projection,
+        )
         for row in inventory.occurrences
     }
     if len(inventory.occurrences) != len(positions):
@@ -7989,13 +8280,15 @@ def validate_inventory_occurrences(
             raise InventoryRefusal("token occurrence does not match graph")
     if {o.token for o in inventory.occurrences} != set(inventory.tokens):
         raise InventoryRefusal("inventory member has no occurrence")
+    if not inventory.reserved <= inventory.tokens:
+        raise InventoryRefusal("reserved token has no admitted occurrence")
     expected_free = {
-        (token, pointer, use, "value", "")
+        (token, pointer, use, "", "value", "")
         for token, pointer, use, _ in _reason_vector_links(kernel, graph)
         if use == "unresolved-reference"
     }
     expected_free.update(
-        (row.token, row.pointer, row.use, row.location, row.projection)
+        (row.token, row.pointer, row.use, "", row.location, row.projection)
         for row in _value_vector_links(kernel, graph)
         if isinstance(row, TokenOccurrence) and row.use == "unresolved-reference"
     )
@@ -8500,6 +8793,396 @@ def _verify_formula_coverage(
         raise InventoryRefusal("extra incorrectly owned Formula occurrence")
 
 
+def _verify_execution_artifact_graph(
+    kernel: Mapping[str, Any], graph: Mapping[str, Any]
+) -> None:
+    """Independently verify generated Artifact identities and graph edges."""
+    _attached_language(kernel, graph)
+
+    def surface(name: str, roles: set[str]) -> dict[str, dict[str, Any]]:
+        values = graph.get(name)
+        if values is None:
+            return {}
+        if not isinstance(values, dict) or len(values) != len(roles):
+            raise InventoryRefusal(f"{name} Artifact graph is incomplete")
+        bindings = {
+            role: _artifact_protocol_binding(kernel, graph, role) for role in roles
+        }
+        by_kind = {kind: role for role, (kind, _, _) in bindings.items()}
+        if len(by_kind) != len(bindings):
+            raise InventoryRefusal(f"{name} Artifact protocol binding is ambiguous")
+        result = {}
+        for value in values.values():
+            if not isinstance(value, dict):
+                raise InventoryRefusal(f"{name} Artifact is malformed")
+            kind = value.get("artifact_kind")
+            if not isinstance(kind, str):
+                raise InventoryRefusal(f"{name} Artifact has no producer kind")
+            role = by_kind.get(kind)
+            if role is None or role in result:
+                raise InventoryRefusal(f"{name} Artifact producer binding is invalid")
+            _, schema, contract = bindings[role]
+            try:
+                jsonschema.Draft202012Validator(schema).validate(value)
+            except jsonschema.ValidationError as error:
+                raise InventoryRefusal(
+                    f"{name} Artifact does not close its protocol Schema"
+                ) from error
+            if value["wire_schema_identity"] != _identity_from_kernel(
+                dict(kernel), contract["wire_schema_identity_domain"], schema
+            ) or value["content_identity"] != _identity_from_kernel(
+                dict(kernel), contract["identity_domain"], value
+            ):
+                raise InventoryRefusal(
+                    f"{name} Artifact content or Wire Schema identity is stale"
+                )
+            result[role] = value
+        if set(result) != roles:
+            raise InventoryRefusal(f"{name} Artifact protocol roles are incomplete")
+        return result
+
+    model_roles: set[str] = set()
+    if graph.get("artifacts") is not None:
+        model = kernel["meta_format"]["language_definitions"][
+            "wire_schema_protocol_roles"
+        ]["model_structure"]
+        model_roles = (set(model["containers"]) - {"model-build-command-input"}) | {
+            "rir-semantic-payload"
+        }
+    artifacts = surface("artifacts", model_roles)
+    if artifacts:
+        language_identity = graph["ldb_root"]["content_identity"]
+        source = graph.get("source")
+        if not isinstance(source, dict):
+            raise InventoryRefusal("Model Artifacts have no Source owner")
+        source_identity = _identity_from_kernel(
+            dict(kernel),
+            _source_profile(kernel, graph)["source_identity_domain"],
+            source,
+        )
+        identities = {role: row["content_identity"] for role, row in artifacts.items()}
+        rir = artifacts["rir-semantic-payload"]
+        expected = {
+            "build-receipt": {
+                "source_identity": source_identity,
+                "kernel_identity": kernel["content_identity"],
+                "language_bundle_identity": language_identity,
+                **{
+                    member: identities[role]
+                    for member, role in (
+                        ("package_lock_identity", "package-lock"),
+                        ("rir_identity", "rir-semantic-payload"),
+                        ("resolved_model_identity", "resolved-model"),
+                        ("capability_manifest_identity", "capability-manifest"),
+                        ("debug_map_identity", "debug-map"),
+                        ("model_explanation_identity", "model-explanation"),
+                        ("resolution_receipt_identity", "resolution-receipt"),
+                    )
+                },
+            },
+            "capability-manifest": {
+                "package_lock_identity": identities["package-lock"],
+                "resolved_model_identity": identities["resolved-model"],
+                "rir_identity": identities["rir-semantic-payload"],
+            },
+            "debug-map": {
+                "source_identity": source_identity,
+                "rir_identity": identities["rir-semantic-payload"],
+            },
+            "model-explanation": {
+                "debug_map_identity": identities["debug-map"],
+                "rir_identity": identities["rir-semantic-payload"],
+            },
+            "resolution-receipt": {
+                "source_identity": source_identity,
+                "kernel_identity": kernel["content_identity"],
+                "language_bundle_identity": language_identity,
+                "package_lock_identity": identities["package-lock"],
+            },
+            "resolved-model": {
+                "kernel_identity": kernel["content_identity"],
+                "language_bundle_identity": language_identity,
+                "package_lock_identity": identities["package-lock"],
+                "rir_content_identity": identities["rir-semantic-payload"],
+                "rir_semantic_identity": rir["semantic_identity"],
+            },
+        }
+        for role, fields in expected.items():
+            if any(
+                artifacts[role].get(member) != value for member, value in fields.items()
+            ):
+                raise InventoryRefusal("Model Artifact graph identity binding is stale")
+
+    result_roles: set[str] = set()
+    if graph.get("results") is not None:
+        protocol = kernel["meta_format"]["language_definitions"][
+            "wire_schema_protocol_roles"
+        ]
+        fixed = {
+            "resolved-runtime-profile",
+            "evaluator-capability-manifest",
+            "event-trace",
+            "snapshot-series",
+            "metric-dataset",
+        }
+        actual_kinds = {
+            row.get("artifact_kind")
+            for row in graph["results"].values()
+            if isinstance(row, dict)
+        }
+        primary = {
+            role
+            for role in protocol["metric_outcome_structure"]["outcomes"]
+            if _artifact_protocol_binding(kernel, graph, role)[0] in actual_kinds
+        }
+        if len(primary) != 1:
+            raise InventoryRefusal("Runtime Artifact graph has no unique outcome")
+        result_roles = fixed | primary
+    results = surface("results", result_roles)
+    if results:
+        if not artifacts or not isinstance(graph.get("experiment"), dict):
+            raise InventoryRefusal("Runtime Artifacts have no input graph owners")
+        experiment_identity = _identity_from_kernel(
+            dict(kernel),
+            kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
+                "experiment_input_structure"
+            ]["identity"]["domain"],
+            graph["experiment"],
+        )
+        profile_identity = results["resolved-runtime-profile"]["content_identity"]
+        trace_identity = results["event-trace"]["content_identity"]
+        snapshot_identity = results["snapshot-series"]["content_identity"]
+        dataset_identity = results["metric-dataset"]["content_identity"]
+        primary_role = next(
+            iter(
+                result_roles
+                - {
+                    "resolved-runtime-profile",
+                    "evaluator-capability-manifest",
+                    "event-trace",
+                    "snapshot-series",
+                    "metric-dataset",
+                }
+            )
+        )
+        expected = {
+            "resolved-runtime-profile": {
+                "experiment_identity": experiment_identity,
+                "rir_semantic_identity": artifacts["rir-semantic-payload"][
+                    "semantic_identity"
+                ],
+            },
+            "event-trace": {
+                "experiment_identity": experiment_identity,
+                "resolved_runtime_profile_identity": profile_identity,
+            },
+            "snapshot-series": {
+                "experiment_identity": experiment_identity,
+                "resolved_runtime_profile_identity": profile_identity,
+                "event_trace_identity": trace_identity,
+            },
+            "metric-dataset": {
+                "experiment_identity": experiment_identity,
+                "resolved_runtime_profile_identity": profile_identity,
+            },
+            primary_role: {
+                "experiment_identity": experiment_identity,
+                "resolved_runtime_profile_identity": profile_identity,
+                "event_trace_identity": trace_identity,
+                "snapshot_series_identity": snapshot_identity,
+                "metric_dataset_identity": dataset_identity,
+            },
+        }
+        for role, fields in expected.items():
+            if any(
+                results[role].get(member) != value for member, value in fields.items()
+            ):
+                raise InventoryRefusal(
+                    "Runtime Artifact graph identity binding is stale"
+                )
+
+
+def _verify_execution_compound_coverage(
+    kernel: Mapping[str, Any],
+    graph: Mapping[str, Any],
+    inventory: ExtensionInventory,
+) -> None:
+    """Reverse-check compound generated addresses from their actual owners."""
+    found = {
+        row
+        for row in inventory.occurrences
+        if row.pointer.startswith(("/artifacts/", "/results/"))
+        and row.location in {"json-pointer", "call-path", "snapshot-name"}
+    }
+    expected: set[TokenOccurrence] = set()
+    law = "/meta_format/language_definitions/wire_schema_protocol_roles/trace_structure"
+    evidence_law = (
+        "/meta_format/language_definitions/wire_schema_protocol_roles/"
+        "runtime_evidence_structure"
+    )
+
+    def member(surface: str, role: str) -> tuple[dict[str, Any], str]:
+        values = graph.get(surface)
+        if not isinstance(values, dict):
+            raise InventoryRefusal(f"{surface} is missing for compound coverage")
+        kind = _artifact_protocol_binding(kernel, graph, role)[0]
+        rows = [
+            (value, _child("/" + surface, label))
+            for label, value in values.items()
+            if isinstance(value, dict) and value.get("artifact_kind") == kind
+        ]
+        if len(rows) != 1:
+            raise InventoryRefusal(f"{role} has no unique generated member")
+        return rows[0]
+
+    if graph.get("artifacts") is not None:
+        debug, pointer = member("artifacts", "debug-map")
+        source_keys = {
+            source_pointer: token
+            for token, source_pointer, _, location, _, _ in _source_address_links(
+                kernel, graph, copied_fields=set()
+            )
+            if location == "key" and token.role == "source-field"
+        }
+        model_law = "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure"
+        for index, entry in enumerate(debug["entries"]):
+            current = "/source"
+            target = f"{pointer}/entries/{index}/source_pointer"
+            for projection, segment in enumerate(
+                _json_pointer_segments(entry["source_pointer"])
+            ):
+                current = _child(current, segment)
+                token = source_keys.get(current)
+                if token is not None:
+                    expected.add(
+                        TokenOccurrence(
+                            token,
+                            target,
+                            "reference",
+                            model_law,
+                            "json-pointer",
+                            str(projection),
+                        )
+                    )
+
+    if graph.get("results") is not None:
+        if not isinstance(graph.get("artifacts"), dict) or not isinstance(
+            graph.get("experiment"), dict
+        ):
+            raise InventoryRefusal("Runtime compound addresses have no owner graph")
+        rir, _ = member("artifacts", "rir-semantic-payload")
+        trace, trace_pointer = member("results", "event-trace")
+        series, series_pointer = member("results", "snapshot-series")
+        experiment = graph["experiment"]
+        source = graph.get("source")
+        if not isinstance(source, dict):
+            raise InventoryRefusal("Runtime compound addresses have no Source owner")
+        model = _at(
+            source, _source_profile(kernel, graph)["manifest_id_path"].split(".")
+        )
+        exp_id = experiment["id"]
+        entrypoints = {row["id"]: row for row in rir["entrypoints"]}
+        call_sites = {
+            row["identity"]: (
+                (row["parent_operation"]["package"], row["parent_operation"]["id"]),
+                row["site"],
+                (row["operation"]["package"], row["operation"]["id"]),
+            )
+            for row in rir["call_sites"]
+        }
+
+        def call_path(value: str, pointer: str) -> None:
+            segments = _call_path_segments(value)
+            entrypoint = entrypoints.get(segments[0])
+            if entrypoint is None:
+                raise InventoryRefusal("Runtime call path has no Entry Point owner")
+            expected.add(
+                TokenOccurrence(
+                    AuthorityToken("source-entrypoint", (model,), segments[0]),
+                    pointer,
+                    "reference",
+                    law,
+                    "call-path",
+                    "0",
+                )
+            )
+            parent = (
+                entrypoint["operation"]["package"],
+                entrypoint["operation"]["id"],
+            )
+            for index, segment in enumerate(segments[1:], start=1):
+                if re.fullmatch(r"@[0-9]+", segment):
+                    continue
+                matches = [
+                    row for row in call_sites.values() if row[:2] == (parent, segment)
+                ]
+                if len(matches) != 1:
+                    raise InventoryRefusal("Runtime call path site has no RIR owner")
+                expected.add(
+                    TokenOccurrence(
+                        AuthorityToken("operation-site", parent, segment),
+                        pointer,
+                        "reference",
+                        law,
+                        "call-path",
+                        str(index),
+                    )
+                )
+                parent = matches[0][2]
+
+        for event_index, event in enumerate(trace["events"]):
+            event_pointer = f"{trace_pointer}/events/{event_index}"
+            for call_index, call in enumerate(event["calls"]):
+                pointer = f"{event_pointer}/calls/{call_index}/site"
+                site = call_sites.get(call["call_site_identity"])
+                if site is None:
+                    raise InventoryRefusal("Trace call has no RIR call-site owner")
+                expected.update(
+                    {
+                        TokenOccurrence(
+                            AuthorityToken(
+                                "language.operations", site[0][:1], site[0][1]
+                            ),
+                            pointer,
+                            "reference",
+                            law,
+                            "call-path",
+                            "0",
+                        ),
+                        TokenOccurrence(
+                            AuthorityToken("operation-site", site[0], site[1]),
+                            pointer,
+                            "reference",
+                            law,
+                            "call-path",
+                            "1",
+                        ),
+                    }
+                )
+            for schedule_index, schedule in enumerate(event["schedules"]):
+                call_path(
+                    schedule["call_path"],
+                    f"{event_pointer}/schedules/{schedule_index}/call_path",
+                )
+        for index, snapshot in enumerate(series["snapshots"]):
+            expected.add(
+                TokenOccurrence(
+                    AuthorityToken(
+                        "experiment-scenario", (exp_id,), snapshot["scenario"]
+                    ),
+                    f"{series_pointer}/snapshots/{index}/name",
+                    "reference",
+                    evidence_law,
+                    "snapshot-name",
+                    "",
+                )
+            )
+    if found != expected:
+        raise InventoryRefusal(
+            "generated compound address coverage is incomplete or misowned"
+        )
+
+
 def validate_extension_inventory(
     kernel: Mapping[str, Any], graph: Mapping[str, Any], inventory: ExtensionInventory
 ) -> None:
@@ -8509,11 +9192,20 @@ def validate_extension_inventory(
     explicit unfinished obligation until the corresponding consuming-law pass
     is implemented; require_complete still refuses that inventory.
     """
+    _verify_execution_artifact_graph(kernel, graph)
     validate_inventory_occurrences(kernel, graph, inventory)
+    _verify_execution_compound_coverage(kernel, graph, inventory)
+    # The execution projection verifier consumes external positions as seeds;
+    # the remaining reverse checks below still validate those seeds before
+    # this validation can succeed.
+    from schema2_execution_coverage_support import validate_execution_coverage
+
+    validate_execution_coverage(kernel, graph, inventory)
     judgment_expected = {
         *_experiment_judgment_links(kernel, graph),
         *_experiment_input_judgment_links(kernel, graph),
         *_resolved_judgment_links(kernel, graph),
+        *_runtime_metric_selector_links(kernel, graph),
     }
     judgment_roots = {
         pointer + "/selector"
