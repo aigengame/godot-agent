@@ -1957,7 +1957,9 @@ re-derives every verdict from a running engine.
   is idempotent (`launched: false`, nothing relaunched). Success also carries the STARTUP
   VERDICT of the session it established (#848): `startup_diagnostics` — the `ScriptError[]`
   that `script run` and `scene preflight` publish — and `clean_start`, the one boolean
-  saying nothing was recognized against that start. It answers what readiness never did: a
+  saying no record about the RUN was recognized against that start — a record about the
+  PROCESS, the exit-time leak, is reported beside it and does not gate it, the same
+  exclusion `scene preflight`'s `started` makes. It answers what readiness never did: a
   harness that connected is not a scene that started cleanly, because a script that fails
   to compile leaves its node script-less and the session serves anyway (GDA-DF-047). A
   disclosure on SUCCESS, never a refusal — a broken scene is exactly when `diag errors`,
@@ -1975,8 +1977,8 @@ re-derives every verdict from a running engine.
   nothing would take it for a clean start. An idempotent repeat reports the establishing
   launch's verdict, not a fresh read.
   A daemon started by an OLDER gda answers without the two keys — and a drifted one with a
-  pair that contradicts itself (the pair is one fact: both null, or a list and exactly "that
-  list is empty") — which the CLI reports as `contract_violation`; run `gda daemon stop`,
+  pair that contradicts itself (the pair is one fact: both null, or a list and exactly "no
+  record about the run among them") — which the CLI reports as `contract_violation`; run `gda daemon stop`,
   then `gda daemon start`, so the daemon
   serves the current contract. The skew is reachable because a daemon is a long-lived
   per-project process and a repeat `daemon start` only reports `already_running`, so
