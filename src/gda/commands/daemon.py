@@ -1284,26 +1284,38 @@ _VERDICT_UNAVAILABLE_LINE = (
 def _startup_lines(
     diagnostics: "list[ScriptError] | None", *, established: bool
 ) -> list[str]:
-    """The human lines a degraded start adds, and nothing on a clean one (#848).
+    """The human lines the startup verdict adds, and nothing when it has none (#848).
 
     Shared by both disclosing renderers so the two spell one fact one way. A
-    clean start adds NOTHING: the readiness sentence already says the session
-    serves, and a per-run "0 errors" would train the reader to skip the block
-    that matters. An ESTABLISHED session with no verdict adds one line, because
-    a reader who sees nothing would take it for a clean start — the same
-    distinction the null pair draws for a machine (ADR-0022). Before a session
-    is established there is no startup to speak about, so nothing prints. Each
-    recognized error prints through :func:`script_error_line`, the one text
+    start that recognized NOTHING adds nothing: the readiness sentence already
+    says the session serves, and a per-run "0 errors" would train the reader to
+    skip the block that matters. An ESTABLISHED session with no verdict adds one
+    line, because a reader who sees nothing would take it for a clean start — the
+    same distinction the null pair draws for a machine (ADR-0022). Before a
+    session is established there is no startup to speak about, so nothing prints.
+    Each recognized error prints through :func:`script_error_line`, the one text
     form of a script error.
+
+    The HEADER is the shared boot predicate's answer, never the list's emptiness
+    (#976). A recognized record no longer implies a start that was not clean, so a
+    list holding only records about the PROCESS keeps the clean verdict and prints
+    those records under a header saying they did not gate it. The two renderings
+    are of ONE outcome: a human line calling a start unclean that ``--json``
+    reports as clean is the drift this slice removes everywhere else. It is the
+    shape ``scene preflight`` settled when #844 severed the same invariant there
+    (:func:`gda.commands.scene.render_scene_preflight`) — the clean verdict keeps
+    its own word, with the records beneath it.
     """
     if diagnostics is None:
         return [_VERDICT_UNAVAILABLE_LINE] if established else []
     if not diagnostics:
         return []
-    return [
-        "  startup not clean:",
-        *(f"    {script_error_line(error)}" for error in diagnostics),
-    ]
+    header = (
+        "  startup not clean:"
+        if has_run_record(diagnostics)
+        else "  startup clean; records that did not gate it:"
+    )
+    return [header, *(f"    {script_error_line(error)}" for error in diagnostics)]
 
 
 def render_daemon_install(installed: "DaemonInstallResult") -> str:

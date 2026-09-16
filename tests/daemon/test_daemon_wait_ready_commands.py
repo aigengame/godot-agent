@@ -14,7 +14,12 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.commands.daemon import DaemonStatusResult, DaemonWaitReadyResult
+from gda.commands.daemon import (
+    DaemonStatusResult,
+    DaemonWaitReadyResult,
+    render_daemon_status,
+    render_daemon_wait_ready,
+)
 from gda.exit_codes import EXIT_LIVE
 from gda.runner import RunResult
 from gda.script_errors import parse_script_errors
@@ -354,6 +359,33 @@ def test_a_process_record_alone_is_still_a_clean_start(model):
     model(**fields, startup_diagnostics=[LEAK_RECORD], clean_start=True)
     with pytest.raises(ValidationError):
         model(**fields, startup_diagnostics=[LEAK_RECORD], clean_start=False)
+
+
+@pytest.mark.parametrize(
+    "render,model",
+    [
+        (render_daemon_wait_ready, DaemonWaitReadyResult),
+        (render_daemon_status, DaemonStatusResult),
+    ],
+)
+def test_the_human_channel_shows_a_record_that_did_not_gate_the_verdict(render, model):
+    # The two renderings are of ONE outcome. This slice makes `[leak] + clean_start:
+    # true` a legal result — it was refused at the base — and a header keyed on the
+    # list's emptiness would call that start not clean while `--json` calls it clean:
+    # the drift the slice removes everywhere else, one channel over. The records
+    # still print beneath it, because a leak nobody sees is what GDA-DF-063 was filed
+    # for. The shape is `scene preflight`'s, which answered the same severed
+    # invariant in PR #964.
+    fields = {k: v for k, v in _MODEL_BASE.items() if k in model.model_fields}
+    result = model(**fields, startup_diagnostics=[LEAK_RECORD], clean_start=True)
+
+    lines = render(result).splitlines()
+
+    assert lines[1] == "  startup clean; records that did not gate it:"
+    assert lines[2] == (
+        "    shutdown_leak: ObjectDB instances leaked at exit "
+        "(run with --verbose for details)."
+    )
 
 
 def test_the_preflight_verdict_satisfies_the_daemon_pair_rule():
