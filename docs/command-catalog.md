@@ -1321,7 +1321,8 @@ generated resources it owns — GDA-DF-067 saw about 14,000 such files reported 
 `warnings: []`. `created` covers every file the export added ANYWHERE under the
 project, each carrying `resource import`'s own classification (`cache_owned` /
 `source_adjacent`, from `gda.import_evidence.classify_created_file`) against the
-reported `cache_root`, so the cache half can be cleaned as one unit. `modified`
+reported `cache_root`, so the cache half can be cleaned as one unit; directory
+links are walked as the engine reads them, once each. `modified`
 covers the pre-existing files OUTSIDE that root whose CONTENT changed, and only a
 file whose size or timestamp moved is compared: the pass touches far more files
 than it rewrites, a changed timestamp alone would bury the few rewrites the record

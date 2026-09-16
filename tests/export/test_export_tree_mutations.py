@@ -337,6 +337,66 @@ def test_a_top_level_git_directory_is_not_walked(tmp_path):
     assert mutations.skipped == 0
 
 
+def test_a_directory_link_is_walked_as_the_engine_reads_it(tmp_path):
+    # The engine's import scan follows a directory link, so a shared library
+    # linked into the project is content the pass writes sidecars into and rewrites
+    # generated resources in. `os.walk` leaves it out by default, and the report
+    # then stated neither — with `skipped` at zero, so nothing said the record was
+    # incomplete (PR #981 review round 3, measured on a real pack export).
+    project = minimal_project(tmp_path / "game")
+    shared = tmp_path / "shared"
+    _write(shared / "ui.csv", "keys,en\nGREET,Hello\n")
+    generated = _write(shared / "ui.en.translation", "old")
+    (project / "assets").symlink_to(shared, target_is_directory=True)
+
+    def mutate() -> None:
+        _write(shared / "ui.csv.import", "[remap]")
+        generated.write_text("rewritten bytes", encoding="utf-8")
+
+    mutations = _mutations(_export(project, mutate))
+
+    # Reported under the spelling the walk reached them by, which is the res://
+    # path the engine names them by too.
+    assert [entry.path for entry in mutations.created] == ["res://assets/ui.csv.import"]
+    assert [entry.path for entry in mutations.modified] == [
+        "res://assets/ui.en.translation"
+    ]
+    assert mutations.modified[0].size_before == 3
+    assert mutations.skipped == 0
+
+
+def test_a_link_that_leads_back_up_the_chain_is_not_re_entered(tmp_path):
+    # Identity, not spelling: `sub/loop -> ..` reaches a directory the walk has
+    # already walked, so it is not re-entered and the walk ends by rule rather
+    # than at the OS path limit. The content under the loop is reported ONCE,
+    # under its first spelling, and a cycle is not unaccounted content — `skipped`
+    # stays at zero.
+    #
+    # Run on a thread with a deadline, like the FIFO test: a regression that walks
+    # the cycle must read RED rather than wedge the suite.
+    project = minimal_project(tmp_path / "game")
+    _write(project / "sub" / "asset.tres", "[gd_resource]")
+    (project / "sub" / "loop").symlink_to("..", target_is_directory=True)
+    outcome: list = []
+    worker = threading.Thread(
+        target=lambda: outcome.append(
+            _export(project, lambda: _write(project / "sub" / "asset.tres.import", "x"))
+        ),
+        daemon=True,
+    )
+
+    worker.start()
+    worker.join(timeout=30)
+    assert not worker.is_alive(), "the walk did not terminate on a symlink cycle"
+
+    mutations = _mutations(outcome[0])
+    assert [entry.path for entry in mutations.created] == [
+        "res://sub/asset.tres.import"
+    ]
+    assert mutations.modified == []
+    assert mutations.skipped == 0
+
+
 def test_a_file_the_walk_cannot_read_is_skipped_not_failed(tmp_path):
     # The disclosure rule: a vanished or unreadable file must not turn a SUCCESSFUL
     # export into a failure. All three shapes are counted and none enters a list,

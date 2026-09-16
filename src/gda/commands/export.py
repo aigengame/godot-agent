@@ -338,7 +338,9 @@ class ProjectTreeMutations(BaseModel):
 
     * ``created`` is every file the tree gained, ANYWHERE under the project,
       classified against ``cache_root`` so the cache half can be cleaned as one
-      unit.
+      unit. A directory link is walked as the engine reads it, once each: the
+      shared assets directory a monorepo links in is content the import pass
+      writes into.
     * ``modified`` is every pre-existing file OUTSIDE ``cache_root`` whose CONTENT
       changed. A pre-existing file is a CANDIDATE only when its size or timestamp
       moved, so a rewrite that preserves both is not seen. A pre-existing cache
@@ -377,7 +379,8 @@ class ProjectTreeMutations(BaseModel):
         default_factory=list,
         description=(
             "Every file the export added anywhere under the project, classified, "
-            "ordered by path."
+            "ordered by path. Directory links are walked as the engine reads "
+            "them, once each."
         ),
     )
     modified: list[ExportModifiedFile] = Field(
@@ -730,13 +733,31 @@ def _walk_project(
     than filtered out per file: an ``.app`` bundle holds thousands of files, and
     walking it would spend the report's budget on entries it then drops.
 
+    **A directory link is walked**, because the engine's import scan walks one: a
+    shared library directory linked into the project is content the pass reads and
+    writes sidecars into. ``os.walk`` leaves such a directory out by default, and
+    the export then created files under it and rewrote files under it while the
+    report said nothing about either (PR #981 review round 3). The policy is the
+    project's decided one for the ``res://`` walk, ADR-0032's (#760): follow the
+    link as the engine does, and identify what it reaches by FILESYSTEM IDENTITY —
+    ``st_dev`` and ``st_ino`` of the directory reached, the pair the engine's own
+    ``DirAccess.is_equivalent`` compares — rather than by its spelling. So a
+    directory is walked ONCE, under the first spelling that reaches it, and a link
+    that leads back up the descent chain or to a directory already walked is not
+    re-entered: a cycle (``sub/loop -> ..``) ends by rule instead of at the OS path
+    limit. A cycle is NOT counted as skipped — nothing is unaccounted for, the
+    content is reported under its first spelling. The entries are sorted, so the
+    first spelling is the same on both walks. What a file is reported under is
+    therefore the spelling the walk reached it by, which is the ``res://`` path the
+    engine names it by too.
+
     ``on_unreadable_dir`` receives the project-relative path of a directory the
-    walk cannot list. ``os.walk`` swallows that error by default, which would drop
-    the whole subtree from the report AND from its skipped count — the one channel
-    that says the record is incomplete (PR #981 review). The caller decides what
-    to do with the path; this function still yields everything it CAN read,
-    because an unreadable corner of the tree is not a reason to fail an export
-    that succeeded.
+    walk cannot list, or cannot stat. ``os.walk`` swallows the listing error by
+    default, which would drop the whole subtree from the report AND from its
+    skipped count — the one channel that says the record is incomplete (PR #981
+    review). The caller decides what to do with the path; this function still
+    yields everything it CAN read, because an unreadable corner of the tree is not
+    a reason to fail an export that succeeded.
     """
 
     def note(error: OSError) -> None:
@@ -750,13 +771,31 @@ def _walk_project(
         except ValueError:
             return
 
-    for dirpath, dirnames, filenames in os.walk(project, onerror=note):
+    walked: set[tuple[int, int]] = set()
+    for dirpath, dirnames, filenames in os.walk(
+        project, onerror=note, followlinks=True
+    ):
         base = Path(dirpath)
         rel_dir = base.relative_to(project).as_posix()
         prefix = "" if rel_dir == "." else rel_dir + "/"
-        dirnames[:] = [
+        # The identity test is asked of the directory the walk HAS reached, not of
+        # the children it is about to descend into: that is what makes the answer
+        # depth-first ("the first spelling") rather than breadth-first, and it is
+        # also the one place a followed link can be recognized whatever its shape.
+        try:
+            status = base.stat()
+        except OSError as error:
+            note(error)
+            dirnames[:] = []
+            continue
+        identity = (status.st_dev, status.st_ino)
+        if identity in walked:
+            dirnames[:] = []
+            continue
+        walked.add(identity)
+        dirnames[:] = sorted(
             name for name in dirnames if not _excluded(prefix + name, excluded)
-        ]
+        )
         for name in filenames:
             rel = prefix + name
             if not _excluded(rel, excluded):
@@ -1372,7 +1411,8 @@ def run_export(
     the generated resources it owns. ``created`` carries every file the export
     added anywhere under the project, each classified ``cache_owned`` or
     ``source_adjacent`` against that root, so the cache half can be cleaned as one
-    unit. ``modified`` carries the pre-existing files OUTSIDE that root whose
+    unit; directory links are walked as the engine reads them, once each.
+    ``modified`` carries the pre-existing files OUTSIDE that root whose
     CONTENT changed, and only a file whose size or timestamp moved is compared;
     rewrites INSIDE the root are not reported at all, so an empty ``modified``
     says nothing about the cache. The artifact and everything under it stay out of

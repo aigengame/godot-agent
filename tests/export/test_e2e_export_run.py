@@ -699,3 +699,62 @@ def test_export_run_reports_what_the_native_export_did_to_the_project(godot_proj
     assert (godot_project / "out.pck").is_file()
     assert "res://out.pck" not in {entry["path"] for entry in virtual["created"]}
     assert virtual["skipped"] == 0
+
+
+@pytest.mark.e2e
+def test_export_run_reports_the_mutations_under_a_linked_directory(
+    godot_project, tmp_path_factory
+):
+    # The engine's import scan walks a directory link, so a shared assets
+    # directory linked into the project is content the pass writes into. `os.walk`
+    # left it out by default and the report said nothing about it: the reviewer
+    # measured sidecars created and translations rewritten under
+    # `game/assets -> ../shared`, with `created`, `modified` and `skipped` all
+    # empty (PR #981 review round 3). The link target sits OUTSIDE the project
+    # root, which is what makes the case about the link rather than about the tree.
+    shared = tmp_path_factory.mktemp("linked-assets")
+    (shared / "sprite.png").write_bytes(base64.b64decode(PNG_1X1_B64))
+    (shared / "ui.csv").write_text(_TRANSLATION_CSV, encoding="utf-8")
+    (godot_project / "assets").symlink_to(shared, target_is_directory=True)
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    gda = Gda(godot_project, json_output=True, timeout=180)
+    export = [
+        "export",
+        "run",
+        "--preset",
+        "Linux/X11",
+        "--mode",
+        "pack",
+        "--output",
+        str(godot_project / "dist" / "packed.pck"),
+    ]
+
+    cold = gda.json(*export)["project_tree_mutations"]
+
+    created = {entry["path"] for entry in cold["created"]}
+    assert "res://assets/sprite.png.import" in created, sorted(created)
+    assert {
+        "res://assets/ui.en.translation",
+        "res://assets/ui.fr.translation",
+    } <= created, sorted(created)
+    assert (shared / "sprite.png.import").is_file()
+    assert cold["skipped"] == 0
+
+    # The generated translations now exist under the link. Change the source and
+    # the pass rewrites them — the case `modified` is about, reached only because
+    # the pre-export walk hashed files it found through the link.
+    (godot_project / "assets" / "ui.csv").write_text(
+        _TRANSLATION_CSV_EDITED, encoding="utf-8"
+    )
+
+    rewrote = gda.json(*export)["project_tree_mutations"]
+
+    assert {entry["path"] for entry in rewrote["modified"]} == {
+        "res://assets/ui.en.translation",
+        "res://assets/ui.fr.translation",
+    }, rewrote["modified"]
+    for entry in rewrote["modified"]:
+        assert entry["size_before"] < entry["size"], entry
+    assert rewrote["skipped"] == 0
