@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=580ecc08900150b2a55126d01ec095cc99cdcc2291f53960e43831a8463ec216 -->
+<!-- gda-readme-i18n: source=README.md sha256=8729fd87e8807164c2d43ca24430c74b6f30bd3373251fb5fe6e1d716694bd6c -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -546,8 +546,11 @@ Lee las coordenadas de ratón inyectadas desde `event.position` — en una sesi�
 
 | Comando | Qué hace |
 | ------- | ------------ |
-| `screen capture` | Captura un frame del viewport a un PNG. |
-| `screen frames` | Captura una secuencia PNG de N frames (`--summary` devuelve un resultado agregado compacto). |
+| `screen capture` | Captura un frame del viewport a un PNG; `--settle-frames N` deja correr N frames antes. |
+| `screen frames` | Captura una secuencia PNG de N frames (`--summary` devuelve un resultado agregado compacto; `--settle-frames` corre una vez, antes del primer frame). |
+
+El recibo de una captura lleva dos contadores de frame: `engine_frame` es el límite en
+que se hizo la lectura, `render_frame` el frame dibujado al que pertenecen los píxeles.
 
 ### Flags globales
 

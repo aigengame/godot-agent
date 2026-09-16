@@ -531,8 +531,11 @@ Read injected mouse coordinates from `event.position` — in a daemon session
 
 | Command | What it does |
 | ------- | ------------ |
-| `screen capture` | Capture one viewport frame to a PNG. |
-| `screen frames` | Capture an N-frame PNG sequence (`--summary` for a compact aggregate result). |
+| `screen capture` | Capture one viewport frame to a PNG; `--settle-frames N` lets the game run N frames first. |
+| `screen frames` | Capture an N-frame PNG sequence (`--summary` for a compact aggregate result; `--settle-frames` runs once, before the first frame). |
+
+A capture's receipt carries two frame counters: `engine_frame` is the boundary the read
+was taken at, `render_frame` the drawn frame the pixels are.
 
 ### Global flags
 
