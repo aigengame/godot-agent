@@ -258,8 +258,9 @@ def test_a_pre_existing_cache_file_is_never_reported_as_rewritten(tmp_path):
 
 def test_the_artifact_and_its_created_dirs_are_not_mutations(tmp_path):
     # AC4: the export's own output is not a mutation of the project — not the
-    # artifact, not the parent directories gda created for it (#402), and not the
-    # files inside an artifact that is a DIRECTORY (a macOS `.app` bundle).
+    # artifact, not the files inside an artifact that is a DIRECTORY (a macOS
+    # `.app` bundle), and not the parent directories gda created for it (#402),
+    # which are directories and so are never reported by a walk over FILES.
     project = minimal_project(tmp_path)
 
     def mutate() -> None:
@@ -275,6 +276,48 @@ def test_the_artifact_and_its_created_dirs_are_not_mutations(tmp_path):
     assert mutations.created == []
     assert mutations.created_count == 0
     assert mutations.skipped == 0
+
+
+def test_a_res_output_artifact_is_the_output_not_a_mutation(tmp_path):
+    # `--output res://out.pck` is a destination INSIDE the project: the engine
+    # resolves `res://` against the project root, so the artifact lands in the
+    # tree both walks cover. Dropping every `://` spelling put it in `created` as
+    # `source_adjacent`, reproduced on a real pack export (PR #981 review round 3).
+    project = minimal_project(tmp_path)
+
+    outcome = _export(
+        project,
+        lambda: _write(project / "out.pck", "pack"),
+        output_override="res://out.pck",
+    )
+
+    assert isinstance(outcome, ExportRunResult), outcome
+    assert outcome.output_path == "res://out.pck"
+    assert (project / "out.pck").is_file()
+    assert _mutations(outcome).created == []
+    assert _mutations(outcome).skipped == 0
+
+
+def test_a_file_beside_the_artifact_is_reported_in_a_gda_created_parent(tmp_path):
+    # The exclusion is the artifact and its OWN subtree, one rule for both cases.
+    # A Linux preset with `binary_format/embed_pck=false` writes `game.pck` beside
+    # the binary, and that file IS something the export left in the project. Before
+    # round 3 it was reported when `build/` existed already and silently dropped
+    # when gda created it — the same call, two answers.
+    project = minimal_project(tmp_path)
+
+    def mutate() -> None:
+        _write(project / "build" / "game.x86_64", "binary")
+        _write(project / "build" / "game.x86_64.pck", "pack")
+
+    outcome = _export(project, mutate)
+
+    assert isinstance(outcome, ExportRunResult), outcome
+    assert outcome.created_dirs == [str(project / "build")]
+    assert [entry.path for entry in _mutations(outcome).created] == [
+        "res://build/game.x86_64.pck"
+    ]
+    assert _mutations(outcome).skipped == 0
 
 
 def test_a_top_level_git_directory_is_not_walked(tmp_path):

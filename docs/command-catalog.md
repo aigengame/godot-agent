@@ -1328,9 +1328,12 @@ than it rewrites, a changed timestamp alone would bury the few rewrites the reco
 is about, and the price is that a rewrite preserving both is not seen. A rewrite
 INSIDE `cache_root` is not reported at all — the cache is reported as one unit, and
 a warm export rewrites its bookkeeping files on every run — so an empty `modified`
-says nothing about the cache. Out of both lists: the artifact, the parent
-directories gda created for it, everything under the output path, and a top-level
-`.git`. `skipped` counts what neither walk could account for — an entry that
+says nothing about the cache. Out of both lists: the artifact with everything under
+it (a directory artifact such as a macOS `.app` bundle included) and a top-level
+`.git`. The exclusion stops there — a file the export writes BESIDE the artifact,
+such as the `game.pck` a Linux binary with `binary_format/embed_pck=false` gets next
+to it, is reported like any other created file.
+`skipped` counts what neither walk could account for — an entry that
 is not a regular file (a FIFO, a socket, a device; gda never opens one), or a file
 that could not be read, or a directory whose whole subtree is then uncovered —
 because an unreadable corner of the tree must not fail an export that succeeded;

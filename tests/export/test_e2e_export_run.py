@@ -680,3 +680,22 @@ def test_export_run_reports_what_the_native_export_did_to_the_project(godot_proj
     assert all(
         entry["classification"] == "cache_owned" for entry in rewrote["created"]
     ), rewrote["created"]
+
+    # (4) THE ARTIFACT ADDRESSED AS `res://`. The engine resolves that spelling
+    # against the project root, so the pack lands in the tree both walks cover.
+    # gda has to resolve it the same way or the artifact reads as a mutation of
+    # the project — which it did, on a real pack export (PR #981 review round 3).
+    virtual = gda.json(
+        "export",
+        "run",
+        "--preset",
+        "Linux/X11",
+        "--mode",
+        "pack",
+        "--output",
+        "res://out.pck",
+    )["project_tree_mutations"]
+
+    assert (godot_project / "out.pck").is_file()
+    assert "res://out.pck" not in {entry["path"] for entry in virtual["created"]}
+    assert virtual["skipped"] == 0

@@ -346,9 +346,12 @@ class ProjectTreeMutations(BaseModel):
       rewrites its bookkeeping files on every run, and hashing it beforehand would
       cost far more than the fact is worth (the dogfooding case holds about
       1.1 GiB there). So an unchanged ``modified`` says nothing about the cache.
-    * The artifact, the parent directories gda created for it, and everything
-      under the output path are out of both lists; so is a top-level ``.git``
-      directory, which the engine never writes to.
+    * The artifact and everything under it are out of both lists — a directory
+      artifact such as a macOS ``.app`` bundle included — and so is a top-level
+      ``.git`` directory, which the engine never writes to. The exclusion stops
+      there: a file the export writes BESIDE the artifact (a Linux binary with
+      ``binary_format/embed_pck=false`` gets a ``game.pck`` next to it) is a
+      created file like any other.
     * Deletions are not reported: the pass adds and rewrites.
     * ``skipped`` counts what neither walk could account for — an entry that is
       not a regular file (a FIFO, a socket, a device), a vanished or unreadable
@@ -615,6 +618,12 @@ _HASH_CHUNK = 1 << 20
 # separate — the shared part is the classification, not the walk.
 _VCS_DIR = ".git"
 
+# The one virtual scheme that names a path INSIDE the project (ADR-0006). Both
+# `--output res://out.pck` and a preset `export_path` may spell the destination
+# this way, and the engine resolves it against the project root — so the report
+# has to resolve it the same way before it can exclude the artifact (#981 round 3).
+_RES_SCHEME = "res://"
+
 
 @dataclass(frozen=True)
 class _FileFacts:
@@ -667,26 +676,38 @@ def _file_facts(path: Path, *, digest: bool) -> "_FileFacts | None":
     return _FileFacts(size=st.st_size, mtime_ns=st.st_mtime_ns, digest=content)
 
 
-def _excluded_prefixes(
-    project: Path, output_path: str, created_dirs: list[str]
-) -> tuple[str, ...]:
+def _excluded_prefixes(project: Path, output_path: str) -> tuple[str, ...]:
     """The project-relative paths neither walk reports (#839).
 
-    The artifact, the parent directories gda created for it (#402), and — a macOS
-    export writes an ``.app`` DIRECTORY — everything under them: that is the
-    export's own output, not a mutation of the project. A destination outside the
-    project is dropped here, since the walk never reaches it; so is a virtual
-    (``://``) path, which no walk can resolve.
+    The artifact and — a macOS export writes an ``.app`` DIRECTORY — everything
+    under IT: the export's own output is not a mutation of the project. The rule
+    stops at the artifact's OWN subtree, so a file the export writes BESIDE the
+    artifact (a Linux binary with ``binary_format/embed_pck=false`` gets a
+    ``game.pck`` next to it) is reported like any other created file. The parent
+    directories gda made for the artifact (#402) need no exclusion of their own: a
+    ``created_dirs`` entry is a DIRECTORY and both walks report FILES, so pruning
+    it would only have hidden those siblings — and it hid them in exactly one of
+    the two cases, since the same sibling was reported when the parent already
+    existed (PR #981 review round 3).
+
+    A destination outside the project is dropped here, since the walk never
+    reaches it. A virtual path is dropped too — EXCEPT ``res://``, which names a
+    path inside the project and is resolved against the root the way the engine
+    resolves it. Dropping every ``://`` spelling put a ``--output res://out.pck``
+    artifact in ``created``, reproduced on a real pack export (round 3);
+    ``user://`` stays dropped, because it cannot name a path in the project tree.
     """
     prefixes = [_VCS_DIR]
     root = project.resolve()
-    for raw in [output_path, *created_dirs]:
-        if not raw or "://" in raw:
-            continue
+    raw = output_path
+    if raw.startswith(_RES_SCHEME):
+        rest = raw[len(_RES_SCHEME) :].lstrip("/")
+        raw = str(project / rest) if rest else str(project)
+    if raw and "://" not in raw:
         try:
             rel = Path(raw).resolve().relative_to(root).as_posix()
         except (OSError, ValueError):
-            continue
+            rel = ""
         if rel not in ("", "."):
             prefixes.append(rel)
     return tuple(prefixes)
@@ -765,11 +786,9 @@ class _PreExportInventory:
     unlistable_dirs: tuple[str, ...]
 
     @classmethod
-    def capture(
-        cls, project: Path, *, output_path: str, created_dirs: list[str]
-    ) -> "_PreExportInventory":
+    def capture(cls, project: Path, *, output_path: str) -> "_PreExportInventory":
         """Record the tree as it stands before the native export (#839)."""
-        excluded = _excluded_prefixes(project, output_path, created_dirs)
+        excluded = _excluded_prefixes(project, output_path)
         files: dict[str, _FileFacts] = {}
         unreadable: set[str] = set()
         unlistable: set[str] = set()
@@ -1151,9 +1170,7 @@ def run_export_operation(
     # on. The destination is known by now, so the artifact is excluded from the
     # first walk rather than filtered out of the second.
     inventory = (
-        _PreExportInventory.capture(
-            project, output_path=output_path, created_dirs=created_dirs
-        )
+        _PreExportInventory.capture(project, output_path=output_path)
         if project is not None
         else None
     )
@@ -1358,9 +1375,10 @@ def run_export(
     unit. ``modified`` carries the pre-existing files OUTSIDE that root whose
     CONTENT changed, and only a file whose size or timestamp moved is compared;
     rewrites INSIDE the root are not reported at all, so an empty ``modified``
-    says nothing about the cache. The artifact, the directories gda created for
-    it, everything under the output path and a top-level ``.git`` stay out of both
-    lists. ``skipped`` counts what neither walk could account for — an entry that
+    says nothing about the cache. The artifact and everything under it stay out of
+    both lists, and so does a top-level ``.git``; a file the export writes BESIDE
+    the artifact is reported like any other created file.
+    ``skipped`` counts what neither walk could account for — an entry that
     is not a regular file (a FIFO, a socket, a device), or one that could not be
     read, including a directory whose whole subtree is then uncovered — a count,
     not a path list, so repair the tree and run again for a complete record. The report is disclosure: gda
