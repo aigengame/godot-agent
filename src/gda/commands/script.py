@@ -1487,7 +1487,10 @@ class _CompletionMarkerWatch:
         # it is here so the hazard cannot be reintroduced from a third call site.
         stripped = completion_marker.strip() if completion_marker is not None else ""
         self._marker = stripped or None
-        self._entry = canonical_res_path(entry)
+        # Stored as the caller spelled it: the identity is folded where the
+        # comparison happens, by the recognizer's own predicates (#976), so a second
+        # canonicalization here would be a rule kept in two places again.
+        self._entry = entry
         self._silence = silence
         self._partial: dict[str, str] = {"stdout": "", "stderr": ""}
         # A bounded tail of stderr lines, re-parsed as new ones arrive. A window,

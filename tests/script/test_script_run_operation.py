@@ -1451,12 +1451,15 @@ def test_an_entry_load_failure_arms_the_abort_too():
 
 
 def test_a_non_canonical_entry_spelling_still_arms_the_abort():
-    # Attribution (3): whether a record names the ENTRY is
-    # `gda.script_errors.names_entry_script`'s answer since #976, and what it
-    # answers about is the CANONICAL identity on both sides — the engine reports
-    # the spelling it resolved, while the caller addresses the entry however they
-    # spelled it. A raw comparison would leave a dead run waiting out the whole
-    # --timeout: the #651 failure mode, on the #655 path.
+    # Attribution (3), end to end: the engine reports the spelling it resolved,
+    # while the caller addresses the entry however they spelled it, and the abort
+    # must still arm — a raw comparison anywhere on this path would leave a dead run
+    # waiting out the whole --timeout (the #651 failure mode, on the #655 path).
+    # The property held before #976 and holds after it; what changed is WHERE the
+    # identity is folded — the watch stored a canonical entry, the recognizer's
+    # predicates now own the comparison. The unit pin on that predicate is
+    # `test_names_entry_script_is_the_canonical_identity_on_both_sides`; this one
+    # pins that the abort path as a whole still asks the question canonically.
     watch = _CompletionMarkerWatch(
         "SUITE DONE", entry="res://tests/../tests/logic.gd", silence=3.0
     )
