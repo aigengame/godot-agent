@@ -1977,10 +1977,10 @@ re-derives every verdict from a running engine.
   nothing would take it for a clean start. An idempotent repeat reports the establishing
   launch's verdict, not a fresh read.
   A daemon started by an OLDER gda answers without the two keys — and a drifted one with a
-  pair that contradicts itself (the pair is one fact: both null, or a list and exactly "no
-  record about the run among them") — which the CLI reports as `contract_violation`; run `gda daemon stop`,
-  then `gda daemon start`, so the daemon
-  serves the current contract. The skew is reachable because a daemon is a long-lived
+  pair that contradicts itself (the pair is one fact: both null, or a list and exactly
+  "no record about the run among them") — which the CLI reports as `contract_violation`;
+  run `gda daemon stop`, then `gda daemon start`, so the daemon serves the current
+  contract. The skew is reachable because a daemon is a long-lived
   per-project process and a repeat `daemon start` only reports `already_running`, so
   upgrading gda while one runs leaves the older daemon serving. There is no CLI/daemon
   version handshake and none is planned: a mixed-version session is not a compatibility

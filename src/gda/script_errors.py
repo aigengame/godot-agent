@@ -33,18 +33,18 @@ kind MEANS to a verdict that reads it — is the record about the RUN (what beca
 of a script) or about the PROCESS (what became of the run itself), and can its
 ``path`` be the entry script — is answered by ``_KIND_POLICY`` and read through
 the two predicates its consumers ask, :func:`has_run_record` and
-:func:`names_entry_script`. It
-is a table rather than a convention each consumer keeps for itself because that
-is what it replaced: ``scene preflight`` excluded the exit-time record by hand,
-the daemon's readiness verdict excluded nothing at all (unstated and untested),
-and ``script run``'s abort re-spelled the canonical path match this module keeps
-private. The table is complete BY CONSTRUCTION — a kind with no row fails at
-IMPORT (:func:`_complete_policy`), never on a live path — so a kind added to the
-closed set states its policy here instead of inheriting a silent default from
-whichever consumer reads it first. What the table does NOT hold is a `Gda error
-code`: this module stays a pure function of the engine text and learns nothing
-about gda's failure registry, so ``script run``'s kind -> code map is DERIVED in
-the command layer from :data:`ENTRY_FAILURE_PRECEDENCE`.
+:func:`names_entry_script`. It is a table rather than a convention each consumer
+keeps for itself because that is what it replaced: ``scene preflight`` excluded
+the exit-time record by hand, the daemon's readiness verdict excluded nothing at
+all (unstated and untested), and ``script run``'s abort re-spelled the canonical
+path match this module keeps private. The table is complete BY CONSTRUCTION — a
+kind with no row fails at IMPORT (:func:`_complete_policy`), never on a live
+path — so a kind added to the closed set states its policy here instead of
+inheriting a silent default from whichever consumer reads it first. What the
+table does NOT hold is a `Gda error code`: this module stays a pure function of
+the engine text and learns nothing about gda's failure registry, so ``script
+run``'s kind -> code map is DERIVED in the command layer from
+:data:`ENTRY_FAILURE_PRECEDENCE`.
 
 Everything here is a **pure function of the stderr text**: no engine, no I/O.
 Recognition is deliberately closed — only the records below are classified, so
@@ -402,8 +402,8 @@ class _KindPolicy(NamedTuple):
     and about everything the process held — an autoload's leak reads exactly like
     the scene's own, so gating on one reported a scene whose nodes carry no script
     at all as not started (#844). ``SHUTDOWN_LEAK`` is the one process record
-    today; this column is what a SECOND process-lifecycle kind states for itself
-    instead of being discovered, consumer by consumer, on a live path.
+    today; this column is what a SECOND process-lifecycle kind states for itself, so
+    no consumer has to discover it on a live path.
 
     ``can_name_entry`` — can this kind's ``path`` be the entry script? False for
     the two kinds that carry NO path by construction, so neither can decide an
@@ -678,7 +678,9 @@ def has_run_record(errors: Sequence[ScriptError]) -> bool:
     among these", so they agree by construction rather than by two consumers keeping
     one exclusion in step by hand. An empty list has no run record and is therefore
     clean — which is what both verdicts already meant, since the only process record
-    today is one neither of them ever saw gate anything.
+    today gates neither verdict. It once gated ``scene preflight``'s: a scene whose
+    nodes carry no script at all read ``started: false`` because an autoload leaked
+    at exit, which is the false negative #844 removed and this table now owns.
 
     It answers about the RECORDS alone. Whether the boot is clean OVERALL is the
     consumer's verdict: ``scene preflight`` also requires the engine's own ``ready``
@@ -690,10 +692,10 @@ def has_run_record(errors: Sequence[ScriptError]) -> bool:
 def names_entry_script(error: ScriptError, script: str) -> bool:
     """Does ``error`` name ``script`` as the resource it is about (#976)?
 
-    The public entry-attribution predicate, so a consumer that needs the question
-    for a kind :func:`entry_load_failure` does not cover — ``script run``'s
-    completion-marker abort, which adds the runtime kind (#655) — asks THIS module
-    instead of re-spelling its canonical path comparison beside it.
+    The public entry-attribution predicate. A consumer that needs the question for a
+    kind that :func:`entry_load_failure` does not cover asks THIS module instead of
+    re-spelling its canonical path comparison beside it. That consumer is ``script
+    run``'s completion-marker abort, which adds the runtime kind (#655).
 
     Canonical on both sides, like every comparison in this module: the engine
     reports the canonical spelling of whatever it was given, so a raw

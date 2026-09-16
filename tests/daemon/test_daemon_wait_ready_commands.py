@@ -278,7 +278,7 @@ def test_wait_ready_human_output_names_an_unavailable_verdict(monkeypatch, tmp_p
 
 
 # The pair is ONE fact (fourth review of PR #940): both null, or a list and
-# exactly "no record about the RUN among them" (#976 — it read "that list is
+# exactly "no record about the run among them" (#976 — it read "that list is
 # empty" until the two boot verdicts were given one predicate). A reply that says
 # otherwise is a drifted daemon, and on `wait-ready` it fails OUTPUT validation the
 # way a missing key does — never a success carrying half a verdict.

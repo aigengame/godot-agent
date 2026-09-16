@@ -197,7 +197,8 @@ def check_startup_verdict_pair(
     """Raise ``ValueError`` unless the startup verdict is ONE fact (#848).
 
     Either both values are null — no verdict — or ``startup_diagnostics`` is a
-    list and ``clean_start`` is exactly "no record about the RUN among them".
+    list and ``clean_start`` is exactly "no record about the run among them" — one
+    spelling, shared by both published descriptions and by the message this raises.
     Owned HERE, on the published values, and enforced by both result models below:
     the daemon computing the boolean in one place is a property of ONE deployment,
     and the CLI/daemon skew this slice makes reachable is exactly a second one
@@ -221,7 +222,7 @@ def check_startup_verdict_pair(
         )
     if diagnostics is not None and clean_start != (not has_run_record(diagnostics)):
         raise ValueError(
-            "clean_start must be exactly 'no run-record among startup_diagnostics'"
+            "clean_start must be exactly 'no record about the run among them'"
         )
 
 
