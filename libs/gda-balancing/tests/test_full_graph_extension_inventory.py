@@ -332,10 +332,9 @@ def test_real_build8_run6_replace_the_three_placeholder_gaps(priority_full_graph
     kernel, graph, inventory, baseline = priority_full_graph
     validate_extension_inventory(kernel, graph, inventory)
     assert inventory.uncovered == baseline.uncovered
-    assert {gap.pointer for gap in inventory.uncovered} == {
-        "/packages/14/semantic_closure/25/definitions/0",
-        "/vector_sets",
-    }
+    (gap,) = inventory.uncovered
+    assert gap.pointer.endswith("/semantic_closure/25/definitions/0")
+    assert gap.reason == "nested language.wire_schemas roles are not yet traversed"
     assert not any(
         gap.pointer == root or gap.pointer.startswith(root + "/")
         for gap in inventory.uncovered

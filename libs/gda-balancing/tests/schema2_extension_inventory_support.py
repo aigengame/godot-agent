@@ -8296,7 +8296,16 @@ def validate_inventory_occurrences(
 
     model_rows, _, _, _ = model_vector_inventory(kernel, graph)
     expected_free.update(
-        (row.token, row.pointer, row.use, row.location, row.projection)
+        (
+            row.token,
+            row.pointer,
+            row.use,
+            row.law
+            if row.pointer.startswith(("/experiment/", "/artifacts/", "/results/"))
+            else "",
+            row.location,
+            row.projection,
+        )
         for row in model_rows
         if row.use == "unresolved-reference"
     )
