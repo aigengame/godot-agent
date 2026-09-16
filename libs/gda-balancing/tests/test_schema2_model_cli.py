@@ -2982,7 +2982,7 @@ def test_operation_reachability_follows_kernel_operation_members_after_node_rena
     assert operation_nodes == {"defer"}
     assert (
         model_module._selected_source_operation_coordinates(
-            entrypoints, lock, operation_nodes, "operation"
+            entrypoints, lock, operation_nodes
         )
         == expected
     )

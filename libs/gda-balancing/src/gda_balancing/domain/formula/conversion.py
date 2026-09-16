@@ -49,7 +49,7 @@ def render_formula_request(
     context: AdmittedAuthorityContext,
 ) -> FormulaConversion:
     """Render and reverse-admit one structured Formula body."""
-    _, _, formula_schema = notation._authored_formula_schemas(context)
+    _, formula_schema = notation._authored_formula_schemas(context)
     body_member, _ = source_schema_member(formula_schema, "body")
     expression_member, _ = source_schema_member(formula_schema, "expression")
     formula = request.get("formula")
@@ -72,7 +72,7 @@ def parse_formula_request(
     context: AdmittedAuthorityContext,
 ) -> FormulaConversion:
     """Parse notation and reverse-admit its canonical Formula pair."""
-    _, _, formula_schema = notation._authored_formula_schemas(context)
+    _, formula_schema = notation._authored_formula_schemas(context)
     body_member, _ = source_schema_member(formula_schema, "body")
     expression_member, _ = source_schema_member(formula_schema, "expression")
     body = notation.parse_formula_expression(request, context)

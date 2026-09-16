@@ -1283,7 +1283,6 @@ def _resolved_formula_programs_and_bindings_impl(
         checked.source_projection.value["entrypoints"],
         lock,
         _operation_reference_node_ids(checked.kernel),
-        "operation",
         formula_operation_roots,
     )
     for operation_row in cast(list[dict[str, Any]], lock["operations"]):

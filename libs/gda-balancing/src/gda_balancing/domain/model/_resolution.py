@@ -304,7 +304,6 @@ def _selected_source_operation_coordinates(
     entrypoints: list[dict[str, Any]],
     lock: dict[str, Any],
     operation_node_ids: set[str],
-    entrypoint_operation_member: str,
     additional_roots: set[tuple[str, str]] | None = None,
 ) -> set[tuple[str, str]]:
     """Close the exact Operation-valued graph from authored entrypoints."""
@@ -318,7 +317,7 @@ def _selected_source_operation_coordinates(
     selected = {
         (cast(str, operation["package"]), cast(str, operation["id"]))
         for entrypoint in entrypoints
-        if isinstance((operation := entrypoint.get(entrypoint_operation_member)), dict)
+        if isinstance((operation := entrypoint.get("operation")), dict)
     }
     selected.update(additional_roots or set())
     return closed_operation_coordinates(selected, operations, operation_node_ids)

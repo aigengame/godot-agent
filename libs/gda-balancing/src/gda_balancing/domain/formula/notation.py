@@ -282,22 +282,19 @@ def _formula_resolution_profile(
 
 def _authored_formula_schemas(
     authority_context: AdmittedAuthorityContext,
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-    profile = _formula_resolution_profile(authority_context)
+) -> tuple[dict[str, Any], dict[str, Any]]:
     schema = wire_schema_definition_for_role(
         authority_context.language_bundle, "model-source-package"
     )["schema"]
     module_schema = source_schema_member(schema, "modules")[1]["items"]
     formula_schema = source_schema_member(module_schema, "formulas")[1]["items"]
-    return profile, module_schema, formula_schema
+    return module_schema, formula_schema
 
 
 def _project_formula_request(
     request: dict[str, Any], authority_context: AdmittedAuthorityContext
 ) -> dict[str, Any]:
-    profile, module_schema, formula_schema = _authored_formula_schemas(
-        authority_context
-    )
+    module_schema, formula_schema = _authored_formula_schemas(authority_context)
     projected = dict(request)
     for member, selected_schema in (
         ("module", module_schema),
@@ -1369,7 +1366,7 @@ def parse_formula_expression(
         authority_context,
         operation_coordinates=operation_coordinates,
     )
-    profile, _, formula_schema = _authored_formula_schemas(authority_context)
+    _, formula_schema = _authored_formula_schemas(authority_context)
     body_schema = source_schema_member(formula_schema, "body")[1]
     return author_source_value(semantic, authority_context.kernel, body_schema)
 
@@ -1384,7 +1381,7 @@ def admit_formula_pair(
             _project_formula_request(request, authority_context), authority_context
         )
     except FormulaPairRefusal as error:
-        _, _, formula_schema = _authored_formula_schemas(authority_context)
+        _, formula_schema = _authored_formula_schemas(authority_context)
         member, _ = source_schema_member(formula_schema, error.member)
         raise FormulaPairRefusal(error.reason_id, member, error.message) from error
 
@@ -1579,7 +1576,7 @@ def render_formula_body(
     try:
         if not isinstance(body, dict):
             raise ValueError("Formula body must be an object")
-        profile, _, formula_schema = _authored_formula_schemas(authority_context)
+        _, formula_schema = _authored_formula_schemas(authority_context)
         body_schema = source_schema_member(formula_schema, "body")[1]
         semantic = project_source_value(
             body, authority_context.kernel, body_schema
