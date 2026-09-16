@@ -678,11 +678,17 @@ added incrementally under ADR-0025 if a concrete need appears.
 > per-kind policy lives. A table beside the enum in `gda.script_errors` now answers,
 > for every kind, whether the record is about the RUN or about the PROCESS and
 > whether it can name the entry script, and it is complete by construction: a kind
-> added without a row fails at import, not on a live path. So the answer the #844
+> added without a row fails at import, not on a live path. The table backs TWO
+> predicates, one per question it answers, and they have different consumers.
+> `has_run_record` answers the BOOT question, and it is where the answer the #844
 > note gives `scene preflight` — the leak is DATA there, never a `started` verdict —
-> is one predicate that `scene preflight`, the daemon's `clean_start` and `script
-> run`'s completion-marker attribution all read, instead of an exclusion spelled by
-> hand in one command, unstated in the daemon, and re-derived beside the third. A
+> now lives for both boot verdicts: `scene preflight`'s `started`, which spelled that
+> exclusion by hand, and the daemon's `clean_start`, which did not state it at all.
+> `names_entry_script` answers the ENTRY-ATTRIBUTION question for `script run`'s
+> completion-marker abort, which re-derived the recognizer's own path match beside it
+> because it could not import it. What the table owns is what a KIND means; each
+> consumer keeps its own verdict — that abort still decides which kinds it acts on,
+> and `started` still requires the engine's own `ready` status beside the records. A
 > second process-lifecycle kind therefore gets its POLICY row here by construction,
 > whatever is later decided about its wire shape.
 >
