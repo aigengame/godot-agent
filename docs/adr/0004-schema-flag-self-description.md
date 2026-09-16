@@ -404,19 +404,20 @@ status: accepted
 > carries the placement: `engine_crashed` and `stdout_spill_failed`. Neither is on
 > this axis at all — they compute no evidence and carry no `evidence` key — so
 > admitting the placement to them would ADD a producer, which this note does not do.
-> Each also fails a clause on its own, and for both of them it is the THIRD.
 > `engine_crashed` is the SHARED `classify_launch_or_crash` verdict every
 > launch-backed channel reaches, so putting the placement there would disclose it
-> on `export run`, `resource import` and `scene preflight` in one edit; and an
-> unusable placement never reaches that verdict, because the same classifier
-> refuses the launch before the spawn (`user_data_unwritable`, the branch that
-> exists because the engine dies on a log it cannot open). A signal death is
-> therefore not the placement's doing, and naming it would not change what the
-> caller does next. `stdout_spill_failed` is about a file gda itself could not
-> write and names that path in its own message, so the placement would not change
-> what the caller does next either. Recorded because "the verdicts that report on a
-> run" would be the wrong rule to read off this change: the three are named, and
-> they are the run-reporting verdicts that ALREADY carried evidence.
+> on `export run`, `resource import` and `scene preflight` in one edit. The
+> pre-spawn checks belong to `runner.user_data_placement`, not that classifier:
+> they probe the log target and, with an explicit root, the redirected data path.
+> They do not probe the engine's default `user://` directory or prove that a path
+> stays usable after the spawn. This decision therefore does not claim that a
+> signal death cannot involve placement; adding evidence to this shared verdict
+> would need its own admission and channel-scope decision. `stdout_spill_failed`
+> fails the THIRD clause: it is about a file gda itself could not write and names
+> that path in its own message, so the placement would not change what the caller
+> does next. Recorded because "the verdicts that report on a run" would be the
+> wrong rule to read off this change: the three are named, and they are the
+> run-reporting verdicts that ALREADY carried evidence.
 
 ADR-0000 lists `--schema` as a core capability without defining it. We fix its
 semantics here, and deliberately scope out an overloaded interpretation.
