@@ -635,6 +635,18 @@ _PARSE_ERROR_LOG = (
 )
 
 
+# The engine's exit-time leak pair (#844), as the Session log holds it: a record
+# about the PROCESS and about everything it held, printed as the engine exits.
+_SHUTDOWN_LEAK_LOG = (
+    "Godot Engine v4.6.3.stable.official - https://godotengine.org\n"
+    "\n"
+    "WARNING: ObjectDB instances leaked at exit (run with --verbose for details).\n"
+    "   at: cleanup (core/object/object.cpp:2663)\n"
+    "ERROR: 1 resources still in use at exit (run with --verbose for details).\n"
+    "   at: clear (core/io/resource.cpp:810)\n"
+)
+
+
 def _server_with_own_log(tmp_path, monkeypatch, log_text: str) -> DaemonServer:
     """A server whose launch seam writes ``log_text`` as the Session log."""
     paths = replace(
@@ -828,6 +840,33 @@ def test_a_startup_that_printed_nothing_recognizable_is_a_clean_start(
     ready = parse_result(reply["stdout"])
     assert ready["clean_start"] is True
     assert ready["startup_diagnostics"] == []
+
+
+def test_a_process_record_in_the_prefix_is_reported_and_does_not_gate(
+    tmp_path, monkeypatch
+):
+    # #976: the verdict is "no record about the RUN", read from the per-kind policy
+    # table beside the enum — the exclusion `scene preflight`'s `started` already
+    # made and this boundary made nowhere. A record about the PROCESS is disclosed
+    # in `startup_diagnostics` and does not say the start went badly: the engine
+    # prints it about everything the process held, so an autoload's leak reads
+    # exactly like the scene's own.
+    #
+    # It changes no published verdict: this prefix ends at the harness handshake
+    # and the engine prints these records as it exits, long after — which is why
+    # the log below has to be written by hand. What the rule removes is the drift
+    # the next process-lifecycle kind would otherwise land in.
+    server = _server_with_own_log(tmp_path, monkeypatch, _SHUTDOWN_LEAK_LOG)
+
+    reply = server._handle({"op": "daemon-wait-ready", "params": {}})
+
+    assert reply is not None
+    ready = parse_result(reply["stdout"])
+    assert [error["kind"] for error in ready["startup_diagnostics"]] == [
+        "shutdown_leak",
+        "shutdown_leak",
+    ]
+    assert ready["clean_start"] is True
 
 
 def test_the_startup_verdict_is_the_launchs_own_and_is_not_re_read_later(

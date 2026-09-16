@@ -15,10 +15,15 @@ them, which is exactly why the verdict has to come from here.
 
 import pytest
 
+from gda.project import canonical_res_path
 from gda.script_errors import (
+    ENTRY_FAILURE_PRECEDENCE,
+    ScriptError,
     ScriptErrorKind,
     entry_load_failure,
+    has_run_record,
     leaked_at_exit,
+    names_entry_script,
     parse_script_errors,
 )
 
@@ -179,9 +184,7 @@ def test_every_never_ran_kind_is_an_entry_failure_candidate():
     # Updated deliberately by #722 and again by #844, which is what this assertion
     # is FOR: adding a kind without deciding whether it can fail an entry fails
     # here by design.
-    from gda.script_errors import _ENTRY_FAILURE_PRECEDENCE
-
-    assert set(ScriptErrorKind) - set(_ENTRY_FAILURE_PRECEDENCE) == {
+    assert set(ScriptErrorKind) - set(ENTRY_FAILURE_PRECEDENCE) == {
         ScriptErrorKind.RUNTIME_ERROR,
         ScriptErrorKind.PUSH_ERROR,
         ScriptErrorKind.INCOMPATIBLE_SCRIPT,
@@ -914,3 +917,131 @@ def test_leaked_at_exit_reports_the_first_leak_record():
 def test_leaked_at_exit_is_none_for_a_run_that_did_not_leak():
     assert leaked_at_exit(parse_script_errors(RUNTIME_ERROR_STDERR)) is None
     assert leaked_at_exit([]) is None
+
+
+# --- The per-kind policy table (#976) -----------------------------------------
+#
+# What a recognized kind MEANS to a verdict that reads it is answered HERE, beside
+# the enum, and nowhere else: `scene preflight`'s `started` used to spell the
+# boot-verdict exclusion kind by kind, the daemon's `clean_start` did not spell it
+# at all, and `script run`'s abort re-spelled this module's canonical path match.
+# These pin the two columns and the completeness the table promises.
+
+
+def _record(kind: ScriptErrorKind, path: str | None = None) -> ScriptError:
+    """A hand-built record, for what the columns say that no capture can produce."""
+    return ScriptError(kind=kind, message="m", path=path)
+
+
+def test_every_kind_states_its_policy():
+    # Completeness BY CONSTRUCTION, seen from outside: the table's key set IS the
+    # closed enum. A kind added without a row never reaches a live path — the
+    # module refuses to import (the test below) — and this says what the table
+    # covers for the enum as it stands.
+    from gda.script_errors import _KIND_POLICY
+
+    assert set(_KIND_POLICY) == set(ScriptErrorKind)
+
+
+def test_a_kind_with_no_policy_row_fails_at_import():
+    # The mechanism behind that completeness, exercised directly: the guard the
+    # table is built through raises where the enum is edited, naming the kind whose
+    # policy nobody decided. Without it the kind would inherit a silent default
+    # from whichever verdict read it first — a KeyError on a real failure path, or
+    # a boot verdict gating on a record that says nothing about the boot.
+    from gda.script_errors import _KIND_POLICY, _complete_policy
+
+    incomplete = {
+        kind: policy
+        for kind, policy in _KIND_POLICY.items()
+        if kind is not ScriptErrorKind.SHUTDOWN_LEAK
+    }
+
+    with pytest.raises(RuntimeError) as excinfo:
+        _complete_policy(incomplete)
+
+    assert "shutdown_leak" in str(excinfo.value)
+
+
+def test_only_a_process_record_is_kept_out_of_the_boot_verdict():
+    # Column 1, kind by kind: everything the engine says about a SCRIPT's fate is
+    # about the run; the exit-time leak is about the PROCESS the run was. The set
+    # of exclusions is asserted whole, so a new kind cannot join it unnoticed.
+    excluded = {kind for kind in ScriptErrorKind if not has_run_record([_record(kind)])}
+
+    assert excluded == {ScriptErrorKind.SHUTDOWN_LEAK}
+
+
+def test_has_run_record_is_the_one_boot_verdict_question():
+    # What both boot verdicts negate. An empty list is clean; a leak-only list is
+    # still clean (the engine prints that record as it exits, about everything the
+    # process held — an autoload's leak reads exactly like the scene's own); a
+    # script failure makes it dirty whatever else stands beside it.
+    leak = parse_script_errors(SHUTDOWN_LEAK_STDERR)
+    failed = parse_script_errors(PARSE_ERROR_STDERR)
+
+    assert has_run_record([]) is False
+    assert has_run_record(leak) is False
+    assert has_run_record(failed) is True
+    assert has_run_record(failed + leak) is True
+
+
+def test_names_entry_script_is_the_canonical_identity_on_both_sides():
+    # Column 2's public face, and the comparison it lifted out of the command
+    # layer: canonical on BOTH sides, because the engine reports the canonical
+    # spelling of whatever it was given while a caller's entry can be spelled any
+    # way that resolves to it (#651 review claim 1 — comparing raw spellings
+    # reported a failed run as a success).
+    record = _record(ScriptErrorKind.RUNTIME_ERROR, path="res://tests/logic.gd")
+    aliased = _record(ScriptErrorKind.RUNTIME_ERROR, path="res://a//..//b.gd")
+    pathless = _record(ScriptErrorKind.RUNTIME_ERROR)
+
+    assert names_entry_script(record, "res://tests/logic.gd") is True
+    assert names_entry_script(record, "res://tests/../tests/logic.gd") is True
+    assert names_entry_script(aliased, "res://b.gd") is True
+    assert names_entry_script(record, "res://tests/other.gd") is False
+    assert names_entry_script(pathless, "res://tests/logic.gd") is False
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        MISSING_STDERR,
+        PARSE_ERROR_STDERR,
+        BAD_DEPENDENCY_STDERR,
+        RUNTIME_ERROR_STDERR,
+        NOT_A_MAIN_LOOP_STDERR,
+        ALIASED_MISSING_STDERR,
+        RUNTIME_RESOURCE_LOAD_STDERR,
+        INCOMPATIBLE_BINDING_STDERR,
+        PUSH_ERROR_STDERR,
+        SHUTDOWN_LEAK_STDERR,
+    ],
+)
+def test_the_public_predicate_answers_as_the_private_match_did(stderr):
+    # The behaviour is unchanged for every record a real capture produces: exactly
+    # "the record carries a path and that path canonicalizes onto the entry", which
+    # is what the private helper inside this module said before #976 made it
+    # public. Asserted over the recognized corpus, both for an unrelated entry and
+    # for the record's own path, so no kind is folded into the new column by
+    # accident.
+    for error in parse_script_errors(stderr):
+        for entry in ("res://tests/logic.gd", error.path or "res://none.gd"):
+            matched = error.path is not None and canonical_res_path(
+                error.path
+            ) == canonical_res_path(entry)
+
+            assert names_entry_script(error, entry) is matched
+
+
+def test_a_kind_that_carries_no_path_names_no_entry():
+    # The one place the column is stricter than that path comparison, and it is
+    # stricter BY DESIGN: the two kinds that carry no path by construction — the
+    # engine names nothing it still held, and neither refusal sentence names a file
+    # — cannot decide an entry verdict even from a hand-built record. No capture
+    # produces one; the column is what keeps a caller from reading an entry verdict
+    # out of a kind that never names an entry.
+    for kind in (ScriptErrorKind.SHUTDOWN_LEAK, ScriptErrorKind.INCOMPATIBLE_SCRIPT):
+        record = _record(kind, path="res://tests/logic.gd")
+
+        assert names_entry_script(record, "res://tests/logic.gd") is False

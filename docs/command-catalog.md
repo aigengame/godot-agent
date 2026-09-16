@@ -1957,7 +1957,11 @@ re-derives every verdict from a running engine.
   is idempotent (`launched: false`, nothing relaunched). Success also carries the STARTUP
   VERDICT of the session it established (#848): `startup_diagnostics` — the `ScriptError[]`
   that `script run` and `scene preflight` publish — and `clean_start`, the one boolean
-  saying nothing was recognized against that start. It answers what readiness never did: a
+  saying no record about the RUN was recognized against that start — a record about the
+  PROCESS, if the prefix holds one, is reported beside it and does not gate it, the same
+  exclusion `scene preflight`'s `started` makes; the one such record today, the exit-time
+  leak, is printed as the engine exits, after that prefix ends, so it does not reach this
+  list on a live path. It answers what readiness never did: a
   harness that connected is not a scene that started cleanly, because a script that fails
   to compile leaves its node script-less and the session serves anyway (GDA-DF-047). A
   disclosure on SUCCESS, never a refusal — a broken scene is exactly when `diag errors`,
@@ -1974,15 +1978,15 @@ re-derives every verdict from a running engine.
   `live_log_unavailable`; the human rendering says so in one line, since a reader who sees
   nothing would take it for a clean start. An idempotent repeat reports the establishing
   launch's verdict, not a fresh read.
-  A daemon started by an OLDER gda answers without the two keys — and a drifted one with a
-  pair that contradicts itself (the pair is one fact: both null, or a list and exactly "that
-  list is empty") — which the CLI reports as `contract_violation`; run `gda daemon stop`,
-  then `gda daemon start`, so the daemon
-  serves the current contract. The skew is reachable because a daemon is a long-lived
-  per-project process and a repeat `daemon start` only reports `already_running`, so
-  upgrading gda while one runs leaves the older daemon serving. There is no CLI/daemon
-  version handshake and none is planned: a mixed-version session is not a compatibility
-  target — the CLI/daemon leg of ADR-0018's current-harness policy (2026-09-08).
+  A daemon started by an OLDER gda answers without the two keys — and a drifted one with
+  a pair that contradicts itself (the pair is one fact: both null, or a list and exactly
+  "no record about the run among them") — which the CLI reports as `contract_violation`;
+  run `gda daemon stop`, then `gda daemon start`, so the daemon serves the current
+  contract. The skew is reachable because a daemon is a long-lived per-project process
+  and a repeat `daemon start` only reports `already_running`, so upgrading gda while one
+  runs leaves the older daemon serving. There is no CLI/daemon version handshake and
+  none is planned: a mixed-version session is not a compatibility target — the
+  CLI/daemon leg of ADR-0018's current-harness policy (2026-09-08).
   A session stops serving when its harness channel breaks OR
   when a relay hits `live_timeout` — the one-op-at-a-time RPC carries no request id, so a
   late reply can no longer be attributed — and the next operation that requires a session

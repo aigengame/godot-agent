@@ -76,7 +76,7 @@ from gda.headless import (
     project_option,
 )
 from gda.project import main_scene_unrunnable
-from gda.script_errors import ScriptError, script_error_line
+from gda.script_errors import ScriptError, has_run_record, script_error_line
 
 
 class DaemonStartParams(BaseModel):
@@ -197,21 +197,33 @@ def check_startup_verdict_pair(
     """Raise ``ValueError`` unless the startup verdict is ONE fact (#848).
 
     Either both values are null — no verdict — or ``startup_diagnostics`` is a
-    list and ``clean_start`` is exactly "that list is empty". Owned HERE, on the
-    published values, and enforced by both result models below: the daemon
-    computing the boolean in one place is a property of ONE deployment, and the
-    CLI/daemon skew this slice makes reachable is exactly a second one (fourth
-    review of PR #940). ``wait-ready`` lets the violation fail output validation
-    (`contract_violation`, the channel a missing key already takes); ``status``
-    degrades it to the null pair before it builds its result, through this same
-    function, because a status read must not crash on a drifted daemon.
+    list and ``clean_start`` is exactly "no record about the run among them" — one
+    spelling, shared by both published descriptions and by the message this raises.
+    Owned HERE, on the published values, and enforced by both result models below:
+    the daemon computing the boolean in one place is a property of ONE deployment,
+    and the CLI/daemon skew this slice makes reachable is exactly a second one
+    (fourth review of PR #940). ``wait-ready`` lets the violation fail output
+    validation (`contract_violation`, the channel a missing key already takes);
+    ``status`` degrades it to the null pair before it builds its result, through
+    this same function, because a status read must not crash on a drifted daemon.
+
+    The rule reads the per-kind policy table rather than the list's emptiness
+    (#976), so this invariant, the daemon's own projection and ``scene
+    preflight``'s ``started`` all exclude the same records. No published verdict
+    moves: the prefix this list is read from ends at the harness handshake, and
+    the engine prints its only process record — the exit-time leak — long after
+    that instant, so a list holding nothing but process records is unreachable on
+    a live path today. Pinning it here is what a SECOND process-lifecycle kind
+    lands on, instead of on two boundaries that answer differently.
     """
     if (diagnostics is None) != (clean_start is None):
         raise ValueError(
             "startup_diagnostics and clean_start are null together or not at all"
         )
-    if diagnostics is not None and clean_start != (not diagnostics):
-        raise ValueError("clean_start must be exactly 'startup_diagnostics is empty'")
+    if diagnostics is not None and clean_start != (not has_run_record(diagnostics)):
+        raise ValueError(
+            "clean_start must be exactly 'no record about the run among them'"
+        )
 
 
 class DaemonStatusResult(BaseModel):
@@ -274,12 +286,18 @@ class DaemonStatusResult(BaseModel):
     )
     clean_start: bool | None = Field(
         description=(
-            "Whether that startup read recognized no script error — the one "
-            "boolean to branch on before treating a screenshot or a runtime read "
-            "as evidence about the scene (#848). false does NOT mean the session "
-            "is unusable: a scene whose script failed to compile boots "
+            "Whether that startup read recognized no record about the RUN — the "
+            "one boolean to branch on before treating a screenshot or a runtime "
+            "read as evidence about the scene (#848). false does NOT mean the "
+            "session is unusable: a scene whose script failed to compile boots "
             "script-less and still serves, which is when the live reads matter "
-            "most. true means gda recognized nothing in a prefix it did read. "
+            "most. true means gda recognized nothing about the run in a prefix it "
+            "did read: a record about the PROCESS rather than about a script, if "
+            "the prefix holds one, is reported in `startup_diagnostics` and does "
+            "not gate this — the same exclusion `gda scene preflight`'s `started` "
+            "makes. The one such record today, the exit-time 'shutdown_leak', is "
+            "printed as the engine exits, after the prefix this list is read from "
+            "ends, so it does not reach this list on a live path. "
             "**null** exactly when `startup_diagnostics` is null — a log gda "
             "did not see is not evidence of a clean start."
         ),
@@ -368,18 +386,23 @@ class DaemonWaitReadyResult(BaseModel):
     )
     clean_start: bool | None = Field(
         description=(
-            "Whether that prefix held no recognized script error — the one "
+            "Whether that prefix held no record about the RUN — the one "
             "boolean to branch on before treating a screenshot or a runtime read "
             "as evidence about the scene (#848). Readiness alone never meant "
             "this: a scene whose root script did not compile boots script-less, "
             "and the harness connects and serves regardless. false is a "
             "disclosure, not a refusal — the session serves, which is exactly "
-            "when `diag errors`, `game tree` and a capture are wanted. Null when "
-            "the prefix could not be read, together with `startup_diagnostics`: "
-            "a log gda did not see is not evidence of a clean start. The pair "
-            "is one fact — both null, or a list and exactly `that list is "
-            "empty`; a reply that says otherwise fails output validation as "
-            "`contract_violation`."
+            "when `diag errors`, `game tree` and a capture are wanted. A record "
+            "about the PROCESS rather than about a script, if the prefix holds "
+            "one, is reported in `startup_diagnostics` and does not gate this — "
+            "the same exclusion `gda scene preflight`'s `started` makes. The one "
+            "such record today, the exit-time 'shutdown_leak', is printed as the "
+            "engine exits, after this prefix ends, so it does not reach the list "
+            "on a live path. Null when the prefix could not be read, together with "
+            "`startup_diagnostics`: a log gda did not see is not evidence of a "
+            "clean start. The pair is one fact — both null, or a list and "
+            "exactly `no record about the run among them`; a reply that says "
+            "otherwise fails output validation as `contract_violation`."
         )
     )
 
@@ -1266,26 +1289,38 @@ _VERDICT_UNAVAILABLE_LINE = (
 def _startup_lines(
     diagnostics: "list[ScriptError] | None", *, established: bool
 ) -> list[str]:
-    """The human lines a degraded start adds, and nothing on a clean one (#848).
+    """The human lines the startup verdict adds, and nothing when it has none (#848).
 
     Shared by both disclosing renderers so the two spell one fact one way. A
-    clean start adds NOTHING: the readiness sentence already says the session
-    serves, and a per-run "0 errors" would train the reader to skip the block
-    that matters. An ESTABLISHED session with no verdict adds one line, because
-    a reader who sees nothing would take it for a clean start — the same
-    distinction the null pair draws for a machine (ADR-0022). Before a session
-    is established there is no startup to speak about, so nothing prints. Each
-    recognized error prints through :func:`script_error_line`, the one text
+    start that recognized NOTHING adds nothing: the readiness sentence already
+    says the session serves, and a per-run "0 errors" would train the reader to
+    skip the block that matters. An ESTABLISHED session with no verdict adds one
+    line, because a reader who sees nothing would take it for a clean start — the
+    same distinction the null pair draws for a machine (ADR-0022). Before a
+    session is established there is no startup to speak about, so nothing prints.
+    Each recognized error prints through :func:`script_error_line`, the one text
     form of a script error.
+
+    The HEADER is the shared boot predicate's answer, never the list's emptiness
+    (#976). A recognized record no longer implies a start that was not clean, so a
+    list holding only records about the PROCESS keeps the clean verdict and prints
+    those records under a header saying they did not gate it. The two renderings
+    are of ONE outcome: a human line calling a start unclean that ``--json``
+    reports as clean is the drift this slice removes everywhere else. It is the
+    shape ``scene preflight`` settled when #844 severed the same invariant there
+    (:func:`gda.commands.scene.render_scene_preflight`) — the clean verdict keeps
+    its own word, with the records beneath it.
     """
     if diagnostics is None:
         return [_VERDICT_UNAVAILABLE_LINE] if established else []
     if not diagnostics:
         return []
-    return [
-        "  startup not clean:",
-        *(f"    {script_error_line(error)}" for error in diagnostics),
-    ]
+    header = (
+        "  startup not clean:"
+        if has_run_record(diagnostics)
+        else "  startup clean; records that did not gate it:"
+    )
+    return [header, *(f"    {script_error_line(error)}" for error in diagnostics)]
 
 
 def render_daemon_install(installed: "DaemonInstallResult") -> str:
