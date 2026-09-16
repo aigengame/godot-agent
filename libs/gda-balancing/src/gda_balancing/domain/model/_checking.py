@@ -268,7 +268,7 @@ def _check_model_source_bytes(
         language_bundle=ldb,
         namespace_selection=admit_namespace_selection(namespace_projection),
     )
-    invalid_policy_pointer = _invalid_source_value_policy_pointer(source, ldb, kernel)
+    invalid_policy_pointer = _invalid_source_value_policy_pointer(source, ldb)
     if invalid_policy_pointer is not None:
         source_contract_reason = reason_by_id(
             ldb,

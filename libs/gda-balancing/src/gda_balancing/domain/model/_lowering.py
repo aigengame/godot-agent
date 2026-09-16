@@ -2745,7 +2745,6 @@ def _value_policy_is_valid(
 def _invalid_source_value_policy_pointer(
     source: dict[str, Any],
     language_bundle: dict[str, Any],
-    kernel: dict[str, Any],
 ) -> str | None:
     lowering = _model_lowering(language_bundle)
     assignment_policy = _assignment_policy(

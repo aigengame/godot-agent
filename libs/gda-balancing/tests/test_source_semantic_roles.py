@@ -374,6 +374,8 @@ def _source_role_nodes(schema, selected):
     [
         "conditional-child-role",
         "inherited-symbol-child-role",
+        "conditional-operand-discriminator",
+        "missing-value-policy-mode-member",
         "boolean-domain",
         "typed-literal-envelope",
     ],
@@ -418,6 +420,14 @@ def test_source_native_and_contextual_roles_refuse_semantic_schema_drift(defect)
                 "unevaluatedProperties": False,
             }
         )
+    elif defect == "conditional-operand-discriminator":
+        conditional = _source_role_nodes(schema, "conditional")[0]
+        condition = conditional["properties"]["condition"]
+        inline_parameter = _source_role_nodes(schema, "inline-parameter")[0]
+        condition["oneOf"][0] = deepcopy(inline_parameter)
+    elif defect == "missing-value-policy-mode-member":
+        policy = _source_role_nodes(schema, "value-policy")[0]
+        del policy["properties"]["mode"]["semantic_member"]
     elif defect == "boolean-domain":
         contract = _source_role_nodes(schema, "boolean-value-contract")[0]
         contract["properties"]["domain"]["properties"]["kind"]["const"] = "not-boolean"
@@ -433,6 +443,18 @@ def test_source_native_and_contextual_roles_refuse_semantic_schema_drift(defect)
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, graph)
         assert not result["admitted"], (defect, result)
+
+
+def test_source_interval_schema_can_narrow_integer_syntax_without_changing_owner():
+    kernel, language = mutable_authorities()
+    authored = _authored(language)
+    schema = _source_schema(authored)
+    symbol = _source_role_nodes(schema, "symbol")[0]
+    symbol["properties"]["domain"]["properties"]["minimum"]["minimum"] = 0
+    graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, graph)
+        assert result["admitted"], (consumer.__name__, result)
 
 
 @pytest.mark.parametrize(

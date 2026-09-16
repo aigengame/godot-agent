@@ -2833,7 +2833,8 @@ def _consumer_b_native_source_member_is_closed(
             and set(field["properties"]) == expected
             and set(field.get("required", [])) == expected
             and all(
-                child == {"type": "integer"} for child in field["properties"].values()
+                isinstance(child, dict) and child.get("type") == "integer"
+                for child in field["properties"].values()
             )
             for field in declared
         )
@@ -3097,19 +3098,21 @@ def _consumer_b_source_roles_are_closed(
                     family = descriptor["family"]
                     if not isinstance(family, str) or family not in formula_contract:
                         return False
-                    observed = {
-                        role
-                        for candidate in candidates
-                        for role in _consumer_b_schema_entry_roles(candidate)
-                    }
-                    family_values = {
-                        next(iter(roles[role]["discriminator"].values()))
-                        for role in observed
-                        if isinstance(roles[role].get("discriminator"), dict)
-                    }
-                    if family_values != set(formula_contract[family]):
-                        return False
-                    expected = observed
+                    discriminator_member = "node" if family == "body_nodes" else "kind"
+                    expected = set()
+                    for value in formula_contract[family]:
+                        matches = [
+                            role
+                            for role, declaration in roles.items()
+                            if role != "inline-parameter"
+                            and declaration.get("discriminator", {}).get(
+                                discriminator_member
+                            )
+                            == value
+                        ]
+                        if len(matches) != 1:
+                            return False
+                        expected.add(matches[0])
                 elif isinstance(descriptor, dict) and set(descriptor) == {"callee"}:
                     callee = descriptor["callee"]
                     calls = [

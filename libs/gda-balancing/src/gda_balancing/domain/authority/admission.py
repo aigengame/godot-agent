@@ -3022,9 +3022,7 @@ def _assignment_role_contract_is_total(row: dict[str, Any]) -> bool:
     )
 
 
-def _assignment_policy_is_total(
-    language_bundle: dict[str, Any], kernel: dict[str, Any]
-) -> bool:
+def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
     language = language_bundle.get("language")
     if not isinstance(language, dict):
         return False
@@ -3099,7 +3097,7 @@ def _assignment_policy_is_total(
         symbol = source_schema_member(module, "symbols")[1]["items"]
         policy_schema = source_schema_member(symbol, "value_policy")[1]
         schema_modes = set(source_schema_member(policy_schema, "mode")[1]["enum"])
-    except (KeyError, TypeError):
+    except (KeyError, TypeError, ValueError):
         return False
     return schema_modes == declared_mode_ids
 
@@ -5282,7 +5280,7 @@ def admit_authorities(
             "static",
             "language.definitions.artifact-semantic-projections",
         )
-    if not _assignment_policy_is_total(language_bundle, kernel):
+    if not _assignment_policy_is_total(language_bundle):
         refuse(
             "kernel.vector_mismatch",
             "static",
