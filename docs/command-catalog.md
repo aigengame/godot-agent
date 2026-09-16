@@ -1958,8 +1958,10 @@ re-derives every verdict from a running engine.
   VERDICT of the session it established (#848): `startup_diagnostics` — the `ScriptError[]`
   that `script run` and `scene preflight` publish — and `clean_start`, the one boolean
   saying no record about the RUN was recognized against that start — a record about the
-  PROCESS, the exit-time leak, is reported beside it and does not gate it, the same
-  exclusion `scene preflight`'s `started` makes. It answers what readiness never did: a
+  PROCESS, if the prefix holds one, is reported beside it and does not gate it, the same
+  exclusion `scene preflight`'s `started` makes; the one such record today, the exit-time
+  leak, is printed as the engine exits, after that prefix ends, so it does not reach this
+  list on a live path. It answers what readiness never did: a
   harness that connected is not a scene that started cleanly, because a script that fails
   to compile leaves its node script-less and the session serves anyway (GDA-DF-047). A
   disclosure on SUCCESS, never a refusal — a broken scene is exactly when `diag errors`,
