@@ -12,6 +12,7 @@ These are the unit-tier guards on that contract; the real-engine proof — a gen
 unwritable application-data directory — lives in ``test_e2e_user_data.py``.
 """
 
+import ast
 import subprocess
 import tempfile
 from pathlib import Path
@@ -20,6 +21,7 @@ import pytest
 
 from typer.testing import CliRunner
 
+import gda as gda_package
 from gda.cli import app
 from gda.errors import Failure, classify_launch_or_crash
 from gda.exit_codes import EXIT_NOT_FOUND
@@ -592,3 +594,124 @@ def test_a_refused_placement_reports_no_placement_at_all(monkeypatch, tmp_path):
 
     assert result.launch_failure is LaunchFailure.USER_DATA_UNWRITABLE
     assert result.user_data is None
+
+
+# --------------------------------------------------------------------------
+# The EXPLICIT placement input (ADR-0042) — the launch's second root source
+# --------------------------------------------------------------------------
+
+
+def test_an_explicit_root_places_the_launch_like_the_process_wide_one(
+    monkeypatch, tmp_path
+):
+    # The whole point of the input: a caller that owns a root hands it over and gets
+    # the SAME placement the flag would have produced — the log under the root, the
+    # platform data variable overridden, the root created. `export smoke` uses it so
+    # a caller-selected exported game cannot write the host's real `user://`.
+    rec = RecordingSpawn()
+    monkeypatch.setattr(subprocess, "Popen", rec)
+    monkeypatch.delenv(USER_DATA_ROOT_ENV, raising=False)
+    root = tmp_path / "private"
+
+    launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0, user_data_root=root)
+
+    assert rec.cmd is not None
+    assert _log_file_arg(rec.cmd) == root / "logs" / "godot.log"
+    assert rec.kwargs is not None
+    env = rec.kwargs["env"]
+    assert env is not None
+    assert set(data_path_env(root).items()) <= set(env.items())
+    assert root.is_dir()
+
+
+def test_an_explicit_root_is_not_overridden_by_the_flag_or_the_env(
+    monkeypatch, tmp_path
+):
+    # The input SKIPS the process-wide resolution rather than competing with it: an
+    # explicit root is the caller saying where THIS launch goes, so neither the
+    # global flag nor its environment twin may move it. Both are set to a different
+    # root, so this fails if the resolution is consulted at all.
+    rec = RecordingSpawn()
+    monkeypatch.setattr(subprocess, "Popen", rec)
+    elsewhere = tmp_path / "elsewhere"
+    monkeypatch.setenv(USER_DATA_ROOT_ENV, str(tmp_path / "from-the-env"))
+    set_user_data_root(str(elsewhere))
+    mine = tmp_path / "mine"
+
+    launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0, user_data_root=mine)
+
+    assert rec.cmd is not None
+    assert _log_file_arg(rec.cmd) == mine / "logs" / "godot.log"
+    assert not elsewhere.exists()
+    assert not (tmp_path / "from-the-env").exists()
+
+
+def test_an_explicit_root_that_is_unusable_is_refused_before_the_spawn(
+    monkeypatch, tmp_path
+):
+    # The refusal is the placement's, not the input's: an explicit root goes through
+    # the same `user_data_placement` preflight, so a derived data path blocked by a
+    # regular file is the same typed `USER_DATA_UNWRITABLE` an explicit flag gets —
+    # never an engine crash, and never a spawn.
+    rec = RecordingSpawn()
+    monkeypatch.setattr(subprocess, "Popen", rec)
+    monkeypatch.delenv(USER_DATA_ROOT_ENV, raising=False)
+    root = tmp_path / "blocked"
+    derived = engine_data_path(data_path_env(root))
+    assert derived is not None
+    derived.parent.mkdir(parents=True, exist_ok=True)
+    derived.write_text("not a directory", encoding="utf-8")
+
+    result = launch(
+        Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0, user_data_root=root
+    )
+
+    assert result.launch_failure is LaunchFailure.USER_DATA_UNWRITABLE
+    assert rec.spawns == 0
+
+
+def test_an_explicit_root_outlives_the_launch_and_carries_its_log(
+    monkeypatch, tmp_path
+):
+    # Lifetime stays with whoever supplied the root (ADR-0042): the primitive removes
+    # only the private TEMPORARY log directory it makes for itself, so an explicit
+    # root and its log are still there afterwards — which is what lets the caller
+    # decide when to delete them, and what the reported placement names.
+    rec = RecordingSpawn()
+    monkeypatch.setattr(subprocess, "Popen", rec)
+    monkeypatch.delenv(USER_DATA_ROOT_ENV, raising=False)
+    root = tmp_path / "kept"
+
+    result = launch(
+        Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0, user_data_root=root
+    )
+
+    assert (root / "logs" / "godot.log").is_file()
+    assert result.user_data is not None
+    assert result.user_data.root == root
+    assert result.user_data.log_file == root / "logs" / "godot.log"
+
+
+def test_only_the_artifact_smoke_hands_the_launch_an_explicit_root():
+    # The "existing callers are behaviour-unchanged" boundary, read out of the source
+    # rather than asserted channel by channel: five channels call the primitive (the
+    # sentinel runner, the export runner, the import pass, `script run` and `scene
+    # preflight`) and none of them may start supplying a root without this guard —
+    # and ADR-0042's seam paragraph — being revisited in the same change. The same
+    # AST shape `tests/cli/test_error_registry.py` uses for its producer sets: it
+    # reads KEYWORDS at the call, so a `launch(**something)` would pass unseen, which
+    # no caller does.
+    suppliers = set()
+    for path in sorted(Path(gda_package.__file__).parent.rglob("*.py")):
+        module = ast.parse(path.read_text(encoding="utf-8"))
+        for call in ast.walk(module):
+            if not isinstance(call, ast.Call):
+                continue
+            func = call.func
+            name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
+            if name not in {"launch", "run_launch"}:
+                continue
+            if any(kw.arg == "user_data_root" for kw in call.keywords):
+                suppliers.add(path.name)
+
+    assert suppliers == {"export.py"}
