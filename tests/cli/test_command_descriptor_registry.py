@@ -117,6 +117,12 @@ _HELPER_RENDERERS = {
     # while the error half is one schema identical for every command (ADR-0004), so
     # its rendering is one function the failure channel calls — not a per-command one.
     "render_failure",
+    # The shared completed-run TAIL (ADR-0042): everything `script run` and
+    # `export smoke` show after their own opening line. Each command's own
+    # renderer IS bound to its descriptor and composes this with its lead, so
+    # this one is a helper by the same rule as the five above — it takes no
+    # single command's result model, but the two results' shared half.
+    "render_completed_run",
 }
 
 

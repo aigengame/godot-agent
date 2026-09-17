@@ -38,6 +38,7 @@ from gda.completed_run import (
     STDOUT_CAP,
     CompletedRunResult,
     bounded_stdout,
+    render_completed_run,
 )
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import (
@@ -86,7 +87,6 @@ from gda.script_errors import (
     leaked_at_exit,
     names_entry_script,
     parse_script_errors,
-    script_error_line,
 )
 
 
@@ -1999,26 +1999,12 @@ def render_script_run(ran: "ScriptRunResult") -> str:
 
     ``script run`` passes the user script's own output through verbatim (ADR-0031),
     so the human view leads with the ``exit_status`` — which can be non-zero on a
-    SUCCESS (a deliberate ``quit(1)``) — then the script's stdout and stderr as it
-    emitted them (each trailing newline trimmed; empty streams are omitted). Any
-    recognized script errors follow as a short classified summary (#651): the
-    verbatim lines are already in the stderr block above, so this adds only the
-    ``kind`` and location a reader would otherwise have to infer.
+    SUCCESS (a deliberate ``quit(1)``) — and everything after that lead is the
+    shared completed-run tail (:func:`gda.completed_run.render_completed_run`):
+    the script's stdout and stderr as it emitted them, the truncation note, and
+    the recognized script errors.
     """
-    parts = [f"exit_status: {ran.exit_status}"]
-    if ran.stdout:
-        parts.append(ran.stdout.rstrip("\n"))
-    if ran.stdout_truncated:
-        # The bounded head is above (#665); tell the reader where the rest is.
-        parts.append(
-            f"  [stdout truncated at {STDOUT_CAP} of {ran.stdout_bytes} "
-            f"bytes; complete stream: {ran.stdout_file}]"
-        )
-    if ran.stderr:
-        parts.append(ran.stderr.rstrip("\n"))
-    for diag in ran.diagnostics:
-        parts.append(f"  {script_error_line(diag)}")
-    return "\n".join(parts)
+    return render_completed_run(ran, lead=[f"exit_status: {ran.exit_status}"])
 
 
 SCRIPT_CREATE_COMMAND: HeadlessCommand[ScriptCreateResult] = HeadlessCommand(

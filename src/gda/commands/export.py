@@ -44,6 +44,7 @@ from gda.completed_run import (
     STDOUT_CAP,
     CompletedRunResult,
     bounded_stdout,
+    render_completed_run,
 )
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import (
@@ -85,7 +86,6 @@ from gda.script_errors import (
     ScriptError,
     leaked_at_exit,
     parse_script_errors,
-    script_error_line,
 )
 
 
@@ -1614,22 +1614,15 @@ class ExportSmokeResult(CompletedRunResult):
 def render_export_smoke(ran: "ExportSmokeResult") -> str:
     """Render a smoked artifact: what ran, its exit status, then its captured output.
 
-    The same shape ``render_script_run`` uses, with the executable named first
-    because the caller gave an artifact and gda chose what inside it to launch.
+    The lead names the executable before the status, because the caller gave an
+    artifact and gda chose what inside it to launch; everything after it is the
+    shared completed-run tail (:func:`gda.completed_run.render_completed_run`),
+    the same one ``script run`` shows.
     """
-    parts = [f"executable: {ran.executable}", f"exit_status: {ran.exit_status}"]
-    if ran.stdout:
-        parts.append(ran.stdout.rstrip("\n"))
-    if ran.stdout_truncated:
-        parts.append(
-            f"  [stdout truncated at {STDOUT_CAP} of {ran.stdout_bytes} "
-            f"bytes; complete stream: {ran.stdout_file}]"
-        )
-    if ran.stderr:
-        parts.append(ran.stderr.rstrip("\n"))
-    for diag in ran.diagnostics:
-        parts.append(f"  {script_error_line(diag)}")
-    return "\n".join(parts)
+    return render_completed_run(
+        ran,
+        lead=[f"executable: {ran.executable}", f"exit_status: {ran.exit_status}"],
+    )
 
 
 def smoke_args(user_args: list[str], quit_after: int) -> list[str]:

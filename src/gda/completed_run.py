@@ -14,7 +14,9 @@ neither command copies it:
   typed refusal for a spill file gda could not write;
 - :func:`completed_run_schema_extra`, the truth table both results publish;
 - :class:`CompletedRunResult`, the base that carries that schema extra and the
-  matching runtime validator.
+  matching runtime validator;
+- :func:`render_completed_run`, the human rendering both results show after
+  their own opening line.
 
 It sits BELOW both command groups (ADR-0040) rather than inside either: the
 shared half belongs to neither ``script`` nor ``export``, and
@@ -40,6 +42,7 @@ from typing import Protocol, cast
 from pydantic import BaseModel, model_validator
 
 from gda.errors import Failure, make_failure
+from gda.script_errors import ScriptError, script_error_line
 
 # The returned-stdout cap of a completed-run SUCCESS result (#665, GDA-DF-036):
 # production-scale inspector output grows linearly with content, and an envelope
@@ -257,6 +260,52 @@ def check_stdout_projection(result: BoundedStdout) -> None:
                 "an untruncated stdout's byte count is the returned "
                 "stream's own length."
             )
+
+
+class CompletedRun(BoundedStdout, Protocol):
+    """What :func:`render_completed_run` reads off a completed-run result.
+
+    :class:`BoundedStdout`'s four markers plus the two streamed facts the tail
+    renders. A Protocol for the same reason that one is — the base declares no
+    fields, so this is where "a completed-run result carries these" is written
+    down for a type checker.
+    """
+
+    stderr: str
+    diagnostics: list[ScriptError]
+
+
+def render_completed_run(run: CompletedRun, *, lead: list[str]) -> str:
+    """Render one completed child run for a human: ``lead``, then the shared tail.
+
+    Both consumers show the same thing after their own opening line(s): the
+    child's stdout and stderr as it emitted them (each trailing newline trimmed,
+    an empty stream omitted), a note pointing at the spill file when the bounded
+    projection truncated stdout (#665), and the recognized diagnostics as a short
+    classified summary — the verbatim lines are already in the stderr block, so
+    this adds only the ``kind`` and location a reader would otherwise infer
+    (#651).
+
+    Only the ``lead`` differs, which is why it is the parameter: ``script run``
+    opens with the exit status alone, ``export smoke`` names the executable it
+    resolved first, because the caller gave it an artifact and gda chose what
+    inside it to launch. ADR-0042 permits generalizing as far as the two
+    consumers need, and this is the whole of that need.
+    """
+    parts = [*lead]
+    if run.stdout:
+        parts.append(run.stdout.rstrip("\n"))
+    if run.stdout_truncated:
+        # The bounded head is above (#665); tell the reader where the rest is.
+        parts.append(
+            f"  [stdout truncated at {STDOUT_CAP} of {run.stdout_bytes} "
+            f"bytes; complete stream: {run.stdout_file}]"
+        )
+    if run.stderr:
+        parts.append(run.stderr.rstrip("\n"))
+    for diag in run.diagnostics:
+        parts.append(f"  {script_error_line(diag)}")
+    return "\n".join(parts)
 
 
 class CompletedRunResult(BaseModel):
