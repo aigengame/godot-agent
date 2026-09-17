@@ -20,6 +20,7 @@ import stat
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from gda.commands.export import (  # the single fully-bound descriptor (ADR-0023)
     DEFAULT_SMOKE_TIMEOUT_SECONDS,
@@ -643,6 +644,33 @@ def test_a_spill_gda_cannot_write_is_the_typed_refusal(tmp_path, monkeypatch):
     # The message leads with WHAT ran: the second consumer is an exported game, not
     # a script, and that is the whole generalization the wording needed.
     assert "the exported artifact ran" in outcome.error.message
+
+
+def test_the_result_inherits_the_shared_bounded_stdout_truth_table():
+    # The base's whole job (`gda.completed_run.CompletedRunResult`): the four stdout
+    # markers are ONE machine contract, and the smoke gets the same enforcement
+    # `script run` has without a second copy of the rule.
+    ok = dict(
+        artifact="/tmp/Game.app",
+        executable="/tmp/Game.app/Contents/MacOS/Game",
+        exit_status=0,
+        stdout="hi",
+        stderr="",
+        stdout_bytes=2,
+        stdout_truncated=False,
+        stdout_file=None,
+        diagnostics=[],
+    )
+    assert ExportSmokeResult(**ok).stdout_bytes == 2
+
+    with pytest.raises(
+        ValidationError, match="must name its complete-stream spill file"
+    ):
+        ExportSmokeResult(**{**ok, "stdout_truncated": True})
+    with pytest.raises(ValidationError, match="carries no spill file"):
+        ExportSmokeResult(**{**ok, "stdout_file": "/tmp/spill.log"})
+    with pytest.raises(ValidationError, match="byte count is the returned"):
+        ExportSmokeResult(**{**ok, "stdout_bytes": 99})
 
 
 # --- --strict, the two triggers ----------------------------------------------
