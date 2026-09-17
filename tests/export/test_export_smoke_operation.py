@@ -650,27 +650,31 @@ def test_the_result_inherits_the_shared_bounded_stdout_truth_table():
     # The base's whole job (`gda.completed_run.CompletedRunResult`): the four stdout
     # markers are ONE machine contract, and the smoke gets the same enforcement
     # `script run` has without a second copy of the rule.
-    ok = dict(
-        artifact="/tmp/Game.app",
-        executable="/tmp/Game.app/Contents/MacOS/Game",
-        exit_status=0,
-        stdout="hi",
-        stderr="",
-        stdout_bytes=2,
-        stdout_truncated=False,
-        stdout_file=None,
-        diagnostics=[],
-    )
-    assert ExportSmokeResult(**ok).stdout_bytes == 2
+    # One consistent row, then one field moved per case. Built through
+    # `model_validate` rather than `**kwargs`: the point of each case is a field
+    # whose value the model must REJECT, which a keyword call cannot express
+    # without the type checker rejecting it first.
+    ok = {
+        "artifact": "/tmp/Game.app",
+        "executable": "/tmp/Game.app/Contents/MacOS/Game",
+        "exit_status": 0,
+        "stdout": "hi",
+        "stderr": "",
+        "stdout_bytes": 2,
+        "stdout_truncated": False,
+        "stdout_file": None,
+        "diagnostics": [],
+    }
+    assert ExportSmokeResult.model_validate(ok).stdout_bytes == 2
 
     with pytest.raises(
         ValidationError, match="must name its complete-stream spill file"
     ):
-        ExportSmokeResult(**{**ok, "stdout_truncated": True})
+        ExportSmokeResult.model_validate({**ok, "stdout_truncated": True})
     with pytest.raises(ValidationError, match="carries no spill file"):
-        ExportSmokeResult(**{**ok, "stdout_file": "/tmp/spill.log"})
+        ExportSmokeResult.model_validate({**ok, "stdout_file": "/tmp/spill.log"})
     with pytest.raises(ValidationError, match="byte count is the returned"):
-        ExportSmokeResult(**{**ok, "stdout_bytes": 99})
+        ExportSmokeResult.model_validate({**ok, "stdout_bytes": 99})
 
 
 # --- --strict, the two triggers ----------------------------------------------
