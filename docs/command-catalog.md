@@ -1424,7 +1424,7 @@ under `--- artifact stdout ---` / `--- artifact stderr ---`.
 The game runs under a PRIVATE `user://`: where neither `--user-data-root` nor
 `$GDA_USER_DATA_ROOT` names one, gda creates a fresh root after it resolves the
 artifact, hands it to the launch, and removes it on the way out — so a
-caller-selected build cannot write the host's real user directory. Pass the
+caller-selected artifact cannot write the host's real user directory. Pass the
 global `--user-data-root DIR` (it precedes the subcommand) to keep what the game
 writes; that directory is the caller's and gda does not remove it. The placement
 is never reported: it does not exist by the time the caller reads the result.

@@ -278,8 +278,7 @@ def test_no_registered_code_grows_a_key_by_defaulting_the_optional_context():
 #: paragraph carries this name too.
 #:
 #: The tenth arrives with ADR-0042: `smoke_exit_status_failure` is `export smoke
-#: --strict`'s verdict, and it is the first producer on this axis that is not
-#: `script run`'s or a pre-run refusal. It reports the same two facts
+#: --strict`'s verdict. It reports the same two facts
 #: `script_exit_status_failure` reports for the same reason — the CHILD's status
 #: and the parsed errors are already in hand on the failure path, neither is
 #: recoverable from the envelope without reading prose, and which of the two

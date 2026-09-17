@@ -228,14 +228,37 @@ def test_an_unusable_inherited_project_cannot_make_the_command_fail(
 
 
 def test_a_relative_artifact_resolves_against_the_invocation_cwd(monkeypatch, tmp_path):
+    # Through the real argv path: BOTH addresses come back absolute, because the
+    # params model makes the artifact absolute before it is resolved (#403) and the
+    # executable is derived from that value. A relative `executable` is unusable to
+    # any consumer that is not standing in the invocation cwd — an MCP caller
+    # included, whose runner sets the subprocess cwd (#979 review, P2-1).
     (tmp_path / "build").mkdir()
     artifact = runnable(tmp_path / "build" / "game")
     monkeypatch.chdir(tmp_path)
 
-    result, _stub = invoke(monkeypatch, ["export", "smoke", "build/game", "--json"])
+    result, stub = invoke(monkeypatch, ["export", "smoke", "build/game", "--json"])
 
     assert result.exit_code == 0, result.stdout
-    assert json.loads(result.stdout)["artifact"] == str(artifact)
+    data = json.loads(result.stdout)
+    assert data["artifact"] == str(artifact)
+    assert Path(data["executable"]).is_absolute()
+    assert data["executable"] == str(artifact)
+    assert stub.calls[0][0] == artifact
+
+
+def test_a_relative_artifact_refusal_names_the_absolute_path(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    result, stub = invoke(
+        monkeypatch, ["export", "smoke", "build/never-exported", "--json"]
+    )
+
+    assert result.exit_code == 4, result.stdout
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "export_artifact_not_found"
+    assert str(tmp_path / "build" / "never-exported") in error["message"]
+    assert not stub.calls
 
 
 def test_the_two_artifact_refusals_reach_the_cli(monkeypatch, tmp_path):

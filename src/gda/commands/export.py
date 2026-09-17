@@ -39,7 +39,12 @@ from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 from gda import dispatch
 from gda.binary import resolve_godot_binary
-from gda.completed_run import STDOUT_CAP, CompletedRunResult, bounded_stdout
+from gda.completed_run import (
+    DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS,
+    STDOUT_CAP,
+    CompletedRunResult,
+    bounded_stdout,
+)
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import (
     Failure,
@@ -69,7 +74,6 @@ from gda.import_evidence import (
     CreatedFileClass,
     classify_created_file,
 )
-from gda.models import NormalizedPath
 from gda.runner import (
     LaunchFn,
     RunResult,
@@ -1342,14 +1346,14 @@ EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
 # resolved `Trusted project`, which is also why it is a separate caller-artifact
 # execution point rather than part of the `Project-code execution surface`.
 
-# The DEFAULT ceiling on one ``export smoke``, when the caller states none. The
-# SAME number ``script run`` uses (:data:`gda.commands.script
-# .DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS`), restated rather than imported because the
-# two commands own their own contracts and a shared constant would tie one
-# command's ceiling to the other's reasons. It is the same contract — a completed
-# child run, bounded by an external wall clock — so a second number would be a
-# second thing to explain with nothing to distinguish it.
-DEFAULT_SMOKE_TIMEOUT_SECONDS = 120.0
+# The DEFAULT ceiling on one ``export smoke``, when the caller states none. This
+# channel's public name for the shared completed-run ceiling
+# (:data:`gda.completed_run.DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS`), which owns the
+# number and the reasoning. An alias, not a second literal: this command's help,
+# its params description and the catalog all state that it is the same ceiling
+# ``script run`` uses, and two equal literals would let an edit to either silently
+# falsify all three (#979 review).
+DEFAULT_SMOKE_TIMEOUT_SECONDS = DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS
 
 # How a timeout NAMES this launch, beside "Godot script" / "Godot export" /
 # "Godot import" / "Godot scene preflight" (#714).
@@ -1442,14 +1446,21 @@ class ExportSmokeParams(BaseModel):
     """The operation params of ``gda export smoke`` (ADR-0042).
 
     ``artifact`` is a filesystem path the CALLER selected — normally the
-    ``output_path`` a previous ``export run`` reported. It carries the same
-    ``NormalizedPath`` every other path field does, so a ``~`` prefix expands
-    identically on the argv and ``--params-json`` paths (ADR-0015); a relative
-    path resolves against the invocation cwd. There is no project param and no
-    ``--project``: the command is projectless (ADR-0042).
+    ``output_path`` a previous ``export run`` reported. It carries this module's
+    own :data:`ExportOutputPath` (#403) rather than the plain ``NormalizedPath``
+    the other path fields use: a ``~`` prefix expands AND a relative path is made
+    absolute against the invocation cwd, identically on the argv and
+    ``--params-json`` paths (ADR-0015), and it happens HERE, before the artifact
+    is resolved. That ordering is the point — ``executable``, both refusal
+    messages and the ``smoke_failed`` message all derive from this value, so none
+    of them can echo a relative string that a consumer outside the invocation cwd
+    cannot locate; that is the same defect #403 fixed for ``export run --output``
+    in this file. Absolute, not canonical: ``..`` is not folded and a symlink is
+    not resolved, because the artifact stays the path the caller named. There is
+    no project param and no ``--project``: the command is projectless (ADR-0042).
     """
 
-    artifact: NormalizedPath = Field(
+    artifact: ExportOutputPath = Field(
         description=(
             "The exported artifact to run: a file this host can execute, or a "
             "macOS .app bundle, whose Contents/Info.plist CFBundleExecutable file "
@@ -1538,7 +1549,8 @@ class ExportSmokeResult(CompletedRunResult):
         description=(
             "The artifact this run was asked for, as an absolute path — the "
             "caller's own path with '~' expanded and a relative path resolved "
-            "against the invocation cwd."
+            "against the invocation cwd. It is what 'executable' and every "
+            "failure message are derived from."
         )
     )
     executable: str = Field(
@@ -1737,7 +1749,9 @@ def run_export_smoke_operation(
             return bounded
         stdout, full_bytes, truncated, spill = bounded
         return ExportSmokeResult(
-            artifact=str(Path(artifact).absolute()),
+            # Already absolute: the params model made it so BEFORE resolution, and
+            # `resolved` derives from that same value (#403).
+            artifact=artifact,
             executable=str(resolved),
             exit_status=raw.exit_code,
             stdout=stdout,
@@ -2050,8 +2064,8 @@ def smoke_artifact(
     left objects or resources alive, which a status-only gate cannot see.
 
     The game runs against a PRIVATE ``user://``: gda creates a fresh root for it
-    and removes it afterwards, so a smoked build cannot touch the host's real user
-    directory. Pass the global ``--user-data-root DIR`` — it precedes the
+    and removes it afterwards, so a smoked artifact cannot touch the host's real
+    user directory. Pass the global ``--user-data-root DIR`` — it precedes the
     subcommand — to keep what the game writes; that directory is yours and gda
     does not remove it.
     """

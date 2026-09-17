@@ -832,7 +832,7 @@ def export_artifact_not_runnable_failure(artifact: str, reason: str) -> Failure:
 
 
 def smoke_exit_status_failure(
-    artifact: str,
+    executable: str,
     exit_status: int,
     stdout: str,
     stderr: str,
@@ -849,6 +849,11 @@ def smoke_exit_status_failure(
     over the diagnostics the caller already parsed, so the verdict and the
     sentence explaining it cannot disagree.
 
+    ``executable`` is the path gda actually LAUNCHED — the resolved file inside
+    the artifact, not the artifact the caller named — because the message states
+    what ran. The result model keeps the two apart under those two names, so the
+    parameter carries the same one its value is.
+
     The leak sentence attributes nothing to any one scene or script: the engine
     reports what the whole PROCESS still held when it exited. The status keeps the
     message when a run has both, because the game's own answer is the more
@@ -863,7 +868,7 @@ def smoke_exit_status_failure(
     a caller a directory that no longer exists.
     """
     leak = leaked_at_exit(script_errors) if exit_status == 0 else None
-    message = f"export smoke --strict: {artifact} exited with status {exit_status}"
+    message = f"export smoke --strict: {executable} exited with status {exit_status}"
     if leak is not None:
         message = f"{message}, but the engine reported a leak at exit — {leak.message}"
     return make_failure(

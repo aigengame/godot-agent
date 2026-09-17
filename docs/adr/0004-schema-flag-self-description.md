@@ -419,8 +419,8 @@ status: accepted
 > wrong rule to read off this change: the three are named, and they are the
 > run-reporting verdicts that ALREADY carried evidence.
 
-> **Outcome (2026-09-17, #979): a TENTH producer, and the first that is not `script
-> run`'s.** `smoke_exit_status_failure` — `gda export smoke --strict`'s
+> **Outcome (2026-09-17, #979): a TENTH producer.**
+> `smoke_exit_status_failure` — `gda export smoke --strict`'s
 > `smoke_failed` verdict (ADR-0042) — joins the set above, so
 > `tests/cli/test_error_registry.py` now asserts ten. It carries the two fields the
 > `script run` verdict beside it already carries and no others: the CHILD's

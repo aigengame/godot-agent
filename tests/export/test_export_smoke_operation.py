@@ -17,6 +17,7 @@ launched by the real engine — is ``tests/export/test_e2e_export_smoke.py``.
 import plistlib
 import shutil
 import stat
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -284,27 +285,79 @@ def test_a_bundle_whose_named_file_is_not_executable_is_not_runnable(tmp_path):
 
 def test_a_relative_artifact_resolves_against_the_invocation_cwd(tmp_path, monkeypatch):
     # The command is projectless, so a relative path has exactly one meaning: where
-    # the CALLER stands (ADR-0042). The absolute `output_path` from `export run`
-    # therefore passes through untouched, and `build/Game` means the same thing a
-    # shell would mean by it.
+    # the CALLER stands (ADR-0042). It is made absolute at the params model, BEFORE
+    # the artifact is resolved (#403), which is what makes `executable` — the one
+    # address gda ADDS — locatable from outside the invocation cwd as well. The
+    # assertion is on the CONTRACT, not on the resolver's internal return shape: a
+    # relative `executable` satisfied the letter of #979's criterion and was
+    # useless to any consumer that had moved (#979 review, P2-1).
     (tmp_path / "build").mkdir()
     artifact = runnable_file(tmp_path / "build" / "game")
     monkeypatch.chdir(tmp_path)
 
-    assert resolve_artifact_executable("build/game") == Path("build/game")
+    asked = ExportSmokeParams(artifact="build/game").artifact
+    assert asked == str(tmp_path / "build" / "game")
 
     launch = FakeLaunch(completed())
-    outcome = run_export_smoke_operation(
-        artifact="build/game", args=[], make_launch=launch
-    )
+    outcome = run_export_smoke_operation(artifact=asked, args=[], make_launch=launch)
 
     assert isinstance(outcome, ExportSmokeResult)
     assert outcome.artifact == str(artifact)
+    assert Path(outcome.executable).is_absolute()
+    assert outcome.executable == str(artifact)
+    # And it is the same path the launch was given, so the result cannot name one
+    # executable while another ran.
+    assert launch.calls[0][0] == artifact
+
+
+def test_a_refusal_for_a_relative_artifact_names_the_absolute_path(
+    tmp_path, monkeypatch
+):
+    # Both refusals read the same already-absolute value, so neither message can
+    # send a reader to a path that means something else from another directory.
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "build").mkdir()
+
+    absent = run_export_smoke_operation(
+        artifact=ExportSmokeParams(artifact="build/never-exported").artifact,
+        args=[],
+        make_launch=FakeLaunch(completed()),
+    )
+    assert isinstance(absent, Failure)
+    assert absent.error.code == "export_artifact_not_found"
+    assert str(tmp_path / "build" / "never-exported") in absent.error.message
+
+    not_runnable = run_export_smoke_operation(
+        artifact=ExportSmokeParams(artifact="build").artifact,
+        args=[],
+        make_launch=FakeLaunch(completed()),
+    )
+    assert isinstance(not_runnable, Failure)
+    assert not_runnable.error.code == "export_artifact_not_runnable"
+    assert str(tmp_path / "build") in not_runnable.error.message
+
+
+def test_the_strict_message_names_the_absolute_executable(tmp_path, monkeypatch):
+    # The third message the caller reads, and the one that names what RAN.
+    (tmp_path / "build").mkdir()
+    artifact = runnable_file(tmp_path / "build" / "game")
+    monkeypatch.chdir(tmp_path)
+
+    outcome = run_export_smoke_operation(
+        artifact=ExportSmokeParams(artifact="build/game").artifact,
+        args=[],
+        strict=True,
+        make_launch=FakeLaunch(completed(exit_code=4)),
+    )
+
+    assert isinstance(outcome, Failure)
+    assert str(artifact) in outcome.error.message
 
 
 def test_a_tilde_artifact_expands_at_the_params_model(monkeypatch, tmp_path):
-    # `NormalizedPath`, the one path-field mechanism (ADR-0015), so argv and
-    # --params-json expand identically and `~` is never read as a directory name.
+    # This module's own `ExportOutputPath` (#403), the one path-field mechanism for
+    # a filesystem destination here, so argv and --params-json expand identically
+    # and `~` is never read as a directory name.
     monkeypatch.setenv("HOME", str(tmp_path))
 
     assert ExportSmokeParams(artifact="~/build/game").artifact == str(
@@ -364,6 +417,31 @@ def test_the_callers_timeout_reaches_the_launch(tmp_path):
 
 
 # --- The private user:// root (ADR-0042) -------------------------------------
+
+
+def test_a_refused_artifact_creates_no_private_root_at_all(tmp_path, monkeypatch):
+    # ADR-0042 states the ORDER by name: the root is created AFTER the artifact
+    # resolves and before the launch. Nothing else holds it — the `finally` wraps
+    # only the launch block, so a refusal returning above it would leak a directory
+    # per invocation while every other test stayed green (#979 review, P3-1).
+    #
+    # `tempfile` CACHES its directory, so the env var alone would not move a
+    # process that has already resolved one: the module attribute is the seam.
+    private_tmp = tmp_path / "tmp"
+    private_tmp.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(private_tmp))
+    launch = FakeLaunch(completed())
+
+    outcome = run_export_smoke_operation(
+        artifact=str(tmp_path / "never-exported"), args=[], make_launch=launch
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "export_artifact_not_found"
+    assert not launch.calls
+    assert list(private_tmp.iterdir()) == [], (
+        "a refused artifact created a private user-data root"
+    )
 
 
 def test_a_private_root_is_created_before_the_launch_and_removed_after(tmp_path):

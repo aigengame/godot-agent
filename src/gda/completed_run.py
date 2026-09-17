@@ -7,7 +7,9 @@ exit status, its bounded stdout with the spill metadata that bounds it, its
 stderr, and the recognized diagnostics. This module owns that shared half so
 neither command copies it:
 
-- :data:`STDOUT_CAP`, the one cap both bounded projections use;
+- :data:`STDOUT_CAP`, the one cap both bounded projections use, and
+  :data:`DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS`, the one default ceiling both
+  commands publish as the same number;
 - :func:`bounded_stdout`, the projection itself, and :func:`spill_failure`, the
   typed refusal for a spill file gda could not write;
 - :func:`completed_run_schema_extra`, the truth table both results publish;
@@ -48,6 +50,25 @@ from gda.errors import Failure, make_failure
 # qualifies ONLY the success result's `stdout` field (ADR-0031 amendment):
 # `stderr` and the failure envelopes' partial-output evidence keep their shapes.
 STDOUT_CAP = 64 * 1024
+
+# The DEFAULT ceiling on ONE completed run, when the caller states none — shared
+# by both consumers because it bounds the same thing: a child gda launched, whose
+# own work it cannot predict, ended by an external wall clock. A user script is
+# arbitrary project code and an exported game loads a whole project, so both need
+# more room than a single sentinel op's tight bound and far less than the export
+# channel's; 120s is enough for a logic-seam test or a startup without leaving a
+# hung run to block forever.
+#
+# It is a default, not the only value (#655): a fixed ceiling made a healthy suite
+# that had grown past it indistinguishable from a hang, with no way to raise it
+# (GDA-DF-032). Each command's ``--timeout`` is that way.
+#
+# ONE authority, not two equal numbers (#979 review): `script run`'s help, `export
+# smoke`'s help and params description, and the catalog all state that the two
+# ceilings are the same number, and a duplicated literal would let an edit to
+# either silently falsify three published sentences. Each command keeps its own
+# public name as an alias, so nothing else moves.
+DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS = 120.0
 
 
 def completed_run_schema_extra(schema: dict) -> None:

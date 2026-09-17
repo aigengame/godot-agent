@@ -33,7 +33,12 @@ from pydantic import (
 
 from gda import dispatch
 from gda.binary import resolve_godot_binary
-from gda.completed_run import STDOUT_CAP, CompletedRunResult, bounded_stdout
+from gda.completed_run import (
+    DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS,
+    STDOUT_CAP,
+    CompletedRunResult,
+    bounded_stdout,
+)
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import (
     classify_launch_or_crash,
@@ -695,16 +700,12 @@ class ScriptValidateResult(ProjectRootedResult):
     )
 
 
-# The DEFAULT ceiling on one ``script run``, when the caller states none. A user
-# script is arbitrary project code (it may load resources), so it is more generous
-# than a single sentinel op's tight bound but well below the export channel's —
-# enough for a logic-seam test without leaving a hung run to block forever.
-#
-# It is now a default rather than the only value (#655). A fixed ceiling made a
-# healthy suite that grew past it indistinguishable from a hang, with no way to
-# raise it (GDA-DF-032); ``--timeout`` is that way, and the ceiling still bounds a
-# hung engine so the CLI fails loudly rather than blocking forever.
-DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS = 120.0
+# The DEFAULT ceiling on one ``script run``, when the caller states none. This
+# channel's public name for the shared completed-run ceiling
+# (:data:`gda.completed_run.DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS`), which owns the
+# number and the reasoning; an alias rather than a second literal because this
+# command's help states that ``export smoke`` uses the same one (#979 review).
+DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS = DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS
 
 # How long a run must stay SILENT, after an entry-attributable script error has
 # appeared and while the caller's declared completion marker has not, before gda
@@ -2581,19 +2582,21 @@ def run_script(
     ``stdout_truncated`` always reporting the full size and whether truncation
     happened; a spill file gda cannot write is the typed
     ``stdout_spill_failed``, never an unbounded result. This command's success
-    result can carry a non-zero ``exit_status``: gda does
-    not interpret the script's semantics, so a deliberate ``quit(1)`` (e.g. an
-    assertion-failed logic-seam test) is data the agent reads, not a gda failure —
-    read ``exit_status``, do not assume ``success == zero``. ``gda export smoke``
-    returns its own run's status as data the same way; no other command does. Pass ``--strict`` to
-    invert that one default and get the ``script_failed`` envelope (exit 4), so a
-    shell ``&&`` chain or CI gate stops on it; that envelope carries the script's
-    own stdout and stderr in its ``diagnostics``. Under ``--strict`` a run fails on
-    either of two triggers: the non-zero status, or a ``shutdown_leak`` diagnostic —
-    the engine reporting at exit that the PROCESS left objects or resources alive
-    (an autoload's leak counts, and its RID leak reports are not recognized), which
-    a status-only gate cannot see. Without ``--strict`` that diagnostic stays data
-    on the successful result, like every other error the script survived.
+    result can carry a non-zero ``exit_status``: gda does not interpret the
+    script's semantics, so a deliberate ``quit(1)`` (e.g. an assertion-failed
+    logic-seam test) is data the agent reads, not a gda failure — read
+    ``exit_status``, do not assume ``success == zero``. ``gda export smoke``
+    returns its own run's status as data the same way; no other command does.
+    Pass ``--strict`` to invert that one default and get the ``script_failed``
+    envelope (exit 4), so a shell ``&&`` chain or CI gate stops on it; that
+    envelope carries the script's own stdout and stderr in its
+    ``diagnostics``. Under ``--strict`` a run fails on either of two triggers:
+    the non-zero status, or a ``shutdown_leak`` diagnostic — the engine
+    reporting at exit that the PROCESS left objects or resources alive (an
+    autoload's leak counts, and its RID leak reports are not recognized),
+    which a status-only gate cannot see. Without ``--strict`` that diagnostic
+    stays data on the successful result, like every other error the script
+    survived.
 
     A script that WRITES ``user://`` needs a writable Godot application-data
     directory, which a restricted profile often does not have. Redirect both it and
