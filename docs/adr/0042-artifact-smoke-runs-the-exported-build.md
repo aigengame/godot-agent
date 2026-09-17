@@ -254,3 +254,27 @@ the second consumer, and delete the compensating contract around unneeded NFRs.
   placement input only. It must not introduce artifact identity, a generic
   process platform, a platform-format taxonomy, project configuration, or release
   policy.
+
+> **Outcome (2026-09-17, #979 / PR #987):** the shared "completed passthrough
+> result" is a base that carries the RULE and declares NO fields — the stdout cap,
+> the bounded projection and its spill IO, the published truth table, the runtime
+> validator, the default ceiling and the human rendering tail — because pydantic
+> orders a subclass's fields base-first, so a field-carrying base would have moved
+> `script run`'s `path` out of first position and broken the byte-identical result
+> and output-schema shape this decision's own validation list requires; each result
+> therefore declares its own fields, which is the precedent `gda.models
+> .ProjectRootedResult` set for the same reason. It lives in a new
+> `gda.completed_run` rather than in the `gda.models` core because it owns
+> behaviour, not only a shape (see ADR-0040's note of the same date). Artifact
+> resolution shipped as declared and no wider: a regular file the host may execute
+> is accepted as given, a `.app` bundle resolves through
+> `Contents/Info.plist`'s `CFBundleExecutable` to `Contents/MacOS/<that name>`
+> which must itself be a regular file the host may execute, and every other
+> shape — any other directory, a bundle missing that plist, key or file, a file
+> without execute permission — is `export_artifact_not_runnable`; the bundle rule
+> is NOT gated on the host platform, because it reads a layout the artifact
+> declares and gating it would be the platform classification this decision
+> rejects. The two `main/main.cpp` links in the context above were corrected in
+> place as a citation erratum — `--quit-after` is parsed at L1741-L1748 and ends
+> the main loop at L5056-L5062 at 4.6.3-stable — leaving the sentences around them
+> unchanged.

@@ -1384,7 +1384,7 @@ execute permission — is `export_artifact_not_runnable`, naming which rule
 refused it. Nothing else is inspected: gda classifies no export platform and
 models no artifact format, and whether the resolved file is a Godot build is
 what the run shows. End-to-end evidence is macOS-only; no Linux or Windows
-behaviour is claimed until it is probed.
+behavior is claimed until it is probed.
 
 The command is **projectless**: its descriptor sets `inherits_project=False`, it
 declares no `--project`, and neither `$GDA_PROJECT` nor the current directory is
@@ -1407,20 +1407,20 @@ had already produced, and claims nothing about diagnostics Godot emits only
 during a normal shutdown.
 
 The result is the completed run, sharing its shape with
-[`script run`](#script): `exit_status`, `stdout` verbatim up to the same 64 KiB
-cap (above it the leading cap bytes, with the complete stream in the file named
-by `stdout_file`, and `stdout_bytes` / `stdout_truncated` disclosing it; a spill
-gda cannot write is the typed `stdout_spill_failed`), `stderr`, the recognized
-`diagnostics`, plus the two addresses this command adds — the `artifact` asked
-for and the `executable` that ran. A non-zero `exit_status` is DATA: gda does not
-interpret what the game meant by it, so read the field rather than the process
-exit code. `--strict` inverts that one default for a shell `&&` chain or a CI
-gate: `smoke_failed` (exit 4) on EITHER a non-zero status or a `shutdown_leak`
-diagnostic — the engine's exit-time report that the process left objects or
-resources alive, which a status-only gate never sees. That envelope carries the
-child's status as `evidence.exit_status` and the parsed errors as
-`evidence.script_errors`, and both of the run's streams in its `diagnostics`
-under `--- artifact stdout ---` / `--- artifact stderr ---`.
+[`script run`](#script): `exit_status`, `stdout` verbatim up to the same cap
+that command uses (above it the leading cap bytes, with the complete stream in
+the file named by `stdout_file`, and `stdout_bytes` / `stdout_truncated`
+disclosing it; a spill gda cannot write is the typed `stdout_spill_failed`),
+`stderr`, the recognized `diagnostics`, plus the two addresses this command
+adds — the `artifact` asked for and the `executable` that ran. A non-zero
+`exit_status` is DATA: gda does not interpret what the game meant by it, so read
+the field rather than the process exit code. `--strict` inverts that one default
+for a shell `&&` chain or a CI gate: `smoke_failed` (exit 4) on EITHER a non-zero
+status or a `shutdown_leak` diagnostic — the engine's exit-time report that the
+process left objects or resources alive, which a status-only gate never sees.
+That envelope carries the child's status as `evidence.exit_status` and the parsed
+errors as `evidence.script_errors`, and both of the run's streams in its
+`diagnostics` under `--- artifact stdout ---` / `--- artifact stderr ---`.
 
 The game runs under a PRIVATE `user://`: where neither `--user-data-root` nor
 `$GDA_USER_DATA_ROOT` names one, gda creates a fresh root after it resolves the
