@@ -24,15 +24,15 @@ log file omitted; and redirecting `HOME` redirected the game's `user://`. Linux 
 Windows behavior was not measured, so the implementation must not claim more than
 its own host probes establish.
 
-A follow-up probe on the same Godot 4.6.3 release template found one missing
-functional condition. With `--quit-after 30` before Godot's `--` separator, the
+A follow-up probe on 2026-09-15, on the same Godot 4.6.3 release template, found
+one missing functional condition. With `--quit-after 30` before Godot's `--` separator, the
 game exited normally and both leak records appeared on stderr. When an external
 six-second bound sent `SIGTERM`, the game emitted no leak record. Passing the same
 words after `--` made them user arguments and the game did not exit. Godot's 4.6.3
 source [parses `--quit-after` outside the editor-only
-guard](https://github.com/godotengine/godot/blob/4.6.3-stable/main/main.cpp#L1628-L1640)
+guard](https://github.com/godotengine/godot/blob/4.6.3-stable/main/main.cpp#L1741-L1748)
 and [ends the main loop after that many process
-frames](https://github.com/godotengine/godot/blob/4.6.3-stable/main/main.cpp#L4682-L4690);
+frames](https://github.com/godotengine/godot/blob/4.6.3-stable/main/main.cpp#L5056-L5062);
 the normal engine shutdown then runs cleanup. A wall-clock termination cannot
 provide equivalent shutdown evidence.
 

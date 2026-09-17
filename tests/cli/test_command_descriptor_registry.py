@@ -177,6 +177,11 @@ _RECIPE_OPERATIONS = {
     # `project_root` comes from ADR-0006's CLI-resolved project, and every problem it
     # reports is a res:// resolution outcome, so the verdict is unreadable without it.
     "scene-validate",
+    # `export smoke` runs a caller-selected exported build through the same launch
+    # primitive and passes its completed process through (ADR-0042): there is no
+    # ADR-0002 sentinel to parse — the entry is the artifact's own code — so like
+    # `script run` it is fulfilled by a CLI-side recipe.
+    "export-smoke",
     # `scene preflight` dispatches a sentinel op through the launch primitive rather
     # than the runner seam (#664): it needs the streaming capture, so that a run gda
     # ends at its bound still carries what the engine printed — the whole evidence of

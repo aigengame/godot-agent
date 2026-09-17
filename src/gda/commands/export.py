@@ -13,34 +13,44 @@ is imported by nothing but the composition root (``gda.cli``).
 
 ``export list`` / ``export get`` are read-only discovery (issue #114): they parse
 ``export_presets.cfg`` and check the filesystem, never running an actual export.
-``export run`` does, and it is the one command that cannot go through
-``operations.gd`` — see the operation section below.
+``export run`` does, through a native ``--export-<mode>`` invocation rather than
+``operations.gd``, because the export subsystem is editor-only — see the operation
+section below. ``export smoke`` (ADR-0042) does not go through ``operations.gd``
+either, for a different reason: what it runs is the exported game itself.
 """
 
 import hashlib
 import os
+import plistlib
 import re
+import shutil
 import sys
+import tempfile
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from stat import S_ISREG
 from typing import Annotated, Optional
+from xml.parsers.expat import ExpatError
 
 import typer
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 from gda import dispatch
 from gda.binary import resolve_godot_binary
-from gda.dispatch import dispatch_domain, dispatch_recipe
+from gda.completed_run import STDOUT_CAP, CompletedRunResult, bounded_stdout
+from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import (
     Failure,
     make_failure,
     classify_launch_or_crash,
+    export_artifact_not_found_failure,
+    export_artifact_not_runnable_failure,
     export_output_parent_failure,
     export_path_unset_failure,
     export_templates_missing_failure,
+    smoke_exit_status_failure,
 )
 from gda.execution import ExecutionKind
 from gda.export_runner import ExportRunner, make_subprocess_export_runner
@@ -59,7 +69,20 @@ from gda.import_evidence import (
     CreatedFileClass,
     classify_created_file,
 )
-from gda.runner import RunResult, engine_data_path
+from gda.models import NormalizedPath
+from gda.runner import (
+    LaunchFn,
+    RunResult,
+    engine_data_path,
+    launch,
+    resolve_user_data_root,
+)
+from gda.script_errors import (
+    ScriptError,
+    leaked_at_exit,
+    parse_script_errors,
+    script_error_line,
+)
 
 
 def normalize_export_output_path(path: str) -> str:
@@ -1295,6 +1318,475 @@ EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
 )
 
 
+# --- The ArtifactSmoke operation — ``gda export smoke``'s bounded headless run of
+# a caller-selected `Export artifact` (ADR-0042).
+#
+# ``export run`` reports whether Godot CONSTRUCTED an artifact; it does not run it.
+# GDA-DF-072 is why that is not enough: the first exported candidate loaded the
+# whole game and then reported four leaked WAV resources at exit, while ``export
+# run`` had returned ``warnings: []``. The defect was observable only by launching
+# the exported game, so this command launches it — once, headless, bounded — and
+# returns the completed process as evidence.
+#
+# It is the SECOND executable source of the shared `Headless launch` (the first
+# being the configured editor binary every other Phase-1 channel uses): the Godot
+# executable resolved inside the artifact. Everything else about the launch is the
+# primitive's — spawn, streaming capture, timeout, the gda-owned ``--log-file``,
+# UTF-8 decoding, normalized launch failures — so this section owns only what the
+# primitive cannot know: how to resolve an artifact to an executable, where to put
+# a private ``user://`` for a caller-selected game, and the two-trigger ``--strict``
+# gate.
+#
+# It is PROJECTLESS (descriptor ``inherits_project=False``, no ``--project``): the
+# artifact is a path the caller selected, and gda holds no fact tying it to a
+# resolved `Trusted project`, which is also why it is a separate caller-artifact
+# execution point rather than part of the `Project-code execution surface`.
+
+# The DEFAULT ceiling on one ``export smoke``, when the caller states none. The
+# SAME number ``script run`` uses (:data:`gda.commands.script
+# .DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS`), restated rather than imported because the
+# two commands own their own contracts and a shared constant would tie one
+# command's ceiling to the other's reasons. It is the same contract — a completed
+# child run, bounded by an external wall clock — so a second number would be a
+# second thing to explain with nothing to distinguish it.
+DEFAULT_SMOKE_TIMEOUT_SECONDS = 120.0
+
+# How a timeout NAMES this launch, beside "Godot script" / "Godot export" /
+# "Godot import" / "Godot scene preflight" (#714).
+SMOKE_TIMEOUT_LABEL = "Godot artifact smoke"
+
+# Where a macOS bundle declares the executable to run, and the directory that
+# executable sits in. Read with ``plistlib`` (stdlib, and it reads both the XML and
+# the binary plist Godot writes); nothing else in the bundle is inspected.
+_BUNDLE_SUFFIX = ".app"
+_BUNDLE_PLIST_REL = ("Contents", "Info.plist")
+_BUNDLE_EXECUTABLE_KEY = "CFBundleExecutable"
+_BUNDLE_MACOS_REL = ("Contents", "MacOS")
+
+
+def _is_runnable_file(path: Path) -> bool:
+    """Is ``path`` a regular file this host may execute?
+
+    ``os.stat`` follows links, so a symlink to a runnable file IS one — the same
+    symlink-agnostic reading the rest of gda's path handling uses. Anything that is
+    not a regular file (a directory, a FIFO, a socket, a device) is not runnable
+    here whatever its mode bits say, and neither is a regular file without the
+    execute permission this process would need.
+    """
+    try:
+        return S_ISREG(os.stat(path).st_mode) and os.access(path, os.X_OK)
+    except OSError:
+        return False
+
+
+def resolve_artifact_executable(artifact: str) -> "Path | Failure":
+    """Resolve a caller's `Export artifact` to the executable to launch (ADR-0042).
+
+    Two accepted shapes and no third. A regular file the host may execute is
+    accepted AS GIVEN. A macOS ``.app`` bundle names its own main executable in
+    ``Contents/Info.plist`` under ``CFBundleExecutable``, and the resolved path is
+    ``Contents/MacOS/<that name>``, which must itself be a regular file the host
+    may execute. Everything else is refused: any other directory, a bundle without
+    that plist, key or file, and a file the host may not execute.
+
+    Nothing else is inspected. gda classifies no export platform and models no
+    artifact format (ADR-0042 rejected both); whether the resolved file is a Godot
+    build at all is what the RUN shows, not what this decides. The bundle rule is
+    not gated on the host platform either, for the same reason: it reads a layout
+    the artifact declares, and gating it would be a platform classification of the
+    kind this command does not make.
+
+    An absent path is ``export_artifact_not_found`` — the operand is missing — and
+    every other refusal is ``export_artifact_not_runnable``, naming which rule
+    spoke.
+    """
+    path = Path(artifact)
+    if not path.exists():
+        return export_artifact_not_found_failure(artifact)
+    if not path.is_dir():
+        if _is_runnable_file(path):
+            return path
+        return export_artifact_not_runnable_failure(
+            artifact, "it is not a regular file this host may execute"
+        )
+    if path.suffix != _BUNDLE_SUFFIX:
+        return export_artifact_not_runnable_failure(
+            artifact,
+            f"it is a directory and not a macOS {_BUNDLE_SUFFIX} bundle; name the "
+            "runnable file inside it",
+        )
+    plist = path.joinpath(*_BUNDLE_PLIST_REL)
+    try:
+        with plist.open("rb") as handle:
+            declared = plistlib.load(handle)
+    except (OSError, plistlib.InvalidFileException, ValueError, ExpatError) as error:
+        return export_artifact_not_runnable_failure(
+            artifact, f"its {plist.name} could not be read ({error})"
+        )
+    name = declared.get(_BUNDLE_EXECUTABLE_KEY) if isinstance(declared, dict) else None
+    if not isinstance(name, str) or not name:
+        return export_artifact_not_runnable_failure(
+            artifact, f"its {plist.name} declares no {_BUNDLE_EXECUTABLE_KEY}"
+        )
+    executable = path.joinpath(*_BUNDLE_MACOS_REL, name)
+    if not _is_runnable_file(executable):
+        return export_artifact_not_runnable_failure(
+            artifact,
+            f"the {_BUNDLE_EXECUTABLE_KEY} it declares ({name}) is not a regular "
+            "file this host may execute",
+        )
+    return executable
+
+
+class ExportSmokeParams(BaseModel):
+    """The operation params of ``gda export smoke`` (ADR-0042).
+
+    ``artifact`` is a filesystem path the CALLER selected — normally the
+    ``output_path`` a previous ``export run`` reported. It carries the same
+    ``NormalizedPath`` every other path field does, so a ``~`` prefix expands
+    identically on the argv and ``--params-json`` paths (ADR-0015); a relative
+    path resolves against the invocation cwd. There is no project param and no
+    ``--project``: the command is projectless (ADR-0042).
+    """
+
+    artifact: NormalizedPath = Field(
+        description=(
+            "The exported artifact to run: a file this host can execute, or a "
+            "macOS .app bundle, whose Contents/Info.plist CFBundleExecutable file "
+            "is run. A relative path resolves against the current working "
+            "directory. Normally the output_path a previous 'gda export run' "
+            "reported."
+        )
+    )
+    args: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Arguments to hand the game, in order, after Godot's '--' separator — "
+            "the values it reads back with OS.get_cmdline_user_args(). Repeat "
+            "--arg per value on the command line; they are never interpreted by "
+            "gda or by the engine."
+        ),
+    )
+    quit_after: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Ask the engine to end its main loop normally after this many process "
+            "frames, so engine cleanup and its exit-time diagnostics run (Godot's "
+            "own --quit-after, placed before '--'). 0 — the default — adds no "
+            "engine flag and the game ends only by itself or at the timeout. This "
+            "is NOT a completion assertion: it says nothing about whether the "
+            "game's own work finished."
+        ),
+    )
+    timeout: float = Field(
+        default=DEFAULT_SMOKE_TIMEOUT_SECONDS,
+        gt=0,
+        allow_inf_nan=False,
+        description=(
+            "How many seconds to let the run take before gda ends it and reports "
+            "'launch_timeout' with the output captured so far. Must be a FINITE "
+            "positive number: JSON Schema cannot express finiteness, so a "
+            "non-finite value is refused by validation rather than by the schema "
+            f"below. Defaults to {DEFAULT_SMOKE_TIMEOUT_SECONDS}s, the same "
+            "completed-run ceiling 'script run' uses. It is a HARD external bound, "
+            "not a normal shutdown: a run it ends claims nothing about the "
+            "diagnostics Godot emits only while shutting down cleanly."
+        ),
+    )
+    strict: bool = Field(
+        default=False,
+        description=(
+            "Treat a failed run as a gda failure: emit the error envelope with "
+            "code 'smoke_failed' and exit 4, instead of the default passthrough "
+            "success. TWO triggers, either one enough: the game exited non-zero, "
+            "or the engine reported leaked objects or resources at exit (a "
+            "'shutdown_leak' diagnostic), which a status-only gate cannot see "
+            "because a game can choose 0 and still leave objects alive. Opt-in, "
+            "for shell '&&' chains and CI gates that key on the process exit code. "
+            "The envelope keeps the evidence, typed and as prose: "
+            "'evidence.exit_status' is the CHILD's status (gda's own exit code "
+            "stays 4) and 'evidence.script_errors' the parsed errors, while the "
+            "'diagnostics' string carries BOTH of the run's streams under the "
+            "fixed labels '--- artifact stdout ---' and '--- artifact stderr ---'."
+        ),
+    )
+
+
+class ExportSmokeResult(CompletedRunResult):
+    """The result of ``gda export smoke``: the exported game's own run (ADR-0042).
+
+    The second public promotion of the internal `Raw run`
+    (:class:`gda.runner.RunResult`), sharing its completed-run half with ``script
+    run`` through :class:`gda.completed_run.CompletedRunResult`: the child's
+    ``exit_status``, its stdout bounded at the shared cap with the spill metadata
+    that bounds it, its ``stderr``, and the recognized ``diagnostics``. gda does
+    not interpret the game's semantics, so a non-zero ``exit_status`` is data the
+    agent reads, not a gda failure, unless ``--strict`` was passed — read
+    ``exit_status``, do not assume ``success == zero``.
+
+    What this result adds is only the two addresses: the ``artifact`` the caller
+    selected and the ``executable`` gda resolved inside it. It publishes no
+    placement — the private ``user://`` root is an internal safety mechanism that
+    the command removes on the way out, so naming it would hand a caller a
+    directory that no longer exists — and no digest, PCK listing, artifact-content
+    inventory, provenance or receipt: ADR-0042 excluded every one of them, and gda
+    makes no claim about the artifact's identity or contents.
+    """
+
+    artifact: str = Field(
+        description=(
+            "The artifact this run was asked for, as an absolute path — the "
+            "caller's own path with '~' expanded and a relative path resolved "
+            "against the invocation cwd."
+        )
+    )
+    executable: str = Field(
+        description=(
+            "The executable gda actually launched: the artifact itself when it is "
+            "a runnable file, or the Contents/MacOS file a macOS .app bundle's "
+            "CFBundleExecutable names."
+        )
+    )
+    exit_status: int = Field(
+        description=(
+            "The exported game's own process exit code, passed through verbatim — "
+            "non-zero is still a SUCCESS result, not a gda failure, unless "
+            "--strict was passed (ADR-0042)."
+        )
+    )
+    stdout: str = Field(
+        description=(
+            "The game's standard output — verbatim up to the "
+            f"{STDOUT_CAP // 1024} KiB cap: above it, this is the stream's "
+            "leading cap bytes (cut on a UTF-8 boundary) and the COMPLETE stream "
+            "is at 'stdout_file'. Read 'stdout_truncated' before treating this as "
+            "the whole stream."
+        )
+    )
+    stderr: str = Field(description="The game's standard error, captured verbatim.")
+    stdout_bytes: int = Field(
+        ge=0,
+        description=(
+            "The game's COMPLETE standard-output length in UTF-8 bytes — the full "
+            "stream's size whether or not 'stdout' was truncated. Always present."
+        ),
+    )
+    stdout_truncated: bool = Field(
+        description=(
+            "Whether 'stdout' is the truncated head of a stream above the "
+            f"{STDOUT_CAP // 1024} KiB cap. False means 'stdout' IS the whole "
+            "stream. Always present."
+        ),
+    )
+    stdout_file: str | None = Field(
+        description=(
+            "The file holding the game's COMPLETE standard output when 'stdout' "
+            "was truncated; null when it was not. Always present "
+            "(required-but-nullable)."
+        ),
+    )
+    diagnostics: list[ScriptError] = Field(
+        default_factory=list,
+        description=(
+            "Recognized engine and script errors parsed out of the run's stderr, "
+            "in emission order; empty when the run reported none. A "
+            "'shutdown_leak' entry is the engine's exit-time report that the "
+            "PROCESS left objects or resources alive — the one --strict fails on "
+            "beside a non-zero status. Advisory and best-effort — the verbatim "
+            "stream stays in 'stderr'."
+        ),
+    )
+
+
+def render_export_smoke(ran: "ExportSmokeResult") -> str:
+    """Render a smoked artifact: what ran, its exit status, then its captured output.
+
+    The same shape ``render_script_run`` uses, with the executable named first
+    because the caller gave an artifact and gda chose what inside it to launch.
+    """
+    parts = [f"executable: {ran.executable}", f"exit_status: {ran.exit_status}"]
+    if ran.stdout:
+        parts.append(ran.stdout.rstrip("\n"))
+    if ran.stdout_truncated:
+        parts.append(
+            f"  [stdout truncated at {STDOUT_CAP} of {ran.stdout_bytes} "
+            f"bytes; complete stream: {ran.stdout_file}]"
+        )
+    if ran.stderr:
+        parts.append(ran.stderr.rstrip("\n"))
+    for diag in ran.diagnostics:
+        parts.append(f"  {script_error_line(diag)}")
+    return "\n".join(parts)
+
+
+def smoke_args(user_args: list[str], quit_after: int) -> list[str]:
+    """This channel's argv TAIL: ``[(--quit-after N), --, *user_args]`` (ADR-0042).
+
+    ``--quit-after`` is an ENGINE option, so it goes before Godot's ``--``
+    separator; the probe behind ADR-0042 measured what happens otherwise — the
+    same words after ``--`` became user arguments and the game did not exit. A
+    zero or omitted value adds no flag at all, which is the engine's own default.
+    The separator is always emitted, so a user argument that looks like an engine
+    flag is never read as one.
+    """
+    args = ["--quit-after", str(quit_after)] if quit_after > 0 else []
+    return [*args, "--", *user_args]
+
+
+def run_export_smoke_operation(
+    *,
+    artifact: str,
+    args: list[str],
+    quit_after: int = 0,
+    timeout: float = DEFAULT_SMOKE_TIMEOUT_SECONDS,
+    strict: bool = False,
+    make_launch: "LaunchFn | None" = None,
+) -> "ExportSmokeResult | Failure":
+    """Run ``export smoke``'s resolve → launch → classify recipe (ADR-0042).
+
+    Returns its outcome instead of emitting or exiting, like every other recipe:
+    the passthrough :class:`ExportSmokeResult` on a completed run (even a non-zero
+    ``exit_status``), or a :class:`~gda.errors.Failure` — the two pre-launch
+    artifact refusals, a ``classify_launch_or_crash`` env/crash outcome (a timeout
+    included, with the partial capture preserved), a ``stdout_spill_failed`` for a
+    stream gda could not bound, or — with ``strict`` — ``smoke_failed``.
+
+    ``make_launch`` is the injected headless-launch seam; ``None`` (the default)
+    uses the real deep module :func:`gda.runner.launch`, resolved at call time so
+    a test can inject a fake OR patch ``gda.commands.export.launch``.
+
+    **The private ``user://``.** A caller-selected exported game is not the
+    resolved `Trusted project`, and gda will not let it write the host's real user
+    directory by accident. The existing global ``--user-data-root`` /
+    ``$GDA_USER_DATA_ROOT`` is honored where the caller named one — it is theirs,
+    and this command neither replaces nor removes it. Where the caller named none,
+    this creates a fresh private root AFTER the artifact resolves and BEFORE the
+    launch, hands it to the primitive through the explicit placement input, and
+    removes it in ``finally`` on every outcome that created it. That cleanup is
+    best-effort internal hygiene: a root that will not delete never replaces the
+    outcome and adds no result field, error code or evidence.
+    """
+    run_launch = make_launch or launch
+    resolved = resolve_artifact_executable(artifact)
+    if isinstance(resolved, Failure):
+        return resolved
+    try:
+        configured = resolve_user_data_root()
+    except ValueError:
+        # An explicit but EMPTY --user-data-root. The caller named a root, badly;
+        # supplying a private one instead would silently accept a mistaken flag, so
+        # hand the primitive nothing and let its shared refusal stand.
+        configured = None
+        owned = None
+    else:
+        try:
+            owned = (
+                None
+                if configured is not None
+                else Path(tempfile.mkdtemp(prefix="gda-smoke-user-"))
+            )
+        except OSError as error:
+            # The same unusable-placement outcome the primitive reports when IT
+            # cannot make a private directory, under the same registered code —
+            # reported before any spawn rather than as a traceback.
+            return make_failure(
+                "user_data_unwritable",
+                "a private user:// root for this run could not be created "
+                f"({error}); the launch was refused. Point TMPDIR at a writable "
+                "directory, or pass --user-data-root <writable dir>",
+                "",
+            )
+    try:
+        raw = run_launch(
+            resolved,
+            smoke_args(args, quit_after),
+            cwd=None,
+            timeout=timeout,
+            timeout_label=SMOKE_TIMEOUT_LABEL,
+            user_data_root=owned,
+        )
+        # The shared env/crash prefix, exactly as the export and import channels
+        # use it: a binary that could not be launched, a refused placement, the
+        # timeout (whose envelope keeps the partial capture, the clock and the
+        # ceiling this label names), or a signal death. Everything else — a clean
+        # engine exit, INCLUDING a non-zero status — is a passthrough.
+        crash = classify_launch_or_crash(raw, resolved)
+        if crash is not None:
+            return crash
+        diagnostics = parse_script_errors(raw.stderr)
+        # The game RAN. Its own status is data by default and a gda failure only
+        # when the caller opted in with --strict, which fails on EITHER of two
+        # triggers: a status-only gate cannot see a game that printed its results,
+        # chose 0, and still left objects alive (GDA-DF-072).
+        if strict and (raw.exit_code != 0 or leaked_at_exit(diagnostics) is not None):
+            return smoke_exit_status_failure(
+                str(resolved),
+                raw.exit_code,
+                raw.stdout,
+                raw.stderr,
+                diagnostics,
+            )
+        bounded = bounded_stdout(
+            raw.stdout,
+            raw.exit_code,
+            subject="exported artifact",
+            prefix="gda-smoke-stdout-",
+        )
+        if isinstance(bounded, Failure):
+            return bounded
+        stdout, full_bytes, truncated, spill = bounded
+        return ExportSmokeResult(
+            artifact=str(Path(artifact).absolute()),
+            executable=str(resolved),
+            exit_status=raw.exit_code,
+            stdout=stdout,
+            stderr=raw.stderr,
+            stdout_bytes=full_bytes,
+            stdout_truncated=truncated,
+            stdout_file=spill,
+            diagnostics=diagnostics,
+        )
+    finally:
+        if owned is not None:
+            # Best-effort by contract (ADR-0042): the outcome above is already
+            # decided, and a root that will not delete must not replace it.
+            shutil.rmtree(owned, ignore_errors=True)
+
+
+def _export_smoke_recipe(params, *, project, godot):
+    # ``project`` is always None here and ``godot`` unused: the descriptor sets
+    # ``inherits_project=False`` and the signature declares neither option, so the
+    # dispatch tail resolves no project (an inherited invalid $GDA_PROJECT cannot
+    # make this command fail) and the engine this runs is the artifact's own.
+    return run_export_smoke_operation(
+        artifact=params.artifact,
+        args=params.args,
+        quit_after=params.quit_after,
+        timeout=params.timeout,
+        strict=params.strict,
+    )
+
+
+# ``export smoke`` carries the fifth execution kind, ``ARTIFACT_SMOKE``: like
+# ``SCRIPT_RUN`` and ``IMPORT`` it is self-description only (ADR-0004 / ADR-0012)
+# — dispatch is by ``recipe`` (ADR-0023) and no runner-selection branch reads it —
+# but the published kind must not claim the ``operations.gd`` sentinel pipeline
+# this command never uses, nor ``script run``'s project-scoped shape.
+EXPORT_SMOKE_COMMAND: HeadlessCommand[ExportSmokeResult] = HeadlessCommand(
+    operation="export-smoke",
+    input_model=ExportSmokeParams,
+    output_model=ExportSmokeResult,
+    kind=ExecutionKind.ARTIFACT_SMOKE,
+    render=render_export_smoke,
+    recipe=_export_smoke_recipe,
+    # Projectless (ADR-0042): the artifact is a caller-selected path, and gda has
+    # no fact tying it to a resolved project, so neither $GDA_PROJECT nor the cwd
+    # is read as project context.
+    inherits_project=False,
+)
+
+
 # The export command group (issue #114): read-only discovery of the project's
 # export presets (from export_presets.cfg) and export-template readiness. Those
 # two stay headless — they parse a config file and check the filesystem, never
@@ -1448,6 +1940,138 @@ def run_export(
         json_output=json_output,
         godot=godot,
         project=project,
+    )
+
+
+@_app.command(name="smoke", cls=EXPORT_SMOKE_COMMAND.command_class())
+def smoke_artifact(
+    artifact: str = typer.Argument(
+        ...,
+        help=(
+            "The exported artifact to run: a file this host can execute, or a "
+            "macOS .app bundle (its Contents/Info.plist CFBundleExecutable file "
+            "is run). A relative path resolves against the current working "
+            "directory."
+        ),
+    ),
+    args: list[str] = typer.Option(
+        [],
+        "--arg",
+        help=(
+            "An argument to hand the game, after Godot's '--' separator "
+            "(repeatable; order is kept). The game reads them with "
+            "OS.get_cmdline_user_args(); gda interprets none of them."
+        ),
+    ),
+    quit_after: int = typer.Option(
+        0,
+        "--quit-after",
+        help=(
+            "Ask the engine to end its main loop normally after this many process "
+            "frames (Godot's own --quit-after, placed before '--'), so engine "
+            "cleanup and its exit-time diagnostics run. 0 (the default) adds no "
+            "flag. It asserts NO project completion."
+        ),
+    ),
+    timeout: float = typer.Option(
+        DEFAULT_SMOKE_TIMEOUT_SECONDS,
+        "--timeout",
+        help=(
+            "Seconds to let the run take before gda ends it and reports "
+            "'launch_timeout' with the output captured so far, the elapsed time "
+            "and the ceiling it reached. Default "
+            f"{DEFAULT_SMOKE_TIMEOUT_SECONDS}s, the same ceiling 'script run' "
+            "uses. A hard external bound, not a normal shutdown."
+        ),
+    ),
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        help=(
+            "Fail when the game exits non-zero, OR when the engine reports leaked "
+            "objects or resources at exit (a 'shutdown_leak' diagnostic — a game "
+            "can exit 0 and still leave objects alive): emit the 'smoke_failed' "
+            "error envelope and exit 4 instead of the default passthrough "
+            "success. For shell '&&' chains and CI gates. The envelope carries "
+            "the child's status as 'evidence.exit_status' and the parsed errors "
+            "as 'evidence.script_errors'; its diagnostics carry both streams, "
+            "labelled '--- artifact stdout ---' / '--- artifact stderr ---'."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = EXPORT_SMOKE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+) -> None:
+    """Run an exported artifact headless and pass its completed process through.
+
+    ``export run`` says whether Godot BUILT the artifact; this runs it. The
+    exported game loads its own project data, so a defect that only appears at
+    startup or at shutdown — a leaked resource reported at exit, a missing
+    dependency, a script error on the first frame — is visible here and nowhere
+    in an export result (ADR-0042).
+
+    Feed it the ``output_path`` a previous ``gda export run`` reported, or any
+    other path you choose. A file this host can execute runs as given; a macOS
+    ``.app`` bundle resolves to the ``Contents/MacOS`` file its
+    ``Contents/Info.plist`` names in ``CFBundleExecutable``. An absent path is
+    ``export_artifact_not_found``; anything else that resolves to no runnable file
+    — another directory, a bundle missing that plist, key or file, a file without
+    execute permission — is ``export_artifact_not_runnable``. gda inspects nothing
+    else: it classifies no export platform, and whether the file is a Godot build
+    is what the run shows.
+
+    Bounded support: a macOS ``.app`` and a directly host-runnable file, with
+    end-to-end evidence on macOS only. Linux and Windows behaviour is not measured
+    and not promised.
+
+    The command is PROJECTLESS: it takes no ``--project``, and neither
+    ``$GDA_PROJECT`` nor the current directory is read as project context. A
+    relative artifact path resolves against the current directory, so the absolute
+    ``output_path`` from ``export run`` passes straight through.
+
+    ``--arg`` values reach the game in order, after Godot's ``--`` separator,
+    where it reads them with ``OS.get_cmdline_user_args()``. ``--quit-after N``
+    asks the engine to end its main loop normally after N process frames so engine
+    cleanup and its exit-time diagnostics run; it asserts nothing about the game's
+    own work finishing. ``--timeout`` stays the external hard bound: a run gda
+    ends reports ``launch_timeout`` with the partial capture and claims nothing
+    about diagnostics Godot emits only during a normal shutdown.
+
+    The result is the completed run: ``exit_status``, ``stdout`` verbatim up to a
+    64 KiB cap (above it the leading cap bytes, with the COMPLETE stream in the
+    file named by ``stdout_file``; a spill gda cannot write is the typed
+    ``stdout_spill_failed``), ``stderr``, the recognized ``diagnostics``, and the
+    two addresses — the ``artifact`` asked for and the ``executable`` that ran.
+    A non-zero ``exit_status`` is DATA, not a failure: read it, do not assume
+    ``success == zero``. Pass ``--strict`` to invert that one default and get the
+    ``smoke_failed`` envelope (exit 4) for a shell ``&&`` chain or a CI gate;
+    under it a run fails on either of two triggers — the non-zero status, or a
+    ``shutdown_leak`` diagnostic, the engine reporting at exit that the process
+    left objects or resources alive, which a status-only gate cannot see.
+
+    The game runs against a PRIVATE ``user://``: gda creates a fresh root for it
+    and removes it afterwards, so a smoked build cannot touch the host's real user
+    directory. Pass the global ``--user-data-root DIR`` — it precedes the
+    subcommand — to keep what the game writes; that directory is yours and gda
+    does not remove it.
+    """
+    # The params model is the single authority for the bounds (ADR-0015): the
+    # finite positive ceiling and the non-negative frame count are its field
+    # constraints, enforced identically for --params-json — this argv body only
+    # translates a model refusal into the Click usage error.
+    dispatch_recipe(
+        EXPORT_SMOKE_COMMAND,
+        params_or_bad_parameter(
+            ExportSmokeParams,
+            artifact=artifact,
+            args=list(args),
+            quit_after=quit_after,
+            timeout=timeout,
+            strict=strict,
+        ),
+        json_output=json_output,
+        godot=None,
+        project=None,
     )
 
 

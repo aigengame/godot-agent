@@ -614,8 +614,54 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.CLASSIFIER,
-        "A script run's stdout exceeded the cap but the complete-stream spill "
-        "file could not be written, so the bounded result cannot be delivered.",
+        "A completed run's stdout exceeded the cap but the complete-stream spill "
+        "file could not be written, so the bounded result cannot be delivered; "
+        "`script run` and `export smoke` both report it.",
+    ),
+    # `export smoke`'s three verdicts (ADR-0042). All CLASSIFIER-source: the
+    # command runs a caller-selected exported game rather than an `operations.gd`
+    # sentinel, so no GDScript operation can report any of them and none is
+    # mirrored. Minted rather than reused, because no registered code names these
+    # conditions:
+    #
+    # - `path_not_found` is "a file the operation was asked to act on is absent",
+    #   which is close — but its remedy is a project path, while this one's is a
+    #   re-export or another artifact, and an agent that branches on it would go
+    #   looking in the project for a build that lives outside it.
+    # - `binary_not_found` is the ENVIRONMENT failure of gda having no engine to
+    #   run (exit 127). The artifact is the caller's OPERAND, not gda's engine, so
+    #   a refusal about it is an operation failure at exit 4.
+    # - `script_failed` is `script run --strict`'s, documented as never reported
+    #   without that command's --strict and leading an agent to a res:// script.
+    ErrorCodeSpec(
+        "export_artifact_not_found",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "An `export smoke` artifact path names nothing on disk.",
+    ),
+    ErrorCodeSpec(
+        "export_artifact_not_runnable",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        # The refusal is about RESOLUTION, not about export platforms: gda reads a
+        # .app bundle's declared main executable and otherwise requires a regular
+        # file the host may execute, and inspects nothing else — whether the file
+        # is a Godot build is what the run shows.
+        "An `export smoke` artifact exists but resolves to no host-runnable "
+        "executable: a directory that is not a macOS .app bundle, a bundle "
+        "without the Contents/Info.plist CFBundleExecutable file it names, or a "
+        "file the host may not execute.",
+    ),
+    ErrorCodeSpec(
+        "smoke_failed",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "An `export smoke --strict` run completed but failed the opted-in gate: "
+        "it exited non-zero, or the engine reported leaked objects or resources "
+        "at exit. Never reported without --strict (ADR-0042).",
     ),
     ErrorCodeSpec(
         "export_failed",

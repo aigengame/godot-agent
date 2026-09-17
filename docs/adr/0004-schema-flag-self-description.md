@@ -419,6 +419,40 @@ status: accepted
 > wrong rule to read off this change: the three are named, and they are the
 > run-reporting verdicts that ALREADY carried evidence.
 
+> **Outcome (2026-09-17, #979): a TENTH producer, and the first that is not `script
+> run`'s.** `smoke_exit_status_failure` — `gda export smoke --strict`'s
+> `smoke_failed` verdict (ADR-0042) — joins the set above, so
+> `tests/cli/test_error_registry.py` now asserts ten. It carries the two fields the
+> `script run` verdict beside it already carries and no others: the CHILD's
+> `exit_status` and the parsed `script_errors`.
+>
+> They pass the #687 criterion on all three clauses, for the same reasons that
+> admitted them on the script side. Both are already computed on the failure path
+> (the strict gate READS them to reach its verdict — a non-zero status, or a
+> `shutdown_leak` the recognizer found). Neither is recoverable from the envelope
+> without parsing prose: the status is embedded in one English sentence, and the
+> recognized errors reach `diagnostics` only as the run's raw streams. And which of
+> the two triggers fired decides the caller's next move — read the exported game's
+> exit code, or chase what it left alive at exit (GDA-DF-072, the dogfooding record
+> ADR-0042 is answering, where `export run` reported `warnings: []` and the build
+> leaked four WAV resources).
+>
+> The shape is unchanged: no field joins `FailureEvidence` and no command-specific
+> envelope appears. The two reused fields' DESCRIPTIONS now name this verdict
+> beside `script run --strict` — `exit_status` names the second `--strict` gate,
+> and `script_errors` states the one nuance both gates share, that a
+> `shutdown_leak` entry can be the trigger a caller opted into without becoming a
+> verdict of its own. Those descriptions are embedded in every command's `error`
+> schema, so that text is a declared, description-only delta across the whole
+> surface (the same thing #862's placement keys were not, having been additive).
+>
+> The placement stays OUT, and the #862 note's three named builders stay three.
+> `export smoke` runs under a private `user://` root it creates and removes on the
+> way out, so naming that directory would hand a caller a path that no longer
+> exists; where the caller supplied `--user-data-root` the path is the caller's own
+> input, which the criterion's second clause excludes. The
+> `_PLACEMENT_EVIDENCE_PRODUCERS` guard therefore does not move.
+
 ADR-0000 lists `--schema` as a core capability without defining it. We fix its
 semantics here, and deliberately scope out an overloaded interpretation.
 

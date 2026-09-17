@@ -294,6 +294,12 @@ def invalid_params_json_failure(detail: str) -> Failure:
 SCRIPT_OUTPUT_STDOUT_HEADER = "--- script stdout ---"
 SCRIPT_OUTPUT_STDERR_HEADER = "--- script stderr ---"
 
+# The same layout under `smoke_failed` (ADR-0042), with its own subject: the run
+# whose output this is was an exported game, not a script, and a caller splitting
+# on the headers should not have to read a `script` label to find a game's output.
+SMOKE_OUTPUT_STDOUT_HEADER = "--- artifact stdout ---"
+SMOKE_OUTPUT_STDERR_HEADER = "--- artifact stderr ---"
+
 # The same two sections for a failure whose subject is the LAUNCH rather than a
 # script (#714). A distinct pair, because "script" would be untrue of an export or
 # an import pass — and because the script-run headers are published envelope bytes
@@ -786,6 +792,93 @@ def export_templates_missing_failure(
         message,
         "",
         evidence=evidence,
+    )
+
+
+def export_artifact_not_found_failure(artifact: str) -> Failure:
+    """The ``export_artifact_not_found`` refusal for an absent smoke artifact (ADR-0042).
+
+    ``export smoke`` runs a path the CALLER selected — normally the
+    ``output_path`` a previous ``export run`` reported — so an absent path is an
+    operand problem, not an environment one: gda has an engine, it simply has
+    nothing to run. Decided before any spawn, and separate from
+    ``export_artifact_not_runnable`` because the two remedies differ: re-export (or
+    correct the path) versus point at the runnable file inside what is there.
+    """
+    return make_failure(
+        "export_artifact_not_found",
+        f"export artifact does not exist: {artifact}",
+        "",
+    )
+
+
+def export_artifact_not_runnable_failure(artifact: str, reason: str) -> Failure:
+    """The ``export_artifact_not_runnable`` refusal for an unresolvable artifact (ADR-0042).
+
+    The artifact IS there; nothing inside it resolves to a file this host may
+    execute. ``reason`` names which of the resolution rules refused it, because
+    the rule set is small and closed and the caller's next move depends on which
+    one spoke: a directory that is not a macOS ``.app`` bundle, a bundle missing
+    its ``Contents/Info.plist``, its ``CFBundleExecutable`` key, or the file that
+    key names, or a file the host may not execute. gda inspects nothing else —
+    it classifies no export platform, and whether the resolved file is a Godot
+    build is what the run shows.
+    """
+    return make_failure(
+        "export_artifact_not_runnable",
+        f"export artifact is not runnable: {artifact} — {reason}",
+        "",
+    )
+
+
+def smoke_exit_status_failure(
+    artifact: str,
+    exit_status: int,
+    stdout: str,
+    stderr: str,
+    script_errors: Sequence[ScriptError],
+) -> Failure:
+    """The ``export smoke --strict`` verdict for a failed run: a status, or a leak (ADR-0042).
+
+    Opt-in only, and the same two triggers ``script run --strict`` has, for the
+    same reason: a status-only gate cannot see a game that printed its results,
+    chose ``0``, and still left objects or resources alive — which is the defect
+    the smoke exists for (GDA-DF-072, where ``export run`` returned
+    ``warnings: []`` and the exported build leaked four WAV resources at exit).
+    The leak read is the parser's own (:func:`gda.script_errors.leaked_at_exit`)
+    over the diagnostics the caller already parsed, so the verdict and the
+    sentence explaining it cannot disagree.
+
+    The leak sentence attributes nothing to any one scene or script: the engine
+    reports what the whole PROCESS still held when it exited. The status keeps the
+    message when a run has both, because the game's own answer is the more
+    specific one and the leak is on ``evidence`` and in ``diagnostics`` either way.
+
+    Evidence is the two fields ``script_failed`` already carries — the CHILD's
+    ``exit_status`` (gda's own exit code stays ``4``, so a game's ``quit(3)``
+    cannot alias a registry exit code) and the parsed ``script_errors`` — and
+    nothing new: this builder joins ADR-0004's producer set without extending its
+    shape. The placement stays out: it is ``script run``'s alone (#862), and the
+    smoke's root is a private one it creates and removes, so naming it would hand
+    a caller a directory that no longer exists.
+    """
+    leak = leaked_at_exit(script_errors) if exit_status == 0 else None
+    message = f"export smoke --strict: {artifact} exited with status {exit_status}"
+    if leak is not None:
+        message = f"{message}, but the engine reported a leak at exit — {leak.message}"
+    return make_failure(
+        "smoke_failed",
+        message,
+        _labelled_output(
+            stdout,
+            stderr,
+            stdout_header=SMOKE_OUTPUT_STDOUT_HEADER,
+            stderr_header=SMOKE_OUTPUT_STDERR_HEADER,
+        ),
+        evidence=FailureEvidence(
+            exit_status=exit_status,
+            script_errors=list(script_errors),
+        ),
     )
 
 
