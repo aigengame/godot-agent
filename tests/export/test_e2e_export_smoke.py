@@ -378,9 +378,15 @@ def test_the_command_ignores_the_cwd_and_gda_project(exported_app, smoke, tmp_pa
 
     assert result["artifact"] == str(elsewhere / relative)
     # And the address gda ADDS is absolute too (#403): a relative `executable`
-    # would be unusable to any consumer not standing in `elsewhere`.
+    # would be unusable to any consumer not standing in `elsewhere`. It is the
+    # bundle's own declared executable, whose name Godot takes from the project's
+    # config/name rather than from the .app stem.
+    with (exported_app / "Contents" / "Info.plist").open("rb") as handle:
+        declared = plistlib.load(handle)["CFBundleExecutable"]
     assert Path(result["executable"]).is_absolute()
-    assert Path(result["executable"]).name == "SmokeFixture"
+    assert result["executable"] == str(
+        elsewhere / relative / "Contents" / "MacOS" / declared
+    )
     assert result["exit_status"] == 0
 
 
