@@ -1399,8 +1399,9 @@ engine to end its main loop normally after that many process frames, so engine
 cleanup and its exit-time diagnostics run; omitted or `0` adds no flag. It
 asserts no project-specific completion — the game can still exit earlier by
 itself, and it can still be doing work when the frame count runs out.
-`--timeout SECONDS` (default 120, the same completed-run ceiling `script run`
-uses) stays the external wall-clock hard bound: a run gda ends reports the shared
+`--timeout SECONDS` (the same completed-run ceiling `script run` uses; the
+number is stated where it is interpolated, in `--help`) stays the external
+wall-clock hard bound: a run gda ends reports the shared
 `launch_timeout` envelope naming `Godot artifact smoke`, keeps the output the run
 had already produced, and claims nothing about diagnostics Godot emits only
 during a normal shutdown.

@@ -1782,7 +1782,7 @@ def _export_smoke_recipe(params, *, project, godot):
     )
 
 
-# ``export smoke`` carries the fifth execution kind, ``ARTIFACT_SMOKE``: like
+# ``export smoke`` carries the sixth execution kind, ``ARTIFACT_SMOKE``: like
 # ``SCRIPT_RUN`` and ``IMPORT`` it is self-description only (ADR-0004 / ADR-0012)
 # — dispatch is by ``recipe`` (ADR-0023) and no runner-selection branch reads it —
 # but the published kind must not claim the ``operations.gd`` sentinel pipeline
