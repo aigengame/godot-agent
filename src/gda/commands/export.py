@@ -75,7 +75,6 @@ from gda.import_evidence import (
 from gda.project_tree import (
     ProjectTreeInventory,
     ProjectTreeSettlement,
-    artifact_to_exclude,
 )
 from gda.runner import (
     LaunchFn,
@@ -700,6 +699,39 @@ def parse_export_warnings(stderr: str) -> list[str]:
 # the walk as the one thing to keep out), and the shape of the published report.
 
 
+# The one virtual scheme that names a path INSIDE the project (ADR-0006). Both
+# `--output res://out.pck` and a preset `export_path` may spell the destination
+# this way, and the engine resolves it against the project root — so the report
+# has to resolve it the same way before the walk can keep it out (#981 round 3).
+_RES_SCHEME = "res://"
+
+
+def _artifact_to_exclude(project: Path, output_path: str) -> Path | None:
+    """The artifact THIS export writes, resolved as the engine resolves it (#839).
+
+    Export output-path POLICY, so it belongs to the group that owns the
+    destination rather than to the shared inventory, which takes a ``Path`` and
+    knows only how to keep it out (#985; PR #989 external review). A ``res://``
+    destination is relative to the project; another virtual scheme cannot name an
+    artifact in this tree; a relative filesystem path resolves against the
+    project and an absolute one is taken as given, since a destination outside
+    the project can still be visible through a directory link inside it.
+
+    What the inventory then does with the answer is its own rule: it excludes the
+    file by its PARENT's filesystem identity and this name, not by comparing two
+    path strings, so the destination's spelling need not be the one the walk
+    reaches it by — and an ``.app`` subtree is excluded without hiding the files
+    beside it.
+    """
+    if output_path.startswith(_RES_SCHEME):
+        rest = output_path[len(_RES_SCHEME) :].lstrip("/")
+        return project / rest if rest else None
+    if not output_path or "://" in output_path:
+        return None
+    path = Path(output_path)
+    return path if path.is_absolute() else project / path
+
+
 def _mutation_report(settlement: ProjectTreeSettlement) -> ProjectTreeMutations:
     """The published report of one settled `Project tree inventory` (#839).
 
@@ -1023,7 +1055,7 @@ def run_export_operation(
     inventory = (
         ProjectTreeInventory.capture(
             project,
-            artifact=artifact_to_exclude(project, output_path),
+            artifact=_artifact_to_exclude(project, output_path),
             detect_rewrites=True,
         )
         if project is not None

@@ -26,7 +26,6 @@ from gda.import_evidence import CACHE_ROOT_REL
 from gda.project_tree import (
     ProjectTreeInventory,
     ProjectTreeSettlement,
-    artifact_to_exclude,
 )
 from tests.support import minimal_project
 
@@ -35,17 +34,19 @@ def _settle(
     project: Path,
     mutate: Callable[[], object] = lambda: None,
     *,
-    output_path: str = "",
+    artifact: Path | None = None,
     detect_rewrites: bool = True,
 ) -> ProjectTreeSettlement:
     """Capture ``project``, mutate it as an engine pass does, settle the two.
 
-    ``output_path`` is what ``export run`` would have asked the engine to write;
-    the default is the other adapter's call, which excludes no artifact.
+    ``artifact`` is the file the asking command has already resolved and wants
+    kept out; the default is ``resource import``'s call, which keeps nothing out.
+    Turning an export destination STRING into that path is the export group's
+    policy and is tested there (`tests/export/test_export_tree_mutations.py`).
     """
     inventory = ProjectTreeInventory.capture(
         project,
-        artifact=artifact_to_exclude(project, output_path),
+        artifact=artifact,
         detect_rewrites=detect_rewrites,
     )
     mutate()
@@ -204,52 +205,28 @@ def test_a_capture_without_rewrites_reports_only_what_was_created(tmp_path):
     assert settled.skipped == 0
 
 
-def test_a_res_output_artifact_is_the_output_not_a_mutation(tmp_path):
-    # `--output res://out.pck` is a destination INSIDE the project: the engine
-    # resolves `res://` against the project root, so the artifact lands in the tree
-    # both walks cover. Dropping every `://` spelling put it in `created` as
-    # `source_adjacent`, reproduced on a real pack export (PR #981 review round 3).
-    project = minimal_project(tmp_path)
-
-    settled = _settle(
-        project,
-        lambda: _write(project / "out.pck", "pack"),
-        output_path="res://out.pck",
-    )
-
-    assert settled.created == []
-    assert settled.skipped == 0
-
-
-@pytest.mark.parametrize("use_res_path", [True, False])
-def test_an_output_under_a_directory_link_is_excluded_by_identity(
-    tmp_path, use_res_path
-):
-    # The artifact is excluded by its PARENT's filesystem identity and its own
-    # name, so the destination's spelling need not be the one the walk reaches it
-    # by. The sibling beside it stays visible.
+def test_an_artifact_under_a_directory_link_is_excluded_by_identity(tmp_path):
+    # The artifact is kept out by its PARENT's filesystem identity and its own
+    # name, so the path the asking command resolved need not be the spelling the
+    # walk reaches it by. The sibling beside it stays visible.
     project = minimal_project(tmp_path / "game")
     shared = tmp_path / "shared"
     shared.mkdir()
     (project / "assets").symlink_to(shared, target_is_directory=True)
-    output = (
-        "res://assets/out.pck" if use_res_path else str(project / "assets" / "out.pck")
-    )
 
     def mutate() -> None:
         _write(shared / "out.pck", "pack")
         _write(shared / "sibling.import", "sidecar")
 
-    settled = _settle(project, mutate, output_path=output)
+    settled = _settle(project, mutate, artifact=project / "assets" / "out.pck")
 
     assert [entry.rel for entry in settled.created] == ["assets/sibling.import"]
     assert settled.skipped == 0
 
 
-def test_an_output_is_excluded_when_the_walk_uses_another_link_spelling(tmp_path):
-    # The walk reaches the directory under `a_alias` first, and the destination
-    # names it `z_assets`. Two path strings would not match; the identity pair
-    # does.
+def test_an_artifact_is_excluded_when_the_walk_uses_another_link_spelling(tmp_path):
+    # The walk reaches the directory under `a_alias` first, and the artifact names
+    # it `z_assets`. Two path strings would not match; the identity pair does.
     project = minimal_project(tmp_path)
     target = project / "z_assets"
     target.mkdir()
@@ -258,7 +235,7 @@ def test_an_output_is_excluded_when_the_walk_uses_another_link_spelling(tmp_path
     settled = _settle(
         project,
         lambda: _write(target / "out.pck", "pack"),
-        output_path="res://z_assets/out.pck",
+        artifact=target / "out.pck",
     )
 
     assert settled.created == []
@@ -294,7 +271,7 @@ def test_the_exclusions_match_whole_path_components(tmp_path):
         _write(project / "build" / "game.x86_64", "binary")
         _write(project / "build" / "game.x86_64.pck", "pack")
 
-    settled = _settle(project, mutate, output_path="build/game.x86_64")
+    settled = _settle(project, mutate, artifact=project / "build" / "game.x86_64")
 
     assert [entry.rel for entry in settled.created] == [
         ".github/ci.yml",

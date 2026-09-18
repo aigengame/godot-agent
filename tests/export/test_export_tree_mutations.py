@@ -27,6 +27,7 @@ from pydantic import ValidationError
 
 from gda.commands.export import (
     ExportRunMode,
+    _artifact_to_exclude,
     ExportRunResult,
     ProjectTreeMutations,
     render_export_run,
@@ -136,6 +137,80 @@ def test_the_artifact_and_its_created_dirs_are_not_mutations(tmp_path):
     assert outcome.created_dirs == [str(project / "build")]
     assert mutations.created == []
     assert mutations.created_count == 0
+    assert mutations.skipped == 0
+
+
+def test_the_export_destination_resolves_to_the_artifact_kept_out(tmp_path):
+    # Output-path POLICY, and it is this GROUP's: the shared inventory takes a
+    # `Path` and knows only how to keep it out, so what a destination string means
+    # is decided here (PR #989 external review). The engine resolves `res://`
+    # against the project root, so the report resolves it the same way; another
+    # virtual scheme names nothing in this tree; a relative filesystem destination
+    # is the project's, and an absolute one is taken as given, because a
+    # destination outside the project can still be visible through a directory
+    # link inside it.
+    project = minimal_project(tmp_path)
+
+    assert _artifact_to_exclude(project, "res://out.pck") == project / "out.pck"
+    assert (
+        _artifact_to_exclude(project, "res:///build/game.pck")
+        == project / "build" / "game.pck"
+    )
+    assert _artifact_to_exclude(project, "res://") is None
+    assert _artifact_to_exclude(project, "user://out.pck") is None
+    assert _artifact_to_exclude(project, "") is None
+    assert (
+        _artifact_to_exclude(project, "build/game.x86_64")
+        == project / "build" / "game.x86_64"
+    )
+    outside = tmp_path / "elsewhere" / "game.x86_64"
+    assert _artifact_to_exclude(project, str(outside)) == outside
+
+
+def test_a_res_output_artifact_is_the_output_not_a_mutation(tmp_path):
+    # `--output res://out.pck` is a destination INSIDE the project: the engine
+    # resolves `res://` against the project root, so the artifact lands in the tree
+    # both walks cover. Dropping every `://` spelling put it in `created` as
+    # `source_adjacent`, reproduced on a real pack export (PR #981 review round 3).
+    project = minimal_project(tmp_path)
+
+    outcome = _export(
+        project,
+        lambda: _write(project / "out.pck", "pack"),
+        output_override="res://out.pck",
+    )
+
+    assert isinstance(outcome, ExportRunResult), outcome
+    assert outcome.output_path == "res://out.pck"
+    assert (project / "out.pck").is_file()
+    assert _mutations(outcome).created == []
+    assert _mutations(outcome).skipped == 0
+
+
+@pytest.mark.parametrize("use_res_path", [True, False])
+def test_an_output_under_a_directory_link_is_excluded_by_identity(
+    tmp_path, use_res_path
+):
+    # Both spellings of the same destination resolve to one artifact path, which
+    # the inventory then keeps out by its parent's filesystem identity and its own
+    # name. The sibling beside it stays visible.
+    project = minimal_project(tmp_path / "game")
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (project / "assets").symlink_to(shared, target_is_directory=True)
+    output = (
+        "res://assets/out.pck" if use_res_path else str(project / "assets" / "out.pck")
+    )
+
+    def mutate() -> None:
+        _write(shared / "out.pck", "pack")
+        _write(shared / "sibling.import", "sidecar")
+
+    mutations = _mutations(_export(project, mutate, output_override=output))
+
+    assert [entry.path for entry in mutations.created] == [
+        "res://assets/sibling.import"
+    ]
     assert mutations.skipped == 0
 
 

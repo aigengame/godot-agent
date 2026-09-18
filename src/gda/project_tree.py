@@ -24,8 +24,10 @@ where it is:
 * a filesystem library, and not a file-set configuration. **This is the one
   statement of what a caller may say**, and it is
   :meth:`ProjectTreeInventory.capture`'s three arguments: the project to
-  inventory, the optional artifact to keep out of the answer, and whether the
-  first capture hashes the files outside the cache root. They are the two
+  inventory, the optional artifact to keep out of the answer — a ``Path`` the
+  ASKING COMMAND has already resolved, since what a destination string means is
+  that command's policy and not this module's — and whether the first capture
+  hashes the files outside the cache root. They are the two
   adapters' questions — never options, filters or a strategy to pick (#985's
   scope guard). The unreadable-directory sink is not one of them: it is the
   private walk's own parameter, which the capture and the settlement supply
@@ -103,12 +105,6 @@ _HASH_CHUNK = 1 << 20
 
 # The one top-level directory the walk drops (rule 5).
 _VCS_DIR = ".git"
-
-# The one virtual scheme that names a path INSIDE the project (ADR-0006). Both
-# `--output res://out.pck` and a preset `export_path` may spell the destination
-# this way, and the engine resolves it against the project root — so the walk has
-# to resolve it the same way before it can exclude the artifact (#981 round 3).
-_RES_SCHEME = "res://"
 
 
 @dataclass(frozen=True)
@@ -195,29 +191,6 @@ def _file_facts(path: Path, *, digest: bool) -> FileFacts | None:
     except OSError:
         return None
     return FileFacts(size=st.st_size, mtime_ns=st.st_mtime_ns, digest=content)
-
-
-def artifact_to_exclude(project: Path, output_path: str) -> Path | None:
-    """The artifact a run writes, resolved as the engine resolves it (#839).
-
-    A ``res://`` destination is relative to the project; other virtual paths
-    cannot name an artifact in this tree. Filesystem destinations can be outside
-    the project but visible through a directory link inside it. The walk reports
-    the first project-relative spelling that reaches each directory, which need
-    not match the destination's spelling — which is why it compares the output
-    parent's filesystem identity and the artifact's name, not two path strings
-    (see :func:`_walk_project_files`). This also excludes an ``.app`` subtree
-    without hiding the files beside it.
-
-    ``resource import`` writes no artifact and asks nothing of this function.
-    """
-    if output_path.startswith(_RES_SCHEME):
-        rest = output_path[len(_RES_SCHEME) :].lstrip("/")
-        return project / rest if rest else None
-    if not output_path or "://" in output_path:
-        return None
-    path = Path(output_path)
-    return path if path.is_absolute() else project / path
 
 
 def _under(rel: str, prefixes: tuple[str, ...]) -> bool:
