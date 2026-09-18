@@ -103,12 +103,15 @@ directory it cannot list; `resource import` passes no artifact, and asks for no
 rewrite detection, which is the one gate that decides whether the first capture
 hashes the files outside the cache root.
 It is NOT the engine-side `res://` walk in `operations.gd` — which this
-repository calls the project walk, holds the decided policy for what the ENGINE
-reaches (ADR-0032, amended by #760 and #804), and skips a directory holding a
-nested `project.godot` or a `.gdignore`. This one deliberately does not (#54,
-#712): it answers what gda ENUMERATES, which is why both results promise
-"anywhere under the project". It is not `Import evidence`'s reachability
-prediction either, which keeps its own sidecar scan for that different question.
+repository calls the project walk, and which since #804 skips a directory holding
+a nested `project.godot` or a `.gdignore` while it still enumerates dot-prefixed
+directories (ADR-0032, amended by #760 and #804; the dot-prefix half is #54's and
+#712's). This walk takes neither marker, because the engine writes its OWN
+`.gdignore` into the project data directory: the two markers alone would prune
+the cache root and empty the `cache_owned` half of both `created` lists, which is
+what would make "anywhere under the project" untrue. It is not `Import
+evidence`'s reachability prediction either, which keeps its own sidecar scan for
+that different question.
 And it is neither a filesystem library nor a file-set configuration: the per-call
 inputs are the two commands' questions, not options.
 _Avoid_: project walk, file scan, tree diff, walker

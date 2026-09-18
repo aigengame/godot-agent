@@ -52,7 +52,7 @@ export report; they now decide both commands' answer.
    the whole command outside any timeout (PR #981 review round 2) — no result, no
    envelope, no exit. A socket or a device answers with an ``OSError`` instead,
    so the family reached the skipped channel by two routes and one of them was
-   unbounded. ``Path.stat()`` follows a symlink, so a link at a regular file is
+   unbounded. ``Path.stat()`` follows a symlink, so a link to a regular file is
    still inventoried as one.
 4. **An unlistable or unreadable entry is counted once** in the settlement's
    ``skipped``: an entry that is not a regular file, a vanished or unreadable
@@ -68,13 +68,16 @@ export report; they now decide both commands' answer.
    :func:`gda.import_evidence.classify_created_file` calls ``cache_owned``, and
    both commands report them as such.
 7. **The engine's two skip markers are NOT applied.** A nested ``project.godot``
-   and a ``.gdignore`` gate ``_should_descend`` in the engine-side walk and
-   ``_engine_skips_directory_of`` in `Import evidence` (#804). Neither is
-   consulted here, nor is that predicate's dot-prefix clause: this walk answers
-   what gda ENUMERATES, not what the engine reaches (#54, #712). Applying them
-   would empty the ``cache_owned`` half of both commands' ``created`` lists —
-   the cache root is dot-prefixed — and would narrow the published "anywhere
-   under the project" the two results promise.
+   and a ``.gdignore`` skip a directory in the ENGINE's own scan; #804 gave the
+   engine-side ``res://`` walk those same two markers, and `Import evidence`'s
+   ``_engine_skips_directory_of`` predicts them plus the dot-prefix clause the
+   engine adds. This walk takes none of it, and the reason is the engine's own
+   bookkeeping: Godot writes a ``.gdignore`` INTO the project data directory
+   (``res://.godot/.gdignore`` is in ``created`` on every cold pass), so the two
+   markers ALONE would prune the cache root, empty the ``cache_owned`` half of
+   both commands' ``created`` lists, and narrow the published "anywhere under the
+   project" the two results promise. A dot-prefixed directory stays in for the
+   separate reason #54 and #712 decided, which is the engine-side walk's rule too.
 """
 
 import hashlib

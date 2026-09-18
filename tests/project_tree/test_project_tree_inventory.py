@@ -474,28 +474,36 @@ def test_a_non_regular_entry_is_counted_and_never_opened(tmp_path):
 
 
 def test_the_engines_skip_markers_are_not_applied(tmp_path):
-    # Rule 7. A nested `project.godot` and a `.gdignore` stop the ENGINE's scan,
-    # and `gda.import_evidence._engine_skips_directory_of` predicts that — for a
-    # different question. This walk answers what gda ENUMERATES (#54, #712), so it
-    # descends both, and a dot-prefixed directory too. Adopting the predicate here
-    # would empty the `cache_owned` half of both commands' `created` lists and
-    # narrow the published "anywhere under the project" on four surfaces.
+    # Rule 7. A nested `project.godot` and a `.gdignore` skip a directory in the
+    # ENGINE's scan; #804 gave the engine-side `res://` walk those two markers,
+    # and `gda.import_evidence._engine_skips_directory_of` predicts them plus the
+    # dot-prefix clause the engine adds. This walk takes none of it.
+    #
+    # The cache root is why, and it is the case a marker rule alone gets wrong:
+    # the engine writes its OWN `.gdignore` into the project data directory, so
+    # skipping on that marker would prune `res://.godot` and empty the
+    # `cache_owned` half of both commands' `created` lists — the published
+    # "anywhere under the project" on four surfaces. A dot-prefixed directory
+    # stays in for the separate reason #54 and #712 decided.
     project = minimal_project(tmp_path)
     minimal_project(project / "vendor" / "inner")
     _write(project / "ignored" / ".gdignore", "")
     _write(project / ".hidden" / "keep.txt", "kept")
+    _write(project / CACHE_ROOT_REL / ".gdignore", "")
 
     def mutate() -> None:
         _write(project / "vendor" / "inner" / "icon.png.import", "[remap]")
         _write(project / "ignored" / "asset.tres.import", "[remap]")
         _write(project / ".hidden" / "note.import", "[remap]")
+        _write(project / CACHE_ROOT_REL / "imported" / "icon.png-ab.ctex", "12345")
 
     settled = _settle(project, mutate)
 
-    assert [entry.rel for entry in settled.created] == [
-        ".hidden/note.import",
-        "ignored/asset.tres.import",
-        "vendor/inner/icon.png.import",
+    assert [(entry.rel, entry.classification) for entry in settled.created] == [
+        (".godot/imported/icon.png-ab.ctex", "cache_owned"),
+        (".hidden/note.import", "source_adjacent"),
+        ("ignored/asset.tres.import", "source_adjacent"),
+        ("vendor/inner/icon.png.import", "source_adjacent"),
     ]
     assert settled.skipped == 0
 
