@@ -19,15 +19,13 @@ section below. ``export smoke`` (ADR-0042) does not go through ``operations.gd``
 either, for a different reason: what it runs is the exported game itself.
 """
 
-import hashlib
 import os
 import plistlib
 import re
 import shutil
 import sys
 import tempfile
-from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
 from stat import S_ISDIR, S_ISREG
@@ -73,7 +71,11 @@ from gda.headless import (
 from gda.import_evidence import (
     CACHE_ROOT_REL,
     CreatedFileClass,
-    classify_created_file,
+)
+from gda.project_tree import (
+    ProjectTreeInventory,
+    ProjectTreeSettlement,
+    artifact_to_exclude,
 )
 from gda.runner import (
     LaunchFn,
@@ -688,338 +690,51 @@ def parse_export_warnings(stderr: str) -> list[str]:
     return [m.group("message") for m in _EXPORT_WARNING_LINE.finditer(stderr)]
 
 
-# --- The project-tree mutation report's two walks (#839) ---------------------
+# --- The project-tree mutation report's inventory (#839, #985) ---------------
 #
-# `resource import` walks the same tree for the same reason and keeps its own
-# walker (#741, open item 9): the SHARED part is the classification — both take it
-# from `gda.import_evidence`, which is also where the cache root is spelled — not
-# the walk. This one differs where the export differs. It hashes, because a
-# rewritten file's earlier bytes exist only before the run; it excludes the
-# artifact gda asked the engine to write; and it runs around a native export
-# instead of around a sentinel launch.
-
-# Read in chunks so a large asset costs no memory. The digest decides ONE thing —
-# whether a file's bytes changed between the two walks — and is never published,
-# so blake2b is gda's own choice here rather than a contract with anybody.
-_HASH_CHUNK = 1 << 20
-
-# The top-level directory both walks drop, on the same ground `resource import`'s
-# walker drops it: the engine never writes there, and hashing an object database
-# would dominate the cost of a report about the project's own files. The rule is
-# stated twice, once per walk, because #741's open item 9 keeps the two walks
-# separate — the shared part is the classification, not the walk.
-_VCS_DIR = ".git"
-
-# The one virtual scheme that names a path INSIDE the project (ADR-0006). Both
-# `--output res://out.pck` and a preset `export_path` may spell the destination
-# this way, and the engine resolves it against the project root — so the report
-# has to resolve it the same way before it can exclude the artifact (#981 round 3).
-_RES_SCHEME = "res://"
+# The walk and the two-capture settlement are NOT here: they are the `Project
+# tree inventory` (:mod:`gda.project_tree`), which `resource import` reads too —
+# one Python enumeration of the project's files, under one set of rules, for the
+# two results the same engine pass produces. What stays here is what only the
+# export knows: the artifact it asked the engine to write (passed to the walk as
+# the one thing to keep out), and the shape of the published report.
 
 
-@dataclass(frozen=True)
-class _FileFacts:
-    """What the pre-export walk records about one file (#839).
+def _mutation_report(settlement: ProjectTreeSettlement) -> ProjectTreeMutations:
+    """The published report of one settled `Project tree inventory` (#839).
 
-    ``digest`` is ``None`` for a file under the cache root — those are never
-    hashed, so they can never enter ``modified``; the cache is reported as one
-    unit. Everything else is hashed, because ``modified`` means the content
-    changed and the earlier content is gone once the export has run.
+    A rendering, not a second rule: the entries take the ``res://`` spelling the
+    result publishes, and the counts are derived here — they are this result's
+    own summary of its own lists, which the model's validator then pins to them.
     """
-
-    size: int
-    mtime_ns: int
-    digest: str | None
-
-
-def _digest_file(path: Path) -> str:
-    """The content digest the two walks compare (#839)."""
-    digest = hashlib.blake2b(digest_size=16)
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(_HASH_CHUNK), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _file_facts(path: Path, *, digest: bool) -> "_FileFacts | None":
-    """One REGULAR file's facts, or ``None`` when there are none to take (#839).
-
-    A file that vanished between the walk and the read, a dangling symlink, an
-    unreadable one: none of them is a reason to fail an export that SUCCEEDED, so
-    the caller counts it as skipped and reports nothing about it.
-
-    An entry that is not a regular file takes that same path, and the check comes
-    BEFORE the open: a FIFO in the project tree blocks ``open()`` until a writer
-    appears, which hung the whole command outside any timeout (PR #981 review
-    round 2) — no result, no envelope, no exit. A socket or a device answers with
-    an ``OSError`` instead, so the family reached the skipped channel by two
-    different routes and one of them was unbounded. The rule is now the same for
-    every non-regular entry, whatever its kind: gda never opens it, and the report
-    counts it. ``Path.stat()`` follows a symlink, so a link to a regular file is
-    still inventoried as one.
-    """
-    try:
-        st = path.stat()
-        if not S_ISREG(st.st_mode):
-            return None
-        content = _digest_file(path) if digest else None
-    except OSError:
-        return None
-    return _FileFacts(size=st.st_size, mtime_ns=st.st_mtime_ns, digest=content)
-
-
-@dataclass(frozen=True)
-class _ProjectTreeExclusions:
-    prefixes: tuple[str, ...]
-    artifact: Path | None
-
-
-def _project_tree_exclusions(project: Path, output_path: str) -> _ProjectTreeExclusions:
-    """Keep the output artifact out of both walks, under any directory alias.
-
-    A ``res://`` destination is relative to the project; other virtual paths
-    cannot name an artifact in this tree. Filesystem destinations can be outside
-    the project but visible through a directory link inside it. The walk reports
-    the first project-relative spelling that reaches each directory, which need
-    not match the destination's spelling. The walk therefore compares the output
-    parent's filesystem identity and the artifact's name, not two path strings.
-    This also excludes an ``.app`` subtree without hiding files beside it.
-    """
-    if output_path.startswith(_RES_SCHEME):
-        rest = output_path[len(_RES_SCHEME) :].lstrip("/")
-        artifact = project / rest if rest else None
-    elif not output_path or "://" in output_path:
-        artifact = None
-    else:
-        path = Path(output_path)
-        artifact = path if path.is_absolute() else project / path
-    return _ProjectTreeExclusions(prefixes=(_VCS_DIR,), artifact=artifact)
-
-
-def _excluded(rel: str, prefixes: tuple[str, ...]) -> bool:
-    """Whether ``rel`` is one of ``prefixes`` or sits under one."""
-    return any(rel == prefix or rel.startswith(prefix + "/") for prefix in prefixes)
-
-
-def _walk_project(
-    project: Path,
-    excluded: _ProjectTreeExclusions,
-    on_unreadable_dir: "Callable[[str], None] | None" = None,
-) -> Iterator[tuple[str, Path]]:
-    """Every file under ``project`` as ``(project-relative posix path, path)``.
-
-    The cache root is walked like anything else — its files are what ``created``
-    classifies as ``cache_owned`` — while an excluded subtree is PRUNED rather
-    than filtered out per file: an ``.app`` bundle holds thousands of files, and
-    walking it would spend the report's budget on entries it then drops.
-
-    **A directory link is walked**, because the engine's import scan walks one: a
-    shared library directory linked into the project is content the pass reads and
-    writes sidecars into. ``os.walk`` leaves such a directory out by default, and
-    the export then created files under it and rewrote files under it while the
-    report said nothing about either (PR #981 review round 3). The policy is the
-    project's decided one for the ``res://`` walk, ADR-0032's (#760): follow the
-    link as the engine does, and identify what it reaches by FILESYSTEM IDENTITY —
-    ``st_dev`` and ``st_ino`` of the directory reached, the pair the engine's own
-    ``DirAccess.is_equivalent`` compares — rather than by its spelling. So a
-    directory is walked ONCE, under the first spelling that reaches it, and a link
-    that leads back up the descent chain or to a directory already walked is not
-    re-entered: a cycle (``sub/loop -> ..``) ends by rule instead of at the OS path
-    limit. A cycle is NOT counted as skipped — nothing is unaccounted for, the
-    content is reported under its first spelling. The entries are sorted, so the
-    first spelling is the same on both walks. A file is reported under that
-    project-relative ``res://`` spelling, even if the destination was addressed
-    through another alias of the same directory.
-
-    ``on_unreadable_dir`` receives the project-relative path of a directory the
-    walk cannot list, or cannot stat. ``os.walk`` swallows the listing error by
-    default, which would drop the whole subtree from the report AND from its
-    skipped count — the one channel that says the record is incomplete (PR #981
-    review). The caller decides what to do with the path; this function still
-    yields everything it CAN read, because an unreadable corner of the tree is not
-    a reason to fail an export that succeeded.
-    """
-
-    def note(error: OSError) -> None:
-        if on_unreadable_dir is None:
-            return
-        filename = getattr(error, "filename", None)
-        if filename is None:
-            return
-        try:
-            on_unreadable_dir(Path(filename).relative_to(project).as_posix())
-        except ValueError:
-            return
-
-    artifact_parent_id: tuple[int, int] | None = None
-    if excluded.artifact is not None:
-        try:
-            parent = excluded.artifact.parent.stat()
-            artifact_parent_id = (parent.st_dev, parent.st_ino)
-        except OSError:
-            # A parent absent before the export can exist in the second walk.
-            pass
-    walked: set[tuple[int, int]] = set()
-    for dirpath, dirnames, filenames in os.walk(
-        project, onerror=note, followlinks=True
-    ):
-        base = Path(dirpath)
-        rel_dir = base.relative_to(project).as_posix()
-        prefix = "" if rel_dir == "." else rel_dir + "/"
-        # The identity test is asked of the directory the walk HAS reached, not of
-        # the children it is about to descend into: that is what makes the answer
-        # depth-first ("the first spelling") rather than breadth-first, and it is
-        # also the one place a followed link can be recognized whatever its shape.
-        try:
-            status = base.stat()
-        except OSError as error:
-            note(error)
-            dirnames[:] = []
-            continue
-        identity = (status.st_dev, status.st_ino)
-        if identity in walked:
-            dirnames[:] = []
-            continue
-        walked.add(identity)
-        artifact_name = (
-            excluded.artifact.name
-            if excluded.artifact is not None and identity == artifact_parent_id
-            else None
+    created = [
+        ExportCreatedFile(
+            path="res://" + entry.rel,
+            classification=entry.classification,
+            size=entry.size,
         )
-        dirnames[:] = sorted(
-            name
-            for name in dirnames
-            if name != artifact_name and not _excluded(prefix + name, excluded.prefixes)
+        for entry in settlement.created
+    ]
+    modified = [
+        ExportModifiedFile(
+            path="res://" + entry.rel,
+            size=entry.size,
+            size_before=entry.size_before,
         )
-        for name in filenames:
-            rel = prefix + name
-            if name != artifact_name and not _excluded(rel, excluded.prefixes):
-                yield rel, base / name
-
-
-@dataclass(frozen=True)
-class _PreExportInventory:
-    """The pre-export walk of the project tree, and its settlement (#839).
-
-    Captured before the export, settled after it: :meth:`settle` walks the tree a
-    second time and reports the difference. The two halves live in one object
-    because the second walk is meaningless without the first — a file is
-    ``created`` only against a recorded tree, and ``modified`` only against a
-    recorded digest.
-    """
-
-    project: Path
-    excluded: _ProjectTreeExclusions
-    files: dict[str, _FileFacts]
-    unreadable: frozenset[str]
-    # The directories the pre-export walk could not list, kept apart from the
-    # rest because they are PREFIXES: the settlement must pass over everything
-    # beneath one. A file under such a directory existed before the export, so
-    # reporting it as created once the directory becomes readable would state a
-    # fact the walks never observed (PR #981 review).
-    unlistable_dirs: tuple[str, ...]
-
-    @classmethod
-    def capture(cls, project: Path, *, output_path: str) -> "_PreExportInventory":
-        """Record the tree as it stands before the native export (#839)."""
-        excluded = _project_tree_exclusions(project, output_path)
-        files: dict[str, _FileFacts] = {}
-        unreadable: set[str] = set()
-        unlistable: set[str] = set()
-        for rel, path in _walk_project(project, excluded, unlistable.add):
-            # The shared classifier decides what to hash, asked of a file that
-            # already exists: `cache_owned` is "under the cache root", the one
-            # thing this walk needs to know about it. Asking it here is what keeps
-            # the cache-root rule spelled once (#741) — the export path states no
-            # rule of its own, here or in the settlement below.
-            facts = _file_facts(
-                path, digest=classify_created_file(rel) != "cache_owned"
-            )
-            if facts is None:
-                unreadable.add(rel)
-            else:
-                files[rel] = facts
-        return cls(
-            project=project,
-            excluded=excluded,
-            files=files,
-            unreadable=frozenset(unreadable | unlistable),
-            unlistable_dirs=tuple(sorted(unlistable)),
-        )
-
-    def settle(self) -> ProjectTreeMutations:
-        """Walk the tree again and report what the export changed (#839).
-
-        The rules, in the order the loop asks them: a path the pre-export walk
-        could not read is accounted for as skipped and nothing more (calling it
-        created would be a guess); a path that was not there is ``created`` and
-        carries the shared classifier's verdict; a pre-existing cache file is
-        passed over, because the cache is reported as one unit; and a pre-existing
-        file elsewhere is a CANDIDATE only when its size or mtime moved, and
-        enters ``modified`` only when its digest then differs. The candidate rule
-        is what bounds the cost — the import pass touches far more files than it
-        rewrites — and it is also this report's one blind spot: a rewrite that
-        preserves both the size and the timestamp is not seen.
-
-        A directory neither walk could list is counted once, and everything
-        beneath it is passed over: the pre-export walk never read those files, so
-        the settlement can state nothing about them either way.
-        """
-        created: list[ExportCreatedFile] = []
-        modified: list[ExportModifiedFile] = []
-        skipped = set(self.unreadable)
-        for rel, path in _walk_project(self.project, self.excluded, skipped.add):
-            if rel in skipped or _excluded(rel, self.unlistable_dirs):
-                continue
-            before = self.files.get(rel)
-            if before is None:
-                facts = _file_facts(path, digest=False)
-                if facts is None:
-                    skipped.add(rel)
-                    continue
-                created.append(
-                    ExportCreatedFile(
-                        path="res://" + rel,
-                        classification=classify_created_file(rel),
-                        size=facts.size,
-                    )
-                )
-                continue
-            if classify_created_file(rel) == "cache_owned":
-                continue
-            after = _file_facts(path, digest=False)
-            if after is None:
-                skipped.add(rel)
-                continue
-            if (after.size, after.mtime_ns) == (before.size, before.mtime_ns):
-                continue
-            hashed = _file_facts(path, digest=True)
-            if hashed is None or hashed.digest is None:
-                skipped.add(rel)
-                continue
-            if hashed.digest == before.digest:
-                continue
-            modified.append(
-                ExportModifiedFile(
-                    path="res://" + rel,
-                    size=hashed.size,
-                    size_before=before.size,
-                )
-            )
-        created.sort(key=lambda entry: entry.path)
-        modified.sort(key=lambda entry: entry.path)
-        owned = sum(1 for entry in created if entry.classification == "cache_owned")
-        return ProjectTreeMutations(
-            created=created,
-            modified=modified,
-            created_count=len(created),
-            created_cache_owned=owned,
-            created_source_adjacent=len(created) - owned,
-            created_bytes=sum(entry.size for entry in created),
-            modified_count=len(modified),
-            modified_bytes=sum(entry.size for entry in modified),
-            skipped=len(skipped),
-        )
+        for entry in settlement.modified
+    ]
+    owned = sum(1 for entry in created if entry.classification == "cache_owned")
+    return ProjectTreeMutations(
+        created=created,
+        modified=modified,
+        created_count=len(created),
+        created_cache_owned=owned,
+        created_source_adjacent=len(created) - owned,
+        created_bytes=sum(entry.size for entry in created),
+        modified_count=len(modified),
+        modified_bytes=sum(entry.size for entry in modified),
+        skipped=settlement.skipped,
+    )
 
 
 def classify_export_run(
@@ -1031,7 +746,7 @@ def classify_export_run(
     mode: ExportRunMode,
     output_path: str,
     created_dirs: list[str],
-    inventory: "_PreExportInventory | None" = None,
+    inventory: "ProjectTreeInventory | None" = None,
 ) -> ExportRunResult | Failure:
     """Classify a native Godot export into a typed result or a ``Failure`` (issue #121).
 
@@ -1082,7 +797,9 @@ def classify_export_run(
         created_dirs=created_dirs,
         warnings=parse_export_warnings(output.stderr),
         project_tree_mutations=(
-            inventory.settle() if inventory is not None else ProjectTreeMutations()
+            _mutation_report(inventory.settle())
+            if inventory is not None
+            else ProjectTreeMutations()
         ),
     )
 
@@ -1304,7 +1021,11 @@ def run_export_operation(
     # on. The destination is known by now, so the artifact is excluded from the
     # first walk rather than filtered out of the second.
     inventory = (
-        _PreExportInventory.capture(project, output_path=output_path)
+        ProjectTreeInventory.capture(
+            project,
+            artifact=artifact_to_exclude(project, output_path),
+            detect_rewrites=True,
+        )
         if project is not None
         else None
     )
