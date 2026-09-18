@@ -256,14 +256,14 @@ the second consumer, and delete the compensating contract around unneeded NFRs.
   policy.
 
 > **Outcome (2026-09-17, #979 / PR #987):** the shared "completed passthrough
-> result" is a base that carries the RULE and declares NO fields — the stdout cap,
-> the bounded projection and its spill IO, the published truth table, the runtime
-> validator, the default ceiling and the human rendering tail — because pydantic
-> orders a subclass's fields base-first, so a field-carrying base would have moved
-> `script run`'s `path` out of first position and broken the byte-identical result
-> and output-schema shape this decision's own validation list requires; each result
-> therefore declares its own fields, which is the precedent
-> `gda.models.ProjectRootedResult` set for the same reason. It lives in a new
+> result" has a fieldless base that carries the published projection truth table
+> and its runtime validator. The `gda.completed_run` module owns the stdout cap,
+> bounded projection and spill IO, default ceiling, and human rendering tail.
+> Pydantic orders a subclass's fields base-first, so a field-carrying base would
+> have moved `script run`'s `path` out of first position and broken the
+> byte-identical result and output-schema shape this decision's own validation
+> list requires. Each result therefore declares its own fields, following the
+> precedent of `gda.models.ProjectRootedResult`. This shared machinery lives in
 > `gda.completed_run` rather than in the `gda.models` core because it owns
 > behaviour, not only a shape (see ADR-0040's note of the same date). Artifact
 > resolution shipped as declared and no wider: a regular file the host may execute
