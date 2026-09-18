@@ -815,14 +815,12 @@ def export_artifact_not_found_failure(artifact: str) -> Failure:
 def export_artifact_not_runnable_failure(artifact: str, reason: str) -> Failure:
     """The ``export_artifact_not_runnable`` refusal for an unresolvable artifact (ADR-0042).
 
-    The artifact IS there; nothing inside it resolves to a file this host may
-    execute. ``reason`` names which of the resolution rules refused it, because
-    the rule set is small and closed and the caller's next move depends on which
-    one spoke: a directory that is not a macOS ``.app`` bundle, a bundle missing
-    its ``Contents/Info.plist``, its ``CFBundleExecutable`` key, or the file that
-    key names, or a file the host may not execute. gda inspects nothing else —
-    it classifies no export platform, and whether the resolved file is a Godot
-    build is what the run shows.
+    The resolver cannot identify a file this host may execute. ``reason`` names
+    the refusing rule: an uninspectable path, a directory that is not a macOS
+    ``.app`` bundle, a bundle missing its ``Contents/Info.plist``, its
+    ``CFBundleExecutable`` key or the named file, or a file the host may not
+    execute. gda classifies no export platform; whether the resolved file is a
+    Godot build is what the run shows.
     """
     return make_failure(
         "export_artifact_not_runnable",

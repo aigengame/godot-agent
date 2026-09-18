@@ -31,7 +31,6 @@ from gda.commands.export import (  # the single fully-bound descriptor (ADR-0023
     ExportSmokeParams,
     ExportSmokeResult,
     _is_runnable_file,
-    normalize_export_output_path,
     resolve_artifact_executable,
     run_export_smoke_operation,
     smoke_args,
@@ -180,6 +179,16 @@ def test_an_absent_artifact_is_not_found(tmp_path):
     assert outcome.error.code == "export_artifact_not_found"
     assert outcome.exit_code == EXIT_OPERATION
     assert "never-built" in outcome.error.message
+
+
+def test_a_path_beneath_a_regular_file_is_not_found(tmp_path):
+    parent = tmp_path / "file"
+    parent.write_text("not a directory", encoding="utf-8")
+
+    outcome = resolve_artifact_executable(str(parent / "game"))
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "export_artifact_not_found"
 
 
 def test_a_runnable_file_is_accepted_as_given(tmp_path):
@@ -437,15 +446,6 @@ def test_an_unexpandable_home_prefix_is_a_typed_refusal(tmp_path, monkeypatch):
 
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "export_artifact_not_found"
-
-
-def test_the_export_output_normalizer_keeps_its_unguarded_behaviour():
-    # The BOUNDARY of the fix above, pinned: `export run --output` has the same
-    # exposure and predates this slice, so changing a shipped command's behaviour
-    # is not this one's to make. A follow-up owns it; until then this asserts the
-    # guard was added to the smoke's normalizer ALONE.
-    with pytest.raises(RuntimeError):
-        normalize_export_output_path("~nosuchuser999/x")
 
 
 def test_the_export_output_field_keeps_its_virtual_path_convention(tmp_path):

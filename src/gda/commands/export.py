@@ -30,7 +30,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from stat import S_ISREG
+from stat import S_ISDIR, S_ISREG
 from typing import Annotated, Optional
 from xml.parsers.expat import ExpatError
 
@@ -1487,14 +1487,20 @@ def resolve_artifact_executable(artifact: str) -> "Path | Failure":
     the artifact declares, and gating it would be a platform classification of the
     kind this command does not make.
 
-    An absent path is ``export_artifact_not_found`` — the operand is missing — and
-    every other refusal is ``export_artifact_not_runnable``, naming which rule
-    spoke.
+    A confirmed absent path is ``export_artifact_not_found``. A path the host
+    cannot inspect is ``export_artifact_not_runnable``: its absence has not been
+    established, and no runnable executable can be resolved from it.
     """
     path = Path(artifact)
-    if not path.exists():
+    try:
+        mode = os.stat(path).st_mode
+    except (FileNotFoundError, NotADirectoryError):
         return export_artifact_not_found_failure(artifact)
-    if not path.is_dir():
+    except (OSError, ValueError) as error:
+        return export_artifact_not_runnable_failure(
+            artifact, f"it could not be inspected ({error})"
+        )
+    if not S_ISDIR(mode):
         if _is_runnable_file(path):
             return path
         return export_artifact_not_runnable_failure(

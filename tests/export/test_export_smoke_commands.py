@@ -9,10 +9,12 @@ Typer → recipe → classify → emit pipeline runs without an engine.
 """
 
 import json
+import os
 import plistlib
 import stat
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
@@ -275,6 +277,32 @@ def test_the_two_artifact_refusals_reach_the_cli(monkeypatch, tmp_path):
     )
     assert result.exit_code == 4
     assert json.loads(result.stdout)["error"]["code"] == "export_artifact_not_runnable"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX directory permissions")
+def test_an_inaccessible_artifact_is_a_typed_refusal(monkeypatch, tmp_path):
+    blocked = tmp_path / "blocked"
+    blocked.mkdir()
+    artifact = runnable(blocked / "game")
+    blocked.chmod(0o000)
+    try:
+        try:
+            artifact.stat()
+        except PermissionError:
+            pass
+        else:
+            pytest.skip("host does not enforce directory search permissions")
+
+        result, stub = invoke(monkeypatch, ["export", "smoke", str(artifact), "--json"])
+    finally:
+        blocked.chmod(0o700)
+
+    assert result.exit_code == 4, result.stdout
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "export_artifact_not_runnable"
+    assert error["category"] == "operation"
+    assert "could not be inspected" in error["message"]
+    assert not stub.calls
 
 
 def test_a_bundle_executable_with_a_nul_answers_through_the_error_envelope(
