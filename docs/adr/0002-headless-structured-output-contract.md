@@ -339,7 +339,10 @@ operation, and parse codes the CLI assigns).
 | `export_path_unset` | `operation` | `classifier` | `4` | An export run has no destination — neither a `--output` override nor a configured `export_path` (#170). |
 | `export_templates_missing` | `operation` | `classifier` | `4` | A release/debug export needs the export templates for the running engine version, which are not installed; `pack` needs no platform templates and is exempt (#170). |
 | `export_output_parent_failed` | `operation` | `classifier` | `4` | An export run could not create the output parent directory before native export (#402). |
-| `stdout_spill_failed` | `operation` | `classifier` | `4` | A `script run`'s stdout exceeded the cap but the complete-stream spill file could not be written, so the bounded result cannot be delivered (#665). |
+| `stdout_spill_failed` | `operation` | `classifier` | `4` | A completed run's stdout exceeded the cap but the complete-stream spill file could not be written, so the bounded result cannot be delivered; `script run` and `export smoke` both report it (#665, ADR-0042). |
+| `export_artifact_not_found` | `operation` | `classifier` | `4` | An `export smoke` artifact path names nothing on disk (ADR-0042). |
+| `export_artifact_not_runnable` | `operation` | `classifier` | `4` | An `export smoke` artifact exists but resolves to no host-runnable executable: a directory that is not a macOS `.app` bundle, a bundle without the `Contents/Info.plist` `CFBundleExecutable` file it names, or a file the host may not execute (ADR-0042). |
+| `smoke_failed` | `operation` | `classifier` | `4` | An `export smoke --strict` run completed but failed the opted-in gate: it exited non-zero, or the engine reported leaked objects or resources at exit. Never reported without `--strict` (ADR-0042). |
 | `export_failed` | `operation` | `classifier` | `4` | A native Godot export run failed (the engine reported the export did not complete). |
 | `invalid_uid` | `operation` | `operation` | `4` | A requested `uid://` value is not a syntactically valid resource UID. |
 | `unknown_uid` | `operation` | `operation` | `4` | A syntactically valid resource UID is not registered in the engine's UID cache. |

@@ -1,21 +1,24 @@
-"""The project-tree mutation report of ``gda export run`` (#839).
+"""``gda export run``'s use of the `Project tree inventory` (#839, #985).
 
 The native export runs the editor import pass over the project, so it creates the
 cache and the sidecars beside the sources and can rewrite generated resources.
 GDA-DF-067 saw about 14,000 such files appear on disk while ``warnings`` stayed
 empty. These tests drive the real recipe —
 :func:`gda.commands.export.run_export_operation` — with an export runner that
-MUTATES the project the way the pass does, so every rule the report states is
-exercised end to end: what is created, what counts as rewritten, what is
-excluded, and what a file the walk cannot read does to a successful export.
+MUTATES the project the way the pass does, and pin what only the export knows:
+the artifact it keeps out of the walk, the report's published shape and counts,
+its human rendering, and the success-only boundary the second walk sits behind.
 
-The recipe's own suite is ``tests/export/test_export_run_operation.py``; this one
-is about the report the recipe now carries. The real-engine proof is
-``tests/export/test_e2e_export_run.py``.
+The walk and the settlement under all of it belong to :mod:`gda.project_tree`,
+whose rules are named one by one in ``tests/project_tree/`` — one package for the
+module, none of its rule tests in a consumer's package. These ten stay HERE
+because they change when this group's report changes, not when the module does
+(#985, and PR #836's rule that test packages are drawn by reason to change). The
+recipe's own suite is ``test_export_run_operation.py``; the real-engine proof is
+``test_e2e_export_run.py``.
 """
 
 import os
-import threading
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -24,6 +27,7 @@ from pydantic import ValidationError
 
 from gda.commands.export import (
     ExportRunMode,
+    _artifact_to_exclude,
     ExportRunResult,
     ProjectTreeMutations,
     render_export_run,
@@ -32,6 +36,7 @@ from gda.commands.export import (
 from gda.errors import Failure
 from gda.harness.install import install_harness
 from gda.import_evidence import CACHE_ROOT_REL
+from gda.project_tree import ProjectTreeInventory
 from gda.runner import RunResult
 from tests.support import ENGINE_BANNER, FakeRunner, minimal_project, sentinel
 
@@ -113,149 +118,6 @@ def _write(path: Path, text: str) -> Path:
     return path
 
 
-def test_created_files_are_classified_against_the_shared_cache_root(tmp_path):
-    # AC1: an export against a cold cache reports the cache files and the sidecars
-    # it created, each classified, with counts and bytes. The two classes are the
-    # `resource import` vocabulary because they come from the same function, and
-    # the reported root is the constant that function reads.
-    project = minimal_project(tmp_path)
-    _write(project / "icon.png", "png")
-
-    def mutate() -> None:
-        _write(project / CACHE_ROOT_REL / "imported" / "icon.png-ab.ctex", "12345")
-        _write(project / CACHE_ROOT_REL / "uid_cache.bin", "uid")
-        _write(project / "icon.png.import", "[remap]")
-
-    mutations = _mutations(_export(project, mutate))
-
-    assert mutations.cache_root == "res://" + CACHE_ROOT_REL
-    assert [
-        (entry.path, entry.classification, entry.size) for entry in mutations.created
-    ] == [
-        ("res://.godot/imported/icon.png-ab.ctex", "cache_owned", 5),
-        ("res://.godot/uid_cache.bin", "cache_owned", 3),
-        ("res://icon.png.import", "source_adjacent", 7),
-    ]
-    assert mutations.created_count == 3
-    assert mutations.created_cache_owned == 2
-    assert mutations.created_source_adjacent == 1
-    assert mutations.created_bytes == 15
-    assert mutations.modified == []
-
-
-def test_the_classification_is_the_shared_function_not_a_local_rule(
-    tmp_path, monkeypatch
-):
-    # #839's reuse criterion, pinned rather than described: the export path asks
-    # `gda.import_evidence.classify_created_file` at BOTH of the places it needs a
-    # verdict, and a rule restated at either one would stop asking.
-    #
-    # The settlement's use is visible in the answer — a stub verdict reaches the
-    # report. The PRE-EXPORT walk's use is not: it only decides which files to
-    # hash, and a wrongly hashed cache file is passed over by the settlement
-    # anyway, so the stub RECORDS what it was asked about and the export runner
-    # snapshots that record before it mutates anything. Whatever is in the
-    # snapshot was asked during the first walk (PR #981 review found the second
-    # half pinned by nothing).
-    project = minimal_project(tmp_path)
-    _write(project / "already_here.tres", "old")
-    asked: list[str] = []
-    asked_before_the_export: list[str] = []
-
-    def recording_stub(rel: str) -> str:
-        asked.append(rel)
-        return "cache_owned"
-
-    monkeypatch.setattr("gda.commands.export.classify_created_file", recording_stub)
-
-    def mutate() -> None:
-        asked_before_the_export.extend(asked)
-        _write(project / "beside_the_source.import", "x")
-
-    mutations = _mutations(_export(project, mutate))
-
-    assert "already_here.tres" in asked_before_the_export
-    assert [entry.classification for entry in mutations.created] == ["cache_owned"]
-    assert mutations.created_cache_owned == 1
-    assert mutations.created_source_adjacent == 0
-
-
-def test_a_rewritten_file_is_modified_and_carries_both_sizes(tmp_path):
-    # AC3, the reported half: the pass rewrites a generated resource, and the
-    # record names it with the size it had and the size it has. `size_before` is
-    # the fact only the pre-export walk can state.
-    project = minimal_project(tmp_path)
-    generated = _write(project / "i18n" / "ui.translation", "old bytes")
-
-    mutations = _mutations(
-        _export(
-            project, lambda: generated.write_text("new bytes here", encoding="utf-8")
-        )
-    )
-
-    assert [
-        (entry.path, entry.size, entry.size_before) for entry in mutations.modified
-    ] == [("res://i18n/ui.translation", 14, 9)]
-    assert mutations.modified_count == 1
-    assert mutations.modified_bytes == 14
-    assert mutations.created == []
-
-
-def test_a_touched_file_whose_content_is_equal_is_not_modified(tmp_path):
-    # AC3, the other half: the import pass touches far more files than it rewrites,
-    # and a changed timestamp alone would bury the few rewrites the record is
-    # about. The file below is a CANDIDATE (its mtime moved) and is then cleared by
-    # its digest.
-    project = minimal_project(tmp_path)
-    touched = _write(project / "i18n" / "ui.translation", "same bytes")
-
-    def mutate() -> None:
-        touched.write_text("same bytes", encoding="utf-8")
-        later = os.stat(touched).st_mtime_ns + 5_000_000_000
-        os.utime(touched, ns=(later, later))
-
-    mutations = _mutations(_export(project, mutate))
-
-    assert mutations.modified == []
-    assert mutations.modified_count == 0
-    assert mutations.modified_bytes == 0
-
-
-def test_a_rewrite_that_keeps_the_size_and_the_timestamp_is_not_a_candidate(tmp_path):
-    # The candidate rule's declared blind spot, pinned so it stays a decision. Only
-    # a file whose size or mtime moved is hashed after the export; that is what
-    # bounds the cost on a tree the pass touches wholesale. A rewrite that restores
-    # both is invisible — no engine pass does this, but the rule says so out loud.
-    project = minimal_project(tmp_path)
-    resource = _write(project / "generated.tres", "aaaa")
-    before = os.stat(resource)
-
-    def mutate() -> None:
-        resource.write_text("bbbb", encoding="utf-8")
-        os.utime(resource, ns=(before.st_atime_ns, before.st_mtime_ns))
-
-    mutations = _mutations(_export(project, mutate))
-
-    assert mutations.modified == []
-    assert resource.read_text(encoding="utf-8") == "bbbb"
-
-
-def test_a_pre_existing_cache_file_is_never_reported_as_rewritten(tmp_path):
-    # The cache is reported as ONE unit through `cache_root`: a pre-existing cache
-    # file is not hashed before the export and cannot enter `modified`. Hashing the
-    # cache would cost more than the fact is worth — the dogfooding case holds
-    # about 1.1 GiB there — and the record is about the tracked files beside it.
-    project = minimal_project(tmp_path)
-    cached = _write(project / CACHE_ROOT_REL / "uid_cache.bin", "old cache")
-
-    mutations = _mutations(
-        _export(project, lambda: cached.write_text("rewritten cache", encoding="utf-8"))
-    )
-
-    assert mutations.modified == []
-    assert mutations.created == []
-
-
 def test_the_artifact_and_its_created_dirs_are_not_mutations(tmp_path):
     # AC4: the export's own output is not a mutation of the project — not the
     # artifact, not the files inside an artifact that is a DIRECTORY (a macOS
@@ -278,10 +140,37 @@ def test_the_artifact_and_its_created_dirs_are_not_mutations(tmp_path):
     assert mutations.skipped == 0
 
 
+def test_the_export_destination_resolves_to_the_artifact_kept_out(tmp_path):
+    # Output-path POLICY, and it is this GROUP's: the shared inventory takes a
+    # `Path` and knows only how to keep it out, so what a destination string means
+    # is decided here (PR #989 external review). The engine resolves `res://`
+    # against the project root, so the report resolves it the same way; another
+    # virtual scheme names nothing in this tree; a relative filesystem destination
+    # is the project's, and an absolute one is taken as given, because a
+    # destination outside the project can still be visible through a directory
+    # link inside it.
+    project = minimal_project(tmp_path)
+
+    assert _artifact_to_exclude(project, "res://out.pck") == project / "out.pck"
+    assert (
+        _artifact_to_exclude(project, "res:///build/game.pck")
+        == project / "build" / "game.pck"
+    )
+    assert _artifact_to_exclude(project, "res://") is None
+    assert _artifact_to_exclude(project, "user://out.pck") is None
+    assert _artifact_to_exclude(project, "") is None
+    assert (
+        _artifact_to_exclude(project, "build/game.x86_64")
+        == project / "build" / "game.x86_64"
+    )
+    outside = tmp_path / "elsewhere" / "game.x86_64"
+    assert _artifact_to_exclude(project, str(outside)) == outside
+
+
 def test_a_res_output_artifact_is_the_output_not_a_mutation(tmp_path):
     # `--output res://out.pck` is a destination INSIDE the project: the engine
-    # resolves `res://` against the project root, so the artifact lands in the
-    # tree both walks cover. Dropping every `://` spelling put it in `created` as
+    # resolves `res://` against the project root, so the artifact lands in the tree
+    # both walks cover. Dropping every `://` spelling put it in `created` as
     # `source_adjacent`, reproduced on a real pack export (PR #981 review round 3).
     project = minimal_project(tmp_path)
 
@@ -302,6 +191,9 @@ def test_a_res_output_artifact_is_the_output_not_a_mutation(tmp_path):
 def test_an_output_under_a_directory_link_is_excluded_by_identity(
     tmp_path, use_res_path
 ):
+    # Both spellings of the same destination resolve to one artifact path, which
+    # the inventory then keeps out by its parent's filesystem identity and its own
+    # name. The sibling beside it stays visible.
     project = minimal_project(tmp_path / "game")
     shared = tmp_path / "shared"
     shared.mkdir()
@@ -319,24 +211,6 @@ def test_an_output_under_a_directory_link_is_excluded_by_identity(
     assert [entry.path for entry in mutations.created] == [
         "res://assets/sibling.import"
     ]
-    assert mutations.skipped == 0
-
-
-def test_an_output_is_excluded_when_the_walk_uses_another_link_spelling(tmp_path):
-    project = minimal_project(tmp_path)
-    target = project / "z_assets"
-    target.mkdir()
-    (project / "a_alias").symlink_to(target, target_is_directory=True)
-
-    mutations = _mutations(
-        _export(
-            project,
-            lambda: _write(target / "out.pck", "pack"),
-            output_override="res://z_assets/out.pck",
-        )
-    )
-
-    assert mutations.created == []
     assert mutations.skipped == 0
 
 
@@ -362,262 +236,34 @@ def test_a_file_beside_the_artifact_is_reported_in_a_gda_created_parent(tmp_path
     assert _mutations(outcome).skipped == 0
 
 
-def test_a_top_level_git_directory_is_not_walked(tmp_path):
-    # The engine does not write to `.git`, and hashing an object database would
-    # dominate the cost of a report about the project's own files — the same
-    # ground `resource import`'s walker drops it on.
+def test_the_created_and_rewritten_entries_carry_the_published_res_spelling(tmp_path):
+    # The adapter's own rule: the module answers in project-relative paths, and the
+    # report publishes `res://` ones, with the counts and the byte totals derived
+    # from its own lists. A created file carries the shared classifier's verdict
+    # and its size; a rewritten one carries both sizes.
     project = minimal_project(tmp_path)
-    _write(project / ".git" / "HEAD", "ref: refs/heads/main")
-
-    mutations = _mutations(
-        _export(
-            project, lambda: _write(project / ".git" / "objects" / "ab" / "cd", "x")
-        )
-    )
-
-    assert mutations.created == []
-    assert mutations.skipped == 0
-
-
-def test_a_directory_link_is_walked_as_the_engine_reads_it(tmp_path):
-    # The engine's import scan follows a directory link, so a shared library
-    # linked into the project is content the pass writes sidecars into and rewrites
-    # generated resources in. `os.walk` leaves it out by default, and the report
-    # then stated neither — with `skipped` at zero, so nothing said the record was
-    # incomplete (PR #981 review round 3, measured on a real pack export).
-    project = minimal_project(tmp_path / "game")
-    shared = tmp_path / "shared"
-    _write(shared / "ui.csv", "keys,en\nGREET,Hello\n")
-    generated = _write(shared / "ui.en.translation", "old")
-    (project / "assets").symlink_to(shared, target_is_directory=True)
+    generated = _write(project / "i18n" / "ui.translation", "old bytes")
 
     def mutate() -> None:
-        _write(shared / "ui.csv.import", "[remap]")
-        generated.write_text("rewritten bytes", encoding="utf-8")
-
-    mutations = _mutations(_export(project, mutate))
-
-    # Reported under the spelling the walk reached them by, which is the res://
-    # path the engine names them by too.
-    assert [entry.path for entry in mutations.created] == ["res://assets/ui.csv.import"]
-    assert [entry.path for entry in mutations.modified] == [
-        "res://assets/ui.en.translation"
-    ]
-    assert mutations.modified[0].size_before == 3
-    assert mutations.skipped == 0
-
-
-def test_a_link_that_leads_back_up_the_chain_is_not_re_entered(tmp_path):
-    # Identity, not spelling: `sub/loop -> ..` reaches a directory the walk has
-    # already walked, so it is not re-entered and the walk ends by rule rather
-    # than at the OS path limit. The content under the loop is reported ONCE,
-    # under its first spelling, and a cycle is not unaccounted content — `skipped`
-    # stays at zero.
-    #
-    # Run on a thread with a deadline, like the FIFO test: a regression that walks
-    # the cycle must read RED rather than wedge the suite.
-    project = minimal_project(tmp_path / "game")
-    _write(project / "sub" / "asset.tres", "[gd_resource]")
-    (project / "sub" / "loop").symlink_to("..", target_is_directory=True)
-    outcome: list = []
-    worker = threading.Thread(
-        target=lambda: outcome.append(
-            _export(project, lambda: _write(project / "sub" / "asset.tres.import", "x"))
-        ),
-        daemon=True,
-    )
-
-    worker.start()
-    worker.join(timeout=30)
-    assert not worker.is_alive(), "the walk did not terminate on a symlink cycle"
-
-    mutations = _mutations(outcome[0])
-    assert [entry.path for entry in mutations.created] == [
-        "res://sub/asset.tres.import"
-    ]
-    assert mutations.modified == []
-    assert mutations.skipped == 0
-
-
-def test_a_file_the_walk_cannot_read_is_skipped_not_failed(tmp_path):
-    # The disclosure rule: a vanished or unreadable file must not turn a SUCCESSFUL
-    # export into a failure. All three shapes are counted and none enters a list,
-    # because "created" and "rewritten" are both claims the walk cannot make about
-    # a file it never read. The third one is the reason the settlement asks first
-    # whether the pre-export walk could read the path at all: the link RESOLVES
-    # after the export, so a settlement that only asked "was this path recorded?"
-    # would announce a file the project already had as one the export created.
-    project = minimal_project(tmp_path)
-    os.symlink("nowhere", project / "before.tres")
-    os.symlink("target.tres", project / "resolves.tres")
-
-    def mutate() -> None:
-        os.symlink("nowhere", project / "during.tres")
-        _write(project / "target.tres", "generated")
+        _write(project / CACHE_ROOT_REL / "uid_cache.bin", "uid")
         _write(project / "icon.png.import", "[remap]")
-
-    outcome = _export(project, mutate)
-    mutations = _mutations(outcome)
-
-    assert mutations.skipped == 3
-    assert [entry.path for entry in mutations.created] == [
-        "res://icon.png.import",
-        "res://target.tres",
-    ]
-    assert mutations.modified == []
-
-
-def _unlistable(directory: Path) -> bool:
-    """Make ``directory`` unlistable, and say whether the platform agreed."""
-    directory.chmod(0o000)
-    try:
-        os.listdir(directory)
-    except OSError:
-        return True
-    directory.chmod(0o755)
-    return False
-
-
-def test_a_directory_the_walk_cannot_list_is_counted_not_ignored(tmp_path):
-    # `os.walk` swallows a listdir failure by default, which would drop the whole
-    # subtree from the report AND from the one channel that says the record is
-    # incomplete. The directory is counted once — not its unknown contents, which
-    # neither walk ever saw (PR #981 review).
-    project = minimal_project(tmp_path)
-    locked = project / "locked"
-    _write(locked / "secret.tres", "old")
-    if not _unlistable(locked):
-        pytest.skip("this platform lets the owner list a mode-000 directory")
-
-    try:
-        mutations = _mutations(_export(project))
-    finally:
-        locked.chmod(0o755)
-
-    assert mutations.skipped == 1
-    assert mutations.created == []
-    assert mutations.modified == []
-
-
-def test_a_file_under_a_locked_directory_is_not_announced_as_created(tmp_path):
-    # The readable-after case, which is the one that states a FALSE fact rather
-    # than an incomplete one: the pre-export walk could not list the directory, so
-    # a file the project already had must not be reported as one the export
-    # created once the directory opens up.
-    project = minimal_project(tmp_path)
-    locked = project / "locked"
-    _write(locked / "secret.tres", "old")
-    if not _unlistable(locked):
-        pytest.skip("this platform lets the owner list a mode-000 directory")
-
-    try:
-        mutations = _mutations(_export(project, lambda: locked.chmod(0o755)))
-    finally:
-        locked.chmod(0o755)
-
-    assert [entry.path for entry in mutations.created] == []
-    assert mutations.modified == []
-    assert mutations.skipped == 1
-
-
-@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs only")
-def test_a_non_regular_entry_is_counted_and_never_opened(tmp_path):
-    # The inventory reads REGULAR files only. A FIFO answers `stat` like any file
-    # and then blocks `open()` until a writer appears, which hung the whole
-    # command — outside every timeout, with no result and no envelope (PR #981
-    # review round 2). Sockets and devices reached the skipped channel already,
-    # by raising instead of blocking; the rule is now one rule for the family.
-    #
-    # The export runs on a thread with a deadline, so a regression reads RED here
-    # instead of wedging the suite.
-    project = minimal_project(tmp_path)
-    fifo = project / "pipe.dat"
-    os.mkfifo(fifo)
-    outcome: list = []
-    worker = threading.Thread(
-        target=lambda: outcome.append(_export(project)), daemon=True
-    )
-
-    worker.start()
-    worker.join(timeout=15)
-    if worker.is_alive():
-        # Release the blocked reader so the worker can unwind, then fail.
-        try:
-            os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
-        except OSError:
-            pass
-        worker.join(timeout=5)
-        raise AssertionError("the inventory opened a FIFO and blocked on it")
-
-    mutations = _mutations(outcome[0])
-    assert mutations.skipped == 1
-    assert mutations.created == []
-    assert mutations.modified == []
-
-
-def test_a_same_size_rewrite_with_a_newer_timestamp_is_reported(tmp_path):
-    # The candidate gate is size OR timestamp, and this is the timestamp half: a
-    # rewrite of the same length still moves the mtime, so the file is compared
-    # and its changed bytes reach `modified`. A size-only gate would drop every
-    # same-size rewrite — the record's headline fact — and stay green everywhere
-    # else, because the e2e's translations grow (PR #981 review round 2).
-    project = minimal_project(tmp_path)
-    generated = _write(project / "ui.translation", "aaaa")
-
-    def mutate() -> None:
-        generated.write_text("bbbb", encoding="utf-8")
-        later = os.stat(generated).st_mtime_ns + 5_000_000_000
-        os.utime(generated, ns=(later, later))
+        generated.write_text("new bytes here", encoding="utf-8")
 
     mutations = _mutations(_export(project, mutate))
 
+    assert mutations.cache_root == "res://" + CACHE_ROOT_REL
+    assert [
+        (entry.path, entry.classification, entry.size) for entry in mutations.created
+    ] == [
+        ("res://.godot/uid_cache.bin", "cache_owned", 3),
+        ("res://icon.png.import", "source_adjacent", 7),
+    ]
     assert [
         (entry.path, entry.size, entry.size_before) for entry in mutations.modified
-    ] == [("res://ui.translation", 4, 4)]
-
-
-def test_the_exclusions_match_whole_path_components(tmp_path):
-    # The exclusions are PREFIX-of-path-components, never prefix-of-string. That
-    # separator is what keeps `.gitignore` and `.github/` out of the `.git`
-    # exclusion — and it is what makes a file the export writes BESIDE the
-    # artifact visible, which the PR body states as a boundary of this report.
-    #
-    # The artifact's parent exists already, so gda creates no directory and the
-    # only excluded output path is the artifact itself; that is the case in which
-    # the sibling is reported at all.
-    project = minimal_project(tmp_path)
-    (project / "build").mkdir()
-
-    def mutate() -> None:
-        _write(project / ".git" / "objects" / "ab", "object")
-        _write(project / ".gitignore", "*.tmp")
-        _write(project / ".github" / "ci.yml", "on: push")
-        _write(project / "build" / "game.x86_64", "binary")
-        _write(project / "build" / "game.x86_64.pck", "pack")
-
-    outcome = _export(project, mutate)
-    assert isinstance(outcome, ExportRunResult), outcome
-    assert outcome.created_dirs == []
-
-    assert [entry.path for entry in _mutations(outcome).created] == [
-        "res://.github/ci.yml",
-        "res://.gitignore",
-        "res://build/game.x86_64.pck",
-    ]
-
-
-def test_a_deleted_file_is_reported_nowhere(tmp_path):
-    # The report covers what the pass ADDS and REWRITES. A deletion is neither, and
-    # inventing a third list for something the export does not do would be scope
-    # the record cannot fill.
-    project = minimal_project(tmp_path)
-    doomed = _write(project / "stale.import", "[remap]")
-
-    mutations = _mutations(_export(project, doomed.unlink))
-
-    assert mutations.created == []
-    assert mutations.modified == []
-    assert mutations.skipped == 0
+    ] == [("res://i18n/ui.translation", 14, 9)]
+    assert (mutations.created_count, mutations.created_bytes) == (2, 10)
+    assert (mutations.created_cache_owned, mutations.created_source_adjacent) == (1, 1)
+    assert (mutations.modified_count, mutations.modified_bytes) == (1, 14)
 
 
 def test_the_harness_strip_and_restore_is_not_a_mutation(tmp_path):
@@ -642,30 +288,33 @@ def test_a_failed_export_reports_no_mutations_and_pays_for_no_second_walk(
 ):
     # The report is a property of a COMPLETED export: a non-zero native export
     # answers through the error envelope, which carries no such record. The second
-    # walk is settled on the success branch only, so a failure does not pay for it
-    # — counted here rather than described, since "we skip the work" is exactly the
-    # kind of claim that rots.
-    from gda.commands.export import _walk_project as real_walk
-
+    # walk is the SETTLEMENT, and the recipe settles on the success branch only,
+    # so a failure does not pay for it — counted here rather than described, since
+    # "we skip the work" is exactly the kind of claim that rots.
+    #
+    # Counted at the seam this group actually uses: `settle` is the public method
+    # `classify_export_run` calls, so this test knows nothing about the module's
+    # internals (PR #989 review round 2).
+    real_settle = ProjectTreeInventory.settle
     project = minimal_project(tmp_path)
-    walks: list[Path] = []
+    settlements: list[ProjectTreeInventory] = []
 
-    def counting_walk(walk_project, excluded, on_unreadable_dir=None):
-        walks.append(walk_project)
-        return real_walk(walk_project, excluded, on_unreadable_dir)
+    def counting_settle(inventory: ProjectTreeInventory):
+        settlements.append(inventory)
+        return real_settle(inventory)
 
-    monkeypatch.setattr("gda.commands.export._walk_project", counting_walk)
+    monkeypatch.setattr(ProjectTreeInventory, "settle", counting_settle)
 
     failed = _export(
         project, lambda: _write(project / "icon.png.import", "x"), exit_code=1
     )
     assert isinstance(failed, Failure), failed
     assert failed.error.code == "export_failed"
-    assert len(walks) == 1
+    assert settlements == []
 
     succeeded = _export(project, lambda: _write(project / "other.import", "x"))
     assert isinstance(succeeded, ExportRunResult), succeeded
-    assert len(walks) == 3
+    assert len(settlements) == 1
 
 
 def test_the_human_render_summarizes_the_counts(tmp_path):

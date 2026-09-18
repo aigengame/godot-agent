@@ -146,7 +146,8 @@ class FailureEvidence(BaseModel):
         default=None,
         description=(
             "The child process's own exit status, on a failure whose verdict IS "
-            "that status (script run --strict). Not the gda process exit code."
+            "that status (script run --strict, export smoke --strict). Not the "
+            "gda process exit code."
         ),
     )
     elapsed_seconds: float | None = Field(
@@ -175,7 +176,9 @@ class FailureEvidence(BaseModel):
             "failure's channel does not parse stderr at all, so read "
             "'diagnostics'; [] means it parsed and recognized none, which is "
             "itself a finding; a non-empty list is what it recognized. Advisory: "
-            "the verdict is 'code', never an entry here."
+            "the verdict is 'code', never an entry here — though under a --strict "
+            "gate ('script_failed', 'smoke_failed') a 'shutdown_leak' entry can "
+            "be the trigger the caller opted into."
         ),
     )
     # The three coordinates of a `target_outside_project` refusal (#697/#763):

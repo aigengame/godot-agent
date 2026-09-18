@@ -17,12 +17,14 @@ dry-run smoke per evidence state, so the wire ABI keeps its own cover.
 """
 
 import json
+import threading
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
+from gda.project_tree import ProjectTreeInventory
 from gda.runner import LaunchFailure, RunResult, TimeoutBound
 from tests.resource.import_artifacts import (
     cached_asset,
@@ -144,8 +146,25 @@ def test_missing_asset_runs_the_pass_and_reports_created_classified(
 
     calls, fake_launch = _fake_pass(project, effects)
     monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+    # What this command ASKS the `Project tree inventory` for is the one
+    # consumer-specific gate #985 allows, and nothing else pins it: with
+    # `detect_rewrites=True` the result is identical — `modified` is computed and
+    # discarded — and only the cost moves, by 3.7x on an 11k-file tree (PR #989
+    # review round 1). So record the kwargs.
+    asked: list[dict] = []
+    real_capture = ProjectTreeInventory.capture
+
+    def recording_capture(project_arg, **kwargs):
+        asked.append(kwargs)
+        return real_capture(project_arg, **kwargs)
+
+    monkeypatch.setattr(ProjectTreeInventory, "capture", recording_capture)
 
     result = _run(project, "res://icon.png")
+
+    # No artifact (the pass writes none) and no rewrite detection (`created` is
+    # the whole question, so the capture hashes nothing).
+    assert asked == [{"detect_rewrites": False}], asked
 
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
@@ -166,6 +185,97 @@ def test_missing_asset_runs_the_pass_and_reports_created_classified(
     (binary, args, cwd, timeout) = calls[0]
     assert args == ["--path", str(project), "--import"]
     assert timeout == 300.0
+
+
+def test_a_file_created_under_a_directory_link_is_reported(monkeypatch, tmp_path):
+    # The one behaviour change of #985. This command used to walk the tree with
+    # `Path.rglob("*")`, which does NOT descend a directory symlink on Python
+    # 3.13, so a sidecar the pass wrote into a linked-in shared library was
+    # invisible: the same pass reported it to `export run` (whose walk follows the
+    # link, PR #981 round 3) and not here. The `Project tree inventory` now
+    # answers both, so the file is reported under the spelling the walk reached it
+    # by — the res:// path the engine names it by too.
+    project = icon_project(tmp_path)
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "sprite.png").write_bytes(b"\x89PNG other bytes")
+    (project / "assets").symlink_to(shared, target_is_directory=True)
+
+    def effects(p: Path) -> None:
+        cached_asset(
+            p,
+            "icon.png",
+            ".godot/imported/icon.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ctex",
+        )
+        (shared / "sprite.png.import").write_text("[remap]\n", encoding="utf-8")
+
+    calls, fake_launch = _fake_pass(project, effects)
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+
+    data = json.loads(_run(project, "res://icon.png").stdout)
+
+    created = {f["path"]: f["classification"] for f in data["created"]}
+    assert created["res://assets/sprite.png.import"] == "source_adjacent"
+    assert (shared / "sprite.png.import").is_file()
+    assert data["summary"]["created_source_adjacent"] == 2
+
+
+def test_a_symlink_cycle_under_the_project_terminates(monkeypatch, tmp_path):
+    # The rule that makes following a link safe: a directory is walked once by
+    # filesystem identity, so `sub/loop -> ..` is not re-entered and the
+    # accounting ends by rule rather than at the OS path limit. Run on a thread
+    # with a deadline, so a regression reads RED instead of wedging the suite.
+    project = icon_project(tmp_path)
+    (project / "sub").mkdir()
+    (project / "sub" / "loop").symlink_to("..", target_is_directory=True)
+
+    def effects(p: Path) -> None:
+        cached_asset(
+            p,
+            "icon.png",
+            ".godot/imported/icon.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ctex",
+        )
+        (p / "sub" / "asset.tres.import").write_text("[remap]\n", encoding="utf-8")
+
+    calls, fake_launch = _fake_pass(project, effects)
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+    outcome: list = []
+    worker = threading.Thread(
+        target=lambda: outcome.append(_run(project, "res://icon.png")), daemon=True
+    )
+
+    worker.start()
+    worker.join(timeout=30)
+    assert not worker.is_alive(), "the accounting did not terminate on a cycle"
+
+    data = json.loads(outcome[0].stdout)
+    assert "res://sub/asset.tres.import" in {f["path"] for f in data["created"]}
+
+
+def test_a_top_level_git_directory_is_still_excluded(monkeypatch, tmp_path):
+    # The exclusion the old walker made on its own is now the inventory's rule 5,
+    # and it did not change: the engine writes nothing to `.git`, and a checkout's
+    # object database would swamp a list about the project's own files.
+    project = icon_project(tmp_path)
+    (project / ".git").mkdir()
+    (project / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+
+    def effects(p: Path) -> None:
+        cached_asset(
+            p,
+            "icon.png",
+            ".godot/imported/icon.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ctex",
+        )
+        objects = p / ".git" / "objects" / "ab"
+        objects.mkdir(parents=True)
+        (objects / "cdef").write_text("object", encoding="utf-8")
+
+    calls, fake_launch = _fake_pass(project, effects)
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+
+    data = json.loads(_run(project, "res://icon.png").stdout)
+
+    assert not [f for f in data["created"] if f["path"].startswith("res://.git/")]
 
 
 def test_all_cached_runs_no_pass(monkeypatch, tmp_path):

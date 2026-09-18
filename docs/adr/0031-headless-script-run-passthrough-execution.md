@@ -699,3 +699,29 @@ added incrementally under ADR-0025 if a concrete need appears.
 > say "no record about the run", the exclusion that boundary silently lacked. No
 > published verdict moves — the prefix the daemon reads ends at the harness handshake
 > and the engine prints its exit-time records long after it.
+
+> **Outcome (2026-09-17, #979) — the promoted completed-run result is no longer this
+> command's alone.** ADR-0042 adds `gda export smoke`, which runs a caller-selected
+> `Export artifact` through the same `Headless launch` and promotes the same half of
+> the `Raw run`: the child's `exit_status`, the bounded `stdout` with its spill
+> metadata, `stderr`, and the recognized `diagnostics`. Those fields, the
+> bounded-projection mechanics and the `stdout_spill_failed` refusal now live in
+> `gda.completed_run`, shared by the two commands; `script run` keeps its canonical
+> script `path` and its placement fields, and the smoke adds only the caller's
+> artifact and the resolved executable.
+>
+> Two passages above are therefore HISTORICAL rather than current, and are kept as
+> written: this ADR's claim that `script run` is the one operation, and the one
+> command, whose success result can carry a non-zero `exit_status`. `export smoke`
+> returns its run's status as data the same way, for the same reason — gda does not
+> interpret what the thing it ran meant by the number. The two commands and no
+> others; the `--help` and result-model sentences that stated the exclusivity are
+> reworded in place, since those are read as current text.
+>
+> What does NOT become shared: the `Completion marker`, `script_aborted`,
+> `script_failed`, the entry-script validation, and the `User-data placement` fields
+> on the success result and on the three failure envelopes #862 names. An exported
+> game has no single entry script whose continued output could carry the liveness
+> contract, and the smoke's `user://` root is a private one it creates and removes,
+> so there is no placement worth naming to a caller. `script run`'s result bytes,
+> its codes and its output schema shape are unchanged by the extraction.

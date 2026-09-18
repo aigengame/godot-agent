@@ -37,6 +37,14 @@ class ExecutionKind(str, enum.Enum):
       (ADR-0023): self-description only, no runner-selection branch — but the
       published ``kind`` must not claim the ``operations.gd`` sentinel pipeline
       it never uses.
+    - ``ARTIFACT_SMOKE`` — a bounded headless run of a caller-selected `Export
+      artifact`: the one channel whose executable is NOT the configured Godot but
+      the one resolved inside the artifact, run through the same shared launch
+      primitive, with its completed process passed through as the result
+      (ADR-0042). Like ``SCRIPT_RUN`` and ``IMPORT`` it routes by its ``recipe``,
+      so this value too is self-description only — it exists because a caller
+      reading ``--schema`` must be able to tell this execution shape from the
+      sentinel pipeline and from ``script run``'s project-scoped one.
     """
 
     HEADLESS = "headless"
@@ -44,6 +52,7 @@ class ExecutionKind(str, enum.Enum):
     LIVE = "live"
     SCRIPT_RUN = "script_run"
     IMPORT = "import"
+    ARTIFACT_SMOKE = "artifact_smoke"
 
 
 # Phase-2 live requires Godot 4.6+ (the UDS transport landed in 4.6; ADR-0021).
