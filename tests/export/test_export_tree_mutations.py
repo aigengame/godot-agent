@@ -35,6 +35,7 @@ from gda.commands.export import (
 from gda.errors import Failure
 from gda.harness.install import install_harness
 from gda.import_evidence import CACHE_ROOT_REL
+from gda.project_tree import ProjectTreeInventory
 from gda.runner import RunResult
 from tests.support import ENGINE_BANNER, FakeRunner, minimal_project, sentinel
 
@@ -212,30 +213,33 @@ def test_a_failed_export_reports_no_mutations_and_pays_for_no_second_walk(
 ):
     # The report is a property of a COMPLETED export: a non-zero native export
     # answers through the error envelope, which carries no such record. The second
-    # walk is settled on the success branch only, so a failure does not pay for it
-    # — counted here rather than described, since "we skip the work" is exactly the
-    # kind of claim that rots.
-    from gda.project_tree import _walk_project_files as real_walk
-
+    # walk is the SETTLEMENT, and the recipe settles on the success branch only,
+    # so a failure does not pay for it — counted here rather than described, since
+    # "we skip the work" is exactly the kind of claim that rots.
+    #
+    # Counted at the seam this group actually uses: `settle` is the public method
+    # `classify_export_run` calls, so this test knows nothing about the module's
+    # internals (PR #989 review round 2).
+    real_settle = ProjectTreeInventory.settle
     project = minimal_project(tmp_path)
-    walks: list[Path] = []
+    settlements: list[ProjectTreeInventory] = []
 
-    def counting_walk(walked: Path, **kwargs):
-        walks.append(walked)
-        return real_walk(walked, **kwargs)
+    def counting_settle(inventory: ProjectTreeInventory):
+        settlements.append(inventory)
+        return real_settle(inventory)
 
-    monkeypatch.setattr("gda.project_tree._walk_project_files", counting_walk)
+    monkeypatch.setattr(ProjectTreeInventory, "settle", counting_settle)
 
     failed = _export(
         project, lambda: _write(project / "icon.png.import", "x"), exit_code=1
     )
     assert isinstance(failed, Failure), failed
     assert failed.error.code == "export_failed"
-    assert len(walks) == 1
+    assert settlements == []
 
     succeeded = _export(project, lambda: _write(project / "other.import", "x"))
     assert isinstance(succeeded, ExportRunResult), succeeded
-    assert len(walks) == 3
+    assert len(settlements) == 1
 
 
 def test_the_human_render_summarizes_the_counts(tmp_path):
