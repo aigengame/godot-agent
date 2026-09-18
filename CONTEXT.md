@@ -90,30 +90,31 @@ _Avoid_: cache check, freshness probe, validity scan
 The Python-side enumeration of a project's files and the two-capture settlement
 over it — the fact behind `gda export run`'s `Project-tree mutation report` and
 `gda resource import`'s `created` list, which read it from one core module rather
-than walking the tree twice (#985). It walks under the rules the module states: a
-directory link is followed as the engine reads it, once each by filesystem
-identity (`st_dev`, `st_ino`); a cycle is not re-entered and is not counted; only
-a regular file is opened; an unlistable or unreadable entry is counted once; a
-top-level `.git` is excluded; and the cache root is walked like anything else, so
-its files are what both commands classify as `cache_owned`. It then settles two
-captures — one before the engine runs, one after — into what the run CREATED,
-what it REWROTE, and how much neither capture could account for. Each call takes
-the project root, the artifact to keep out of the answer, a sink for a directory
-it cannot list, and the rewrite gate — the input that decides whether the first
-capture hashes the files outside the cache root, which is what `modified` reads.
-`resource import` passes no artifact and asks for no rewrite detection.
+than under two different walks, one per command (#985). It walks under the rules
+the module states: a directory link is followed as the engine reads it, once each
+by filesystem identity (`st_dev`, `st_ino`); a cycle is not re-entered and is not
+counted; only a regular file is opened; an unlistable or unreadable entry is
+counted once; a top-level `.git` is excluded; and the cache root is walked like
+anything else, so its files are what both commands classify as `cache_owned`. It
+then settles two captures — one before the engine runs, one after — into what the
+run CREATED, what it REWROTE, and how much neither capture could account for. A
+caller says only what the asking command must: which project to inventory, which
+artifact to keep out of the answer, and whether rewrites are detected at all. The
+module states that interface; `resource import` passes no artifact and asks for
+no rewrite detection.
 It is NOT the engine-side `res://` walk in `operations.gd` — which this
 repository calls the project walk, and which since #804 skips a directory holding
 a nested `project.godot` or a `.gdignore` while it still enumerates dot-prefixed
 directories (ADR-0032, amended by #760 and #804; the dot-prefix half is #54's and
-#712's). This walk takes neither marker, because the engine writes its OWN
-`.gdignore` into the project data directory: the two markers alone would prune
-the cache root and empty the `cache_owned` half of both `created` lists, which is
+#712's). The inventory's walk takes neither marker, because the engine writes its
+OWN `.gdignore` into the project data directory (ADR-0032's #804 amendment
+carries that fact and the engine source): the two markers alone would prune the
+cache root and empty the `cache_owned` half of both `created` lists, which is
 what would make "anywhere under the project" untrue. It is not `Import
 evidence`'s reachability prediction either, which keeps its own sidecar scan for
 that different question.
-And it is neither a filesystem library nor a file-set configuration: the per-call
-inputs are the two commands' questions, not options.
+And it is neither a filesystem library nor a file-set configuration: those three
+are the two commands' questions, not options a caller tunes (#985's scope guard).
 _Avoid_: project walk, file scan, tree diff, walker
 
 **Project-tree mutation report**:

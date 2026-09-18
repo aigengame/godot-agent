@@ -475,17 +475,17 @@ def test_a_non_regular_entry_is_counted_and_never_opened(tmp_path):
 
 
 def test_the_engines_skip_markers_are_not_applied(tmp_path):
-    # Rule 7. A nested `project.godot` and a `.gdignore` skip a directory in the
-    # ENGINE's scan; #804 gave the engine-side `res://` walk those two markers,
-    # and `gda.import_evidence._engine_skips_directory_of` predicts them plus the
-    # dot-prefix clause the engine adds. This walk takes none of it.
+    # Rule 7, whose statement and reason are `gda.project_tree`'s docstring: this
+    # walk takes neither of the engine's two skip markers, because the engine
+    # writes its OWN `.gdignore` into the project data directory (ADR-0032's #804
+    # amendment carries that fact and the engine source).
     #
-    # The cache root is why, and it is the case a marker rule alone gets wrong:
-    # the engine writes its OWN `.gdignore` into the project data directory, so
-    # skipping on that marker would prune `res://.godot` and empty the
-    # `cache_owned` half of both commands' `created` lists — the published
-    # "anywhere under the project" on four surfaces. A dot-prefixed directory
-    # stays in for the separate reason #54 and #712 decided.
+    # The case that reason is about is the one a marker rule alone gets wrong, so
+    # it is the case seeded here: skipping on that marker would prune
+    # `res://.godot` and empty the `cache_owned` half of both commands' `created`
+    # lists — the published "anywhere under the project" on four surfaces. A
+    # dot-prefixed directory stays in for the separate reason #54 and #712
+    # decided.
     project = minimal_project(tmp_path)
     minimal_project(project / "vendor" / "inner")
     _write(project / "ignored" / ".gdignore", "")

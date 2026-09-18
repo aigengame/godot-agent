@@ -21,10 +21,15 @@ where it is:
   engine reachability from Python through ``_engine_skips_directory_of`` and
   keeps its own ``rglob("*.import")`` — the catalog records that scan's
   link-blindness as an accepted under-promise;
-* a filesystem library, and not a file-set configuration. The per-call inputs
-  are the two adapters' questions — the project root, the artifact to keep out,
-  and a sink for a directory the walk cannot list — never options, filters or a
-  strategy to pick (#985's scope guard).
+* a filesystem library, and not a file-set configuration. **This is the one
+  statement of what a caller may say**, and it is
+  :meth:`ProjectTreeInventory.capture`'s three arguments: the project to
+  inventory, the optional artifact to keep out of the answer, and whether the
+  first capture hashes the files outside the cache root. They are the two
+  adapters' questions — never options, filters or a strategy to pick (#985's
+  scope guard). The unreadable-directory sink is not one of them: it is the
+  private walk's own parameter, which the capture and the settlement supply
+  themselves.
 
 **The rules, stated once.** They are W4's, as PR #981 shipped them for the
 export report; they now decide both commands' answer.
@@ -73,11 +78,12 @@ export report; they now decide both commands' answer.
    ``_engine_skips_directory_of`` predicts them plus the dot-prefix clause the
    engine adds. This walk takes none of it, and the reason is the engine's own
    bookkeeping: Godot writes a ``.gdignore`` INTO the project data directory
-   (``res://.godot/.gdignore`` is in ``created`` on every cold pass), so the two
-   markers ALONE would prune the cache root, empty the ``cache_owned`` half of
-   both commands' ``created`` lists, and narrow the published "anywhere under the
-   project" the two results promise. A dot-prefixed directory stays in for the
-   separate reason #54 and #712 decided, which is the engine-side walk's rule too.
+   (``res://.godot/.gdignore`` is in ``created`` on every cold pass; ADR-0032's
+   #804 amendment carries the engine source), so the two markers ALONE would
+   prune the cache root, empty the ``cache_owned`` half of both commands'
+   ``created`` lists, and narrow the published "anywhere under the project" the
+   two results promise. A dot-prefixed directory stays in for the separate
+   reason #54 and #712 decided, which is the engine-side walk's rule too.
 """
 
 import hashlib
@@ -231,12 +237,14 @@ def _walk_project_files(
 ) -> Iterator[tuple[str, Path]]:
     """Every file under ``project`` as ``(project-relative posix path, path)``.
 
-    The walk of the module docstring's seven rules, and the three inputs are the
-    whole of what a caller may say: the project root, the optional ``artifact``
-    to keep out of the answer (excluded by its PARENT's filesystem identity and
-    its own name, so an alias of that parent cannot smuggle it back in), and
-    ``on_unreadable_dir``, which receives the project-relative path of a
-    directory the walk cannot list or cannot stat.
+    The walk of the module docstring's seven rules. Module-private, so its
+    parameters are the module's own and are not the caller bound that docstring
+    states: ``artifact`` is the file to keep out of the answer (excluded by its
+    PARENT's filesystem identity and its own name, so an alias of that parent
+    cannot smuggle it back in), passed through from
+    :meth:`ProjectTreeInventory.capture`; ``on_unreadable_dir`` receives the
+    project-relative path of a directory the walk cannot list or cannot stat, and
+    the capture and the settlement each supply their own.
 
     An excluded subtree is PRUNED rather than filtered out per file: an ``.app``
     bundle holds thousands of files, and walking it would spend the report's
