@@ -1318,6 +1318,7 @@ trust axis, per the issue's triage decision).
 | `gda export list` | Enumerate export presets |
 | `gda export run` | Run an export preset via headless CLI |
 | `gda export get` | Export-template install status / preset info |
+| `gda export smoke` | Run an exported artifact headless and report its completed process |
 
 `gda export run` resolves its effective destination before the native export:
 `--output` wins over the preset's `export_path`; a relative `--output` resolves
@@ -1365,6 +1366,74 @@ writer makes in that interval is attributed to the export. The report is disclos
 cache directory: a project that sets
 `application/config/use_hidden_project_data_directory=false` keeps its cache under
 `godot/`, whose files then read as `source_adjacent`.
+
+`gda export smoke <artifact>` runs what `export run` built (ADR-0042). `export
+run` reports whether Godot CONSTRUCTED the artifact; it never runs it, and
+GDA-DF-072 is the gap: the first exported candidate loaded the whole game and
+reported four leaked WAV resources at exit while `export run` returned
+`warnings: []`. The command launches the artifact once, headless and bounded,
+and returns the completed process.
+
+**Support is bounded and stated rather than inferred.** A regular file this host
+may execute is accepted as given; a macOS `.app` bundle resolves to
+`Contents/MacOS/<CFBundleExecutable>`, read from its `Contents/Info.plist`, which
+must itself be a regular file this host may execute. An absent path is
+`export_artifact_not_found`; every other input that resolves to no runnable file
+— another directory, a bundle without that plist, key or file, a file without
+execute permission — is `export_artifact_not_runnable`, naming which rule
+refused it. Nothing else is inspected: gda classifies no export platform and
+models no artifact format, and whether the resolved file is a Godot build is
+what the run shows. End-to-end evidence is macOS-only; no Linux or Windows
+behavior is claimed until it is probed.
+
+The command is **projectless**: its descriptor sets `inherits_project=False`, it
+declares no `--project`, and neither `$GDA_PROJECT` nor the current directory is
+read as project context — so a relative `<artifact>` resolves against the
+invocation cwd and the absolute `output_path` from `export run` passes straight
+through.
+
+`--arg VALUE` (repeatable) hands values to the game in order after Godot's `--`
+separator, where it reads them with `OS.get_cmdline_user_args()`.
+`--quit-after FRAMES` places Godot's own flag BEFORE that separator and asks the
+engine to end its main loop normally after that many process frames, so engine
+cleanup and its exit-time diagnostics run; omitted or `0` adds no flag. It
+asserts no project-specific completion — the game can still exit earlier by
+itself, and it can still be doing work when the frame count runs out.
+`--timeout SECONDS` (the same completed-run ceiling `script run` uses; the
+number is stated where it is interpolated, in `--help`) stays the external
+wall-clock hard bound: a run gda ends reports the shared
+`launch_timeout` envelope naming `Godot artifact smoke`, keeps the output the run
+had already produced, and claims nothing about diagnostics Godot emits only
+during a normal shutdown.
+
+The result is the completed run, sharing its shape with
+[`script run`](#script): `exit_status`, `stdout` verbatim up to the same cap
+that command uses (above it the leading cap bytes, with the complete stream in
+the file named by `stdout_file`, and `stdout_bytes` / `stdout_truncated`
+disclosing it; a spill gda cannot write is the typed `stdout_spill_failed`),
+`stderr`, the recognized `diagnostics`, plus the two addresses this command
+adds — the `artifact` asked for and the `executable` that ran. A non-zero
+`exit_status` is DATA: gda does not interpret what the game meant by it, so read
+the field rather than the process exit code. `--strict` inverts that one default
+for a shell `&&` chain or a CI gate: `smoke_failed` (exit 4) on EITHER a non-zero
+status or a `shutdown_leak` diagnostic — the engine's exit-time report that the
+process left objects or resources alive, which a status-only gate never sees.
+That envelope carries the child's status as `evidence.exit_status` and the parsed
+errors as `evidence.script_errors`, and both of the run's streams in its
+`diagnostics` under `--- artifact stdout ---` / `--- artifact stderr ---`.
+
+The game runs under a PRIVATE `user://`: where neither `--user-data-root` nor
+`$GDA_USER_DATA_ROOT` names one, gda creates a fresh root after it resolves the
+artifact, hands it to the launch, and removes it on the way out — so a
+caller-selected artifact cannot write the host's real user directory. Pass the
+global `--user-data-root DIR` (it precedes the subcommand) to keep what the game
+writes; that directory is the caller's and gda does not remove it. The placement
+is never reported: it does not exist by the time the caller reads the result.
+
+`export smoke` is a separate caller-artifact execution point, outside the
+[Project-code execution surface](../CONTEXT.md): gda holds no fact tying the
+caller-selected artifact to a resolved project, so it executes it unsandboxed
+and makes no provenance claim.
 
 Export-template discovery follows the user-data placement (#840). Godot reads the
 templates from its data directory, and `--user-data-root` relocates exactly that,

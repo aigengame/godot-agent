@@ -117,6 +117,12 @@ _HELPER_RENDERERS = {
     # while the error half is one schema identical for every command (ADR-0004), so
     # its rendering is one function the failure channel calls — not a per-command one.
     "render_failure",
+    # The shared completed-run TAIL (ADR-0042): everything `script run` and
+    # `export smoke` show after their own opening line. Each command's own
+    # renderer IS bound to its descriptor and composes this with its lead, so
+    # this one is a helper by the same rule as the five above — it takes no
+    # single command's result model, but the two results' shared half.
+    "render_completed_run",
 }
 
 
@@ -177,6 +183,11 @@ _RECIPE_OPERATIONS = {
     # `project_root` comes from ADR-0006's CLI-resolved project, and every problem it
     # reports is a res:// resolution outcome, so the verdict is unreadable without it.
     "scene-validate",
+    # `export smoke` runs a caller-selected exported build through the same launch
+    # primitive and passes its completed process through (ADR-0042): there is no
+    # ADR-0002 sentinel to parse — the entry is the artifact's own code — so like
+    # `script run` it is fulfilled by a CLI-side recipe.
+    "export-smoke",
     # `scene preflight` dispatches a sentinel op through the launch primitive rather
     # than the runner seam (#664): it needs the streaming capture, so that a run gda
     # ends at its bound still carries what the engine printed — the whole evidence of

@@ -24,15 +24,15 @@ log file omitted; and redirecting `HOME` redirected the game's `user://`. Linux 
 Windows behavior was not measured, so the implementation must not claim more than
 its own host probes establish.
 
-A follow-up probe on the same Godot 4.6.3 release template found one missing
-functional condition. With `--quit-after 30` before Godot's `--` separator, the
+A follow-up probe on 2026-09-15, on the same Godot 4.6.3 release template, found
+one missing functional condition. With `--quit-after 30` before Godot's `--` separator, the
 game exited normally and both leak records appeared on stderr. When an external
 six-second bound sent `SIGTERM`, the game emitted no leak record. Passing the same
 words after `--` made them user arguments and the game did not exit. Godot's 4.6.3
 source [parses `--quit-after` outside the editor-only
-guard](https://github.com/godotengine/godot/blob/4.6.3-stable/main/main.cpp#L1628-L1640)
+guard](https://github.com/godotengine/godot/blob/4.6.3-stable/main/main.cpp#L1741-L1748)
 and [ends the main loop after that many process
-frames](https://github.com/godotengine/godot/blob/4.6.3-stable/main/main.cpp#L4682-L4690);
+frames](https://github.com/godotengine/godot/blob/4.6.3-stable/main/main.cpp#L5056-L5062);
 the normal engine shutdown then runs cleanup. A wall-clock termination cannot
 provide equivalent shutdown evidence.
 
@@ -254,3 +254,32 @@ the second consumer, and delete the compensating contract around unneeded NFRs.
   placement input only. It must not introduce artifact identity, a generic
   process platform, a platform-format taxonomy, project configuration, or release
   policy.
+
+> **Outcome (2026-09-17, #979 / PR #987):** the shared "completed passthrough
+> result" has a fieldless base that carries the published projection truth table
+> and its runtime validator. The `gda.completed_run` module owns the stdout cap,
+> bounded projection and spill IO, default ceiling, and human rendering tail.
+> Pydantic orders a subclass's fields base-first, so a field-carrying base would
+> have moved `script run`'s `path` out of first position and broken the
+> byte-identical result and output-schema shape this decision's own validation
+> list requires. Each result therefore declares its own fields, following the
+> precedent of `gda.models.ProjectRootedResult`. This shared machinery lives in
+> `gda.completed_run` rather than in the `gda.models` core because it owns
+> behaviour, not only a shape (see ADR-0040's note of the same date). Artifact
+> resolution shipped as declared and no wider: a regular file the host may execute
+> is accepted as given, a `.app` bundle resolves through
+> `Contents/Info.plist`'s `CFBundleExecutable` to `Contents/MacOS/<that name>`
+> which must itself be a regular file the host may execute, and every other
+> shape — any other directory, a bundle missing that plist, key or file, a file
+> without execute permission — is `export_artifact_not_runnable`. The declared
+> value must be ONE filename (no path separator, no `.` or `..`, no NUL), which
+> is what makes the sentence above true rather than aspirational: `Path.joinpath`
+> lets an absolute or climbing value out of the bundle, so an unchecked one would
+> run a program the caller never selected, and a NUL would escape the resolver as
+> a `ValueError` instead of a refusal (external review, PR #987). The bundle rule
+> is NOT gated on the host platform, because it reads a layout the artifact
+> declares and gating it would be the platform classification this decision
+> rejects. The two `main/main.cpp` links in the context above were corrected in
+> place as a citation erratum — `--quit-after` is parsed at L1741-L1748 and ends
+> the main loop at L5056-L5062 at 4.6.3-stable — leaving the sentences around them
+> unchanged.

@@ -450,6 +450,9 @@ gda restores the explicit lines it drops and reports the rest on the result.
 | `export list` | Enumerate the project's export presets (name, platform, …). |
 | `export get` | Report one preset's details plus export-template install status. |
 | `export run` | Export a named preset (`release` / `debug` / `pack`) to a destination, and report what it left in the project: every file created (classified), and the rewritten files outside the `.godot/` cache — a cold cache leaves thousands behind, and rewrites inside the cache are not reported. |
+| `export smoke` | Run an exported artifact headless and bounded, and report its exit status, output, and recognized diagnostics. `--quit-after` lets the engine shut down normally (it asserts no project completion), and `--timeout` is only a hard bound, so it cannot prove shutdown-only diagnostics are absent. |
+
+`export smoke` takes a macOS `.app` or a directly host-runnable file. End-to-end evidence is macOS-only; Linux and Windows are not committed until probed.
 
 **`shader`** — shader files (`.gdshader`)
 

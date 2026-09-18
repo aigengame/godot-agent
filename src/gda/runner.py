@@ -655,6 +655,7 @@ def launch(
     timeout: float,
     timeout_label: str = DEFAULT_TIMEOUT_LABEL,
     watch: Optional[LaunchWatch] = None,
+    user_data_root: Path | None = None,
 ) -> RunResult:
     """Spawn one ``godot --headless`` process and normalize its raw outcome.
 
@@ -714,26 +715,73 @@ def launch(
     not worth waiting out passes one and may end the launch early as
     ``LaunchFailure.ABORTED`` (``gda script run``, ADR-0031); a channel with no
     such rule passes nothing and gets :class:`_CaptureOnly`.
+
+    ``user_data_root`` is the EXPLICIT placement input (ADR-0042). Omitted — every
+    channel but one — the root is resolved process-wide exactly as before, from the
+    ``--user-data-root`` flag and then ``$GDA_USER_DATA_ROOT``, so no existing
+    caller changes. Given, it IS the root for this launch and the process-wide
+    resolution is not consulted: ``gda export smoke`` runs a caller-selected
+    exported game, so it hands the primitive a fresh private root of its own
+    whenever the caller named none, and the game cannot write the real ``user://``.
+    It is a root, not a placement: preparing one — creating and preflighting the
+    log target and, under a root, the derived data path — stays here, so the two
+    inputs cannot describe the placement differently. Lifetime stays with whoever
+    supplied the root: this primitive removes only the private temporary log
+    directory it makes for itself.
     """
-    try:
-        root = resolve_user_data_root()
-    except ValueError as exc:
-        # An explicit but empty --user-data-root. There is no placement to prepare,
-        # so it is the same unusable-placement outcome, reported before any spawn
-        # (mirrors how an empty --godot becomes binary_not_found, #33) — through
-        # the SHARED formatter, so the three-path diagnostic shape holds with the
-        # unavailable fields rendered explicitly.
-        refusal = UserDataUnwritable(
-            str(exc),
-            data_location="unresolved (--user-data-root is empty)",
-            log_location="not attempted (no placement was prepared)",
-        )
-        return RunResult(
-            stdout="",
-            stderr=_user_data_unwritable_stderr(binary, None, refusal),
-            exit_code=EXIT_NOT_FOUND,
-            launch_failure=LaunchFailure.USER_DATA_UNWRITABLE,
-        )
+    root: Path | None
+    if user_data_root is None:
+        try:
+            root = resolve_user_data_root()
+        except ValueError as exc:
+            # An explicit but empty --user-data-root. There is no placement to
+            # prepare, so it is the same unusable-placement outcome, reported before
+            # any spawn (mirrors how an empty --godot becomes binary_not_found, #33)
+            # — through the SHARED formatter, so the three-path diagnostic shape
+            # holds with the unavailable fields rendered explicitly. Only the
+            # process-wide resolution can produce it: an explicit root is a Path.
+            refusal = UserDataUnwritable(
+                str(exc),
+                data_location="unresolved (--user-data-root is empty)",
+                log_location="not attempted (no placement was prepared)",
+            )
+            return RunResult(
+                stdout="",
+                stderr=_user_data_unwritable_stderr(binary, None, refusal),
+                exit_code=EXIT_NOT_FOUND,
+                launch_failure=LaunchFailure.USER_DATA_UNWRITABLE,
+            )
+    else:
+        root = user_data_root
+    return _launch_under(
+        binary,
+        args,
+        cwd=cwd,
+        timeout=timeout,
+        timeout_label=timeout_label,
+        watch=watch,
+        root=root,
+    )
+
+
+def _launch_under(
+    binary: Path,
+    args: list[str],
+    *,
+    cwd: Path | None,
+    timeout: float,
+    timeout_label: str,
+    watch: Optional[LaunchWatch],
+    root: Path | None,
+) -> RunResult:
+    """Prepare ``root`` into a placement, spawn under it, and report it back.
+
+    The half of :func:`launch` that runs once the root is settled, whichever of the
+    two inputs settled it (ADR-0042): the process-wide resolution every existing
+    channel uses, or the explicit one ``export smoke`` hands in. Separated only so
+    that the two inputs share ONE preparation, spawn, refusal and report — a second
+    copy is how the two would come to place a launch differently.
+    """
     try:
         with user_data_placement(root) as placement:
             # Only the preparation above can raise UserDataUnwritable: the spawn
@@ -996,8 +1044,9 @@ class LaunchFn(Protocol):
     :class:`RunResult` instead of a real engine — the launch-channel twin of the
     sentinel channel's ``RunnerFactory`` and the export channel's
     ``ExportRunnerFactory``. The default is always the real :func:`launch`: the
-    deep module is reused, never re-implemented. ``gda script run`` (ADR-0031)
-    and ``gda scene preflight`` (#664) both take one.
+    deep module is reused, never re-implemented. ``gda script run`` (ADR-0031),
+    ``gda scene preflight`` (#664) and ``gda export smoke`` (ADR-0042) all take
+    one.
     """
 
     def __call__(
@@ -1009,6 +1058,7 @@ class LaunchFn(Protocol):
         timeout: float,
         timeout_label: str = ...,
         watch: "LaunchWatch | None" = ...,
+        user_data_root: Path | None = ...,
     ) -> RunResult: ...
 
 

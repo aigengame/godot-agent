@@ -1179,7 +1179,7 @@ func _initialize() -> void:
 def test_script_run_stdout_above_the_cap_truncates_and_spills(godot_project):
     # #665 AC2: output above the threshold is truncated with byte counts
     # reported and the COMPLETE stream written to a named file.
-    from gda.commands.script import SCRIPT_STDOUT_CAP
+    from gda.completed_run import STDOUT_CAP
 
     (godot_project / "big.gd").write_text(BIG_PRINTER_GD, encoding="utf-8")
 
@@ -1197,9 +1197,9 @@ def test_script_run_stdout_above_the_cap_truncates_and_spills(godot_project):
     data = json.loads(run.stdout)
     assert data["exit_status"] == 0
     assert data["stdout_truncated"] is True
-    assert data["stdout_bytes"] > SCRIPT_STDOUT_CAP
+    assert data["stdout_bytes"] > STDOUT_CAP
     returned = data["stdout"].encode("utf-8")
-    assert len(returned) <= SCRIPT_STDOUT_CAP
+    assert len(returned) <= STDOUT_CAP
     assert "record 00000" in data["stdout"]  # the head is the stream's start
     assert "<<<LAST-RECORD>>>" not in data["stdout"]
     spill = Path(data["stdout_file"])

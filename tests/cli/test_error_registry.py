@@ -276,6 +276,16 @@ def test_no_registered_code_grows_a_key_by_defaulting_the_optional_context():
 #: both are already in hand; neither is recoverable from the envelope without reading
 #: the message; and the stored one is exactly what the caller re-issues with. ADR-0004's
 #: paragraph carries this name too.
+#:
+#: The tenth arrives with ADR-0042: `smoke_exit_status_failure` is `export smoke
+#: --strict`'s verdict. It reports the same two facts
+#: `script_exit_status_failure` reports for the same reason — the CHILD's status
+#: and the parsed errors are already in hand on the failure path, neither is
+#: recoverable from the envelope without reading prose, and which of the two
+#: triggers fired decides whether the caller looks at the game's exit code or at
+#: its leak. It carries NO placement key: the smoke's root is a private one the
+#: command creates and removes, so the `_PLACEMENT_EVIDENCE_PRODUCERS` set below
+#: stays the three it names. ADR-0004's paragraph carries this name too.
 _EVIDENCE_PRODUCERS = {
     "launch_timeout_failure",
     "script_did_not_run_failure",
@@ -286,14 +296,15 @@ _EVIDENCE_PRODUCERS = {
     "target_owned_by_another_project_failure",
     "export_templates_missing_failure",
     "path_case_mismatch_failure",
+    "smoke_exit_status_failure",
 }
 
 
 def test_only_the_recorded_producers_put_evidence_on_the_envelope():
     # A criterion in prose is not a boundary anyone can check (#687 review). Read out
-    # of the source rather than kept by hand, so a TENTH builder cannot join the axis
-    # without this test — and the ADR paragraph it mirrors — being updated in the same
-    # change. `make_failure` itself is excluded by construction: this looks only at
+    # of the source rather than kept by hand, so an ELEVENTH builder cannot join the
+    # axis without this test — and the ADR paragraph it mirrors — being updated in the
+    # same change. `make_failure` itself is excluded by construction: this looks only at
     # CALLS to it, and it is the one that forwards the parameter.
     module = ast.parse(Path(errors_module.__file__).read_text(encoding="utf-8"))
 
@@ -404,8 +415,8 @@ def test_no_producer_can_emit_an_empty_evidence_object():
     # The fourth state the amendment's argument does not cover: `FailureEvidence()`
     # with every field unset serializes to `"evidence": {}` — a key that says nothing,
     # on a failure that byte-identity says should carry no key at all. Unreachable
-    # through the first five producers today, but only incidentally, so it is pinned
-    # rather than assumed. Producers six to nine (the two `target_*` refusals,
+    # through the six producers below today, but only incidentally, so it is pinned
+    # rather than assumed. The other four (the two `target_*` refusals,
     # `export_templates_missing_failure` and `path_case_mismatch_failure`) are not in
     # this list because their builders cannot be called with nothing; each pins the
     # same rule in a dedicated test
@@ -424,6 +435,7 @@ def test_no_producer_can_emit_an_empty_evidence_object():
         errors_module.script_exit_status_failure(
             "res://t.gd", 3, "", "", [], user_data=None
         ),
+        errors_module.smoke_exit_status_failure("/tmp/game", 3, "", "", []),
         errors_module.script_run_timeout_failure(
             "res://t.gd",
             timeout=1.0,

@@ -746,6 +746,10 @@ class HeadlessCommand(Generic[M]):
     # ``help``, ``info``) sets it ``False``: it is about ``gda`` or the engine
     # itself, so an inherited value that is not a project must not break the
     # commands an agent reaches for FIRST when something is wrong (#353/#357).
+    # ``export smoke`` is the one DOMAIN command that sets it ``False`` too
+    # (ADR-0042): its operand is a caller-selected artifact path that gda has no
+    # fact tying to any project, so there is no project to inherit — which is why
+    # this field is not a synonym for "meta command".
     # Whether a command ACCEPTS an explicit ``--project`` is its CLI signature's
     # decision, not this field's: ``gda info`` declares the option for uniform
     # orchestration argv and has it validated like anywhere else (#670), while

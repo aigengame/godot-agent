@@ -211,3 +211,10 @@ src/gda/
 > input-specific compatibility check and keeps no second event-mode counter. Capture
 > receipts and predicates remain the `screen` group's. Point 5's one-way ownership
 > edge is preserved.
+
+> **Outcome (2026-09-17, #979):** the completed-run half shared by `script run` and
+> `export smoke` lives in a new `gda.completed_run` rather than in the `gda.models`
+> core that point 5 names, because it owns BEHAVIOUR and not only a shape: the
+> stdout spill's file IO, the bounded projection, the typed `stdout_spill_failed`,
+> the default ceiling and the shared human rendering. `gda.models` stays the home
+> of the field-carrying shapes several groups declare.

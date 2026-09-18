@@ -155,9 +155,11 @@ def _project_context(
     """The project ``cmd`` runs against, resolved once per dispatch (ADR-0006).
 
     One rule, shared by all three tails. A command with ``inherits_project=False``
-    (a meta command) never INHERITS a project context ($GDA_PROJECT, then the cwd):
-    it is about ``gda`` or the engine itself, so an inherited invalid
-    ``$GDA_PROJECT`` must not make it fail (#357). It still VALIDATES an EXPLICIT
+    (a meta command, or ``export smoke``, which acts on a caller-selected path)
+    never INHERITS a project context ($GDA_PROJECT, then the cwd): it is about
+    ``gda`` or the engine itself, or about an operand gda cannot tie to a project,
+    so an inherited invalid ``$GDA_PROJECT`` must not make it fail (#357,
+    ADR-0042). It still VALIDATES an EXPLICIT
     ``--project`` when it takes one and one is given (``gda info --project``, #670)
     — naming a project is a deliberate choice, so a bad one is a structured refusal
     rather than something quietly ignored.

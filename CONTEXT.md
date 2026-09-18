@@ -251,16 +251,20 @@ child environment, attached on every outcome of a prepared placement and absent 
 one that was refused (#850). Those launch-backed channels all return the one
 `RunResult` shape.
 Normally internal, part of it is **promoted to public completed-run results by
-`gda script run` and Artifact smoke**. Their shared result base contains
-`exit_status`, stderr, diagnostics, and the BOUNDED stdout projection from #665:
-verbatim up to a cap, then the leading cap bytes with the complete stream in the
-named spill file. `script run` adds its canonical script path and its existing
-flattened placement fields (#850). Artifact smoke instead adds only the caller's
-artifact path and the resolved executable path; its private placement remains an
-internal safety mechanism. Launch failures, elapsed time, timeout bounds, and the
-streams' timeout semantics are lifted into an `Error envelope`, so neither public
-result exposes the internal Raw run. The other channels disclose none of these
-facts.
+`gda script run` and Artifact smoke**. Both results carry `exit_status`, stderr,
+diagnostics, and the BOUNDED stdout projection from #665 — verbatim up to a cap,
+then the leading cap bytes with the complete stream in the named spill file —
+each declaring those fields itself. Their fieldless shared result base supplies
+the projection validator and the schema rule that publishes its truth table.
+The `gda.completed_run` module owns the stdout cap, bounded projection and
+spill handling, shared default timeout, and human rendering after each
+command's own opening line. `script run` adds its canonical script path and its
+existing flattened placement fields (#850). Artifact smoke instead adds only
+the caller's artifact path and the resolved executable path. Its private
+placement remains an internal safety mechanism. Launch failures, elapsed time,
+timeout bounds, and stream timeout semantics are lifted into an `Error envelope`,
+so neither public result exposes the internal Raw run. The other channels
+disclose none of these facts.
 _Avoid_: run output, export output
 
 **Completion marker**:
