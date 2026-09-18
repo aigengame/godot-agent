@@ -214,7 +214,7 @@ def test_a_failed_export_reports_no_mutations_and_pays_for_no_second_walk(
     # walk is settled on the success branch only, so a failure does not pay for it
     # — counted here rather than described, since "we skip the work" is exactly the
     # kind of claim that rots.
-    from gda.project_tree import walk_project_files as real_walk
+    from gda.project_tree import _walk_project_files as real_walk
 
     project = minimal_project(tmp_path)
     walks: list[Path] = []
@@ -223,7 +223,7 @@ def test_a_failed_export_reports_no_mutations_and_pays_for_no_second_walk(
         walks.append(walked)
         return real_walk(walked, **kwargs)
 
-    monkeypatch.setattr("gda.project_tree.walk_project_files", counting_walk)
+    monkeypatch.setattr("gda.project_tree._walk_project_files", counting_walk)
 
     failed = _export(
         project, lambda: _write(project / "icon.png.import", "x"), exit_code=1

@@ -200,7 +200,7 @@ def artifact_to_exclude(project: Path, output_path: str) -> Path | None:
     the first project-relative spelling that reaches each directory, which need
     not match the destination's spelling — which is why it compares the output
     parent's filesystem identity and the artifact's name, not two path strings
-    (see :func:`walk_project_files`). This also excludes an ``.app`` subtree
+    (see :func:`_walk_project_files`). This also excludes an ``.app`` subtree
     without hiding the files beside it.
 
     ``resource import`` writes no artifact and asks nothing of this function.
@@ -223,7 +223,7 @@ def _under(rel: str, prefixes: tuple[str, ...]) -> bool:
     return any(rel == prefix or rel.startswith(prefix + "/") for prefix in prefixes)
 
 
-def walk_project_files(
+def _walk_project_files(
     project: Path,
     *,
     artifact: Path | None = None,
@@ -343,7 +343,7 @@ class ProjectTreeInventory:
         files: dict[str, FileFacts] = {}
         unreadable: set[str] = set()
         unlistable: set[str] = set()
-        for rel, path in walk_project_files(
+        for rel, path in _walk_project_files(
             project, artifact=artifact, on_unreadable_dir=unlistable.add
         ):
             # The shared classifier decides what to hash, asked of a file that
@@ -392,7 +392,7 @@ class ProjectTreeInventory:
         created: list[CreatedFile] = []
         modified: list[RewrittenFile] = []
         skipped = set(self.unreadable)
-        for rel, path in walk_project_files(
+        for rel, path in _walk_project_files(
             self.project, artifact=self.artifact, on_unreadable_dir=skipped.add
         ):
             if rel in skipped or _under(rel, self.unlistable_dirs):
