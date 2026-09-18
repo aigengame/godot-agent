@@ -9,6 +9,7 @@ Typer → recipe → classify → emit pipeline runs without an engine.
 """
 
 import json
+import plistlib
 import stat
 from pathlib import Path
 
@@ -274,6 +275,50 @@ def test_the_two_artifact_refusals_reach_the_cli(monkeypatch, tmp_path):
     )
     assert result.exit_code == 4
     assert json.loads(result.stdout)["error"]["code"] == "export_artifact_not_runnable"
+
+
+def test_a_bundle_executable_with_a_nul_answers_through_the_error_envelope(
+    monkeypatch, tmp_path
+):
+    # The regression for the one value that escaped the command entirely: a NUL in
+    # `CFBundleExecutable` reached `os.stat`, which raised `ValueError`, and the
+    # CLI printed a rich traceback and exited 1 — no code, no category, no JSON at
+    # all for an agent to branch on (external review, PR #987). Only a BINARY
+    # plist can carry it, which is the format Godot writes.
+    bundle = tmp_path / "Game.app"
+    (bundle / "Contents" / "MacOS").mkdir(parents=True)
+    with (bundle / "Contents" / "Info.plist").open("wb") as handle:
+        plistlib.dump(
+            {"CFBundleExecutable": "Game\x00x"}, handle, fmt=plistlib.FMT_BINARY
+        )
+
+    result, stub = invoke(monkeypatch, ["export", "smoke", str(bundle), "--json"])
+
+    assert result.exit_code == 4, result.stdout
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "export_artifact_not_runnable"
+    assert error["category"] == "operation"
+    assert "one filename" in error["message"]
+    assert not stub.calls
+
+
+def test_a_bundle_executable_outside_the_artifact_is_refused(monkeypatch, tmp_path):
+    # The other half of the same rule, end to end: an absolute `CFBundleExecutable`
+    # made `Path.joinpath` return that path verbatim, so the command LAUNCHED a
+    # program outside the artifact the caller selected and published it as
+    # `executable` with exit 0.
+    bundle = tmp_path / "Game.app"
+    (bundle / "Contents" / "MacOS").mkdir(parents=True)
+    with (bundle / "Contents" / "Info.plist").open("wb") as handle:
+        plistlib.dump({"CFBundleExecutable": "/bin/echo"}, handle)
+
+    result, stub = invoke(monkeypatch, ["export", "smoke", str(bundle), "--json"])
+
+    assert result.exit_code == 4, result.stdout
+    assert json.loads(result.stdout)["error"]["code"] == (
+        "export_artifact_not_runnable"
+    )
+    assert not stub.calls
 
 
 # --- Self-description --------------------------------------------------------

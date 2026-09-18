@@ -1379,8 +1379,36 @@ def _is_runnable_file(path: Path) -> bool:
     """
     try:
         return S_ISREG(os.stat(path).st_mode) and os.access(path, os.X_OK)
-    except OSError:
+    except (OSError, ValueError):
+        # ``ValueError`` is the syscall refusing the STRING, not the filesystem
+        # refusing the file — an embedded NUL is the one shape that reaches it.
+        # A path the host cannot even ask about is honestly "not runnable", and
+        # answering so here closes the class rather than one instance of it: it
+        # must never escape this resolver as a traceback (external review, PR #987).
         return False
+
+
+def _one_filename(name: str) -> bool:
+    """Is ``name`` ONE filename — a single component under the bundle's MacOS dir?
+
+    The rule the resolver PUBLISHES is that a `.app` runs
+    ``Contents/MacOS/<CFBundleExecutable>``, and `Path.joinpath` does not enforce
+    it: an absolute value (`/bin/echo`) replaces the whole prefix and a `..` value
+    climbs out of it, so gda would launch a program outside the artifact the
+    caller selected and publish it as ``executable`` (external review, PR #987).
+    The bundle's own metadata is the caller's input here, not gda's.
+
+    So this is a plain filename test, and nothing more: no sandbox, no
+    containment check on the joined result, no identity or provenance notion —
+    one usable filename is the whole rule, and every other value is the existing
+    ``export_artifact_not_runnable`` refusal. A blank value names nothing, and a
+    NUL is a string the syscall cannot even carry.
+    """
+    if not name.strip() or "\x00" in name:
+        return False
+    if "/" in name or os.sep in name:
+        return False
+    return name not in (".", "..")
 
 
 def resolve_artifact_executable(artifact: str) -> "Path | Failure":
@@ -1431,6 +1459,14 @@ def resolve_artifact_executable(artifact: str) -> "Path | Failure":
     if not isinstance(name, str) or not name:
         return export_artifact_not_runnable_failure(
             artifact, f"its {plist.name} declares no {_BUNDLE_EXECUTABLE_KEY}"
+        )
+    if not _one_filename(name):
+        return export_artifact_not_runnable_failure(
+            artifact,
+            f"the {_BUNDLE_EXECUTABLE_KEY} it declares ({name!r}) is not one "
+            f"filename: it must name a single file directly under "
+            f"{'/'.join(_BUNDLE_MACOS_REL)}, so a value carrying a path "
+            "separator, '.' or '..', or a NUL is refused",
         )
     executable = path.joinpath(*_BUNDLE_MACOS_REL, name)
     if not _is_runnable_file(executable):

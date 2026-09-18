@@ -29,6 +29,7 @@ from gda.commands.export import (  # the single fully-bound descriptor (ADR-0023
     SMOKE_TIMEOUT_LABEL,
     ExportSmokeParams,
     ExportSmokeResult,
+    _is_runnable_file,
     resolve_artifact_executable,
     run_export_smoke_operation,
     smoke_args,
@@ -123,8 +124,16 @@ def app_bundle(
     write_executable: bool = True,
     executable_runnable: bool = True,
     plist: bool = True,
+    binary_plist: bool = False,
 ) -> Path:
-    """A macOS ``.app`` bundle, with each resolution requirement switchable off."""
+    """A macOS ``.app`` bundle, with each resolution requirement switchable off.
+
+    ``executable_name`` is written to ``CFBundleExecutable`` VERBATIM, so a test
+    can declare a value Godot would never write — the bundle's metadata is the
+    caller's input, and the resolver's job is to refuse what it cannot use.
+    ``binary_plist`` selects the format Godot actually emits, and is the only one
+    that can carry a NUL.
+    """
     root.mkdir(parents=True, exist_ok=True)
     (root / "Contents" / "MacOS").mkdir(parents=True, exist_ok=True)
     if plist:
@@ -132,7 +141,11 @@ def app_bundle(
         if executable_name is not None:
             declared["CFBundleExecutable"] = executable_name
         with (root / "Contents" / "Info.plist").open("wb") as handle:
-            plistlib.dump(declared, handle)
+            plistlib.dump(
+                declared,
+                handle,
+                fmt=plistlib.FMT_BINARY if binary_plist else plistlib.FMT_XML,
+            )
     if write_executable and executable_name is not None:
         target = root / "Contents" / "MacOS" / executable_name
         if executable_runnable:
@@ -254,14 +267,22 @@ def test_a_bundle_with_an_unreadable_plist_is_not_runnable(tmp_path):
     assert "Info.plist" in outcome.error.message
 
 
-def test_a_bundle_whose_plist_declares_no_executable_is_not_runnable(tmp_path):
-    bundle = app_bundle(tmp_path / "Game.app", executable_name=None)
+@pytest.mark.parametrize("declared", [None, ""], ids=["missing", "empty"])
+def test_a_bundle_whose_plist_declares_no_executable_is_not_runnable(
+    tmp_path, declared
+):
+    # An absent key and an empty value say the same thing, so they get the same
+    # message: the bundle names nothing to run. A value that names something
+    # unusable is the separate filename rule below.
+    bundle = app_bundle(
+        tmp_path / "Game.app", executable_name=declared, write_executable=False
+    )
 
     outcome = resolve_artifact_executable(str(bundle))
 
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "export_artifact_not_runnable"
-    assert "CFBundleExecutable" in outcome.error.message
+    assert "declares no CFBundleExecutable" in outcome.error.message
 
 
 def test_a_bundle_missing_the_file_its_plist_names_is_not_runnable(tmp_path):
@@ -281,6 +302,68 @@ def test_a_bundle_whose_named_file_is_not_executable_is_not_runnable(tmp_path):
 
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "export_artifact_not_runnable"
+
+
+@pytest.mark.parametrize(
+    ("declared", "what"),
+    [
+        pytest.param("/bin/echo", "an absolute path", id="absolute"),
+        pytest.param("../../../../bin/echo", "a climbing path", id="dot-dot"),
+        pytest.param("sub/Game", "a path separator", id="separator"),
+        pytest.param("..", "the parent itself", id="parent"),
+        pytest.param(".", "the directory itself", id="dot"),
+        pytest.param("   ", "only whitespace", id="blank"),
+    ],
+)
+def test_a_bundle_executable_that_is_not_one_filename_is_not_runnable(
+    tmp_path, declared, what
+):
+    # The resolver must enforce the rule it PUBLISHES: a `.app` runs
+    # `Contents/MacOS/<CFBundleExecutable>`, and `Path.joinpath` does not hold
+    # that on its own — an absolute value replaces the whole prefix and a `..`
+    # climbs out of it, so gda would launch a program OUTSIDE the artifact the
+    # caller selected and publish it as `executable` (external review, PR #987).
+    # The bundle's metadata is the caller's input, not gda's.
+    bundle = app_bundle(
+        tmp_path / "Game.app", executable_name=declared, write_executable=False
+    )
+
+    outcome = resolve_artifact_executable(str(bundle))
+
+    assert isinstance(outcome, Failure), what
+    assert outcome.error.code == "export_artifact_not_runnable"
+    # The message names the RULE, like every other refusal here.
+    assert "one filename" in outcome.error.message
+    assert "Contents/MacOS" in outcome.error.message
+
+
+def test_a_bundle_executable_with_a_nul_is_not_runnable(tmp_path):
+    # The same rule, on the one value that used to escape as a traceback: a NUL
+    # is a string the stat syscall cannot carry, so `os.stat` raised `ValueError`
+    # and the CLI exited 1 with no envelope at all. Only a BINARY plist can hold
+    # it, which is the format Godot writes.
+    bundle = app_bundle(
+        tmp_path / "Game.app",
+        executable_name="Game\x00x",
+        write_executable=False,
+        binary_plist=True,
+    )
+
+    outcome = resolve_artifact_executable(str(bundle))
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "export_artifact_not_runnable"
+    assert "one filename" in outcome.error.message
+
+
+def test_a_path_the_syscall_cannot_carry_is_not_runnable(tmp_path):
+    # The guard BEHIND that rule, asserted on its own: `_is_runnable_file` answers
+    # False for a path `os.stat` refuses to look at, rather than letting the
+    # refusal escape. The name check above means the bundle branch no longer
+    # reaches it with a NUL, which is exactly why this is pinned here — the class
+    # is closed whatever a later caller hands in.
+    assert _is_runnable_file(Path("no\x00such")) is False
+    assert _is_runnable_file(tmp_path / "absent") is False
 
 
 def test_a_relative_artifact_resolves_against_the_invocation_cwd(tmp_path, monkeypatch):
