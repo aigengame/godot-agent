@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.19.0](https://github.com/aigengame/godot-agent/compare/v0.18.0...v0.19.0) (2026-09-18)
+
+
+### Features
+
+* **gda:** dogfooding II W5 — export smoke and one project tree inventory ([27c04d7](https://github.com/aigengame/godot-agent/commit/27c04d76969b06733e80c4d27895aa7fd982d66f))
+* **gda:** export smoke runs a caller-selected export artifact headlessly and reports its completed process evidence ([#979](https://github.com/aigengame/godot-agent/issues/979)) ([d715d50](https://github.com/aigengame/godot-agent/commit/d715d50f9ec38bcd26725b94815ca1722188959f))
+
 ## [0.18.0](https://github.com/aigengame/godot-agent/compare/v0.17.0...v0.18.0) (2026-09-16)
 
 
