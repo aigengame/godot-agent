@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.18.0](https://github.com/aigengame/godot-agent/compare/v0.17.0...v0.18.0) (2026-09-16)
+
+
+### Features
+
+* **gda:** dogfooding II W4 — project-tree mutation report, failure-envelope placement, script-error policy table, render frame and settle ([0a749f1](https://github.com/aigengame/godot-agent/commit/0a749f11673a1f2681169a5a82b90abafc23bac0))
+* **gda:** screen capture names its render frame and settles frames ([#847](https://github.com/aigengame/godot-agent/issues/847)) ([29f8f5b](https://github.com/aigengame/godot-agent/commit/29f8f5b96fb445d908df53b4b0b2215cac41c4f1))
+* **gda:** script run failure envelopes carry the user-data placement ([#862](https://github.com/aigengame/godot-agent/issues/862)) ([8a99e64](https://github.com/aigengame/godot-agent/commit/8a99e64d9ae2051b651c351b106691c3454a8fca))
+
+
+### Bug Fixes
+
+* **gda:** export run reports the project-tree mutations of the native export ([#839](https://github.com/aigengame/godot-agent/issues/839)) ([a9e9044](https://github.com/aigengame/godot-agent/commit/a9e9044a615bb9545a1e3a9509541e9261804ffa))
+
 ## [0.17.0](https://github.com/aigengame/godot-agent/compare/v0.16.0...v0.17.0) (2026-09-14)
 
 
