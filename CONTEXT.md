@@ -251,10 +251,13 @@ child environment, attached on every outcome of a prepared placement and absent 
 one that was refused (#850). Those launch-backed channels all return the one
 `RunResult` shape.
 Normally internal, part of it is **promoted to public completed-run results by
-`gda script run` and Artifact smoke**. Their shared result base contains
-`exit_status`, stderr, diagnostics, and the BOUNDED stdout projection from #665:
-verbatim up to a cap, then the leading cap bytes with the complete stream in the
-named spill file. `script run` adds its canonical script path and its existing
+`gda script run` and Artifact smoke**. Both results carry `exit_status`, stderr,
+diagnostics, and the BOUNDED stdout projection from #665 — verbatim up to a cap,
+then the leading cap bytes with the complete stream in the named spill file —
+each declaring those fields itself, while their shared result base owns what is
+common about them: the validator that holds the projection's truth table, the
+schema rule that publishes it, and the human rendering after each command's own
+opening line. `script run` adds its canonical script path and its existing
 flattened placement fields (#850). Artifact smoke instead adds only the caller's
 artifact path and the resolved executable path; its private placement remains an
 internal safety mechanism. Launch failures, elapsed time, timeout bounds, and the

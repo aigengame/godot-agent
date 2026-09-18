@@ -262,8 +262,8 @@ the second consumer, and delete the compensating contract around unneeded NFRs.
 > orders a subclass's fields base-first, so a field-carrying base would have moved
 > `script run`'s `path` out of first position and broken the byte-identical result
 > and output-schema shape this decision's own validation list requires; each result
-> therefore declares its own fields, which is the precedent `gda.models
-> .ProjectRootedResult` set for the same reason. It lives in a new
+> therefore declares its own fields, which is the precedent
+> `gda.models.ProjectRootedResult` set for the same reason. It lives in a new
 > `gda.completed_run` rather than in the `gda.models` core because it owns
 > behaviour, not only a shape (see ADR-0040's note of the same date). Artifact
 > resolution shipped as declared and no wider: a regular file the host may execute
@@ -271,7 +271,12 @@ the second consumer, and delete the compensating contract around unneeded NFRs.
 > `Contents/Info.plist`'s `CFBundleExecutable` to `Contents/MacOS/<that name>`
 > which must itself be a regular file the host may execute, and every other
 > shape — any other directory, a bundle missing that plist, key or file, a file
-> without execute permission — is `export_artifact_not_runnable`; the bundle rule
+> without execute permission — is `export_artifact_not_runnable`. The declared
+> value must be ONE filename (no path separator, no `.` or `..`, no NUL), which
+> is what makes the sentence above true rather than aspirational: `Path.joinpath`
+> lets an absolute or climbing value out of the bundle, so an unchecked one would
+> run a program the caller never selected, and a NUL would escape the resolver as
+> a `ValueError` instead of a refusal (external review, PR #987). The bundle rule
 > is NOT gated on the host platform, because it reads a layout the artifact
 > declares and gating it would be the platform classification this decision
 > rejects. The two `main/main.cpp` links in the context above were corrected in
