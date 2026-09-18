@@ -340,7 +340,7 @@ def test_the_gap_scan_skips_every_directory_the_engines_scan_never_reaches(tmp_p
 def test_created_files_are_classified_against_the_cache_root(tmp_path):
     # The one-line rule `resource import` applied inline until #741, named once
     # so `export run`'s tree-mutation report (#839) reuses it. The input is the
-    # project-relative posix path `_project_files` yields.
+    # project-relative posix path the `Project tree inventory` yields (#985).
     assert CACHE_ROOT_REL == ".godot"
     assert classify_created_file(".godot") == "cache_owned"
     assert classify_created_file(".godot/imported/icon.png-a.ctex") == "cache_owned"
