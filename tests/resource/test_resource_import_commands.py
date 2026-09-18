@@ -24,6 +24,7 @@ import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
+from gda.project_tree import ProjectTreeInventory
 from gda.runner import LaunchFailure, RunResult, TimeoutBound
 from tests.resource.import_artifacts import (
     cached_asset,
@@ -145,8 +146,25 @@ def test_missing_asset_runs_the_pass_and_reports_created_classified(
 
     calls, fake_launch = _fake_pass(project, effects)
     monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+    # What this command ASKS the `Project tree inventory` for is the one
+    # consumer-specific gate #985 allows, and nothing else pins it: with
+    # `detect_rewrites=True` the result is identical — `modified` is computed and
+    # discarded — and only the cost moves, by 3.7x on an 11k-file tree (PR #989
+    # review round 1). So record the kwargs.
+    asked: list[dict] = []
+    real_capture = ProjectTreeInventory.capture
+
+    def recording_capture(project_arg, **kwargs):
+        asked.append(kwargs)
+        return real_capture(project_arg, **kwargs)
+
+    monkeypatch.setattr(ProjectTreeInventory, "capture", recording_capture)
 
     result = _run(project, "res://icon.png")
+
+    # No artifact (the pass writes none) and no rewrite detection (`created` is
+    # the whole question, so the capture hashes nothing).
+    assert asked == [{"detect_rewrites": False}], asked
 
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
