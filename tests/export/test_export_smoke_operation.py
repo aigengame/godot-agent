@@ -31,6 +31,7 @@ from gda.commands.export import (  # the single fully-bound descriptor (ADR-0023
     ExportSmokeParams,
     ExportSmokeResult,
     _is_runnable_file,
+    normalize_export_output_path,
     resolve_artifact_executable,
     run_export_smoke_operation,
     smoke_args,
@@ -416,6 +417,35 @@ def test_an_artifact_whose_name_contains_a_scheme_separator_is_still_a_file(
     assert outcome.artifact == str(artifact)
     assert Path(outcome.executable).is_absolute()
     assert outcome.executable == str(artifact)
+
+
+def test_an_unexpandable_home_prefix_is_a_typed_refusal(tmp_path, monkeypatch):
+    # `Path.expanduser()` raises RuntimeError for a `~unknownuser/…` prefix it
+    # cannot resolve, and that escaped this command as a traceback at exit 1 with
+    # no envelope at all — the same invariant the bundle's NUL refusal restores
+    # (every gda failure is a typed envelope, ADR-0002 / ADR-0004). A `~` gda
+    # cannot expand names no user, so the value is not a home-relative path at
+    # all: it is kept, absolutized, and the ordinary resolution answers.
+    monkeypatch.chdir(tmp_path)
+
+    asked = ExportSmokeParams(artifact="~nosuchuser999/x").artifact
+    assert asked == str(tmp_path / "~nosuchuser999" / "x")
+
+    outcome = run_export_smoke_operation(
+        artifact=asked, args=[], make_launch=FakeLaunch(completed())
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "export_artifact_not_found"
+
+
+def test_the_export_output_normalizer_keeps_its_unguarded_behaviour():
+    # The BOUNDARY of the fix above, pinned: `export run --output` has the same
+    # exposure and predates this slice, so changing a shipped command's behaviour
+    # is not this one's to make. A follow-up owns it; until then this asserts the
+    # guard was added to the smoke's normalizer ALONE.
+    with pytest.raises(RuntimeError):
+        normalize_export_output_path("~nosuchuser999/x")
 
 
 def test_the_export_output_field_keeps_its_virtual_path_convention(tmp_path):

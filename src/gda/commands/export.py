@@ -139,8 +139,29 @@ def normalize_smoke_artifact_path(path: str) -> str:
     smoke's own one has no exception to apply. A ``://`` string is simply a
     filesystem path here, and an artifact that does not exist under that name is
     the ordinary ``export_artifact_not_found``.
+
+    **Total: it never raises.** ``Path.expanduser()`` raises ``RuntimeError`` for a
+    ``~unknownuser/…`` prefix it cannot resolve, which escaped this command as a
+    traceback at exit 1 with no envelope at all — the same invariant the bundle's
+    NUL refusal restores, since every gda failure is a typed envelope (ADR-0002 /
+    ADR-0004). A ``~`` gda cannot expand names no user, so the value is simply not
+    a home-relative path: it is kept as the caller wrote it, absolutized if
+    relative, and the ordinary resolution answers ``export_artifact_not_found``.
+    That is :func:`gda.models.normalize_path`'s precedent, total by construction
+    for exactly this input (#699): normalization is a convenience, and whether a
+    path is usable is decided by whoever consumes it.
+
+    ``export run --output`` keeps today's behaviour, unguarded: its exposure is
+    the same and predates this slice, so changing a shipped command's is not this
+    one's to make.
     """
-    return _absolute_filesystem_path(path)
+    try:
+        return _absolute_filesystem_path(path)
+    except RuntimeError:
+        expanded = Path(path)
+        if expanded.is_absolute():
+            return str(expanded)
+        return str(Path.cwd() / expanded)
 
 
 ExportOutputPath = Annotated[str, AfterValidator(normalize_export_output_path)]
