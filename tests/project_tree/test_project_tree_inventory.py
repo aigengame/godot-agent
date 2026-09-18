@@ -378,8 +378,8 @@ def _unlistable(directory: Path) -> bool:
 def test_a_directory_the_walk_cannot_list_is_counted_not_ignored(tmp_path):
     # Rule 4's directory half. `os.walk` swallows a listdir failure by default,
     # which would drop the whole subtree from the record AND from the one channel
-    # that says the record is incomplete. The directory is counted once — not its
-    # unknown contents, which neither walk ever saw (PR #981 review).
+    # that says the record is incomplete. This directory's project-relative
+    # spelling is counted once, not its unknown contents (PR #981 review).
     project = minimal_project(tmp_path)
     locked = project / "locked"
     _write(locked / "secret.tres", "old")

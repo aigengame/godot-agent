@@ -371,9 +371,10 @@ class ProjectTreeInventory:
         A caller that did not ask for rewrites stops at ``created``: it holds no
         digest to compare, so every pre-existing file is passed over.
 
-        A directory neither walk could list is counted once, and everything
-        beneath it is passed over: the first capture never read those files, so
-        the settlement can state nothing about them either way.
+        A directory neither walk could list is counted once per project-relative
+        spelling, and everything beneath it is passed over: the first capture
+        never read those files, so the settlement can state nothing about them
+        either way.
         """
         created: list[CreatedFile] = []
         modified: list[RewrittenFile] = []
