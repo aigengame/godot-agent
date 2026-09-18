@@ -9,12 +9,13 @@ MUTATES the project the way the pass does, and pin what only the export knows:
 the artifact it keeps out of the walk, the report's published shape and counts,
 its human rendering, and the success-only boundary the second walk sits behind.
 
-The walk and the settlement under all of it belong to
-:mod:`gda.project_tree`, whose rules are named one by one in
-``test_project_tree_inventory.py`` beside this file — one package for the module,
-so neither consumer's package holds half of them (#985). The recipe's own suite
-is ``tests/export/test_export_run_operation.py``; the real-engine proof is
-``tests/export/test_e2e_export_run.py``.
+The walk and the settlement under all of it belong to :mod:`gda.project_tree`,
+whose rules are named one by one in ``tests/project_tree/`` — one package for the
+module, none of its rule tests in a consumer's package. These ten stay HERE
+because they change when this group's report changes, not when the module does
+(#985, and PR #836's rule that test packages are drawn by reason to change). The
+recipe's own suite is ``test_export_run_operation.py``; the real-engine proof is
+``test_e2e_export_run.py``.
 """
 
 import os

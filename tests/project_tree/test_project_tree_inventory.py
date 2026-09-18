@@ -7,10 +7,11 @@ list (#668). These tests drive that interface directly: capture the tree, mutate
 it the way an engine pass does, settle. One test names each rule the module's
 docstring states.
 
-The two adapters' own use of it is pinned beside this file —
-``test_export_tree_mutations.py`` for the export report's shape, renderer and
-success-only boundary, ``tests/resource`` for the import's ``created`` list — and
-against the real engine in ``tests/export/test_e2e_export_run.py`` and
+Each adapter's own use of it is pinned with that adapter, because that is what
+changes when the adapter changes: ``tests/export/test_export_tree_mutations.py``
+for the export report's shape, renderer and success-only boundary, and
+``tests/resource`` for the import's ``created`` list. The real-engine proofs are
+``tests/export/test_e2e_export_run.py`` and
 ``tests/resource/test_e2e_resource_import.py``.
 """
 
