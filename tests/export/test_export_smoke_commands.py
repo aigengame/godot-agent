@@ -321,6 +321,24 @@ def test_a_bundle_executable_outside_the_artifact_is_refused(monkeypatch, tmp_pa
     assert not stub.calls
 
 
+def test_a_scheme_like_artifact_name_is_a_filesystem_path(monkeypatch, tmp_path):
+    # `export run --output` keeps a `://` string verbatim for its virtual-path
+    # convention; the projectless smoke has no such concept, so a REAL file under
+    # a directory named `foo:` addressed as `foo://game` resolves against the cwd
+    # like any other relative path, in BOTH published addresses.
+    (tmp_path / "foo:").mkdir()
+    artifact = runnable(tmp_path / "foo:" / "game")
+    monkeypatch.chdir(tmp_path)
+
+    result, stub = invoke(monkeypatch, ["export", "smoke", "foo://game", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    data = json.loads(result.stdout)
+    assert data["artifact"] == str(artifact)
+    assert data["executable"] == str(artifact)
+    assert stub.calls[0][0] == artifact
+
+
 # --- Self-description --------------------------------------------------------
 
 

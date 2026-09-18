@@ -27,6 +27,7 @@ from gda.commands.export import (  # the single fully-bound descriptor (ADR-0023
     DEFAULT_SMOKE_TIMEOUT_SECONDS,
     EXPORT_SMOKE_COMMAND,
     SMOKE_TIMEOUT_LABEL,
+    ExportRunParams,
     ExportSmokeParams,
     ExportSmokeResult,
     _is_runnable_file,
@@ -391,6 +392,38 @@ def test_a_relative_artifact_resolves_against_the_invocation_cwd(tmp_path, monke
     # And it is the same path the launch was given, so the result cannot name one
     # executable while another ran.
     assert launch.calls[0][0] == artifact
+
+
+def test_an_artifact_whose_name_contains_a_scheme_separator_is_still_a_file(
+    tmp_path, monkeypatch
+):
+    # `export run --output` keeps a `://` string verbatim, because a preset path
+    # may be virtual. The smoke has no project to resolve one against, so reusing
+    # that normalizer let a REAL file under a directory named `foo:` keep its
+    # relative spelling in both addresses (external review, PR #987). Here there
+    # is no exception left to apply: `://` or not, it is a filesystem path.
+    (tmp_path / "foo:").mkdir()
+    artifact = runnable_file(tmp_path / "foo:" / "game")
+    monkeypatch.chdir(tmp_path)
+
+    asked = ExportSmokeParams(artifact="foo://game").artifact
+    assert asked == str(artifact)
+
+    launch = FakeLaunch(completed())
+    outcome = run_export_smoke_operation(artifact=asked, args=[], make_launch=launch)
+
+    assert isinstance(outcome, ExportSmokeResult)
+    assert outcome.artifact == str(artifact)
+    assert Path(outcome.executable).is_absolute()
+    assert outcome.executable == str(artifact)
+
+
+def test_the_export_output_field_keeps_its_virtual_path_convention(tmp_path):
+    # The other half of the same change: removing the exception for the SMOKE
+    # leaves `export run --output`'s own field exactly as it was (#403).
+    assert ExportRunParams(preset="p", output="res://build/game").output == (
+        "res://build/game"
+    )
 
 
 def test_a_refusal_for_a_relative_artifact_names_the_absolute_path(

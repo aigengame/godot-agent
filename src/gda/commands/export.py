@@ -89,6 +89,25 @@ from gda.script_errors import (
 )
 
 
+def _absolute_filesystem_path(path: str) -> str:
+    """``path`` with ``~`` expanded and, if relative, joined to the invocation cwd.
+
+    The half both of this module's path fields share (#403): a relative path that
+    reaches a result, a message or a subprocess unchanged is an unlocatable string
+    for anyone not standing where the caller stood. Absolute, not canonical —
+    ``..`` is not folded and a symlink is not resolved, because the path stays the
+    one the caller named.
+
+    It is only the half. What differs is whether the field has a VIRTUAL-path
+    concept at all, and that difference belongs to the two wrappers below, not to
+    a flag here.
+    """
+    expanded = Path(path).expanduser()
+    if expanded.is_absolute():
+        return str(expanded)
+    return str(Path.cwd() / expanded)
+
+
 def normalize_export_output_path(path: str) -> str:
     """Normalize an ``export run --output`` artifact path (#403).
 
@@ -100,13 +119,32 @@ def normalize_export_output_path(path: str) -> str:
     """
     if "://" in path:
         return path
-    expanded = Path(path).expanduser()
-    if expanded.is_absolute():
-        return str(expanded)
-    return str(Path.cwd() / expanded)
+    return _absolute_filesystem_path(path)
+
+
+def normalize_smoke_artifact_path(path: str) -> str:
+    """Normalize an ``export smoke`` artifact path (ADR-0042).
+
+    The SAME absolutization ``--output`` gets, without the virtual-path branch,
+    because this command has nowhere to resolve a virtual path FROM: it is
+    projectless by decision, so ``res://`` and the rest name nothing here. Reusing
+    ``export run``'s normalizer gave the smoke that branch by inheritance, and a
+    real POSIX file addressed as ``foo://game`` then kept its relative spelling
+    all the way into ``artifact`` and ``executable`` — contradicting #979's and
+    CONTEXT's unconditional "a relative artifact path resolves against the
+    invocation cwd" (external review, PR #987).
+
+    The remedy is the deletion of that inherited exception for this command, not a
+    second rule laid over it: one shared half above, two annotations, and the
+    smoke's own one has no exception to apply. A ``://`` string is simply a
+    filesystem path here, and an artifact that does not exist under that name is
+    the ordinary ``export_artifact_not_found``.
+    """
+    return _absolute_filesystem_path(path)
 
 
 ExportOutputPath = Annotated[str, AfterValidator(normalize_export_output_path)]
+SmokeArtifactPath = Annotated[str, AfterValidator(normalize_smoke_artifact_path)]
 
 
 class ExportListParams(BaseModel):
@@ -1483,11 +1521,13 @@ class ExportSmokeParams(BaseModel):
 
     ``artifact`` is a filesystem path the CALLER selected — normally the
     ``output_path`` a previous ``export run`` reported. It carries this module's
-    own :data:`ExportOutputPath` (#403) rather than the plain ``NormalizedPath``
-    the other path fields use: a ``~`` prefix expands AND a relative path is made
+    own :data:`SmokeArtifactPath` rather than the plain ``NormalizedPath`` the
+    other path fields use: a ``~`` prefix expands AND a relative path is made
     absolute against the invocation cwd, identically on the argv and
     ``--params-json`` paths (ADR-0015), and it happens HERE, before the artifact
-    is resolved. That ordering is the point — ``executable``, both refusal
+    is resolved. Unlike ``--output``'s :data:`ExportOutputPath` it has no
+    virtual-path exception, because a projectless command has nothing to resolve
+    a ``res://`` against: every input is a filesystem path, ``://`` or not. That ordering is the point — ``executable``, both refusal
     messages and the ``smoke_failed`` message all derive from this value, so none
     of them can echo a relative string that a consumer outside the invocation cwd
     cannot locate; that is the same defect #403 fixed for ``export run --output``
@@ -1496,7 +1536,7 @@ class ExportSmokeParams(BaseModel):
     no project param and no ``--project``: the command is projectless (ADR-0042).
     """
 
-    artifact: ExportOutputPath = Field(
+    artifact: SmokeArtifactPath = Field(
         description=(
             "The exported artifact to run: a file this host can execute, or a "
             "macOS .app bundle, whose Contents/Info.plist CFBundleExecutable file "
