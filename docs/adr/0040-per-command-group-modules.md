@@ -221,8 +221,8 @@ src/gda/
 
 > **Outcome (2026-09-18, #985):** the project-tree enumeration that `export run` and
 > `resource import` both need lives in a new `gda.project_tree` — the `Project tree
-> inventory` — rather than in either group module or in the `gda.models` core point 5
-> names. Point 5's rule is about a SHAPE no single group owns; this module owns
+> inventory` — rather than in either group module or in the `gda.models` core that
+> point 5 names. Point 5's rule is about a SHAPE no single group owns; this module owns
 > BEHAVIOUR: the walk's link, cycle, regular-file and exclusion rules, and the
 > two-capture settlement over them. It sits beside `gda.import_evidence`, which it
 > reads for the one classification both commands publish, and it is imported by those

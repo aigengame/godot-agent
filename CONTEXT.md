@@ -90,18 +90,18 @@ _Avoid_: cache check, freshness probe, validity scan
 The Python-side enumeration of a project's files and the two-capture settlement
 over it — the fact behind `gda export run`'s `Project-tree mutation report` and
 `gda resource import`'s `created` list, which read it from one core module rather
-than walking the tree twice (#985). It walks under one set of rules: a directory
-link is followed as the engine reads it, once each by filesystem identity
-(`st_dev`, `st_ino`); a cycle is not re-entered and is not counted; only a
-regular file is opened; an unlistable or unreadable entry is counted once; a
+than walking the tree twice (#985). It walks under the rules the module states: a
+directory link is followed as the engine reads it, once each by filesystem
+identity (`st_dev`, `st_ino`); a cycle is not re-entered and is not counted; only
+a regular file is opened; an unlistable or unreadable entry is counted once; a
 top-level `.git` is excluded; and the cache root is walked like anything else, so
 its files are what both commands classify as `cache_owned`. It then settles two
 captures — one before the engine runs, one after — into what the run CREATED,
 what it REWROTE, and how much neither capture could account for. Each call takes
-the project root, the artifact to keep out of the answer, and a sink for a
-directory it cannot list; `resource import` passes no artifact, and asks for no
-rewrite detection, which is the one gate that decides whether the first capture
-hashes the files outside the cache root.
+the project root, the artifact to keep out of the answer, a sink for a directory
+it cannot list, and the rewrite gate — the input that decides whether the first
+capture hashes the files outside the cache root, which is what `modified` reads.
+`resource import` passes no artifact and asks for no rewrite detection.
 It is NOT the engine-side `res://` walk in `operations.gd` — which this
 repository calls the project walk, and which since #804 skips a directory holding
 a nested `project.godot` or a `.gdignore` while it still enumerates dot-prefixed

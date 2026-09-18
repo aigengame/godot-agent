@@ -695,9 +695,9 @@ def parse_export_warnings(stderr: str) -> list[str]:
 # The walk and the two-capture settlement are NOT here: they are the `Project
 # tree inventory` (:mod:`gda.project_tree`), which `resource import` reads too —
 # one Python enumeration of the project's files, under one set of rules, for the
-# two results the same engine pass produces. What stays here is what only the
-# export knows: the artifact it asked the engine to write (passed to the walk as
-# the one thing to keep out), and the shape of the published report.
+# two results each command's own engine pass produces. What stays here is what
+# only the export knows: the artifact it asked the engine to write (passed to
+# the walk as the one thing to keep out), and the shape of the published report.
 
 
 def _mutation_report(settlement: ProjectTreeSettlement) -> ProjectTreeMutations:
