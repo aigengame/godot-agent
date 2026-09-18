@@ -45,7 +45,6 @@ from gda.import_evidence import (
     CreatedFileClass,
     EvidenceReason,
     asset_state,
-    classify_created_file,
     project_import_gaps,
 )
 from gda.models import (
@@ -62,6 +61,7 @@ from gda.project import (
     project_absolute,
     project_anchored,
 )
+from gda.project_tree import ProjectTreeInventory
 from gda.render import render_property_lines, render_set_echo
 from gda.runner import launch
 
@@ -988,18 +988,6 @@ def _engine_output(stderr: "str | None", res_path: str) -> "tuple[list[str], boo
     return matched[:ENGINE_OUTPUT_LINE_CAP], len(matched) > ENGINE_OUTPUT_LINE_CAP
 
 
-def _project_files(project: Path) -> set[str]:
-    """Every file under the project (relative posix paths), .git excluded."""
-    files: set[str] = set()
-    for path in project.rglob("*"):
-        rel = path.relative_to(project)
-        if rel.parts and rel.parts[0] == ".git":
-            continue
-        if path.is_file():
-            files.add(rel.as_posix())
-    return files
-
-
 def _summarize(
     assets: list[ResourceImportAsset], created: list[ImportCreatedFile]
 ) -> ResourceImportSummary:
@@ -1082,7 +1070,15 @@ def run_resource_import_operation(
     pass_stderr: "str | None" = None
     if needs_pass:
         binary = resolve_godot_binary(godot)
-        before = _project_files(project)
+        # The `Project tree inventory` (:mod:`gda.project_tree`, #985): the same
+        # walk `export run` reports its mutations from, around the same engine
+        # pass. This command used to walk the tree itself with `Path.rglob("*")`,
+        # which does NOT descend a directory link — so a file the pass created
+        # under a linked-in library was invisible here while `export run` reported
+        # it. It asks for no artifact (the pass writes none) and for no rewrite
+        # detection (`created` is the whole question, and the hash the other
+        # command pays for buys nothing here).
+        inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
         # Module-global lookup (the one launch seam): tests patch
         # `gda.commands.resource.launch`, the scene/script channels' pattern.
         raw = launch(
@@ -1102,13 +1098,14 @@ def run_resource_import_operation(
                 raw.stderr,
             )
         pass_stderr = raw.stderr
-        after = _project_files(project)
+        # The settlement's `skipped` count stays unpublished: this result has no
+        # field for it, and adding one is a contract change #985 does not make.
         created = [
             ImportCreatedFile(
-                path="res://" + rel,
-                classification=classify_created_file(rel),
+                path="res://" + entry.rel,
+                classification=entry.classification,
             )
-            for rel in sorted(after - before)
+            for entry in inventory.settle().created
         ]
     # Settle every evidence state (whether or not a pass ran): a re-read
     # answering cached means the pass imported it; no sidecar after a pass

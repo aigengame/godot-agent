@@ -47,6 +47,7 @@ def _png(path: Path, color: tuple[int, int, int]) -> None:
 
 
 def _project(tmp_path: Path) -> Path:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "project.godot").write_text(
         project_godot(name="t668"), encoding="utf-8"
     )
@@ -132,6 +133,36 @@ def test_import_heals_the_clean_worktree_preload_failure(tmp_path):
     assert second_doc["engine_pass"] is False
     assert second_doc["assets"][0]["status"] == "cached"
     assert second_doc["created"] == []
+
+
+@pytest.mark.e2e
+def test_the_pass_reports_what_it_created_under_a_directory_link(tmp_path):
+    # #985's one behaviour change, against the real engine. The engine's import
+    # scan follows a directory link, so a shared assets directory linked into the
+    # project is content the pass imports and writes sidecars into. This command
+    # used to walk the tree with `Path.rglob("*")`, which does not descend such a
+    # directory, so the sidecar was created on disk and reported nowhere — while
+    # `export run`, around the same pass, reported it (PR #981 round 3). Both read
+    # the `Project tree inventory` now. The link target sits OUTSIDE the project
+    # root, which is what makes the case about the link rather than about the tree.
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    _png(shared / "sprite.png", (0, 0, 255))
+    project = _project(tmp_path / "game")
+    (project / "assets").symlink_to(shared, target_is_directory=True)
+    gda = Gda(project, json_output=True, timeout=180)
+
+    doc = json.loads(gda("resource", "import", "res://icon.png").stdout)
+
+    created = {f["path"]: f["classification"] for f in doc["created"]}
+    assert created.get("res://assets/sprite.png.import") == "source_adjacent", sorted(
+        created
+    )
+    assert (shared / "sprite.png.import").is_file()
+    assert any(
+        p.startswith("res://.godot/imported/sprite.png-") and c == "cache_owned"
+        for p, c in created.items()
+    ), sorted(created)
 
 
 @pytest.mark.e2e
