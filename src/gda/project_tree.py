@@ -27,11 +27,10 @@ where it is:
   inventory, the optional artifact to keep out of the answer — a ``Path`` the
   ASKING COMMAND has already resolved, since what a destination string means is
   that command's policy and not this module's — and whether the first capture
-  hashes the files outside the cache root. They are the two
-  adapters' questions — never options, filters or a strategy to pick (#985's
-  scope guard). The unreadable-directory sink is not one of them: it is the
-  private walk's own parameter, which the capture and the settlement supply
-  themselves.
+  hashes the files outside the cache root. They are the two adapters' questions
+  — never options, filters or a strategy to pick (#985's scope guard). The
+  unreadable-directory sink is not one of them: it is the private walk's own
+  parameter, which the capture and the settlement supply themselves.
 
 **The rules, stated once.** They are W4's, as PR #981 shipped them for the
 export report; they now decide both commands' answer.
@@ -61,12 +60,18 @@ export report; they now decide both commands' answer.
    so the family reached the skipped channel by two routes and one of them was
    unbounded. ``Path.stat()`` follows a symlink, so a link to a regular file is
    still inventoried as one.
-4. **An unlistable or unreadable entry is counted once** in the settlement's
-   ``skipped``: an entry that is not a regular file, a vanished or unreadable
-   file, a dangling symlink, or a directory that cannot be listed — whose whole
-   subtree is then outside both lists. ``os.walk`` swallows a listing error by
-   default, which would drop that subtree from the record AND from the one
-   channel that says the record is incomplete.
+4. **An unlistable or unreadable entry is counted in the settlement's
+   ``skipped``, once per project-relative spelling that reaches it**: an entry
+   that is not a regular file, a vanished or unreadable file, a dangling symlink,
+   or a directory that cannot be listed — whose whole subtree is then outside
+   both lists. ``os.walk`` swallows a listing error by default, which would drop
+   that subtree from the record AND from the one channel that says the record is
+   incomplete. The count is on the SPELLING rather than on the inode: ``os.walk``
+   reports a listing error INSTEAD of yielding the directory, so rule 1's
+   identity test is never asked about it, and a directory two links reach is
+   counted twice. That is what ``export run`` has counted since #839 and the move
+   keeps it; the count is a disclosure that the record is incomplete, not a
+   measure of how much.
 5. **A top-level ``.git`` is excluded.** The engine never writes there, and
    hashing an object database would dominate the cost of a report about the
    project's own files. The exclusion is on whole path components, so
