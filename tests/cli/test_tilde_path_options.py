@@ -11,8 +11,9 @@ These arms live TOGETHER because they are one rule with one authority, and becau
 the rule is only legible as a set: the four caller-supplied OPTIONS split into two
 outcome classes, and a reader has to see both to know which one an option is in.
 
-- A READ address answers through its own resolution, because nothing carries that
-  literal name: ``--godot`` gives the ordinary ``binary_not_found``.
+- A READ address is resolved as the literal path it names, and what is there
+  decides: ``--godot`` gives the ordinary ``binary_not_found`` when nothing
+  carries that name, and launches the file when something does.
 - A WRITE destination is an ordinary relative directory under the invocation cwd,
   created where it can be: ``--user-data-root``, ``--dir`` and ``--output``. A
   literal ``~unknownuser`` directory beside the caller is the outcome, not a
@@ -70,10 +71,12 @@ def _no_root_override():
 def test_an_unresolvable_home_on_godot_is_the_binary_not_found_envelope(
     tmp_path, monkeypatch
 ):
-    # The READ class. The literal name reaches the spawn, no file carries it, and
-    # the runner synthesizes its existing not-found result — so the caller reads
-    # the envelope it would get for any missing binary, at exit 127, with the value
-    # it passed echoed back. Before #988 this was a RuntimeError traceback at exit 1.
+    # The READ class. The literal name reaches the spawn as the relative path it
+    # is; a temporary cwd holds no such file, so the runner synthesizes its existing
+    # not-found result — the envelope any missing binary gives, at exit 127, with the
+    # value the caller passed echoed back. Before #988 this was a RuntimeError
+    # traceback at exit 1. It is the ABSENCE that decides: a real file under that
+    # literal name would be launched like any other binary.
     monkeypatch.chdir(tmp_path)
 
     result = CliRunner().invoke(

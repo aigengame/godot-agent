@@ -27,8 +27,8 @@ from typing import IO, Optional, Protocol
 # the runner is what produces them (issue #3).
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_TIMEOUT
 
-# The one total ``~`` expansion (#988), shared with the project resolver so that an
-# unresolvable ``~user`` reads the same wherever gda accepts a path.
+# The one total ``~`` expansion (#988), shared with the project resolver so that a
+# CLI path option and ``--project`` answer an unresolvable ``~user`` the same way.
 from gda.project import expand_user
 
 # The bundled GDScript operations payload, dispatched by operation name.

@@ -26,9 +26,11 @@ def resolve_godot_binary(
     """Resolve the Godot binary path using flag > env > default precedence.
 
     ``~`` is expanded through :func:`gda.project.expand_user`, which is total: a
-    ``~unknownuser/…`` prefix this host cannot resolve stays literal, so no file
-    carries that name and the caller gets the ordinary ``binary_not_found``
-    envelope instead of a ``RuntimeError`` traceback (#988).
+    ``~unknownuser/…`` prefix this host cannot resolve stays literal, so the value
+    is resolved as the ordinary path it names — exactly as a shell would. Where
+    nothing carries that name the caller gets the ordinary ``binary_not_found``
+    envelope instead of a ``RuntimeError`` traceback (#988); where something does,
+    it is launched like any other binary.
     """
     if env is None:
         env = os.environ

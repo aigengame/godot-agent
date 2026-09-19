@@ -157,9 +157,9 @@ def normalize_smoke_artifact_path(path: str) -> str:
     filesystem path here, and an artifact that does not exist under that name is
     the ordinary ``export_artifact_not_found``.
 
-    An unresolvable ``~user`` is total on the shared half above, so this wrapper
-    states nothing about it: the guard it carried alone lives there now, and
-    ``--output`` is covered by the same one rule (#988).
+    The shared half above is total for an unresolvable ``~user``. The guard this
+    wrapper carried alone (#979) lives there now, so ``--output`` gets the same one
+    rule (#988).
     """
     return _absolute_filesystem_path(path)
 

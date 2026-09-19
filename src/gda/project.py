@@ -107,17 +107,16 @@ def expand_user(path: Path) -> Path:
     cannot resolve. The shared normalizer deliberately passes such a path
     through unchanged (#699 — bash treats an unresolvable ``~user`` as a
     literal name), so the containment layer must be total the same way: the
-    literal path simply will not exist, and the consumer reports that
-    structurally instead of a RuntimeError escaping as a traceback.
+    consumer then reads the literal path as the address it is, instead of a
+    RuntimeError escaping as a traceback.
 
-    **Public since #988**, because the four caller-supplied path options that
-    expanded a tilde on their own — ``--godot``, ``--user-data-root``,
-    ``skill --install --dir`` and ``export``'s two artifact paths — each crashed
-    with that traceback at exit 1 and no `Error envelope` at all. They now call
-    this one authority, so the rule for an unresolvable ``~user`` has a single
-    home: keep it literal, and let the option's own consumer say what such a
-    name gives it — a binary that is not there, or a relative directory under
-    the invocation cwd.
+    **Public since #988**: the caller-supplied path options, and the project
+    re-expansions that stamp a resolved root onto a result, each expanded a
+    tilde on their own and each crashed that way at exit 1 with no
+    `Error envelope` at all. They call this one authority now, so the rule for an
+    unresolvable ``~user`` has a single home — keep it literal — while what such
+    a name GIVES a caller stays with the consumer, and is stated at each call
+    site rather than enumerated here.
     """
     try:
         return path.expanduser()
