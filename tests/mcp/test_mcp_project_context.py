@@ -76,3 +76,41 @@ def test_invalid_gda_project_does_not_fall_through_to_root(tmp_path):
         cwd=Path("/nonexistent"),
     )
     assert result is None
+
+
+def test_an_unresolvable_home_in_gda_project_resolves_to_none(tmp_path):
+    # `Path.expanduser()` raises `RuntimeError` for a `~unknownuser/…` prefix this
+    # host cannot resolve, which killed the resolution instead of answering it
+    # (#988). The value names no home, so it is kept literal; nothing on disk
+    # carries that name here, so the strict explicit path above yields None and
+    # gda inherits the pin and surfaces its own typed error.
+    #
+    # Guarded inside this module rather than routed through
+    # `gda.project.expand_user`: ADR-0011 keeps gda-mcp free of any `gda` internal
+    # symbol, which is why `GDA_PROJECT_ENV` and `PROJECT_MARKER` are local too.
+    valid_root = minimal_project(tmp_path / "game")
+
+    result = resolve_project_dir(
+        env={"GDA_PROJECT": "~nosuchuser999/p"},
+        roots=[str(valid_root)],
+        cwd=tmp_path,
+    )
+
+    assert result is None
+
+
+def test_an_unresolvable_home_in_gda_project_still_resolves_a_literal_project(
+    tmp_path, monkeypatch
+):
+    # The other half: the literal name is a real address, so a directory that
+    # actually carries it and holds a `project.godot` resolves like any other. This
+    # is what tells the guard from a blanket refusal of every `~` value.
+    literal = minimal_project(tmp_path / "~nosuchuser999" / "p")
+    monkeypatch.chdir(tmp_path)
+
+    result = resolve_project_dir(
+        env={"GDA_PROJECT": "~nosuchuser999/p"}, roots=[], cwd=tmp_path
+    )
+
+    assert result == Path("~nosuchuser999/p")
+    assert (literal / "project.godot").is_file()
