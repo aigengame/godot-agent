@@ -120,11 +120,20 @@ def test_an_unresolvable_home_on_the_export_output_reaches_the_typed_refusal(
     tmp_path, monkeypatch
 ):
     # The WRITE class, on the option whose value is normalized by a pydantic
-    # validator: the value is accepted, so the command runs on to the first thing it
-    # genuinely lacks — a project — and answers with that typed envelope. Before #988
-    # the validator itself raised, so no command body ran at all.
+    # validator: the value is accepted, so the command body runs on and answers with
+    # the next typed refusal it reaches. Before #988 the validator itself raised, so
+    # no body ran at all.
+    #
+    # The refusal chosen is `--project` naming a directory that is not a Godot
+    # project, because `resolve_project_dir` raises it CLI-side, before the engine is
+    # asked for anything. Letting the command run PROJECTLESS instead makes the
+    # outcome depend on the host: with an engine installed it reaches the operation's
+    # own `project_not_found`, and on a machine without one it reaches
+    # `binary_not_found` first (CI, run 35435970121).
     monkeypatch.delenv("GDA_PROJECT", raising=False)
     monkeypatch.chdir(tmp_path)
+    not_a_project = tmp_path / "not-a-godot-project"
+    not_a_project.mkdir()
 
     result = CliRunner().invoke(
         app,
@@ -135,6 +144,8 @@ def test_an_unresolvable_home_on_the_export_output_reaches_the_typed_refusal(
             "nosuch",
             "--output",
             f"{UNKNOWN_USER}/x",
+            "--project",
+            str(not_a_project),
             "--json",
         ],
     )
