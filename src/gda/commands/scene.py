@@ -49,6 +49,7 @@ from gda.models import (
     VALUE_PROJECTION_DESC,
 )
 from gda.parser import result_sentinel_start
+from gda.project import expand_user
 from gda.render import (
     format_value,
     render_node_tree,
@@ -961,7 +962,7 @@ def _scene_validate_recipe(
     this runs, #353); ``None`` means projectless, which is a legitimate context here
     (a self-contained scene addressed by filesystem path), not a refusal.
     """
-    root = project.expanduser().resolve() if project is not None else None
+    root = expand_user(project).resolve() if project is not None else None
     # The runner seam is read off the module at call time — never imported by name —
     # so a test monkeypatch on ``gda.dispatch.make_runner`` still binds. Naming the
     # HEADLESS factory directly is correct only while this command is HEADLESS (the
@@ -1089,7 +1090,7 @@ def run_scene_preflight_operation(
         # so it never escapes as a traceback (mirrors gda.headless.execute).
         return unresolvable_binary_failure(str(exc))
 
-    root = project.expanduser().resolve() if project is not None else None
+    root = expand_user(project).resolve() if project is not None else None
     raw = run_launch(
         binary,
         # The op reads `path` and `frames`; `timeout` is gda's own bound, enforced

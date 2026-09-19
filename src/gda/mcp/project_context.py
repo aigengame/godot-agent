@@ -47,7 +47,19 @@ def resolve_project_dir(
         # Resolve None and inject nothing — gda inherits the explicit GDA_PROJECT
         # and surfaces its own typed error for project-taking commands, while
         # meta commands (info), which never inherit a project, ignore it.
-        candidate = Path(gda_project).expanduser()
+        #
+        # The expansion is TOTAL: `Path.expanduser()` raises `RuntimeError` for a
+        # `~unknownuser/…` prefix this host cannot resolve, which killed the
+        # resolution outright (#988). Such a value names no home, so it is kept as
+        # the caller wrote it — the same rule `gda.project.expand_user` states for
+        # gda's own path options, written out here rather than imported, as
+        # ADR-0011 requires of every name this module shares with gda. The literal
+        # then either IS a project on disk or is not, and the strict path above
+        # decides; either way gda gets the last word.
+        try:
+            candidate = Path(gda_project).expanduser()
+        except RuntimeError:
+            candidate = Path(gda_project)
         return candidate if _is_project(candidate) else None
 
     for root in roots:

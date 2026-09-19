@@ -72,6 +72,7 @@ from gda.import_evidence import (
     CACHE_ROOT_REL,
     CreatedFileClass,
 )
+from gda.project import expand_user
 from gda.project_tree import (
     ProjectTreeInventory,
     ProjectTreeSettlement,
@@ -102,8 +103,23 @@ def _absolute_filesystem_path(path: str) -> str:
     It is only the half. What differs is whether the field has a VIRTUAL-path
     concept at all, and that difference belongs to the two wrappers below, not to
     a flag here.
+
+    **Total: it never raises.** ``Path.expanduser()`` raises ``RuntimeError`` for a
+    ``~unknownuser/…`` prefix it cannot resolve, which escaped both wrappers as a
+    traceback at exit 1 with no envelope at all — the same invariant the bundle's
+    NUL refusal restores, since every gda failure is a typed envelope (ADR-0002 /
+    ADR-0004). A ``~`` gda cannot expand names no user, so the value is simply not
+    a home-relative path: :func:`gda.project.expand_user` keeps it as the caller
+    wrote it, it is absolutized if relative, and the ordinary resolution answers —
+    ``export_artifact_not_found`` for an artifact that does not exist under that
+    literal name, an ordinary write destination under the invocation cwd for
+    ``--output``. That is :func:`gda.models.normalize_path`'s precedent, total by
+    construction for exactly this input (#699): normalization is a convenience, and
+    whether a path is usable is decided by whoever consumes it. The rule lives HERE,
+    on the shared half, so both wrappers state it once (#988 — the smoke guarded
+    itself alone while ``--output`` still crashed).
     """
-    expanded = Path(path).expanduser()
+    expanded = expand_user(Path(path))
     if expanded.is_absolute():
         return str(expanded)
     return str(Path.cwd() / expanded)
@@ -141,28 +157,11 @@ def normalize_smoke_artifact_path(path: str) -> str:
     filesystem path here, and an artifact that does not exist under that name is
     the ordinary ``export_artifact_not_found``.
 
-    **Total: it never raises.** ``Path.expanduser()`` raises ``RuntimeError`` for a
-    ``~unknownuser/…`` prefix it cannot resolve, which escaped this command as a
-    traceback at exit 1 with no envelope at all — the same invariant the bundle's
-    NUL refusal restores, since every gda failure is a typed envelope (ADR-0002 /
-    ADR-0004). A ``~`` gda cannot expand names no user, so the value is simply not
-    a home-relative path: it is kept as the caller wrote it, absolutized if
-    relative, and the ordinary resolution answers ``export_artifact_not_found``.
-    That is :func:`gda.models.normalize_path`'s precedent, total by construction
-    for exactly this input (#699): normalization is a convenience, and whether a
-    path is usable is decided by whoever consumes it.
-
-    ``export run --output`` keeps today's behaviour, unguarded: its exposure is
-    the same and predates this slice, so changing a shipped command's is not this
-    one's to make.
+    The shared half above is total for an unresolvable ``~user``. The guard this
+    wrapper carried alone (#979) lives there now, so ``--output`` gets the same one
+    rule (#988).
     """
-    try:
-        return _absolute_filesystem_path(path)
-    except RuntimeError:
-        expanded = Path(path)
-        if expanded.is_absolute():
-            return str(expanded)
-        return str(Path.cwd() / expanded)
+    return _absolute_filesystem_path(path)
 
 
 ExportOutputPath = Annotated[str, AfterValidator(normalize_export_output_path)]

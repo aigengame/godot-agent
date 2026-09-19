@@ -100,15 +100,23 @@ def _has_dotdot(path: Path) -> bool:
     return ".." in path.parts
 
 
-def _expand_user(path: Path) -> Path:
+def expand_user(path: Path) -> Path:
     """``Path.expanduser()``, total: an unresolvable ``~user`` stays literal.
 
     ``expanduser`` raises ``RuntimeError`` for a ``~unknownuser/…`` prefix it
     cannot resolve. The shared normalizer deliberately passes such a path
     through unchanged (#699 — bash treats an unresolvable ``~user`` as a
     literal name), so the containment layer must be total the same way: the
-    literal path simply will not exist, and the consumer reports that
-    structurally instead of a RuntimeError escaping as a traceback.
+    consumer then reads the literal path as the address it is, instead of a
+    RuntimeError escaping as a traceback.
+
+    **Public since #988**: the caller-supplied path options, and the project
+    re-expansions that stamp a resolved root onto a result, each expanded a
+    tilde on their own and each crashed that way at exit 1 with no
+    `Error envelope` at all. They call this one authority now, so the rule for an
+    unresolvable ``~user`` has a single home — keep it literal — while what such
+    a name GIVES a caller stays with the consumer, and is stated at each call
+    site rather than enumerated here.
     """
     try:
         return path.expanduser()
@@ -130,10 +138,10 @@ def project_anchored(path: str, project: Path) -> Path:
     The single anchoring rule, so the containment check and the engine cannot
     disagree about which file a relative argument names.
     """
-    target = _expand_user(Path(path))
+    target = expand_user(Path(path))
     if target.is_absolute():
         return target
-    return _expand_user(project) / target
+    return expand_user(project) / target
 
 
 def canonical_res_path(path: str) -> str:
@@ -310,8 +318,8 @@ def path_outside_project(path: str, project: Path) -> Path | None:
         escape = res_escape_remainder(path)
         if escape is None:
             return None
-        return (_expand_user(project) / escape).resolve()
-    root = _expand_user(project)
+        return (expand_user(project) / escape).resolve()
+    root = expand_user(project)
     candidate = project_anchored(path, project)
     location = candidate.resolve()
     if location.is_relative_to(root.resolve()):
@@ -352,9 +360,9 @@ def _anchored_target(path: str, project: Path | None) -> Path:
     invoker's cwd when no project resolved.
     """
     if project is None:
-        return _expand_user(Path(path))
+        return expand_user(Path(path))
     if path.startswith(RES_PREFIX):
-        return _expand_user(project) / canonical_res_path(path)[len(RES_PREFIX) :]
+        return expand_user(project) / canonical_res_path(path)[len(RES_PREFIX) :]
     return project_anchored(path, project)
 
 
@@ -459,7 +467,7 @@ def owning_project(path: str, project: Path | None) -> Path | None:
         start = _lexical_abs(_anchored_target(path, None)).parent
         stop = stop_resolved = None
     else:
-        stop = _lexical_abs(_expand_user(project))
+        stop = _lexical_abs(expand_user(project))
         start = _lexical_abs(_anchored_target(path, project)).parent
         if not _within(start, stop):
             # The target is not a FILE in the resolved tree — an escaping res://
@@ -507,7 +515,7 @@ def project_absolute(project: Path) -> Path:
     Symlinks are deliberately NOT followed: the two readings
     :func:`path_outside_project` and :func:`owning_project` make are theirs to
     make, and pre-resolving here would take the lexical one away from them. ``~``
-    is expanded the module's total way (:func:`_expand_user`), so an unresolvable
+    is expanded the module's total way (:func:`expand_user`), so an unresolvable
     ``~user`` stays literal rather than raising out of a containment check.
 
     Written for ``resource import``'s asset gate and adopted by
@@ -515,7 +523,7 @@ def project_absolute(project: Path) -> Path:
     asset gate still calls it directly because it also maps an accepted path back
     onto ``res://`` afterwards, which needs the same absolute root.
     """
-    absolute = _expand_user(project)
+    absolute = expand_user(project)
     if not absolute.is_absolute():
         absolute = Path.cwd() / absolute
     return absolute
@@ -636,7 +644,7 @@ def case_mismatch(target: str, project: Path) -> CaseMismatchViolation | None:
     """
     if is_engine_virtual_path(target) and not target.startswith(RES_PREFIX):
         return None
-    root = _lexical_abs(_expand_user(project))
+    root = _lexical_abs(expand_user(project))
     try:
         relative = _lexical_abs(_anchored_target(target, project)).relative_to(root)
     except ValueError:
@@ -742,7 +750,7 @@ def containment_violation(
 
 def _project_or_raise(raw: str, source: str) -> Path:
     """Expand ``raw`` to a project directory, or raise if it is not one."""
-    candidate = _expand_user(Path(raw))
+    candidate = expand_user(Path(raw))
     if not (candidate / PROJECT_MARKER).exists():
         raise ValueError(
             f"{source} is not a Godot project (no {PROJECT_MARKER}): {candidate}"
