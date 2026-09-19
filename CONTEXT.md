@@ -94,7 +94,8 @@ than under two different walks, one per command (#985). It walks under the rules
 the module states: a directory link is followed as the engine reads it, once each
 by filesystem identity (`st_dev`, `st_ino`); a cycle is not re-entered and is not
 counted; only a regular file is opened; an unlistable or unreadable entry is
-counted once per spelling that reaches it; a top-level `.git` is excluded; and
+counted once per filesystem identity, or once per spelling where `stat` cannot
+answer for it; a top-level `.git` is excluded; and
 the cache root is walked like anything else, so its files are what both commands
 classify as `cache_owned`. It then settles two captures — one before the engine
 runs, one after — into what the run CREATED, what it REWROTE, and how much

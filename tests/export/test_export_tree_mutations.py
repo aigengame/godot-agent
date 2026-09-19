@@ -373,6 +373,43 @@ def test_an_unreadable_file_is_named_in_the_render(tmp_path):
     )
 
 
+def _unlistable(directory: Path) -> bool:
+    """Make ``directory`` unlistable, and say whether the platform agreed.
+
+    The measurement IS the guard, and it covers root too: root lists a mode-000
+    directory, so a suite running as root skips instead of reading RED.
+    """
+    directory.chmod(0o000)
+    try:
+        os.listdir(directory)
+    except OSError:
+        return True
+    directory.chmod(0o755)
+    return False
+
+
+def test_one_unreadable_inode_is_counted_once_in_the_published_report(tmp_path):
+    # #990's declared behaviour delta, on this command's own published count: an
+    # unreadable directory that a link inside the project reaches a second time is
+    # ONE entry the report could not account for, not two. The report has counted
+    # spellings since #839 and #985 kept that while it moved the walk; the count
+    # here was 2 before and is 1 now.
+    project = minimal_project(tmp_path)
+    locked = project / "locked"
+    _write(locked / "secret.tres", "old")
+    (project / "alias").symlink_to(locked, target_is_directory=True)
+    if not _unlistable(locked):
+        pytest.skip("this platform lets the owner list a mode-000 directory")
+
+    try:
+        mutations = _mutations(_export(project))
+    finally:
+        locked.chmod(0o755)
+
+    assert mutations.skipped == 1
+    assert (mutations.created, mutations.modified) == ([], [])
+
+
 def test_the_counts_must_match_the_reported_lists():
     # gda's own invariant: the counts exist so a caller can read the summary
     # without walking a list of thousands of cache files, which is worth nothing
