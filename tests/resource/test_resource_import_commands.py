@@ -867,6 +867,41 @@ def test_a_real_run_may_report_entries_the_walk_could_not_see():
     assert ResourceImportResult.model_validate(without).skipped == 0
 
 
+def test_the_render_prints_the_created_line_for_the_count_alone():
+    # The other half of the render rule, on the state that isolates it: a pass
+    # can create nothing and still leave part of the tree unread, so the
+    # disclosure must print without a created file to hang it on. A gate on
+    # `created` alone silences it with the whole suite green (PR #994 review).
+    from gda.commands.resource import ResourceImportResult, render_resource_import
+
+    outcome = ResourceImportResult.model_validate(
+        {
+            "dry_run": False,
+            "cache_root": "res://.godot",
+            "engine_pass": True,
+            "assets": [],
+            "skipped": 1,
+            "summary": {
+                "requested": 0,
+                "cached": 0,
+                "missing": 0,
+                "stale": 0,
+                "invalid": 0,
+                "imported": 0,
+                "not_importable": 0,
+                "failed": 0,
+                "created_cache_owned": 0,
+                "created_source_adjacent": 0,
+            },
+        }
+    )
+
+    assert outcome.created == []
+    assert render_resource_import(outcome).splitlines()[-1] == (
+        "  created: 0 cache-owned, 0 source-adjacent, 1 unreadable"
+    )
+
+
 # --- why an asset is invalid or failed (#853) ----------------------------------
 
 
