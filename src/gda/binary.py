@@ -11,6 +11,8 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
+from gda.project import expand_user
+
 GODOT_BIN_ENV = "GDA_GODOT"
 
 # Local development default, per RULES.md.
@@ -21,7 +23,13 @@ def resolve_godot_binary(
     explicit: str | None = None,
     env: Mapping[str, str] | None = None,
 ) -> Path:
-    """Resolve the Godot binary path using flag > env > default precedence."""
+    """Resolve the Godot binary path using flag > env > default precedence.
+
+    ``~`` is expanded through :func:`gda.project.expand_user`, which is total: a
+    ``~unknownuser/…`` prefix this host cannot resolve stays literal, so no file
+    carries that name and the caller gets the ordinary ``binary_not_found``
+    envelope instead of a ``RuntimeError`` traceback (#988).
+    """
     if env is None:
         env = os.environ
     if explicit is not None:
@@ -32,4 +40,4 @@ def resolve_godot_binary(
         raw = explicit
     else:
         raw = env.get(GODOT_BIN_ENV) or DEFAULT_GODOT_BIN
-    return Path(raw).expanduser()
+    return expand_user(Path(raw))

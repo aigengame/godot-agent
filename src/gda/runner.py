@@ -27,6 +27,10 @@ from typing import IO, Optional, Protocol
 # the runner is what produces them (issue #3).
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_TIMEOUT
 
+# The one total ``~`` expansion (#988), shared with the project resolver so that an
+# unresolvable ``~user`` reads the same wherever gda accepts a path.
+from gda.project import expand_user
+
 # The bundled GDScript operations payload, dispatched by operation name.
 OPERATIONS_GD = Path(__file__).parent / "ops" / "operations.gd"
 
@@ -219,6 +223,12 @@ def resolve_user_data_root(
     at all. Same bug class, and the same fix, as the export channel's ``--path``
     (see ``gda.export_runner``, #344): ``absolute()`` rather than ``resolve()``, to
     keep the codebase's symlink-agnostic path handling.
+
+    ``~`` is expanded through :func:`gda.project.expand_user`, which is total: a
+    ``~unknownuser/…`` prefix this host cannot resolve stays literal, so the root
+    is an ordinary relative directory under the invocation cwd — created where it
+    can be, refused through this option's existing path where it cannot — instead
+    of a ``RuntimeError`` traceback (#988).
     """
     if env is None:
         env = os.environ
@@ -231,7 +241,7 @@ def resolve_user_data_root(
         raw = env.get(USER_DATA_ROOT_ENV)
         if not raw:
             return None
-    return Path(raw).expanduser().absolute()
+    return expand_user(Path(raw)).absolute()
 
 
 def engine_data_path(

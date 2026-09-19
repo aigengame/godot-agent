@@ -52,6 +52,7 @@ from gda.headless import (
 )
 from gda.hints import CLI_NAME, refuse_unknown_command
 from gda.models import EngineVersion, SurfaceManifest
+from gda.project import expand_user
 from gda.provenance import (
     VersionProvenance,
     build_version_provenance,
@@ -219,7 +220,11 @@ def build_skill_result(
     ``<install_dir>/SKILL.md`` (parents created, overwrite is fine), and the written
     path is reported on ``installed_path``. ``install_dir`` is **required** for an
     install — core carries no agent-specific default location (ADR-0024); the caller
-    supplies the per-agent path. ``~`` is expanded so a tilde path resolves.
+    supplies the per-agent path. ``~`` is expanded through
+    :func:`gda.project.expand_user`, which is total: a ``~unknownuser/…`` prefix
+    this host cannot resolve stays literal, so the install target is an ordinary
+    relative directory under the invocation cwd instead of a ``RuntimeError``
+    traceback (#988).
     """
     content = read_skill_text()
     result = SkillResult(
@@ -231,7 +236,7 @@ def build_skill_result(
         return result
     if not install_dir:
         raise ValueError("an install needs an explicit target directory (--dir)")
-    target_dir = Path(install_dir).expanduser()
+    target_dir = expand_user(Path(install_dir))
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / "SKILL.md"
     target.write_text(content, encoding="utf-8")
