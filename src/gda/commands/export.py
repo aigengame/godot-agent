@@ -105,12 +105,13 @@ def _absolute_filesystem_path(path: str) -> str:
     a flag here.
 
     **Total: it never raises.** ``Path.expanduser()`` raises ``RuntimeError`` for a
-    ``~unknownuser/…`` prefix it cannot resolve, which escaped both wrappers as a
-    traceback at exit 1 with no envelope at all — the same invariant the bundle's
-    NUL refusal restores, since every gda failure is a typed envelope (ADR-0002 /
-    ADR-0004). A ``~`` gda cannot expand names no user, so the value is simply not
-    a home-relative path: :func:`gda.project.expand_user` keeps it as the caller
-    wrote it, it is absolutized if relative, and the ordinary resolution answers —
+    ``~unknownuser/…`` prefix it cannot resolve, which escaped ``export run
+    --output`` as a traceback at exit 1 with no envelope at all — the same
+    invariant the bundle's NUL refusal restores, since every gda failure is a
+    typed envelope (ADR-0002 / ADR-0004). A ``~`` gda cannot expand names no user,
+    so the value is simply not a home-relative path:
+    :func:`gda.project.expand_user` keeps it as the caller wrote it, it is
+    absolutized if relative, and the ordinary resolution answers —
     ``export_artifact_not_found`` for an artifact that does not exist under that
     literal name, an ordinary write destination under the invocation cwd for
     ``--output``. That is :func:`gda.models.normalize_path`'s precedent, total by

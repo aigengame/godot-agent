@@ -1,11 +1,13 @@
 """A ``~user`` this host cannot resolve is a literal name, never a traceback (#988).
 
 ``Path.expanduser()`` raises ``RuntimeError`` for a ``~unknownuser/…`` prefix, and
-seven sites in ``src/gda`` expanded a tilde on their own. Each printed a Rich
+eight sites in ``src/gda`` expanded a tilde on their own. Each printed a Rich
 traceback and exited 1 with no `Error envelope` at all, breaking the ADR-0002 /
-ADR-0004 invariant that every gda failure is typed. They now share the project
-resolver's total expansion (:func:`gda.project.expand_user`), which keeps such a
-value literal the way bash and ``os.path.expanduser`` do.
+ADR-0004 invariant that every gda failure is typed. The seven arms HERE share the
+project resolver's total expansion (:func:`gda.project.expand_user`), which keeps
+such a value literal the way bash and ``os.path.expanduser`` do. The eighth,
+gda-mcp's ``$GDA_PROJECT`` pin, states the same rule locally under ADR-0011 and is
+pinned in ``tests/mcp/test_mcp_project_context.py``.
 
 These arms live TOGETHER because they are one rule with one authority, and because
 the rule is only legible as a set: the four caller-supplied OPTIONS split into two

@@ -111,12 +111,20 @@ def expand_user(path: Path) -> Path:
     RuntimeError escaping as a traceback.
 
     **Public since #988**: the caller-supplied path options, and the project
-    re-expansions that stamp a resolved root onto a result, each expanded a
-    tilde on their own and each crashed that way at exit 1 with no
-    `Error envelope` at all. They call this one authority now, so the rule for an
-    unresolvable ``~user`` has a single home — keep it literal — while what such
-    a name GIVES a caller stays with the consumer, and is stated at each call
-    site rather than enumerated here.
+    re-expansions that stamp a resolved root onto a verdict or onto the daemon's
+    on-disk identity, each expanded a tilde on their own and each crashed that
+    way at exit 1 with no `Error envelope` at all. They call this function now,
+    so the sites that call it answer an unresolvable ``~user`` the same way —
+    keep it literal — while what such a name GIVES a caller stays with the
+    consumer, and is stated at each call site rather than enumerated here.
+
+    It is not the only statement of the rule in ``src/gda``, and the two others
+    are deliberate. :func:`gda.models.normalize_path` keeps its own, because it
+    also carries the virtual-path pass-through and answers with the caller's raw
+    string (#699), so delegating here would change what it returns.
+    ``gda.mcp.project_context`` writes the rule out locally, because ADR-0011
+    keeps gda-mcp free of any ``gda`` internal symbol. Both must be kept in step
+    with this one by hand.
     """
     try:
         return path.expanduser()
