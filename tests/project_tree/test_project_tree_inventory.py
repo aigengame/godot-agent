@@ -365,7 +365,11 @@ def test_a_file_the_walk_cannot_read_is_skipped_not_failed(tmp_path):
 
 
 def _unlistable(directory: Path) -> bool:
-    """Make ``directory`` unlistable, and say whether the platform agreed."""
+    """Make ``directory`` unlistable, and say whether the platform agreed.
+
+    The measurement IS the guard, and it covers root too: root lists a mode-000
+    directory, so a suite running as root skips instead of reading RED.
+    """
     directory.chmod(0o000)
     try:
         os.listdir(directory)
@@ -375,14 +379,19 @@ def _unlistable(directory: Path) -> bool:
     return False
 
 
-def test_a_directory_the_walk_cannot_list_is_counted_not_ignored(tmp_path):
-    # Rule 4's directory half. `os.walk` swallows a listdir failure by default,
-    # which would drop the whole subtree from the record AND from the one channel
-    # that says the record is incomplete. This directory's project-relative
-    # spelling is counted once, not its unknown contents (PR #981 review).
+def test_a_directory_the_walk_cannot_list_is_counted_once_per_inode(tmp_path):
+    # Rule 4's directory half, and its identity clause (#990). `os.walk` swallows
+    # a listdir failure by default, which would drop the whole subtree from the
+    # record AND from the one channel that says the record is incomplete. It also
+    # reports the failure INSTEAD of yielding the directory, so rule 1 never sees
+    # the failing path: the same inode reached directly and through a directory
+    # link was counted twice for one unreadable subtree. The settlement asks for
+    # the identity itself — a mode-000 directory still answers `stat`, because its
+    # PARENT is listable — so the count is 1 here and was 2 before.
     project = minimal_project(tmp_path)
     locked = project / "locked"
     _write(locked / "secret.tres", "old")
+    (project / "alias").symlink_to(locked, target_is_directory=True)
     if not _unlistable(locked):
         pytest.skip("this platform lets the owner list a mode-000 directory")
 

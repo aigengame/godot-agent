@@ -61,17 +61,21 @@ export report; they now decide both commands' answer.
    unbounded. ``Path.stat()`` follows a symlink, so a link to a regular file is
    still inventoried as one.
 4. **An unlistable or unreadable entry is counted in the settlement's
-   ``skipped``, once per project-relative spelling that reaches it**: an entry
-   that is not a regular file, a vanished or unreadable file, a dangling symlink,
-   or a directory that cannot be listed — whose whole subtree is then outside
-   both lists. ``os.walk`` swallows a listing error by default, which would drop
-   that subtree from the record AND from the one channel that says the record is
-   incomplete. The count is on the SPELLING rather than on the inode: ``os.walk``
-   reports a listing error INSTEAD of yielding the directory, so rule 1's
-   identity test is never asked about it, and a directory two links reach is
-   counted twice. That is what ``export run`` has counted since #839 and the move
-   keeps it; the count is a disclosure that the record is incomplete, not a
-   measure of how much.
+   ``skipped``, once per filesystem identity whatever spelling reaches it**: an
+   entry that is not a regular file, a vanished or unreadable file, a dangling
+   symlink, or a directory that cannot be listed — whose whole subtree is then
+   outside both lists. ``os.walk`` swallows a listing error by default, which
+   would drop that subtree from the record AND from the one channel that says the
+   record is incomplete. The identity is rule 1's ``(st_dev, st_ino)`` pair, and
+   the SETTLEMENT asks for it because the walk cannot: ``os.walk`` reports a
+   listing error INSTEAD of yielding the directory, and a per-file failure never
+   reaches rule 1 at all, so two names for ONE unreadable inode were counted
+   twice (#990). A ``stat`` of the failing path answers for every shape a second
+   name can reach — a mode-000 directory (its PARENT is listable), a FIFO, an
+   unreadable file — so each of them is one entry. Where ``stat`` cannot answer,
+   a dangling link or an entry that vanished, the project-relative spelling is
+   the identity, since there is no inode to ask for. The count is a disclosure
+   that the record is incomplete, not a measure of how much.
 5. **A top-level ``.git`` is excluded.** The engine never writes there, and
    hashing an object database would dominate the cost of a report about the
    project's own files. The exclusion is on whole path components, so
@@ -289,6 +293,48 @@ def _walk_project_files(
                 yield rel, base / name
 
 
+class _SkippedEntries:
+    """The settlement's ``skipped``, with one filesystem identity counted once.
+
+    Entries arrive as project-relative spellings, because that is what the walk
+    and the first capture hold. The COUNT is on rule 4's identity instead: a
+    ``stat`` of the failing path names the ``(st_dev, st_ino)`` pair rule 1
+    identifies a directory by, so a mode-000 directory reached both directly and
+    through a directory link is one entry rather than two — and so is any other
+    unreadable inode two names reach, a FIFO or an unreadable file among them
+    (#990). A path ``stat`` cannot answer for — a dangling link, an entry that
+    vanished — is counted under its spelling, since it has no inode to be counted
+    under.
+
+    Membership stays on the SPELLING, because that is the question the
+    settlement asks: whether the first capture could read THIS path.
+    """
+
+    def __init__(self, project: Path) -> None:
+        self._project = project
+        self._spellings: set[str] = set()
+        self._identities: set[tuple[int, int]] = set()
+        self._unidentified: set[str] = set()
+
+    def add(self, rel: str) -> None:
+        """Account for one entry neither list can cover."""
+        if rel in self._spellings:
+            return
+        self._spellings.add(rel)
+        try:
+            status = (self._project / rel).stat()
+        except OSError:
+            self._unidentified.add(rel)
+            return
+        self._identities.add((status.st_dev, status.st_ino))
+
+    def __contains__(self, rel: object) -> bool:
+        return rel in self._spellings
+
+    def __len__(self) -> int:
+        return len(self._identities) + len(self._unidentified)
+
+
 @dataclass(frozen=True)
 class ProjectTreeInventory:
     """One capture of the project tree, and its settlement against a second (#985).
@@ -371,14 +417,16 @@ class ProjectTreeInventory:
         A caller that did not ask for rewrites stops at ``created``: it holds no
         digest to compare, so every pre-existing file is passed over.
 
-        A directory neither walk could list is counted once per project-relative
-        spelling, and everything beneath it is passed over: the first capture
-        never read those files, so the settlement can state nothing about them
-        either way.
+        A directory neither walk could list is counted once per filesystem
+        identity, and everything beneath EITHER spelling that reaches it is
+        passed over: the first capture never read those files, so the settlement
+        can state nothing about them either way.
         """
         created: list[CreatedFile] = []
         modified: list[RewrittenFile] = []
-        skipped = set(self.unreadable)
+        skipped = _SkippedEntries(self.project)
+        for rel in self.unreadable:
+            skipped.add(rel)
         for rel, path in _walk_project_files(
             self.project, artifact=self.artifact, on_unreadable_dir=skipped.add
         ):

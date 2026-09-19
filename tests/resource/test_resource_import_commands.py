@@ -17,6 +17,7 @@ dry-run smoke per evidence state, so the wire ABI keeps its own cover.
 """
 
 import json
+import os
 import threading
 from pathlib import Path
 
@@ -218,6 +219,119 @@ def test_a_file_created_under_a_directory_link_is_reported(monkeypatch, tmp_path
     assert created["res://assets/sprite.png.import"] == "source_adjacent"
     assert (shared / "sprite.png.import").is_file()
     assert data["summary"]["created_source_adjacent"] == 2
+
+
+def _unlistable(directory: Path) -> bool:
+    """Make ``directory`` unlistable, and say whether the platform agreed.
+
+    The measurement IS the guard, and it covers root too: root lists a mode-000
+    directory, so a suite running as root skips instead of reading RED.
+    """
+    directory.chmod(0o000)
+    try:
+        os.listdir(directory)
+    except OSError:
+        return True
+    directory.chmod(0o755)
+    return False
+
+
+def _locked_icon_project(tmp_path: Path) -> "tuple[Path, Path]":
+    """An importable project holding one unreadable directory and a link to it."""
+    project = icon_project(tmp_path)
+    locked = project / "locked"
+    locked.mkdir()
+    (locked / "secret.tres").write_text("old", encoding="utf-8")
+    (project / "alias").symlink_to(locked, target_is_directory=True)
+    return project, locked
+
+
+def _icon_effects(p: Path) -> None:
+    """What the pass writes for res://icon.png."""
+    cached_asset(
+        p, "icon.png", ".godot/imported/icon.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ctex"
+    )
+
+
+def test_an_unreadable_subtree_is_counted_once_beside_the_created_list(
+    monkeypatch, tmp_path
+):
+    # #990: `created` promised an exhaustive list and the result carried no way to
+    # check it — the walk's own count was computed and discarded. It is published
+    # now, and it counts the INODE: the locked directory that `alias` reaches a
+    # second time is one entry, not two (the count read 2 before this issue). The
+    # created files the walk COULD see are still listed.
+    project, locked = _locked_icon_project(tmp_path)
+    calls, fake_launch = _fake_pass(project, _icon_effects)
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+    if not _unlistable(locked):
+        pytest.skip("this platform lets the owner list a mode-000 directory")
+
+    try:
+        result = _run(project, "res://icon.png")
+    finally:
+        locked.chmod(0o755)
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["skipped"] == 1
+    assert data["assets"][0]["status"] == "imported"
+    assert "res://icon.png.import" in {f["path"] for f in data["created"]}
+    # Nothing under either spelling of the unreadable directory is claimed.
+    assert not [
+        f
+        for f in data["created"]
+        if f["path"].startswith(("res://locked/", "res://alias/"))
+    ]
+
+
+def test_a_complete_inventory_publishes_a_zero_count(monkeypatch, tmp_path):
+    # The common case, and the one that makes the field worth reading: a tree the
+    # walk saw whole reports 0, so a caller branches on the number rather than on
+    # the absence of a key.
+    project = icon_project(tmp_path)
+    calls, fake_launch = _fake_pass(project, _icon_effects)
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+
+    data = json.loads(_run(project, "res://icon.png").stdout)
+
+    assert data["skipped"] == 0
+
+
+def test_the_render_names_the_unreadable_count_beside_the_created_line(
+    monkeypatch, tmp_path
+):
+    # The count is not a JSON-only key: a record that could not read part of the
+    # tree must not print as a complete one, which is `export run`'s rule for the
+    # same fact. A complete record prints no such phrase at all.
+    project, locked = _locked_icon_project(tmp_path)
+    calls, fake_launch = _fake_pass(project, _icon_effects)
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+    if not _unlistable(locked):
+        pytest.skip("this platform lets the owner list a mode-000 directory")
+
+    try:
+        partial = runner_cli.invoke(
+            app, ["resource", "import", "res://icon.png", "--project", str(project)]
+        )
+    finally:
+        locked.chmod(0o755)
+
+    assert partial.exit_code == 0, partial.stdout + partial.stderr
+    created_line = next(
+        line for line in partial.stdout.splitlines() if line.startswith("  created:")
+    )
+    assert created_line.endswith(", 1 unreadable"), created_line
+
+    whole = icon_project(tmp_path / "whole")
+    calls, fake_launch = _fake_pass(whole, _icon_effects)
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+    clean = runner_cli.invoke(
+        app, ["resource", "import", "res://icon.png", "--project", str(whole)]
+    )
+
+    assert clean.exit_code == 0, clean.stdout + clean.stderr
+    assert "unreadable" not in clean.stdout
 
 
 def test_a_symlink_cycle_under_the_project_terminates(monkeypatch, tmp_path):
@@ -715,6 +829,77 @@ def test_result_model_validates_its_mode_fields():
         ResourceImportResult.model_validate(
             {**base, "summary": {**base["summary"], "requested": 5}}
         )
+    # `skipped` joins that field set on the same terms as `created` (#990): a dry
+    # run walks no tree, so it can report nothing the walk could not see.
+    with pytest.raises(pydantic.ValidationError):
+        ResourceImportResult.model_validate({**base, "skipped": 1})
+
+
+def test_a_real_run_may_report_entries_the_walk_could_not_see():
+    # The other half of that rule, and the reason the field exists: a real run
+    # carries whatever count the inventory settled, so a caller can tell a partial
+    # `created` list from a complete one (#990).
+    from gda.commands.resource import ResourceImportResult
+
+    real = {
+        "dry_run": False,
+        "cache_root": "res://.godot",
+        "engine_pass": True,
+        "assets": [],
+        "skipped": 2,
+        "summary": {
+            "requested": 0,
+            "cached": 0,
+            "missing": 0,
+            "stale": 0,
+            "invalid": 0,
+            "imported": 0,
+            "not_importable": 0,
+            "failed": 0,
+            "created_cache_owned": 0,
+            "created_source_adjacent": 0,
+        },
+    }
+
+    assert ResourceImportResult.model_validate(real).skipped == 2
+    # And the field is additive: a payload without it reports a whole tree.
+    without = {k: v for k, v in real.items() if k != "skipped"}
+    assert ResourceImportResult.model_validate(without).skipped == 0
+
+
+def test_the_render_prints_the_created_line_for_the_count_alone():
+    # The other half of the render rule, on the state that isolates it: a pass
+    # can create nothing and still leave part of the tree unread, so the
+    # disclosure must print without a created file to hang it on. A gate on
+    # `created` alone silences it with the whole suite green (PR #994 review).
+    from gda.commands.resource import ResourceImportResult, render_resource_import
+
+    outcome = ResourceImportResult.model_validate(
+        {
+            "dry_run": False,
+            "cache_root": "res://.godot",
+            "engine_pass": True,
+            "assets": [],
+            "skipped": 1,
+            "summary": {
+                "requested": 0,
+                "cached": 0,
+                "missing": 0,
+                "stale": 0,
+                "invalid": 0,
+                "imported": 0,
+                "not_importable": 0,
+                "failed": 0,
+                "created_cache_owned": 0,
+                "created_source_adjacent": 0,
+            },
+        }
+    )
+
+    assert outcome.created == []
+    assert render_resource_import(outcome).splitlines()[-1] == (
+        "  created: 0 cache-owned, 0 source-adjacent, 1 unreadable"
+    )
 
 
 # --- why an asset is invalid or failed (#853) ----------------------------------

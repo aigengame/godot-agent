@@ -165,6 +165,56 @@ def test_the_pass_reports_what_it_created_under_a_directory_link(tmp_path):
     ), sorted(created)
 
 
+def _unlistable(directory: Path) -> bool:
+    """Make ``directory`` unlistable, and say whether the platform agreed.
+
+    The measurement IS the guard, and it covers root too: root lists a mode-000
+    directory, so a suite running as root skips instead of reading RED.
+    """
+    directory.chmod(0o000)
+    try:
+        os.listdir(directory)
+    except OSError:
+        return True
+    directory.chmod(0o755)
+    return False
+
+
+@pytest.mark.e2e
+def test_an_unreadable_subtree_is_disclosed_beside_what_the_pass_created(tmp_path):
+    # #990's product decision, against the real engine: `created` promises an
+    # exhaustive list, so the result must say when the inventory could not keep
+    # that promise. The pass runs over a project holding a mode-000 directory that
+    # a link reaches a second time. The engine still imports and exits 0, the
+    # files the walk COULD see are listed, and `skipped` reports the one inode
+    # neither capture could account for — one, not one per spelling.
+    project = _project(tmp_path)
+    locked = project / "locked"
+    locked.mkdir()
+    (locked / "secret.tres").write_text("old", encoding="utf-8")
+    (project / "alias").symlink_to(locked, target_is_directory=True)
+    gda = Gda(project, json_output=True, timeout=180)
+    if not _unlistable(locked):
+        pytest.skip("this platform lets the owner list a mode-000 directory")
+
+    try:
+        result = gda("resource", "import", "res://icon.png")
+    finally:
+        locked.chmod(0o755)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    doc = json.loads(result.stdout)
+    assert doc["skipped"] == 1, doc["skipped"]
+    assert doc["assets"][0]["status"] == "imported"
+    created = {f["path"] for f in doc["created"]}
+    assert "res://icon.png.import" in created, sorted(created)
+    assert any(p.startswith("res://.godot/imported/icon.png-") for p in created), (
+        sorted(created)
+    )
+    # The unreadable subtree is disclosed, never guessed at.
+    assert not [p for p in created if p.startswith(("res://locked/", "res://alias/"))]
+
+
 @pytest.mark.e2e
 def test_a_script_is_engine_decided_not_importable(tmp_path):
     project = _project(tmp_path)
