@@ -1,16 +1,14 @@
 """A ``~user`` this host cannot resolve is a literal name, never a traceback (#988).
 
 ``Path.expanduser()`` raises ``RuntimeError`` for a ``~unknownuser/…`` prefix, and
-four caller-supplied path options expanded a tilde on their own: ``--godot``,
-``--user-data-root``, ``skill --install --dir``, and ``export``'s two artifact
-paths. Each printed a Rich traceback and exited 1 with no `Error envelope` at all,
-breaking the ADR-0002 / ADR-0004 invariant that every gda failure is typed. They
-now share the project resolver's total expansion
-(:func:`gda.project.expand_user`), which keeps such a value literal the way bash
-and ``os.path.expanduser`` do.
+seven sites in ``src/gda`` expanded a tilde on their own. Each printed a Rich
+traceback and exited 1 with no `Error envelope` at all, breaking the ADR-0002 /
+ADR-0004 invariant that every gda failure is typed. They now share the project
+resolver's total expansion (:func:`gda.project.expand_user`), which keeps such a
+value literal the way bash and ``os.path.expanduser`` do.
 
 These arms live TOGETHER because they are one rule with one authority, and because
-the rule is only legible as a set: the amendment to #988 splits the four into two
+the rule is only legible as a set: the four caller-supplied OPTIONS split into two
 outcome classes, and a reader has to see both to know which one an option is in.
 
 - A READ address answers through its own resolution, because nothing carries that
@@ -20,11 +18,18 @@ outcome classes, and a reader has to see both to know which one an option is in.
   literal ``~unknownuser`` directory beside the caller is the outcome, not a
   defect — it is what the shell does with the same value.
 
+The last three arms are a different shape: they RE-EXPAND a path
+``resolve_project_dir`` already expanded, so they raise only when a directory
+literally named ``~unknownuser…`` exists and holds a ``project.godot`` — the
+resolver then hands the literal on and the second expansion refuses it. The
+remedy is the same one helper, so they belong to the same rule.
+
 No new error code, no path-existence check, no per-command guard: the fix is the
 shared helper, and these are the gates that keep it shared.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -34,10 +39,24 @@ from gda.commands.export import (
     normalize_export_output_path,
     normalize_smoke_artifact_path,
 )
-from gda.runner import USER_DATA_ROOT_ENV, set_user_data_root
+from gda.daemon.discovery import daemon_paths
+from gda.runner import USER_DATA_ROOT_ENV, RunResult, set_user_data_root
+from tests.support import invoke_cli, sentinel
 
 # A user name no host resolves. Digits keep it out of the way of a real account.
 UNKNOWN_USER = "~unknownuser988"
+
+# What a project addressed by that literal name needs to BE one, so the resolver
+# accepts it and hands the literal on to the site under test.
+LITERAL_PROJECT = f"{UNKNOWN_USER}/p"
+
+
+def _literal_project(tmp_path: Path) -> Path:
+    """Make ``<tmp_path>/~unknownuser988/p`` a Godot project and return it."""
+    project = tmp_path / UNKNOWN_USER / "p"
+    project.mkdir(parents=True)
+    (project / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    return project
 
 
 @pytest.fixture(autouse=True)
@@ -166,3 +185,81 @@ def test_both_export_path_normalizers_keep_an_unresolvable_home_literal(
 
     assert normalize_export_output_path(f"{UNKNOWN_USER}/x") == expected
     assert normalize_smoke_artifact_path(f"{UNKNOWN_USER}/x") == expected
+
+
+# --------------------------------------------------------------------------
+# The three re-expansion sites: a project the resolver already expanded
+# --------------------------------------------------------------------------
+
+
+def test_scene_validate_accepts_a_project_whose_literal_name_starts_with_a_tilde(
+    tmp_path, monkeypatch
+):
+    # `_scene_validate_recipe` expanded the resolved project a SECOND time to stamp
+    # `project_root` on the verdict. The resolver had already kept the literal name,
+    # so the second expansion is the one that refused it. Engine-free: the runner
+    # seam is the fake `invoke_cli` injects.
+    project = _literal_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    result, _ = invoke_cli(
+        monkeypatch,
+        [
+            "scene",
+            "validate",
+            "res://main.tscn",
+            "--project",
+            LITERAL_PROJECT,
+            "--json",
+        ],
+        stdout=sentinel({"path": "res://main.tscn", "valid": True, "problems": []}),
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["project_root"] == str(project.resolve())
+
+
+def test_scene_preflight_accepts_a_project_whose_literal_name_starts_with_a_tilde(
+    tmp_path, monkeypatch
+):
+    # The same second expansion in `run_scene_preflight_operation`, which stamps the
+    # same field on the preflight verdict. This channel does not go through
+    # `cmd.emit`, so its engine step is `gda.commands.scene.launch` — canned here.
+    project = _literal_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    ready = sentinel({"path": "res://main.tscn", "status": "ready"})
+    monkeypatch.setattr(
+        "gda.commands.scene.launch",
+        lambda binary, args, *, cwd, timeout, timeout_label="Godot", watch=None: (
+            RunResult(stdout=ready, stderr="", exit_code=0)
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "scene",
+            "preflight",
+            "res://main.tscn",
+            "--project",
+            LITERAL_PROJECT,
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["project_root"] == str(project.resolve())
+
+
+def test_daemon_paths_accept_a_project_whose_literal_name_starts_with_a_tilde(
+    tmp_path, monkeypatch
+):
+    # `daemon_paths` expands its `project` argument again to canonicalize it, and
+    # every daemon command derives its socket, pidfile and session log from the
+    # result — so the same literal name refused `gda daemon status --project` before
+    # any daemon was contacted. Called directly: the derivation is pure, and the
+    # value it returns is what the rest of the identity is keyed on.
+    project = _literal_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    assert daemon_paths(Path(LITERAL_PROJECT)).project == project.resolve()
