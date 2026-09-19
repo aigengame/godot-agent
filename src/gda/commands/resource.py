@@ -703,7 +703,8 @@ class ResourceImportResult(BaseModel):
     without a pass — the engine skips failed imports and parse errors, while
     gda conservatively skips unsupported receipt syntax), and accounts
     for everything it touched — ``created`` lists every new file, classified
-    against ``cache_root``. On a dry run nothing runs and nothing is written:
+    against ``cache_root``, and ``skipped`` says how much of the tree the
+    inventory could not see. On a dry run nothing runs and nothing is written:
     ``assets`` carry the ``cached`` / ``missing`` / ``stale`` / ``invalid``
     states, ``engine_pass`` says whether a real run WOULD run the pass,
     ``predicted_source_adjacent`` lists the requested assets' sidecars-to-be,
@@ -711,8 +712,8 @@ class ResourceImportResult(BaseModel):
     re-import (the remaining inventory — engine hash-named cache files under
     ``cache_root``, sidecars for no-sidecar assets, generated ``.uid`` files —
     is the engine's to decide, and the real run's ``created`` is the
-    authoritative list). The mode's field set is validated, not merely
-    described.
+    authoritative list, complete when its ``skipped`` is 0). The mode's field
+    set is validated, not merely described.
     """
 
     dry_run: bool = Field(description="Whether this was a dry run.")
@@ -731,17 +732,17 @@ class ResourceImportResult(BaseModel):
     created: list[ImportCreatedFile] = Field(
         default_factory=list,
         description=(
-            "Every file the pass created, classified, and complete when "
-            "`skipped` is 0; empty on a dry run."
+            "Every file the pass created, classified; the list is complete "
+            "when `skipped` is 0; empty on a dry run."
         ),
     )
     skipped: int = Field(
         default=0,
         description=(
             "What `created` could not account for: entries that are not regular "
-            "files, or could not be read — including a directory whose whole "
-            "subtree is then uncovered; a count only, 0 on a dry run, and the "
-            "remedy is to repair the tree and run again for a complete record."
+            "files, or could not be read, including a directory whose whole "
+            "subtree is then uncovered. A count only, 0 on a dry run; repair the "
+            "tree and run again for a complete record."
         ),
     )
     predicted_source_adjacent: list[str] = Field(
@@ -759,7 +760,7 @@ class ResourceImportResult(BaseModel):
             "these. Invalid assets are excluded (the engine skips them), and "
             "assets with no sidecar or generated .uid sidecars cannot be "
             "predicted; the real run's `created` list is the authoritative "
-            "inventory."
+            "inventory, complete when its `skipped` is 0."
         ),
     )
     summary: ResourceImportSummary

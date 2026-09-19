@@ -61,20 +61,21 @@ export report; they now decide both commands' answer.
    unbounded. ``Path.stat()`` follows a symlink, so a link to a regular file is
    still inventoried as one.
 4. **An unlistable or unreadable entry is counted in the settlement's
-   ``skipped``, once per filesystem identity that reaches it**: an entry that is
-   not a regular file, a vanished or unreadable file, a dangling symlink, or a
-   directory that cannot be listed — whose whole subtree is then outside both
-   lists. ``os.walk`` swallows a listing error by default, which would drop that
-   subtree from the record AND from the one channel that says the record is
-   incomplete. The identity is rule 1's ``(st_dev, st_ino)`` pair, and the
-   settlement asks for it: ``os.walk`` reports a listing error INSTEAD of
-   yielding the directory, so rule 1 never sees the failing path, and a directory
-   reached both directly and through a link was counted twice for one inode
-   (#990). A ``stat`` answers for such a directory, because its PARENT is
-   listable. Where ``stat`` cannot answer — a dangling link, an entry that
-   vanished — the project-relative spelling is the identity, since there is no
-   inode to ask for. The count is a disclosure that the record is incomplete, not
-   a measure of how much.
+   ``skipped``, once per filesystem identity whatever spelling reaches it**: an
+   entry that is not a regular file, a vanished or unreadable file, a dangling
+   symlink, or a directory that cannot be listed — whose whole subtree is then
+   outside both lists. ``os.walk`` swallows a listing error by default, which
+   would drop that subtree from the record AND from the one channel that says the
+   record is incomplete. The identity is rule 1's ``(st_dev, st_ino)`` pair, and
+   the SETTLEMENT asks for it because the walk cannot: ``os.walk`` reports a
+   listing error INSTEAD of yielding the directory, and a per-file failure never
+   reaches rule 1 at all, so two names for ONE unreadable inode were counted
+   twice (#990). A ``stat`` of the failing path answers for every shape a second
+   name can reach — a mode-000 directory (its PARENT is listable), a FIFO, an
+   unreadable file — so each of them is one entry. Where ``stat`` cannot answer,
+   a dangling link or an entry that vanished, the project-relative spelling is
+   the identity, since there is no inode to ask for. The count is a disclosure
+   that the record is incomplete, not a measure of how much.
 5. **A top-level ``.git`` is excluded.** The engine never writes there, and
    hashing an object database would dominate the cost of a report about the
    project's own files. The exclusion is on whole path components, so
@@ -299,9 +300,11 @@ class _SkippedEntries:
     and the first capture hold. The COUNT is on rule 4's identity instead: a
     ``stat`` of the failing path names the ``(st_dev, st_ino)`` pair rule 1
     identifies a directory by, so a mode-000 directory reached both directly and
-    through a directory link is one entry rather than two (#990). A path
-    ``stat`` cannot answer for — a dangling link, an entry that vanished — is
-    counted under its spelling, since it has no inode to be counted under.
+    through a directory link is one entry rather than two — and so is any other
+    unreadable inode two names reach, a FIFO or an unreadable file among them
+    (#990). A path ``stat`` cannot answer for — a dangling link, an entry that
+    vanished — is counted under its spelling, since it has no inode to be counted
+    under.
 
     Membership stays on the SPELLING, because that is the question the
     settlement asks: whether the first capture could read THIS path.
