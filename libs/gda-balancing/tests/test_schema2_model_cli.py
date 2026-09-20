@@ -161,6 +161,43 @@ def test_model_file_descriptors_share_one_injected_authority_per_dispatch(
     assert calls == [context]
 
 
+@pytest.mark.parametrize("provider_behavior", ["raises", "refuses"])
+@pytest.mark.parametrize(
+    ("argv", "usage_code"),
+    [
+        (["model", "check", "--unknown", "value"], "unknown_argument"),
+        (["model", "check"], "invalid_argument"),
+    ],
+)
+def test_model_usage_binding_precedes_custom_authority_resolution(
+    run_cli,
+    provider_behavior,
+    argv,
+    usage_code,
+):
+    """Malformed argv is a usage outcome even when command authority would fail."""
+    import gda_balancing.interfaces.cli.model_check as model_check_command_module
+
+    context = authority_module.packaged_authority_context()
+    refused_kernel, refused_ldb = context.mutable_pair()
+    refused_kernel["content_identity"] = "sha256:" + "0" * 64
+    calls = 0
+
+    def provider():
+        nonlocal calls
+        calls += 1
+        if provider_behavior == "raises":
+            raise AssertionError("usage binding invoked the authority provider")
+        return refused_kernel, refused_ldb
+
+    descriptor = model_check_command_module.model_check_descriptor(provider)
+    exit_code, stdout, stderr = run_cli(argv, registry=(descriptor,))
+
+    assert (exit_code, stdout) == (3, "")
+    assert json.loads(stderr)["error"]["code"] == usage_code
+    assert calls == 0
+
+
 def test_artifact_semantic_projection_treats_empty_root_exclusion_as_noop():
     artifact = {"member": {"value": 1}}
 

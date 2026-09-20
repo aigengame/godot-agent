@@ -21,10 +21,7 @@ import jsonschema
 from pydantic import BaseModel, ValidationError
 
 from gda_balancing.domain.authority.admission import BootstrapAdmission
-from gda_balancing.domain.authority.context import (
-    AdmittedAuthorityContext,
-    AuthorityLoadError,
-)
+from gda_balancing.domain.authority.context import AuthorityLoadError
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.domain.publication_types import PublicationError
 from gda_balancing.interfaces.cli.errors import UsageError, publication_usage_error
@@ -177,18 +174,18 @@ def _dispatch(
         stdout.write(_render_command_help(descriptor))
         return EXIT_SUCCESS
 
-    authority_context = descriptor.resolved_authority_context()
-    if isinstance(authority_context, BootstrapAdmission):
-        stdout.write(
-            canonical_json(
-                schema2_refusal_envelope(bootstrap_refusal(authority_context))
-            )
-        )
-        return EXIT_REFUSAL
     # Bare `--schema` wins over any other non-help argument (bADR-0009).
     if _SCHEMA_FLAG in tail:
         from gda_balancing.interfaces.cli.surface import command_schema_projection
 
+        authority_context = descriptor.resolved_authority_context()
+        if isinstance(authority_context, BootstrapAdmission):
+            stdout.write(
+                canonical_json(
+                    schema2_refusal_envelope(bootstrap_refusal(authority_context))
+                )
+            )
+            return EXIT_REFUSAL
         stdout.write(
             canonical_json(
                 command_schema_projection(
@@ -206,7 +203,6 @@ def _dispatch(
             stdout,
             stderr,
             stdin,
-            authority_context,
         )
     except PublicationError as err:
         usage = publication_usage_error(err)
@@ -235,7 +231,6 @@ def _invoke_descriptor(
     stdout: TextIO,
     stderr: TextIO,
     stdin: TextIO | None,
-    authority_context: AdmittedAuthorityContext | None,
 ) -> int:
     """Invoke a resolved descriptor inside its declared usage boundary."""
     try:
@@ -243,6 +238,15 @@ def _invoke_descriptor(
         input_obj = descriptor.input_model(**values)
     except ValidationError as err:
         raise _UsageError("invalid_argument", _summarize(err)) from err
+
+    authority_context = descriptor.resolved_authority_context()
+    if isinstance(authority_context, BootstrapAdmission):
+        stdout.write(
+            canonical_json(
+                schema2_refusal_envelope(bootstrap_refusal(authority_context))
+            )
+        )
+        return EXIT_REFUSAL
 
     if descriptor.execution_lifecycle == "foreground-service":
         return _invoke_foreground_descriptor(descriptor, input_obj, stdout, stderr)
