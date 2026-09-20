@@ -390,7 +390,8 @@ class ProjectTreeInventory:
     # identity it had when the failure was observed (``None`` where ``stat``
     # could not answer): the settlement counts on that identity, so a spelling
     # that vanishes or retargets before the settlement does not split one
-    # observed inode in two.
+    # observed inode in two, and an inode the settlement then observes
+    # through a retargeted spelling is its own entry.
     unreadable: dict[str, tuple[int, int] | None]
     # The directories the first capture could not list, kept apart from the rest
     # because they are PREFIXES: the settlement must pass over everything beneath
