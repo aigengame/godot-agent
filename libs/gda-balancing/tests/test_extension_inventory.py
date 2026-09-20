@@ -13,6 +13,7 @@ from schema2_bootstrap_production_support import _consumer_a
 from schema2_extension_inventory_support import (
     AuthorityToken,
     InventoryRefusal,
+    _source_native_inventory,
     read_extension_inventory,
     source_formula_requests,
     token_bijection_from_names,
@@ -88,6 +89,122 @@ def test_current_machine_owners_and_nested_lexical_scopes_are_preserved(witness)
         in inventory.tokens
     )
     assert AuthorityToken("type", ("kernel",), "Boolean") in inventory.reserved
+
+
+def test_source_native_role_annotations_and_bindings_are_inventory_occurrences(witness):
+    _, _, inventory = witness
+    role = AuthorityToken("source-semantic-role", (), "operation-call")
+
+    occurrences = [row for row in inventory.occurrences if row.token == role]
+
+    assert role in inventory.tokens
+    assert any(
+        row.use == "declaration" and row.pointer.endswith("/semantic_role")
+        for row in occurrences
+    )
+    assert any(
+        row.use == "reference"
+        and "/source_native_bindings/" in row.pointer
+        and row.pointer.endswith("/role")
+        for row in occurrences
+    )
+
+
+def test_source_native_member_discriminator_and_ldb_value_partition_is_exact(witness):
+    kernel, graph, inventory = witness
+    native = _source_native_inventory(kernel, graph)
+    semantic_roles = {
+        "source-semantic-role",
+        "source-semantic-member",
+        "source-discriminator",
+    }
+    native_positions = {
+        (row.pointer, row.location, row.projection) for row in native.occurrences
+    }
+    actual = {
+        row
+        for row in inventory.occurrences
+        if row.token.role in semantic_roles
+        or (row.pointer, row.location, row.projection) in native_positions
+    }
+    assert actual == set(native.occurrences)
+
+    member = AuthorityToken(
+        "source-semantic-member", ("operation-call",), "node"
+    )
+    discriminator = AuthorityToken(
+        "source-discriminator", ("symbol-operand", "kind"), "symbol"
+    )
+    domain = AuthorityToken("language.quantity.domains", (), "closed-interval")
+    assert {
+        row.use for row in inventory.occurrences if row.token == member
+    } == {"declaration", "reference"}
+    discriminator_rows = [
+        row for row in inventory.occurrences if row.token == discriminator
+    ]
+    assert any(row.pointer.endswith("/const") for row in discriminator_rows)
+    assert any(
+        "/source_native_bindings/" in row.pointer
+        and row.pointer.endswith("/value")
+        for row in discriminator_rows
+    )
+    assert any(
+        row.pointer.startswith("/source/") and row.pointer.endswith("/kind")
+        for row in discriminator_rows
+    )
+    domain_rows = [row for row in native.occurrences if row.token == domain]
+    assert {
+        row.pointer
+        for row in domain_rows
+        if "/source_native_bindings/" in row.pointer
+        and row.pointer.endswith("/value")
+    }
+    assert len(
+        {
+            row.pointer
+            for row in domain_rows
+            if "/source_native_bindings/" in row.pointer
+            and row.pointer.endswith("/value")
+        }
+    ) == 3
+    assert not any(
+        row.token.role == "source-discriminator"
+        and row.token.name == "closed-interval"
+        for row in native.occurrences
+    )
+
+
+@pytest.mark.parametrize("surface", ["annotation", "binding", "schema", "source"])
+def test_source_native_occurrence_verifier_refuses_each_omitted_surface(witness, surface):
+    kernel, graph, inventory = witness
+    predicates = {
+        "annotation": lambda row: row.token.role == "source-semantic-role"
+        and row.use == "declaration",
+        "binding": lambda row: row.token.role == "source-semantic-member"
+        and "/source_native_bindings/" in row.pointer,
+        "schema": lambda row: row.token.role == "source-discriminator"
+        and row.pointer.endswith("/const"),
+        "source": lambda row: row.token.role == "source-discriminator"
+        and row.pointer.startswith("/source/"),
+    }
+    omitted = next(row for row in inventory.occurrences if predicates[surface](row))
+    candidate = replace(
+        inventory,
+        occurrences=tuple(row for row in inventory.occurrences if row != omitted),
+    )
+
+    with pytest.raises(InventoryRefusal, match="Source native occurrence coverage"):
+        validate_extension_inventory(kernel, graph, candidate)
+
+
+def test_source_native_binding_slots_remain_stable_abi_not_wire_occurrences(witness):
+    _, _, inventory = witness
+    internal_members = {"slot", "owner_slot", "target_slots", "shape"}
+    assert not any(
+        "/source_native_bindings/" in row.pointer
+        and row.pointer.rsplit("/", 1)[-1] in internal_members
+        for row in inventory.occurrences
+    )
 
 
 def test_evidence_inventory_closes_actual_claim_local_vectors(witness):

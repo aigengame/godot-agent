@@ -27,6 +27,7 @@ from schema2_extension_inventory_support import (
     _formula_projections,
     _json_pointer_segments,
     _pointer_value,
+    _source_native_inventory,
     read_extension_inventory,
     source_formula_requests,
     validate_extension_inventory,
@@ -95,6 +96,28 @@ def _json_pointer_values(
             segments[index] = target
         result[pointer] = "".join(_child("", segment) for segment in segments)
     return result
+
+
+def _rewrite_source_set_projections(
+    kernel: Mapping[str, Any],
+    original: Mapping[str, Any],
+    candidate: dict[str, Any],
+    keys: Mapping[str, str],
+    correspondence: Mapping[AuthorityToken, AuthorityToken],
+) -> None:
+    """Rebuild set-valued Source Schema projections after scalar renames."""
+    for pointer, tokens in _source_native_inventory(
+        kernel, original
+    ).set_projections.items():
+        renamed_pointer = _renamed_pointer(pointer, keys)
+        parent, _, encoded = renamed_pointer.rpartition("/")
+        member = encoded.replace("~1", "/").replace("~0", "~")
+        container = _pointer_value(candidate, parent)
+        if not isinstance(container, dict) or member not in container:
+            raise InventoryRefusal("renamed Source set projection has no target")
+        container[member] = sorted(
+            {correspondence.get(token, token).name for token in tokens}
+        )
 
 
 def _render_formulas(
@@ -255,6 +278,7 @@ def apply_extension_renaming(
     values.update(_json_pointer_values(graph, json_pointers))
     inputs = {k: v for k, v in graph.items() if k not in {"artifacts", "results"}}
     candidate = _rewrite_positions(inputs, values, keys)
+    _rewrite_source_set_projections(kernel, graph, candidate, keys, correspondence)
     bodies = {
         _renamed_pointer(pointer, keys): _rewrite_positions(
             body, formula_values.get(pointer, {}), {}

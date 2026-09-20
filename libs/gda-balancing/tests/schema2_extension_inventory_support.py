@@ -905,6 +905,8 @@ class _SourceNativeInventory:
     member_schemas: Mapping[
         tuple[str, str], tuple[tuple[Mapping[str, Any], tuple[str, ...]], ...]
     ]
+    occurrences: tuple[TokenOccurrence, ...]
+    set_projections: Mapping[str, frozenset[AuthorityToken]]
 
 
 def _source_native_inventory(
@@ -913,7 +915,19 @@ def _source_native_inventory(
     profile: Mapping[str, Any] | None = None,
 ) -> _SourceNativeInventory:
     """Independently join Source Schema annotations to compiler ABI bindings."""
-    source = _protocol_schema(kernel, graph, "model-source-package")["schema"]
+    source_definition = _protocol_schema(kernel, graph, "model-source-package")
+    source = source_definition["schema"]
+    schema_rows = [
+        pointer
+        for role in ("language.wire_schemas", "language.artifact_wire_schemas")
+        for _, row, pointer in _authority_path_rows(
+            kernel, graph, "language_bundle." + role
+        )
+        if row is source_definition
+    ]
+    if len(schema_rows) != 1:
+        raise InventoryRefusal("Source native inventory has no unique Schema owner")
+    schema_pointer = schema_rows[0] + "/schema"
     annotation_contract = kernel["meta_format"]["language_definitions"][
         "wire_schema_protocol_roles"
     ]["source_notation"]["semantic_annotations"]
@@ -928,28 +942,56 @@ def _source_native_inventory(
     annotated_roles: set[str] = set()
     member_paths: dict[tuple[str, str], set[tuple[str, ...]]] = {}
     member_schemas: dict[
-        tuple[str, str], list[tuple[Mapping[str, Any], tuple[str, ...]]]
+        tuple[str, str],
+        list[tuple[Mapping[str, Any], tuple[str, ...], tuple[str | int, ...]]],
     ] = {}
+    occurrences: set[TokenOccurrence] = set()
+    annotation_law = (
+        "/meta_format/language_definitions/wire_schema_protocol_roles/"
+        "source_notation/semantic_annotations"
+    )
 
-    def same_role_schemas(value: Any):
+    def schema_position(path: Sequence[str | int]) -> str:
+        pointer = schema_pointer
+        for segment in path:
+            pointer = _child(pointer, segment)
+        return pointer
+
+    def same_role_schemas(value: Any, schema_path: tuple[str | int, ...]):
         if not isinstance(value, Mapping):
             return
-        yield value
+        yield value, schema_path
         for applicator in ("oneOf", "anyOf", "allOf"):
             branches = value.get(applicator, [])
             if not isinstance(branches, Sequence) or isinstance(branches, (str, bytes)):
                 continue
-            for branch in branches:
+            for index, branch in enumerate(branches):
                 if isinstance(branch, Mapping) and role_key not in branch:
-                    yield from same_role_schemas(branch)
+                    yield from same_role_schemas(
+                        branch, (*schema_path, applicator, index)
+                    )
 
-    def visit(value: Any, path: tuple[str, ...]) -> None:
+    def visit(
+        value: Any,
+        path: tuple[str, ...],
+        schema_path: tuple[str | int, ...],
+    ) -> None:
         if not isinstance(value, Mapping):
             return
         role = value.get(role_key)
         if isinstance(role, str) and role:
             annotated_roles.add(role)
-            for role_schema in same_role_schemas(value):
+            occurrences.add(
+                TokenOccurrence(
+                    AuthorityToken("source-semantic-role", (), role),
+                    schema_position((*schema_path, role_key)),
+                    "declaration",
+                    annotation_law,
+                )
+            )
+            for role_schema, role_schema_path in same_role_schemas(
+                value, schema_path
+            ):
                 properties = role_schema.get("properties")
                 if not isinstance(properties, Mapping):
                     continue
@@ -962,24 +1004,49 @@ def _source_native_inventory(
                     pair = (role, member)
                     authored_path = (*path, authored)
                     member_paths.setdefault(pair, set()).add(authored_path)
-                    member_schemas.setdefault(pair, []).append((child, authored_path))
+                    child_schema_path = (*role_schema_path, "properties", authored)
+                    member_schemas.setdefault(pair, []).append(
+                        (child, authored_path, child_schema_path)
+                    )
+                    occurrences.add(
+                        TokenOccurrence(
+                            AuthorityToken("source-semantic-member", (role,), member),
+                            schema_position((*child_schema_path, member_key)),
+                            "declaration",
+                            annotation_law,
+                        )
+                    )
         properties = value.get("properties")
         if isinstance(properties, Mapping):
             for authored, child in properties.items():
                 if isinstance(authored, str):
-                    visit(child, (*path, authored))
+                    visit(
+                        child,
+                        (*path, authored),
+                        (*schema_path, "properties", authored),
+                    )
         if "items" in value:
-            visit(value["items"], path)
+            visit(value["items"], path, (*schema_path, "items"))
         for applicator in ("oneOf", "anyOf", "allOf"):
             branches = value.get(applicator, [])
             if isinstance(branches, Sequence) and not isinstance(
                 branches, (str, bytes)
             ):
-                for branch in branches:
-                    visit(branch, path)
+                for index, branch in enumerate(branches):
+                    visit(branch, path, (*schema_path, applicator, index))
 
-    visit(source, ())
+    visit(source, (), ())
     selected_profile = profile or _source_profile(kernel, graph)
+    profile_rows = [
+        pointer
+        for _, row, pointer in _authority_path_rows(
+            kernel, graph, "language_bundle.language.resolution_profiles"
+        )
+        if row is selected_profile
+    ]
+    if len(profile_rows) != 1:
+        raise InventoryRefusal("Source native inventory has no unique profile owner")
+    profile_pointer = profile_rows[0]
     bindings = selected_profile.get("source_native_bindings")
     if not isinstance(bindings, Sequence) or isinstance(bindings, (str, bytes)):
         raise InventoryRefusal("Source native bindings are unavailable")
@@ -1000,6 +1067,20 @@ def _source_native_inventory(
     }
     if set(roles.values()) != annotated_roles or len(roles) != len(annotated_roles):
         raise InventoryRefusal("Source native role bindings do not close")
+    for index, row in enumerate(bindings):
+        if row.get("kind") != "role":
+            continue
+        role = row.get("role")
+        if not isinstance(role, str):
+            raise InventoryRefusal("Source native role binding is malformed")
+        occurrences.add(
+            TokenOccurrence(
+                AuthorityToken("source-semantic-role", (), role),
+                f"{profile_pointer}/source_native_bindings/{index}/role",
+                "reference",
+                annotation_law,
+            )
+        )
     members: dict[str, str] = {}
     bound_pairs: set[tuple[str, str]] = set()
     for slot, row in rows.items():
@@ -1014,16 +1095,298 @@ def _source_native_inventory(
             raise InventoryRefusal("Source native member binding is ambiguous")
         members[slot] = member
         bound_pairs.add((role, member))
+        index = next(i for i, candidate in enumerate(bindings) if candidate is row)
+        occurrences.add(
+            TokenOccurrence(
+                AuthorityToken("source-semantic-member", (role,), member),
+                f"{profile_pointer}/source_native_bindings/{index}/member",
+                "reference",
+                annotation_law,
+            )
+        )
     if bound_pairs != set(member_paths):
         raise InventoryRefusal("Source native member bindings do not close")
     root_role = roles.get("source.root")
     if root_role is None or source.get(role_key) != root_role:
         raise InventoryRefusal("Source root native binding does not close")
+
+    source_instances: list[tuple[Mapping[str, Any], str]] = []
+    authored_source = graph.get("source")
+    if isinstance(authored_source, Mapping):
+        source_instances.append((authored_source, "/source"))
+    for vi, vector_set in enumerate(graph.get("vector_sets", [])):
+        for di, vector in enumerate(vector_set["vector_definitions"]):
+            fixture = vector.get("source_fixture")
+            if (
+                isinstance(fixture, Mapping)
+                and fixture.get("mode") == "literal"
+                and isinstance(fixture.get("source"), Mapping)
+            ):
+                source_instances.append(
+                    (
+                        fixture["source"],
+                        (
+                            f"/vector_sets/{vi}/vector_definitions/{di}"
+                            "/source_fixture/source"
+                        ),
+                    )
+                )
+
+    native_contract_key = annotation_keys.get("native_contract")
+    if not isinstance(native_contract_key, str):
+        raise InventoryRefusal("Source native contract annotation is unavailable")
+
+    def native_discriminator_token(
+        role: str, member: str, value: str
+    ) -> AuthorityToken | None:
+        selected: set[AuthorityToken] = set()
+        for (candidate_role, candidate_member), schemas in member_schemas.items():
+            if candidate_role != role:
+                continue
+            for child, _, _ in schemas:
+                contract = child.get(native_contract_key)
+                if not isinstance(contract, Mapping):
+                    continue
+                location = contract.get("value_location")
+                if not isinstance(location, Mapping) or (
+                    location.get("semantic_member", candidate_member) != member
+                ):
+                    continue
+                reference = contract.get("language_reference")
+                if not isinstance(reference, str):
+                    continue
+                target_role, scoped = _declared_target_role(
+                    kernel, "language_bundle." + reference
+                )
+                for owner, declared, _ in _authority_path_rows(
+                    kernel, graph, "language_bundle." + reference
+                ):
+                    if declared == value:
+                        selected.add(
+                            AuthorityToken(
+                                target_role,
+                                (owner,) if scoped and owner is not None else (),
+                                value,
+                            )
+                        )
+        if len(selected) > 1:
+            raise InventoryRefusal("Source discriminator has ambiguous native owners")
+        return next(iter(selected), None)
+
+    discriminator_law = annotation_law + "/discriminator"
+    native_law = annotation_law + "/native_contract"
+    for index, row in enumerate(bindings):
+        if row.get("kind") != "discriminator":
+            continue
+        owner_slot = row.get("owner_slot")
+        member = row.get("member")
+        value = row.get("value")
+        if not all(isinstance(item, str) and item for item in (owner_slot, member, value)):
+            raise InventoryRefusal("Source discriminator binding is malformed")
+        role = roles.get(owner_slot)
+        if role is None or (role, member) not in member_paths:
+            raise InventoryRefusal("Source discriminator has no semantic member owner")
+        member_token = AuthorityToken("source-semantic-member", (role,), member)
+        occurrences.add(
+            TokenOccurrence(
+                member_token,
+                f"{profile_pointer}/source_native_bindings/{index}/member",
+                "reference",
+                discriminator_law,
+            )
+        )
+        native_discriminator = native_discriminator_token(role, member, value)
+        discriminator = native_discriminator or AuthorityToken(
+            "source-discriminator", (role, member), value
+        )
+        value_law = native_law if native_discriminator is not None else discriminator_law
+        occurrences.add(
+            TokenOccurrence(
+                discriminator,
+                f"{profile_pointer}/source_native_bindings/{index}/value",
+                "reference",
+                value_law,
+            )
+        )
+        schema_count = 0
+        for child, _, child_schema_path in member_schemas[(role, member)]:
+            if child.get("const") != value:
+                continue
+            schema_count += 1
+            occurrences.add(
+                TokenOccurrence(
+                    discriminator,
+                    schema_position((*child_schema_path, "const")),
+                    "declaration",
+                    value_law,
+                )
+            )
+        if schema_count == 0:
+            raise InventoryRefusal("Source discriminator has no Schema const owner")
+        for source_instance, source_pointer in source_instances:
+            for authored_path in member_paths[(role, member)]:
+                for actual, pointer in _walk_member_path(
+                    source_instance, source_pointer, authored_path
+                ):
+                    if actual == value:
+                        occurrences.add(
+                            TokenOccurrence(
+                                discriminator,
+                                pointer,
+                                "reference",
+                                value_law,
+                            )
+                        )
+
+    native_specs: set[tuple[str, str, str, str, str | None]] = set()
+    for (role, member), schemas in member_schemas.items():
+        for child, _, _ in schemas:
+            contract = child.get(native_contract_key)
+            reference = (
+                contract.get("language_reference")
+                if isinstance(contract, Mapping)
+                else None
+            )
+            location = (
+                contract.get("value_location")
+                if isinstance(contract, Mapping)
+                else None
+            )
+            keyword = location.get("keyword") if isinstance(location, Mapping) else None
+            sibling = (
+                location.get("semantic_member")
+                if isinstance(location, Mapping)
+                else None
+            )
+            if reference is None:
+                continue
+            if (
+                not isinstance(reference, str)
+                or not reference.startswith("language.")
+                or keyword not in {"const", "enum"}
+                or (sibling is not None and not isinstance(sibling, str))
+            ):
+                raise InventoryRefusal("Source native value contract is malformed")
+            native_specs.add((role, member, reference, keyword, sibling))
+
+    for role, member, reference, keyword, sibling in sorted(native_specs):
+        target_role, scoped = _declared_target_role(
+            kernel, "language_bundle." + reference
+        )
+        if target_role == "language.model_source_schema_versions":
+            # The Source format marker is a retained wire-format parameter.
+            # _source_format_role closes it by equality; it is not a language
+            # extension token that the renamer may transport.
+            continue
+        declared: dict[str, AuthorityToken] = {}
+        for owner, value, _ in _authority_path_rows(
+            kernel, graph, "language_bundle." + reference
+        ):
+            if not isinstance(value, str) or not value:
+                raise InventoryRefusal("Source native value declaration is malformed")
+            token = AuthorityToken(
+                target_role, (owner,) if scoped and owner is not None else (), value
+            )
+            if value in declared and declared[value] != token:
+                raise InventoryRefusal("Source native value declaration is ambiguous")
+            declared[value] = token
+        selected_member = sibling or member
+        selected_schemas = member_schemas.get((role, selected_member), ())
+        schema_values = 0
+        for child, _, child_schema_path in selected_schemas:
+            if keyword not in child:
+                continue
+            values = child[keyword] if keyword == "enum" else [child[keyword]]
+            if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+                raise InventoryRefusal("Source native Schema value is malformed")
+            for value_index, value in enumerate(values):
+                token = declared.get(value)
+                if token is None:
+                    raise InventoryRefusal("Source native Schema value has no LDB owner")
+                suffix: tuple[str | int, ...] = (keyword,)
+                if keyword == "enum":
+                    suffix = (*suffix, value_index)
+                occurrences.add(
+                    TokenOccurrence(
+                        token,
+                        schema_position((*child_schema_path, *suffix)),
+                        "reference",
+                        native_law,
+                    )
+                )
+                schema_values += 1
+        if schema_values == 0:
+            raise InventoryRefusal("Source native contract has no Schema value")
+        for source_instance, source_pointer in source_instances:
+            for authored_path in member_paths.get((role, selected_member), ()):
+                for value, pointer in _walk_member_path(
+                    source_instance, source_pointer, authored_path
+                ):
+                    token = declared.get(value)
+                    if token is not None:
+                        occurrences.add(
+                            TokenOccurrence(
+                                token, pointer, "reference", native_law
+                            )
+                        )
+
+    set_projections: dict[str, frozenset[AuthorityToken]] = {}
+    value_policy_role = roles.get("source.value_policy")
+    mode_member = members.get("source.value_policy.mode")
+    if value_policy_role is None or mode_member is None:
+        raise InventoryRefusal("Source assignment mode binding is unavailable")
+    lowerings = [
+        (row, pointer)
+        for _, row, pointer in _authority_path_rows(
+            kernel, graph, "language_bundle.language.model_lowerings"
+        )
+        if row["id"] == selected_profile["model_lowering"]
+    ]
+    if len(lowerings) != 1:
+        raise InventoryRefusal("Source assignment mode projection has no lowering owner")
+    lowering, _ = lowerings[0]
+    policy = lowering["assignment_policy"]
+    assignment_modes = frozenset(
+        AuthorityToken(
+            "assignment-mode",
+            (lowering["id"], policy["id"], role_row["role"]),
+            mode["id"],
+        )
+        for role_row in policy["roles"]
+        for mode in role_row["modes"]
+    )
+    mode_schemas = member_schemas.get((value_policy_role, mode_member), ())
+    enum_rows = [
+        (child["enum"], schema_position((*child_path, "enum")))
+        for child, _, child_path in mode_schemas
+        if "enum" in child
+    ]
+    if len(enum_rows) != 1 or set(enum_rows[0][0]) != {
+        token.name for token in assignment_modes
+    }:
+        raise InventoryRefusal("Source assignment mode set projection does not close")
+    set_projections[enum_rows[0][1]] = assignment_modes
+
+    scalar_positions: dict[tuple[str, str, str], AuthorityToken] = {}
+    for occurrence in occurrences:
+        position = (
+            occurrence.pointer,
+            occurrence.location,
+            occurrence.projection,
+        )
+        previous = scalar_positions.setdefault(position, occurrence.token)
+        if previous != occurrence.token:
+            raise InventoryRefusal("Source native scalar occurrence has multiple owners")
     return _SourceNativeInventory(
         roles=roles,
         members=members,
         member_paths={key: frozenset(value) for key, value in member_paths.items()},
-        member_schemas={key: tuple(value) for key, value in member_schemas.items()},
+        member_schemas={
+            key: tuple((schema, path) for schema, path, _ in value)
+            for key, value in member_schemas.items()
+        },
+        occurrences=tuple(sorted(occurrences)),
+        set_projections=set_projections,
     )
 
 
@@ -8015,6 +8378,10 @@ class _Reader:
             self.occurrence(token, pointer, use, law)
             if token.role.startswith("kernel."):
                 self.reserved.add(token)
+        for occurrence in _source_native_inventory(
+            self.kernel, self.graph
+        ).occurrences:
+            self.record_occurrence(occurrence)
         for token, pointer, use, location, projection, law in _source_address_links(
             self.kernel, self.graph
         ):
@@ -9074,6 +9441,25 @@ def validate_extension_inventory(
     explicit unfinished obligation until the corresponding consuming-law pass
     is implemented; require_complete still refuses that inventory.
     """
+    native = _source_native_inventory(kernel, graph)
+    native_positions = {
+        (row.pointer, row.location, row.projection) for row in native.occurrences
+    }
+    native_actual = {
+        row
+        for row in inventory.occurrences
+        if row.token.role
+        in {
+            "source-semantic-role",
+            "source-semantic-member",
+            "source-discriminator",
+        }
+        or (row.pointer, row.location, row.projection) in native_positions
+    }
+    if native_actual != set(native.occurrences):
+        raise InventoryRefusal(
+            "Source native occurrence coverage is incomplete or misowned"
+        )
     _verify_execution_artifact_graph(kernel, graph)
     source_projection = _source_projection(kernel, graph)
     validate_inventory_occurrences(kernel, graph, inventory)
@@ -10105,6 +10491,18 @@ def _renamed_owner(
                 ),
             )
         raise InventoryRefusal("unknown Model vector Source token owner")
+    if token.role == "source-semantic-role":
+        return ()
+    if token.role == "source-semantic-member":
+        return (
+            name(AuthorityToken("source-semantic-role", (), token.owner[0])),
+        )
+    if token.role == "source-discriminator":
+        role = name(AuthorityToken("source-semantic-role", (), token.owner[0]))
+        member = name(
+            AuthorityToken("source-semantic-member", token.owner[:1], token.owner[1])
+        )
+        return role, member
     if token.role in {"source-field", "template-field"}:
         schema_role, schema_id, *path = token.owner
         renamed = (schema_role, name(AuthorityToken(schema_role, (), schema_id)))

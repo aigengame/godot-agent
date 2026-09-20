@@ -11,10 +11,12 @@ from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_conformance_support import _consumer_b, _encoded
 from schema2_bootstrap_production_support import _consumer_a
 from schema2_extension_inventory_support import (
+    AuthorityToken,
     InventoryRefusal,
     _formula_projections,
+    _pointer_value,
+    _source_native_inventory,
     read_extension_inventory,
-    token_bijection_from_names,
 )
 from schema2_extension_renaming_support import (
     _json_pointer_values,
@@ -22,7 +24,7 @@ from schema2_extension_renaming_support import (
     _render_formulas,
     _reseal_authored_graph,
     _rewrite_positions,
-    apply_extension_renaming,
+    _rewrite_source_set_projections,
 )
 
 
@@ -111,20 +113,91 @@ def test_diagnostic_pointer_keeps_all_renamed_segments_and_equal_user_text():
     assert changed["notes"] == graph["diagnostic"] == pointer
 
 
-def test_incomplete_real_graph_cannot_authorize_renaming(authored_graph):
+def test_source_native_occurrences_rename_simultaneously_and_round_trip(
+    authored_graph,
+):
     kernel, graph = authored_graph
     before = deepcopy(graph)
     inventory = read_extension_inventory(kernel, graph)
-    assert inventory.uncovered
-    pairs = token_bijection_from_names(
-        inventory,
-        {
-            token: f"renamed_token_{i}"
-            for i, token in enumerate(sorted(inventory.tokens - inventory.reserved))
-        },
+    inventory.require_complete()
+    role = AuthorityToken("source-semantic-role", (), "operation-call")
+    member = AuthorityToken(
+        "source-semantic-member", ("operation-call",), "node"
     )
-    with pytest.raises(InventoryRefusal, match="uncovered semantic role"):
-        apply_extension_renaming(kernel, graph, pairs)
+    discriminator = AuthorityToken(
+        "source-discriminator", ("operation-call", "node"), "operation-call"
+    )
+    domain = AuthorityToken("language.quantity.domains", (), "closed-interval")
+    derived_none = next(
+        token
+        for token in inventory.tokens
+        if token.role == "assignment-mode"
+        and token.owner[-1] == "derived"
+        and token.name == "none"
+    )
+    output_none = next(
+        token
+        for token in inventory.tokens
+        if token.role == "assignment-mode"
+        and token.owner[-1] == "output"
+        and token.name == "none"
+    )
+    correspondence = {
+        role: AuthorityToken(role.role, (), "operation-invocation"),
+        member: AuthorityToken(member.role, ("operation-invocation",), "dispatch"),
+        discriminator: AuthorityToken(
+            discriminator.role,
+            ("operation-invocation", "dispatch"),
+            "invoke-operation",
+        ),
+        domain: AuthorityToken(domain.role, (), "bounded-range"),
+        derived_none: AuthorityToken(
+            derived_none.role, derived_none.owner, "derived-none"
+        ),
+        output_none: AuthorityToken(
+            output_none.role, output_none.owner, "output-none"
+        ),
+    }
+
+    def rewrite(original, mapping, rows):
+        values = {
+            row.pointer: mapping[row.token].name
+            for row in rows
+            if row.token in mapping and row.location == "value"
+        }
+        candidate = _rewrite_positions(original, values, {})
+        _rewrite_source_set_projections(
+            kernel, original, candidate, {}, mapping
+        )
+        return candidate
+
+    candidate = rewrite(graph, correspondence, inventory.occurrences)
+
+    native = _source_native_inventory(kernel, candidate)
+    assert len(native.set_projections) == 1
+    pointer, tokens = next(iter(native.set_projections.items()))
+    assert set(_pointer_value(candidate, pointer)) == {token.name for token in tokens}
+    assert {"derived-none", "output-none"} <= set(_pointer_value(candidate, pointer))
+    for row in inventory.occurrences:
+        if row.token in correspondence and row.location == "value":
+            assert _pointer_value(candidate, row.pointer) == correspondence[row.token].name
+
+    reverse = {target: source for source, target in correspondence.items()}
+    reverse_rows = tuple(
+        row
+        if row.token not in correspondence
+        else type(row)(
+            correspondence[row.token],
+            row.pointer,
+            row.use,
+            row.law,
+            row.location,
+            row.projection,
+        )
+        for row in inventory.occurrences
+    )
+    restored = rewrite(candidate, reverse, reverse_rows)
+    assert _encoded(restored) == _encoded(graph)
     assert graph == before
 
 
