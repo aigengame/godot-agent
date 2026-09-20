@@ -70,12 +70,12 @@ export report; they now decide both commands' answer.
    the SETTLEMENT asks for it because the walk cannot: ``os.walk`` reports a
    listing error INSTEAD of yielding the directory, and a per-file failure never
    reaches rule 1 at all, so two names for ONE unreadable inode were counted
-   twice (#990). A ``stat`` of the failing path answers for every shape a second
-   name can reach — a mode-000 directory (its PARENT is listable), a FIFO, an
-   unreadable file — so each of them is one entry. Where ``stat`` cannot answer,
-   a dangling link or an entry that vanished, the project-relative spelling is
-   the identity, since there is no inode to ask for. The count is a disclosure
-   that the record is incomplete, not a measure of how much.
+   twice (#990). A ``stat`` of the failing path names that inode, so any
+   unreadable inode a second name reaches — a mode-000 directory (its PARENT is
+   listable), a FIFO, an unreadable file — is one entry. Where ``stat`` cannot
+   answer, a dangling link or an entry that vanished, the project-relative
+   spelling is the identity, since there is no inode to ask for. The count is a
+   disclosure that the record is incomplete, not a measure of how much.
 5. **A top-level ``.git`` is excluded.** The engine never writes there, and
    hashing an object database would dominate the cost of a report about the
    project's own files. The exclusion is on whole path components, so
