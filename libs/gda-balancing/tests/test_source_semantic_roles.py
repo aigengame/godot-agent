@@ -3,7 +3,7 @@
 from copy import deepcopy
 import json
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -13,6 +13,8 @@ from gda_balancing.domain.authority.context import (
 )
 from gda_balancing.domain.authority.source_projection import (
     derive_source_semantic_index,
+    project_source_value,
+    source_schema_member,
 )
 from gda_balancing.domain.model import CheckedModel, check_model_source_value
 from schema2_authority_support import mutable_authorities
@@ -670,7 +672,126 @@ def test_language_owned_interval_token_renames_without_kernel_reseal():
         assert result["admitted"], (consumer.__name__, result["diagnostics"])
 
 
-def test_coherent_source_annotation_and_compiler_path_rename_is_admitted():
+def test_language_owned_operation_call_token_renames_without_kernel_reseal(
+    tmp_path: Path,
+):
+    from test_current_namespace_public import _PublicCandidate
+
+    kernel, language = mutable_authorities()
+    kernel_identity = kernel["content_identity"]
+    authored = _authored(language)
+    schema = _source_schema(authored)
+    operation_calls = _source_role_nodes(schema, "operation-call")
+    assert operation_calls
+    for operation_call in operation_calls:
+        operation_call["properties"]["node"]["const"] = "operation-invocation"
+    compiler = next(
+        package for package in authored["packages"] if package["id"] == "standard.compiler"
+    )
+    profiles = next(
+        closure["definitions"]
+        for closure in compiler["semantic_closure"]
+        if closure["authority_path"] == "language.resolution_profiles"
+    )
+    binding = next(
+        row
+        for row in profiles[0]["source_native_bindings"]
+        if row["slot"] == "source.operation_call.discriminator"
+    )
+    binding["value"] = "operation-invocation"
+    graph = _graph(kernel, authored)
+    assert kernel["content_identity"] == kernel_identity
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, graph)
+        assert result["admitted"], (consumer.__name__, result["diagnostics"])
+
+    source = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text()
+    )
+
+    def rename(value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                value[key] = rename(child)
+            return value
+        if isinstance(value, list):
+            return [rename(child) for child in value]
+        return "operation-invocation" if value == "operation-call" else value
+
+    rename(source)
+    public = _PublicCandidate(
+        tmp_path / "operation-invocation", authorities=(kernel, graph)
+    )
+    public.write_source(source)
+    public.cli("model", "check", str(public.source))
+
+
+def test_language_owned_interval_token_reaches_public_model_and_formula(
+    tmp_path: Path,
+):
+    from test_current_namespace_public import _PublicCandidate
+
+    kernel, language = mutable_authorities()
+    authored = _authored(language)
+
+    def rename(value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                value[key] = rename(child)
+            return value
+        if isinstance(value, list):
+            return [rename(child) for child in value]
+        return "bounded-range" if value == "closed-interval" else value
+
+    rename(authored)
+    graph = _graph(kernel, authored)
+    public = _PublicCandidate(tmp_path / "bounded-range", authorities=(kernel, graph))
+    source = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text()
+    )
+    rename(source)
+    public.write_source(source)
+    public.cli("model", "check", str(public.source))
+    public.cli(
+        "model",
+        "build",
+        str(public.source),
+        "--out",
+        str(public.directory / "build"),
+        "--invocation-key",
+        "39" * 32,
+    )
+
+    module = source["modules"][0]
+    formula = module["formulas"][0]
+    request = {
+        "schema_version": source["schema_version"],
+        "package_requirements": source["package_requirements"],
+        "module": {name: value for name, value in module.items() if name != "formulas"},
+        "formula": deepcopy(formula),
+    }
+    request_path = public.directory / "formula.json"
+    render_request = deepcopy(request)
+    del render_request["formula"]["expression"]
+    request_path.write_text(json.dumps(render_request))
+    rendered = public.cli("formula", "render", str(request_path))
+    parse_request = deepcopy(request)
+    del parse_request["formula"]["body"]
+    request_path.write_text(json.dumps(parse_request))
+    assert public.cli("formula", "parse", str(request_path)) == rendered
+
+
+def test_coherent_source_annotation_and_compiler_path_rename_is_admitted(
+    tmp_path: Path,
+):
+    from test_current_namespace_public import _PublicCandidate, _members
+
     kernel, language = mutable_authorities()
     kernel_identity = kernel["content_identity"]
     authored = _authored(language)
@@ -722,6 +843,100 @@ def test_coherent_source_annotation_and_compiler_path_rename_is_admitted():
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, graph)
         assert result["admitted"], (consumer.__name__, result["diagnostics"])
+
+    source = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text()
+    )
+    public = _PublicCandidate(tmp_path / "coherent-rename", authorities=(kernel, graph))
+    public.write_source(source)
+    public.cli("model", "check", str(public.source))
+    built = public.cli(
+        "model",
+        "build",
+        str(public.source),
+        "--out",
+        str(public.directory / "build"),
+        "--invocation-key",
+        "40" * 32,
+    )
+    assert len(_members(built)) == 8
+
+    module = source["modules"][0]
+    formula = module["formulas"][0]
+    request = {
+        "schema_version": source["schema_version"],
+        "package_requirements": source["package_requirements"],
+        "module": {name: value for name, value in module.items() if name != "formulas"},
+        "formula": deepcopy(formula),
+    }
+    request_path = public.directory / "formula.json"
+    render_request = deepcopy(request)
+    del render_request["formula"]["expression"]
+    request_path.write_text(json.dumps(render_request))
+    rendered = public.cli("formula", "render", str(request_path))
+    parse_request = deepcopy(request)
+    del parse_request["formula"]["body"]
+    request_path.write_text(json.dumps(parse_request))
+    assert public.cli("formula", "parse", str(request_path)) == rendered
+
+
+@pytest.mark.parametrize(
+    "contract",
+    [
+        {},
+        {"nodes": [], "result": {"kind": "missing"}},
+        {"kind": "parameter"},
+    ],
+    ids=(
+        "ambiguous-empty-union",
+        "malformed-discriminator",
+        "missing-required-member",
+    ),
+)
+def test_source_projection_refuses_non_operation_contract_union_gaps(contract):
+    kernel, language = mutable_authorities()
+    authored = _authored(language)
+    graph = _graph(kernel, authored)
+    context = admit_authority_context(kernel, _index(kernel, graph))
+    assert isinstance(context, AdmittedAuthorityContext)
+    members = context.source_native_binding_index.members
+    program_schema = context.source_semantic_index.role_anchors[
+        context.source_native_binding_index.roles["source.program"]
+    ][0]
+    result_schema = source_schema_member(
+        program_schema, members["source.program.result"]
+    )[1]
+
+    with pytest.raises(ValueError, match="no unique semantic branch"):
+        project_source_value(
+            contract, result_schema, context.source_native_binding_index
+        )
+
+
+@pytest.mark.parametrize("contract", [[], "", 0, False, None])
+def test_source_projection_refuses_falsey_non_object_operation_contract(contract):
+    kernel, language = mutable_authorities()
+    authored = _authored(language)
+    graph = _graph(kernel, authored)
+    context = admit_authority_context(kernel, _index(kernel, graph))
+    assert isinstance(context, AdmittedAuthorityContext)
+    members = context.source_native_binding_index.members
+    operation_schema = context.source_semantic_index.role_anchors[
+        context.source_native_binding_index.roles["source.operation_call"]
+    ][0]
+    result_schema = source_schema_member(
+        operation_schema, members["source.operation_call.result"]
+    )[1]
+
+    with pytest.raises(ValueError, match="no unique semantic branch"):
+        project_source_value(
+            cast(dict[str, Any], contract),
+            result_schema,
+            context.source_native_binding_index,
+        )
 
 
 @pytest.mark.parametrize(

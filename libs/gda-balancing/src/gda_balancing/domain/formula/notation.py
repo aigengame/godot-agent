@@ -304,28 +304,33 @@ def _authored_formula_schemas(
 def _project_formula_request(
     request: dict[str, Any], authority_context: AdmittedAuthorityContext
 ) -> dict[str, Any]:
-    module_schema, formula_schema = _authored_formula_schemas(authority_context)
-    projected = dict(request)
-    for member, selected_schema in (
-        ("module", module_schema),
-        ("formula", formula_schema),
-    ):
-        if member in request:
-            projected[member] = project_source_value(
-                request[member],
-                selected_schema,
-                authority_context.source_native_binding_index,
-            ).value
-    if "modules" in request:
-        projected["modules"] = [
-            project_source_value(
-                module,
-                module_schema,
-                authority_context.source_native_binding_index,
-            ).value
-            for module in request["modules"]
-        ]
-    return projected
+    try:
+        module_schema, formula_schema = _authored_formula_schemas(authority_context)
+        projected = dict(request)
+        for member, selected_schema in (
+            ("module", module_schema),
+            ("formula", formula_schema),
+        ):
+            if member in request:
+                projected[member] = project_source_value(
+                    request[member],
+                    selected_schema,
+                    authority_context.source_native_binding_index,
+                ).value
+        if "modules" in request:
+            projected["modules"] = [
+                project_source_value(
+                    module,
+                    module_schema,
+                    authority_context.source_native_binding_index,
+                ).value
+                for module in request["modules"]
+            ]
+        return projected
+    except FormulaNotationRefusal:
+        raise
+    except ValueError as err:
+        raise _contextual_refusal(err, authority_context) from err
 
 
 def _formula_policy(authority_context: AdmittedAuthorityContext) -> dict[str, Any]:
@@ -396,9 +401,14 @@ def _module_imports(
     if not isinstance(imports, list):
         raise ValueError("Formula module context has no imports")
     source_schema = _formula_source_schema(authority_context)
-    import_schema = source_schema["properties"]["modules"]["items"]["properties"][
-        "imports"
-    ]["items"]
+    members = authority_context.source_native_binding_index.members
+    modules_schema = source_schema_member(
+        source_schema, members["source.root.modules"]
+    )[1]
+    imports_schema = source_schema_member(
+        modules_schema["items"], members["source.module.imports"]
+    )[1]
+    import_schema = imports_schema["items"]
     import_validator = jsonschema.Draft202012Validator(source_schema).evolve(
         schema=import_schema
     )

@@ -41,7 +41,9 @@ from gda_balancing.domain.operation_program import closed_operation_coordinates
 from gda_balancing.domain.program_reachability import formula_lifecycle_phases
 from gda_balancing.domain.model._preparation import _TypedHIR
 from gda_balancing.domain.authority.source_projection import (
+    SourceNativeBindingIndex,
     SourceProjection,
+    derive_default_source_native_bindings,
     source_semantic_selector,
 )
 
@@ -826,6 +828,7 @@ def _resolution_relations(
     profile: dict[str, Any],
     budget: _ResolutionBudget,
     namespace_projection: NamespaceClosureProjection,
+    source_bindings: SourceNativeBindingIndex,
 ) -> dict[str, list[dict[str, Any]]]:
     source = source_projection.value
     language = _language(language_bundle)
@@ -857,9 +860,21 @@ def _resolution_relations(
         else:
             raise ValueError(f"unknown admitted relation term root: {root}")
         for segment in cast(list[str], term["path"]):
-            value = value[segment]
+            resolved_segment = segment
+            if pointer is not None and isinstance(value, dict) and segment not in value:
+                candidates = {
+                    slot.rsplit(".", 1)[-1]
+                    for slot, member in source_bindings.members.items()
+                    if member == segment and slot.rsplit(".", 1)[-1] in value
+                }
+                if len(candidates) != 1:
+                    raise ValueError(
+                        "Source relation path has no unique native binding"
+                    )
+                resolved_segment = candidates.pop()
+            value = value[resolved_segment]
             if pointer is not None:
-                pointer = (*pointer, segment)
+                pointer = (*pointer, resolved_segment)
         return value, pointer
 
     relations: dict[str, list[dict[str, Any]]] = {}
@@ -1008,7 +1023,12 @@ def _resolution_diagnostics(
     diagnostics: list[Schema2Diagnostic] = []
     try:
         relations = _resolution_relations(
-            source_projection, language_bundle, profile, budget, projection
+            source_projection,
+            language_bundle,
+            profile,
+            budget,
+            projection,
+            derive_default_source_native_bindings(kernel, language_bundle),
         )
         for judgment in cast(list[dict[str, Any]], profile["judgment_chain"]):
             operation_spec = operation_specs[judgment["operation"]]

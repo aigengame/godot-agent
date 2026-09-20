@@ -466,6 +466,28 @@ class SourceNativeBindingIndex:
     discriminators: Mapping[str, JsonValue]
 
 
+def project_source_native_token(
+    bindings: SourceNativeBindingIndex, slot: str, value: Any
+) -> Any:
+    """Translate one LDB token through a fixed Source-native ABI slot."""
+    binding = bindings.discriminators.get(slot)
+    abi = _SOURCE_NATIVE_DISCRIMINATOR_ABI.get(slot)
+    if abi is None or binding is None:
+        raise ValueError("Source native token slot is unavailable")
+    return deepcopy(abi[2]) if value == binding else value
+
+
+def author_source_native_token(
+    bindings: SourceNativeBindingIndex, slot: str, value: Any
+) -> Any:
+    """Translate one fixed Source-native token back to its LDB-owned spelling."""
+    binding = bindings.discriminators.get(slot)
+    abi = _SOURCE_NATIVE_DISCRIMINATOR_ABI.get(slot)
+    if abi is None or binding is None:
+        raise ValueError("Source native token slot is unavailable")
+    return deepcopy(binding) if value == abi[2] else value
+
+
 _SOURCE_NATIVE_ROLE_SLOTS = frozenset(
     f"source.{name}"
     for name in (
@@ -843,6 +865,21 @@ _SOURCE_NATIVE_DISCRIMINATOR_ABI: Mapping[
             "source.inline_parameter.node",
             "parameter",
         ),
+        "source.formula_parameter.domain_kind.discriminator": (
+            "source.formula_parameter",
+            "source.formula_parameter.domain_kind",
+            "closed-interval",
+        ),
+        "source.symbol.domain_kind.discriminator": (
+            "source.symbol",
+            "source.symbol.domain_kind",
+            "closed-interval",
+        ),
+        "source.value_contract.domain_kind.discriminator": (
+            "source.value_contract",
+            "source.value_contract.domain_kind",
+            "closed-interval",
+        ),
     }
 )
 
@@ -970,6 +1007,23 @@ def derive_source_native_bindings(
         roles=MappingProxyType(role_tokens),
         members=MappingProxyType(member_tokens),
         discriminators=MappingProxyType(discriminator_values),
+    )
+
+
+def derive_default_source_native_bindings(
+    kernel: Mapping[str, Any], language_bundle: Mapping[str, Any]
+) -> SourceNativeBindingIndex:
+    """Derive the one default Resolution profile's Source-native ABI bindings."""
+    profiles = [
+        profile
+        for profile in language_bundle["language"]["resolution_profiles"]
+        if isinstance(profile, Mapping) and profile.get("default") is True
+    ]
+    if len(profiles) != 1:
+        raise ValueError("Source native bindings require one default profile")
+    return derive_source_native_bindings(
+        derive_source_semantic_index(kernel, language_bundle),
+        profiles[0].get("source_native_bindings"),
     )
 
 
@@ -1331,29 +1385,100 @@ def _map_source_value(
         )
     }
 
+    def selection_schema(candidate: Mapping[str, Any]) -> dict[str, Any]:
+        """Admit only the unresolved Operation result hole during branch selection."""
+        result = deepcopy(dict(candidate))
+        operation_role = bindings.roles["source.operation_call"]
+        result_member = bindings.members["source.operation_call.result"]
+
+        def relax(node: dict[str, Any], inherited_role: str | None = None) -> None:
+            role = node.get(_ROLE, inherited_role)
+            properties = node.get("properties")
+            if isinstance(properties, dict):
+                for name, child in list(properties.items()):
+                    if not isinstance(child, dict):
+                        continue
+                    if role == operation_role and child.get(_MEMBER) == result_member:
+                        properties[name] = {
+                            "anyOf": [
+                                child,
+                                {"type": "object", "maxProperties": 0},
+                            ],
+                        }
+                    else:
+                        relax(child)
+            items = node.get("items")
+            if isinstance(items, dict):
+                relax(items)
+            branches = node.get("oneOf")
+            if isinstance(branches, list):
+                for branch in branches:
+                    if isinstance(branch, dict):
+                        relax(
+                            branch,
+                            role if isinstance(properties, dict) else inherited_role,
+                        )
+
+        relax(result)
+        return result
+
     def walk(
         current: Any,
         node: Mapping[str, Any],
         wire: tuple[Any, ...],
         semantic: tuple[Any, ...],
+        *,
+        defer_unresolved_contract: bool = False,
     ) -> Any:
         addresses[_pointer(semantic)] = _pointer(wire)
         if "oneOf" in node and "properties" not in node:
-            matching = _native_abi_source_schema(node, bindings) if write_authored else node
+            matching = selection_schema(
+                _native_abi_source_schema(node, bindings) if write_authored else node
+            )
             branches = [
                 branch
                 for branch, test in zip(node["oneOf"], matching["oneOf"], strict=True)
                 if jsonschema.Draft202012Validator(test).is_valid(current)
             ]
+            if (
+                not branches
+                and isinstance(current, Mapping)
+                and not current
+                and defer_unresolved_contract
+            ):
+                # An empty unresolved Operation contract carries no Source-owned
+                # token to translate. Leave it for the operation lookup so it can
+                # report the stable unresolved-name diagnostic.
+                return {}
             if len(branches) != 1:
                 raise ValueError("Source value has no unique semantic branch")
-            return walk(current, branches[0], wire, semantic)
+            return walk(
+                current,
+                branches[0],
+                wire,
+                semantic,
+                defer_unresolved_contract=defer_unresolved_contract,
+            )
         properties = node.get("properties")
         if isinstance(properties, Mapping):
+            if not isinstance(current, Mapping):
+                raise ValueError("Source object is malformed")
             role = node.get(_ROLE)
             if not isinstance(role, str) or role not in role_slots:
                 raise ValueError("Source object has no bound native role")
             owner_slot = role_slots[role]
+            expected_members = {
+                (
+                    member_slots[(owner_slot, child[_MEMBER])].rsplit(".", 1)[-1]
+                    if write_authored
+                    else authored
+                )
+                for authored, child in properties.items()
+            }
+            if node.get("unevaluatedProperties") is False and not set(current) <= (
+                expected_members
+            ):
+                raise ValueError("Source object has an unknown member")
             result: dict[str, Any] = {}
             for authored, child in properties.items():
                 member = child[_MEMBER]
@@ -1375,6 +1500,9 @@ def _map_source_value(
                         child,
                         wire + (authored,),
                         semantic + (internal_member,),
+                        defer_unresolved_contract=(
+                            member_slot == "source.operation_call.result"
+                        ),
                     )
                 )
                 discriminator = discriminator_slots.get((owner_slot, member_slot))

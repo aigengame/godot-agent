@@ -2999,7 +2999,9 @@ def _assignment_role_contract_is_total(row: dict[str, Any]) -> bool:
     )
 
 
-def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
+def _assignment_policy_is_total(
+    kernel: dict[str, Any], language_bundle: dict[str, Any]
+) -> bool:
     language = language_bundle.get("language")
     if not isinstance(language, dict):
         return False
@@ -3067,13 +3069,31 @@ def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
         return False
     try:
         from gda_balancing.domain.authority.source_projection import (
+            derive_source_native_bindings,
+            derive_source_semantic_index,
             source_schema_member,
         )
 
-        module = source_schema_member(model_source_schemas[0], "modules")[1]["items"]
-        symbol = source_schema_member(module, "symbols")[1]["items"]
-        policy_schema = source_schema_member(symbol, "value_policy")[1]
-        schema_modes = set(source_schema_member(policy_schema, "mode")[1]["enum"])
+        source_index = derive_source_semantic_index(
+            kernel, language_bundle
+        )
+        bindings = derive_source_native_bindings(
+            source_index, profiles[0].get("source_native_bindings")
+        )
+        module = source_schema_member(
+            model_source_schemas[0], bindings.members["source.root.modules"]
+        )[1]["items"]
+        symbol = source_schema_member(
+            module, bindings.members["source.module.symbols"]
+        )[1]["items"]
+        policy_schema = source_schema_member(
+            symbol, bindings.members["source.symbol.value_policy"]
+        )[1]
+        schema_modes = set(
+            source_schema_member(
+                policy_schema, bindings.members["source.value_policy.mode"]
+            )[1]["enum"]
+        )
     except (KeyError, TypeError, ValueError):
         return False
     return schema_modes == declared_mode_ids
@@ -3429,6 +3449,28 @@ def _derive_operation_composition(
         or value_contracts is None
     ):
         return ("language.literal-typing-profiles",)
+    try:
+        from gda_balancing.domain.authority.source_projection import (
+            derive_source_native_bindings,
+            derive_source_semantic_index,
+        )
+
+        default_profiles = [
+            profile
+            for profile in language["resolution_profiles"]
+            if profile.get("default") is True
+        ]
+        if len(default_profiles) != 1:
+            return ("language.operations",)
+        source_bindings = derive_source_native_bindings(
+            derive_source_semantic_index(kernel, language_bundle),
+            default_profiles[0].get("source_native_bindings"),
+        )
+        interval_token = source_bindings.discriminators[
+            "source.value_contract.domain_kind.discriminator"
+        ]
+    except (KeyError, TypeError, ValueError):
+        return ("language.operations",)
     fixed_value_contracts = value_contracts.fixed_value_contracts
     runtime_numeric_policies = value_contracts.runtime_numeric_policies
     node_definitions = {
@@ -3785,7 +3827,7 @@ def _derive_operation_composition(
                                 candidate
                                 for candidate in candidates
                                 if isinstance(candidate.get("domain"), dict)
-                                and candidate["domain"].get("kind") == "closed-interval"
+                                and candidate["domain"].get("kind") == interval_token
                                 and isinstance(candidate["domain"].get("minimum"), int)
                                 and not isinstance(candidate["domain"]["minimum"], bool)
                                 and candidate["domain"]["minimum"] > 0
@@ -5257,7 +5299,7 @@ def admit_authorities(
             "static",
             "language.definitions.artifact-semantic-projections",
         )
-    if not _assignment_policy_is_total(language_bundle):
+    if not _assignment_policy_is_total(kernel, language_bundle):
         refuse(
             "kernel.vector_mismatch",
             "static",

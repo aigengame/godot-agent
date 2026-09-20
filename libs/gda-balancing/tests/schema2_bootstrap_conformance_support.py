@@ -2994,6 +2994,21 @@ _CONSUMER_B_SOURCE_DISCRIMINATOR_ABI = {
         "source.inline_parameter.node",
         "parameter",
     ),
+    "source.formula_parameter.domain_kind.discriminator": (
+        "source.formula_parameter",
+        "source.formula_parameter.domain_kind",
+        "closed-interval",
+    ),
+    "source.symbol.domain_kind.discriminator": (
+        "source.symbol",
+        "source.symbol.domain_kind",
+        "closed-interval",
+    ),
+    "source.value_contract.domain_kind.discriminator": (
+        "source.value_contract",
+        "source.value_contract.domain_kind",
+        "closed-interval",
+    ),
 }
 
 
@@ -6069,8 +6084,33 @@ def _consumer_b_rir_schema(
     authored_source = _consumer_b_source_definition(
         language_bundle, protocols["source_notation"]["role"]
     )["schema"]
+    default_profiles = [
+        profile
+        for profile in language["resolution_profiles"]
+        if isinstance(profile, dict) and profile.get("default") is True
+    ]
+    if len(default_profiles) != 1:
+        raise ValueError("Formula Source native bindings have no default profile")
+    native_bindings = {
+        row["slot"]: row
+        for row in default_profiles[0]["source_native_bindings"]
+        if isinstance(row, dict) and isinstance(row.get("slot"), str)
+    }
 
     def source_callee(node_kind: str) -> tuple[str, list[str]]:
+        discriminator_slots = [
+            (slot, owner_slot, member_slot)
+            for slot, (owner_slot, member_slot, internal_value) in (
+                _CONSUMER_B_SOURCE_DISCRIMINATOR_ABI.items()
+            )
+            if internal_value == node_kind
+        ]
+        if len(discriminator_slots) != 1:
+            raise ValueError("Formula callee has no unique native discriminator")
+        slot, owner_slot, member_slot = discriminator_slots[0]
+        expected_role = native_bindings[owner_slot]["role"]
+        expected_member = native_bindings[member_slot]["member"]
+        expected_value = native_bindings[slot]["value"]
         matches: list[tuple[str, list[str]]] = []
 
         def visit(candidate: Any) -> None:
@@ -6078,10 +6118,12 @@ def _consumer_b_rir_schema(
                 return
             properties = candidate.get("properties")
             if (
-                isinstance(candidate.get(_SOURCE_ROLE_KEY), str)
+                candidate.get(_SOURCE_ROLE_KEY) == expected_role
                 and isinstance(properties, dict)
                 and any(
-                    isinstance(child, dict) and child.get("const") == node_kind
+                    isinstance(child, dict)
+                    and child.get(_SOURCE_MEMBER_KEY) == expected_member
+                    and child.get("const") == expected_value
                     for child in properties.values()
                 )
             ):
@@ -9703,12 +9745,36 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
     ]
     if len(model_schemas) != 1:
         return False
+    native_rows = selected_profiles[0].get("source_native_bindings")
+    if not isinstance(native_rows, list):
+        return False
+    native_by_slot = {
+        row.get("slot"): row
+        for row in native_rows
+        if isinstance(row, dict) and isinstance(row.get("slot"), str)
+    }
+    if len(native_by_slot) != len(native_rows):
+        return False
+    value_policy_binding = native_by_slot.get("source.value_policy")
+    mode_binding = native_by_slot.get("source.value_policy.mode")
+    if (
+        not isinstance(value_policy_binding, dict)
+        or value_policy_binding.get("kind") != "role"
+        or not isinstance(value_policy_binding.get("role"), str)
+        or not isinstance(mode_binding, dict)
+        or mode_binding.get("kind") != "member"
+        or mode_binding.get("owner_slot") != "source.value_policy"
+        or not isinstance(mode_binding.get("member"), str)
+    ):
+        return False
+    value_policy_role = value_policy_binding["role"]
+    mode_member = mode_binding["member"]
     value_policy_anchors: list[dict[str, Any]] = []
 
     def collect_value_policy(value: Any) -> None:
         if not isinstance(value, dict):
             return
-        if value.get(_SOURCE_ROLE_KEY) == "value-policy":
+        if value.get(_SOURCE_ROLE_KEY) == value_policy_role:
             value_policy_anchors.append(value)
         for child in value.get("properties", {}).values():
             collect_value_policy(child)
@@ -9721,7 +9787,7 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
     mode_schemas = [
         child
         for anchor in value_policy_anchors
-        for child in _consumer_b_semantic_property_schemas(anchor, "mode")
+        for child in _consumer_b_semantic_property_schemas(anchor, mode_member)
     ]
     if len(mode_schemas) != 1 or not isinstance(mode_schemas[0].get("enum"), list):
         return False
@@ -11715,6 +11781,23 @@ def _consumer_b_operation_composition_subjects(
         or not all(isinstance(policy, str) for policy in runtime_numeric_policies)
     ):
         return ("language.literal-typing-profiles",)
+    default_profiles = [
+        profile
+        for profile in language.get("resolution_profiles", [])
+        if isinstance(profile, dict) and profile.get("default") is True
+    ]
+    if len(default_profiles) != 1:
+        return ("language.operations",)
+    native_rows = default_profiles[0].get("source_native_bindings")
+    interval_rows = [
+        row
+        for row in native_rows or []
+        if isinstance(row, dict)
+        and row.get("slot") == "source.value_contract.domain_kind.discriminator"
+    ]
+    if len(interval_rows) != 1:
+        return ("language.operations",)
+    interval_token = interval_rows[0].get("value")
     node_definitions = {
         node["id"]: node
         for node in runtime_nodes
@@ -12620,7 +12703,7 @@ def _consumer_b_operation_composition_subjects(
                                 candidate
                                 for candidate in candidates
                                 if isinstance(candidate.get("domain"), dict)
-                                and candidate["domain"].get("kind") == "closed-interval"
+                                and candidate["domain"].get("kind") == interval_token
                                 and isinstance(candidate["domain"].get("minimum"), int)
                                 and not isinstance(candidate["domain"]["minimum"], bool)
                                 and candidate["domain"]["minimum"] > 0

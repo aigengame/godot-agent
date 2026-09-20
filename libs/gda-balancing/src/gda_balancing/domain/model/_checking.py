@@ -203,11 +203,8 @@ def _check_model_source_bytes(
         projection = None
     if projection is not None and not set(source_schema["required"]) <= set(source):
         projection = None
-    requirements_member = authority_context.source_native_binding_index.members[
-        "source.root.package_requirements"
-    ]
     raw_requirements = (
-        projection.value.get(requirements_member, [])
+        projection.value.get("package_requirements", [])
         if projection is not None
         else []
     )
