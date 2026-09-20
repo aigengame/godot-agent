@@ -306,8 +306,10 @@ class _SkippedEntries:
     vanished — is counted under its spelling, since it has no inode to be counted
     under.
 
-    Membership stays on the SPELLING, because that is the question the
-    settlement asks: whether the first capture could read THIS path.
+    The two questions have two names because they are asked on two keys:
+    ``count`` is the settlement's ``skipped``, on the identity, and ``covers``
+    answers on the SPELLING, because that is what the settlement asks: whether
+    the first capture could read THIS path.
     """
 
     def __init__(self, project: Path) -> None:
@@ -328,10 +330,13 @@ class _SkippedEntries:
             return
         self._identities.add((status.st_dev, status.st_ino))
 
-    def __contains__(self, rel: object) -> bool:
+    def covers(self, rel: str) -> bool:
+        """Whether this spelling is already accounted for."""
         return rel in self._spellings
 
-    def __len__(self) -> int:
+    @property
+    def count(self) -> int:
+        """The settlement's ``skipped``: one per identity, plus the unidentified."""
         return len(self._identities) + len(self._unidentified)
 
 
@@ -430,7 +435,7 @@ class ProjectTreeInventory:
         for rel, path in _walk_project_files(
             self.project, artifact=self.artifact, on_unreadable_dir=skipped.add
         ):
-            if rel in skipped or _under(rel, self.unlistable_dirs):
+            if skipped.covers(rel) or _under(rel, self.unlistable_dirs):
                 continue
             before = self.files.get(rel)
             if before is None:
@@ -468,5 +473,5 @@ class ProjectTreeInventory:
         created.sort(key=lambda entry: entry.rel)
         modified.sort(key=lambda entry: entry.rel)
         return ProjectTreeSettlement(
-            created=created, modified=modified, skipped=len(skipped)
+            created=created, modified=modified, skipped=skipped.count
         )
