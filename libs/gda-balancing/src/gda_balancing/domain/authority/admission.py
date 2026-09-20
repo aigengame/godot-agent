@@ -84,7 +84,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:ea123df15d5aa391de177b8d1e57a340b0f9864fca8e40381f439ad3746edb66"
+    "sha256:196b61ab919d6e7850696e3db8a1bdb8d6094a88879ead2d113eddc280977479"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -412,14 +412,8 @@ def _formula_resolution_contract_is_supported(contract: Any) -> bool:
         "operand_kinds": ["literal", "local", "parameter", "symbol"],
         "binding_sites": ["derived-symbol", "operation-slot"],
         "static_callees": [
-            {
-                "node": "formula-call",
-                "role": "formula-coordinate",
-            },
-            {
-                "node": "operation-call",
-                "role": "operation-coordinate",
-            },
+            {"node": "formula-call"},
+            {"node": "operation-call"},
         ],
         "inference_operators": {
             "closed-interval-add": "integer-add",
@@ -455,14 +449,21 @@ def _formula_resolution_is_closed(
         runtime = meta["runtime_program"]
         nodes = {row["id"]: row for row in runtime["nodes"]}
         from gda_balancing.domain.authority.source_projection import (
-            validate_source_roles,
+            derive_source_semantic_index,
+            derive_source_native_bindings,
         )
 
         wire_schema = schema
+        source_index = derive_source_semantic_index(
+            {"meta_format": meta}, language_bundle
+        )
+        if source_index.schema is not wire_schema:
+            return False
         for authored_profile in language_bundle["language"]["resolution_profiles"]:
-            if not validate_source_roles({"meta_format": meta}, wire_schema):
-                return False
             policy = authored_profile["formula_resolution"]
+            derive_source_native_bindings(
+                source_index, authored_profile.get("source_native_bindings")
+            )
             aliases = policy["fixed_value_type_aliases"]
             if len({row["alias"] for row in aliases}) != len(aliases) or any(
                 row["contract"] not in runtime["fixed_value_contracts"]
@@ -526,7 +527,12 @@ def _source_notation_contract_is_supported(contract: Any) -> bool:
     return (
         isinstance(contract, dict)
         and set(contract)
-        == {"role", "required_members", "operation_source", "semantic_roles"}
+        == {
+            "role",
+            "required_members",
+            "operation_source",
+            "semantic_annotations",
+        }
         and contract["role"] == "model-source-package"
         and contract["required_members"]
         == ["formula_grammar", "operation_notation_schema"]
@@ -660,41 +666,6 @@ def _wire_schema_identity_domains_are_closed(
     return artifact_kinds.isdisjoint(inline_kinds) and set(roles) == set(
         protocol_roles["identified_artifacts"] + protocol_roles["standalone_inputs"]
     )
-
-
-def _source_equality_values(
-    authorities: dict[str, Any], contract: dict[str, Any]
-) -> list[Any] | None:
-    """Follow existing equality paths, resolving Source names from annotations."""
-    selected: list[Any] = [authorities]
-    for segment in contract["right_template"]:
-        expanded: list[Any] = []
-        for value in selected:
-            candidates = value if isinstance(value, list) else [value]
-            for candidate in candidates:
-                if not isinstance(candidate, dict):
-                    continue
-                if isinstance(segment, str):
-                    if segment not in candidate:
-                        continue
-                    child = candidate[segment]
-                elif isinstance(segment, dict) and set(segment) == {"source_member"}:
-                    matches = [
-                        child
-                        for child in candidate.values()
-                        if isinstance(child, dict)
-                        and child.get("semantic_member") == segment["source_member"]
-                    ]
-                    if len(matches) != 1:
-                        continue
-                    child = matches[0]
-                else:
-                    return None
-                expanded.extend(child if isinstance(child, list) else [child])
-        if not expanded:
-            return None
-        selected = expanded
-    return selected
 
 
 def _reference_contracts_close(
@@ -887,16 +858,6 @@ def _reference_contracts_close(
             ) or not _path_is_declared(authorities, contract.get("right")):
                 return False
             right_values = _path_values(authorities, contract["right"])
-        elif set(contract) == {
-            "left",
-            "mode",
-            "right_template",
-        }:
-            if not _path_is_declared(authorities, contract.get("left")):
-                return False
-            right_values = _source_equality_values(authorities, contract)
-            if right_values is None:
-                return False
         else:
             return False
         try:
@@ -1481,11 +1442,18 @@ def _relation_recipe_paths_are_typed(
     ]
     if len(source_schemas) != 1 or not isinstance(source_schemas[0], dict):
         return False
-    from gda_balancing.domain.authority.source_projection import semantic_source_schema
-
-    source_schema = semantic_source_schema(
-        {"meta_format": meta_format}, source_schemas[0]
+    from gda_balancing.domain.authority.source_projection import (
+        derive_source_semantic_index,
+        semantic_source_schema,
     )
+
+    try:
+        source_index = derive_source_semantic_index(
+            {"meta_format": meta_format}, language_bundle
+        )
+        source_schema = semantic_source_schema(source_index.schema)
+    except (KeyError, TypeError, ValueError):
+        return False
     recipes = profile["relation_recipes"]
 
     # A shape is (representation, schema-or-values, source-origin).
@@ -2517,17 +2485,16 @@ def _language_definitions_are_closed(
         return False
     try:
         from gda_balancing.domain.authority.source_projection import (
+            derive_source_semantic_index,
             source_semantic_selector,
         )
 
-        source = next(
-            row["schema"]
-            for row in language["wire_schemas"]
-            if row.get("protocol_role") == "model-source-package"
+        source_index = derive_source_semantic_index(
+            {"meta_format": meta_format}, language_bundle
         )
         for check in language["model_checks"]:
             source_semantic_selector(
-                source,
+                source_index.schema,
                 [
                     *check.get("semantic_scope_selector", []),
                     *check["semantic_selector"],

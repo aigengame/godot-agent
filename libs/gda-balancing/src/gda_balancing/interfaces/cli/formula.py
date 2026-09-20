@@ -17,7 +17,6 @@ from gda_balancing.domain.diagnostics import (
     refusal_catalog_for_reasons,
     source_resolution_profile,
 )
-from gda_balancing.domain.wire_schema import wire_schema_definition_for_role
 from gda_balancing.domain.authority.source_projection import source_schema_member
 
 
@@ -78,12 +77,17 @@ def run_formula_parse(
 
 def _formula_conversion_result_schema() -> dict[str, object]:
     context = packaged_authority_context()
-    source_schema = wire_schema_definition_for_role(
-        context.language_bundle, "model-source-package"
-    )["schema"]
-    module_schema = source_schema_member(source_schema, "modules")[1]["items"]
-    formula_schema = source_schema_member(module_schema, "formulas")[1]["items"]
-    body_schema = source_schema_member(formula_schema, "body")[1]
+    source_schema = context.source_semantic_index.schema
+    members = context.source_native_binding_index.members
+    module_schema = source_schema_member(
+        source_schema, members["source.root.modules"]
+    )[1]["items"]
+    formula_schema = source_schema_member(
+        module_schema, members["source.module.formulas"]
+    )[1]["items"]
+    body_schema = source_schema_member(
+        formula_schema, members["source.formula.body"]
+    )[1]
     return {
         "type": "object",
         "properties": {

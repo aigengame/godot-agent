@@ -28,6 +28,12 @@ from gda_balancing.domain.authority.admission import (
     BootstrapAdmission,
     admit_authorities,
 )
+from gda_balancing.domain.authority.source_projection import (
+    SourceNativeBindingIndex,
+    SourceSemanticIndex,
+    derive_source_native_bindings,
+    derive_source_semantic_index,
+)
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 
 _AUTHORITY_PACKAGE = "gda_balancing.schema2.authorities"
@@ -275,6 +281,8 @@ class AdmittedAuthorityContext:
     kernel: dict[str, Any]
     language_bundle: dict[str, Any]
     replay_comparison_policy_index: Mapping[str, Mapping[str, Any]] = field(init=False)
+    source_native_binding_index: SourceNativeBindingIndex = field(init=False)
+    source_semantic_index: SourceSemanticIndex = field(init=False)
     admission: BootstrapAdmission
     canonical_kernel_bytes: bytes = field(init=False)
     canonical_language_bundle_bytes: bytes = field(init=False)
@@ -317,6 +325,21 @@ class AdmittedAuthorityContext:
             self,
             "replay_comparison_policy_index",
             _replay_comparison_policy_index(language_bundle),
+        )
+        source_semantic_index = derive_source_semantic_index(kernel, language_bundle)
+        profiles = [
+            profile
+            for profile in language_bundle["language"]["resolution_profiles"]
+            if profile.get("default") is True
+        ]
+        if len(profiles) != 1:
+            raise ValueError("admitted context has no unique default resolution profile")
+        source_native_binding_index = derive_source_native_bindings(
+            source_semantic_index, profiles[0]["source_native_bindings"]
+        )
+        object.__setattr__(self, "source_semantic_index", source_semantic_index)
+        object.__setattr__(
+            self, "source_native_binding_index", source_native_binding_index
         )
 
     def __deepcopy__(self, memo: dict[int, Any]) -> "AdmittedAuthorityContext":

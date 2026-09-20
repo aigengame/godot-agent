@@ -246,12 +246,26 @@ def _write_source(path: Path, source: dict[str, Any]) -> None:
 def _production_source_projection(
     source: dict[str, Any], kernel: dict[str, Any], language_bundle: dict[str, Any]
 ) -> SourceProjection:
+    from gda_balancing.domain.authority.source_projection import (
+        derive_source_native_bindings,
+        derive_source_semantic_index,
+    )
+
     schema = next(
         item["schema"]
         for item in language_bundle["language"]["wire_schemas"]
         if item.get("protocol_role") == "model-source-package"
     )
-    return project_source_value(source, kernel, schema)
+    index = derive_source_semantic_index(kernel, language_bundle)
+    profile = next(
+        row
+        for row in language_bundle["language"]["resolution_profiles"]
+        if row.get("default") is True
+    )
+    bindings = derive_source_native_bindings(
+        index, profile["source_native_bindings"]
+    )
+    return project_source_value(source, schema, bindings)
 
 
 def _reference_select_with_paths(
@@ -1685,7 +1699,9 @@ def _reference_formulas_and_bindings(
         for formula_index, source_formula in enumerate(module.get("formulas", [])):
             key = (module_id, source_formula["id"])
             source_body = normalize_semantic_body(
-                source_formula["body"], kernel=checked.kernel
+                source_formula["body"],
+                checked.language_bundle,
+                kernel=checked.kernel,
             )
             parameters = [
                 {

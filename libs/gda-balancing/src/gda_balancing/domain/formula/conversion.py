@@ -52,8 +52,13 @@ def render_formula_request(
 ) -> FormulaConversion:
     """Render and reverse-admit one structured Formula body."""
     _, formula_schema = notation._authored_formula_schemas(context)
-    body_member, _ = source_schema_member(formula_schema, "body")
-    expression_member, _ = source_schema_member(formula_schema, "expression")
+    members = context.source_native_binding_index.members
+    body_member, _ = source_schema_member(
+        formula_schema, members["source.formula.body"]
+    )
+    expression_member, _ = source_schema_member(
+        formula_schema, members["source.formula.expression"]
+    )
     formula = request.get("formula")
     if not isinstance(formula, dict) or not isinstance(formula.get(body_member), dict):
         raise notation.FormulaNotationRefusal(
@@ -75,8 +80,13 @@ def parse_formula_request(
 ) -> FormulaConversion:
     """Parse notation and reverse-admit its canonical Formula pair."""
     _, formula_schema = notation._authored_formula_schemas(context)
-    body_member, _ = source_schema_member(formula_schema, "body")
-    expression_member, _ = source_schema_member(formula_schema, "expression")
+    members = context.source_native_binding_index.members
+    body_member, _ = source_schema_member(
+        formula_schema, members["source.formula.body"]
+    )
+    expression_member, _ = source_schema_member(
+        formula_schema, members["source.formula.expression"]
+    )
     body = notation.parse_formula_expression(request, context)
     expression = notation.render_formula_body(body, context)
     paired_request = deepcopy(request)

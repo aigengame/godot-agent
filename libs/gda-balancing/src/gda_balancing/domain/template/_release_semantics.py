@@ -21,6 +21,7 @@ from gda_balancing.domain.authority.context import (
 )
 from gda_balancing.domain.authority.admission import BootstrapAdmission
 from gda_balancing.domain.authority.source_projection import (
+    SourceNativeBindingIndex,
     project_source_value,
     author_source_value,
 )
@@ -1279,6 +1280,7 @@ class AdmittedTemplate:
     language_bundle: dict[str, JsonValue]
     profile: dict[str, JsonValue]
     schema_identities: dict[str, str]
+    source_native_binding_index: SourceNativeBindingIndex
 
 
 def load_admitted_template(
@@ -1308,6 +1310,7 @@ def load_admitted_template(
         language_bundle=cast(dict[str, JsonValue], language_bundle),
         profile=_template_admission_profile(language_bundle),
         schema_identities=_member_schema_identities(language_bundle),
+        source_native_binding_index=context.source_native_binding_index,
     )
 
 
@@ -1384,14 +1387,18 @@ def prepare_template_instantiation(
     source_schema = wire_schema_definition_for_role(
         language_bundle, "model-source-package"
     )["schema"]
-    semantic = project_source_value(source, kernel, source_schema).value
+    semantic = project_source_value(
+        source, source_schema, admitted.source_native_binding_index
+    ).value
     semantic["manifest"]["id"] = package_id
     semantic["manifest"]["template_provenance"] = {
         "template_id": release["id"],
         "template_identity": release["content_identity"],
         "starter_identity": starter_identity,
     }
-    source = author_source_value(semantic, kernel, source_schema)
+    source = author_source_value(
+        semantic, source_schema, admitted.source_native_binding_index
+    )
     source_identity = content_identity(source_identity_domain, source)
     command_input = select_protocol_artifact_contract(
         language_bundle, "template-instantiate-command-input"

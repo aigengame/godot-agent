@@ -175,13 +175,12 @@ def test_model_check_semantic_selectors_do_not_restore_physical_source_paths(wit
     # Actual annotations, not a second list of copied/reserved Source spellings,
     # assign every member of the Symbol role to its freely renameable address.
     symbol = _symbol_schema(graph)
-    role = kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
-        "source_notation"
-    ]["semantic_roles"]["roles"][symbol["semantic_role"]]
     fields = _symbol_fields(inventory)
-    assert {child["semantic_member"] for child in symbol["properties"].values()} == set(
-        role["members"]
-    )
+    semantic_members = [
+        child["semantic_member"] for child in symbol["properties"].values()
+    ]
+    assert semantic_members
+    assert len(semantic_members) == len(set(semantic_members))
     assert {token.name for token in fields} == set(symbol["properties"])
     assert not fields & inventory.reserved
     inventory.require_complete()

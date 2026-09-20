@@ -11,7 +11,9 @@ from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     admit_authority_context,
 )
-from gda_balancing.domain.authority.source_projection import validate_source_roles
+from gda_balancing.domain.authority.source_projection import (
+    derive_source_semantic_index,
+)
 from gda_balancing.domain.model import CheckedModel, check_model_source_value
 from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_conformance_support import (
@@ -298,7 +300,6 @@ def test_source_template_provenance_roles_reach_the_real_public_writer(tmp_path)
         "missing-field",
         "extra-field",
         "argument-role",
-        "array-shape",
         "missing-member-role",
         "duplicate-member-role",
         "branch-only-field",
@@ -315,9 +316,6 @@ def test_source_semantic_role_contract_refuses_incomplete_or_misowned_schema(def
     elif defect == "wrong-role":
         operation = entrypoint["properties"]["operation"]
         operation["semantic_role"] = "formula-coordinate"
-        operation["properties"]["module"] = operation["properties"].pop("package")
-        operation["required"] = ["module", "id"]
-        operation["properties"]["module"]["semantic_member"] = "module"
     elif defect == "duplicate-role":
         symbols = schema["properties"]["modules"]["items"]["properties"]["symbols"][
             "items"
@@ -325,17 +323,8 @@ def test_source_semantic_role_contract_refuses_incomplete_or_misowned_schema(def
         symbols["oneOf"][0]["semantic_role"] = symbols["semantic_role"]
     elif defect == "missing-field":
         del entrypoint["properties"]["result"]
-        entrypoint["required"].remove("result")
     elif defect == "argument-role":
-        entrypoint["properties"]["arguments"]["items"]["semantic_role"] = (
-            "operation-argument"
-        )
-    elif defect == "array-shape":
-        args = entrypoint["properties"]["arguments"]
-        member = args["semantic_member"]
-        args.update(args.pop("items"))
-        args["type"] = "object"
-        args["semantic_member"] = member
+        entrypoint["properties"]["arguments"]["items"]["semantic_role"] = "entrypoint"
     elif defect == "missing-member-role":
         del entrypoint["properties"]["operation"]["semantic_member"]
     elif defect == "duplicate-member-role":
@@ -376,9 +365,6 @@ def _source_role_nodes(schema, selected):
 @pytest.mark.parametrize(
     "defect",
     [
-        "conditional-child-role",
-        "inherited-symbol-child-role",
-        "conditional-operand-discriminator",
         "missing-value-policy-mode-member",
         "native-interval-child-annotation",
         "native-boolean-child-annotation",
@@ -391,48 +377,7 @@ def test_source_native_and_contextual_roles_refuse_semantic_schema_drift(defect)
     kernel, language = mutable_authorities()
     authored = _authored(language)
     schema = _source_schema(authored)
-    if defect == "conditional-child-role":
-        conditional = _source_role_nodes(schema, "conditional")[0]
-        member = conditional["properties"]["condition"]
-        semantic_member = member["semantic_member"]
-        member.clear()
-        member.update(
-            {
-                "semantic_member": semantic_member,
-                "semantic_role": "value-policy",
-                "type": "object",
-                "properties": {
-                    "mode": {"semantic_member": "mode", "type": "string"},
-                    "value": {"semantic_member": "value", "type": "integer"},
-                },
-                "required": ["mode"],
-                "unevaluatedProperties": False,
-            }
-        )
-    elif defect == "inherited-symbol-child-role":
-        symbol = _source_role_nodes(schema, "symbol")[0]
-        policy = symbol["oneOf"][0]["properties"]["value_policy"]
-        semantic_member = policy["semantic_member"]
-        policy.clear()
-        policy.update(
-            {
-                "semantic_member": semantic_member,
-                "semantic_role": "formula-coordinate",
-                "type": "object",
-                "properties": {
-                    "module": {"semantic_member": "module", "type": "string"},
-                    "id": {"semantic_member": "id", "type": "string"},
-                },
-                "required": ["module", "id"],
-                "unevaluatedProperties": False,
-            }
-        )
-    elif defect == "conditional-operand-discriminator":
-        conditional = _source_role_nodes(schema, "conditional")[0]
-        condition = conditional["properties"]["condition"]
-        inline_parameter = _source_role_nodes(schema, "inline-parameter")[0]
-        condition["oneOf"][0] = deepcopy(inline_parameter)
-    elif defect == "missing-value-policy-mode-member":
+    if defect == "missing-value-policy-mode-member":
         policy = _source_role_nodes(schema, "value-policy")[0]
         del policy["properties"]["mode"]["semantic_member"]
     elif defect == "native-interval-child-annotation":
@@ -467,6 +412,73 @@ def test_source_native_and_contextual_roles_refuse_semantic_schema_drift(defect)
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, graph)
         assert not result["admitted"], (defect, result)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "array-cardinality",
+        "conditional-child-role",
+        "inherited-symbol-child-role",
+        "conditional-operand-role",
+    ],
+)
+def test_source_topology_changes_without_compiler_binding_are_refused(change):
+    kernel, language = mutable_authorities()
+    authored = _authored(language)
+    schema = _source_schema(authored)
+    if change == "array-cardinality":
+        entrypoint = schema["properties"]["entrypoints"]["items"]
+        arguments = entrypoint["properties"]["arguments"]
+        member = arguments["semantic_member"]
+        arguments.update(arguments.pop("items"))
+        arguments["type"] = "object"
+        arguments["semantic_member"] = member
+    elif change == "conditional-child-role":
+        conditional = _source_role_nodes(schema, "conditional")[0]
+        member = conditional["properties"]["condition"]
+        semantic_member = member["semantic_member"]
+        member.clear()
+        member.update(
+            {
+                "semantic_member": semantic_member,
+                "semantic_role": "value-policy",
+                "type": "object",
+                "properties": {
+                    "mode": {"semantic_member": "mode", "type": "string"},
+                    "value": {"semantic_member": "value", "type": "integer"},
+                },
+                "required": ["mode"],
+                "unevaluatedProperties": False,
+            }
+        )
+    elif change == "inherited-symbol-child-role":
+        symbol = _source_role_nodes(schema, "symbol")[0]
+        policy = symbol["oneOf"][0]["properties"]["value_policy"]
+        semantic_member = policy["semantic_member"]
+        policy.clear()
+        policy.update(
+            {
+                "semantic_member": semantic_member,
+                "semantic_role": "formula-coordinate",
+                "type": "object",
+                "properties": {
+                    "module": {"semantic_member": "module", "type": "string"},
+                    "id": {"semantic_member": "id", "type": "string"},
+                },
+                "required": ["module", "id"],
+                "unevaluatedProperties": False,
+            }
+        )
+    else:
+        conditional = _source_role_nodes(schema, "conditional")[0]
+        condition = conditional["properties"]["condition"]
+        inline_parameter = _source_role_nodes(schema, "inline-parameter")[0]
+        condition["oneOf"][0] = deepcopy(inline_parameter)
+    graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, graph)
+        assert not result["admitted"], (change, consumer.__name__, result)
 
 
 def _literal_value_union(schema):
@@ -562,19 +574,154 @@ def test_source_interval_schema_can_narrow_integer_syntax_without_changing_owner
         assert result["admitted"], (consumer.__name__, result)
 
 
-def test_source_family_discriminator_metadata_is_authoritative():
+def test_source_native_reference_path_is_authoritative():
     kernel, language = mutable_authorities()
-    schema = _source_schema(_authored(language))
-    assert validate_source_roles(kernel, schema)
-    assert _consumer_b_source_roles_are_closed(language, kernel["meta_format"])
-    law = kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
-        "source_notation"
-    ]["semantic_roles"]
-    law["children"]["conditional"]["condition"]["discriminator_member"] = "node"
-    # Admission pins the released Kernel identity, so inspect both role interpreters
-    # directly to prove this semantic mutation is refused beyond the ingress seal.
-    assert not validate_source_roles(kernel, schema)
-    assert not _consumer_b_source_roles_are_closed(language, kernel["meta_format"])
+    authored = _authored(language)
+    schema = _source_schema(authored)
+    symbol = _source_role_nodes(schema, "symbol")[0]
+    symbol["properties"]["domain"]["semantic_native_contract"][
+        "kernel_contract_paths"
+    ]["value"] = (
+        "kernel.meta_format.fact.field_contracts.quantity-symbol"
+    )
+    graph = _graph(kernel, authored)
+    index = _index(kernel, graph)
+    with pytest.raises(ValueError):
+        derive_source_semantic_index(kernel, index)
+    assert not _consumer_b_source_roles_are_closed(index, kernel["meta_format"])
+
+
+@pytest.mark.parametrize(
+    "defect", ["explicit-null", "malformed-location", "dangling-path", "duplicate-path"]
+)
+def test_source_native_reference_contract_refuses_malformed_bindings(defect):
+    kernel, language = mutable_authorities()
+    authored = _authored(language)
+    schema = _source_schema(authored)
+    symbol_domain = _source_role_nodes(schema, "symbol")[0]["properties"]["domain"]
+    if defect == "explicit-null":
+        symbol_domain["semantic_native_contract"]["kernel_reference"] = None
+    elif defect == "malformed-location":
+        symbol_domain["semantic_native_contract"]["value_location"]["unknown"] = True
+    elif defect == "dangling-path":
+        symbol_domain["semantic_native_contract"]["language_reference"] = (
+            "language.quantity.missing-domains"
+        )
+    else:
+        literal = _source_role_nodes(schema, "literal")[0]["properties"]["value"]
+        paths = literal["semantic_native_contract"]["kernel_contract_paths"]
+        paths["boolean_contract"] = paths["source_kinds"]
+    graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, graph)
+        assert not result["admitted"], (defect, consumer.__name__, result)
+
+
+@pytest.mark.parametrize(
+    "defect", ["missing-slot", "duplicate-slot", "wrong-owner", "dangling-target"]
+)
+def test_source_native_compiler_bindings_are_exact_and_closed(defect):
+    kernel, language = mutable_authorities()
+    authored = _authored(language)
+    compiler = next(
+        package for package in authored["packages"] if package["id"] == "standard.compiler"
+    )
+    profiles = next(
+        closure["definitions"]
+        for closure in compiler["semantic_closure"]
+        if closure["authority_path"] == "language.resolution_profiles"
+    )
+    bindings = profiles[0]["source_native_bindings"]
+    if defect == "missing-slot":
+        bindings.pop()
+    elif defect == "duplicate-slot":
+        bindings.append(deepcopy(bindings[0]))
+    else:
+        modules = next(row for row in bindings if row["slot"] == "source.root.modules")
+        if defect == "wrong-owner":
+            modules["owner_slot"] = "source.module"
+        else:
+            modules["target_slots"] = ["source.missing"]
+    graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, graph)
+        assert not result["admitted"], (defect, consumer.__name__, result)
+
+
+def test_language_owned_interval_token_renames_without_kernel_reseal():
+    kernel, language = mutable_authorities()
+    kernel_identity = kernel["content_identity"]
+    authored = _authored(language)
+
+    def rename(value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                value[key] = rename(child)
+            return value
+        if isinstance(value, list):
+            return [rename(child) for child in value]
+        return "bounded-range" if value == "closed-interval" else value
+
+    rename(authored)
+    graph = _graph(kernel, authored)
+    assert kernel["content_identity"] == kernel_identity
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, graph)
+        assert result["admitted"], (consumer.__name__, result["diagnostics"])
+
+
+def test_coherent_source_annotation_and_compiler_path_rename_is_admitted():
+    kernel, language = mutable_authorities()
+    kernel_identity = kernel["content_identity"]
+    authored = _authored(language)
+    schema = _source_schema(authored)
+    schema["properties"]["modules"]["semantic_member"] = "compilation_units"
+    for module in _source_role_nodes(schema, "module"):
+        module["semantic_role"] = "compilation-unit"
+
+    compiler = next(
+        package for package in authored["packages"] if package["id"] == "standard.compiler"
+    )
+    profiles = next(
+        closure["definitions"]
+        for closure in compiler["semantic_closure"]
+        if closure["authority_path"] == "language.resolution_profiles"
+    )
+
+    def rename_paths(value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key in {"path", "semantic_selector", "semantic_scope_selector"} and isinstance(
+                    child, list
+                ):
+                    value[key] = [
+                        "compilation_units" if part == "modules" else part
+                        for part in child
+                    ]
+                else:
+                    rename_paths(child)
+        elif isinstance(value, list):
+            for child in value:
+                rename_paths(child)
+
+    rename_paths(profiles)
+    for profile in profiles:
+        for binding in profile["source_native_bindings"]:
+            if binding["slot"] == "source.root.modules":
+                binding["member"] = "compilation_units"
+            elif binding["slot"] == "source.module":
+                binding["role"] = "compilation-unit"
+
+    for package in authored["packages"]:
+        for closure in package["semantic_closure"]:
+            if closure["authority_path"] == "language.model_checks":
+                rename_paths(closure["definitions"])
+
+    graph = _graph(kernel, authored)
+    assert kernel["content_identity"] == kernel_identity
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, graph)
+        assert result["admitted"], (consumer.__name__, result["diagnostics"])
 
 
 @pytest.mark.parametrize(
@@ -678,12 +825,25 @@ def test_source_semantic_keywords_have_no_parallel_metadata_selector():
     kernel, language = mutable_authorities()
     law = kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
         "source_notation"
-    ]["semantic_roles"]
-    assert set(law) == {"root", "roles", "children"}
+    ]["semantic_annotations"]
+    assert set(law) == {
+        "identifier",
+        "keys",
+        "native_contract",
+        "native_payload_annotations",
+        "one_of",
+        "placement",
+        "role_members",
+        "root_role",
+    }
     keywords = kernel["meta_format"]["language_definitions"]["collections"][
         "wire_schemas"
     ]["field_types"]["schema"]["allowed_keywords"]
-    assert {"semantic_role", "semantic_member"} <= set(keywords)
+    assert {
+        "semantic_role",
+        "semantic_member",
+        "semantic_native_contract",
+    } <= set(keywords)
     assert _consumer_a(kernel, language)["admitted"]
 
 

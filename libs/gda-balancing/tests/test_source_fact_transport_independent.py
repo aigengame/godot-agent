@@ -52,20 +52,13 @@ def _fixture(*, renamed=False, input_member=None, domain_renamed=False):
         for row in _definitions(authored, "language.wire_schemas")
         if row.get("protocol_role") == "model-source-package"
     )
-    law = kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
-        "source_notation"
-    ]["semantic_roles"]
-    assert schema["semantic_role"] == law["root"]
+    assert schema["semantic_role"] == "source"
     modules, module_array = _member(schema, "modules")
     module_schema = module_array["items"]
-    assert [module_schema["semantic_role"]] == law["children"]["source"]["modules"][
-        "items"
-    ]
+    assert module_schema["semantic_role"] == "module"
     symbols, symbol_array = _member(module_schema, "symbols")
     symbol_schema = symbol_array["items"]
-    assert [symbol_schema["semantic_role"]] == law["children"]["module"]["symbols"][
-        "items"
-    ]
+    assert symbol_schema["semantic_role"] == "symbol"
     names = {name: name for name in (modules, symbols, "symbol", "type", "domain")}
     if renamed:
         names.update(

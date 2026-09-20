@@ -34,7 +34,6 @@ from gda_balancing.domain.model._resolution import (
     _bounded_refusal,
     _formula_pair_diagnostics,
     _formula_policy,
-    _language,
     _model_check_diagnostics,
     _model_lowering,
     _path_value,
@@ -175,12 +174,7 @@ def _check_model_source_bytes(
     source_identity = content_identity(
         cast(str, profile["source_identity_domain"]), cast(JsonValue, source)
     )
-    language = _language(ldb)
-    source_schema = next(
-        item["schema"]
-        for item in cast(list[dict[str, Any]], language["wire_schemas"])
-        if item.get("protocol_role") == "model-source-package"
-    )
+    source_schema = authority_context.source_semantic_index.schema
     errors = sorted(
         jsonschema.Draft202012Validator(source_schema).iter_errors(source),
         key=lambda item: tuple(str(part) for part in item.absolute_path),
@@ -200,15 +194,20 @@ def _check_model_source_bytes(
         cast(dict[str, Any], kernel["meta_format"])["resolution_judgment"],
     )
     try:
-        projection = project_source_value(source, kernel, source_schema)
+        projection = project_source_value(
+            source, source_schema, authority_context.source_native_binding_index
+        )
     except (KeyError, TypeError, ValueError):
         if not structural_diagnostics:
             raise
         projection = None
     if projection is not None and not set(source_schema["required"]) <= set(source):
         projection = None
+    requirements_member = authority_context.source_native_binding_index.members[
+        "source.root.package_requirements"
+    ]
     raw_requirements = (
-        projection.value.get("package_requirements", [])
+        projection.value.get(requirements_member, [])
         if projection is not None
         else []
     )

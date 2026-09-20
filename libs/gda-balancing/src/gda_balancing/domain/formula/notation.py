@@ -290,11 +290,14 @@ def _formula_resolution_profile(
 def _authored_formula_schemas(
     authority_context: AdmittedAuthorityContext,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    schema = wire_schema_definition_for_role(
-        authority_context.language_bundle, "model-source-package"
-    )["schema"]
-    module_schema = source_schema_member(schema, "modules")[1]["items"]
-    formula_schema = source_schema_member(module_schema, "formulas")[1]["items"]
+    schema = authority_context.source_semantic_index.schema
+    members = authority_context.source_native_binding_index.members
+    module_schema = source_schema_member(
+        schema, members["source.root.modules"]
+    )[1]["items"]
+    formula_schema = source_schema_member(
+        module_schema, members["source.module.formulas"]
+    )[1]["items"]
     return module_schema, formula_schema
 
 
@@ -309,11 +312,17 @@ def _project_formula_request(
     ):
         if member in request:
             projected[member] = project_source_value(
-                request[member], authority_context.kernel, selected_schema
+                request[member],
+                selected_schema,
+                authority_context.source_native_binding_index,
             ).value
     if "modules" in request:
         projected["modules"] = [
-            project_source_value(module, authority_context.kernel, module_schema).value
+            project_source_value(
+                module,
+                module_schema,
+                authority_context.source_native_binding_index,
+            ).value
             for module in request["modules"]
         ]
     return projected
@@ -332,16 +341,19 @@ def _formula_source_schema(
     ).get("schema")
     if not isinstance(schema, dict):
         raise ValueError("Formula conversion has no exact source schema")
-    return semantic_source_schema(authority_context.kernel, schema)
+    return semantic_source_schema(schema)
 
 
 def formula_schema_version(
     authority_context: AdmittedAuthorityContext,
 ) -> str:
+    member = authority_context.source_native_binding_index.members[
+        "source.root.schema_version"
+    ]
     version = (
         _formula_source_schema(authority_context)
         .get("properties", {})
-        .get("schema_version", {})
+        .get(member, {})
         .get("const")
     )
     if not isinstance(version, str):
@@ -1456,8 +1468,13 @@ def parse_formula_expression(
         operation_coordinates=operation_coordinates,
     )
     _, formula_schema = _authored_formula_schemas(authority_context)
-    body_schema = source_schema_member(formula_schema, "body")[1]
-    return author_source_value(semantic, authority_context.kernel, body_schema)
+    body_schema = source_schema_member(
+        formula_schema,
+        authority_context.source_native_binding_index.members["source.formula.body"],
+    )[1]
+    return author_source_value(
+        semantic, body_schema, authority_context.source_native_binding_index
+    )
 
 
 def admit_formula_pair(
@@ -1471,7 +1488,16 @@ def admit_formula_pair(
         )
     except FormulaPairRefusal as error:
         _, formula_schema = _authored_formula_schemas(authority_context)
-        member, _ = source_schema_member(formula_schema, error.member)
+        member_slot = {
+            "body": "source.formula.body",
+            "expression": "source.formula.expression",
+        }.get(error.member)
+        semantic_member = (
+            authority_context.source_native_binding_index.members[member_slot]
+            if member_slot is not None
+            else error.member
+        )
+        member, _ = source_schema_member(formula_schema, semantic_member)
         raise FormulaPairRefusal(error.reason_id, member, error.message) from error
 
 
@@ -1666,9 +1692,14 @@ def render_formula_body(
         if not isinstance(body, dict):
             raise ValueError("Formula body must be an object")
         _, formula_schema = _authored_formula_schemas(authority_context)
-        body_schema = source_schema_member(formula_schema, "body")[1]
+        body_schema = source_schema_member(
+            formula_schema,
+            authority_context.source_native_binding_index.members[
+                "source.formula.body"
+            ],
+        )[1]
         semantic = project_source_value(
-            body, authority_context.kernel, body_schema
+            body, body_schema, authority_context.source_native_binding_index
         ).value
         return render_semantic_formula_body(semantic, authority_context)
     except FormulaNotationRefusal:

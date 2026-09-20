@@ -81,40 +81,55 @@ def _formula_policy(
     return policy
 
 
+def _source_native_binding(
+    language_bundle: dict[str, Any], slot: str, kind: str
+) -> dict[str, Any]:
+    matches = [
+        row
+        for row in _resolution_profile(language_bundle)["source_native_bindings"]
+        if row.get("slot") == slot and row.get("kind") == kind
+    ]
+    if len(matches) != 1:
+        raise ValueError("independent Source native binding is unavailable")
+    return matches[0]
+
+
+def _source_role_token(language_bundle: dict[str, Any], slot: str) -> str:
+    return cast(str, _source_native_binding(language_bundle, slot, "role")["role"])
+
+
+def _source_member_token(language_bundle: dict[str, Any], slot: str) -> str:
+    return cast(
+        str, _source_native_binding(language_bundle, slot, "member")["member"]
+    )
+
+
 def _inline_source_parameter(
-    kernel: dict[str, Any],
+    kernel: dict[str, Any], language_bundle: dict[str, Any]
 ) -> tuple[str, str, str]:
     kind, reference = _consumer_b_inline_parameter_operand(kernel["meta_format"])
-    role = kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
-        "source_notation"
-    ]["semantic_roles"]["roles"]["inline-parameter"]
-    discriminator = role.get("discriminator")
-    members = role.get("members")
-    source_members = (
-        set(members) - set(discriminator)
-        if isinstance(discriminator, dict) and isinstance(members, list)
-        else set()
+    discriminator = _source_native_binding(
+        language_bundle, "source.inline_parameter.discriminator", "discriminator"
     )
-    if (
-        not isinstance(discriminator, dict)
-        or discriminator != {"node": kind}
-        or not isinstance(members, list)
-        or len(source_members) != 1
-    ):
+    member = _source_member_token(language_bundle, "source.inline_parameter.parameter")
+    if discriminator["value"] != kind:
         raise ValueError("independent inline Formula role is ambiguous")
-    return kind, reference, source_members.pop()
+    return kind, reference, member
 
 
 def _inline_authored_source_member(
     language_bundle: dict[str, Any], *, kernel: dict[str, Any]
 ) -> str:
-    _kind, _reference, semantic_member = _inline_source_parameter(kernel)
+    _kind, _reference, semantic_member = _inline_source_parameter(
+        kernel, language_bundle
+    )
+    inline_role = _source_role_token(language_bundle, "source.inline_parameter")
     matches: list[str] = []
 
     def collect(node: Any) -> None:
         if not isinstance(node, dict):
             return
-        if node.get("semantic_role") == "inline-parameter":
+        if node.get("semantic_role") == inline_role:
             matches.extend(
                 name
                 for name, child in node.get("properties", {}).items()
@@ -138,15 +153,21 @@ def normalize_source_body(
     body: dict[str, Any], language_bundle: dict[str, Any], *, kernel: dict[str, Any]
 ) -> dict[str, Any]:
     """Independently adapt the declared Source field to the fixed operand role."""
-    kind, reference, source_member = _inline_source_parameter(kernel)
+    kind, reference, source_member = _inline_source_parameter(kernel, language_bundle)
     try:
         projected = _consumer_b_project_source_role(
-            body, "inline-parameter", kernel, language_bundle
+            body,
+            _source_role_token(language_bundle, "source.inline_parameter"),
+            kernel,
+            language_bundle,
         ).value
     except ValueError:
         try:
             return _consumer_b_project_source_role(
-                body, "program", kernel, language_bundle
+                body,
+                _source_role_token(language_bundle, "source.program"),
+                kernel,
+                language_bundle,
             ).value
         except ValueError as program_error:
             raise ValueError(
@@ -161,10 +182,10 @@ def normalize_source_body(
 
 
 def normalize_semantic_body(
-    body: dict[str, Any], *, kernel: dict[str, Any]
+    body: dict[str, Any], language_bundle: dict[str, Any], *, kernel: dict[str, Any]
 ) -> dict[str, Any]:
     """Independently lower a body already projected to Source semantic members."""
-    kind, reference, source_member = _inline_source_parameter(kernel)
+    kind, reference, source_member = _inline_source_parameter(kernel, language_bundle)
     if body.get("node") == kind:
         if set(body) != {"node", source_member} or not isinstance(
             body.get(source_member), str
@@ -215,15 +236,17 @@ def _validate_context(
     modules = request.get("modules", [current_module])
     if not isinstance(current_module, dict) or not isinstance(modules, list):
         raise ValueError("independent Formula module closure is malformed")
-    module_members = set(
-        kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
-            "source_notation"
-        ]["semantic_roles"]["roles"]["module"]["members"]
-    )
+    module_role = _source_role_token(language_bundle, "source.module")
+    module_members = {
+        row["member"]
+        for row in _resolution_profile(language_bundle)["source_native_bindings"]
+        if row.get("kind") == "member"
+        and row.get("owner_slot") == "source.module"
+    }
     projected_modules = [
         _consumer_b_project_source_role(
             module,
-            "module",
+            module_role,
             kernel,
             language_bundle,
             omitted_members=module_members,
@@ -235,7 +258,7 @@ def _validate_context(
         raise ValueError("independent Formula module closure is malformed")
     projected_current = _consumer_b_project_source_role(
         current_module,
-        "module",
+        module_role,
         kernel,
         language_bundle,
         omitted_members=module_members,
@@ -243,14 +266,18 @@ def _validate_context(
     formula = request.get("formula")
     if not isinstance(formula, dict):
         raise ValueError("independent Formula declaration is malformed")
+    formula_body = _source_member_token(language_bundle, "source.formula.body")
+    formula_expression = _source_member_token(
+        language_bundle, "source.formula.expression"
+    )
     projected_formula = _consumer_b_project_source_role(
         formula,
-        "formula",
+        _source_role_token(language_bundle, "source.formula"),
         kernel,
         language_bundle,
-        omitted_members={"body", "expression"},
+        omitted_members={formula_body, formula_expression},
     ).value
-    if not {"body", "expression"} & set(projected_formula):
+    if not {formula_body, formula_expression} & set(projected_formula):
         raise ValueError("independent Formula has no Source representation")
     modules_by_id: dict[str, dict[str, Any]] = {}
     for module in projected_modules:
@@ -391,7 +418,7 @@ def render_semantic_body(
     """Render B's parsed/projected semantic body without re-reading authored keys."""
     _validate_context(request, language_bundle, kernel=kernel)
     grammar, _operations = _authority(language_bundle)
-    kind, reference, member = _inline_source_parameter(kernel)
+    kind, reference, member = _inline_source_parameter(kernel, language_bundle)
     if body.get("node") == kind:
         body = {"nodes": [], "result": {"kind": kind, reference: body[member]}}
     notations = _selected_notations(request, language_bundle, kernel)
@@ -1351,7 +1378,7 @@ def parse_canonical(
                 "type-mismatch", "independent Formula result contract is incompatible"
             )
         parameter_kind, parameter_reference, _source_member = _inline_source_parameter(
-            kernel
+            kernel, language_bundle
         )
         if operand.get("kind") == parameter_kind:
             authored_member = _inline_authored_source_member(
@@ -1538,24 +1565,37 @@ def pair_refusal(
     member = "body"
     try:
         projection = _consumer_b_project_source_role(
-            authored_formula, "formula", kernel, language_bundle
+            authored_formula,
+            _source_role_token(language_bundle, "source.formula"),
+            kernel,
+            language_bundle,
         )
         formula = projection.value
-        body = cast(dict[str, Any], formula["body"])
-        expression = cast(str, formula["expression"])
-        member = authored_member(projection, "body")
+        body_token = _source_member_token(language_bundle, "source.formula.body")
+        expression_token = _source_member_token(
+            language_bundle, "source.formula.expression"
+        )
+        body = cast(dict[str, Any], formula[body_token])
+        expression = cast(str, formula[expression_token])
+        member = authored_member(projection, body_token)
         rendered = render_semantic_body(body, request, language_bundle, kernel=kernel)
-        member = authored_member(projection, "expression")
+        member = authored_member(projection, expression_token)
         if rendered != expression:
             return "notation-mismatch", member
         parsed = parse_canonical(expression, request, language_bundle, kernel=kernel)
         try:
             parsed_semantic = _consumer_b_project_source_role(
-                parsed, "inline-parameter", kernel, language_bundle
+                parsed,
+                _source_role_token(language_bundle, "source.inline_parameter"),
+                kernel,
+                language_bundle,
             ).value
         except ValueError:
             parsed_semantic = _consumer_b_project_source_role(
-                parsed, "program", kernel, language_bundle
+                parsed,
+                _source_role_token(language_bundle, "source.program"),
+                kernel,
+                language_bundle,
             ).value
         if canonical_bytes(cast(JsonValue, parsed_semantic)) != canonical_bytes(
             cast(JsonValue, body)
