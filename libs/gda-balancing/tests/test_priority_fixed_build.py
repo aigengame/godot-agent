@@ -1,4 +1,4 @@
-"""The #878 fixed-build prerequisite runs from frozen wheel and B files."""
+"""The #878 priority gate runs installed A against an independently frozen B."""
 
 import json
 import importlib.util
@@ -32,7 +32,7 @@ def test_manifest_refuses_one_byte_change_and_extra_member(tmp_path):
         freeze.verify_manifest(manifest, {"b": frozen})
 
 
-def test_fixed_wheel_and_complete_b_harness_survive_public_exchange(tmp_path):
+def test_direct_wheel_and_independent_b_survive_priority_exchange(tmp_path):
     uv = shutil.which("uv")
     assert uv is not None
     tool = Path(__file__).parents[1] / "tools" / "priority_build_freeze.py"
@@ -42,28 +42,36 @@ def test_fixed_wheel_and_complete_b_harness_survive_public_exchange(tmp_path):
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=460,
+        timeout=480,
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     receipt = json.loads((proof / "receipt.json").read_text())
     assert receipt["pre_post_manifests_equal"]
-    assert "priority_build_freeze_worker.py" in receipt["single_byte_tamper_refusal"]
-    assert receipt["baseline"]["baseline_metric"] == 7
-    assert receipt["baseline"]["a_admits_b"]
-    assert receipt["baseline"]["b_admits_a"]
-    assert receipt["baseline"]["direct_wheel"]["samples"] == {
-        "ordered_value": 1234,
-        "selected_count": 2,
+    assert receipt["build_identities_pre_post_equal"]
+    assert "priority_direct_wheel_driver.py" in receipt["single_byte_tamper_refusal"]
+    assert set(receipt["matrix"]) == {"original"}
+    assert receipt["renamed_case_hook"]["status"] == "awaiting-supplied-case"
+    for variant, metric in (("baseline", 7), ("variant", 0)):
+        case = receipt["matrix"]["original"][variant]
+        assert case["metric"] == metric
+        assert case["model"]["member_count"] == 8
+        assert case["model"]["a_admits_b"]
+        assert case["model"]["b_admits_a"]
+        assert case["runtime"]["member_count"] == 6
+        assert case["runtime"]["a_admits_b"]
+        assert case["runtime"]["b_admits_a"]
+    assert len(receipt["a_invocations"]) == 8
+    assert {row["label"].rsplit("/", 1)[-1] for row in receipt["a_invocations"]} == {
+        "model-check",
+        "model-build",
+        "experiment-check",
+        "experiment-run",
     }
-    assert len(receipt["a_public_processes"]) == 6
-    assert (
-        len(
-            [
-                row
-                for row in receipt["a_public_processes"]
-                if "/site-packages/gda_balancing/" in row["package_origin"]
-            ]
-        )
-        == 3
+    assert all(
+        row["module_origin_count"] > 0
+        and row["all_module_origins_in_site_packages"] is True
+        for row in receipt["a_invocations"]
     )
+    assert "a_priority_fixture_runtime_sha256" not in receipt
+    assert "missing_for_ac2" not in receipt
