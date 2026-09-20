@@ -469,6 +469,87 @@ def test_source_native_and_contextual_roles_refuse_semantic_schema_drift(defect)
         assert not result["admitted"], (defect, result)
 
 
+def _literal_value_union(schema):
+    return _source_role_nodes(schema, "literal")[0]["properties"]["value"]
+
+
+@pytest.mark.parametrize("order", ["declared", "reversed"])
+def test_source_typed_literal_current_closed_union_is_admitted_after_resealing(
+    order,
+):
+    kernel, language = mutable_authorities()
+    authored = _authored(language)
+    branches = _literal_value_union(_source_schema(authored))["oneOf"]
+    assert [branch["type"] for branch in branches] == [
+        "integer",
+        "boolean",
+        "object",
+    ]
+    if order == "reversed":
+        branches.reverse()
+    graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, graph)
+        assert result["admitted"], (consumer.__name__, result)
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "string-branch",
+        "number-branch",
+        "null-branch",
+        "array-branch",
+        "untyped-object-branch",
+        "duplicate-integer-branch",
+        "duplicate-envelope-branch",
+        "duplicate-envelope-member",
+        "open-envelope",
+        "open-type-reference",
+        "remove-integer",
+        "remove-boolean",
+        "remove-envelope",
+    ],
+)
+def test_source_typed_literal_undeclared_capability_is_refused_after_resealing(
+    defect,
+):
+    kernel, language = mutable_authorities()
+    authored = _authored(language)
+    union = _literal_value_union(_source_schema(authored))
+    branches = union["oneOf"]
+    envelope = branches[2]
+    if defect.endswith("-branch") and defect.split("-", 1)[0] in {
+        "string",
+        "number",
+        "null",
+        "array",
+    }:
+        branches.append({"type": defect.split("-", 1)[0]})
+    elif defect == "untyped-object-branch":
+        branches.append({"type": "object", "unevaluatedProperties": False})
+    elif defect == "duplicate-integer-branch":
+        branches.append(deepcopy(branches[0]))
+    elif defect == "duplicate-envelope-branch":
+        branches.append(deepcopy(envelope))
+    elif defect == "duplicate-envelope-member":
+        envelope["required"].append(envelope["required"][0])
+    elif defect == "open-envelope":
+        del envelope["unevaluatedProperties"]
+    elif defect == "open-type-reference":
+        del envelope["properties"]["type"]["unevaluatedProperties"]
+    elif defect.startswith("remove-"):
+        kind = defect.removeprefix("remove-")
+        schema_type = "object" if kind == "envelope" else kind
+        branches[:] = [branch for branch in branches if branch["type"] != schema_type]
+    else:
+        raise AssertionError(defect)
+    graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, graph)
+        assert not result["admitted"], (defect, consumer.__name__, result)
+
+
 def test_source_interval_schema_can_narrow_integer_syntax_without_changing_owner():
     kernel, language = mutable_authorities()
     authored = _authored(language)

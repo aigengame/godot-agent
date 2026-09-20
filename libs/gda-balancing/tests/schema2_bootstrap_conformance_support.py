@@ -2873,37 +2873,96 @@ def _consumer_b_native_source_member_is_closed(
         )
     if law != "typed-literal":
         return False
-    typed = meta["literal_typing"]["typed_envelope_profile"]
+    literal_typing = meta["literal_typing"]
+    typed = literal_typing["typed_envelope_profile"]
+    source_kinds = literal_typing["source_kinds"]
+    boolean_kind = meta["runtime_program"]["fixed_value_contracts"]["kernel-boolean"][
+        "kind"
+    ]
+    required_kinds = {*source_kinds, boolean_kind}
+    if (
+        not isinstance(source_kinds, list)
+        or len(source_kinds) != len(set(source_kinds))
+        or required_kinds != {"integer", "boolean", "typed-envelope"}
+    ):
+        return False
     nominal = typed["admission"]["nominal_type_reference"]
     coordinate = set(nominal["coordinate_members"])
+    envelope = set(typed["admission"]["envelope_members"])
+    marker = nominal["optional_kind_member"]
     for field in fields:
-        alternatives = [field]
-        alternatives.extend(
-            branch for branch in field.get("oneOf", []) if isinstance(branch, dict)
-        )
-        for branch in alternatives:
-            if branch.get("type") != "object":
+        alternatives = field.get("oneOf")
+        union = alternatives is not None
+        if alternatives is None:
+            branches = [field]
+        elif (
+            not isinstance(alternatives, list)
+            or not alternatives
+            or "type" in field
+            or not all(isinstance(branch, dict) for branch in alternatives)
+        ):
+            return False
+        else:
+            branches = alternatives
+        observed: set[str] = set()
+        for branch in branches:
+            kind = branch.get("type")
+            if "oneOf" in branch:
+                return False
+            if kind in {"integer", "boolean"}:
+                if kind in observed:
+                    return False
+                observed.add(kind)
                 continue
-            if set(branch.get("properties", {})) != set(
-                typed["admission"]["envelope_members"]
-            ) or set(branch.get("required", [])) != set(
-                typed["admission"]["envelope_members"]
-            ):
-                return False
-            reference = branch["properties"][typed["type_member"]]
-            members = reference.get("properties", {})
-            if not coordinate <= set(members) <= coordinate | {
-                nominal["optional_kind_member"]
-            } or not coordinate <= set(reference.get("required", [])):
-                return False
-            if any(members[name].get("type") != "string" for name in coordinate):
-                return False
-            marker = nominal["optional_kind_member"]
             if (
-                marker in members
-                and members[marker].get("const") != nominal["optional_kind_value"]
+                kind != "object"
+                or "typed-envelope" in observed
+                or branch.get("unevaluatedProperties") is not False
             ):
                 return False
+            properties = branch.get("properties")
+            required = branch.get("required")
+            if (
+                not isinstance(properties, dict)
+                or set(properties) != envelope
+                or not isinstance(required, list)
+                or len(required) != len(envelope)
+                or set(required) != envelope
+            ):
+                return False
+            reference = properties.get(typed["type_member"])
+            if (
+                not isinstance(reference, dict)
+                or reference.get("type") != "object"
+                or reference.get("unevaluatedProperties") is not False
+            ):
+                return False
+            members = reference.get("properties")
+            reference_required = reference.get("required")
+            if (
+                not isinstance(members, dict)
+                or not coordinate <= set(members) <= coordinate | {marker}
+                or not isinstance(reference_required, list)
+                or len(reference_required) != len(coordinate)
+                or set(reference_required) != coordinate
+                or any(
+                    not isinstance(members[name], dict)
+                    or members[name].get("type") != "string"
+                    for name in coordinate
+                )
+                or (
+                    marker in members
+                    and (
+                        not isinstance(members[marker], dict)
+                        or members[marker].get("const")
+                        != nominal["optional_kind_value"]
+                    )
+                )
+            ):
+                return False
+            observed.add("typed-envelope")
+        if union and observed != required_kinds:
+            return False
     return bool(fields)
 
 

@@ -70,33 +70,91 @@ def _native_source_schema(
         )
     if native != "typed-literal":
         return False
-    typed = kernel["meta_format"]["literal_typing"]["typed_envelope_profile"]
-    for branch in _object_alternatives(schema):
-        if branch.get("type") != "object":
+    literal_typing = kernel["meta_format"]["literal_typing"]
+    typed = literal_typing["typed_envelope_profile"]
+    source_kinds = literal_typing["source_kinds"]
+    boolean_kind = kernel["meta_format"]["runtime_program"]["fixed_value_contracts"][
+        "kernel-boolean"
+    ]["kind"]
+    required_kinds = {*source_kinds, boolean_kind}
+    if (
+        not isinstance(source_kinds, list)
+        or len(source_kinds) != len(set(source_kinds))
+        or required_kinds != {"integer", "boolean", "typed-envelope"}
+    ):
+        return False
+    alternatives = schema.get("oneOf")
+    union = alternatives is not None
+    if alternatives is None:
+        branches = [schema]
+    elif (
+        not isinstance(alternatives, list)
+        or not alternatives
+        or "type" in schema
+        or not all(isinstance(branch, dict) for branch in alternatives)
+    ):
+        return False
+    else:
+        branches = alternatives
+
+    nominal = typed["admission"]["nominal_type_reference"]
+    envelope = set(typed["admission"]["envelope_members"])
+    coordinate = set(nominal["coordinate_members"])
+    marker = nominal["optional_kind_member"]
+    kinds: list[str] = []
+    for branch in branches:
+        kind = branch.get("type")
+        if "oneOf" in branch:
+            return False
+        if kind in {"integer", "boolean"}:
+            kinds.append(kind)
             continue
-        if set(branch.get("properties", {})) != set(
-            typed["admission"]["envelope_members"]
-        ) or set(branch.get("required", [])) != set(
-            typed["admission"]["envelope_members"]
-        ):
+        if kind != "object" or branch.get("unevaluatedProperties") is not False:
             return False
-        reference = branch["properties"][typed["type_member"]]
-        nominal = typed["admission"]["nominal_type_reference"]
-        fields = reference.get("properties", {})
-        coordinate = set(nominal["coordinate_members"])
-        if not coordinate <= set(fields) <= coordinate | {
-            nominal["optional_kind_member"]
-        } or not coordinate <= set(reference.get("required", [])):
-            return False
-        if any(fields[name].get("type") != "string" for name in coordinate):
-            return False
-        marker = nominal["optional_kind_member"]
+        properties = branch.get("properties")
+        required = branch.get("required")
         if (
-            marker in fields
-            and fields[marker].get("const") != nominal["optional_kind_value"]
+            not isinstance(properties, dict)
+            or set(properties) != envelope
+            or not isinstance(required, list)
+            or len(required) != len(envelope)
+            or set(required) != envelope
         ):
             return False
-    return True
+        reference = properties.get(typed["type_member"])
+        if (
+            not isinstance(reference, dict)
+            or reference.get("type") != "object"
+            or reference.get("unevaluatedProperties") is not False
+        ):
+            return False
+        fields = reference.get("properties")
+        reference_required = reference.get("required")
+        if (
+            not isinstance(fields, dict)
+            or not coordinate <= set(fields) <= coordinate | {marker}
+            or not isinstance(reference_required, list)
+            or len(reference_required) != len(coordinate)
+            or set(reference_required) != coordinate
+            or any(
+                not isinstance(fields[name], dict)
+                or fields[name].get("type") != "string"
+                for name in coordinate
+            )
+            or (
+                marker in fields
+                and (
+                    not isinstance(fields[marker], dict)
+                    or fields[marker].get("const") != nominal["optional_kind_value"]
+                )
+            )
+        ):
+            return False
+        kinds.append("typed-envelope")
+    observed = set(kinds)
+    return len(kinds) == len(observed) and (
+        observed == required_kinds if union else observed <= required_kinds
+    )
 
 
 def source_schema_member(
