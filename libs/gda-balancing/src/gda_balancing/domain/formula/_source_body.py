@@ -31,21 +31,8 @@ class InlineParameter:
         return {"node": self.kind, self.source_member: operand[self.parameter_member]}
 
 
-def inline_parameter_contract(
-    policy: dict[str, Any], kernel: dict[str, Any]
-) -> InlineParameter:
-    """Read the genuine input selector; never use it as an output field name."""
-    rows = policy["inline_body_normalizations"]
-    if (
-        not isinstance(rows, list)
-        or len(rows) != 1
-        or not isinstance(rows[0], dict)
-        or set(rows[0]) != {"parameter_member"}
-        or not isinstance(rows[0]["parameter_member"], str)
-        or not rows[0]["parameter_member"]
-        or rows[0]["parameter_member"] == "node"
-    ):
-        raise ValueError("Formula inline parameter selector is malformed")
+def inline_parameter_contract(kernel: dict[str, Any]) -> InlineParameter:
+    """Relate the semantic inline body to its existing Kernel operand."""
     contract = kernel["meta_format"]["language_definitions"][
         "wire_schema_protocol_roles"
     ]["rir_structure"]["containers"]["formula_parameter_operand"]
@@ -66,6 +53,4 @@ def inline_parameter_contract(
         "type": "non-empty-string"
     }:
         raise ValueError("Kernel Formula parameter operand has no reference role")
-    return InlineParameter(
-        rows[0]["parameter_member"], kind_member, kind, parameter_member
-    )
+    return InlineParameter("parameter", kind_member, kind, parameter_member)

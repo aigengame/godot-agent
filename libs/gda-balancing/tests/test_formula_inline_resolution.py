@@ -59,15 +59,17 @@ def _inline_case(renamed):
         if row.get("protocol_role") == "model-source-package"
     )
     if renamed:
-        rule = _profile(authored)["formula_resolution"]["inline_body_normalizations"][0]
-        old = rule["parameter_member"]
-        new = "input_parameter"
-        rule["parameter_member"] = new
         bodies = schema["properties"]["modules"]["items"]["properties"]["formulas"][
             "items"
         ]["properties"]["body"]["oneOf"]
         inline = next(row for row in bodies if "oneOf" in row)["oneOf"][0]
         assert inline["properties"]["node"]["const"] == "parameter"
+        old = next(
+            member
+            for member, child in inline["properties"].items()
+            if child.get("semantic_member") == "parameter"
+        )
+        new = "input_parameter"
         inline["properties"][new] = inline["properties"].pop(old)
         inline["required"] = [
             new if member == old else member for member in inline["required"]
@@ -92,9 +94,7 @@ def _formula_request(source):
 
 
 @pytest.mark.parametrize("renamed", [False, True], ids=["original", "renamed-input"])
-def test_public_inline_formula_and_model_follow_the_actual_source_selector(
-    tmp_path, renamed
-):
+def test_public_inline_formula_and_model_follow_schema_roles(tmp_path, renamed):
     kernel, authored, source = _inline_case(renamed)
     graph = _graph(kernel, authored)
     context = admit_authority_context(kernel, _index(kernel, graph))
@@ -152,12 +152,15 @@ def test_public_unsynchronized_inline_source_is_refused_before_resolution(tmp_pa
     public.write_source(original)
     result = public.cli("model", "check", str(public.source), success=False)
     assert result["error"]["stage"] == "static"
-    assert [row["code"] for row in result["error"]["diagnostics"]] == [
-        "language.source_contract_mismatch"
+    diagnostics = result["error"]["diagnostics"]
+    assert [row["code"] for row in diagnostics] == [
+        "language.source_contract_mismatch",
+        "language.source_contract_mismatch",
     ]
-    assert result["error"]["diagnostics"][0]["primary"]["pointer"].startswith(
-        "/modules/0/formulas/0/body"
-    )
+    assert {row["primary"]["pointer"] for row in diagnostics} == {
+        "/modules/0/formulas/0/body/input_parameter",
+        "/modules/0/formulas/0/body/parameter",
+    }
     request = _formula_request(source)
     request["formula"]["body"] = original["modules"][0]["formulas"][0]["body"]
     path = tmp_path / "request.json"
@@ -173,39 +176,41 @@ def test_public_unsynchronized_inline_source_is_refused_before_resolution(tmp_pa
 @pytest.mark.parametrize(
     "mutation",
     [
-        "old-node",
-        "old-result-kind",
-        "missing-selector",
-        "extra-selector",
-        "empty-selector",
-        "unknown-selector",
-        "discriminator-collision",
-        "missing-normalization",
-        "extra-normalization",
+        "missing-role",
+        "wrong-role",
+        "wrong-discriminator",
+        "missing-member-role",
+        "duplicate-member-role",
+        "extra-member-role",
     ],
 )
-def test_inline_normalization_refuses_correctly_resealed_invalid_authority(mutation):
+def test_inline_role_refuses_correctly_resealed_invalid_authority(mutation):
     kernel, authored, _ = _inline_case(False)
-    policy = _profile(authored)["formula_resolution"]
-    rows = policy["inline_body_normalizations"]
-    if mutation == "old-node":
-        rows[0]["node"] = "parameter"
-    elif mutation == "old-result-kind":
-        rows[0]["result_kind"] = "parameter"
-    elif mutation == "missing-selector":
-        del rows[0]["parameter_member"]
-    elif mutation == "extra-selector":
-        rows[0]["other_member"] = "parameter"
-    elif mutation == "empty-selector":
-        rows[0]["parameter_member"] = ""
-    elif mutation == "unknown-selector":
-        rows[0]["parameter_member"] = "missing_parameter"
-    elif mutation == "discriminator-collision":
-        rows[0]["parameter_member"] = "node"
-    elif mutation == "missing-normalization":
-        rows.clear()
+    schema = next(
+        row["schema"]
+        for row in _definitions(authored, "language.wire_schemas")
+        if row.get("protocol_role") == "model-source-package"
+    )
+    bodies = schema["properties"]["modules"]["items"]["properties"]["formulas"][
+        "items"
+    ]["properties"]["body"]["oneOf"]
+    inline = next(row for row in bodies if "oneOf" in row)["oneOf"][0]
+    parameter = inline["properties"]["parameter"]
+    if mutation == "missing-role":
+        del inline["semantic_role"]
+    elif mutation == "wrong-role":
+        inline["semantic_role"] = "local-operand"
+    elif mutation == "wrong-discriminator":
+        inline["properties"]["node"]["const"] = "local"
+    elif mutation == "missing-member-role":
+        del parameter["semantic_member"]
+    elif mutation == "duplicate-member-role":
+        parameter["semantic_member"] = "node"
     else:
-        rows.append(deepcopy(rows[0]))
+        inline["properties"]["extra"] = {
+            "type": "string",
+            "semantic_member": "extra",
+        }
     result = _consumer_a(kernel, _graph(kernel, authored))
     assert result["admitted"] is False
     assert result["diagnostics"] == [

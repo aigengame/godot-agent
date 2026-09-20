@@ -4,9 +4,11 @@ from collections.abc import Mapping
 from typing import Any
 
 import jsonschema
+from gda_balancing.domain.authority.source_projection import SourceProjection
 
 from schema2_bootstrap_conformance_support import (
     _consumer_b_model_program_vector_is_closed,
+    _consumer_b_project_source,
 )
 from schema2_extension_inventory_support import (
     AuthorityToken,
@@ -68,6 +70,13 @@ class _SourceRoles(_Reader):
         }
         if self.invalid_paths and not refused:
             raise InventoryRefusal("admitted Model vector has invalid Source grammar")
+        self.source_projection = (
+            None
+            if self.invalid_paths
+            else _consumer_b_project_source(
+                source, self.kernel, _attached_language(self.kernel, self.graph)
+            )
+        )
         self.formula_projections = projections
 
     def source_alias(self, name, aliases, scope, pointer):
@@ -168,13 +177,14 @@ def model_vector_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
                     if pointer.startswith(vp + "/source_fixture/source/")
                 },
             )
-            visitor.source_structure(source)
+            if visitor.source_projection is not None:
+                visitor.source_structure(visitor.source_projection.value)
             if visitor.uncovered:
                 raise InventoryRefusal(
                     "Model Source has an unclassified interpreted role"
                 )
             for token, pointer, use, location, projection, law in _source_address_links(
-                kernel, visitor.graph, copied_fields=visitor.reserved
+                kernel, visitor.graph
             ):
                 if pointer.startswith("/source/"):
                     visitor.occurrences.add(
@@ -289,12 +299,22 @@ def model_vector_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
                 reference("vectors", relation["reference"], ep + "/relation/reference")
             if refused:
                 continue
+            projection = visitor.source_projection
+            if projection is None:
+                raise InventoryRefusal("admitted Model vector has no Source projection")
             context = ModelSourceContext(
                 source=source,
                 source_identity="unserialized-inventory-view",
                 kernel=dict(kernel),
                 language_bundle=ldb,
-                namespace_selection=_reference_namespace_selection(source, kernel, ldb),
+                namespace_selection=_reference_namespace_selection(
+                    projection.value, kernel, ldb
+                ),
+                source_projection=SourceProjection(
+                    value=projection.value,
+                    authored_paths=projection.authored_paths,
+                    authored_source=source,
+                ),
             )
             lock = _reference_package_lock(context)
             if _lock_oracle(lock) != expected["lock_oracle"]:

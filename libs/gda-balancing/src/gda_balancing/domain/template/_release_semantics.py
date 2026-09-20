@@ -20,6 +20,11 @@ from gda_balancing.domain.authority.context import (
     resolve_authority_context,
 )
 from gda_balancing.domain.authority.admission import BootstrapAdmission
+from gda_balancing.domain.authority.source_projection import (
+    project_source_value,
+    author_source_value,
+)
+from gda_balancing.domain.wire_schema import wire_schema_definition_for_role
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
@@ -1376,25 +1381,17 @@ def prepare_template_instantiation(
     source = cast(dict[str, JsonValue], deepcopy(starter))
     source_identity_domain = model_source_identity_domain(language_bundle)
     starter_identity = content_identity(source_identity_domain, starter)
-    resolution_profile = next(
-        profile
-        for profile in cast(dict[str, Any], language_bundle)["language"][
-            "resolution_profiles"
-        ]
-        if profile["default"]
-    )
-    *manifest_path, identity_member = cast(
-        str, resolution_profile["manifest_id_path"]
-    ).split(".")
-    manifest = source
-    for member in manifest_path:
-        manifest = cast(dict[str, JsonValue], manifest[member])
-    manifest[identity_member] = package_id
-    manifest["template_provenance"] = {
+    source_schema = wire_schema_definition_for_role(
+        language_bundle, "model-source-package"
+    )["schema"]
+    semantic = project_source_value(source, kernel, source_schema).value
+    semantic["manifest"]["id"] = package_id
+    semantic["manifest"]["template_provenance"] = {
         "template_id": release["id"],
         "template_identity": release["content_identity"],
         "starter_identity": starter_identity,
     }
+    source = author_source_value(semantic, kernel, source_schema)
     source_identity = content_identity(source_identity_domain, source)
     command_input = select_protocol_artifact_contract(
         language_bundle, "template-instantiate-command-input"

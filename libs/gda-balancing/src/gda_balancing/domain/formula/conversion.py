@@ -9,6 +9,7 @@ from typing import Any, cast
 
 from gda_balancing.domain.formula import notation
 from gda_balancing.domain.authority.context import AdmittedAuthorityContext
+from gda_balancing.domain.authority.source_projection import source_schema_member
 from gda_balancing.domain.canonical import (
     JsonValue,
     content_identity,
@@ -50,17 +51,20 @@ def render_formula_request(
     context: AdmittedAuthorityContext,
 ) -> FormulaConversion:
     """Render and reverse-admit one structured Formula body."""
+    _, formula_schema = notation._authored_formula_schemas(context)
+    body_member, _ = source_schema_member(formula_schema, "body")
+    expression_member, _ = source_schema_member(formula_schema, "expression")
     formula = request.get("formula")
-    if not isinstance(formula, dict) or not isinstance(formula.get("body"), dict):
+    if not isinstance(formula, dict) or not isinstance(formula.get(body_member), dict):
         raise notation.FormulaNotationRefusal(
             source_resolution_profile(context.language_bundle)["structural_reason"],
             "Formula render request has no structured body",
         )
-    body = cast(dict[str, Any], formula["body"])
+    body = cast(dict[str, Any], formula[body_member])
     expression = notation.render_formula_body(body, context)
     paired_request = deepcopy(request)
     paired_formula = cast(dict[str, Any], paired_request["formula"])
-    paired_formula["expression"] = expression
+    paired_formula[expression_member] = expression
     notation.admit_formula_pair(paired_request, context)
     return FormulaConversion(body=body, expression=expression)
 
@@ -70,12 +74,15 @@ def parse_formula_request(
     context: AdmittedAuthorityContext,
 ) -> FormulaConversion:
     """Parse notation and reverse-admit its canonical Formula pair."""
+    _, formula_schema = notation._authored_formula_schemas(context)
+    body_member, _ = source_schema_member(formula_schema, "body")
+    expression_member, _ = source_schema_member(formula_schema, "expression")
     body = notation.parse_formula_expression(request, context)
     expression = notation.render_formula_body(body, context)
     paired_request = deepcopy(request)
     paired_formula = cast(dict[str, Any], paired_request["formula"])
-    paired_formula["body"] = body
-    paired_formula["expression"] = expression
+    paired_formula[body_member] = body
+    paired_formula[expression_member] = expression
     notation.admit_formula_pair(paired_request, context)
     return FormulaConversion(body=body, expression=expression)
 

@@ -1,11 +1,18 @@
-"""Independent Source transport closes all initial Facts before applying rules."""
+"""Independent Source roles preserve Facts and reject malformed authored fields."""
 
 from copy import deepcopy
+import json
+from pathlib import Path
 
 import jsonschema
 import pytest
 
+from gda_balancing.domain.authority.context import (
+    AdmittedAuthorityContext,
+    admit_authority_context,
+)
 from gda_balancing.domain.authority.vector_validation import _fact_is_closed
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.domain.model import CheckedModel, check_model_source_value
 from gda_balancing.domain.model._compilation import lower_checked_model
 from gda_balancing.domain.model._lowering import _resolved_source_symbols
@@ -16,13 +23,91 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_fact_is_closed,
 )
 import test_schema2_model_lowerer_conformance as reference
-from test_source_fact_transport import _fixture
+from test_source_fact_transport import _definitions, _rename_member
+from test_trace_protocol_structure import _authored, _graph, _index
+
+
+def _member(schema, member):
+    matches = [
+        (name, child)
+        for name, child in schema["properties"].items()
+        if child.get("semantic_member") == member
+    ]
+    assert len(matches) == 1
+    return matches[0]
+
+
+def _fixture(*, renamed=False, input_member=None, domain_renamed=False):
+    """Author Source names at their Schema roles; keep interpretation in each consumer."""
+    kernel, language = mutable_authorities()
+    authored = _authored(language)
+    source = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/bounded-fold/model-source.json"
+        ).read_text()
+    )
+    schema = next(
+        row["schema"]
+        for row in _definitions(authored, "language.wire_schemas")
+        if row.get("protocol_role") == "model-source-package"
+    )
+    law = kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
+        "source_notation"
+    ]["semantic_roles"]
+    assert schema["semantic_role"] == law["root"]
+    modules, module_array = _member(schema, "modules")
+    module_schema = module_array["items"]
+    assert [module_schema["semantic_role"]] == law["children"]["source"]["modules"][
+        "items"
+    ]
+    symbols, symbol_array = _member(module_schema, "symbols")
+    symbol_schema = symbol_array["items"]
+    assert [symbol_schema["semantic_role"]] == law["children"]["module"]["symbols"][
+        "items"
+    ]
+    names = {name: name for name in (modules, symbols, "symbol", "type", "domain")}
+    if renamed:
+        names.update(
+            modules="opaque/modules~",
+            symbols="declarations/~",
+            symbol="local/name~",
+            type="import/type~",
+        )
+    if input_member is not None:
+        assert input_member in {"symbol", "type"}
+        names[input_member] = "value_kind"
+    if domain_renamed:
+        names["domain"] = "opaque/domain~"
+    for owner, member in (
+        (schema, "modules"),
+        (module_schema, "symbols"),
+        (symbol_schema, "symbol"),
+        (symbol_schema, "type"),
+        (symbol_schema, "domain"),
+    ):
+        old, _ = _member(owner, member)
+        _rename_member(owner, old, names[old])
+
+    for module in source[modules]:
+        for symbol in module[symbols]:
+            for member in ("symbol", "type", "domain"):
+                if member in symbol:
+                    symbol[names[member]] = symbol.pop(member)
+        module[names[symbols]] = module.pop(symbols)
+    source[names[modules]] = source.pop(modules)
+    graph = _graph(kernel, authored)
+    assert _consumer_b(kernel, graph)["admitted"]
+    context = admit_authority_context(kernel, _index(kernel, graph))
+    assert isinstance(context, AdmittedAuthorityContext)
+    assert not list(jsonschema.Draft202012Validator(schema).iter_errors(source))
+    return kernel, graph, source, context
 
 
 @pytest.mark.parametrize(
     "mutation",
     [
-        "domain-rename",
+        "unsynchronized-domain",
         "missing",
         "extra",
         "wrong-type",
@@ -32,12 +117,32 @@ from test_source_fact_transport import _fixture
         "nominal-conflict",
     ],
 )
-def test_independent_initial_fact_refusal_precedes_all_language_rules(
+def test_independent_source_shape_refusal_precedes_all_language_rules(
     monkeypatch, mutation
 ):
-    kernel, graph, source, context = _fixture(
-        mutation, renamed=mutation == "symbol-conflict"
-    )
+    kernel, graph, source, context = _fixture(renamed=mutation == "symbol-conflict")
+    modules = "opaque/modules~" if mutation == "symbol-conflict" else "modules"
+    symbols_member = "declarations/~" if mutation == "symbol-conflict" else "symbols"
+    index = 0 if mutation == "nominal-conflict" else 2
+    symbol = source[modules][0][symbols_member][index]
+    member = {
+        "extra": "unowned_fact_field",
+        "symbol-conflict": "symbol",
+        "resolved-conflict": "resolved_symbol",
+        "type-conflict": "type_identity",
+        "nominal-conflict": "value_kind",
+        "missing": "domain",
+        "wrong-type": "domain",
+        "unsynchronized-domain": "domain",
+    }[mutation]
+    if mutation == "missing":
+        symbol.pop(member)
+    elif mutation == "wrong-type":
+        symbol[member] = 1
+    elif mutation == "unsynchronized-domain":
+        symbol["opaque_domain"] = symbol.pop(member)
+    else:
+        symbol[member] = "authored-value-must-not-be-overwritten"
     admission = _consumer_b(kernel, graph)
     assert admission["admitted"], admission["diagnostics"]
     snapshot = deepcopy(source)
@@ -51,7 +156,6 @@ def test_independent_initial_fact_refusal_precedes_all_language_rules(
     monkeypatch.setattr(reference, "_reference_apply", observed)
     result = reference._reference_check_source(source, kernel, context.language_bundle)
     assert calls == []
-    index = 0 if mutation == "nominal-conflict" else 2 if "conflict" in mutation else 4
     prefix = (
         "/opaque~1modules~0/0/declarations~1~0"
         if mutation == "symbol-conflict"
@@ -67,14 +171,29 @@ def test_independent_initial_fact_refusal_precedes_all_language_rules(
         for row in context.language_bundle["language"]["reasons"]
         if row["id"] == profile["structural_reason"]
     )
-    assert result == ((reason["diagnostic"], f"{prefix}/{index}"),)
+    members = (
+        ["domain", "opaque_domain"] if mutation == "unsynchronized-domain" else [member]
+    )
+    expected = tuple(
+        (reason["diagnostic"], f"{prefix}/{index}/{name}") for name in members
+    )
+    assert result == expected
+    actual = check_model_source_value(source, authority_context=context)
+    assert isinstance(actual, Schema2RefusalReport) and actual.stage == "static"
+    assert (
+        tuple(
+            (item.code, item.primary.model_dump()["pointer"])
+            for item in actual.diagnostics
+        )
+        == expected
+    )
     assert source == snapshot
 
 
-def test_independent_inactive_nominal_adapter_owns_its_absent_discriminator(
+def test_independent_source_rejects_an_undeclared_nominal_discriminator(
     monkeypatch,
 ):
-    kernel, graph, source, context = _fixture("nominal-conflict")
+    kernel, graph, source, context = _fixture()
     symbols = source["modules"][0]["symbols"]
     for symbol in symbols:
         symbol.pop("value_kind", None)
@@ -87,7 +206,7 @@ def test_independent_inactive_nominal_adapter_owns_its_absent_discriminator(
         for row in language["wire_schemas"]
         if row.get("protocol_role") == "model-source-package"
     )
-    assert not list(jsonschema.Draft202012Validator(schema).iter_errors(source))
+    assert list(jsonschema.Draft202012Validator(schema).iter_errors(source))
     imported = next(
         row for row in source["modules"][0]["imports"] if row["alias"] == "quantity"
     )
@@ -110,25 +229,42 @@ def test_independent_inactive_nominal_adapter_owns_its_absent_discriminator(
     reason = next(
         row for row in language["reasons"] if row["id"] == profile["structural_reason"]
     )
-    assert result == ((reason["diagnostic"], "/modules/0/symbols/0"),)
+    expected = ((reason["diagnostic"], "/modules/0/symbols/0/value_kind"),)
+    assert result == expected
+    actual = check_model_source_value(source, authority_context=context)
+    assert isinstance(actual, Schema2RefusalReport) and actual.stage == "static"
+    assert (
+        tuple(
+            (item.code, item.primary.model_dump()["pointer"])
+            for item in actual.diagnostics
+        )
+        == expected
+    )
     assert source == snapshot
 
 
 @pytest.mark.parametrize(
-    ("renamed", "input_member"),
-    [(False, None), (True, None), (False, "symbol"), (False, "type")],
+    ("renamed", "input_member", "domain_renamed"),
+    [
+        (False, None, False),
+        (True, None, False),
+        (False, "symbol", False),
+        (False, "type", False),
+        (False, None, True),
+    ],
     ids=[
         "original",
-        "profile-addresses",
+        "schema-role-addresses",
         "symbol-input-value-kind",
         "type-input-value-kind",
+        "domain-role-address",
     ],
 )
 def test_independent_initial_facts_keep_mixed_nominal_and_quantity_compilation(
-    renamed, input_member
+    renamed, input_member, domain_renamed
 ):
     kernel, graph, source, context = _fixture(
-        renamed=renamed, input_member=input_member
+        renamed=renamed, input_member=input_member, domain_renamed=domain_renamed
     )
     admission = _consumer_b(kernel, graph)
     assert admission["admitted"], admission["diagnostics"]
@@ -139,7 +275,19 @@ def test_independent_initial_facts_keep_mixed_nominal_and_quantity_compilation(
     assert isinstance(checked, CheckedModel)
     assert isinstance(independent, ModelSourceContext)
     rows = reference._reference_resolved_symbols(independent)
-    assert rows == _resolved_source_symbols(source, context.language_bundle, kernel)
+    assert rows == _resolved_source_symbols(
+        checked.source_projection, context.language_bundle, kernel
+    )
+    if renamed or input_member is not None or domain_renamed:
+        original_kernel, _, original_source, original_context = _fixture()
+        control = reference._reference_check_source(
+            original_source, original_kernel, original_context.language_bundle
+        )
+        assert isinstance(control, ModelSourceContext)
+        assert independent.source_projection.value == control.source_projection.value
+        assert [fields for fields, _ in rows] == [
+            fields for fields, _ in reference._reference_resolved_symbols(control)
+        ]
     assert len(rows) == 5
     assert (
         sum(fields.get("value_kind") == "nominal-structured" for fields, _ in rows) == 2
@@ -165,7 +313,11 @@ def test_independent_source_vector_corpus_materializes_closed_initial_facts():
         checked = reference._reference_check_source(source, kernel, language)
         assert isinstance(checked, ModelSourceContext), (vector["id"], checked)
         rows = reference._reference_resolved_symbols(checked)
-        assert rows == _resolved_source_symbols(source, language, kernel)
+        production = check_model_source_value(source)
+        assert isinstance(production, CheckedModel)
+        assert rows == _resolved_source_symbols(
+            production.source_projection, language, kernel
+        )
         assert len(rows) == vector["expect"]["declaration_count"]
         for fields, _pointer in rows:
             prefix = (

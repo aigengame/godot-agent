@@ -31,7 +31,7 @@ def validate_execution_coverage(
         _call_path_segments,
         _pointer_value,
         _source_address_links,
-        _source_profile,
+        _source_projection,
         _template_inventory,
         _type_links,
         _typed_context,
@@ -55,6 +55,12 @@ def validate_execution_coverage(
     expected: set[TokenOccurrence] = set()
     projections: list[tuple[str, str]] = []
     types, constructors = _typed_context(kernel, graph)
+
+    def source_model() -> str:
+        projection = _source_projection(kernel, graph)
+        if projection is None:
+            raise InventoryRefusal("execution surface has no Source projection")
+        return projection.value["manifest"]["id"]
 
     def token(role: str, owner: tuple[str, ...], name: str) -> Any:
         return AuthorityToken(role, owner, name)
@@ -317,8 +323,7 @@ def validate_execution_coverage(
         source = graph.get("source")
         if not isinstance(source, dict):
             raise InventoryRefusal("RIR has no Source owner")
-        source_profile = _source_profile(kernel, graph)
-        model = _at(source, source_profile["manifest_id_path"].split("."))
+        model = source_model()
         for index, declaration in enumerate(rir["declarations"]):
             dp = f"{root}/declarations/{index}"
             source_coord(
@@ -472,8 +477,11 @@ def validate_execution_coverage(
             graph.get("source"), dict
         ):
             raise InventoryRefusal("Experiment has no Model Source owner")
-        profile = _source_profile(kernel, graph)
-        model = _at(graph["source"], profile["manifest_id_path"].split("."))
+        source_projection = _source_projection(kernel, graph)
+        if source_projection is None:
+            raise InventoryRefusal("Experiment has no semantic Source projection")
+        source = source_projection.value
+        model = source_model()
         exp_id = experiment["id"]
         add(
             token("experiment", (), exp_id),
@@ -512,13 +520,12 @@ def validate_execution_coverage(
             # The selected observation member must have a unique authored Symbol owner.
             candidates = [
                 (
-                    module[profile["module_id_member"]],
-                    symbol[profile["symbol_name_member"]],
+                    module["id"],
+                    symbol["symbol"],
                 )
-                for module in graph["source"][profile["modules_member"]]
-                for symbol in module[profile["symbols_member"]]
-                if symbol[profile["symbol_name_member"]]
-                == metric["observation"]["member"]
+                for module in source["modules"]
+                for symbol in module["symbols"]
+                if symbol["symbol"] == metric["observation"]["member"]
             ]
             if len(candidates) != 1:
                 raise InventoryRefusal("Metric member has no unique Source Symbol")
@@ -811,9 +818,7 @@ def validate_execution_coverage(
         debug, dp = member("artifacts", "debug-map")
         source_keys = {
             pointer: tok
-            for tok, pointer, _, location, _, _ in _source_address_links(
-                kernel, graph, copied_fields=set()
-            )
+            for tok, pointer, _, location, _, _ in _source_address_links(kernel, graph)
             if location == "key" and tok.role == "source-field"
         }
         for index, entry in enumerate(debug["entries"]):
@@ -876,10 +881,7 @@ def validate_execution_coverage(
                 law_artifact,
             )
         rir, _ = member("artifacts", "rir-semantic-payload")
-        model = _at(
-            graph["source"],
-            _source_profile(kernel, graph)["manifest_id_path"].split("."),
-        )
+        model = source_model()
         exp_id = experiment["id"]
         entrypoints = {row["id"]: row for row in rir["entrypoints"]}
         operations = {
@@ -1373,9 +1375,6 @@ def validate_execution_coverage(
         token("diagnostic-signal", (stage,), signal)
         for stage, signal in primitive_signals
     )
-    source_fixed: set[Any] = set()
-    tuple(_source_address_links(kernel, graph, copied_fields=source_fixed))
-    fixed_tokens.update(source_fixed)
     _, template_fixed, _, _ = _template_inventory(kernel, graph)
     fixed_tokens.update(template_fixed)
     target_tokens = {row.token for row in required}

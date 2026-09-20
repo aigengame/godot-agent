@@ -4,8 +4,8 @@ from copy import deepcopy
 from typing import Any
 
 from gda_balancing.domain.authority.contract_projection import (
-    _contract_schema,
     artifact_envelope_contract,
+    owned_contract_schema,
     ordered_protocol_schema,
 )
 from gda_balancing.domain.canonical import canonical_bytes
@@ -31,49 +31,6 @@ def _path(value: Any, segments: list[str]) -> Any:
     for member in segments:
         value = value[member]
     return value
-
-
-def _owned_contract_schema(contract: dict[str, Any]) -> dict[str, Any]:
-    """Project existing language/fact contracts, including their semantic holes."""
-    value_type = contract.get("type")
-    if value_type == "canonical-value":
-        # This is an explicit delegation in the existing semantic contract,
-        # not a fallback for unknown compiled record forms.
-        return {}
-    if value_type in {"inventory-member", "inventory-list-path", "signed-int64-path"}:
-        return {"type": "string", "minLength": 1}
-    if value_type == "closed-int64-interval":
-        integer = _contract_schema({"type": "signed-int64"})
-        return _object({"minimum": integer, "maximum": integer})
-    if value_type == "path-segments":
-        return _array({"type": "string", "minLength": 1})
-    if value_type == "closed-discriminated-object":
-        return {
-            "oneOf": [
-                _owned_contract_schema(value) for value in contract["variants"].values()
-            ]
-        }
-    if value_type == "list-of":
-        return _array(_owned_contract_schema(contract["items"]))
-    if value_type == "one-of":
-        return {
-            "oneOf": [
-                _owned_contract_schema(value) for value in contract["alternatives"]
-            ]
-        }
-    if value_type == "closed-object" or (
-        value_type is None and "required_members" in contract
-    ):
-        fields = contract["field_types"]
-        required = contract["required_members"]
-        optional = contract.get("optional_members", [])
-        if set(fields) != set(required) | set(optional):
-            raise ValueError("RIR source record contract is incomplete")
-        return _object(
-            {name: _owned_contract_schema(value) for name, value in fields.items()},
-            list(required),
-        )
-    return _contract_schema(contract)
 
 
 def rir_collection_output(
@@ -107,7 +64,7 @@ def rir_protocol_schema(
     def record(name: str, supplied: dict[str, Any] | None = None) -> dict[str, Any]:
         contract = containers[name]
         fields = {
-            member: _owned_contract_schema(value)
+            member: owned_contract_schema(value)
             for member, value in contract["field_types"].items()
         }
         supplied = supplied or {}
@@ -154,12 +111,12 @@ def rir_protocol_schema(
         terminal_contracts[chain] = fact_fields[matches[0]["field_contract"]]
     quantity_fields = terminal_contracts["rule_chain"]
     structured_fields = terminal_contracts["structured_rule_chain"]
-    target = _owned_contract_schema(quantity_fields["resolved_symbol"])
+    target = owned_contract_schema(quantity_fields["resolved_symbol"])
     if canonical_bytes(quantity_fields["resolved_symbol"]) != canonical_bytes(
         structured_fields["resolved_symbol"]
     ):
         raise ValueError("RIR Symbol roles disagree on their coordinate contract")
-    coordinate = _owned_contract_schema(quantity_fields["type_identity"])
+    coordinate = owned_contract_schema(quantity_fields["type_identity"])
     identified_coordinate = _object({**coordinate["properties"], "identity": text})
     typed = meta["literal_typing"]["typed_envelope_profile"]
     typed_value = _object({typed["type_member"]: coordinate, typed["value_member"]: {}})
@@ -167,13 +124,13 @@ def rir_protocol_schema(
     initializer_value = {"oneOf": [integer, typed_value]}
     quantity_value = _object(
         {
-            member: _owned_contract_schema(quantity_fields[member])
+            member: owned_contract_schema(quantity_fields[member])
             for member in law["value_signature"]["quantity_members"]
         }
     )
     nominal_value = _object(
         {
-            member: _owned_contract_schema(structured_fields[member])
+            member: owned_contract_schema(structured_fields[member])
             for member in law["value_signature"]["nominal_members"]
         }
     )
@@ -193,7 +150,7 @@ def rir_protocol_schema(
             ],
         ]
     }
-    resource_bounds = _owned_contract_schema(
+    resource_bounds = owned_contract_schema(
         meta["language_definitions"]["collections"]["operations"]["field_types"][
             "resource_bounds"
         ]
@@ -223,7 +180,7 @@ def rir_protocol_schema(
         for kind in meta["formula_resolution"]["operand_kinds"]
     }
     formula_operand = {"oneOf": list(formula_operands.values())}
-    formula_reference = _owned_contract_schema(
+    formula_reference = owned_contract_schema(
         meta["language_definitions"]["wire_schema_protocol_roles"]["formula_reference"]
     )
     parameter_alternatives = []
@@ -372,16 +329,16 @@ def rir_protocol_schema(
     ]["field_types"]
     formal_quantity = _object(
         {
-            "id": _owned_contract_schema(literal_fields["id"]),
+            "id": owned_contract_schema(literal_fields["id"]),
             **{
-                member: _owned_contract_schema(literal_fields[member])
+                member: owned_contract_schema(literal_fields[member])
                 for member in meta["literal_typing"]["match_members"]
             },
         }
     )
     formal_nominal = _object(
         {
-            member: _owned_contract_schema(literal_fields[member])
+            member: owned_contract_schema(literal_fields[member])
             for member in ("id", "type", "value_kind")
         }
     )
@@ -562,7 +519,7 @@ def rir_protocol_schema(
         "oneOf": [
             _object(
                 {
-                    member: _owned_contract_schema(value)
+                    member: owned_contract_schema(value)
                     for member, value in fields.items()
                 }
             )
@@ -583,7 +540,7 @@ def rir_protocol_schema(
     )
     common = artifact_envelope_contract(kernel, artifact_kind)
     common_fields = {
-        name: _owned_contract_schema(value)
+        name: owned_contract_schema(value)
         for name, value in common["field_types"].items()
     }
     if common_fields.keys() & envelope["properties"].keys():
@@ -643,16 +600,16 @@ def _selected_semantics_schema(kernel, lowering, law, record):
                 ]
         if authority_path in source_items:
             raise ValueError("RIR field has multiple source projections")
-        source_items[authority_path] = _owned_contract_schema(contract)
+        source_items[authority_path] = owned_contract_schema(contract)
     for name, role in law["selected_collections"].items():
         source = role["source"]
         if source["kind"] == "namespace-member":
             if source["member"] == "types":
                 item = _object(
                     {
-                        **_owned_contract_schema(
-                            meta["package_release"]["type_export"]
-                        )["properties"],
+                        **owned_contract_schema(meta["package_release"]["type_export"])[
+                            "properties"
+                        ],
                         "package": text,
                     }
                 )
@@ -687,7 +644,7 @@ def _selected_semantics_schema(kernel, lowering, law, record):
     selected["execution_laws"] = _object(laws, ["runtime_program"])
     selected["execution_resources"] = _object(
         {
-            row["output_member"]: _owned_contract_schema(
+            row["output_member"]: owned_contract_schema(
                 meta["admitted_language_index"]["resources"]["field_types"][
                     row["source_member"]
                 ]
@@ -702,7 +659,7 @@ def _selected_semantics_schema(kernel, lowering, law, record):
         predicates.append(
             _object(
                 {
-                    key: _owned_contract_schema(value)
+                    key: owned_contract_schema(value)
                     for key, value in predicate["member_types"].items()
                 },
                 predicate["required_members"],
@@ -711,7 +668,7 @@ def _selected_semantics_schema(kernel, lowering, law, record):
     reasons = _object(
         {
             **{
-                key: _owned_contract_schema(value)
+                key: owned_contract_schema(value)
                 for key, value in reason["member_types"].items()
             },
             "predicate": {"oneOf": predicates},
@@ -728,11 +685,11 @@ def _selected_semantics_schema(kernel, lowering, law, record):
                 "enum": kernel["admission"]["refusal_stages"]
             }
     selected["diagnostics"] = _array(
-        _object({"package": text, "definition": _owned_contract_schema(diagnostic)})
+        _object({"package": text, "definition": owned_contract_schema(diagnostic)})
     )
     source_items[closure["reasons"]["authority_path"]] = reasons
     source_items[closure["reasons"]["diagnostic_authority_path"]] = (
-        _owned_contract_schema(diagnostic)
+        owned_contract_schema(diagnostic)
     )
     closure_entries = [
         _object(

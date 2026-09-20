@@ -692,8 +692,9 @@ def test_formula_parameter_sugar_normalizes_to_same_formula_and_rir_through_conv
         == "/modules/0/formulas/0/expression"
     )
     assert isinstance(checked_sugar, model_module.CheckedModel)
-    policy = model_module._formula_policy(checked_sugar.language_bundle)
-    assert policy["inline_body_normalizations"] == [{"parameter_member": "parameter"}]
+    assert checked_sugar.source_projection.value["modules"][0]["formulas"][0][
+        "body"
+    ] == {"node": "parameter", "parameter": "base"}
     context = checked_sugar.authority_context
     assert isinstance(context, authority_module.AdmittedAuthorityContext)
     program_body = program_source["modules"][0]["formulas"][0]["body"]
@@ -726,7 +727,7 @@ def test_formula_parameter_sugar_normalizes_to_same_formula_and_rir_through_conv
     assert converted_rir == sugar_rir
 
 
-def test_formula_policy_uses_authority_values_without_host_spelling_or_limit_pins():
+def test_formula_policy_uses_authority_limits_and_identity_domains():
     kernel, language_bundle = mutable_authorities()
     candidate = deepcopy(language_bundle)
     profile = next(
@@ -735,34 +736,16 @@ def test_formula_policy_uses_authority_values_without_host_spelling_or_limit_pin
         if row["id"] == "exact-import-resolution-v1"
     )
     policy = profile["formula_resolution"]
-    policy["body_nodes_member"] = "authority-owned-expressions"
     policy["max_nodes_per_formula"] = 37
     policy["resource_charge_per_node"] = 41
     policy["identity_domains"]["declaration"] = "authority-formula-domain"
 
-    source = next(
-        row["schema"]
-        for row in candidate["language"]["wire_schemas"]
-        if row.get("protocol_role") == "model-source-package"
-    )
-    bodies = source["properties"]["modules"]["items"]["properties"]["formulas"][
-        "items"
-    ]["properties"]["body"]["oneOf"]
-    program = next(row for row in bodies if row.get("type") == "object")
-    program["properties"][policy["body_nodes_member"]] = program["properties"].pop(
-        "nodes"
-    )
-    program["required"] = [
-        policy["body_nodes_member"] if name == "nodes" else name
-        for name in program["required"]
-    ]
     _reidentify_language_bundle(candidate)
     context = authority_module.admit_authority_context(kernel, candidate)
     assert isinstance(context, authority_module.AdmittedAuthorityContext), context
 
     resolved = model_module._formula_policy(context.language_bundle)
 
-    assert resolved["body_nodes_member"] == "authority-owned-expressions"
     assert resolved["max_nodes_per_formula"] == 37
     assert resolved["resource_charge_per_node"] == 41
     assert resolved["identity_domains"]["declaration"] == "authority-formula-domain"
@@ -2491,7 +2474,7 @@ def test_resolved_model_admission_rejects_reidentified_nested_formula_domain_esc
     }
     rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
     kernel, language_bundle = mutable_authorities()
-    policy = model_lowering_module._formula_policy(language_bundle)
+    policy = model_module._formula_policy(language_bundle)
     domains = cast(dict[str, str], policy["identity_domains"])
     formula = next(row for row in rir["formulas"] if row["id"] == formula_id)
     next(
@@ -2587,7 +2570,7 @@ def test_resolved_model_admission_rejects_reidentified_call_domain_mutations(
     }
     rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
     kernel, language_bundle = mutable_authorities()
-    policy = model_lowering_module._formula_policy(language_bundle)
+    policy = model_module._formula_policy(language_bundle)
     domains = cast(dict[str, str], policy["identity_domains"])
     selected_operations = {
         row["definition"]["id"]: row["definition"]

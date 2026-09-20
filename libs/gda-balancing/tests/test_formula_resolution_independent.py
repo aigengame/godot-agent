@@ -27,7 +27,12 @@ from schema2_formula_conformance_support import (
     render_body,
 )
 from test_current_namespace_public import _PublicCandidate, _members
-from test_formula_inline_resolution import _formula_request, _inline_case, _profile
+from test_formula_inline_resolution import (
+    _definitions,
+    _formula_request,
+    _inline_case,
+    _profile,
+)
 from test_schema2_model_lowerer_conformance import (
     _reference_admits_semantic_artifacts,
     _reference_check_source,
@@ -114,9 +119,9 @@ def test_independent_inline_model_compilation_exchanges_four_public_artifacts(
     request = _formula_request(source)
     normalized = normalize_source_body(request["formula"]["body"], index, kernel=kernel)
     kind, reference_member = _consumer_b_inline_parameter_operand(kernel["meta_format"])
-    source_member = _profile(authored)["formula_resolution"][
-        "inline_body_normalizations"
-    ][0]["parameter_member"]
+    source_member = next(
+        member for member in request["formula"]["body"] if member != "node"
+    )
     assert normalized == {
         "nodes": [],
         "result": {
@@ -165,38 +170,41 @@ def test_independent_inline_model_compilation_exchanges_four_public_artifacts(
 @pytest.mark.parametrize(
     "mutation",
     [
-        "old-node",
-        "old-result-kind",
-        "missing-selector",
-        "extra-selector",
-        "empty-selector",
-        "unknown-selector",
-        "discriminator-collision",
-        "missing-normalization",
-        "extra-normalization",
+        "missing-role",
+        "wrong-role",
+        "wrong-discriminator",
+        "missing-member-role",
+        "duplicate-member-role",
+        "extra-member-role",
     ],
 )
-def test_independent_inline_selector_closes_real_schema_addresses(mutation):
+def test_independent_inline_role_closes_real_schema_addresses(mutation):
     kernel, authored, _source = _inline_case(False)
-    rows = _profile(authored)["formula_resolution"]["inline_body_normalizations"]
-    if mutation == "old-node":
-        rows[0]["node"] = "parameter"
-    elif mutation == "old-result-kind":
-        rows[0]["result_kind"] = "parameter"
-    elif mutation == "missing-selector":
-        del rows[0]["parameter_member"]
-    elif mutation == "extra-selector":
-        rows[0]["extra"] = "parameter"
-    elif mutation == "empty-selector":
-        rows[0]["parameter_member"] = ""
-    elif mutation == "unknown-selector":
-        rows[0]["parameter_member"] = "missing_parameter"
-    elif mutation == "discriminator-collision":
-        rows[0]["parameter_member"] = "node"
-    elif mutation == "missing-normalization":
-        rows.clear()
+    schema = next(
+        row["schema"]
+        for row in _definitions(authored, "language.wire_schemas")
+        if row.get("protocol_role") == "model-source-package"
+    )
+    bodies = schema["properties"]["modules"]["items"]["properties"]["formulas"][
+        "items"
+    ]["properties"]["body"]["oneOf"]
+    inline = next(row for row in bodies if "oneOf" in row)["oneOf"][0]
+    parameter = inline["properties"]["parameter"]
+    if mutation == "missing-role":
+        del inline["semantic_role"]
+    elif mutation == "wrong-role":
+        inline["semantic_role"] = "local-operand"
+    elif mutation == "wrong-discriminator":
+        inline["properties"]["node"]["const"] = "local"
+    elif mutation == "missing-member-role":
+        del parameter["semantic_member"]
+    elif mutation == "duplicate-member-role":
+        parameter["semantic_member"] = "node"
     else:
-        rows.append(deepcopy(rows[0]))
+        inline["properties"]["extra"] = {
+            "type": "string",
+            "semantic_member": "extra",
+        }
     graph = _graph(kernel, authored)
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, graph)

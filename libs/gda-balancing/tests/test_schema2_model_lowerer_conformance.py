@@ -26,6 +26,10 @@ from gda_balancing.domain.authority.graph import (
     derive_language_index,
 )
 from gda_balancing.domain.authority.admission import admit_authorities
+from gda_balancing.domain.authority.source_projection import (
+    SourceProjection,
+    project_source_value,
+)
 from gda_balancing.domain.canonical import JsonValue
 from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
@@ -49,12 +53,15 @@ from schema2_authority_support import (
 )
 from schema2_bootstrap_production_support import _recursive_nominal_owner_candidate
 from schema2_bootstrap_conformance_support import (
+    _consumer_b,
     _consumer_b_fact_is_closed,
     _consumer_b_operation_composition_subjects,
     _consumer_b_operation_value_is_admitted,
+    _consumer_b_project_source,
     _consumer_b_source_fact_transport_is_supported,
+    _consumer_b_source_semantic_selector,
 )
-from schema2_formula_conformance_support import normalize_source_body
+from schema2_formula_conformance_support import normalize_semantic_body
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
@@ -236,17 +243,15 @@ def _write_source(path: Path, source: dict[str, Any]) -> None:
     )
 
 
-def _reference_select(root: Any, selector: list[str]) -> list[Any]:
-    values = [root]
-    for segment in selector:
-        selected: list[Any] = []
-        for value in values:
-            if segment == "*" and isinstance(value, list):
-                selected.extend(value)
-            elif isinstance(value, dict) and segment in value:
-                selected.append(value[segment])
-        values = selected
-    return values
+def _production_source_projection(
+    source: dict[str, Any], kernel: dict[str, Any], language_bundle: dict[str, Any]
+) -> SourceProjection:
+    schema = next(
+        item["schema"]
+        for item in language_bundle["language"]["wire_schemas"]
+        if item.get("protocol_role") == "model-source-package"
+    )
+    return project_source_value(source, kernel, schema)
 
 
 def _reference_select_with_paths(
@@ -305,11 +310,7 @@ def _reference_namespace_selection(
 ) -> NamespaceSelection:
     """Construct expected selection facts with an independent required traversal."""
     language = language_bundle["language"]
-    profiles = [
-        row for row in language["resolution_profiles"] if row.get("default") is True
-    ]
-    assert len(profiles) == 1
-    roots = tuple(sorted(source[profiles[0]["requirements_member"]]))
+    roots = tuple(sorted(source["package_requirements"]))
     assert len(roots) == len(set(roots))
     available = {row["id"]: row for row in language["packages"]}
     assert len(available) == len(language["packages"])
@@ -575,6 +576,19 @@ def _reference_check_source(
         key=lambda item: tuple(str(part) for part in item.absolute_path),
     )
     reasons = {item["id"]: item for item in language["reasons"]}
+    check_selectors = [
+        (
+            check,
+            _consumer_b_source_semantic_selector(
+                source_schema,
+                [
+                    *check.get("semantic_scope_selector", []),
+                    *check["semantic_selector"],
+                ],
+            ),
+        )
+        for check in language["model_checks"]
+    ]
     if schema_errors:
 
         def pointer_count(error: jsonschema.ValidationError) -> int:
@@ -618,27 +632,75 @@ def _reference_check_source(
                     else None
                 )
                 branches.setdefault(branch, []).append(child)
-            selected = min(
-                branches.values(),
-                key=lambda items: (
-                    sum(pointer_count(item) for item in items),
-                    tuple(str(item.schema_path) for item in items),
-                ),
+            alternatives = (
+                error.schema.get(error.validator, [])
+                if isinstance(error.schema, dict) and isinstance(error.validator, str)
+                else []
             )
-            return [
+
+            def affinity(branch: object) -> tuple[int, int, int, int]:
+                if not isinstance(branch, int) or not isinstance(error.instance, dict):
+                    return (0, 0, 0, 0)
+                if not isinstance(alternatives, list) or branch >= len(alternatives):
+                    return (0, 0, 0, 0)
+                candidate = alternatives[branch]
+                if not isinstance(candidate, dict):
+                    return (0, 0, 0, 0)
+                properties = candidate.get("properties", {})
+                if not isinstance(properties, dict):
+                    return (0, 0, 0, 0)
+                fixed = [
+                    (name, child["const"])
+                    for name, child in properties.items()
+                    if isinstance(child, dict) and "const" in child
+                ]
+                different = sum(
+                    name in error.instance and error.instance[name] != value
+                    for name, value in fixed
+                )
+                matching = sum(
+                    name in error.instance and error.instance[name] == value
+                    for name, value in fixed
+                )
+                present = len(set(properties) & set(error.instance))
+                required = candidate.get("required", [])
+                covered = (
+                    len(set(required) & set(error.instance))
+                    if isinstance(required, list)
+                    else 0
+                )
+                return (different, -matching, -present, -covered)
+
+            if any(affinity(branch)[0] > 0 for branch in branches) and not any(
+                affinity(branch)[1] < 0 for branch in branches
+            ):
+                return [error]
+
+            selected = min(
+                branches.items(),
+                key=lambda row: (
+                    *affinity(row[0]),
+                    sum(pointer_count(item) for item in row[1]),
+                    tuple(str(item.schema_path) for item in row[1]),
+                ),
+            )[1]
+            preferred = [
                 preferred for child in selected for preferred in preferred_errors(child)
             ]
+            return (
+                [error]
+                if any(
+                    item.validator in {"oneOf", "anyOf"} and item.context
+                    for item in preferred
+                )
+                else preferred
+            )
 
         diagnostics = []
         for schema_error in schema_errors:
-            schema_path = tuple(schema_error.absolute_path)
-            selected_errors = (
-                preferred_errors(schema_error)
-                if len(schema_path) >= 2 and schema_path[-2] == "symbols"
-                else [schema_error]
-            )
+            selected_errors = preferred_errors(schema_error)
             for preferred in selected_errors:
-                paths = [tuple(str(part) for part in preferred.absolute_path)]
+                paths = [tuple(preferred.absolute_path)]
                 if preferred.validator == "required" and isinstance(
                     preferred.instance, dict
                 ):
@@ -671,12 +733,11 @@ def _reference_check_source(
                         "type",
                         "unevaluatedProperties",
                     }:
-                        for check in language["model_checks"]:
-                            selector = tuple(
-                                [*check.get("scope_selector", []), *check["selector"]]
-                            )
+                        for check, authored_selector in check_selectors:
+                            selector = tuple(authored_selector)
                             if len(selector) == len(path) and all(
-                                expected == "*" or expected == actual
+                                (expected is None and isinstance(actual, int))
+                                or expected == actual
                                 for expected, actual in zip(selector, path, strict=True)
                             ):
                                 diagnostic = reasons[check["reason"]]["diagnostic"]
@@ -684,25 +745,47 @@ def _reference_check_source(
                     diagnostics.append((diagnostic, _reference_pointer(list(path))))
         return tuple(dict.fromkeys(diagnostics))
 
+    independent_projection = _consumer_b_project_source(source, kernel, language_bundle)
+    canonical_source = independent_projection.value
+    source_projection = SourceProjection(
+        value=canonical_source,
+        authored_paths=independent_projection.authored_paths,
+        authored_source=source,
+    )
+
+    def authored_pointer(canonical: tuple[object, ...] | str) -> str:
+        pointer = (
+            canonical
+            if isinstance(canonical, str)
+            else _reference_pointer(list(canonical))
+        )
+        return independent_projection.authored_paths.get(pointer, pointer)
+
     diagnostics_by_stage: dict[str, list[tuple[str, str]]] = {}
     for check in language["model_checks"]:
         reason = reasons[check["reason"]]
+        canonical_scope_selector = check.get("semantic_scope_selector", [])
+        canonical_selector = check["semantic_selector"]
+        canonical_full_selector = [
+            *canonical_scope_selector,
+            *canonical_selector,
+        ]
         scopes = (
-            _reference_select_with_paths(source, check["scope_selector"])
-            if "scope_selector" in check
-            else [(source, ())]
+            _reference_select_with_paths(canonical_source, canonical_scope_selector)
+            if canonical_scope_selector
+            else [(canonical_source, ())]
         )
         for scope, scope_path in scopes:
             selected = _reference_select_with_paths(
                 scope,
-                check["selector"],
+                canonical_selector,
                 scope_path,
             )
             values = [value for value, _path in selected]
             code = reason["diagnostic"]
             if check["mode"] == "each":
                 diagnostics_by_stage.setdefault(reason["stage"], []).extend(
-                    (code, _reference_pointer(list(path)))
+                    (code, authored_pointer(path))
                     for value, path in selected
                     if _reference_reason_matches(language_bundle, reason, [value])
                 )
@@ -718,7 +801,7 @@ def _reference_check_source(
                         first_paths[encoded] = path
                         continue
                     diagnostics_by_stage.setdefault(reason["stage"], []).append(
-                        (code, _reference_pointer(list(path)))
+                        (code, authored_pointer(path))
                     )
                 continue
             if check["mode"] == "count":
@@ -731,12 +814,14 @@ def _reference_check_source(
                 location = (
                     selected[limit][1]
                     if len(selected) > limit
-                    else tuple(check["selector"])
+                    else tuple(canonical_full_selector)
                 )
             else:
-                location = selected[0][1] if selected else tuple(check["selector"])
+                location = (
+                    selected[0][1] if selected else tuple(canonical_full_selector)
+                )
             diagnostics_by_stage.setdefault(reason["stage"], []).append(
-                (code, _reference_pointer(list(location)))
+                (code, authored_pointer(location))
             )
 
     resource_reason = reasons[profile["resource_reason"]]
@@ -757,10 +842,9 @@ def _reference_check_source(
 
     relations: dict[str, list[dict[str, dict[str, str]]]] = {}
     available_packages = language["packages"]
-    requirements_member = profile["requirements_member"]
     packages_by_coordinate = {package["id"]: package for package in available_packages}
     selected_packages: dict[str, dict[str, Any]] = {}
-    pending = list(source[requirements_member])
+    pending = list(canonical_source["package_requirements"])
     while pending:
         namespace = pending.pop(0)
         package = packages_by_coordinate.get(namespace)
@@ -772,12 +856,31 @@ def _reference_check_source(
         selected_packages[package_id] for package_id in sorted(selected_packages)
     ]
 
+    def source_term(
+        value: Any,
+        canonical_base: tuple[object, ...],
+        semantic_segments: list[str],
+    ) -> tuple[Any, tuple[object, ...]]:
+        target = value
+        target_parts = list(canonical_base)
+        for segment in semantic_segments:
+            if isinstance(target, list):
+                part: object = int(segment)
+                target = target[cast(int, part)]
+            elif isinstance(target, dict):
+                part = segment
+                target = target[cast(str, part)]
+            else:
+                raise KeyError("Source recipe path traverses a scalar")
+            target_parts.append(part)
+        return target, tuple(target_parts)
+
     def read_term(
         term: dict[str, Any],
         environment: dict[str, tuple[Any, tuple[object, ...] | None]],
     ) -> tuple[Any, tuple[object, ...] | None]:
         if term["root"] == "source":
-            value: Any = source
+            value: Any = canonical_source
             pointer: tuple[object, ...] | None = ()
         elif term["root"] == "language":
             value = language
@@ -791,10 +894,10 @@ def _reference_check_source(
             raise AssertionError(
                 f"reference consumer observed unknown term root: {term['root']}"
             )
+        if pointer is not None:
+            return source_term(value, pointer, term["path"])
         for segment in term["path"]:
             value = value[segment]
-            if pointer is not None:
-                pointer = (*pointer, segment)
         return value, pointer
 
     try:
@@ -845,7 +948,7 @@ def _reference_check_source(
                     values[field["name"]] = value
                     if field["pointer"]:
                         assert pointer is not None
-                        pointers[field["name"]] = _reference_pointer(list(pointer))
+                        pointers[field["name"]] = authored_pointer(pointer)
                 relation_rows.append({"values": values, "pointers": pointers})
             relations[recipe["id"]] = relation_rows
     except BudgetExhausted:
@@ -909,9 +1012,9 @@ def _reference_check_source(
 
     def resolution_pointer(code: str) -> str:
         if code == "language.package_unavailable":
-            for index, namespace in enumerate(source[requirements_member]):
+            for index, namespace in enumerate(canonical_source["package_requirements"]):
                 if namespace not in packages_by_coordinate:
-                    return _reference_pointer([requirements_member, index])
+                    return authored_pointer(("package_requirements", index))
         return ""
 
     for stage in resolution_meta["stage_order"]:
@@ -943,13 +1046,14 @@ def _reference_check_source(
             return tuple(dict.fromkeys(stage_diagnostics))
     checked = ModelSourceContext(
         source=source,
+        source_projection=source_projection,
         source_identity=_reference_content_identity(
             profile["source_identity_domain"], source
         ),
         kernel=kernel,
         language_bundle=language_bundle,
         namespace_selection=_reference_namespace_selection(
-            source, kernel, language_bundle
+            canonical_source, kernel, language_bundle
         ),
     )
     try:
@@ -961,18 +1065,20 @@ def _reference_check_source(
         return (
             (
                 reasons[profile["structural_reason"]]["diagnostic"],
-                error.pointer,
+                authored_pointer(error.pointer),
             ),
         )
     except _ReferenceFormulaPairsError as error:
         return error.diagnostics
     except _ReferenceFormulaError as error:
-        return ((reasons[error.reason_id]["diagnostic"], error.pointer),)
+        return (
+            (reasons[error.reason_id]["diagnostic"], authored_pointer(error.pointer)),
+        )
     except (KeyError, ValueError) as error:
         pointer = (
-            _reference_pointer([profile["formula_resolution"]["bindings_member"]])
+            authored_pointer(("formula_bindings",))
             if "formula" in str(error).lower() or "binding" in str(error).lower()
-            else _reference_pointer([profile["entrypoints_member"]])
+            else authored_pointer(("entrypoints",))
         )
         return ((reasons[profile["structural_reason"]]["diagnostic"], pointer),)
     return checked
@@ -1092,68 +1198,51 @@ def _reference_resolved_symbols(
         for item in language["resolution_profiles"]
         if item["id"] == lowering["resolution_profile"]
     )
-    requirements = set(checked.source[profile["requirements_member"]])
+    source = checked.source_projection.value
+    requirements = set(source["package_requirements"])
     packages = {item["id"]: item for item in language["packages"]}
-    selected_symbols = _reference_select(checked.source, lowering["source_selector"])
-    selected_symbol_ids = {id(item) for item in selected_symbols}
-    resolved_symbol_ids: set[int] = set()
-    model_id = checked.source
-    for part in profile["manifest_id_path"].split("."):
-        model_id = model_id[part]
+    model_id = source["manifest"]["id"]
     rows = []
-    for module_index, module in enumerate(checked.source[profile["modules_member"]]):
-        imports = {
-            item[profile["import_alias_member"]]: item
-            for item in module[profile["imports_member"]]
-        }
-        for symbol_index, symbol in enumerate(module[profile["symbols_member"]]):
-            if id(symbol) not in selected_symbol_ids:
-                continue
-            resolved_symbol_ids.add(id(symbol))
-            imported = imports[symbol[profile["symbol_type_member"]]]
-            package_key = imported[profile["import_package_member"]]
+    for module_index, module in enumerate(source["modules"]):
+        imports = {item["alias"]: item for item in module["imports"]}
+        for symbol_index, symbol in enumerate(module["symbols"]):
+            imported = imports[symbol["type"]]
+            package_key = imported["package"]
             assert package_key in requirements
             package = packages[package_key]
-            assert imported[profile["import_symbol_member"]] in {
+            assert imported["symbol"] in {
                 item["id"] for item in package["exports"]["types"]
             }
             fields = {
                 name: value
                 for name, value in symbol.items()
-                if name
-                not in {
-                    profile["symbol_name_member"],
-                    profile["symbol_type_member"],
-                }
+                if name not in {"symbol", "type"}
             }
             adapters = [
-                (profile["symbol_fact_member"], symbol[profile["symbol_name_member"]]),
+                (profile["symbol_fact_member"], symbol["symbol"]),
                 (
                     "resolved_symbol",
                     {
                         "model": model_id,
-                        "module": module[profile["module_id_member"]],
-                        "name": symbol[profile["symbol_name_member"]],
+                        "module": module["id"],
+                        "name": symbol["symbol"],
                     },
                 ),
                 (
                     "type_identity",
                     {
                         "package": package_key,
-                        "id": imported[profile["import_symbol_member"]],
+                        "id": imported["symbol"],
                     },
                 ),
             ]
             targets = [name for name, _value in adapters] + ["value_kind"]
-            if (
-                imported[profile["import_symbol_member"]]
-                in package["exports"]["nominal_types"]
-            ):
+            if imported["symbol"] in package["exports"]["nominal_types"]:
                 adapters.append(("value_kind", "nominal-structured"))
             pointer = (
-                profile["modules_member"],
+                "modules",
                 module_index,
-                profile["symbols_member"],
+                "symbols",
                 symbol_index,
             )
             if len(set(targets)) != len(targets) or any(
@@ -1165,7 +1254,6 @@ def _reference_resolved_symbols(
                 )
             fields.update(adapters)
             rows.append((fields, pointer))
-    assert resolved_symbol_ids == selected_symbol_ids
     return sorted(
         rows,
         key=lambda item: (
@@ -1229,7 +1317,7 @@ def _reference_package_lock(checked: ModelSourceContext) -> dict[str, Any]:
         if item["id"] == lowering["resolution_profile"]
     )
     available = {item["id"]: item for item in language["packages"]}
-    requirements = sorted(checked.source[profile["requirements_member"]])
+    requirements = sorted(checked.source_projection.value["package_requirements"])
     selected: dict[str, dict[str, Any]] = {}
     pending = list(requirements)
     dependency_edges = []
@@ -1473,12 +1561,6 @@ def _reference_selected_operation_coordinates(
     *,
     consume_instruction: Callable[[], None] | None = None,
 ) -> set[tuple[str, str]]:
-
-    profile = next(
-        item
-        for item in checked.language_bundle["language"]["resolution_profiles"]
-        if item["id"] == lock["resolution_profile"]["id"]
-    )
     operations = {
         (
             row["package"],
@@ -1491,7 +1573,7 @@ def _reference_selected_operation_coordinates(
             entrypoint["operation"]["package"],
             entrypoint["operation"]["id"],
         )
-        for entrypoint in checked.source[profile["entrypoints_member"]]
+        for entrypoint in checked.source_projection.value["entrypoints"]
     } | formula_roots
     reference_nodes = {
         node["id"]
@@ -1560,7 +1642,8 @@ def _reference_formulas_and_bindings(
     available = {
         (row["package"], row["definition"]["id"]) for row in lock["operations"]
     }
-    for index, entrypoint in enumerate(checked.source[profile["entrypoints_member"]]):
+    source = checked.source_projection.value
+    for index, entrypoint in enumerate(source["entrypoints"]):
         reference = entrypoint["operation"]
         if (reference["package"], reference["id"]) not in available:
             member = (
@@ -1569,9 +1652,7 @@ def _reference_formulas_and_bindings(
                 else "id"
             )
             raise _ReferenceEntrypointError(
-                _reference_pointer(
-                    [profile["entrypoints_member"], index, "operation", member]
-                ),
+                _reference_pointer(["entrypoints", index, "operation", member]),
                 "entrypoint Operation is not selected",
             )
     policy = profile["formula_resolution"]
@@ -1592,21 +1673,19 @@ def _reference_formulas_and_bindings(
     }
     prototypes: dict[tuple[str, str], dict[str, Any]] = {}
     dependencies: dict[tuple[str, str], list[tuple[str, str]]] = {}
-    for module_index, module in enumerate(checked.source[profile["modules_member"]]):
-        module_id = module[profile["module_id_member"]]
+    for module_index, module in enumerate(source["modules"]):
+        module_id = module["id"]
         imports = {
-            item[profile["import_alias_member"]]: {
-                "package": item[profile["import_package_member"]],
-                "symbol": item[profile["import_symbol_member"]],
+            item["alias"]: {
+                "package": item["package"],
+                "symbol": item["symbol"],
             }
-            for item in module[profile["imports_member"]]
+            for item in module["imports"]
         }
         for formula_index, source_formula in enumerate(module.get("formulas", [])):
             key = (module_id, source_formula["id"])
-            source_body = normalize_source_body(
-                source_formula[policy["formula_body_member"]],
-                checked.language_bundle,
-                kernel=checked.kernel,
+            source_body = normalize_semantic_body(
+                source_formula["body"], kernel=checked.kernel
             )
             parameters = [
                 {
@@ -1631,7 +1710,7 @@ def _reference_formulas_and_bindings(
             }
             dependencies[key] = [
                 (node["formula"]["module"], node["formula"]["id"])
-                for node in source_body[policy["body_nodes_member"]]
+                for node in source_body["nodes"]
                 if node["node"] == "formula-call"
             ]
 
@@ -1931,16 +2010,14 @@ def _reference_formulas_and_bindings(
             ),
         }
 
-    source_bindings = checked.source.get(policy["bindings_member"], [])
+    source_bindings = source.get("formula_bindings", [])
     selected_keys = {
         (binding["formula"]["module"], binding["formula"]["id"])
         for binding in source_bindings
     }
     binding_pointers = {
         (binding["formula"]["module"], binding["formula"]["id"]): (
-            _reference_pointer(
-                [policy["bindings_member"], index, policy["binding_formula_member"]]
-            )
+            _reference_pointer(["formula_bindings", index, "formula"])
         )
         for index, binding in enumerate(source_bindings)
     }
@@ -1994,9 +2071,9 @@ def _reference_formulas_and_bindings(
                 policy["refusal_reasons"]["binding-missing"],
                 _reference_pointer(
                     [
-                        policy["bindings_member"],
+                        "formula_bindings",
                         binding_index,
-                        policy["binding_formula_member"],
+                        "formula",
                     ]
                 ),
                 "Formula binding names no declaration",
@@ -2018,9 +2095,9 @@ def _reference_formulas_and_bindings(
                     ),
                     _reference_pointer(
                         [
-                            policy["bindings_member"],
+                            "formula_bindings",
                             binding_index,
-                            policy["binding_site_member"],
+                            "site",
                         ]
                     ),
                     "Formula binding site is not one unique selected Operation slot",
@@ -2034,9 +2111,9 @@ def _reference_formulas_and_bindings(
                     policy["refusal_reasons"]["context-mismatch"],
                     _reference_pointer(
                         [
-                            policy["bindings_member"],
+                            "formula_bindings",
                             binding_index,
-                            policy["binding_site_member"],
+                            "site",
                         ]
                     ),
                     "Formula Operation slot has no admitted lifecycle context",
@@ -2125,7 +2202,7 @@ def _reference_formulas_and_bindings(
     if bound_slots != set(slots):
         raise _ReferenceFormulaError(
             policy["refusal_reasons"]["binding-missing"],
-            _reference_pointer([profile["entrypoints_member"], 0, "operation"]),
+            _reference_pointer(["entrypoints", 0, "operation"]),
             "every selected Operation Formula slot requires exactly one binding",
         )
     return formulas, bindings
@@ -2824,11 +2901,6 @@ def _reference_rir(
         for invocation in lowering[f"{rule_prefix}rule_chain"]:
             fact = _reference_apply(language, invocation, fact)
         declarations.append(fact["fields"])
-    formulas, formula_bindings = _reference_formulas_and_bindings(
-        checked,
-        declarations,
-        lock,
-    )
     from schema2_formula_conformance_support import pair_refusal
 
     profile = next(
@@ -2838,16 +2910,27 @@ def _reference_rir(
     )
     policy = profile["formula_resolution"]
     reasons = {row["id"]: row for row in language["reasons"]}
-    modules = checked.source[profile["modules_member"]]
+
+    def authored_value(parts: tuple[object, ...]) -> Any:
+        value: Any = checked.source
+        for part in checked.source_projection.authored_parts(parts):
+            value = value[part]
+        return value
+
+    source = checked.source_projection.value
+    modules = source["modules"]
+    authored_modules = authored_value(("modules",))
     pair_diagnostics = []
     for mi, module in enumerate(modules):
-        for fi, formula in enumerate(module.get(policy["module_formulas_member"], [])):
+        for fi, _formula in enumerate(module.get("formulas", [])):
+            authored_module = authored_value(("modules", mi))
+            authored_formula = authored_value(("modules", mi, "formulas", fi))
             request = {
-                "schema_version": checked.source[profile["schema_version_member"]],
-                "package_requirements": checked.source[profile["requirements_member"]],
-                "modules": modules,
-                "module": module,
-                "formula": formula,
+                "schema_version": authored_value(("schema_version",)),
+                "package_requirements": authored_value(("package_requirements",)),
+                "modules": authored_modules,
+                "module": authored_module,
+                "formula": authored_formula,
             }
             failure = pair_refusal(
                 request, checked.language_bundle, kernel=checked.kernel
@@ -2862,15 +2945,10 @@ def _reference_rir(
                 pair_diagnostics.append(
                     (
                         reasons[reason_id]["diagnostic"],
-                        _reference_pointer(
-                            [
-                                profile["modules_member"],
-                                mi,
-                                policy["module_formulas_member"],
-                                fi,
-                                member,
-                            ]
-                        ),
+                        checked.source_projection.authored_pointer(
+                            _reference_pointer(["modules", mi, "formulas", fi])
+                        )
+                        + _reference_pointer([member]),
                     )
                 )
     if pair_diagnostics:
@@ -2878,6 +2956,11 @@ def _reference_rir(
         raise _ReferenceFormulaPairsError(
             tuple(ordered[: checked.language_bundle["resources"]["max_diagnostics"]])
         )
+    formulas, formula_bindings = _reference_formulas_and_bindings(
+        checked,
+        declarations,
+        lock,
+    )
     accounting = checked.kernel["meta_format"]["runtime_projection"][
         "resource_accounting"
     ]
@@ -3108,11 +3191,6 @@ def _reference_entrypoints(
     formula_bindings: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     lowering = _reference_lowering(checked.language_bundle["language"])
-    profile = next(
-        item
-        for item in checked.language_bundle["language"]["resolution_profiles"]
-        if item["id"] == lowering["resolution_profile"]
-    )
     policy = lowering["assignment_policy"]
     roles = {row["role"]: row for row in policy["roles"]}
     assert set(roles) == set(
@@ -3157,9 +3235,9 @@ def _reference_entrypoints(
     resolved_entrypoints = []
     seen: set[str] = set()
     for entrypoint_index, source_entrypoint in enumerate(
-        checked.source[profile["entrypoints_member"]]
+        checked.source_projection.value["entrypoints"]
     ):
-        pointer = _reference_pointer([profile["entrypoints_member"], entrypoint_index])
+        pointer = _reference_pointer(["entrypoints", entrypoint_index])
         entrypoint_id = source_entrypoint["id"]
         if entrypoint_id in seen:
             raise _ReferenceEntrypointError(
@@ -4335,52 +4413,48 @@ def _reference_pointer(parts: list[object]) -> str:
     )
 
 
+def _reference_source_pointer(checked: ModelSourceContext, parts: list[object]) -> str:
+    canonical = _reference_pointer(parts)
+    return checked.source_projection.authored_paths.get(canonical, canonical)
+
+
 def _reference_debug_map(
     checked: ModelSourceContext, rir: dict[str, Any]
 ) -> dict[str, Any]:
-    language = checked.language_bundle["language"]
-    lowering = _reference_lowering(language)
-    profile = next(
-        item
-        for item in language["resolution_profiles"]
-        if item["id"] == lowering["resolution_profile"]
-    )
-    modules_member = profile["modules_member"]
-    symbols_member = profile["symbols_member"]
-    module_id_member = profile["module_id_member"]
-    symbol_name_member = profile["symbol_name_member"]
-    model_id = _exact_path(checked.source, profile["manifest_id_path"])
+    source = checked.source_projection.value
+    model_id = source["manifest"]["id"]
     pointers = {
         (
             model_id,
-            module[module_id_member],
-            symbol[symbol_name_member],
-        ): [modules_member, module_index, symbols_member, symbol_index]
-        for module_index, module in enumerate(checked.source[modules_member])
-        for symbol_index, symbol in enumerate(module[symbols_member])
+            module["id"],
+            symbol["symbol"],
+        ): ["modules", module_index, "symbols", symbol_index]
+        for module_index, module in enumerate(source["modules"])
+        for symbol_index, symbol in enumerate(module["symbols"])
     }
     declarations = rir["declarations"]
     formula_pointers = {
-        (module[module_id_member], formula["id"]): [
-            modules_member,
+        (module["id"], formula["id"]): [
+            "modules",
             module_index,
             "formulas",
             formula_index,
         ]
-        for module_index, module in enumerate(checked.source[modules_member])
+        for module_index, module in enumerate(source["modules"])
         for formula_index, formula in enumerate(module.get("formulas", []))
     }
     declaration_entries = [
         {
             "rir_pointer": _reference_pointer(["declarations", index]),
-            "source_pointer": _reference_pointer(
+            "source_pointer": _reference_source_pointer(
+                checked,
                 pointers[
                     (
                         declaration["resolved_symbol"]["model"],
                         declaration["resolved_symbol"]["module"],
                         declaration["resolved_symbol"]["name"],
                     )
-                ]
+                ],
             ),
         }
         for index, declaration in enumerate(declarations)
@@ -4388,8 +4462,8 @@ def _reference_debug_map(
     formula_entries = [
         {
             "rir_pointer": _reference_pointer(["formulas", index]),
-            "source_pointer": _reference_pointer(
-                formula_pointers[(formula["module"], formula["id"])]
+            "source_pointer": _reference_source_pointer(
+                checked, formula_pointers[(formula["module"], formula["id"])]
             ),
         }
         for index, formula in enumerate(rir["formulas"])
@@ -5183,7 +5257,7 @@ def test_resolution_step_budget_drives_both_independent_consumers():
     assert admit_authorities(kernel, language_bundle).admitted
 
     production = model_module._resolution_diagnostics(
-        source,
+        _production_source_projection(source, kernel, language_bundle),
         _reference_content_identity("model-source-package-v2", source),
         kernel,
         language_bundle,
@@ -5255,7 +5329,7 @@ def test_resolution_law_fields_drive_both_independent_interpreters(tmp_path):
     operation["law"]["key"] = ["package"]
 
     production = model_module._resolution_diagnostics(
-        source,
+        _production_source_projection(source, kernel, language_bundle),
         _reference_content_identity("model-source-package-v2", source),
         kernel,
         language_bundle,
@@ -5294,7 +5368,7 @@ def test_resolution_relation_recipes_drive_both_independent_interpreters(tmp_pat
     alias_field["term"]["path"] = ["package"]
 
     production = model_module._resolution_diagnostics(
-        source,
+        _production_source_projection(source, kernel, language_bundle),
         _reference_content_identity("model-source-package-v2", source),
         kernel,
         language_bundle,
@@ -5366,9 +5440,68 @@ def test_resolved_admission_refuses_reidentified_rir_semantic_closure_drift(tmp_
     assert result.admitted is False
 
 
+def test_independent_consumer_refuses_unowned_model_check_semantic_selectors():
+    for mutation in (
+        "old-selector",
+        "old-scope",
+        "missing",
+        "empty",
+        "unknown-leaf",
+        "unknown-scope",
+        "wildcard-on-object",
+        "member-on-array",
+        "multiple-member-owners",
+    ):
+        kernel, language_bundle = mutable_authorities()
+        language = language_bundle["language"]
+        check = language["model_checks"][0]
+        if mutation == "old-selector":
+            check["selector"] = check.pop("semantic_selector")
+        elif mutation == "old-scope":
+            scoped = next(
+                item
+                for item in language["model_checks"]
+                if "semantic_scope_selector" in item
+            )
+            scoped["scope_selector"] = scoped.pop("semantic_scope_selector")
+        elif mutation == "missing":
+            del check["semantic_selector"]
+        elif mutation == "empty":
+            check["semantic_selector"] = []
+        elif mutation == "unknown-leaf":
+            check["semantic_selector"][-1] = "unknown-member"
+        elif mutation == "unknown-scope":
+            check["semantic_scope_selector"] = ["unknown-member"]
+        elif mutation == "wildcard-on-object":
+            check["semantic_selector"] = ["schema_version", "*"]
+        elif mutation == "member-on-array":
+            check["semantic_selector"] = ["modules", "id"]
+        else:
+            source_schema = next(
+                row["schema"]
+                for row in language["wire_schemas"]
+                if row.get("protocol_role") == "model-source-package"
+            )
+            modules = source_schema["properties"]["modules"]
+            source_schema["properties"]["duplicate-modules"] = deepcopy(modules)
+            source_schema["required"].append("duplicate-modules")
+        _reidentify_language_bundle(language_bundle)
+
+        result = _consumer_b(kernel, language_bundle)
+
+        assert not result["admitted"], mutation
+        expected = ("static", "kernel.vector_mismatch", "language.definitions")
+        if mutation == "multiple-member-owners":
+            assert expected in result["diagnostics"]
+        else:
+            assert result["diagnostics"] == [expected]
+
+
 def test_model_source_routing_follows_the_selected_ldb_profile_without_host_tokens(
     tmp_path, monkeypatch
 ):
+    original = _source([_symbol("health", "state")])
+
     def renamed_source(document: dict[str, Any]) -> dict[str, Any]:
         document = deepcopy(document)
         manifest = document.pop("manifest")
@@ -5390,198 +5523,91 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
                 declaration["name"] = declaration.pop("symbol")
                 declaration["type_ref"] = declaration.pop("type")
             section["declarations"] = declarations
-        document["sections"] = sections
+        document["*"] = sections
         return document
 
-    path = tmp_path / "profile-routed-source.json"
-    source = renamed_source(_source([_symbol("health", "state")]))
+    path = tmp_path / "schema-role-source.json"
+    source = renamed_source(original)
     _write_source(path, source)
     kernel, candidate_ldb = mutable_authorities()
     language = candidate_ldb["language"]
-    profile = language["resolution_profiles"][0]
-    old_profile_id = profile["id"]
-    profile["id"] = "renamed-exact-import-resolution-v1"
-    profile_owner = next(
-        package
-        for package in language["packages"]
-        if old_profile_id in package["profiles"]["resolution"]
-    )
-    profile_owner["profiles"]["resolution"] = [profile["id"]]
-    profile["manifest_id_path"] = "header.model_key"
-    profile["manifest_entry_module_path"] = "header.start_module"
-    profile["requirements_member"] = "dependencies"
-    profile["modules_member"] = "sections"
-    profile["module_id_member"] = "module_key"
-    profile["imports_member"] = "uses"
-    profile["import_alias_member"] = "prefix"
-    profile["import_package_member"] = "package_id"
-    profile["import_symbol_member"] = "export_name"
-    profile["symbols_member"] = "declarations"
-    profile["symbol_name_member"] = "name"
-    profile["symbol_type_member"] = "type_ref"
-    profile["symbol_fact_member"] = "symbol"
 
-    def rewrite_relation_term(term: dict[str, Any]) -> None:
-        if term["root"] == "source":
-            source_paths = {
-                ("manifest", "id"): ["header", "model_key"],
-                ("manifest", "entry_module"): ["header", "start_module"],
-                ("package_requirements",): ["dependencies"],
-                ("modules",): ["sections"],
-            }
-            term["path"] = source_paths.get(tuple(term["path"]), term["path"])
-            return
-        if term["root"] != "binding":
-            return
-        field_renames = {
-            "module": {
-                "id": "module_key",
-                "imports": "uses",
-                "symbols": "declarations",
-            },
-            "import": {
-                "alias": "prefix",
-                "package": "package_id",
-                "symbol": "export_name",
-            },
-            "symbol": {"symbol": "name", "type": "type_ref"},
-        }
-        renames = field_renames.get(term["binding"], {})
-        term["path"] = [renames.get(segment, segment) for segment in term["path"]]
-
-    for recipe in profile["relation_recipes"]:
-        for binding in recipe["bindings"]:
-            rewrite_relation_term(binding["source"])
-        for predicate in recipe["predicates"]:
-            rewrite_relation_term(predicate["left"])
-            rewrite_relation_term(predicate["right"])
-        for field in recipe["fields"]:
-            rewrite_relation_term(field["term"])
-    lowering = next(
-        item
-        for item in language["model_lowerings"]
-        if item["id"] == profile["model_lowering"]
-    )
-    lowering["resolution_profile"] = profile["id"]
-    lowering["source_selector"] = ["sections", "*", "declarations", "*"]
-    selector_renames = {
-        "modules": "sections",
-        "symbols": "declarations",
-        "symbol": "name",
-    }
-    for check in language["model_checks"]:
-        check["selector"] = [
-            selector_renames.get(item, item) for item in check["selector"]
-        ]
-        if "scope_selector" in check:
-            check["scope_selector"] = [
-                selector_renames.get(item, item) for item in check["scope_selector"]
+    def rename_role_member(
+        schema: dict[str, Any],
+        target_role: str,
+        old: str,
+        new: str,
+        inherited: str | None = None,
+    ) -> None:
+        role = schema.get("semantic_role", inherited)
+        properties = schema.get("properties", {})
+        if role == target_role and old in properties:
+            properties[new] = properties.pop(old)
+            schema["required"] = [
+                new if member == old else member
+                for member in schema.get("required", [])
             ]
+        for child in properties.values():
+            if isinstance(child, dict):
+                rename_role_member(child, target_role, old, new)
+        items = schema.get("items")
+        if isinstance(items, dict):
+            rename_role_member(items, target_role, old, new)
+        for branch in schema.get("oneOf", []):
+            if isinstance(branch, dict):
+                rename_role_member(branch, target_role, old, new, role)
+
     source_schema = next(
         item["schema"]
         for item in language["wire_schemas"]
         if item.get("protocol_role") == "model-source-package"
     )
-    source_schema["properties"]["header"] = source_schema["properties"].pop("manifest")
-    source_schema["required"] = [
-        "header" if item == "manifest" else item for item in source_schema["required"]
-    ]
-    header_schema = source_schema["properties"]["header"]
-    header_schema["properties"]["model_key"] = header_schema["properties"].pop("id")
-    header_schema["properties"]["start_module"] = header_schema["properties"].pop(
-        "entry_module"
-    )
-    header_schema["required"] = [
-        {"id": "model_key", "entry_module": "start_module"}.get(item, item)
-        for item in header_schema["required"]
-    ]
-    source_schema["properties"]["dependencies"] = source_schema["properties"].pop(
-        "package_requirements"
-    )
-    source_schema["required"] = [
-        "dependencies" if item == "package_requirements" else item
-        for item in source_schema["required"]
-    ]
-    source_schema["properties"]["sections"] = source_schema["properties"].pop("modules")
-    source_schema["required"] = [
-        "sections" if item == "modules" else item for item in source_schema["required"]
-    ]
-    section_schema = source_schema["properties"]["sections"]["items"]
-    section_schema["properties"]["module_key"] = section_schema["properties"].pop("id")
-    section_schema["properties"]["uses"] = section_schema["properties"].pop("imports")
-    section_schema["properties"]["declarations"] = section_schema["properties"].pop(
-        "symbols"
-    )
-    section_schema["required"] = [
-        {
-            "id": "module_key",
-            "imports": "uses",
-            "symbols": "declarations",
-        }.get(item, item)
-        for item in section_schema["required"]
-    ]
-    use_schema = section_schema["properties"]["uses"]["items"]
-    for old, new in (
-        ("alias", "prefix"),
-        ("package", "package_id"),
-        ("symbol", "export_name"),
+    for role, old, new in (
+        ("source", "manifest", "header"),
+        ("source", "package_requirements", "dependencies"),
+        ("source", "modules", "*"),
+        ("manifest", "id", "model_key"),
+        ("manifest", "entry_module", "start_module"),
+        ("module", "id", "module_key"),
+        ("module", "imports", "uses"),
+        ("module", "symbols", "declarations"),
+        ("import", "alias", "prefix"),
+        ("import", "package", "package_id"),
+        ("import", "symbol", "export_name"),
+        ("symbol", "symbol", "name"),
+        ("symbol", "type", "type_ref"),
     ):
-        use_schema["properties"][new] = use_schema["properties"].pop(old)
-    use_schema["required"] = [
-        {
-            "alias": "prefix",
-            "package": "package_id",
-            "symbol": "export_name",
-        }.get(item, item)
-        for item in use_schema["required"]
-    ]
-    declaration_schema = section_schema["properties"]["declarations"]["items"]
-    declaration_schema["properties"]["name"] = declaration_schema["properties"].pop(
-        "symbol"
-    )
-    declaration_schema["properties"]["type_ref"] = declaration_schema["properties"].pop(
-        "type"
-    )
-    declaration_schema["required"] = [
-        {"symbol": "name", "type": "type_ref"}.get(item, item)
-        for item in declaration_schema["required"]
-    ]
-    for branch in declaration_schema["oneOf"]:
-        branch["properties"]["name"] = branch["properties"].pop("symbol")
-        branch["properties"]["type_ref"] = branch["properties"].pop("type")
-        branch["required"] = [
-            {"symbol": "name", "type": "type_ref"}.get(item, item)
-            for item in branch["required"]
-        ]
+        rename_role_member(source_schema, role, old, new)
+
     for vector in candidate_ldb["vectors"]:
-        if (
-            vector.get("kind") == "package-contract"
-            and vector.get("probe") == {"path": "profiles.resolution"}
-            and vector.get("expect") == [old_profile_id]
-        ):
-            vector["expect"] = [profile["id"]]
         fixture = vector.get("source_fixture")
         if not isinstance(fixture, dict):
             continue
         fixture["source"] = renamed_source(fixture["source"])
         if fixture["mode"] == "indexed-repeat":
             fixture["collection_path"] = [
-                selector_renames.get(item, item) for item in fixture["collection_path"]
+                {
+                    "modules": "*",
+                    "symbols": "declarations",
+                    "symbol": "name",
+                    "type": "type_ref",
+                }.get(item, item)
+                for item in fixture["collection_path"]
             ]
             fixture["index_member"] = "name"
             fixture["template"]["name"] = fixture["template"].pop("symbol")
             fixture["template"]["type_ref"] = fixture["template"].pop("type")
-        expect = vector["expect"]
-        if expect["outcome"] == "admitted":
-            assert expect["lock_oracle"]["resolution_profile"] == old_profile_id
-            expect["lock_oracle"]["resolution_profile"] = profile["id"]
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted
+    consumer_b = _consumer_b(kernel, candidate_ldb)
+    assert consumer_b["admitted"], consumer_b["diagnostics"]
     _inject_authority_context(monkeypatch, kernel, candidate_ldb)
     checked = check_model_source(str(path))
     reference_checked = _reference_check_source(source, kernel, candidate_ldb)
     assert isinstance(checked, CheckedModel)
     assert isinstance(reference_checked, ModelSourceContext)
+    assert reference_checked.source == source
+    assert reference_checked.source_projection.value == original
 
     production = lower_checked_model(checked)
     reference = _reference_semantic_artifacts(reference_checked)
@@ -5602,6 +5628,31 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
     declaration = declarations[0]
     assert declaration["symbol"] == "health"
     assert "name" not in declaration
+
+    invalid_domain = deepcopy(source)
+    invalid_domain["*"][0]["declarations"][0]["domain"] = {
+        "minimum": 2,
+        "maximum": 1,
+    }
+    assert _reference_check_source(invalid_domain, kernel, candidate_ldb) == (
+        ("language.invalid_domain", "/*/0/declarations/0/domain"),
+    )
+
+    extra_authored_member = deepcopy(source)
+    extra_authored_member["*"][0]["declarations"][0]["symbol"] = "health"
+    assert _reference_check_source(extra_authored_member, kernel, candidate_ldb) == (
+        ("language.source_contract_mismatch", "/*/0/declarations/0/symbol"),
+    )
+
+    exhausted = deepcopy(source)
+    symbol = exhausted["*"][0]["declarations"][0]
+    limit = candidate_ldb["resources"]["max_symbols"]
+    exhausted["*"][0]["declarations"] = [
+        {**deepcopy(symbol), "name": f"symbol-{index}"} for index in range(limit + 1)
+    ]
+    assert _reference_check_source(exhausted, kernel, candidate_ldb) == (
+        ("language.resource_exhausted", f"/*/0/declarations/{limit}"),
+    )
 
 
 def test_schema_error_mapping_uses_the_complete_ldb_selector_path():

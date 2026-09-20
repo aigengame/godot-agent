@@ -6,9 +6,9 @@ from typing import Any
 from gda_balancing.domain.authority.contract_projection import (
     _contract_schema,
     artifact_envelope_contract,
+    owned_contract_schema,
 )
 from gda_balancing.domain.authority.rir_projection import (
-    _owned_contract_schema,
     rir_protocol_schema,
 )
 from gda_balancing.domain.canonical import canonical_bytes
@@ -67,7 +67,7 @@ def _copied_contract_schema(contract: dict[str, Any]) -> dict[str, Any]:
             {name: _copied_contract_schema(value) for name, value in fields.items()},
             required,
         )
-    return _owned_contract_schema(contract)
+    return owned_contract_schema(contract)
 
 
 def _namespace_schemas(kernel: dict[str, Any]) -> dict[str, Any]:
@@ -253,7 +253,7 @@ def _explanation_schemas(
     def record(name: str, supplied: dict[str, Any]) -> dict[str, Any]:
         contract = law["records"][name]
         fields = {
-            key: _owned_contract_schema(value)
+            key: owned_contract_schema(value)
             for key, value in contract["field_types"].items()
         }
         if fields.keys() & supplied.keys():

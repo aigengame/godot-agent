@@ -10,13 +10,22 @@ from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     admit_authority_context,
 )
-from gda_balancing.domain.model import AdmittedRir, admit_rir
+from gda_balancing.domain.authority.source_projection import source_schema_member
+from gda_balancing.domain.model import (
+    AdmittedRir,
+    CheckedModel,
+    admit_resolved_model,
+    admit_rir,
+    check_model_source_value,
+)
+from gda_balancing.domain.model._compilation import lower_checked_model
 from gda_balancing.domain.experiment import CheckedExperiment, check_experiment_value
 from gda_balancing.domain.experiment_artifacts import validate_experiment_artifact_set
 from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_conformance_support import _consumer_b
 from test_current_namespace_public import _PublicCandidate, _members
 from test_schema2_model_lowerer_conformance import (
+    _reference_admits_semantic_artifacts,
     _reference_check_source,
     _reference_content_identity,
     _reference_semantic_artifacts,
@@ -26,46 +35,21 @@ from test_schema2_model_lowerer_conformance import (
 _EXAMPLES = Path(__file__).parents[1] / "examples/schema2"
 
 
-def _authorities(member, *, complete=True):
+def _authorities(member):
     kernel, language = mutable_authorities()
     schema = next(
         row["schema"]
         for row in language["language"]["wire_schemas"]
         if row.get("protocol_role") == "model-source-package"
     )
-    profile = next(
-        row for row in language["language"]["resolution_profiles"] if row.get("default")
-    )
-    previous = profile["modules_member"]
+    previous, modules_schema = source_schema_member(schema, "modules")
+    assert modules_schema["items"]["semantic_role"] == "module"
     if member != previous:
         schema["properties"][member] = schema["properties"].pop(previous)
         schema["required"] = [
             member if key == previous else key for key in schema["required"]
         ]
-        profile["modules_member"] = member
 
-        def rename(value):
-            if isinstance(value, dict):
-                if value.get("root") == "source" and value.get("path", [])[:1] == [
-                    previous
-                ]:
-                    value["path"][0] = member
-                for child in value.values():
-                    rename(child)
-            elif isinstance(value, list):
-                for child in value:
-                    rename(child)
-
-        rename(profile["relation_recipes"])
-        if complete:
-            # These are authored source addresses too, independent of binder names.
-            for lowering in language["language"]["model_lowerings"]:
-                if lowering["source_selector"][:1] == [previous]:
-                    lowering["source_selector"][0] = member
-            for check in language["language"]["model_checks"]:
-                for field in ("selector", "scope_selector"):
-                    if check.get(field, [])[:1] == [previous]:
-                        check[field][0] = member
         _reidentify_language_bundle(language)
     return kernel, language
 
@@ -109,7 +93,16 @@ def test_public_source_routing_preserves_compiler_and_runtime_results(routed, ex
     reference = _reference_check_source(source, candidate.kernel, candidate.ldb)
     assert not isinstance(reference, tuple), reference
     expected = _reference_semantic_artifacts(reference)
+    assert len(expected) == 4
     assert all(actual[role] == value for role, value in expected.items())
+    assert _reference_admits_semantic_artifacts(actual, reference)
+    assert admit_resolved_model(
+        {
+            role: expected[role]
+            for role in ("package-lock", "rir-semantic-payload", "resolved-model")
+        },
+        authority_context=context,
+    ).admitted
     rir = actual["rir-semantic-payload"]
     rir_path = candidate.directory / (example + "-rir.json")
     rir_path.write_text(json.dumps(rir))
@@ -221,3 +214,65 @@ def test_public_formula_refusal_retains_the_authored_source_location(routed, mut
         if mutation == "expression"
         else "language.source_contract_mismatch"
     )
+
+
+def test_public_combined_root_module_import_and_symbol_routes_preserve_rir(tmp_path):
+    from test_source_semantic_roles import _candidate
+
+    kernel, graph, context, source, original = _candidate("routing")
+    control = check_model_source_value(original)
+    assert isinstance(control, CheckedModel), control
+    expected_rir = lower_checked_model(control)["rir-semantic-payload"]
+    candidate = _PublicCandidate(tmp_path, authorities=(kernel, graph))
+    candidate.write_source(source)
+    candidate.cli("model", "check", str(candidate.source))
+    actual = _members(
+        candidate.cli(
+            "model",
+            "build",
+            str(candidate.source),
+            "--out",
+            str(tmp_path / "routing-build"),
+            "--invocation-key",
+            "c5" * 32,
+        )
+    )
+    assert len(actual) == 8
+    assert actual["rir-semantic-payload"] == expected_rir
+    reference = _reference_check_source(source, kernel, context.language_bundle)
+    assert not isinstance(reference, tuple), reference
+    expected = _reference_semantic_artifacts(reference)
+    assert len(expected) == 4
+    assert all(actual[role] == value for role, value in expected.items())
+    assert _reference_admits_semantic_artifacts(actual, reference)
+    assert admit_resolved_model(
+        {
+            role: expected[role]
+            for role in ("package-lock", "rir-semantic-payload", "resolved-model")
+        },
+        authority_context=context,
+    ).admitted
+
+
+def test_unknown_semantic_module_route_refuses_before_source_compilation():
+    kernel, language = _authorities("opaque/modules~")
+    profile = next(
+        row for row in language["language"]["resolution_profiles"] if row.get("default")
+    )
+    modules = next(row for row in profile["relation_recipes"] if row["id"] == "modules")
+    assert modules["bindings"][0]["source"] == {
+        "root": "source",
+        "path": ["modules"],
+    }
+    modules["bindings"][0]["source"]["path"] = ["missing-route"]
+    _reidentify_language_bundle(language)
+    result = admit_authority_context(kernel, language)
+    assert not isinstance(result, AdmittedAuthorityContext)
+    assert [(row.stage, row.code, row.subject) for row in result.diagnostics] == [
+        ("static", "kernel.vector_mismatch", "language.definitions")
+    ]
+    independent = _consumer_b(kernel, language)
+    assert not independent["admitted"]
+    assert independent["diagnostics"] == [
+        ("static", "kernel.vector_mismatch", "language.definitions")
+    ]

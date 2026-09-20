@@ -833,9 +833,10 @@ Core input/output responsibilities use Kernel-defined Artifact protocol roles. T
 binds each role on one Wire Schema Definition and links identified artifacts through
 the existing Artifact Contract. Schema names, artifact kind names and publication labels
 do not become host dispatch authority; extension schemas may omit a core role
-(bADR-0012). Resolution recipes likewise own their lexical binder names. Kernel routing
-equivalence selects a defined output field, follows its binding reference, and checks
-the actual source path; it does not fix the local binder's spelling.
+(bADR-0012). Resolution recipes address semantic Source members through the admitted
+Source projection and own only their lexical binder names. Diagnostics map projected
+semantic paths back through the projection's authored paths, so a Wire Schema rename
+does not create a second editable routing address.
 
 Event Trace structure is derived from the actual Kernel in the language index.
 The Kernel owns its closed protocol containers and reuses the existing scheduler,

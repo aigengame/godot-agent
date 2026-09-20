@@ -30,7 +30,7 @@ from gda_balancing.domain.formula._source_body import inline_parameter_contract
 from gda_balancing.domain.formula.notation import (
     FormulaNotationRefusal,
     FormulaPairRefusal,
-    admit_formula_pair,
+    admit_semantic_formula_pair,
     formula_schema_version,
 )
 from gda_balancing.domain.formula.types import (
@@ -51,6 +51,7 @@ from gda_balancing.domain.operation_call_domains import (
 )
 
 from gda_balancing.domain.model._resolution import (
+    _pointer,
     ModelSourceContext,
     _formula_contexts,
     _formula_policy,
@@ -59,7 +60,6 @@ from gda_balancing.domain.model._resolution import (
     _model_lowering,
     _operation_formula_slots,
     _operation_reference_node_ids,
-    _resolution_profile,
     _selected_resolved_operation_coordinates,
 )
 from gda_balancing.domain.model._lowering import (
@@ -1643,9 +1643,7 @@ def _rir_notation_body_projection(
     result = body.get("result")
     if not isinstance(nodes, list) or not isinstance(result, dict):
         raise ValueError("RIR Formula body has no program projection")
-    inline = inline_parameter_contract(
-        _formula_policy(authority_context.language_bundle), authority_context.kernel
-    )
+    inline = inline_parameter_contract(authority_context.kernel)
     inline_body = inline.source_body(_notation_operand_projection(result))
     if not nodes and inline_body is not None:
         return inline_body
@@ -1753,7 +1751,7 @@ def _formula_pairs_are_admitted(
                 body = formula.get("body")
                 if not isinstance(body, dict):
                     return False
-                admit_formula_pair(
+                admit_semantic_formula_pair(
                     {
                         "schema_version": formula_schema_version(authority_context),
                         "package_requirements": requirements
@@ -1834,6 +1832,9 @@ def _rir_semantics_are_admitted(
             projection_budget,
             kernel=kernel,
             entrypoints=rir["entrypoints"],
+            entrypoint_reference_member=kernel["meta_format"]["runtime_projection"][
+                "operation_roots"
+            ]["entrypoint_reference_member"],
             formulas=rir["formulas"],
         )
         expected_initialization_programs = _compile_initialization_programs(
@@ -2006,14 +2007,20 @@ def admit_resolved_model(
     declarations = rir.get("declarations")
     if not isinstance(root_requirements, list) or not isinstance(declarations, list):
         return ResolvedModelAdmission(False, diagnostic)
-    profile = _resolution_profile(ldb, cast(str, lowering["resolution_profile"]))
-    requirements_member = cast(str, profile["requirements_member"])
+    requirements_member = "package_requirements"
     try:
         selection = resolve_current_namespaces(
             context.current_namespace_packages(), root_requirements
         )
+        from gda_balancing.domain.authority.source_projection import SourceProjection
+
         synthetic = ModelSourceContext(
             source={requirements_member: root_requirements},
+            source_projection=SourceProjection(
+                {"package_requirements": root_requirements},
+                {"": "", "/package_requirements": _pointer([requirements_member])},
+                {requirements_member: root_requirements},
+            ),
             source_identity="unbound-for-semantic-admission",
             kernel=kernel,
             language_bundle=ldb,

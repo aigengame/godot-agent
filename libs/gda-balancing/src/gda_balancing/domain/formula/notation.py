@@ -28,6 +28,12 @@ from gda_balancing.domain.operation_call_domains import (
 )
 from gda_balancing.domain.authority.graph import resolve_current_namespaces
 from gda_balancing.domain.wire_schema import wire_schema_definition_for_role
+from gda_balancing.domain.authority.source_projection import (
+    author_source_value,
+    project_source_value,
+    semantic_source_schema,
+    source_schema_member,
+)
 
 
 @dataclass(frozen=True)
@@ -281,6 +287,38 @@ def _formula_resolution_profile(
     return profile
 
 
+def _authored_formula_schemas(
+    authority_context: AdmittedAuthorityContext,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    schema = wire_schema_definition_for_role(
+        authority_context.language_bundle, "model-source-package"
+    )["schema"]
+    module_schema = source_schema_member(schema, "modules")[1]["items"]
+    formula_schema = source_schema_member(module_schema, "formulas")[1]["items"]
+    return module_schema, formula_schema
+
+
+def _project_formula_request(
+    request: dict[str, Any], authority_context: AdmittedAuthorityContext
+) -> dict[str, Any]:
+    module_schema, formula_schema = _authored_formula_schemas(authority_context)
+    projected = dict(request)
+    for member, selected_schema in (
+        ("module", module_schema),
+        ("formula", formula_schema),
+    ):
+        if member in request:
+            projected[member] = project_source_value(
+                request[member], authority_context.kernel, selected_schema
+            ).value
+    if "modules" in request:
+        projected["modules"] = [
+            project_source_value(module, authority_context.kernel, module_schema).value
+            for module in request["modules"]
+        ]
+    return projected
+
+
 def _formula_policy(authority_context: AdmittedAuthorityContext) -> dict[str, Any]:
     profile = _formula_resolution_profile(authority_context)
     return profile["formula_resolution"]
@@ -294,7 +332,7 @@ def _formula_source_schema(
     ).get("schema")
     if not isinstance(schema, dict):
         raise ValueError("Formula conversion has no exact source schema")
-    return schema
+    return semantic_source_schema(authority_context.kernel, schema)
 
 
 def formula_schema_version(
@@ -303,9 +341,7 @@ def formula_schema_version(
     version = (
         _formula_source_schema(authority_context)
         .get("properties", {})
-        .get(
-            _formula_resolution_profile(authority_context)["schema_version_member"], {}
-        )
+        .get("schema_version", {})
         .get("const")
     )
     if not isinstance(version, str):
@@ -344,13 +380,13 @@ def _module_imports(
             "name-unresolved",
             "Formula package requirement is unresolved",
         )
-    imports = module.get(profile["imports_member"])
+    imports = module.get("imports")
     if not isinstance(imports, list):
         raise ValueError("Formula module context has no imports")
     source_schema = _formula_source_schema(authority_context)
-    import_schema = source_schema["properties"][profile["modules_member"]]["items"][
-        "properties"
-    ][profile["imports_member"]]["items"]
+    import_schema = source_schema["properties"]["modules"]["items"]["properties"][
+        "imports"
+    ]["items"]
     import_validator = jsonschema.Draft202012Validator(source_schema).evolve(
         schema=import_schema
     )
@@ -358,13 +394,13 @@ def _module_imports(
     for item in imports:
         if not import_validator.is_valid(item):
             raise ValueError("Formula module import is malformed")
-        alias = cast(str, item[profile["import_alias_member"]])
+        alias = cast(str, item["alias"])
         if alias in resolved:
             raise _FormulaContextError(
                 "name-ambiguity",
                 "Formula module import alias is ambiguous",
             )
-        package_key = cast(str, item[profile["import_package_member"]])
+        package_key = cast(str, item["package"])
         package = packages.get(package_key)
         if package_key not in requirement_keys or package is None:
             raise _FormulaContextError(
@@ -376,7 +412,7 @@ def _module_imports(
             for exported in cast(list[dict[str, Any]], package["exports"]["types"])
             if isinstance(exported, dict)
         }
-        symbol = cast(str, item[profile["import_symbol_member"]])
+        symbol = cast(str, item["symbol"])
         if symbol not in exported_types:
             raise _FormulaContextError(
                 "name-unresolved",
@@ -518,7 +554,7 @@ class _FormulaParser:
             raise ValueError("Formula conversion source schema version is unavailable")
         self.profile = _formula_resolution_profile(authority_context)
         self.policy = _formula_policy(authority_context)
-        self.inline = inline_parameter_contract(self.policy, authority_context.kernel)
+        self.inline = inline_parameter_contract(authority_context.kernel)
         self.conversion_policy = cast(
             dict[str, Any], self.policy["notation_conversion"]
         )
@@ -547,9 +583,9 @@ class _FormulaParser:
             raise ValueError("Formula current module is outside its module closure")
         closure_module = modules_by_id[module_id]
         for member in (
-            self.profile["imports_member"],
-            self.profile["symbols_member"],
-            self.policy["module_formulas_member"],
+            "imports",
+            "symbols",
+            "formulas",
         ):
             if member in module and module[member] != closure_module.get(member, []):
                 raise ValueError(
@@ -1332,7 +1368,7 @@ class _FormulaParser:
         return {"nodes": nodes, "result": result}
 
 
-def parse_formula_expression(
+def _parse_semantic_formula_expression(
     request: dict[str, Any],
     authority_context: AdmittedAuthorityContext,
     *,
@@ -1366,7 +1402,7 @@ def parse_formula_expression(
         raise _contextual_refusal(err, authority_context) from err
 
 
-def admit_formula_pair(
+def admit_semantic_formula_pair(
     request: dict[str, Any],
     authority_context: AdmittedAuthorityContext,
     *,
@@ -1382,7 +1418,7 @@ def admit_formula_pair(
     if not isinstance(body, dict) or not isinstance(expression, str):
         raise ValueError("Formula pair request is structurally incomplete")
     try:
-        rendered = render_formula_body(body, authority_context)
+        rendered = render_semantic_formula_body(body, authority_context)
     except FormulaNotationRefusal as err:
         raise FormulaPairRefusal(err.reason_id, "body", err.message) from err
     if expression != rendered:
@@ -1392,7 +1428,7 @@ def admit_formula_pair(
             "Formula expression is not the canonical projection of its body",
         )
     try:
-        parsed = parse_formula_expression(
+        parsed = _parse_semantic_formula_expression(
             request, authority_context, operation_coordinates=operation_coordinates
         )
     except FormulaNotationRefusal as err:
@@ -1405,6 +1441,38 @@ def admit_formula_pair(
             "expression",
             "Formula expression does not reconstruct its canonical body",
         )
+
+
+def parse_formula_expression(
+    request: dict[str, Any],
+    authority_context: AdmittedAuthorityContext,
+    *,
+    operation_coordinates: frozenset[tuple[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Interpret one authored request through its admitted Source role mapping."""
+    semantic = _parse_semantic_formula_expression(
+        _project_formula_request(request, authority_context),
+        authority_context,
+        operation_coordinates=operation_coordinates,
+    )
+    _, formula_schema = _authored_formula_schemas(authority_context)
+    body_schema = source_schema_member(formula_schema, "body")[1]
+    return author_source_value(semantic, authority_context.kernel, body_schema)
+
+
+def admit_formula_pair(
+    request: dict[str, Any],
+    authority_context: AdmittedAuthorityContext,
+) -> None:
+    """Admit an authored body/expression pair through the Source boundary."""
+    try:
+        admit_semantic_formula_pair(
+            _project_formula_request(request, authority_context), authority_context
+        )
+    except FormulaPairRefusal as error:
+        _, formula_schema = _authored_formula_schemas(authority_context)
+        member, _ = source_schema_member(formula_schema, error.member)
+        raise FormulaPairRefusal(error.reason_id, member, error.message) from error
 
 
 def _render_operand(operand: object, grammar: dict[str, Any]) -> str:
@@ -1531,9 +1599,7 @@ def _render_formula_body(
     grammar, notation_schema, operation_source = _notation_authority(authority_context)
     if not isinstance(body, dict):
         raise ValueError("Formula body must be an object")
-    inline = inline_parameter_contract(
-        _formula_policy(authority_context), authority_context.kernel
-    )
+    inline = inline_parameter_contract(authority_context.kernel)
     operand = inline.operand(body)
     if operand is not None:
         return _render_operand(operand, grammar)
@@ -1578,13 +1644,33 @@ def _render_formula_body(
     return "\n".join(lines)
 
 
-def render_formula_body(
+def render_semantic_formula_body(
     body: object,
     authority_context: AdmittedAuthorityContext,
 ) -> str:
     """Render one body and type every authority or contextual refusal."""
     try:
         return _render_formula_body(body, authority_context)
+    except FormulaNotationRefusal:
+        raise
+    except ValueError as err:
+        raise _contextual_refusal(err, authority_context) from err
+
+
+def render_formula_body(
+    body: object,
+    authority_context: AdmittedAuthorityContext,
+) -> str:
+    """Read one authored body through its Source role before rendering notation."""
+    try:
+        if not isinstance(body, dict):
+            raise ValueError("Formula body must be an object")
+        _, formula_schema = _authored_formula_schemas(authority_context)
+        body_schema = source_schema_member(formula_schema, "body")[1]
+        semantic = project_source_value(
+            body, authority_context.kernel, body_schema
+        ).value
+        return render_semantic_formula_body(semantic, authority_context)
     except FormulaNotationRefusal:
         raise
     except ValueError as err:
