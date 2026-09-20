@@ -1318,7 +1318,7 @@ def resource_import(
     syntax — delete the sidecar to retry). It then reports
     every file the pass created, classified against the cache root
     (cache-owned under .godot/ vs source-adjacent, e.g. .import and .uid
-    sidecars) — a list `skipped` qualifies: it counts what the walk could not
+    sidecars) — a list `skipped` qualifies: it counts what the inventory could not
     read, so `created` is complete when `skipped` is 0. An `invalid` or
     `failed` asset says why: `reason` names the
     check that decided it (an invalid one survives into the settled `failed`),
