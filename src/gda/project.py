@@ -100,6 +100,24 @@ def _has_dotdot(path: Path) -> bool:
     return ".." in path.parts
 
 
+def expand_user_or_none(path: Path) -> Path | None:
+    """``Path.expanduser()``, or ``None`` when this host cannot resolve its ``~user``.
+
+    The ONE in-process decision on an unresolvable ``~user`` (#988):
+    ``expanduser`` raises ``RuntimeError`` for a ``~unknownuser/…`` prefix, and
+    this function turns that raise into ``None`` so that its two callers can each
+    keep their own answer — :func:`expand_user` returns the path as written, and
+    :func:`gda.models.normalize_path` returns the caller's raw string. gda-mcp
+    states the same rule locally in ``gda.mcp.project_context``, because ADR-0011
+    keeps it free of any ``gda`` internal symbol; that copy is kept in step with
+    this function by hand.
+    """
+    try:
+        return path.expanduser()
+    except RuntimeError:
+        return None
+
+
 def expand_user(path: Path) -> Path:
     """``Path.expanduser()``, total: an unresolvable ``~user`` stays literal.
 
@@ -119,18 +137,12 @@ def expand_user(path: Path) -> Path:
     with the consumer, and is stated at each call site rather than enumerated
     here.
 
-    It is not the only statement of the rule in ``src/gda``, and the two others
-    are deliberate. :func:`gda.models.normalize_path` keeps its own, because it
-    also carries the virtual-path pass-through and answers with the caller's raw
-    string (#699), so delegating here would change what it returns.
-    ``gda.mcp.project_context`` writes the rule out locally, because ADR-0011
-    keeps gda-mcp free of any ``gda`` internal symbol. Both must be kept in step
-    with this one by hand.
+    The decision itself is :func:`expand_user_or_none`'s, shared with
+    :func:`gda.models.normalize_path`, which keeps its own answer (the caller's
+    raw string, #699); gda-mcp's local copy is named there.
     """
-    try:
-        return path.expanduser()
-    except RuntimeError:
-        return path
+    expanded = expand_user_or_none(path)
+    return path if expanded is None else expanded
 
 
 def project_anchored(path: str, project: Path) -> Path:

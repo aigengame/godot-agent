@@ -21,7 +21,7 @@ from pydantic import (
 
 from gda.execution import ExecutionKind
 from gda.live_numbers import find_unrepresentable
-from gda.project import is_engine_virtual_path
+from gda.project import expand_user_or_none, is_engine_virtual_path
 from gda.script_errors import ScriptError
 
 if TYPE_CHECKING:
@@ -808,11 +808,10 @@ def normalize_path(path: str) -> str:
     **Total: it never raises** (#699). ``Path.expanduser()`` raises ``RuntimeError``
     for a ``~unknownuser/…`` prefix it cannot resolve, which crashed every
     ``NormalizedPath`` consumer with a bare traceback. Such a path is passed through
-    UNCHANGED instead. :func:`gda.project.expand_user` states the same rule for the
-    path options and the project re-expansions (#988) and names this function as
-    the second statement; this one stays its own because it answers with the
-    caller's raw string and carries the virtual-path pass-through above. Two
-    reasons it is swallowed rather than re-raised:
+    UNCHANGED instead. The decision is :func:`gda.project.expand_user_or_none`'s,
+    the one in-process statement of the rule (#988); this function keeps only its
+    own answer — the caller's raw string — beside the virtual-path pass-through
+    above. Two reasons it is swallowed rather than re-raised:
 
     - Normalization is a **convenience**, not a validity check — it saves the caller
       a shell. Whether a path is usable is decided by whoever consumes it (the
@@ -826,10 +825,8 @@ def normalize_path(path: str) -> str:
     """
     if is_engine_virtual_path(path):
         return path
-    try:
-        return str(Path(path).expanduser())
-    except RuntimeError:
-        return path
+    expanded = expand_user_or_none(Path(path))
+    return path if expanded is None else str(expanded)
 
 
 # The one reusable path-field type: a ``str`` whose value is run through
