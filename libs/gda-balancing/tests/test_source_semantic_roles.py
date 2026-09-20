@@ -787,6 +787,72 @@ def test_language_owned_interval_token_reaches_public_model_and_formula(
     assert public.cli("formula", "parse", str(request_path)) == rendered
 
 
+def test_language_owned_derived_role_reaches_public_quantity_template(
+    tmp_path: Path,
+):
+    from test_current_namespace_public import _PublicCandidate
+
+    kernel, language = mutable_authorities()
+    authored = _authored(language)
+
+    def rename(value, *, template_contract=False):
+        if isinstance(value, dict):
+            contract = template_contract or value.get("authority_path") == (
+                "language.template_admission_profiles"
+            )
+            for key, child in value.items():
+                value[key] = rename(child, template_contract=contract)
+            return value
+        if isinstance(value, list):
+            return [
+                rename(child, template_contract=template_contract) for child in value
+            ]
+        return "computed" if value == "derived" and not template_contract else value
+
+    rename(authored)
+    graph = _graph(kernel, authored)
+    public = _PublicCandidate(tmp_path / "computed", authorities=(kernel, graph))
+    release = public.cli(
+        "template",
+        "get",
+        "--id",
+        "standard.quantity-minimal",
+    )
+    starter = next(
+        member["payload"]
+        for member in release["members"]
+        if member["logical_name"] == "starter-model-source"
+    )
+    assert {symbol["role"] for symbol in starter["modules"][0]["symbols"]} == {
+        "parameter",
+        "computed",
+        "output",
+    }
+    source = public.directory / "source.json"
+    public.cli(
+        "template",
+        "instantiate",
+        "--id",
+        "standard.quantity-minimal",
+        "--package-id",
+        "example.computed",
+        "--out",
+        str(source),
+        "--invocation-key",
+        "41" * 32,
+    )
+    public.cli("model", "check", str(source))
+    public.cli(
+        "model",
+        "build",
+        str(source),
+        "--out",
+        str(public.directory / "build"),
+        "--invocation-key",
+        "42" * 32,
+    )
+
+
 def test_coherent_source_annotation_and_compiler_path_rename_is_admitted(
     tmp_path: Path,
 ):

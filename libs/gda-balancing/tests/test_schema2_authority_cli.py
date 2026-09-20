@@ -1997,11 +1997,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                 "formula parse": FORMULA_PARSE,
                 "formula render": FORMULA_RENDER,
             }[path]
-            source = tmp_path / f"{path.replace(' ', '-')}.json"
-            source.write_text(
-                descriptor.fixtures.valid_document or "", encoding="utf-8"
-            )
-            argv = [*path.split(), str(source)]
+            argv = invocation(descriptor)
         else:
             descriptor = {
                 "model build": MODEL_BUILD,

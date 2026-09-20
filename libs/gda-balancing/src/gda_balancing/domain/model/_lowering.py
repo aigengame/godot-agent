@@ -11,6 +11,7 @@ from gda_balancing.domain.authority.source_projection import (
     author_source_native_token,
     derive_default_source_native_bindings,
     project_source_native_token,
+    source_assignment_binding,
 )
 
 
@@ -559,6 +560,7 @@ def _reachable_derived_formula_sites(
     formulas: list[dict[str, Any]],
     bindings: list[dict[str, Any]],
     entrypoints: list[dict[str, Any]],
+    derived_role: str,
 ) -> set[tuple[str, str]]:
     """Close derived Formula sites reachable from executable entrypoints/slots."""
 
@@ -577,7 +579,7 @@ def _reachable_derived_formula_sites(
                     name = value.get("symbol")
                 if isinstance(module, str) and isinstance(name, str):
                     key = (module, name)
-                    if declarations_by_symbol.get(key, {}).get("role") == "derived":
+                    if declarations_by_symbol.get(key, {}).get("role") == derived_role:
                         found.add(key)
             for child in value.values():
                 found.update(derived_symbols(child))
@@ -664,6 +666,9 @@ def _resolved_formula_programs_and_bindings_impl(
     list[dict[str, JsonValue]],
     list[tuple[str, str]],
 ]:
+    derived_role = _derived_symbol_role(
+        _assignment_policy(_model_lowering(checked.language_bundle))
+    )
     modules = cast(
         list[dict[str, Any]],
         checked.source_projection.value["modules"],
@@ -1368,7 +1373,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 cast(str, source_site.get("symbol")),
             )
             site_declaration = declarations_by_source.get(site_key)
-            if site_declaration is None or site_declaration.get("role") != "derived":
+            if site_declaration is None or site_declaration.get("role") != derived_role:
                 raise _FormulaResolutionError(
                     policy["refusal_reasons"]["unreachable"],
                     f"{binding_pointer}/site",
@@ -1640,6 +1645,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 list[dict[str, Any]],
                 checked.source_projection.value["entrypoints"],
             ),
+            derived_role,
         )
         != bound_derived_sites
     ):
@@ -1673,6 +1679,7 @@ def _resolved_formula_programs_and_bindings_impl(
                             list[dict[str, Any]],
                             checked.source_projection.value["entrypoints"],
                         ),
+                        derived_role,
                     )
                 ),
                 _pointer([bindings_member]),
@@ -1946,10 +1953,7 @@ def _assignment_role_is_total(row: dict[str, Any]) -> bool:
                 mode["experiment_cardinality"] != "forbidden"
                 or mode["initialization_source"]
                 in {"model", "model-with-experiment-override"}
-                or (
-                    row["role"] == "derived"
-                    and mode["initialization_source"] == "resolved-model"
-                )
+                or mode["initialization_source"] == "resolved-model"
                 for mode in modes
             )
             and all(
@@ -1993,6 +1997,13 @@ def _assignment_policy_by_role(
     rows = cast(list[dict[str, Any]], policy["roles"])
     by_role = {cast(str, row["role"]): row for row in rows}
     return by_role
+
+
+def _derived_symbol_role(assignment_policy: dict[str, Any]) -> str:
+    return source_assignment_binding(
+        assignment_policy,
+        initialization_source="resolved-model",
+    ).role
 
 
 def _assignment_mode_for_declaration(
@@ -3158,6 +3169,7 @@ def _resolved_entrypoints(
         ),
     )
     assignment_by_role = _assignment_policy_by_role(assignment_policy)
+    derived_role = _derived_symbol_role(assignment_policy)
     if any(
         not _value_policy_is_valid(declaration, assignment_policy)
         for declaration in declarations
@@ -3293,7 +3305,7 @@ def _resolved_entrypoints(
             if (
                 dependency_target is None
                 and dependency_initializer is None
-                and dependency.get("role") != "derived"
+                and dependency.get("role") != derived_role
             ):
                 raise _EntrypointBindingError(
                     operation_pointer,
@@ -3476,7 +3488,7 @@ def _resolved_entrypoints(
                             "one actual target derived conflicting initializers",
                         )
                     initializers[operand_identity] = initializer
-                if role == "derived":
+                if role == derived_role:
                     resolved_key = (
                         cast(str, resolved_symbol["model"]),
                         cast(str, resolved_symbol["module"]),

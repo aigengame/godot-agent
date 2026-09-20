@@ -72,6 +72,7 @@ from gda_balancing.domain.model._lowering import (
     _assignment_policy,
     _assignment_policy_by_role,
     _compile_initialization_programs,
+    _derived_symbol_role,
     _exact_operation_coordinate,
     _formula_operation_identity,
     _formula_symbol_dependencies,
@@ -244,6 +245,7 @@ def _resolved_entrypoint_graph_is_admitted(
         ),
     )
     assignment_by_role = _assignment_policy_by_role(assignment_policy)
+    derived_role = _derived_symbol_role(assignment_policy)
     if any(
         not _value_policy_is_valid(declaration, assignment_policy)
         for declaration in declarations
@@ -340,7 +342,7 @@ def _resolved_entrypoint_graph_is_admitted(
             if (
                 dependency_target is None
                 and dependency_initializer is None
-                and dependency.get("role") != "derived"
+                and dependency.get("role") != derived_role
             ):
                 return False
             if dependency_target is not None:
@@ -491,7 +493,7 @@ def _resolved_entrypoint_graph_is_admitted(
                     ):
                         return False
                     initializers[operand_identity] = initializer
-                if role == "derived":
+                if role == derived_role:
                     resolved_key = (
                         exact_symbol["model"],
                         exact_symbol["module"],
@@ -687,6 +689,9 @@ def _formula_program_graph_is_admitted(
 ) -> bool:
     try:
         policy = _formula_policy(language_bundle)
+        derived_role = _derived_symbol_role(
+            _assignment_policy(_model_lowering(language_bundle))
+        )
         domains = cast(dict[str, str], policy["identity_domains"])
         actual_operand_domain = cast(
             str,
@@ -1224,7 +1229,7 @@ def _formula_program_graph_is_admitted(
             declaration = declarations_by_symbol.get(site_key)
             if (
                 declaration is None
-                or declaration.get("role") != "derived"
+                or declaration.get("role") != derived_role
                 or context_key in bound_derived_sites
                 or not _formula_contract_matches(
                     cast(dict[str, Any], bound_formula["result"]),
@@ -1378,6 +1383,7 @@ def _formula_program_graph_is_admitted(
         cast(list[dict[str, Any]], formulas),
         cast(list[dict[str, Any]], bindings),
         cast(list[dict[str, Any]], entrypoints),
+        derived_role,
     )
     return bound_derived_sites == {
         (*site, phase)
@@ -1412,6 +1418,9 @@ def _formula_graph_is_admitted(
         )
     try:
         policy = _formula_policy(language_bundle)
+        derived_role = _derived_symbol_role(
+            _assignment_policy(_model_lowering(language_bundle))
+        )
         domains = cast(dict[str, str], policy["identity_domains"])
         actual_operand_domain = cast(
             str,
@@ -1534,7 +1543,7 @@ def _formula_graph_is_admitted(
         site_declaration = declarations_by_symbol.get(site_key)
         if (
             site_declaration is None
-            or site_declaration.get("role") != "derived"
+            or site_declaration.get("role") != derived_role
             or context_key in bound_sites
         ):
             return False
@@ -1613,6 +1622,7 @@ def _formula_graph_is_admitted(
         cast(list[dict[str, Any]], formulas),
         cast(list[dict[str, Any]], bindings),
         cast(list[dict[str, Any]], entrypoints),
+        derived_role,
     )
     return bound_sites == {
         (*site, phase)

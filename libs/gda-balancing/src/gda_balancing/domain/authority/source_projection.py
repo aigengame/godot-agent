@@ -466,6 +466,88 @@ class SourceNativeBindingIndex:
     discriminators: Mapping[str, JsonValue]
 
 
+@dataclass(frozen=True)
+class SourceAssignmentBinding:
+    """One role-scoped assignment mode selected by its admitted behavior."""
+
+    role: str
+    mode: str
+
+
+def source_assignment_binding(
+    assignment_policy: Mapping[str, Any],
+    *,
+    initialization_source: str,
+    binding_kind: str | None = None,
+    entrypoint_result: bool | None = None,
+    entrypoint_operand_access: Sequence[str] | None = None,
+    value_member: str | None = None,
+    experiment_cardinality: str | None = None,
+    event_payload_cardinality: str | None = None,
+    external_fact_cardinality: str | None = None,
+    override: bool | None = None,
+) -> SourceAssignmentBinding:
+    """Select one LDB role/mode pair without depending on either native name."""
+    role_fields: dict[str, Any] = {
+        "binding_kind": binding_kind,
+        "entrypoint_result": entrypoint_result,
+        "entrypoint_operand_access": (
+            list(entrypoint_operand_access)
+            if entrypoint_operand_access is not None
+            else None
+        ),
+    }
+    mode_fields: dict[str, Any] = {
+        "initialization_source": initialization_source,
+        "value_member": value_member,
+        "experiment_cardinality": experiment_cardinality,
+        "event_payload_cardinality": event_payload_cardinality,
+        "external_fact_cardinality": external_fact_cardinality,
+        "override": override,
+    }
+    matches = [
+        SourceAssignmentBinding(cast(str, row["role"]), cast(str, mode["id"]))
+        for row in assignment_policy.get("roles", ())
+        if isinstance(row, Mapping)
+        and isinstance(row.get("role"), str)
+        and all(expected is None or row.get(field) == expected for field, expected in role_fields.items())
+        for mode in row.get("modes", ())
+        if isinstance(mode, Mapping)
+        and isinstance(mode.get("id"), str)
+        and all(expected is None or mode.get(field) == expected for field, expected in mode_fields.items())
+    ]
+    if len(matches) != 1:
+        raise ValueError("Source assignment behavior has no unique role and mode")
+    return matches[0]
+
+
+def source_assignment_policy(
+    language_bundle: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """Return the default profile's uniquely selected Symbol assignment policy."""
+    language = language_bundle["language"]
+    profiles = [
+        profile
+        for profile in language["resolution_profiles"]
+        if isinstance(profile, Mapping) and profile.get("default") is True
+    ]
+    if len(profiles) != 1:
+        raise ValueError("Source assignment policy requires one default profile")
+    profile = profiles[0]
+    lowerings = [
+        lowering
+        for lowering in language["model_lowerings"]
+        if isinstance(lowering, Mapping)
+        and lowering.get("id") == profile.get("model_lowering")
+        and lowering.get("resolution_profile") == profile.get("id")
+    ]
+    if len(lowerings) != 1 or not isinstance(
+        lowerings[0].get("assignment_policy"), Mapping
+    ):
+        raise ValueError("Source assignment policy has no unique selected lowering")
+    return cast(Mapping[str, Any], lowerings[0]["assignment_policy"])
+
+
 def project_source_native_token(
     bindings: SourceNativeBindingIndex, slot: str, value: Any
 ) -> Any:
@@ -1196,6 +1278,44 @@ def source_schema_member(
     if len(matches) != 1:
         raise ValueError("Source semantic member has no unique authored address")
     return matches[0]
+
+
+def source_native_contract_values(
+    language_bundle: Mapping[str, Any],
+    schema: Mapping[str, Any],
+    member: str,
+) -> tuple[JsonValue, ...]:
+    """Read one admitted Source native contract from its LDB-owned projection."""
+    _, field = source_schema_member(schema, member)
+    contract = field.get(_NATIVE)
+    if not isinstance(contract, Mapping):
+        raise ValueError("Source semantic member has no native contract")
+    location = contract.get("value_location")
+    authority_path = contract.get("language_reference")
+    if not isinstance(location, Mapping) or not isinstance(authority_path, str):
+        raise ValueError("Source native contract has no language value projection")
+    selected = field
+    sibling = location.get("semantic_member")
+    if sibling is not None:
+        if not isinstance(sibling, str):
+            raise ValueError("Source native contract sibling is malformed")
+        _, selected = source_schema_member(schema, sibling)
+    keyword = location.get("keyword")
+    if keyword == "const":
+        values: tuple[JsonValue, ...] = (cast(JsonValue, selected["const"]),)
+    elif keyword == "enum":
+        values = tuple(cast(Sequence[JsonValue], selected["enum"]))
+    else:
+        raise ValueError("Source native contract value location is unsupported")
+    owner = _authority_path({"unused": True}, language_bundle, authority_path)
+    owner_values = (
+        tuple(cast(Sequence[JsonValue], owner))
+        if isinstance(owner, Sequence) and not isinstance(owner, (str, bytes))
+        else (cast(JsonValue, owner),)
+    )
+    if _canonical_set(values) != _canonical_set(owner_values):
+        raise ValueError("Source native contract disagrees with its LDB owner")
+    return deepcopy(values)
 
 
 def source_semantic_selector(

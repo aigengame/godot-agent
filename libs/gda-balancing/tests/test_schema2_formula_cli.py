@@ -762,7 +762,12 @@ def test_formula_parse_reverse_admits_its_canonical_pair(
     tmp_path: Path, run_cli, monkeypatch
 ) -> None:
     source = tmp_path / "parse-request.json"
-    source.write_text(formula_command_module._VALID_PARSE_REQUEST, encoding="utf-8")
+    source.write_text(
+        formula_command_module._formula_fixture(
+            packaged_authority_context(), parsing=True, refusing=False
+        ),
+        encoding="utf-8",
+    )
     admitted_pairs: list[dict] = []
     real_admit = formula_notation_module.admit_formula_pair
 

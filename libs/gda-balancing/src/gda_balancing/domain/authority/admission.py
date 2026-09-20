@@ -2958,10 +2958,7 @@ def _assignment_role_contract_is_total(row: dict[str, Any]) -> bool:
                 mode["experiment_cardinality"] != "forbidden"
                 or mode["initialization_source"]
                 in {"model", "model-with-experiment-override"}
-                or (
-                    row.get("role") == "derived"
-                    and mode["initialization_source"] == "resolved-model"
-                )
+                or mode["initialization_source"] == "resolved-model"
                 for mode in modes
             )
             and all(
