@@ -17,7 +17,6 @@ dry-run smoke per evidence state, so the wire ABI keeps its own cover.
 """
 
 import json
-import os
 import threading
 from pathlib import Path
 
@@ -33,7 +32,7 @@ from tests.resource.import_artifacts import (
     receipt_path,
     sidecar,
 )
-from tests.support import minimal_project
+from tests.support import minimal_project, unlistable
 
 runner_cli = CliRunner()
 
@@ -221,21 +220,6 @@ def test_a_file_created_under_a_directory_link_is_reported(monkeypatch, tmp_path
     assert data["summary"]["created_source_adjacent"] == 2
 
 
-def _unlistable(directory: Path) -> bool:
-    """Make ``directory`` unlistable, and say whether the platform agreed.
-
-    The measurement IS the guard, and it covers root too: root lists a mode-000
-    directory, so a suite running as root skips instead of reading RED.
-    """
-    directory.chmod(0o000)
-    try:
-        os.listdir(directory)
-    except OSError:
-        return True
-    directory.chmod(0o755)
-    return False
-
-
 def _locked_icon_project(tmp_path: Path) -> "tuple[Path, Path]":
     """An importable project holding one unreadable directory and a link to it."""
     project = icon_project(tmp_path)
@@ -264,7 +248,7 @@ def test_an_unreadable_subtree_is_counted_once_beside_the_created_list(
     project, locked = _locked_icon_project(tmp_path)
     calls, fake_launch = _fake_pass(project, _icon_effects)
     monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
-    if not _unlistable(locked):
+    if not unlistable(locked):
         pytest.skip("this platform lets the owner list a mode-000 directory")
 
     try:
@@ -307,7 +291,7 @@ def test_the_render_names_the_unreadable_count_beside_the_created_line(
     project, locked = _locked_icon_project(tmp_path)
     calls, fake_launch = _fake_pass(project, _icon_effects)
     monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
-    if not _unlistable(locked):
+    if not unlistable(locked):
         pytest.skip("this platform lets the owner list a mode-000 directory")
 
     try:

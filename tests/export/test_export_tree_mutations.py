@@ -38,7 +38,13 @@ from gda.harness.install import install_harness
 from gda.import_evidence import CACHE_ROOT_REL
 from gda.project_tree import ProjectTreeInventory
 from gda.runner import RunResult
-from tests.support import ENGINE_BANNER, FakeRunner, minimal_project, sentinel
+from tests.support import (
+    ENGINE_BANNER,
+    FakeRunner,
+    minimal_project,
+    sentinel,
+    unlistable,
+)
 
 # The preset the canned `export get` resolve returns. `export run` resolves the
 # preset through that sentinel op before it exports anything, so every test here
@@ -373,21 +379,6 @@ def test_an_unreadable_file_is_named_in_the_render(tmp_path):
     )
 
 
-def _unlistable(directory: Path) -> bool:
-    """Make ``directory`` unlistable, and say whether the platform agreed.
-
-    The measurement IS the guard, and it covers root too: root lists a mode-000
-    directory, so a suite running as root skips instead of reading RED.
-    """
-    directory.chmod(0o000)
-    try:
-        os.listdir(directory)
-    except OSError:
-        return True
-    directory.chmod(0o755)
-    return False
-
-
 def test_one_unreadable_inode_is_counted_once_in_the_published_report(tmp_path):
     # #990's declared behaviour delta, on this command's own published count: an
     # unreadable directory that a link inside the project reaches a second time is
@@ -398,7 +389,7 @@ def test_one_unreadable_inode_is_counted_once_in_the_published_report(tmp_path):
     locked = project / "locked"
     _write(locked / "secret.tres", "old")
     (project / "alias").symlink_to(locked, target_is_directory=True)
-    if not _unlistable(locked):
+    if not unlistable(locked):
         pytest.skip("this platform lets the owner list a mode-000 directory")
 
     try:

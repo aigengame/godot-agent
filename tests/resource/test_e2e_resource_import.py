@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.support import Gda, import_project
+from tests.support import Gda, import_project, unlistable
 
 from tests.conftest import project_godot
 
@@ -165,21 +165,6 @@ def test_the_pass_reports_what_it_created_under_a_directory_link(tmp_path):
     ), sorted(created)
 
 
-def _unlistable(directory: Path) -> bool:
-    """Make ``directory`` unlistable, and say whether the platform agreed.
-
-    The measurement IS the guard, and it covers root too: root lists a mode-000
-    directory, so a suite running as root skips instead of reading RED.
-    """
-    directory.chmod(0o000)
-    try:
-        os.listdir(directory)
-    except OSError:
-        return True
-    directory.chmod(0o755)
-    return False
-
-
 @pytest.mark.e2e
 def test_an_unreadable_subtree_is_disclosed_beside_what_the_pass_created(tmp_path):
     # #990's product decision, against the real engine: `created` promises an
@@ -194,7 +179,7 @@ def test_an_unreadable_subtree_is_disclosed_beside_what_the_pass_created(tmp_pat
     (locked / "secret.tres").write_text("old", encoding="utf-8")
     (project / "alias").symlink_to(locked, target_is_directory=True)
     gda = Gda(project, json_output=True, timeout=180)
-    if not _unlistable(locked):
+    if not unlistable(locked):
         pytest.skip("this platform lets the owner list a mode-000 directory")
 
     try:

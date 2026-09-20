@@ -27,7 +27,7 @@ from gda.project_tree import (
     ProjectTreeInventory,
     ProjectTreeSettlement,
 )
-from tests.support import minimal_project
+from tests.support import minimal_project, unlistable
 
 
 def _settle(
@@ -364,21 +364,6 @@ def test_a_file_the_walk_cannot_read_is_skipped_not_failed(tmp_path):
     assert settled.modified == []
 
 
-def _unlistable(directory: Path) -> bool:
-    """Make ``directory`` unlistable, and say whether the platform agreed.
-
-    The measurement IS the guard, and it covers root too: root lists a mode-000
-    directory, so a suite running as root skips instead of reading RED.
-    """
-    directory.chmod(0o000)
-    try:
-        os.listdir(directory)
-    except OSError:
-        return True
-    directory.chmod(0o755)
-    return False
-
-
 def test_a_directory_the_walk_cannot_list_is_counted_once_per_inode(tmp_path):
     # Rule 4's directory half, and its identity clause (#990). `os.walk` swallows
     # a listdir failure by default, which would drop the whole subtree from the
@@ -392,7 +377,7 @@ def test_a_directory_the_walk_cannot_list_is_counted_once_per_inode(tmp_path):
     locked = project / "locked"
     _write(locked / "secret.tres", "old")
     (project / "alias").symlink_to(locked, target_is_directory=True)
-    if not _unlistable(locked):
+    if not unlistable(locked):
         pytest.skip("this platform lets the owner list a mode-000 directory")
 
     try:
@@ -412,7 +397,7 @@ def test_a_file_under_a_locked_directory_is_not_announced_as_created(tmp_path):
     project = minimal_project(tmp_path)
     locked = project / "locked"
     _write(locked / "secret.tres", "old")
-    if not _unlistable(locked):
+    if not unlistable(locked):
         pytest.skip("this platform lets the owner list a mode-000 directory")
 
     try:
