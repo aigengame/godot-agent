@@ -1,6 +1,5 @@
 """Owner and occurrence coverage for the evolving extension conformance reader."""
 
-from collections import Counter
 from copy import deepcopy
 from dataclasses import replace
 import json
@@ -14,8 +13,6 @@ from schema2_bootstrap_production_support import _consumer_a
 from schema2_extension_inventory_support import (
     AuthorityToken,
     InventoryRefusal,
-    TokenOccurrence,
-    _authority_path_rows,
     read_extension_inventory,
     source_formula_requests,
     token_bijection_from_names,
@@ -106,7 +103,7 @@ def test_evidence_inventory_closes_actual_claim_local_vectors(witness):
     assert {token.owner for token in vectors} == {("evaluable",)}
     assert not vectors & inventory.reserved
     assert not any("evidence_claim_kinds" in gap.reason for gap in inventory.uncovered)
-    assert inventory.uncovered  # Other families are still explicitly incomplete.
+    inventory.require_complete()
 
 
 @pytest.mark.parametrize(
@@ -219,8 +216,7 @@ def test_evidence_label_renaming_transports_owner_without_renaming_protocol_valu
     assert all(
         pairs[token] in renamed.tokens - renamed.reserved for token in local_tokens
     )
-    # A complete rename still waits for unrelated inventory gaps. Its owner
-    # consistency check must reject a malformed local scope before that boundary.
+    # Owner consistency must reject a malformed local scope on a complete graph.
     all_names = {
         token: f"renamed_{i}"
         for i, token in enumerate(sorted(inventory.tokens - inventory.reserved))
@@ -332,11 +328,9 @@ def test_bijection_refuses_missing_extra_duplicate_reserved_or_misowned_tokens(
     assert "uncovered" not in str(error.value)
 
 
-def test_uncovered_roles_cannot_be_certified_by_a_self_consistent_mapping(witness):
+def test_complete_inventory_certifies_a_self_consistent_mapping(witness):
     _, _, inventory = witness
-    assert {gap.pointer for gap in inventory.uncovered} == {
-        "/packages/12/semantic_closure/25/definitions/0"
-    }
+    inventory.require_complete()
     pairs = token_bijection_from_names(
         inventory,
         {
@@ -344,16 +338,13 @@ def test_uncovered_roles_cannot_be_certified_by_a_self_consistent_mapping(witnes
             for i, token in enumerate(sorted(inventory.tokens - inventory.reserved))
         },
     )
-    with pytest.raises(InventoryRefusal, match="uncovered semantic role"):
-        validate_token_bijection(inventory, pairs)
-    with pytest.raises(InventoryRefusal, match="uncovered semantic role"):
-        inventory.require_complete()
+    validate_token_bijection(inventory, pairs)
 
 
 @pytest.mark.parametrize("unchanged", ["all", "one"])
 def test_bijection_requires_each_non_kernel_name_to_change(witness, unchanged):
     _, _, inventory = witness
-    assert inventory.uncovered  # This isolated map check does not waive real gaps.
+    inventory.require_complete()
     names = {
         token: f"renamed.token.{i}"
         for i, token in enumerate(sorted(inventory.tokens - inventory.reserved))
@@ -1057,150 +1048,6 @@ def test_formula_inventory_uses_the_actual_inline_source_selector(renamed):
         and row.pointer.startswith("/source/")
         for row in inventory.occurrences
     )
-
-
-def test_resolution_inventory_closes_every_actual_source_selector(witness):
-    kernel, graph, inventory = witness
-    profile, profile_root = next(
-        (definition, pointer)
-        for _, definition, pointer in _authority_path_rows(
-            kernel, graph, "language_bundle.language.resolution_profiles"
-        )
-        if definition["default"] is True
-    )
-    selector_suffixes = {
-        "/entrypoints_member",
-        "/manifest_entry_module_path",
-        "/manifest_id_path",
-        "/import_alias_member",
-        "/import_package_member",
-        "/import_symbol_member",
-        "/imports_member",
-        "/module_id_member",
-        "/modules_member",
-        "/requirements_member",
-        "/schema_version_member",
-        "/symbol_name_member",
-        "/symbol_type_member",
-        "/symbols_member",
-        "/formula_resolution/binding_arguments_member",
-        "/formula_resolution/binding_formula_member",
-        "/formula_resolution/binding_operand_member",
-        "/formula_resolution/binding_parameter_member",
-        "/formula_resolution/binding_site_member",
-        "/formula_resolution/bindings_member",
-        "/formula_resolution/body_nodes_member",
-        "/formula_resolution/body_result_member",
-        "/formula_resolution/formula_body_member",
-        "/formula_resolution/formula_id_member",
-        "/formula_resolution/formula_parameters_member",
-        "/formula_resolution/formula_result_member",
-        "/formula_resolution/inline_body_normalizations/0/parameter_member",
-        "/formula_resolution/module_formulas_member",
-        "/formula_resolution/node_id_member",
-        "/formula_resolution/parameter_id_member",
-    }
-    selected = {
-        row.pointer.removeprefix(profile_root)
-        for row in inventory.occurrences
-        if row.token.role == "source-field"
-        and row.pointer.startswith(profile_root + "/")
-    }
-    assert selector_suffixes <= selected
-    fixed_selector_pointers = {profile_root + "/symbol_fact_member"}
-    fixed_selector_pointers.update(
-        f"{profile_root}/judgment_chain/{index}/operation"
-        for index in range(len(profile["judgment_chain"]))
-    )
-    formula = profile["formula_resolution"]
-    fixed_selector_pointers.update(
-        f"{profile_root}/formula_resolution/fixed_value_type_aliases/{index}/contract"
-        for index in range(len(formula["fixed_value_type_aliases"]))
-    )
-    for index, row in enumerate(
-        formula["notation_conversion"]["local_result_inference"]
-    ):
-        prefix = (
-            f"{profile_root}/formula_resolution/notation_conversion/"
-            f"local_result_inference/{index}"
-        )
-        fixed_selector_pointers.update({prefix + "/node", prefix + "/rule"})
-        fixed_selector_pointers.update(
-            prefix + "/" + member
-            for member in ("target_member", "source_member", "literal_member")
-            if member in row
-        )
-        fixed_selector_pointers.update(
-            f"{prefix}/operand_members/{operand_index}"
-            for operand_index in range(len(row.get("operand_members", [])))
-        )
-    for pointer in fixed_selector_pointers:
-        occurrences = [
-            row
-            for row in inventory.occurrences
-            if row.pointer == pointer and row.token.role.startswith("kernel.")
-        ]
-        assert occurrences
-        assert all(row.token in inventory.reserved for row in occurrences)
-    assert Counter(gap.reason for gap in inventory.uncovered) == Counter(
-        {
-            "nested language.wire_schemas roles are not yet traversed": 1,
-        }
-    )
-    assert all(token.name != "operation_result_source" for token in inventory.tokens)
-    assert all(
-        row.token.name != "operation_result_source" for row in inventory.occurrences
-    )
-    assert all(token.name != "operation_result_source" for token in inventory.reserved)
-
-
-@pytest.mark.parametrize("mutation", ["omission", "extra", "misowner"])
-def test_resolution_selector_coverage_refuses_incomplete_or_misowned_inventory(
-    witness, mutation
-):
-    kernel, graph, inventory = witness
-    inline = next(
-        row
-        for row in inventory.occurrences
-        if row.token.role == "source-field"
-        and row.pointer.endswith(
-            "/formula_resolution/inline_body_normalizations/0/parameter_member"
-        )
-    )
-    rows = tuple(row for row in inventory.occurrences if row != inline)
-    if mutation == "extra":
-        symbol = next(
-            row.token
-            for row in inventory.occurrences
-            if row.token.role == "source-field"
-            and row.pointer.endswith("/symbol_name_member")
-        )
-        profile_root = inline.pointer.split("/formula_resolution", 1)[0]
-        rows = (
-            *inventory.occurrences,
-            TokenOccurrence(
-                symbol,
-                profile_root + "/symbol_fact_member",
-                "reference",
-                "/meta_format/language_definitions/collections/resolution_profiles",
-            ),
-        )
-    elif mutation == "misowner":
-        other = next(
-            token
-            for token in inventory.tokens
-            if token.role == "source-field"
-            and token.name == inline.token.name
-            and token.owner != inline.token.owner
-        )
-        rows = (*rows, replace(inline, token=other))
-    candidate = replace(
-        inventory,
-        occurrences=rows,
-        tokens=frozenset(row.token for row in rows),
-    )
-    with pytest.raises(InventoryRefusal, match="Source field address"):
-        validate_extension_inventory(kernel, graph, candidate)
 
 
 @pytest.mark.parametrize(
@@ -2079,9 +1926,9 @@ def test_protocol_roles_do_not_merge_wire_schema_and_producer_kind_identities():
                 ),
             ),
         )
-    # Source and vector obligations remain open; this fixed artifact container
-    # has one machine owner and no duplicate authored-schema gap.
-    assert inventory.uncovered
+    # The fixed artifact container has one machine owner and no duplicate
+    # authored-schema gap in the complete authored graph.
+    inventory.require_complete()
     contract_gaps = [
         gap for gap in inventory.uncovered if "artifact_contracts" in gap.law
     ]

@@ -146,8 +146,7 @@ def test_model_check_semantic_selectors_do_not_restore_physical_source_paths(wit
     )
     assert {token.name for token in fields} == set(symbol["properties"])
     assert not fields & inventory.reserved
-    # This scoped owner proof cannot waive other graph roles.
-    assert inventory.uncovered
+    inventory.require_complete()
     assert canonical_bytes(graph) == before
 
 

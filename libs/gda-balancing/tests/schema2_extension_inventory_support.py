@@ -5208,6 +5208,22 @@ class _Reader:
                 )
             elif role == "language.operations":
                 continue
+            elif (
+                role == "language.wire_schemas"
+                and isinstance(definition, dict)
+                and definition.get("protocol_role") == "model-source-package"
+            ):
+                # _wire_protocol_links closes the definition shape and unique
+                # protocol owner; _source_address_links independently closes
+                # every renameable physical Source address against the actual
+                # schema annotations and consuming judgments.
+                if definition != _protocol_schema(
+                    self.kernel, self.graph, "model-source-package"
+                ):
+                    raise InventoryRefusal(
+                        "Source wire schema does not match its protocol owner"
+                    )
+                continue
             elif isinstance(definition, dict) and self.metadata_definition(
                 role, definition, pointer
             ):

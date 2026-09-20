@@ -328,18 +328,12 @@ def test_same_local_id_cannot_forge_scheduled_namespace_after_reseal(
         read_extension_inventory(kernel, graph)
 
 
-def test_real_build8_run6_replace_the_three_placeholder_gaps(priority_full_graph):
+def test_real_build8_run6_closes_the_reachable_extension_graph(priority_full_graph):
     kernel, graph, inventory, baseline = priority_full_graph
     validate_extension_inventory(kernel, graph, inventory)
-    assert inventory.uncovered == baseline.uncovered
-    (gap,) = inventory.uncovered
-    assert gap.pointer.endswith("/semantic_closure/25/definitions/0")
-    assert gap.reason == "nested language.wire_schemas roles are not yet traversed"
-    assert not any(
-        gap.pointer == root or gap.pointer.startswith(root + "/")
-        for gap in inventory.uncovered
-        for root in ("/experiment", "/artifacts", "/results")
-    )
+    baseline.require_complete()
+    inventory.require_complete()
+    assert inventory.uncovered == baseline.uncovered == ()
     assert {value["artifact_kind"] for value in graph["artifacts"].values()} == {
         "build-receipt",
         "capability-manifest",
