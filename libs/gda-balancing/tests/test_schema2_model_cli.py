@@ -83,6 +83,84 @@ def _inject_authority_context(monkeypatch, kernel, language_bundle):
     return context
 
 
+def test_model_file_descriptors_share_one_injected_authority_per_dispatch(
+    tmp_path, run_cli, monkeypatch
+):
+    """Custom registries need no packaged-authority side channel."""
+    import gda_balancing.interfaces.cli.model_check as model_check_command_module
+    import gda_balancing.interfaces.cli.surface as surface_module
+
+    context = authority_module.packaged_authority_context()
+    source = tmp_path / "provider-model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    calls: list[authority_module.AdmittedAuthorityContext] = []
+
+    def provider():
+        calls.append(context)
+        return context
+
+    def ambient_loader_is_forbidden():
+        raise AssertionError("custom Model dispatch read packaged authority")
+
+    build = model_build_command_module.model_build_descriptor(provider)
+    check = model_check_command_module.model_check_descriptor(provider)
+    monkeypatch.setattr(
+        model_checking_module,
+        "packaged_authority_context",
+        ambient_loader_is_forbidden,
+    )
+    monkeypatch.setattr(
+        model_module,
+        "packaged_authority_context",
+        ambient_loader_is_forbidden,
+    )
+    monkeypatch.setattr(
+        surface_module,
+        "packaged_authority_context",
+        ambient_loader_is_forbidden,
+    )
+
+    schema_exit, schema_stdout, schema_stderr = run_cli(
+        ["model", "build", "--schema"], registry=(build,)
+    )
+    assert (schema_exit, schema_stderr) == (0, "")
+    schema = json.loads(schema_stdout)
+    assert schema["descriptor_identity"] == descriptor_identity(
+        build, authority_context=context
+    )
+    assert calls == [context]
+
+    calls.clear()
+    check_exit, check_stdout, check_stderr = run_cli(
+        ["model", "check", str(source)], registry=(check,)
+    )
+    assert (check_exit, check_stderr) == (0, "")
+    assert (
+        json.loads(check_stdout)["language_bundle_identity"]
+        == (context.language_bundle["content_identity"])
+    )
+    assert calls == [context]
+
+    calls.clear()
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "provider-model-out.json"),
+            "--invocation-key",
+            "a" * 64,
+        ],
+        registry=(build,),
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    assert json.loads(build_stdout)["descriptor_identity"] == descriptor_identity(
+        build, authority_context=context
+    )
+    assert calls == [context]
+
+
 def test_artifact_semantic_projection_treats_empty_root_exclusion_as_noop():
     artifact = {"member": {"value": 1}}
 

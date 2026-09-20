@@ -4,7 +4,11 @@ from copy import deepcopy
 from typing import Any, cast
 
 from gda_balancing.domain.artifact_set import resolve_artifact_set
-from gda_balancing.domain.authority.context import packaged_authority_context
+from gda_balancing.domain.authority.admission import BootstrapAdmission
+from gda_balancing.domain.authority.context import (
+    AdmittedAuthorityContext,
+    packaged_authority_context,
+)
 from gda_balancing.domain.canonical import JsonValue, content_identity
 from gda_balancing.interfaces.cli.descriptors import (
     CommandDescriptor,
@@ -66,7 +70,11 @@ def command_schema_profile() -> dict[str, JsonValue]:
     }
 
 
-def schema2_error_envelope_schema(descriptor: CommandDescriptor) -> dict[str, Any]:
+def schema2_error_envelope_schema(
+    descriptor: CommandDescriptor,
+    *,
+    authority_context: AdmittedAuthorityContext | None = None,
+) -> dict[str, Any]:
     """Return the descriptor's exact closed 2.x Error contract."""
     artifact_location = {
         "type": "object",
@@ -113,12 +121,11 @@ def schema2_error_envelope_schema(descriptor: CommandDescriptor) -> dict[str, An
     }
     usage = deepcopy(USAGE_ERROR_SCHEMA)
     usage["properties"]["code"] = {"enum": sorted(descriptor.usage_codes)}
+    catalog = descriptor.resolved_refusal_catalog(authority_context)
     variants: list[dict[str, Any]] = []
-    for stage in descriptor.refusal_stages:
+    for stage in sorted({stage for _, stage in catalog}):
         codes = sorted(
-            code
-            for code, declared_stage in descriptor.resolved_refusal_catalog()
-            if declared_stage == stage
+            code for code, declared_stage in catalog if declared_stage == stage
         )
         stage_diagnostic = deepcopy(diagnostic)
         stage_diagnostic["properties"]["code"] = {"enum": codes}
@@ -234,8 +241,14 @@ def _schema_document(name: str, raw: dict[str, Any]) -> dict[str, JsonValue]:
     }
 
 
-def _artifact_membership(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
+def _artifact_membership(
+    descriptor: CommandDescriptor,
+    authority_context: AdmittedAuthorityContext | None = None,
+) -> dict[str, JsonValue]:
     """Project the descriptor-owned artifact behavior and complete member set."""
+
+    if authority_context is None:
+        authority_context = packaged_authority_context()
 
     def members(
         artifact_set: tuple[Any, ...],
@@ -247,7 +260,7 @@ def _artifact_membership(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
                 "role": member.role,
             }
             for member in resolve_artifact_set(
-                packaged_authority_context().language_bundle, artifact_set
+                authority_context.language_bundle, artifact_set
             )
         ]
 
@@ -275,7 +288,7 @@ def _artifact_membership(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
                         {
                             "receipt_field": item.receipt_field,
                             "producer_descriptor_identity": descriptor_identity(
-                                item.producer
+                                item.producer, authority_context=authority_context
                             ),
                             "artifact_sets": [
                                 members(artifact_set)
@@ -292,7 +305,16 @@ def _artifact_membership(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
     )
 
 
-def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
+def _descriptor_body(
+    descriptor: CommandDescriptor,
+    *,
+    authority_context: AdmittedAuthorityContext | None = None,
+) -> dict[str, JsonValue]:
+    if authority_context is None:
+        resolved = descriptor.resolved_authority_context()
+        if isinstance(resolved, BootstrapAdmission):
+            raise ValueError("cannot project a descriptor from refused authority")
+        authority_context = resolved
     profile = command_schema_profile()
     success_schema = (
         descriptor.success_schema()
@@ -326,6 +348,7 @@ def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
             key=lambda item: (item.stage, item.field_name),
         )
     ]
+    refusal_catalog = descriptor.resolved_refusal_catalog(authority_context)
     return {
         "group": descriptor.group,
         "command": descriptor.command,
@@ -350,48 +373,62 @@ def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
             if verdict_schema is not None
             else {}
         ),
-        "execution": {
-            "lifecycle": descriptor.execution_lifecycle,
-            "stochastic": descriptor.stochastic,
-            "structured_params": descriptor.structured_params,
-            "json_presentation_field": descriptor.json_presentation_field,
-            "refusal_stages": list(descriptor.refusal_stages),
-            "refusal_catalog": [
-                {"code": code, "stage": stage}
-                for code, stage in descriptor.resolved_refusal_catalog()
-            ],
-            **(
-                {
-                    "refusal_variants": [
-                        {
-                            "id": variant.id,
-                            "stage": variant.stage,
-                            "required_details": list(variant.required_details),
-                            "forbidden_details": list(variant.forbidden_details),
-                        }
-                        for variant in descriptor.refusal_variants
-                    ]
-                }
-                if descriptor.refusal_variants
-                else {}
-            ),
-            "usage_codes": list(descriptor.usage_codes),
-        },
+        "execution": cast(
+            JsonValue,
+            {
+                "lifecycle": descriptor.execution_lifecycle,
+                "stochastic": descriptor.stochastic,
+                "structured_params": descriptor.structured_params,
+                "json_presentation_field": descriptor.json_presentation_field,
+                "refusal_stages": sorted({stage for _, stage in refusal_catalog}),
+                "refusal_catalog": [
+                    {"code": code, "stage": stage} for code, stage in refusal_catalog
+                ],
+                **(
+                    {
+                        "refusal_variants": [
+                            {
+                                "id": variant.id,
+                                "stage": variant.stage,
+                                "required_details": list(variant.required_details),
+                                "forbidden_details": list(variant.forbidden_details),
+                            }
+                            for variant in descriptor.refusal_variants
+                        ]
+                    }
+                    if descriptor.refusal_variants
+                    else {}
+                ),
+                "usage_codes": list(descriptor.usage_codes),
+            },
+        ),
         **({"refusal_details": refusal_details} if refusal_details else {}),
-        **_artifact_membership(descriptor),
+        **_artifact_membership(descriptor, authority_context),
     }
 
 
-def descriptor_identity(descriptor: CommandDescriptor) -> str:
+def descriptor_identity(
+    descriptor: CommandDescriptor,
+    *,
+    authority_context: AdmittedAuthorityContext | None = None,
+) -> str:
     return content_identity(
-        "command-descriptor-v2", cast(JsonValue, _descriptor_body(descriptor))
+        "command-descriptor-v2",
+        cast(
+            JsonValue,
+            _descriptor_body(descriptor, authority_context=authority_context),
+        ),
     )
 
 
-def command_schema_projection(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
+def command_schema_projection(
+    descriptor: CommandDescriptor,
+    *,
+    authority_context: AdmittedAuthorityContext | None = None,
+) -> dict[str, JsonValue]:
     """Return the exact per-command schema object used by manifest and CLI."""
-    body = _descriptor_body(descriptor)
-    identity = descriptor_identity(descriptor)
+    body = _descriptor_body(descriptor, authority_context=authority_context)
+    identity = content_identity("command-descriptor-v2", cast(JsonValue, body))
     schema_body: dict[str, JsonValue] = {
         "artifact_kind": "command-schema",
         "profile_identity": cast(str, body["profile_identity"]),
@@ -399,7 +436,12 @@ def command_schema_projection(descriptor: CommandDescriptor) -> dict[str, JsonVa
         "input": body["input"],
         "success": body["success"],
         **({"verdict": body["verdict"]} if "verdict" in body else {}),
-        "error": cast(JsonValue, schema2_error_envelope_schema(descriptor)),
+        "error": cast(
+            JsonValue,
+            schema2_error_envelope_schema(
+                descriptor, authority_context=authority_context
+            ),
+        ),
     }
     return {
         **schema_body,
@@ -655,35 +697,45 @@ def surface_manifest(
     """Enumerate the delivered 2.x commands from the live descriptor registry."""
     rows: list[JsonValue] = []
     for descriptor in registry:
+        resolved = descriptor.resolved_authority_context()
+        if isinstance(resolved, BootstrapAdmission):
+            raise ValueError("cannot project a descriptor from refused authority")
+        schema = command_schema_projection(
+            descriptor,
+            authority_context=resolved,
+        )
+        catalog = descriptor.resolved_refusal_catalog(resolved)
         rows.append(
-            {
-                "group": descriptor.group,
-                "command": descriptor.command,
-                "description": descriptor.description,
-                "descriptor_identity": descriptor_identity(descriptor),
-                "schema": command_schema_projection(descriptor),
-                "execution": {
-                    "lifecycle": descriptor.execution_lifecycle,
-                    "stochastic": descriptor.stochastic,
-                    "structured_params": descriptor.structured_params,
-                    "refusal_stages": list(descriptor.refusal_stages),
-                    "refusal_catalog": [
-                        {"code": code, "stage": stage}
-                        for code, stage in descriptor.resolved_refusal_catalog()
-                    ],
-                    "refusal_variants": [
-                        {
-                            "id": variant.id,
-                            "stage": variant.stage,
-                            "required_details": list(variant.required_details),
-                            "forbidden_details": list(variant.forbidden_details),
-                        }
-                        for variant in descriptor.refusal_variants
-                    ],
-                    "usage_codes": list(descriptor.usage_codes),
+            cast(
+                JsonValue,
+                {
+                    "group": descriptor.group,
+                    "command": descriptor.command,
+                    "description": descriptor.description,
+                    "descriptor_identity": schema["descriptor_identity"],
+                    "schema": schema,
+                    "execution": {
+                        "lifecycle": descriptor.execution_lifecycle,
+                        "stochastic": descriptor.stochastic,
+                        "structured_params": descriptor.structured_params,
+                        "refusal_stages": sorted({stage for _, stage in catalog}),
+                        "refusal_catalog": [
+                            {"code": code, "stage": stage} for code, stage in catalog
+                        ],
+                        "refusal_variants": [
+                            {
+                                "id": variant.id,
+                                "stage": variant.stage,
+                                "required_details": list(variant.required_details),
+                                "forbidden_details": list(variant.forbidden_details),
+                            }
+                            for variant in descriptor.refusal_variants
+                        ],
+                        "usage_codes": list(descriptor.usage_codes),
+                    },
+                    **_artifact_membership(descriptor, resolved),
                 },
-                **_artifact_membership(descriptor),
-            }
+            )
         )
     rows.sort(
         key=lambda raw: (

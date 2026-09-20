@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
+from gda_balancing.domain.authority.context import AdmittedAuthorityContext
 from gda_balancing.domain.artifact_set import (
     ArtifactSetPlan,
     resolve_artifact_set,
@@ -61,9 +62,14 @@ def run_experiment(
     *,
     rir: str,
     publication_fault: str | None = None,
+    authority_context: AdmittedAuthorityContext | None = None,
 ) -> ExperimentRunPublication | ExperimentVerdictPublication | Schema2RefusalReport:
     """Admit, execute, recover, or publish one exact Experiment run."""
-    checked = check_experiment_inputs(specification, rir)
+    checked = check_experiment_inputs(
+        specification,
+        rir,
+        authority_context=authority_context,
+    )
     if isinstance(checked, Schema2RefusalReport):
         return checked
     assert isinstance(checked, CheckedExperiment)

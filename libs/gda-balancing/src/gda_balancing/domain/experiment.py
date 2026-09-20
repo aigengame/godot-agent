@@ -71,9 +71,11 @@ _EXPERIMENT_CHECK_REFUSAL_REASONS = (
 )
 
 
-def experiment_check_refusal_reasons() -> tuple[str, ...]:
+def experiment_check_refusal_reasons(
+    authority_context: AdmittedAuthorityContext | None = None,
+) -> tuple[str, ...]:
     """Select current ingress reasons from the declared structured fault roots."""
-    context = packaged_authority_context()
+    context = authority_context or packaged_authority_context()
     roots = context.kernel["meta_format"]["runtime_projection"]["execution_closure"][
         "reasons"
     ]["roots"]

@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
+from gda_balancing.domain.authority.context import AdmittedAuthorityContext
 from gda_balancing.domain.artifact_set import (
     ArtifactSetPlan,
     ProtocolArtifactSetMemberSpec,
@@ -63,10 +64,12 @@ def build_model(
     descriptor_identity: str,
     artifact_set: ArtifactSetPlan,
     publication_fault: str | None = None,
+    *,
+    authority_context: AdmittedAuthorityContext | None = None,
 ) -> ModelBuildReceipt | Schema2RefusalReport:
     """Check, lazily compile, and publish one Model Source Package."""
     authentication_key = publication_authentication_key()
-    checked = check_model_source(source)
+    checked = check_model_source(source, authority_context=authority_context)
     if isinstance(checked, Schema2RefusalReport):
         return checked
     artifact_set = resolve_artifact_set(

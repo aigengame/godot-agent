@@ -70,9 +70,13 @@ from gda_balancing.domain.model._lowering import (
 from gda_balancing.domain.model._execution_closure import close_execution_dependencies
 
 
-def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
+def check_model_source(
+    path: str,
+    *,
+    authority_context: AdmittedAuthorityContext | None = None,
+) -> CheckedModel | Schema2RefusalReport:
     """Admit and check one Model Source Package without publishing artifacts."""
-    authority_context = packaged_authority_context()
+    authority_context = authority_context or packaged_authority_context()
     ldb = authority_context.language_bundle
     try:
         data = read_bounded_input(path, _model_source_byte_bound(ldb))

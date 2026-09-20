@@ -966,6 +966,82 @@ def _write_built_experiment(tmp_path, run_cli, *, base_damage=24, source_value=N
     return spec_path, _rir_path(build_receipt)
 
 
+def test_experiment_file_descriptors_share_one_injected_authority_per_dispatch(
+    tmp_path, run_cli, monkeypatch
+):
+    """Experiment check/run and their descriptor projections share one context."""
+    import gda_balancing.application.experiment_inputs as experiment_inputs_module
+    import gda_balancing.interfaces.cli.surface as surface_module
+
+    specification, rir = _write_built_experiment(tmp_path, run_cli)
+    context = authority_module.packaged_authority_context()
+    calls: list[authority_module.AdmittedAuthorityContext] = []
+
+    def provider():
+        calls.append(context)
+        return context
+
+    def ambient_loader_is_forbidden():
+        raise AssertionError("custom Experiment dispatch read packaged authority")
+
+    check = experiment_check_command_module.experiment_check_descriptor(provider)
+    run = experiment_command_module.experiment_run_descriptor(provider)
+    monkeypatch.setattr(
+        experiment_inputs_module,
+        "packaged_authority_context",
+        ambient_loader_is_forbidden,
+    )
+    monkeypatch.setattr(
+        experiment_admission_module,
+        "packaged_authority_context",
+        ambient_loader_is_forbidden,
+    )
+    monkeypatch.setattr(
+        surface_module,
+        "packaged_authority_context",
+        ambient_loader_is_forbidden,
+    )
+
+    schema_exit, schema_stdout, schema_stderr = run_cli(
+        ["experiment", "run", "--schema"], registry=(run,)
+    )
+    assert (schema_exit, schema_stderr) == (0, "")
+    assert json.loads(schema_stdout)["descriptor_identity"] == descriptor_identity(
+        run, authority_context=context
+    )
+    assert calls == [context]
+
+    calls.clear()
+    check_exit, check_stdout, check_stderr = run_cli(
+        ["experiment", "check", str(specification), "--rir", str(rir)],
+        registry=(check,),
+    )
+    assert (check_exit, check_stderr) == (0, "")
+    assert json.loads(check_stdout)["checked"] is True
+    assert calls == [context]
+
+    calls.clear()
+    run_exit, run_stdout, run_stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification),
+            "--rir",
+            str(rir),
+            "--out",
+            str(tmp_path / "provider-experiment-out.json"),
+            "--invocation-key",
+            "b" * 64,
+        ],
+        registry=(run,),
+    )
+    assert (run_exit, run_stderr) == (0, "")
+    assert json.loads(run_stdout)["descriptor_identity"] == descriptor_identity(
+        run, authority_context=context
+    )
+    assert calls == [context]
+
+
 def _write_built_periodic_experiment(tmp_path, run_cli):
     build_exit, build_stdout, build_stderr = run_cli(
         [
