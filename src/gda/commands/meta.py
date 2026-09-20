@@ -221,10 +221,9 @@ def build_skill_result(
     path is reported on ``installed_path``. ``install_dir`` is **required** for an
     install — core carries no agent-specific default location (ADR-0024); the caller
     supplies the per-agent path. ``~`` is expanded through
-    :func:`gda.project.expand_user`, which is total: a ``~unknownuser/…`` prefix
-    this host cannot resolve stays literal, so the install target is an ordinary
-    relative directory under the invocation cwd instead of a ``RuntimeError``
-    traceback (#988).
+    :func:`gda.project.expand_user`, which owns the rule for a ``~user`` this host
+    cannot resolve. Here the outcome is an ordinary relative directory under the
+    invocation cwd instead of a ``RuntimeError`` traceback (#988).
     """
     content = read_skill_text()
     result = SkillResult(

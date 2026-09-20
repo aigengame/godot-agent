@@ -110,13 +110,14 @@ def expand_user(path: Path) -> Path:
     consumer then reads the literal path as the address it is, instead of a
     RuntimeError escaping as a traceback.
 
-    **Public since #988**: the caller-supplied path options, and the project
-    re-expansions that stamp a resolved root onto a verdict or onto the daemon's
-    on-disk identity, each expanded a tilde on their own and each crashed that
-    way at exit 1 with no `Error envelope` at all. They call this function now,
-    so the sites that call it answer an unresolvable ``~user`` the same way —
-    keep it literal — while what such a name GIVES a caller stays with the
-    consumer, and is stated at each call site rather than enumerated here.
+    **Public since #988**: the caller-supplied path options and the project
+    re-expansions each expanded a tilde on their own, and each crashed that way at
+    exit 1 with no `Error envelope` at all. (The re-expansions are the sites that
+    stamp a resolved root onto a verdict or onto the daemon's on-disk identity.)
+    They call this function now, so every caller answers an unresolvable
+    ``~user`` the same way: keep it literal. What such a name GIVES a caller stays
+    with the consumer, and is stated at each call site rather than enumerated
+    here.
 
     It is not the only statement of the rule in ``src/gda``, and the two others
     are deliberate. :func:`gda.models.normalize_path` keeps its own, because it

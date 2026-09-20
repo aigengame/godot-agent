@@ -808,7 +808,11 @@ def normalize_path(path: str) -> str:
     **Total: it never raises** (#699). ``Path.expanduser()`` raises ``RuntimeError``
     for a ``~unknownuser/…`` prefix it cannot resolve, which crashed every
     ``NormalizedPath`` consumer with a bare traceback. Such a path is passed through
-    UNCHANGED instead. Two reasons it is swallowed rather than re-raised:
+    UNCHANGED instead. :func:`gda.project.expand_user` states the same rule for the
+    path options and the project re-expansions (#988) and names this function as
+    the second statement; this one stays its own because it answers with the
+    caller's raw string and carries the virtual-path pass-through above. Two
+    reasons it is swallowed rather than re-raised:
 
     - Normalization is a **convenience**, not a validity check — it saves the caller
       a shell. Whether a path is usable is decided by whoever consumes it (the

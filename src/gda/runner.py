@@ -224,11 +224,11 @@ def resolve_user_data_root(
     (see ``gda.export_runner``, #344): ``absolute()`` rather than ``resolve()``, to
     keep the codebase's symlink-agnostic path handling.
 
-    ``~`` is expanded through :func:`gda.project.expand_user`, which is total: a
-    ``~unknownuser/…`` prefix this host cannot resolve stays literal, so the root
-    is an ordinary relative directory under the invocation cwd — created where it
-    can be, refused through this option's existing path where it cannot — instead
-    of a ``RuntimeError`` traceback (#988).
+    ``~`` is expanded through :func:`gda.project.expand_user`, which owns the rule
+    for a ``~user`` this host cannot resolve. Here the outcome is an ordinary
+    relative directory under the invocation cwd — created where it can be, refused
+    through this option's existing path where it cannot — instead of a
+    ``RuntimeError`` traceback (#988).
     """
     if env is None:
         env = os.environ
