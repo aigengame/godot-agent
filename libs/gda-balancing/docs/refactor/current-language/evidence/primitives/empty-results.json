@@ -1,0 +1,183 @@
+{
+  "baseline": "3f68bf3fb26df2ab54351a8ef4e3e167269bdc16",
+  "successful_cases": 0,
+  "refused_cases": 28,
+  "failures": [
+    {
+      "vector": "generation.select.success",
+      "field": "options",
+      "direct": false,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "generation.select.success",
+      "field": "no_reward_on_empty",
+      "direct": true,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "generation.select.no-reward-outcome",
+      "field": "options",
+      "direct": true,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "generation.select.no-reward-outcome",
+      "field": "no_reward_on_empty",
+      "direct": false,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "generation.select.empty-refusal",
+      "field": "options",
+      "direct": true,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "generation.select.empty-refusal",
+      "field": "no_reward_on_empty",
+      "direct": true,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "generation.select.invalid-fallback-refusal",
+      "field": "options",
+      "direct": true,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "generation.select.invalid-fallback-refusal",
+      "field": "no_reward_on_empty",
+      "direct": false,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "generation.select.invalid-fallback-policy-before-refusal",
+      "field": "options",
+      "direct": true,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "generation.select.invalid-fallback-policy-before-refusal",
+      "field": "no_reward_on_empty",
+      "direct": false,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "generation.select.invalid-fallback-policy-after-refusal",
+      "field": "options",
+      "direct": true,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "generation.select.invalid-fallback-policy-after-refusal",
+      "field": "no_reward_on_empty",
+      "direct": false,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "generation.select.invalid-option-refusal",
+      "field": "options",
+      "direct": false,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "generation.select.invalid-option-refusal",
+      "field": "no_reward_on_empty",
+      "direct": true,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "game.generation.v1-1.generation.select.success",
+      "field": "options",
+      "direct": false,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "game.generation.v1-1.generation.select.success",
+      "field": "no_reward_on_empty",
+      "direct": true,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "game.generation.v1-1.generation.select.no-reward-outcome",
+      "field": "options",
+      "direct": true,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "game.generation.v1-1.generation.select.no-reward-outcome",
+      "field": "no_reward_on_empty",
+      "direct": false,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "game.generation.v1-1.generation.select.empty-refusal",
+      "field": "options",
+      "direct": true,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "game.generation.v1-1.generation.select.empty-refusal",
+      "field": "no_reward_on_empty",
+      "direct": true,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "game.generation.v1-1.generation.select.invalid-fallback-refusal",
+      "field": "options",
+      "direct": true,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "game.generation.v1-1.generation.select.invalid-fallback-refusal",
+      "field": "no_reward_on_empty",
+      "direct": false,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "game.generation.v1-1.generation.select.invalid-fallback-policy-before-refusal",
+      "field": "options",
+      "direct": true,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "game.generation.v1-1.generation.select.invalid-fallback-policy-before-refusal",
+      "field": "no_reward_on_empty",
+      "direct": false,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "game.generation.v1-1.generation.select.invalid-fallback-policy-after-refusal",
+      "field": "options",
+      "direct": true,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "game.generation.v1-1.generation.select.invalid-fallback-policy-after-refusal",
+      "field": "no_reward_on_empty",
+      "direct": false,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "game.generation.v1-1.generation.select.invalid-option-refusal",
+      "field": "options",
+      "direct": false,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    },
+    {
+      "vector": "game.generation.v1-1.generation.select.invalid-option-refusal",
+      "field": "no_reward_on_empty",
+      "direct": true,
+      "replacement_refusal": "('language.structured_value_type_mismatch', '/type')"
+    }
+  ],
+  "rows": [],
+  "value_equivalence": "disproved-under-current-LDB",
+  "wrong_element_type_refuses": "('language.structured_value_type_mismatch', '/right/type')",
+  "charges": {
+    "is-empty": 1,
+    "typed-empty-literal-plus-equal": 2
+  },
+  "scope": "production structured value and value-node helpers over every game.generation operation vector in both current package lines; exact same structural List type retained. No modified Kernel admission, full Runtime, low structured-resource-limit or conformance proof."
+}

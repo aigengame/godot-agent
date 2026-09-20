@@ -1,0 +1,306 @@
+"""Disposable proposed-law experiment. Not production or conformance evidence.
+Independent evaluators: recursive expression tree vs postorder bytecode stack.
+Only admission/type checking, metering and scalar range bounds are shared.
+"""
+from __future__ import annotations
+import json
+import itertools
+from dataclasses import dataclass
+from pathlib import Path
+import os
+
+MIN, MAX = -(2**63), 2**63 - 1
+INT, BOOL = 'Int64', 'Bool'
+def LIST(t, n): return ('List', t, n)
+def RECORD(**fields): return ('Record', tuple(fields.items()))
+
+class Refusal(Exception):
+    def __init__(self, reason): self.reason = reason
+
+@dataclass
+class Meter:
+    step_limit: int
+    copy_limit: int
+    steps: int = 0
+    copied_cells: int = 0
+    def charge(self, steps=0, copies=0):
+        # Charge is attempted atomically. Limit refusal exposes consumed work only.
+        if self.steps + steps > self.step_limit: raise Refusal('step-limit')
+        if self.copied_cells + copies > self.copy_limit: raise Refusal('copy-limit')
+        self.steps += steps
+        self.copied_cells += copies
+
+def bounded_int(value):
+    if type(value) is not int: raise Refusal('type-mismatch')
+    if not MIN <= value <= MAX: raise Refusal('numeric-overflow')
+    return value
+
+def matches(value, typ):
+    if typ == INT: return type(value) is int and MIN <= value <= MAX
+    if typ == BOOL: return type(value) is bool
+    if typ[0] == 'List':
+        return type(value) is list and len(value) <= typ[2] and all(matches(v, typ[1]) for v in value)
+    if typ[0] == 'Record':
+        return type(value) is dict and set(value) == {k for k, _ in typ[1]} and all(matches(value[k], t) for k,t in typ[1])
+    return False
+
+# Only existing expression-style capabilities plus the proposed pure snoc.
+# There is no loop/call/effect/host callback inside the admitted step language.
+def infer(expr, env):
+    if not isinstance(expr, tuple) or not expr: raise Refusal('malformed-expression')
+    op = expr[0]
+    if op == 'var':
+        if len(expr) != 2 or expr[1] not in env: raise Refusal('unbound-local')
+        return env[expr[1]]
+    if op == 'lit':
+        if len(expr) != 3 or not matches(expr[1], expr[2]): raise Refusal('invalid-literal')
+        return expr[2]
+    if op == 'get':
+        if len(expr) != 3: raise Refusal('malformed-expression')
+        t = infer(expr[1], env)
+        if not isinstance(t, tuple) or t[0] != 'Record' or expr[2] not in dict(t[1]): raise Refusal('field-type')
+        return dict(t[1])[expr[2]]
+    if op in ('add','mul','lt'):
+        if len(expr) != 3 or infer(expr[1],env) != INT or infer(expr[2],env) != INT: raise Refusal('operand-type')
+        return BOOL if op == 'lt' else INT
+    if op == 'select':
+        if len(expr) != 4 or infer(expr[1],env) != BOOL: raise Refusal('condition-type')
+        left,right = infer(expr[2],env),infer(expr[3],env)
+        if left != right: raise Refusal('branch-type')
+        return left
+    if op == 'snoc':
+        if len(expr) != 3: raise Refusal('malformed-expression')
+        seq_t,item_t = infer(expr[1],env),infer(expr[2],env)
+        if not isinstance(seq_t,tuple) or seq_t[0] != 'List' or seq_t[1] != item_t: raise Refusal('element-type')
+        return seq_t
+    raise Refusal('effect-or-unknown-node')
+
+def expr_size(expr):
+    if expr[0] in ('var','lit'): return 1
+    if expr[0] == 'get': return 1+expr_size(expr[1])
+    return 1+sum(expr_size(x) for x in expr[1:])
+
+def snoc_count(expr):
+    if expr[0] in ('var','lit'): return 0
+    if expr[0] == 'get': return snoc_count(expr[1])
+    return (expr[0]=='snoc')+sum(snoc_count(x) for x in expr[1:])
+
+@dataclass(frozen=True)
+class Fold:
+    item_type: object
+    accumulator_type: object
+    maximum: int
+    initial: object
+    step: tuple
+    def admit(self):
+        if type(self.maximum) is not int or not 0 <= self.maximum <= 32: raise Refusal('invalid-bound')
+        if not matches(self.initial,self.accumulator_type): raise Refusal('initial-type')
+        result = infer(self.step, {'acc':self.accumulator_type,'item':self.item_type})
+        if result != self.accumulator_type: raise Refusal('accumulator-type')
+        # For this slice, List accumulator and snoc are closed under the input max.
+        if isinstance(result,tuple) and result[0]=='List' and result[2]!=self.maximum: raise Refusal('accumulator-bound')
+        return self
+    def static_bound(self):
+        # Conservative semantic work bound; not a host wall-clock/memory promise.
+        list_cap = self.accumulator_type[2] if isinstance(self.accumulator_type,tuple) and self.accumulator_type[0]=='List' else 0
+        return (1+self.maximum*(1+expr_size(self.step)), self.maximum*snoc_count(self.step)*list_cap)
+
+
+def tree(expr, env, meter, list_cap):
+    op = expr[0]
+    if op == 'var':
+        meter.charge(steps=1); return env[expr[1]]
+    if op == 'lit':
+        meter.charge(steps=1); return expr[1]
+    if op == 'get':
+        value=tree(expr[1],env,meter,list_cap)
+        meter.charge(steps=1); return value[expr[2]]
+    # Authored operands are eagerly evaluated left to right.
+    args=[tree(x,env,meter,list_cap) for x in expr[1:]]
+    if op == 'snoc':
+        meter.charge(steps=1)
+        if len(args[0]) >= list_cap: raise Refusal('collection-output-bound')
+        meter.charge(copies=len(args[0])+1)
+        return [*args[0],args[1]]
+    meter.charge(steps=1)
+    if op == 'add': return bounded_int(args[0]+args[1])
+    if op == 'mul': return bounded_int(args[0]*args[1])
+    if op == 'lt': return args[0]<args[1]
+    if op == 'select': return args[1] if args[0] else args[2]
+    raise AssertionError(op)
+
+# Separate execution strategy. No calls into tree evaluator or its arithmetic.
+def bytecode(expr):
+    op=expr[0]
+    if op=='var': return [('LOAD',expr[1])]
+    if op=='lit': return [('PUSH',expr[1])]
+    if op=='get': return bytecode(expr[1])+[('FIELD',expr[2])]
+    result=[]
+    for child in expr[1:]: result.extend(bytecode(child))
+    return result+[(op.upper(),)]
+
+def machine(program, acc, item, meter, list_cap):
+    stack=[]
+    for instruction in program:
+        op=instruction[0]
+        meter.charge(steps=1)
+        if op=='LOAD': stack.append(acc if instruction[1]=='acc' else item)
+        elif op=='PUSH': stack.append(instruction[1])
+        elif op=='FIELD': stack.append(stack.pop()[instruction[1]])
+        elif op=='SELECT':
+            false_value,true_value,cond=stack.pop(),stack.pop(),stack.pop()
+            stack.append(true_value if cond else false_value)
+        else:
+            rhs,lhs=stack.pop(),stack.pop()
+            if op=='SNOC':
+                new_size=len(lhs)+1
+                if new_size>list_cap: raise Refusal('collection-output-bound')
+                meter.charge(copies=new_size)
+                result=lhs.copy();result.append(rhs)
+            elif op=='LT': result=lhs<rhs
+            elif op=='ADD':
+                result=lhs+rhs
+                if result<MIN or result>MAX: raise Refusal('numeric-overflow')
+            elif op=='MUL':
+                result=lhs*rhs
+                if result<MIN or result>MAX: raise Refusal('numeric-overflow')
+            else: raise AssertionError(op)
+            stack.append(result)
+    assert len(stack)==1
+    return stack[0]
+
+
+def execute(spec, values, strategy, limits=None):
+    meter=Meter(*(limits if limits is not None else spec.static_bound()))
+    try:
+        spec.admit()
+        if type(values) is not list: raise Refusal('input-type')
+        if len(values)>spec.maximum: raise Refusal('collection-input-bound')
+        if not all(matches(v,spec.item_type) for v in values): raise Refusal('input-element-type')
+        meter.charge(steps=1)
+        acc=spec.initial
+        list_cap=spec.accumulator_type[2] if isinstance(spec.accumulator_type,tuple) and spec.accumulator_type[0]=='List' else 0
+        if strategy=='tree':
+            for item in values:
+                meter.charge(steps=1)
+                acc=tree(spec.step,{'acc':acc,'item':item},meter,list_cap)
+        else:
+            instructions=bytecode(spec.step)
+            index=0
+            while index<len(values):
+                meter.charge(steps=1)
+                acc=machine(instructions,acc,values[index],meter,list_cap)
+                index+=1
+        return {'outcome':'value','value':acc,'steps':meter.steps,'copied_cells':meter.copied_cells}
+    except Refusal as fault:
+        return {'outcome':'refusal','reason':fault.reason,'steps':meter.steps,'copied_cells':meter.copied_cells}
+
+ACC,ITEM=('var','acc'),('var','item')
+def I(v): return ('lit',v,INT)
+ENTITY=RECORD(id=INT,hp=INT)
+
+def selection_spec(n):
+    return Fold(ENTITY,LIST(INT,n),n,[],('select',('lt',I(0),('get',ITEM,'hp')),('snoc',ACC,('get',ITEM,'id')),ACC))
+def ordered_spec(n):
+    return Fold(INT,INT,n,0,('add',('mul',ACC,I(10)),ITEM))
+def length_spec(n,t=INT):
+    return Fold(t,INT,n,0,('add',ACC,I(1)))
+
+cases=[]
+def check(name,spec,data,value=None,reason=None,limits=None):
+    before=json.dumps(data,sort_keys=True)
+    a,b=execute(spec,data,'tree',limits),execute(spec,data,'machine',limits)
+    assert a==b,(name,a,b)
+    assert json.dumps(data,sort_keys=True)==before,('input-mutated',name)
+    if reason is not None: assert a.get('reason')==reason,(name,a)
+    else: assert a.get('value')==value and a['outcome']=='value',(name,a,value)
+    try:
+        spec.admit(); admitted_bound=spec.static_bound()
+    except Refusal:
+        admitted_bound=None
+    cases.append({'id':name,'result':a,'static_bound':admitted_bound})
+
+
+def main():
+    check('selection-empty',selection_spec(4),[],[])
+    check('selection-zero-bound',selection_spec(0),[],[])
+    entities=[{'id':5,'hp':1},{'id':2,'hp':0},{'id':9,'hp':3},{'id':3,'hp':-1}]
+    check('selection-limit-stable',selection_spec(4),entities,[5,9])
+    check('selection-all-at-limit',selection_spec(4),[dict(id=i,hp=1) for i in range(4)],list(range(4)))
+    check('selection-none',selection_spec(4),[dict(id=i,hp=0) for i in range(4)],[])
+    check('selection-reorder-follows-source',selection_spec(4),list(reversed(entities)),[9,5])
+    check('selection-input-over-bound',selection_spec(3),entities,reason='collection-input-bound')
+    check('selection-wrong-item',selection_spec(4),[{'id':True,'hp':1}],reason='input-element-type')
+    check('length-derived-empty',length_spec(4),[],0)
+    check('length-derived-at-limit',length_spec(4),[3,4,5,6],4)
+    check('numeric-empty',ordered_spec(4),[],0)
+    check('numeric-ordered',ordered_spec(4),[1,2,3],123)
+    check('numeric-reordered',ordered_spec(4),[3,2,1],321)
+    check('numeric-negative',ordered_spec(4),[-1,2],-8)
+    check('numeric-maximum',ordered_spec(4),[MAX],MAX)
+    check('numeric-minimum',ordered_spec(4),[MIN],MIN)
+    check('numeric-overflow',ordered_spec(4),[MAX,1],reason='numeric-overflow')
+    check('numeric-underflow',ordered_spec(4),[MIN,-1],reason='numeric-overflow')
+    spec=ordered_spec(3); exact=execute(spec,[1,2,3],'tree')
+    check('exact-step-budget',spec,[1,2,3],123,limits=(exact['steps'],0))
+    check('one-less-step-budget',spec,[1,2,3],reason='step-limit',limits=(exact['steps']-1,0))
+    spec=selection_spec(4);exact=execute(spec,entities,'tree')
+    check('exact-copy-budget',spec,entities,[5,9],limits=(exact['steps'],exact['copied_cells']))
+    check('one-less-copy-budget',spec,entities,reason='copy-limit',limits=(exact['steps'],exact['copied_cells']-1))
+    # Two appends in one step are typed but may overrun the finite output capacity.
+    spec=Fold(INT,LIST(INT,1),1,[],('snoc',('snoc',ACC,ITEM),ITEM))
+    check('output-over-bound',spec,[1],reason='collection-output-bound')
+    for node in ['draw','write-state','schedule','invoke','fold','host-callback']:
+        check('admission-reject-'+node,Fold(INT,INT,3,0,(node,)),[],reason='effect-or-unknown-node')
+    check('admission-accumulator-type',Fold(INT,INT,3,0,('lt',ACC,ITEM)),[],reason='accumulator-type')
+    check('admission-foreign-local',Fold(INT,INT,3,0,('var','ambient')),[],reason='unbound-local')
+    check('admission-wrong-element',Fold(INT,LIST(BOOL,3),3,[],('snoc',ACC,ITEM)),[],reason='element-type')
+    check('admission-bound-negative',Fold(INT,INT,-1,0,ACC),[],reason='invalid-bound')
+    check('admission-bound-too-large',Fold(INT,INT,33,0,ACC),[],reason='invalid-bound')
+    # Both engines must execute the unselected branch under the existing eager-value law.
+    eager=Fold(INT,INT,1,0,('select',('lit',False,BOOL),('add',I(MAX),I(1)),ACC))
+    check('eager-unselected-overflow',eager,[0],reason='numeric-overflow')
+    # Deterministic enumeration independently computes expected results without either evaluator.
+    enum_count=0
+    for n in range(6):
+        for values in itertools.product([-2,-1,0,1,2],repeat=n):
+            values=list(values)
+            expected=0
+            for value in values: expected=10*expected+value
+            a=execute(ordered_spec(5),values,'tree');b=execute(ordered_spec(5),values,'machine')
+            assert a==b and a['value']==expected
+            enum_count+=1
+    selection_count=0
+    for n in range(6):
+        for flags in itertools.product([-1,0,1],repeat=n):
+            data=[dict(id=i,hp=flag) for i,flag in enumerate(flags)]
+            a=execute(selection_spec(5),data,'tree');b=execute(selection_spec(5),data,'machine')
+            assert a==b and a['value']==[i for i,flag in enumerate(flags) if flag>0]
+            assert a['copied_cells']<=selection_spec(5).static_bound()[1]
+            selection_count+=1
+    # Independent hand-derived resource expectations (not recomputed by AST helpers).
+    assert execute(ordered_spec(3),[1,2,3],'tree')['steps']==1+3*6
+    assert execute(selection_spec(4),entities,'tree')['steps']==1+4*11
+    assert execute(selection_spec(4),entities,'tree')['copied_cells']==1+2+2+3
+    assert execute(selection_spec(4),list(reversed(entities)),'tree')['copied_cells']==1+1+2+2
+    # Exact cardinality is derived by a second fold, then existing typed require can own policy.
+    cardinality=[]
+    for lo,hi,ids in [(0,2,[]),(1,2,[]),(1,2,[5]),(1,2,[5,9]),(1,1,[5,9])]:
+        length=execute(length_spec(4),ids,'tree')['value']
+        cardinality.append({'min':lo,'max':hi,'ids':ids,'count':length,'accept':lo<=length<=hi})
+    assert [x['accept'] for x in cardinality]==[True,False,True,True,False]
+    # Left fold order is not safely replaced by naive pairwise reduction.
+    left=execute(ordered_spec(4),[1,2,3],'tree')['value']
+    naive_balanced=10*1+(10*2+3)
+    assert (left,naive_balanced)==(123,33)
+    # A fixed maximum can be unrolled but one program cannot traverse arbitrary N without
+    # source growth. Concrete indistinguishability witness for a fixed three-lookup program.
+    lhs,rhs=[1,2,3,4],[1,2,3,9]
+    fixed_observation=lambda x: [x[i] for i in range(3)]
+    assert fixed_observation(lhs)==fixed_observation(rhs)
+    assert execute(ordered_spec(4),lhs,'tree')['value']!=execute(ordered_spec(4),rhs,'tree')['value']
+    report={'status':'all-passed','named_cases':cases,'named_case_count':len(cases),'numeric_enumerated_cases':enum_count,'selection_enumerated_cases':selection_count,'cardinality_cases':cardinality,'noncommutative_counterexample':{'left_fold':left,'naive_pairwise':naive_balanced},'fixed_lookup_counterexample':{'inputs':[lhs,rhs],'observed_indices':[0,1,2],'same_observation':fixed_observation(lhs),'fold_values':[execute(ordered_spec(4),x,'tree')['value'] for x in (lhs,rhs)]},'nonclaims':['not current Kernel semantics','not production implementation','not conformance','shared admission and metering code','only finite explicit expression language','bounded-input pure traversal only','no sorting/shuffle/zone conservation/effect lifecycle proof']}
+    (Path(os.environ['GDA_PROBE_OUT']) / 'results.json').write_text(json.dumps(report,indent=2)+'\n')
+    print(json.dumps({k:v for k,v in report.items() if k not in ('named_cases','cardinality_cases')},indent=2))
+
+if __name__=='__main__': main()
