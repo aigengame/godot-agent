@@ -9,7 +9,6 @@ from gda_balancing.application.experiment_execution import (
     ExperimentExecutionSuccess,
     execute_checked_experiment,
 )
-from gda_balancing.domain.artifacts import artifacts_by_protocol_role
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     admit_authority_context,
@@ -33,8 +32,9 @@ from schema2_extension_inventory_support import (
     read_extension_inventory,
     token_bijection_from_names,
     validate_extension_inventory,
+    validate_token_bijection,
 )
-from test_schema2_model_lowerer_conformance import _reidentify_language_bundle
+from schema2_extension_renaming_support import apply_extension_renaming
 
 
 def _member(kernel, graph, surface, role):
@@ -93,135 +93,37 @@ def priority_build_graph():
     return kernel, context, admitted, artifacts, authored, baseline
 
 
-@pytest.fixture(scope="module", params=[False, True], ids=["baseline", "variant"])
-def priority_full_graph(priority_build_graph, request):
-    kernel, context, admitted, artifacts, authored, baseline = priority_build_graph
-    experiment = specification(artifacts["rir-semantic-payload"], request.param)
-    checked = check_experiment_value(experiment, admitted, authority_context=context)
-    assert isinstance(checked, CheckedExperiment), checked
-    execution = execute_checked_experiment(checked)
-    assert isinstance(execution, ExperimentExecutionSuccess), execution
-    results = {
-        name: deepcopy(member.value) for name, member in execution.members.items()
-    }
-    assert len(results) == 6
-    graph = {
-        **authored,
-        "experiment": experiment,
-        "artifacts": artifacts,
-        "results": results,
-    }
-    inventory = read_extension_inventory(kernel, graph)
-    return kernel, graph, inventory, baseline
-
-
 @pytest.fixture(scope="module")
-def priority_renamed_graph():
-    kernel, language, turn = authorities()
-    # The priority builder holds an admitted index whose compiled protocol
-    # schemas are projected views. Reidentify only the authored definitions.
-    for row in language["language"]["artifact_wire_schemas"]:
-        if "protocol_role" in row:
-            row.pop("schema", None)
-    roles = {
-        "rir-semantic-payload",
-        "resolved-runtime-profile",
-        "event-trace",
-        "metric-dataset",
-        "evaluation-run",
-    }
-    old_kinds = {
-        row["artifact_kind"]
-        for collection in ("wire_schemas", "artifact_wire_schemas")
-        for row in language["language"][collection]
-        if row.get("protocol_role") in roles
-    }
-    old_kinds |= {
-        row["artifact_kind"]
-        for row in language["language"]["artifact_contracts"]
-        if row["artifact_kind"] in roles
-    }
-    replacements = {
-        name: f"candidate.inventory.kind.{index}"
-        for index, name in enumerate(sorted(old_kinds))
-    }
-
-    def rename(value, path=()):
-        if isinstance(value, dict):
-            for member, child in list(value.items()):
-                if member != "protocol_role":
-                    value[member] = rename(child, (*path, member))
-        elif isinstance(value, list):
-            for index, child in enumerate(value):
-                value[index] = rename(child, (*path, str(index)))
-        elif isinstance(value, str):
-            direct = path[-1:] in (
-                ("artifact_kind",),
-                ("schema_kind",),
-                ("member_kind",),
-            )
-            exported = "exports" in path and any(
-                collection in path
-                for collection in (
-                    "artifact_contracts",
-                    "artifact_wire_schemas",
-                    "wire_schemas",
-                )
-            )
-            wire_value = "properties" in path and "artifact_kind" in path
-            if direct or exported or wire_value:
-                return replacements.get(value, value)
-        return value
-
-    rename(language)
-    _reidentify_language_bundle(language)
-    context = admit_authority_context(kernel, language)
-    assert isinstance(context, AdmittedAuthorityContext), context
-    model_source = source(turn)
-    model = check_model_source_value(model_source, authority_context=context)
-    assert isinstance(model, CheckedModel), model
-    artifacts = compile_checked_model(model)
-    semantic = artifacts_by_protocol_role(language, artifacts)
-    rir = semantic["rir-semantic-payload"]
-    admitted = admit_rir(rir, authority_context=context)
-    assert isinstance(admitted, AdmittedRir), admitted
-    experiment = specification(rir, False)
-    checked = check_experiment_value(experiment, admitted, authority_context=context)
-    assert isinstance(checked, CheckedExperiment), checked
-    execution = execute_checked_experiment(checked)
-    assert isinstance(execution, ExperimentExecutionSuccess), execution
-    graph = {
-        "packages": deepcopy(language.package_releases),
-        "ldb_root": deepcopy(language.root),
-        "vector_sets": deepcopy(language.package_conformance_vector_sets),
-        "source": model_source,
-        "experiment": experiment,
-        "artifacts": artifacts,
-        "results": {
+def priority_full_graphs(priority_build_graph):
+    kernel, context, admitted, artifacts, authored, baseline = priority_build_graph
+    graphs = {}
+    for variant in (False, True):
+        experiment = specification(artifacts["rir-semantic-payload"], variant)
+        checked = check_experiment_value(
+            experiment, admitted, authority_context=context
+        )
+        assert isinstance(checked, CheckedExperiment), checked
+        execution = execute_checked_experiment(checked)
+        assert isinstance(execution, ExperimentExecutionSuccess), execution
+        results = {
             name: deepcopy(member.value) for name, member in execution.members.items()
-        },
-    }
-    return kernel, graph
+        }
+        assert len(results) == 6
+        graph = {
+            **authored,
+            "experiment": experiment,
+            "artifacts": artifacts,
+            "results": results,
+        }
+        graphs[variant] = (graph, read_extension_inventory(kernel, graph))
+    return kernel, graphs, baseline
 
 
-def test_full_graph_protocol_roles_survive_renamed_artifact_kinds(
-    priority_renamed_graph,
-):
-    kernel, graph = priority_renamed_graph
-    for surface, role in (
-        ("artifacts", "rir-semantic-payload"),
-        ("results", "resolved-runtime-profile"),
-        ("results", "event-trace"),
-        ("results", "metric-dataset"),
-        ("results", "evaluation-run"),
-    ):
-        assert _member(kernel, graph, surface, role)["artifact_kind"] != role
-    inventory = read_extension_inventory(kernel, graph)
-    validate_extension_inventory(kernel, graph, inventory)
-    assert not any(
-        gap.pointer.startswith(("/artifacts", "/results", "/experiment"))
-        for gap in inventory.uncovered
-    )
+@pytest.fixture(scope="module", params=[False, True], ids=["baseline", "variant"])
+def priority_full_graph(priority_full_graphs, request):
+    kernel, graphs, baseline = priority_full_graphs
+    graph, inventory = graphs[request.param]
+    return kernel, graph, inventory, baseline
 
 
 @pytest.fixture(scope="module")
@@ -756,20 +658,155 @@ def test_generated_node_lists_cannot_expand_kernel_reserved_owners(
         read_extension_inventory(kernel, graph)
 
 
-def test_full_graph_bijection_transports_experiment_owner_scopes(priority_full_graph):
-    _, _, inventory, _ = priority_full_graph
-    renameable = sorted(inventory.tokens - inventory.reserved)
-    pairs = dict(
-        token_bijection_from_names(
-            inventory,
-            {token: f"mapped_{index}" for index, token in enumerate(renameable)},
+def _stable_union_bijection(inventories):
+    """Build one deterministic rename relation for every supplied full graph."""
+    renameable = set().union(
+        *(inventory.tokens - inventory.reserved for inventory in inventories)
+    )
+    parent = {token: token for token in renameable}
+
+    def find(token):
+        while parent[token] != token:
+            parent[token] = parent[parent[token]]
+            token = parent[token]
+        return token
+
+    def union(left, right):
+        left_root, right_root = find(left), find(right)
+        if left_root != right_root:
+            parent[max(left_root, right_root)] = min(left_root, right_root)
+
+    # One authored position can carry several authority roles. Those roles must
+    # receive one spelling even though their complete token identities remain
+    # distinct. Positions from separate graphs are intentionally not conflated.
+    for inventory in inventories:
+        by_position = {}
+        for occurrence in inventory.occurrences:
+            if occurrence.token not in renameable:
+                continue
+            position = (
+                occurrence.pointer,
+                occurrence.location,
+                occurrence.projection,
+            )
+            by_position.setdefault(position, set()).add(occurrence.token)
+        for tokens in by_position.values():
+            first, *remaining = sorted(tokens)
+            for token in remaining:
+                union(first, token)
+
+    components = {}
+    for token in sorted(renameable):
+        components.setdefault(find(token), []).append(token)
+    original_names = {
+        token.name
+        for inventory in inventories
+        for token in inventory.tokens | inventory.reserved
+    }
+    names = {}
+    next_name = 0
+    for tokens in sorted(components.values(), key=lambda values: values[0]):
+        candidate = f"renamed{next_name}"
+        while candidate in original_names:
+            next_name += 1
+            candidate = f"renamed{next_name}"
+        names.update({token: candidate for token in tokens})
+        next_name += 1
+
+    pairs = tuple(sorted(token_bijection_from_names(inventories[0], names)))
+    sources = [source for source, _ in pairs]
+    targets = [target for _, target in pairs]
+    assert set(sources) == renameable
+    assert len(sources) == len(set(sources))
+    assert len(targets) == len(set(targets))
+    assert all(source.name != target.name for source, target in pairs)
+    return pairs
+
+
+@pytest.fixture(scope="module")
+def priority_full_graph_bijection(priority_full_graphs):
+    _, graphs, _ = priority_full_graphs
+    inventories = tuple(graphs[variant][1] for variant in (False, True))
+    return _stable_union_bijection(inventories)
+
+
+def test_full_authored_graphs_apply_one_exhaustive_injective_union_bijection(
+    priority_full_graphs, priority_full_graph_bijection
+):
+    kernel, graphs, _ = priority_full_graphs
+    union_pairs = priority_full_graph_bijection
+    union_map = dict(union_pairs)
+    inventories = {variant: graphs[variant][1] for variant in (False, True)}
+    union_domain = set().union(
+        *(inventory.tokens - inventory.reserved for inventory in inventories.values())
+    )
+    assert set(union_map) == union_domain
+    assert len(union_map) == len(set(union_map.values()))
+
+    common = set(inventories[False].tokens - inventories[False].reserved) & set(
+        inventories[True].tokens - inventories[True].reserved
+    )
+    case_maps = {}
+    for variant, (graph, inventory) in graphs.items():
+        validate_extension_inventory(kernel, graph, inventory)
+        inventory.require_complete()
+        renameable = inventory.tokens - inventory.reserved
+        pairs = tuple(pair for pair in union_pairs if pair[0] in renameable)
+        case_maps[variant] = dict(pairs)
+
+        # This check is independent from the authoring helper, which validates
+        # the relation again before changing any input.
+        validate_token_bijection(inventory, pairs)
+        assert set(case_maps[variant]) == renameable
+        assert len(pairs) == len(set(case_maps[variant].values()))
+        assert renameable <= {
+            occurrence.token
+            for occurrence in inventory.occurrences
+            if not occurrence.pointer.startswith(("/artifacts/", "/results/"))
+        }
+
+        original_authored = {
+            key: deepcopy(value)
+            for key, value in graph.items()
+            if key not in {"artifacts", "results"}
+        }
+        renamed = apply_extension_renaming(kernel, graph, pairs)
+        renamed_inventory = read_extension_inventory(kernel, renamed)
+        validate_extension_inventory(kernel, renamed, renamed_inventory)
+        renamed_inventory.require_complete()
+        assert renamed_inventory.reserved == inventory.reserved
+        assert renamed_inventory.tokens - renamed_inventory.reserved == set(
+            case_maps[variant].values()
         )
-    )
-    assert set(pairs) == set(renameable)
-    experiment = next(token for token in renameable if token.role == "experiment")
-    scenario = next(
-        token for token in renameable if token.role == "experiment-scenario"
-    )
-    root = next(token for token in renameable if token.role == "experiment-root-event")
-    assert pairs[scenario].owner == (pairs[experiment].name,)
-    assert pairs[root].owner == (pairs[experiment].name, pairs[scenario].name)
+        assert renameable.isdisjoint(renamed_inventory.tokens)
+
+        # Inverting through the independently read renamed inventory restores
+        # every authored byte, including deterministic envelopes. Any changed
+        # reserved or non-inventory value would remain changed and fail here.
+        inverse = tuple((target, source) for source, target in pairs)
+        validate_token_bijection(renamed_inventory, inverse)
+        restored = apply_extension_renaming(kernel, renamed, inverse)
+        assert restored == original_authored
+
+    assert {token: case_maps[False][token] for token in common} == {
+        token: case_maps[True][token] for token in common
+    }
+
+
+@pytest.mark.parametrize("variant", [False, True], ids=["baseline", "variant"])
+@pytest.mark.parametrize("mutation", ["omission", "duplicate"])
+def test_full_graph_union_bijection_refuses_omitted_or_duplicate_map_member(
+    priority_full_graphs, priority_full_graph_bijection, variant, mutation
+):
+    _, graphs, _ = priority_full_graphs
+    inventory = graphs[variant][1]
+    renameable = inventory.tokens - inventory.reserved
+    pairs = [pair for pair in priority_full_graph_bijection if pair[0] in renameable]
+    if mutation == "omission":
+        pairs.pop()
+        match = "domain is not the complete inventory"
+    else:
+        pairs[1] = (pairs[1][0], pairs[0][1])
+        match = "duplicate source or target"
+    with pytest.raises(InventoryRefusal, match=match):
+        validate_token_bijection(inventory, pairs)
