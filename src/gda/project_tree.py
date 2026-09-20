@@ -320,10 +320,15 @@ class _SkippedEntries:
     tree: a spelling that vanishes or retargets between the two captures would
     then split one observed inode into two entries.
 
-    The two questions have two names because they are asked on two keys:
-    ``count`` is the settlement's ``skipped``, on the identity, and ``covers``
-    answers on the SPELLING, because that is what the settlement asks: whether
-    the first capture could read THIS path.
+    The two questions are asked on two keys and kept on two records. ``covers``
+    answers on the SPELLING — whether a capture already failed to read THIS
+    path, which is what the settlement asks before it calls a file created —
+    and ``count`` answers on the IDENTITY: how many distinct entries the
+    observations reached. That is why a spelling is identified at EVERY
+    observation and not only at its first: the settlement's walk can reach a
+    different inode through a spelling the first capture already recorded (a
+    link retargeted between the captures), and that inode was observed failing
+    too (external re-review of #990).
     """
 
     def __init__(
@@ -332,33 +337,39 @@ class _SkippedEntries:
         observed: Mapping[str, tuple[int, int] | None] | None = None,
     ) -> None:
         self._project = project
-        self._observed: dict[str, tuple[int, int] | None] = dict(observed or {})
+        # Spelling → the identity it had when observed: the record a capture
+        # keeps, and the key ``covers`` answers on. A walk reaches a spelling
+        # once, so one capture's record holds one observation per spelling.
+        self._observed: dict[str, tuple[int, int] | None] = {}
+        # Every identity any observation reached — an inode pair, or the
+        # spelling where ``stat`` could not answer — which is what ``count`` is
+        # on. It parts ways with the record above when one spelling is observed
+        # twice with two identities.
+        self._identities: set[tuple[int, int] | str] = set()
+        for rel, identity in (observed or {}).items():
+            self._record(rel, identity)
+
+    def _record(self, rel: str, identity: tuple[int, int] | None) -> None:
+        self._observed[rel] = identity
+        self._identities.add(rel if identity is None else identity)
 
     def add(self, rel: str) -> None:
         """Account for one entry neither list can cover, identified now."""
-        if rel in self._observed:
-            return
-        self._observed[rel] = _identity_of(self._project / rel)
+        self._record(rel, _identity_of(self._project / rel))
 
     def covers(self, rel: str) -> bool:
-        """Whether this spelling is already accounted for."""
+        """Whether a capture already failed to read this spelling."""
         return rel in self._observed
 
     @property
     def observed(self) -> dict[str, tuple[int, int] | None]:
-        """Every entry with the identity it had when observed, for a capture to keep."""
+        """Every spelling with the identity it had when observed, for a capture to keep."""
         return dict(self._observed)
 
     @property
     def count(self) -> int:
-        """The settlement's ``skipped``: one per identity, plus the unidentified."""
-        identities = {
-            identity for identity in self._observed.values() if identity is not None
-        }
-        unidentified = sum(
-            1 for identity in self._observed.values() if identity is None
-        )
-        return len(identities) + unidentified
+        """The settlement's ``skipped``: one per identity the observations reached."""
+        return len(self._identities)
 
 
 @dataclass(frozen=True)

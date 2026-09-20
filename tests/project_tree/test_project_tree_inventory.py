@@ -535,3 +535,30 @@ def test_a_spelling_that_vanishes_between_the_captures_does_not_split_one_inode(
         assert inventory.settle().skipped == 1
     finally:
         locked.chmod(0o755)
+
+
+def test_a_spelling_retargeted_to_a_second_unreadable_inode_counts_both(tmp_path):
+    # Rule 4's other half: the identity is taken at EVERY observation, not only
+    # at a spelling's first. Before this pin the helper recorded a spelling once,
+    # so `alias` retargeted after the capture to a second unreadable directory
+    # was never sampled again, and an inode observed failing went uncounted
+    # (external re-review). The second directory is OUTSIDE the project so that
+    # only the retargeted link reaches it.
+    project = minimal_project(tmp_path / "proj")
+    locked = project / "locked"
+    locked.mkdir()
+    (locked / "hidden.txt").write_text("x", encoding="utf-8")
+    other = tmp_path / "other"
+    other.mkdir()
+    alias = project / "alias"
+    alias.symlink_to(locked, target_is_directory=True)
+    try:
+        if not (unlistable(locked) and unlistable(other)):
+            pytest.skip("this platform lists a mode-000 directory")
+        inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
+        alias.unlink()
+        alias.symlink_to(other, target_is_directory=True)
+        assert inventory.settle().skipped == 2
+    finally:
+        locked.chmod(0o755)
+        other.chmod(0o755)
