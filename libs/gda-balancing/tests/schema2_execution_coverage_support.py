@@ -30,7 +30,6 @@ def validate_execution_coverage(
         _json_pointer_segments,
         _call_path_segments,
         _pointer_value,
-        _source_address_links,
         _source_projection,
         _template_inventory,
         _type_links,
@@ -39,6 +38,7 @@ def validate_execution_coverage(
         _experiment_input_judgment_links,
         _resolved_judgment_links,
     )
+    from schema2_source_inventory_reverse_support import source_key_tokens
 
     roots = ("/experiment/", "/artifacts/", "/results/")
     law_exp = "/meta_format/language_definitions/wire_schema_protocol_roles/experiment_input_structure"
@@ -816,11 +816,7 @@ def validate_execution_coverage(
                     law_model,
                 )
         debug, dp = member("artifacts", "debug-map")
-        source_keys = {
-            pointer: tok
-            for tok, pointer, _, location, _, _ in _source_address_links(kernel, graph)
-            if location == "key" and tok.role == "source-field"
-        }
+        source_keys = source_key_tokens(kernel, graph)
         for index, entry in enumerate(debug["entries"]):
             current, target = "/source", f"{dp}/entries/{index}/source_pointer"
             for part_index, part in enumerate(

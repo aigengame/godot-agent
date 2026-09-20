@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 import jsonschema
+import schema2_extension_inventory_support as inventory_support
 
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
@@ -42,6 +43,7 @@ from schema2_extension_renaming_support import (
     _json_pointer_values,
     _rewrite_positions,
 )
+from schema2_source_inventory_reverse_support import validate_source_inventory
 from test_current_namespace_public import _PublicCandidate, _members
 from test_source_wire_owners import _source_schema
 from test_trace_protocol_structure import _authored, _graph, _index
@@ -112,6 +114,42 @@ def _scoped_rename(graph, inventory, names):
             raise AssertionError(occurrence)
     values.update(_json_pointer_values(graph, paths))
     return _rewrite_positions(graph, values, keys)
+
+
+def test_source_reverse_validator_does_not_reuse_reader_address_links(
+    witness, monkeypatch
+):
+    kernel, graph, inventory = witness
+
+    def fail_if_reused(*_args, **_kwargs):
+        raise AssertionError("validator reused the Source inventory reader")
+
+    monkeypatch.setattr(inventory_support, "_source_address_links", fail_if_reused)
+    validate_extension_inventory(kernel, graph, inventory)
+    kernel_without_role_graph = deepcopy(kernel)
+    kernel_without_role_graph["meta_format"]["language_definitions"][
+        "wire_schema_protocol_roles"
+    ]["source_notation"].pop("semantic_roles", None)
+    validate_source_inventory(kernel_without_role_graph, graph, inventory)
+
+
+def test_source_reverse_rejects_an_omitted_symbol_field_class(witness, monkeypatch):
+    kernel, graph, _ = witness
+    original = inventory_support._source_address_links
+
+    def omit_symbol_fields(*args, **kwargs):
+        return (
+            row
+            for row in original(*args, **kwargs)
+            if row[0].owner[-3:] != ("member", "symbols", "items")
+        )
+
+    monkeypatch.setattr(inventory_support, "_source_address_links", omit_symbol_fields)
+    incomplete = read_extension_inventory(kernel, graph)
+    with pytest.raises(
+        InventoryRefusal, match="Source field address coverage is incomplete"
+    ):
+        validate_extension_inventory(kernel, graph, incomplete)
 
 
 def test_model_check_semantic_selectors_do_not_restore_physical_source_paths(witness):
@@ -231,7 +269,7 @@ def test_source_addresses_cannot_be_reserved_or_capture_nominal_payloads(witness
         and o.location == "key"
         and o.pointer.startswith("/vector_sets/")
     )
-    with pytest.raises(InventoryRefusal, match="Operation vector occurrence coverage"):
+    with pytest.raises(InventoryRefusal, match="Source field address coverage"):
         validate_extension_inventory(
             kernel,
             graph,

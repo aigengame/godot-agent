@@ -8063,7 +8063,9 @@ def validate_inventory_occurrences(
     )
     from schema2_model_vector_inventory_support import model_vector_inventory
 
-    model_rows, _, _, _ = model_vector_inventory(kernel, graph)
+    model_rows, _, _, _ = model_vector_inventory(
+        kernel, graph, include_source_fields=False
+    )
     expected_free.update(
         (
             row.token,
@@ -8815,13 +8817,9 @@ def _verify_execution_compound_coverage(
 
     if graph.get("artifacts") is not None:
         debug, pointer = member("artifacts", "debug-map")
-        source_keys = {
-            source_pointer: token
-            for token, source_pointer, _, location, _, _ in _source_address_links(
-                kernel, graph
-            )
-            if location == "key" and token.role == "source-field"
-        }
+        from schema2_source_inventory_reverse_support import source_key_tokens
+
+        source_keys = source_key_tokens(kernel, graph)
         model_law = "/meta_format/language_definitions/wire_schema_protocol_roles/model_structure"
         for index, entry in enumerate(debug["entries"]):
             current = "/source"
@@ -8976,6 +8974,9 @@ def validate_extension_inventory(
     _verify_execution_artifact_graph(kernel, graph)
     source_projection = _source_projection(kernel, graph)
     validate_inventory_occurrences(kernel, graph, inventory)
+    from schema2_source_inventory_reverse_support import validate_source_inventory
+
+    validate_source_inventory(kernel, graph, inventory)
     _verify_execution_compound_coverage(kernel, graph, inventory)
     # The execution projection verifier consumes external positions as seeds;
     # the remaining reverse checks below still validate those seeds before
@@ -9147,11 +9148,12 @@ def validate_extension_inventory(
     from schema2_model_vector_inventory_support import model_vector_inventory
 
     model_expected, model_roots, _, model_reserved = model_vector_inventory(
-        kernel, graph
+        kernel, graph, include_source_fields=False
     )
     model_actual = {
         row
         for row in inventory.occurrences
+        if row.token.role != "source-field"
         if any(
             row.pointer.startswith(root + "/") and row.pointer != root + "/id"
             for root in model_roots
@@ -9230,6 +9232,7 @@ def validate_extension_inventory(
         )
     if any(
         row[3] == "json-pointer"
+        and row[0].role != "source-field"
         and row not in vector_expected
         and row
         not in {
@@ -9248,63 +9251,6 @@ def validate_extension_inventory(
         for row in vector_actual
     ):
         raise InventoryRefusal("value vector occurrence has the wrong role or owner")
-    address_expected = {
-        (token, pointer, use, location, projection)
-        for token, pointer, use, location, projection, _ in _source_address_links(
-            kernel, graph
-        )
-    }
-    address_actual = {
-        (o.token, o.pointer, o.use, o.location, o.projection)
-        for o in inventory.occurrences
-    }
-    if not address_expected <= address_actual:
-        raise InventoryRefusal(
-            "Source field address coverage is incomplete or misowned"
-        )
-    profile_roots = {
-        pointer
-        for _, _, pointer in _authority_path_rows(
-            kernel, graph, "language_bundle.language.resolution_profiles"
-        )
-    }
-    profile_expected = {
-        row
-        for row in address_expected
-        if any(
-            row[1] == root or row[1].startswith(root + "/") for root in profile_roots
-        )
-    }
-    profile_actual = {
-        row
-        for row in address_actual
-        if row[0].role == "source-field"
-        and any(
-            row[1] == root or row[1].startswith(root + "/") for root in profile_roots
-        )
-    }
-    if profile_actual != profile_expected:
-        raise InventoryRefusal(
-            "Source field address occurrence is extra, incomplete, or misowned"
-        )
-    source_fields = {row[0] for row in address_expected}
-    if inventory.reserved & source_fields:
-        raise InventoryRefusal("Source annotated field ownership is misclassified")
-    address_positions = {row[1:] for row in address_expected}
-    if any(
-        row[1:] in address_positions and row not in address_expected
-        for row in address_actual
-    ):
-        raise InventoryRefusal("Source field address occurrence has a wrong owner")
-    if any(
-        row[3] == "member-path"
-        and row not in address_expected
-        and not row[1].startswith(("/artifacts/", "/results/"))
-        for row in address_actual
-    ):
-        raise InventoryRefusal(
-            "member-path occurrence has no declared address projection"
-        )
     source_format_role = _source_format_role(kernel, graph)
     _verify_formula_coverage(kernel, graph, inventory)
     rule_required = set()

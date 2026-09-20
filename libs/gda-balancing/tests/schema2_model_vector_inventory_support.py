@@ -108,7 +108,12 @@ class _SourceRoles(_Reader):
         super().formula_body(body, pointer, *args, **kwargs)
 
 
-def model_vector_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+def model_vector_inventory(
+    kernel: Mapping[str, Any],
+    graph: Mapping[str, Any],
+    *,
+    include_source_fields: bool = True,
+):
     base = _base_reader(kernel, graph)
     parsed = _formula_projections(kernel, graph)
     ldb = {**graph["ldb_root"], **_attached_language(kernel, graph)}
@@ -183,13 +188,21 @@ def model_vector_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
                 raise InventoryRefusal(
                     "Model Source has an unclassified interpreted role"
                 )
-            for token, pointer, use, location, projection, law in _source_address_links(
-                kernel, visitor.graph
-            ):
-                if pointer.startswith("/source/"):
-                    visitor.occurrences.add(
-                        TokenOccurrence(token, pointer, use, law, location, projection)
-                    )
+            if include_source_fields:
+                for (
+                    token,
+                    pointer,
+                    use,
+                    location,
+                    projection,
+                    law,
+                ) in _source_address_links(kernel, visitor.graph):
+                    if pointer.startswith("/source/"):
+                        visitor.occurrences.add(
+                            TokenOccurrence(
+                                token, pointer, use, law, location, projection
+                            )
+                        )
             declared = (
                 base.tokens
                 | base.reserved
@@ -241,7 +254,7 @@ def model_vector_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
                 emit(token, pointer, use, row.location, row.projection)
                 if row.token in visitor.reserved:
                     reserved.add(token)
-            if collection_pointer:
+            if collection_pointer and include_source_fields:
                 # The generator selects actual Source fields; generated indices
                 # and the overwritten template name are recipe data.
                 keys = {
