@@ -513,3 +513,25 @@ def test_a_deleted_file_is_reported_nowhere(tmp_path):
     assert settled.created == []
     assert settled.modified == []
     assert settled.skipped == 0
+
+
+def test_a_spelling_that_vanishes_between_the_captures_does_not_split_one_inode(
+    tmp_path,
+):
+    # The identity is taken WHEN the failure is observed (rule 4). Before this
+    # pin the settlement re-stat'ed the first capture's spellings, so `alias`
+    # removed after the capture became an unidentified spelling beside `locked`'s
+    # inode: one observed inode counted twice.
+    project = minimal_project(tmp_path / "proj")
+    locked = project / "locked"
+    locked.mkdir()
+    (locked / "hidden.txt").write_text("x", encoding="utf-8")
+    (project / "alias").symlink_to(locked, target_is_directory=True)
+    if not unlistable(locked):
+        pytest.skip("this platform lists a mode-000 directory")
+    try:
+        inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
+        (project / "alias").unlink()
+        assert inventory.settle().skipped == 1
+    finally:
+        locked.chmod(0o755)

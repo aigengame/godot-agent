@@ -66,16 +66,19 @@ export report; they now decide both commands' answer.
    symlink, or a directory that cannot be listed — whose whole subtree is then
    outside both lists. ``os.walk`` swallows a listing error by default, which
    would drop that subtree from the record AND from the one channel that says the
-   record is incomplete. The identity is rule 1's ``(st_dev, st_ino)`` pair, and
-   the SETTLEMENT asks for it because the walk cannot: ``os.walk`` reports a
-   listing error INSTEAD of yielding the directory, and a per-file failure never
-   reaches rule 1 at all, so two names for ONE unreadable inode were counted
-   twice (#990). A ``stat`` of the failing path names that inode, so any
-   unreadable inode a second name reaches — a mode-000 directory (its PARENT is
-   listable), a FIFO, an unreadable file — is one entry. Where ``stat`` cannot
-   answer, a dangling link or an entry that vanished, the project-relative
-   spelling is the identity, since there is no inode to ask for. The count is a
-   disclosure that the record is incomplete, not a measure of how much.
+   record is incomplete. The identity is rule 1's ``(st_dev, st_ino)`` pair,
+   taken by a ``stat`` of the failing path at the moment the failure is
+   observed, in whichever capture observes it. The walk cannot supply it
+   (``os.walk`` reports a listing error INSTEAD of yielding the directory, and a
+   per-file failure never reaches rule 1 at all), so two names for ONE
+   unreadable inode were counted twice (#990); and asking later would ask a
+   different tree, since a spelling can vanish or retarget between the two
+   captures. Any unreadable inode a second name reaches — a mode-000 directory
+   (its PARENT is listable), a FIFO, an unreadable file — is one entry. Where
+   ``stat`` cannot answer at that moment, a dangling link or an entry that
+   vanished, the project-relative spelling is the identity, since there is no
+   inode to ask for. The count is a disclosure that the record is incomplete,
+   not a measure of how much.
 5. **A top-level ``.git`` is excluded.** The engine never writes there, and
    hashing an object database would dominate the cost of a report about the
    project's own files. The exclusion is on whole path components, so
@@ -99,7 +102,7 @@ export report; they now decide both commands' answer.
 
 import hashlib
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from stat import S_ISREG
@@ -293,18 +296,29 @@ def _walk_project_files(
                 yield rel, base / name
 
 
+def _identity_of(path: Path) -> tuple[int, int] | None:
+    """Rule 1's ``(st_dev, st_ino)`` pair, or ``None`` where ``stat`` cannot answer."""
+    try:
+        status = path.stat()
+    except OSError:
+        return None
+    return (status.st_dev, status.st_ino)
+
+
 class _SkippedEntries:
     """The settlement's ``skipped``, with one filesystem identity counted once.
 
     Entries arrive as project-relative spellings, because that is what the walk
-    and the first capture hold. The COUNT is on rule 4's identity instead: a
-    ``stat`` of the failing path names the ``(st_dev, st_ino)`` pair rule 1
-    identifies a directory by, so a mode-000 directory reached both directly and
-    through a directory link is one entry rather than two — and so is any other
-    unreadable inode two names reach, a FIFO or an unreadable file among them
-    (#990). A path ``stat`` cannot answer for — a dangling link, an entry that
-    vanished — is counted under its spelling, since it has no inode to be counted
-    under.
+    holds, and each is identified WHEN its failure is observed — in the first
+    capture or in the settlement's own walk — by a ``stat`` of the failing path,
+    rule 4's ``(st_dev, st_ino)`` pair: a mode-000 directory reached both
+    directly and through a directory link is one entry rather than two, and so
+    is any other unreadable inode two names reach, a FIFO or an unreadable file
+    among them (#990). A path ``stat`` cannot answer for at that moment — a
+    dangling link, an entry that vanished — is counted under its spelling, since
+    it has no inode to be counted under. Identifying later would ask a different
+    tree: a spelling that vanishes or retargets between the two captures would
+    then split one observed inode into two entries.
 
     The two questions have two names because they are asked on two keys:
     ``count`` is the settlement's ``skipped``, on the identity, and ``covers``
@@ -312,32 +326,39 @@ class _SkippedEntries:
     the first capture could read THIS path.
     """
 
-    def __init__(self, project: Path) -> None:
+    def __init__(
+        self,
+        project: Path,
+        observed: Mapping[str, tuple[int, int] | None] | None = None,
+    ) -> None:
         self._project = project
-        self._spellings: set[str] = set()
-        self._identities: set[tuple[int, int]] = set()
-        self._unidentified: set[str] = set()
+        self._observed: dict[str, tuple[int, int] | None] = dict(observed or {})
 
     def add(self, rel: str) -> None:
-        """Account for one entry neither list can cover."""
-        if rel in self._spellings:
+        """Account for one entry neither list can cover, identified now."""
+        if rel in self._observed:
             return
-        self._spellings.add(rel)
-        try:
-            status = (self._project / rel).stat()
-        except OSError:
-            self._unidentified.add(rel)
-            return
-        self._identities.add((status.st_dev, status.st_ino))
+        self._observed[rel] = _identity_of(self._project / rel)
 
     def covers(self, rel: str) -> bool:
         """Whether this spelling is already accounted for."""
-        return rel in self._spellings
+        return rel in self._observed
+
+    @property
+    def observed(self) -> dict[str, tuple[int, int] | None]:
+        """Every entry with the identity it had when observed, for a capture to keep."""
+        return dict(self._observed)
 
     @property
     def count(self) -> int:
         """The settlement's ``skipped``: one per identity, plus the unidentified."""
-        return len(self._identities) + len(self._unidentified)
+        identities = {
+            identity for identity in self._observed.values() if identity is not None
+        }
+        unidentified = sum(
+            1 for identity in self._observed.values() if identity is None
+        )
+        return len(identities) + unidentified
 
 
 @dataclass(frozen=True)
@@ -354,7 +375,12 @@ class ProjectTreeInventory:
     project: Path
     artifact: Path | None
     files: dict[str, FileFacts]
-    unreadable: frozenset[str]
+    # The entries the first capture could not read, each with the filesystem
+    # identity it had when the failure was observed (``None`` where ``stat``
+    # could not answer): the settlement counts on that identity, so a spelling
+    # that vanishes or retargets before the settlement does not split one
+    # observed inode in two.
+    unreadable: dict[str, tuple[int, int] | None]
     # The directories the first capture could not list, kept apart from the rest
     # because they are PREFIXES: the settlement must pass over everything beneath
     # one. A file under such a directory existed before the run, so reporting it
@@ -378,10 +404,15 @@ class ProjectTreeInventory:
     ) -> "ProjectTreeInventory":
         """Record the tree as it stands before the engine runs (#839)."""
         files: dict[str, FileFacts] = {}
-        unreadable: set[str] = set()
+        skipped = _SkippedEntries(project)
         unlistable: set[str] = set()
+
+        def unlistable_dir(rel: str) -> None:
+            unlistable.add(rel)
+            skipped.add(rel)
+
         for rel, path in _walk_project_files(
-            project, artifact=artifact, on_unreadable_dir=unlistable.add
+            project, artifact=artifact, on_unreadable_dir=unlistable_dir
         ):
             # The shared classifier decides what to hash, asked of a file that
             # already exists: `cache_owned` is "under the cache root", the one
@@ -393,14 +424,14 @@ class ProjectTreeInventory:
                 digest=detect_rewrites and classify_created_file(rel) != "cache_owned",
             )
             if facts is None:
-                unreadable.add(rel)
+                skipped.add(rel)
             else:
                 files[rel] = facts
         return cls(
             project=project,
             artifact=artifact,
             files=files,
-            unreadable=frozenset(unreadable | unlistable),
+            unreadable=skipped.observed,
             unlistable_dirs=tuple(sorted(unlistable)),
             detect_rewrites=detect_rewrites,
         )
@@ -429,9 +460,7 @@ class ProjectTreeInventory:
         """
         created: list[CreatedFile] = []
         modified: list[RewrittenFile] = []
-        skipped = _SkippedEntries(self.project)
-        for rel in self.unreadable:
-            skipped.add(rel)
+        skipped = _SkippedEntries(self.project, self.unreadable)
         for rel, path in _walk_project_files(
             self.project, artifact=self.artifact, on_unreadable_dir=skipped.add
         ):
