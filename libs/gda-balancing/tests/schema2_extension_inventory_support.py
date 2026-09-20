@@ -33,11 +33,8 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_project_runtime_outputs,
     _consumer_b_project_rir_schema,
     _consumer_b_project_replay_schema,
-    _consumer_b_source_equality_values,
-    _consumer_b_source_equality_items,
     _consumer_b_project_source,
     _consumer_b_project_source_role,
-    _consumer_b_source_role_member_paths,
     _consumer_b_source_roles_are_closed,
     _consumer_b_project_trace_schema,
     _consumer_b_project_runtime_evidence_schemas,
@@ -539,39 +536,9 @@ def _declared_metadata_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]
                     )
     for ei, equality in enumerate(arguments["equalities"]):
         target = equality["left"]
-        if "right" in equality:
-            selected = _authority_path_rows(kernel, graph, equality["right"])
-        else:
-            items = _consumer_b_source_equality_items(
-                {
-                    "kernel": dict(kernel),
-                    "language_bundle": _attached_language(kernel, graph),
-                },
-                equality,
-            )
-            if items is None:
-                raise InventoryRefusal(
-                    "Source equality has no resolved semantic address"
-                )
-            schemas = list(
-                _authority_path_rows(
-                    kernel, graph, "language_bundle.language.wire_schemas"
-                )
-            )
-            selected = []
-            for path, value in items:
-                if path[:3] != (
-                    "language_bundle",
-                    "language",
-                    "wire_schemas",
-                ) or not isinstance(path[3], int):
-                    raise InventoryRefusal(
-                        "Source equality does not address its Schema owner"
-                    )
-                owner, _, pointer = schemas[path[3]]
-                for segment in path[4:]:
-                    pointer = _child(pointer, segment)
-                selected.append((owner, value, pointer))
+        if "right" not in equality:
+            raise InventoryRefusal("metadata equality has no authored right")
+        selected = _authority_path_rows(kernel, graph, equality["right"])
         for owner, name, pointer in selected:
             yield (
                 owner,
@@ -930,45 +897,183 @@ def _evidence_claim_links(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
                 )
 
 
+@dataclass(frozen=True)
+class _SourceNativeInventory:
+    roles: Mapping[str, str]
+    members: Mapping[str, str]
+    member_paths: Mapping[tuple[str, str], frozenset[tuple[str, ...]]]
+    member_schemas: Mapping[
+        tuple[str, str], tuple[tuple[Mapping[str, Any], tuple[str, ...]], ...]
+    ]
+
+
+def _source_native_inventory(
+    kernel: Mapping[str, Any],
+    graph: Mapping[str, Any],
+    profile: Mapping[str, Any] | None = None,
+) -> _SourceNativeInventory:
+    """Independently join Source Schema annotations to compiler ABI bindings."""
+    source = _protocol_schema(kernel, graph, "model-source-package")["schema"]
+    annotation_contract = kernel["meta_format"]["language_definitions"][
+        "wire_schema_protocol_roles"
+    ]["source_notation"]["semantic_annotations"]
+    annotation_keys = annotation_contract.get("keys")
+    if not isinstance(annotation_keys, Mapping):
+        raise InventoryRefusal("Source annotation keys are unavailable")
+    role_key = annotation_keys.get("role")
+    member_key = annotation_keys.get("member")
+    if not isinstance(role_key, str) or not isinstance(member_key, str):
+        raise InventoryRefusal("Source annotation keys are malformed")
+
+    annotated_roles: set[str] = set()
+    member_paths: dict[tuple[str, str], set[tuple[str, ...]]] = {}
+    member_schemas: dict[
+        tuple[str, str], list[tuple[Mapping[str, Any], tuple[str, ...]]]
+    ] = {}
+
+    def same_role_schemas(value: Any):
+        if not isinstance(value, Mapping):
+            return
+        yield value
+        for applicator in ("oneOf", "anyOf", "allOf"):
+            branches = value.get(applicator, [])
+            if not isinstance(branches, Sequence) or isinstance(branches, (str, bytes)):
+                continue
+            for branch in branches:
+                if isinstance(branch, Mapping) and role_key not in branch:
+                    yield from same_role_schemas(branch)
+
+    def visit(value: Any, path: tuple[str, ...]) -> None:
+        if not isinstance(value, Mapping):
+            return
+        role = value.get(role_key)
+        if isinstance(role, str) and role:
+            annotated_roles.add(role)
+            for role_schema in same_role_schemas(value):
+                properties = role_schema.get("properties")
+                if not isinstance(properties, Mapping):
+                    continue
+                for authored, child in properties.items():
+                    if not isinstance(authored, str) or not isinstance(child, Mapping):
+                        continue
+                    member = child.get(member_key)
+                    if not isinstance(member, str) or not member:
+                        continue
+                    pair = (role, member)
+                    authored_path = (*path, authored)
+                    member_paths.setdefault(pair, set()).add(authored_path)
+                    member_schemas.setdefault(pair, []).append((child, authored_path))
+        properties = value.get("properties")
+        if isinstance(properties, Mapping):
+            for authored, child in properties.items():
+                if isinstance(authored, str):
+                    visit(child, (*path, authored))
+        if "items" in value:
+            visit(value["items"], path)
+        for applicator in ("oneOf", "anyOf", "allOf"):
+            branches = value.get(applicator, [])
+            if isinstance(branches, Sequence) and not isinstance(
+                branches, (str, bytes)
+            ):
+                for branch in branches:
+                    visit(branch, path)
+
+    visit(source, ())
+    selected_profile = profile or _source_profile(kernel, graph)
+    bindings = selected_profile.get("source_native_bindings")
+    if not isinstance(bindings, Sequence) or isinstance(bindings, (str, bytes)):
+        raise InventoryRefusal("Source native bindings are unavailable")
+    rows: dict[str, Mapping[str, Any]] = {}
+    for row in bindings:
+        if (
+            not isinstance(row, Mapping)
+            or not isinstance(row.get("slot"), str)
+            or not row["slot"]
+            or row["slot"] in rows
+        ):
+            raise InventoryRefusal("Source native binding slot is malformed")
+        rows[row["slot"]] = row
+    roles = {
+        slot: row["role"]
+        for slot, row in rows.items()
+        if row.get("kind") == "role" and isinstance(row.get("role"), str)
+    }
+    if set(roles.values()) != annotated_roles or len(roles) != len(annotated_roles):
+        raise InventoryRefusal("Source native role bindings do not close")
+    members: dict[str, str] = {}
+    bound_pairs: set[tuple[str, str]] = set()
+    for slot, row in rows.items():
+        if row.get("kind") != "member":
+            continue
+        owner_slot = row.get("owner_slot")
+        member = row.get("member")
+        if not isinstance(owner_slot, str) or not isinstance(member, str):
+            raise InventoryRefusal("Source native member binding is malformed")
+        role = roles.get(owner_slot)
+        if role is None or (role, member) in bound_pairs:
+            raise InventoryRefusal("Source native member binding is ambiguous")
+        members[slot] = member
+        bound_pairs.add((role, member))
+    if bound_pairs != set(member_paths):
+        raise InventoryRefusal("Source native member bindings do not close")
+    root_role = roles.get("source.root")
+    if root_role is None or source.get(role_key) != root_role:
+        raise InventoryRefusal("Source root native binding does not close")
+    return _SourceNativeInventory(
+        roles=roles,
+        members=members,
+        member_paths={key: frozenset(value) for key, value in member_paths.items()},
+        member_schemas={key: tuple(value) for key, value in member_schemas.items()},
+    )
+
+
 def _source_format_role(kernel: Mapping[str, Any], graph: Mapping[str, Any]) -> str:
     """Keep Source protocol format parameters distinct from nominal identities."""
-    role = "language.model_source_schema_versions"
-    left = "language_bundle." + role
-    law = next(
-        row
-        for row in kernel["admission"]["laws"]
-        if row["id"] == "kernel.vectors.closed"
-    )
-    equalities = [
-        row for row in law["arguments"]["equalities"] if row.get("left") == left
-    ]
-    if len(equalities) != 1:
-        raise InventoryRefusal("Source format parameter has no unique wire equality")
-    selected = _consumer_b_source_equality_values(
-        {"kernel": dict(kernel), "language_bundle": _attached_language(kernel, graph)},
-        equalities[0],
-    )
-    if selected is None:
-        raise InventoryRefusal("Source format parameter has no resolved wire equality")
-    actual = {value for _, value, _ in _authority_path_rows(kernel, graph, left)}
-    source = _protocol_schema(kernel, graph, "model-source-package")
-    version_fields = [
-        child
-        for child in source["schema"]["properties"].values()
-        if child.get("semantic_member") == "schema_version"
-    ]
-    if len(version_fields) != 1:
+    language = _attached_language(kernel, graph)
+    if not _consumer_b_source_roles_are_closed(language, kernel["meta_format"]):
+        raise InventoryRefusal("Source semantic roles do not close")
+    source = _protocol_schema(kernel, graph, "model-source-package")["schema"]
+    native = _source_native_inventory(kernel, graph)
+    role = native.roles.get("source.root")
+    member = native.members.get("source.root.schema_version")
+    if role is None or member is None:
+        raise InventoryRefusal("Source format parameter has no native binding")
+    fields = native.member_schemas.get((role, member), ())
+    if len(fields) != 1 or len(fields[0][1]) != 1:
         raise InventoryRefusal("Source format role is ambiguous")
-    expected = {version_fields[0]["const"]}
-    if set(selected) != expected:
-        raise InventoryRefusal(
-            "Source format equality does not select its actual field"
+    field, _ = fields[0]
+    annotation_keys = kernel["meta_format"]["language_definitions"][
+        "wire_schema_protocol_roles"
+    ]["source_notation"]["semantic_annotations"]["keys"]
+    native_key = annotation_keys["native_contract"]
+    contract = field.get(native_key)
+    reference = (
+        contract.get("language_reference") if isinstance(contract, Mapping) else None
+    )
+    location = contract.get("value_location") if isinstance(contract, Mapping) else None
+    keyword = location.get("keyword") if isinstance(location, Mapping) else None
+    if (
+        not isinstance(reference, str)
+        or not reference.startswith("language.")
+        or keyword not in {"const", "enum"}
+        or keyword not in field
+    ):
+        raise InventoryRefusal("Source format parameter has no native Schema owner")
+    selected = field[keyword]
+    expected = set(selected) if keyword == "enum" else {selected}
+    actual = {
+        value
+        for _, value, _ in _authority_path_rows(
+            kernel, graph, "language_bundle." + reference
         )
+    }
     if actual != expected:
         raise InventoryRefusal(
             "Source format parameter does not match its wire contract"
         )
-    return role
+    if source.get(annotation_keys["role"]) != role:
+        raise InventoryRefusal("Source format parameter has no root Schema owner")
+    return reference
 
 
 def _protocol_schema(
@@ -1273,6 +1378,7 @@ def _source_address_links(
     for _, profile, _ in _authority_path_rows(
         kernel, graph, "language_bundle.language.resolution_profiles"
     ):
+        native = _source_native_inventory(kernel, graph, profile)
         addresses: dict[tuple[str | int, ...], tuple[str | int, ...]] = {}
         if not _consumer_b_relation_paths_are_typed(
             profile,
@@ -1286,39 +1392,31 @@ def _source_address_links(
             yield from schema_links(address, law)
         # Membership and contextual anchors are independently checked by B. The
         # annotation query supplies actual paths, not a second selector grammar.
-        roles = kernel["meta_format"]["language_definitions"][
-            "wire_schema_protocol_roles"
-        ]["source_notation"]["semantic_roles"]["roles"]
         annotated_addresses = set()
-        for role, contract in roles.items():
-            for member in contract["members"]:
-                for members in _consumer_b_source_role_member_paths(
-                    source["schema"], role, member
-                ):
-                    candidates = {()}
-                    for part in members:
-                        following = set()
-                        for address in candidates:
-                            current = address_schemas(address)
-                            for schema, _ in current:
-                                if part in schema.get("properties", {}):
-                                    following.add((*address, "properties", part))
-                                if isinstance(schema.get("items"), dict):
-                                    if any(
-                                        part in item.get("properties", {})
-                                        for item, _ in address_schemas(
-                                            (*address, "items")
-                                        )
-                                    ):
-                                        following.add(
-                                            (*address, "items", "properties", part)
-                                        )
-                        candidates = following
-                    if not candidates:
-                        raise InventoryRefusal(
-                            "Source semantic member has no Schema address"
-                        )
-                    annotated_addresses.update(candidates)
+        for member_paths in native.member_paths.values():
+            for members in member_paths:
+                candidates = {()}
+                for part in members:
+                    following = set()
+                    for address in candidates:
+                        current = address_schemas(address)
+                        for schema, _ in current:
+                            if part in schema.get("properties", {}):
+                                following.add((*address, "properties", part))
+                            if isinstance(schema.get("items"), dict):
+                                if any(
+                                    part in item.get("properties", {})
+                                    for item, _ in address_schemas((*address, "items"))
+                                ):
+                                    following.add(
+                                        (*address, "items", "properties", part)
+                                    )
+                    candidates = following
+                if not candidates:
+                    raise InventoryRefusal(
+                        "Source semantic member has no Schema address"
+                    )
+                annotated_addresses.update(candidates)
         for address in annotated_addresses:
             yield from schema_links(address, transport_law)
 
@@ -3744,13 +3842,18 @@ def _template_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
     ]
     if len(initial_fields) != len(initial_kinds):
         raise InventoryRefusal("Template Source Fact result kinds do not close")
+    source_native = _source_native_inventory(kernel, graph, source_profile)
 
     def origin(result):
         kind = result["origin"]
         if kind == "selected-resolution-requirements":
-            paths = _consumer_b_source_role_member_paths(
-                source_schema["schema"], "source", "package_requirements"
-            )
+            root_role = source_native.roles.get("source.root")
+            requirements = source_native.members.get("source.root.package_requirements")
+            if root_role is None or requirements is None:
+                raise InventoryRefusal(
+                    "Template requirements have no Source native binding"
+                )
+            paths = source_native.member_paths.get((root_role, requirements), ())
             if len(paths) != 1 or len(next(iter(paths))) != 1:
                 raise InventoryRefusal(
                     "Template requirements have no Source role address"
@@ -9145,6 +9248,15 @@ def validate_extension_inventory(
         raise InventoryRefusal(
             "Replay observation reference coverage is incomplete or misowned"
         )
+    address_expected = {
+        (token, pointer, use, location, projection)
+        for token, pointer, use, location, projection, _ in _source_address_links(
+            kernel, graph
+        )
+    }
+    source_fields = {row[0] for row in address_expected}
+    if inventory.reserved & source_fields:
+        raise InventoryRefusal("Source annotated field ownership is misclassified")
     from schema2_model_vector_inventory_support import model_vector_inventory
 
     model_expected, model_roots, _, model_reserved = model_vector_inventory(
@@ -9251,6 +9363,54 @@ def validate_extension_inventory(
         for row in vector_actual
     ):
         raise InventoryRefusal("value vector occurrence has the wrong role or owner")
+    address_actual = {
+        (o.token, o.pointer, o.use, o.location, o.projection)
+        for o in inventory.occurrences
+    }
+    if not address_expected <= address_actual:
+        raise InventoryRefusal(
+            "Source field address coverage is incomplete or misowned"
+        )
+    profile_roots = {
+        pointer
+        for _, _, pointer in _authority_path_rows(
+            kernel, graph, "language_bundle.language.resolution_profiles"
+        )
+    }
+    profile_expected = {
+        row
+        for row in address_expected
+        if any(
+            row[1] == root or row[1].startswith(root + "/") for root in profile_roots
+        )
+    }
+    profile_actual = {
+        row
+        for row in address_actual
+        if row[0].role == "source-field"
+        and any(
+            row[1] == root or row[1].startswith(root + "/") for root in profile_roots
+        )
+    }
+    if profile_actual != profile_expected:
+        raise InventoryRefusal(
+            "Source field address occurrence is extra, incomplete, or misowned"
+        )
+    address_positions = {row[1:] for row in address_expected}
+    if any(
+        row[1:] in address_positions and row not in address_expected
+        for row in address_actual
+    ):
+        raise InventoryRefusal("Source field address occurrence has a wrong owner")
+    if any(
+        row[3] == "member-path"
+        and row not in address_expected
+        and not row[1].startswith(("/artifacts/", "/results/"))
+        for row in address_actual
+    ):
+        raise InventoryRefusal(
+            "member-path occurrence has no declared address projection"
+        )
     source_format_role = _source_format_role(kernel, graph)
     _verify_formula_coverage(kernel, graph, inventory)
     rule_required = set()
