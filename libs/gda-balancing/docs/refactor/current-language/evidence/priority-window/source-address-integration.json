@@ -1,0 +1,188 @@
+{
+  "scope": "Bounded Source field routing and rename-authoring integration; not complete Extension Invariance.",
+  "product_commit": "b2df9a1bf",
+  "worker_commit": "a62ee93caabf8a4ba72ee574a6a2d2a1ff17e053",
+  "source_field_inventory_commit": "1e7c50c7e",
+  "negative_lookup_inventory_commit": "8489044cd",
+  "kernel": "sha256:9dc4e8991b70970d32d1012a7545dee57ef7ac2f4966721694255f39d6ff3c2c",
+  "authority_changes": false,
+  "adjudication": {
+    "supplied_partial_probe": "Reproduced public unresolved fold operand; retained authored lowering/check source selectors still addressed modules. Not classified as a host profile-selection defect.",
+    "coherent_control": "Renamed Source schema, root source key, modules_member, three relation root paths, actual lowering source_selector and Model-check root selectors. Existing fold executes without production repair.",
+    "verified_production_residue": [
+      "Formula conversion result schema still selected Source properties.modules",
+      "Source Formula pair admission skipped renamed root and malformed expression reached internal failure",
+      "Formula debug and refusal pointers incorrectly reported /modules instead of the authored collection address"
+    ],
+    "unrelated_initial_probe_limit": "RPG-stat full reference compiler refused its current inline-sugar Source even under original address; this was not changed or counted as this repair. Final proof uses supported maintained RPG combat."
+  },
+  "worker_verification": {
+    "public_cases": 15,
+    "public_failures": 0,
+    "public_skips": 0,
+    "addresses": [
+      "modules",
+      "opaque_modules",
+      "opaque/modules~"
+    ],
+    "compiler": "For both bounded-fold and RPG combat, independently compiled four semantic members equal actual public build output under each address.",
+    "runtime": "Bounded fold has independent six-member Runtime mutual consumption. RPG combat uses actual public Runtime and fixed six metric expectations, retaining RNG outcomes; no independent RPG whole-Runtime claim.",
+    "cross_address_comparison": [
+      {
+        "example": "bounded-fold",
+        "candidate_index": 1,
+        "rir_complete_equal": true,
+        "rir_semantic_equal": true,
+        "published_member_bytes_equal": {
+          "evaluation-run": true,
+          "event-trace": true,
+          "snapshot-series": true,
+          "metric-dataset": true,
+          "resolved-runtime-profile": true,
+          "evaluator-capability-manifest": true
+        },
+        "rir_saved_bytes_equal": true,
+        "member_sha256": {
+          "evaluation-run": "56bae57f4a9f00b880373035e0a004cbb9c88001b87f9d3b3650a1febc4a7e2d",
+          "event-trace": "bb4ac8990ae2d24669fdc8a46fd3c56db55a23d191cecaadbe75d81e2d5667bc",
+          "snapshot-series": "091abd673d8e7cbc7570764434d0ba955d9420f4d8b53f7d371e44aed1a10683",
+          "metric-dataset": "a292ab55dcd784e905e48de033bc1dd89a601b75ec7f981d8d38c88edf534dc3",
+          "resolved-runtime-profile": "e5f9e6fd6e98fff2483fe615561046a7c19f81bae38b5b6ecff0d1141691e77d",
+          "evaluator-capability-manifest": "66b4021a3adb62c9dad9eded895bf1e19cbeeed015a1f32533390fac63608a85"
+        },
+        "control_raw": "/private/tmp/gda-878-source-modules-evidence/final-public/source-modules0/cli-results.json",
+        "candidate_raw": "/private/tmp/gda-878-source-modules-evidence/final-public/source-modules1/cli-results.json"
+      },
+      {
+        "example": "bounded-fold",
+        "candidate_index": 2,
+        "rir_complete_equal": true,
+        "rir_semantic_equal": true,
+        "published_member_bytes_equal": {
+          "evaluation-run": true,
+          "event-trace": true,
+          "snapshot-series": true,
+          "metric-dataset": true,
+          "resolved-runtime-profile": true,
+          "evaluator-capability-manifest": true
+        },
+        "rir_saved_bytes_equal": true,
+        "member_sha256": {
+          "evaluation-run": "56bae57f4a9f00b880373035e0a004cbb9c88001b87f9d3b3650a1febc4a7e2d",
+          "event-trace": "bb4ac8990ae2d24669fdc8a46fd3c56db55a23d191cecaadbe75d81e2d5667bc",
+          "snapshot-series": "091abd673d8e7cbc7570764434d0ba955d9420f4d8b53f7d371e44aed1a10683",
+          "metric-dataset": "a292ab55dcd784e905e48de033bc1dd89a601b75ec7f981d8d38c88edf534dc3",
+          "resolved-runtime-profile": "e5f9e6fd6e98fff2483fe615561046a7c19f81bae38b5b6ecff0d1141691e77d",
+          "evaluator-capability-manifest": "66b4021a3adb62c9dad9eded895bf1e19cbeeed015a1f32533390fac63608a85"
+        },
+        "control_raw": "/private/tmp/gda-878-source-modules-evidence/final-public/source-modules0/cli-results.json",
+        "candidate_raw": "/private/tmp/gda-878-source-modules-evidence/final-public/source-modules2/cli-results.json"
+      },
+      {
+        "example": "rpg-combat-cast",
+        "candidate_index": 1,
+        "rir_complete_equal": true,
+        "rir_semantic_equal": true,
+        "published_member_bytes_equal": {
+          "evaluation-run": true,
+          "event-trace": true,
+          "snapshot-series": true,
+          "metric-dataset": true,
+          "resolved-runtime-profile": true,
+          "evaluator-capability-manifest": true
+        },
+        "rir_saved_bytes_equal": true,
+        "member_sha256": {
+          "evaluation-run": "0b7fbb9aadd6a86603d9b2dc0d2796c79c0e3915f651e461e8f7bf9b760ec518",
+          "event-trace": "a5709c60ce8279709115bd94337d6553c651ae6e11abf4086ed71c1c74616a3f",
+          "snapshot-series": "d9ac5df991ce8a9db1e3c720586578f48843f085fe563363eb20c505a548740a",
+          "metric-dataset": "8bf7666920c2fd1df00ad6d51412597df6bf2e923c5aa80d46236d113e431664",
+          "resolved-runtime-profile": "900d1359a566233117c597e7e9117f08c8a4513c655f4bcf60874dab6d639377",
+          "evaluator-capability-manifest": "2fe0426a612981fc70a86e268095d80a410f0e341c393d180d6f63f676893db2"
+        },
+        "control_raw": "/private/tmp/gda-878-source-modules-evidence/final-public/source-modules0/cli-results.json",
+        "candidate_raw": "/private/tmp/gda-878-source-modules-evidence/final-public/source-modules1/cli-results.json"
+      },
+      {
+        "example": "rpg-combat-cast",
+        "candidate_index": 2,
+        "rir_complete_equal": true,
+        "rir_semantic_equal": true,
+        "published_member_bytes_equal": {
+          "evaluation-run": true,
+          "event-trace": true,
+          "snapshot-series": true,
+          "metric-dataset": true,
+          "resolved-runtime-profile": true,
+          "evaluator-capability-manifest": true
+        },
+        "rir_saved_bytes_equal": true,
+        "member_sha256": {
+          "evaluation-run": "0b7fbb9aadd6a86603d9b2dc0d2796c79c0e3915f651e461e8f7bf9b760ec518",
+          "event-trace": "a5709c60ce8279709115bd94337d6553c651ae6e11abf4086ed71c1c74616a3f",
+          "snapshot-series": "d9ac5df991ce8a9db1e3c720586578f48843f085fe563363eb20c505a548740a",
+          "metric-dataset": "8bf7666920c2fd1df00ad6d51412597df6bf2e923c5aa80d46236d113e431664",
+          "resolved-runtime-profile": "900d1359a566233117c597e7e9117f08c8a4513c655f4bcf60874dab6d639377",
+          "evaluator-capability-manifest": "2fe0426a612981fc70a86e268095d80a410f0e341c393d180d6f63f676893db2"
+        },
+        "control_raw": "/private/tmp/gda-878-source-modules-evidence/final-public/source-modules0/cli-results.json",
+        "candidate_raw": "/private/tmp/gda-878-source-modules-evidence/final-public/source-modules2/cli-results.json"
+      }
+    ],
+    "source_refusals": "Malformed expression and unknown parameter type refuse with declared code, independent Source content identity, and correctly escaped authored JSON pointer.",
+    "existing_controls": "Selected full routing control and the existing 34 Model-vector compiler parity test passed (2 pytest cases).",
+    "static": "Scoped Ruff check/format and Pyright zero errors.",
+    "tracked_authority_or_maintained_input_writes": 0
+  },
+  "worker_receipt": {
+    "path": "/private/tmp/gda-878-source-modules-evidence/FINAL-RECEIPT.json",
+    "sha256": "fcc13aa41f653cc8294b9cac3d831530069a41872ecfe8b212ad8cf14e3a3372",
+    "bytes": 14786
+  },
+  "verified_raw_files": 28,
+  "primary_reports": [
+    {
+      "path": "/private/tmp/gda-878-root/source-address-integration.xml",
+      "sha256": "08bce43180034c2e2a8b4bcb1ba0904f6d893b6d2413776215804334c1d99920",
+      "bytes": 14885,
+      "tests": 91,
+      "failures": 1,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "path": "/private/tmp/gda-878-root/source-address-authoring.xml",
+      "sha256": "8228379d84f17c462b3aae3cff0734c093859071ea859427006f828cc191eec0",
+      "bytes": 2547,
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "path": "/private/tmp/gda-878-root/source-free-integration.xml",
+      "sha256": "b3e5f324628fb24217e753c8ed609568d51b3b8faefaa601cafeabd2a90e27a1",
+      "bytes": 13807,
+      "tests": 93,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    }
+  ],
+  "integration_correction": "The first 91-case integration had one fixture failure: dotted replacement names correctly violate actual dot-path encoding. The fixture now uses changed underscore names and still requires incomplete-coverage refusal. The follow-up 16 authoring tests pass, including actual renamed and escaped Source module paths. The complete integrated inventory/authoring/CI-policy suite then passes 93 cases.",
+  "build_freeze_audit": {
+    "head": "8e597f9cfd2042a456d293a80960d4ff60a6b1df",
+    "receipt": {
+      "path": "/private/tmp/gda-878-spec-freeze-8e597/receipt.json",
+      "sha256": "ff8c95ed9744da99c19062233fb1a5d7c93921a99269069312f10e07a4eb2a4f",
+      "bytes": 39840
+    },
+    "commands": {
+      "path": "/private/tmp/gda-878-spec-freeze-8e597/commands.md",
+      "sha256": "a6dc8c8707d1d2da9bed872c10b71d81dc2366c5a92ca47c2b7105e3e883e5d6",
+      "bytes": 5417
+    },
+    "decision": "Keep product provenance fields. Before final inventory, fix verified A wheel, complete B harness, driver, Python and installed dependencies; compare file membership and byte hashes after all artifact/result exchange. A/B independence concerns semantic implementations, not zero shared data containers. Final freeze has not run."
+  },
+  "remaining": "The Source/negative-reference reader still reports 56 explicit gaps. Schema/Formula metadata ownership and other interpreted roles remain unfinished. No final build freeze, exhaustive rename, full CI or final three-axis review is claimed."
+}

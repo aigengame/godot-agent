@@ -1,97 +1,17 @@
 """Authority-derived Package Release contract projections."""
 
 from copy import deepcopy
-import re
 from typing import Any, cast
 
 from gda_balancing.domain.authority.context import packaged_authority_context
-
-
-def _contract_schema(contract: dict[str, Any]) -> dict[str, object]:
-    if "const" in contract:
-        return {"const": contract["const"]}
-    if "enum" in contract:
-        values = contract["enum"]
-        if not isinstance(values, list):
-            raise ValueError("Kernel enum contract is not a list")
-        return {"enum": values}
-    value_type = contract.get("type")
-    if value_type == "non-empty-string":
-        schema: dict[str, object] = {"type": "string", "minLength": 1}
-        pattern = contract.get("pattern")
-        if isinstance(pattern, str):
-            schema["pattern"] = pattern
-        return schema
-    if value_type == "positive-signed-int64":
-        return {"type": "integer", "minimum": 1, "maximum": 2**63 - 1}
-    if value_type == "signed-int64":
-        return {"type": "integer", "minimum": -(2**63), "maximum": 2**63 - 1}
-    if value_type == "boolean":
-        return {"type": "boolean"}
-    if value_type == "object":
-        return {"type": "object"}
-    if value_type == "string-list":
-        return {
-            "type": "array",
-            "items": {"type": "string", "minLength": 1},
-            "uniqueItems": True,
-        }
-    if value_type == "list":
-        return {"type": "array"}
-    if value_type == "list-of":
-        items = contract.get("items")
-        if not isinstance(items, dict):
-            raise ValueError("Kernel list-of contract has no item contract")
-        return {"type": "array", "items": _contract_schema(items)}
-    if value_type == "closed-object":
-        return _closed_contract_schema(contract)
-    raise ValueError(f"unsupported Kernel package contract type: {value_type!r}")
-
-
-def _closed_contract_schema(contract: dict[str, Any]) -> dict[str, object]:
-    required = contract.get("required_members")
-    field_types = contract.get("field_types", {})
-    nested_members = contract.get("nested_members", {})
-    nested_field_types = contract.get("nested_field_types", {})
-    if (
-        contract.get("closed") is not True
-        or not isinstance(required, list)
-        or not all(isinstance(member, str) for member in required)
-        or not isinstance(field_types, dict)
-        or not isinstance(nested_members, dict)
-        or not isinstance(nested_field_types, dict)
-        or set(field_types) | set(nested_members) != set(required)
-        or set(nested_members) != set(nested_field_types)
-    ):
-        raise ValueError("Kernel package object contract is incomplete")
-    properties = {
-        name: _contract_schema(cast(dict[str, Any], member_contract))
-        for name, member_contract in field_types.items()
-    }
-    for name, members in nested_members.items():
-        member_types = nested_field_types.get(name)
-        if (
-            not isinstance(members, list)
-            or not all(isinstance(member, str) for member in members)
-            or not isinstance(member_types, dict)
-            or set(member_types) != set(members)
-        ):
-            raise ValueError(f"Kernel nested package contract is incomplete: {name}")
-        properties[name] = {
-            "type": "object",
-            "properties": {
-                member: _contract_schema(cast(dict[str, Any], member_types[member]))
-                for member in members
-            },
-            "required": members,
-            "unevaluatedProperties": False,
-        }
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": required,
-        "unevaluatedProperties": False,
-    }
+from gda_balancing.domain.authority.contract_projection import (
+    _contract_schema,
+    _candidate_hex_pattern,
+    _closed_contract_schema,
+)
+from gda_balancing.domain.authority.replay_vector_projection import (
+    replay_observation_schemas,
+)
 
 
 def _package_contracts() -> tuple[
@@ -321,21 +241,7 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
         or not kinds
     ):
         raise ValueError("Kernel package-vector contract is incomplete")
-    if (
-        not isinstance(candidate_encoding, dict)
-        or candidate_encoding.get("radix") != 16
-        or candidate_encoding.get("case") != "lowercase"
-        or candidate_encoding.get("zero_pad") is not True
-        or not isinstance(candidate_encoding.get("alphabet"), str)
-        or not candidate_encoding["alphabet"]
-        or not isinstance(candidate_encoding.get("width_bits"), int)
-        or candidate_encoding["width_bits"] % 4 != 0
-    ):
-        raise ValueError("Kernel RNG candidate encoding is incomplete")
-    candidate_width = candidate_encoding["width_bits"] // 4
-    candidate_pattern = (
-        f"^[{re.escape(candidate_encoding['alphabet'])}]{{{candidate_width}}}$"
-    )
+    candidate_pattern = _candidate_hex_pattern(candidate_encoding)
 
     variants: list[dict[str, object]] = []
     for kind in kinds:
@@ -922,35 +828,9 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                 )
                 continue
             if kind_id == "replay-comparison":
-                observation_members = kind.get("observation_members")
-                expect_members = kind.get("expect_members")
-                check_members = kind.get("check_members")
-                results = kind.get("results")
-                if (
-                    input_members != ["original", "replay"]
-                    or observation_members
-                    != [
-                        "evaluation_outcome_status",
-                        "event_trace_identity",
-                        "snapshot_series_identity",
-                        "metric_dataset_identity",
-                    ]
-                    or expect_members != ["checks", "result"]
-                    or check_members != ["key", "match", "original", "replay"]
-                    or results != ["matched", "mismatched"]
-                ):
-                    raise ValueError(
-                        "Kernel replay-comparison vector contract is incomplete"
-                    )
-                observation_schema = {
-                    "type": "object",
-                    "properties": {
-                        member: _non_empty_string_schema()
-                        for member in cast(list[str], observation_members)
-                    },
-                    "required": cast(list[str], observation_members),
-                    "unevaluatedProperties": False,
-                }
+                observation_schema, checks_schema, result_schema = (
+                    replay_observation_schemas(meta_format)
+                )
                 properties["input"] = {
                     "type": "object",
                     "properties": {
@@ -962,24 +842,8 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                 }
                 properties["expect"] = {
                     "type": "object",
-                    "properties": {
-                        "checks": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "key": _non_empty_string_schema(),
-                                    "match": {"type": "boolean"},
-                                    "original": _non_empty_string_schema(),
-                                    "replay": _non_empty_string_schema(),
-                                },
-                                "required": check_members,
-                                "unevaluatedProperties": False,
-                            },
-                        },
-                        "result": {"enum": results},
-                    },
-                    "required": expect_members,
+                    "properties": {"checks": checks_schema, "result": result_schema},
+                    "required": kind["expect_members"],
                     "unevaluatedProperties": False,
                 }
                 if set(properties) != set(required):

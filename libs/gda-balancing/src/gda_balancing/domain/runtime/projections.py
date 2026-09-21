@@ -16,6 +16,10 @@ from gda_balancing.domain.experiment import (
     _ordered_root_events_under,
     _scenario_root_events,
 )
+from gda_balancing.domain.operation_program import (
+    OperationCoordinate,
+    selected_operation_index,
+)
 from gda_balancing.domain.program_reachability import (
     project_reachable_program_structure,
 )
@@ -103,7 +107,7 @@ def artifact(
     value = contract.identify(payload)
     return PublicationMember(
         value=value,
-        artifact_kind=artifact_kind,
+        artifact_kind=contract.definition["artifact_kind"],
         wire_schema_identity=contract.wire_schema_identity,
         content_identity=cast(str, value["content_identity"]),
     )
@@ -638,22 +642,37 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
     runtime = runtime_contract(checked)
     entrypoints = {row["id"]: row for row in checked.rir["entrypoints"]}
     reachable_nodes: set[str] = set()
+    reachable_operations: set[OperationCoordinate] = set()
     for scenario in checked.value["scenarios"]:
         selected_entrypoints = [
             entrypoints[event["entrypoint"]]
             for event in scenario_transition_events(scenario)
         ]
-        reachable_nodes.update(
-            project_reachable_program_structure(
-                checked.rir,
-                selected_entrypoints,
-            ).runtime_node_ids
+        reachable = project_reachable_program_structure(
+            checked.rir,
+            selected_entrypoints,
+            runtime=runtime,
         )
+        reachable_nodes.update(reachable.runtime_node_ids)
+        reachable_operations.update(reachable.operation_coordinates)
     nodes = sorted(
         row["id"]
         for row in runtime["nodes"]
         if row["id"] in reachable_nodes
         and row["semantics"]["operator"] in SUPPORTED_RUNTIME_OPERATORS
+    )
+    operations = selected_operation_index(checked.rir["selected_semantics"])
+    # Effect IDs label the admitted Operation closure. Instruction support is
+    # checked separately before dispatch; these labels add no host behavior.
+    effects = sorted(
+        {
+            effect
+            for coordinate in reachable_operations
+            for effect in operations[coordinate]["effects"]
+        }
+    )
+    numeric_policies = sorted(
+        row["id"] for row in checked.rir["selected_semantics"]["numeric_profiles"]
     )
     supported_profiles = sorted(
         row["id"]
@@ -661,7 +680,7 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
         if (
             row.get("evaluation") == runtime["version"]
             and row.get("runtime_program_version") == runtime["version"]
-            and row.get("numeric_policy") == "exact-int64"
+            and row.get("numeric_policy") in numeric_policies
             and row.get("numeric_law") == runtime["numeric"]["id"]
             and row.get("rng")
             == {
@@ -681,15 +700,6 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
                 "total_events": "per-scenario",
                 "zero_time_depth": "per-descendant-chain",
             }
-            and set(row["effects"])
-            <= {
-                "event.cancel",
-                "event.commit",
-                "event.schedule",
-                "metric.observe",
-                "rng.named-stream",
-                "snapshot.commit",
-            }
         )
     )
     build_identity = evaluator_build_identity()
@@ -707,15 +717,8 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
             },
             "operation_kinds": ["event-fragment", "event-program", "pure-expression"],
             "instruction_nodes": nodes,
-            "effects": [
-                "event.cancel",
-                "event.commit",
-                "event.schedule",
-                "metric.observe",
-                "rng.named-stream",
-                "snapshot.commit",
-            ],
-            "numeric_policies": ["exact-int64"],
+            "effects": effects,
+            "numeric_policies": numeric_policies,
             "rng_algorithms": [runtime["named_rng"]["algorithm"]],
             "runtime_profiles": supported_profiles,
         },
@@ -726,7 +729,7 @@ def unsupported_evaluator_requirement(
     checked: CheckedExperiment, available: Mapping[str, Any]
 ) -> str | None:
     """Return the first required capability absent from a producer declaration."""
-    required = checked.value["runtime"]["required_evaluator"]
+    required = checked.required_evaluator
     for member in (
         "operation_kinds",
         "instruction_nodes",
@@ -758,5 +761,8 @@ def resolved_runtime_profile(checked: CheckedExperiment) -> PublicationMember:
                 checked, definition
             ),
             "runtime_profile": deepcopy(definition),
+            "experiment_judgments": cast(
+                JsonValue, deepcopy(checked.experiment_judgments)
+            ),
         },
     )

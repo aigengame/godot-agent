@@ -16,8 +16,8 @@ from gda_balancing.domain.diagnostics import (
     refusal_catalog_for_reasons,
 )
 from gda_balancing.domain.evidence_verification import EvidenceCandidate
-from gda_balancing.domain.experiment import EXPERIMENT_CHECK_REFUSAL_REASONS
-from gda_balancing.domain.model import MODEL_REFUSAL_CATALOG
+from gda_balancing.domain.experiment import experiment_check_refusal_reasons
+from gda_balancing.domain.model import model_refusal_catalog
 from gda_balancing.infrastructure.input_bytes import InputReadError
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.interfaces.cli.descriptors import (
@@ -47,7 +47,7 @@ class EvidenceVerifyInput(BaseModel):
 class EvidenceVerifyResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    claim_kind: Literal["evaluable"]
+    claim_kind: str
     claim_state: Literal["candidate"]
     producing_outcome: Literal["success", "verdict", "runtime-refusal"]
     rir_semantic_identity: str
@@ -58,13 +58,8 @@ class EvidenceVerifyResult(BaseModel):
 
 
 _EVIDENCE_REFUSAL_REASONS = (
-    *EXPERIMENT_CHECK_REFUSAL_REASONS,
-    "evaluation.reason.evaluable-cyclic-prerequisite",
-    "evaluation.reason.evaluable-extra-prerequisite",
     "evaluation.reason.evaluable-ineligible-outcome",
-    "evaluation.reason.evaluable-mismatched-prerequisite",
-    "evaluation.reason.evaluable-missing-prerequisite",
-    "evaluation.reason.evaluable-unresolved-prerequisite",
+    "evaluation.reason.evaluable-outcome-mismatch",
     "evaluation.reason.unknown-evidence-claim-kind",
 )
 
@@ -73,8 +68,12 @@ def _refusal_catalog() -> tuple[tuple[str, str], ...]:
     return tuple(
         sorted(
             set(BOOTSTRAP_REFUSAL_CATALOG)
-            | set(MODEL_REFUSAL_CATALOG)
-            | set(refusal_catalog_for_reasons(_EVIDENCE_REFUSAL_REASONS))
+            | set(model_refusal_catalog())
+            | set(
+                refusal_catalog_for_reasons(
+                    experiment_check_refusal_reasons() + _EVIDENCE_REFUSAL_REASONS
+                )
+            )
         )
     )
 
@@ -107,23 +106,18 @@ def run_evidence_verify(
     if isinstance(result, Schema2RefusalReport):
         return result
     assert isinstance(result, EvidenceCandidate)
-    identities = {subject.role: subject.identity for subject in result.subjects}
     return EvidenceVerifyResult(
-        claim_kind=cast(Literal["evaluable"], result.claim_kind),
+        claim_kind=result.claim_kind,
         claim_state=cast(Literal["candidate"], result.claim_state),
         producing_outcome=cast(
             Literal["success", "verdict", "runtime-refusal"],
             result.producing_outcome,
         ),
-        rir_semantic_identity=identities["rir-semantic-identity"],
-        experiment_identity=identities["experiment"],
-        resolved_runtime_profile_identity=identities["resolved-runtime-profile"],
-        evaluator_capability_manifest_identity=identities[
-            "evaluator-capability-manifest"
-        ],
-        experiment_run_artifact_set_receipt_identity=identities[
-            "experiment-run-artifact-set-receipt"
-        ],
+        rir_semantic_identity=result.rir_semantic_identity,
+        experiment_identity=result.experiment_identity,
+        resolved_runtime_profile_identity=result.resolved_runtime_profile_identity,
+        evaluator_capability_manifest_identity=result.evaluator_capability_manifest_identity,
+        experiment_run_artifact_set_receipt_identity=result.experiment_run_artifact_set_receipt_identity,
     )
 
 
@@ -162,7 +156,7 @@ def _prepare_evidence_args(root: Path, token: int, refusing: bool) -> tuple[str,
 EVIDENCE_VERIFY = CommandDescriptor(
     group="evidence",
     command="verify",
-    description="Verify one exact Evidence prerequisite graph.",
+    description="Verify one authenticated Experiment outcome as an Evidence candidate.",
     input_model=EvidenceVerifyInput,
     output_model=EvidenceVerifyResult,
     handler=run_evidence_verify,

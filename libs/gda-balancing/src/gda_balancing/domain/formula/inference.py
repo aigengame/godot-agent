@@ -158,7 +158,6 @@ def infer_formula_operation_local_contract(
                 not isinstance(operand_members, list)
                 or len(operand_members) != 2
                 or not all(isinstance(member, str) for member in operand_members)
-                or conversion_policy.get("condition_contract") != "kernel-boolean"
             ):
                 raise ValueError("Formula comparison inference policy is malformed")
             operands = [instruction.get(member) for member in operand_members]
@@ -329,52 +328,5 @@ def infer_formula_slot_parameter_contract(
         conversion_policy,
         {},
         cast(dict[str, Any], concrete_call.get("known_arguments", {})),
-        boolean_contract=boolean_contract,
-    )
-
-
-def infer_formula_operation_result(
-    operation: dict[str, Any],
-    ports: list[str],
-    operand_contracts: list[dict[str, Any]],
-    fallback: dict[str, Any],
-    conversion_policy: dict[str, Any],
-    source_type_aliases: dict[tuple[str, str], str],
-    *,
-    boolean_contract: dict[str, Any],
-) -> dict[str, Any]:
-    """Infer one Operation-call result by interpreting compiler-owned transfer rules."""
-    result_source_policy = conversion_policy.get("operation_result_source")
-    if not isinstance(result_source_policy, dict):
-        raise ValueError("Formula notation inference policy is malformed")
-
-    result = operation.get("result")
-    source_member = result_source_policy.get("source_member")
-    expected_kind = result_source_policy.get("kind")
-    name_member = result_source_policy.get("name_member")
-    source = (
-        result.get(source_member)
-        if isinstance(result, dict) and isinstance(source_member, str)
-        else None
-    )
-    name = (
-        source.get(name_member)
-        if isinstance(source, dict) and isinstance(name_member, str)
-        else None
-    )
-    if (
-        not isinstance(source, dict)
-        or source.get("kind") != expected_kind
-        or not isinstance(name, str)
-    ):
-        raise ValueError("Formula operation result source is unresolved")
-    return infer_formula_operation_local_contract(
-        operation,
-        ports,
-        operand_contracts,
-        name,
-        fallback,
-        conversion_policy,
-        source_type_aliases,
         boolean_contract=boolean_contract,
     )

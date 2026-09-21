@@ -1,0 +1,137 @@
+{
+  "issue": 878,
+  "decision_head": "a6302524370e4c012625a61f3660cef738caa8d1",
+  "status": "Verified prerequisites for the next protocol and Source ownership slices. Implementation and complete extension acceptance remain open.",
+  "rir_counterexample": {
+    "head": "18e2fcfa4de54e8956acc5223f2bf9f85323d25d",
+    "mutation": "RIR Schema properties/required formulas to formula_rows, plus the same Artifact Contract semantic collection reference. Other changed leaves are owning package/root identity and descriptor byte size.",
+    "same_python_source_files": 124,
+    "same_kernel_identity": "sha256:4ebf70685e9d42d0d8d52fc88efef2da03f25a9eab7d73527ebed138cd10a4ab",
+    "observations": [
+      {
+        "candidate": "original",
+        "A": true,
+        "B": true,
+        "model_check_exit": 0,
+        "model_build_exit": 0,
+        "projection_addresses": 7
+      },
+      {
+        "candidate": "renamed",
+        "A": true,
+        "B": true,
+        "model_check_exit": 4,
+        "model_build_exit": 4,
+        "projection_addresses": 7
+      }
+    ],
+    "actual_consumer": {
+      "message": "artifact semantic projection collection is unavailable",
+      "owner": "domain/artifact_semantics.py:58",
+      "original_function_called": true,
+      "error_rethrown_unchanged": true,
+      "payload_formula_count": 10,
+      "payload_member": "formulas",
+      "selected_projection_member": "formula_rows",
+      "payload_equals_original_rir_minus_five_identity_envelope_members": true
+    },
+    "primary_verified_raw_manifest_files": 83,
+    "limit": "No Experiment or Runtime execution under the failing renamed candidate; the real public Model boundary already fails."
+  },
+  "rir_decision": {
+    "delete": [
+      "Independently authored RIR wire Schema",
+      "Structural semantic-identity exclusion recipe for RIR",
+      "Collection output_member and output_shape",
+      "The two fixed package membership/closure output recipes",
+      "Model lowering output_member"
+    ],
+    "derive": "One Kernel RIR container law uses actual semantic source families, selected terminal Fact contracts and existing node, invocation, type and execution-closure laws. Independent B reconstructs separately.",
+    "retain": [
+      "Source selectors and real resolution-profile routing",
+      "Model-lowering/profile IDs and initial Fact kinds",
+      "Actual rule chains, terminal fields, output equalities and assignment/composition policies",
+      "Collection IDs, seeds, edges, exclusions and selected semantic definitions",
+      "Nominal ownership, typed payload and exact resource accounting"
+    ],
+    "lowering_output_evidence": [
+      "model/_lowering.py:78-106 computes the complete declaration list without reading output_member.",
+      "model/_compilation.py:349-357 uses output_member only as the JSON key for that list.",
+      "authority/admission.py:3150-3220 derives terminal Fact contracts from the selected rule chains.",
+      "model/_resolution.py:366-384 selects the actual lowering by the active resolution profile."
+    ],
+    "review": "Independent DDMA agreed with the collection/recipe deletion. Further source inspection overturned its first recommendation to retain lowering.output_member: partial compiler support is not evidence of independent semantic value.",
+    "limits": [
+      "Do not dispatch by collection or lowering ID.",
+      "Do not copy raw Schemas or replace missing compiled record contracts with arbitrary empty schemas.",
+      "Do not preserve redundant name configuration by adding reader fallbacks or a new registry."
+    ]
+  },
+  "source_transport_gap": {
+    "head": "18e2fcfa4de54e8956acc5223f2bf9f85323d25d",
+    "machine_transport_complete": false,
+    "probe": {
+      "authority_A": {
+        "admitted": true,
+        "diagnostics": []
+      },
+      "authority_B": {
+        "admitted": true,
+        "diagnostics": []
+      },
+      "schema_errors": [],
+      "public_refusal": {
+        "error": {
+          "category": "refusal",
+          "diagnostics": [
+            {
+              "code": "language.source_contract_mismatch",
+              "message": "Model Formula resolution failed: 'domain'",
+              "primary": {
+                "content_identity": "sha256:e69aac664da33a7868e145a89c013c441e7486632192e07fc110e9e44ec3f61c",
+                "kind": "artifact",
+                "pointer": "/formula_bindings"
+              },
+              "related": []
+            }
+          ],
+          "stage": "static",
+          "truncated": false
+        }
+      },
+      "meaning": "not claimed semantically valid"
+    },
+    "fact_endpoint_counterfactual": "Changing only quantity.declare premise bind domain to renamed_domain, with the Fact contract unchanged and the graph resealed, is refused by both authority consumers. It establishes the Fact endpoint, not the missing Source-to-Fact join.",
+    "decision": "Specify the existing closed Source-row-to-initial-Fact transport under the model-lowering authority using actual resolution-profile adapters and selected Fact contracts. Then derive the five selector traversals from that join.",
+    "preserve": "Generic passthrough of remaining fields, authored symbol/type Source routing, actual nominal ownership and current rule behavior.",
+    "prohibited_shortcut": "No domain/kind/unit spelling allowlist, configurable field mapper, or claim that the incomplete Source rename was semantically valid.",
+    "implementation": "Pending the serial RIR authority change; current gaps remain visible."
+  },
+  "raw_evidence": [
+    {
+      "path": "/private/tmp/gda-878-rir-ownership/evidence/FINAL-RECEIPT.json",
+      "bytes": 6038,
+      "sha256": "b0944ac7bd7043a62d6093f5fc338eba9aac292137bba7860c5fae1b3133dfcf"
+    },
+    {
+      "path": "/private/tmp/gda-878-rir-ownership/evidence/RAW-MANIFEST.json",
+      "bytes": 21433,
+      "sha256": "6b2e44588ed273d450a47e6241f61f84cce4c9271a2da683380c5fceb2de115f"
+    },
+    {
+      "path": "/private/tmp/gda-878-model-selector-inventory/evidence/owner-adjudication-receipt.json",
+      "bytes": 1576,
+      "sha256": "833a2eacf42fee4b6f1583d6b52d81dd2186fe8485a02e4e198fea295bb7b46a"
+    },
+    {
+      "path": "/private/tmp/gda-878-model-selector-inventory/evidence/fact-join-counterfactual.json",
+      "bytes": 596,
+      "sha256": "7509a53aeaed6ebfbf536dd29a13cd7ccd7f485d2e6c7501cfa0b0df8065c51d"
+    },
+    {
+      "path": "/private/tmp/gda-878-model-selector-inventory/evidence/OWNER-ADJUDICATION.md",
+      "bytes": 7157,
+      "sha256": "20be2b8ef2833fccf00e1114c8ad4ef8a04217821243c67e8a5ce114e70fb43a"
+    }
+  ]
+}

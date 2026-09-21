@@ -1,0 +1,1092 @@
+{
+  "scope": "Development checkpoint: remove four demonstrated LDB-name couplings; not complete Extension Invariance acceptance.",
+  "worker_commit": "f88419a265fe857373bc66b0ac52702b945e7fcd",
+  "integrated_commit": "56872e5dfb33de4f46f02543dfd088291b1209cb",
+  "raw_source_note": "Raw Model observations record the worker base cc1ea71cd with working changes. Authority byte hashes are checked against the committed integrated correction; that base alone is not the tested implementation.",
+  "kernel_identity": "sha256:82c67a6d19daf616e680f25bf4b9dbda811d2bdfc9ac4d76a683b7e49af35f8a",
+  "language_bundle_identity": "sha256:0539e7eebb289809a1cc3104c982f1a6c8dba9acf1cd8e627838245824f79a0d",
+  "changes": [
+    "Delete compatible_value_numeric_policies; derive actual IDs from admitted exact Quantity policy definitions and selected numeric profiles.",
+    "Delete fixed typed-envelope profile ID; require one complete profile at the existing source/value role.",
+    "Delete required constructor ID list; derive complete unique owned constructor roles from existing closed value-rule variants.",
+    "Replace static structured reason ID roots with stage/signal bindings; both execution consumers and actual command refusal catalogs resolve the admitted reason."
+  ],
+  "machine_delta_paths": [
+    {
+      "file": "src/gda_balancing/schema2/authorities/kernel.json",
+      "changed_json_paths": [
+        "/content_identity",
+        "/meta_format/literal_typing/typed_envelope_profile/id",
+        "/meta_format/literal_typing/typed_envelope_profile/required_constructors",
+        "/meta_format/runtime_program/numeric/compatible_value_numeric_policies",
+        "/meta_format/runtime_projection/execution_closure/reasons/roots/6/id",
+        "/meta_format/runtime_projection/execution_closure/reasons/roots/6/signal",
+        "/meta_format/runtime_projection/execution_closure/reasons/roots/6/stage",
+        "/meta_format/runtime_projection/execution_closure/reasons/roots/7/id",
+        "/meta_format/runtime_projection/execution_closure/reasons/roots/7/signal",
+        "/meta_format/runtime_projection/execution_closure/reasons/roots/7/stage",
+        "/meta_format/runtime_projection/execution_closure/reasons/roots/8/id",
+        "/meta_format/runtime_projection/execution_closure/reasons/roots/8/signal",
+        "/meta_format/runtime_projection/execution_closure/reasons/roots/8/stage",
+        "/meta_format/runtime_projection/execution_closure/reasons/roots/9/id",
+        "/meta_format/runtime_projection/execution_closure/reasons/roots/9/signal",
+        "/meta_format/runtime_projection/execution_closure/reasons/roots/9/stage"
+      ]
+    },
+    {
+      "file": "src/gda_balancing/schema2/authorities/language-bundle.json",
+      "changed_json_paths": [
+        "/content_identity",
+        "/kernel_identity",
+        "/package_descriptors/0/content_identity",
+        "/package_descriptors/3/content_identity",
+        "/package_descriptors/8/content_identity",
+        "/package_descriptors/12/byte_size",
+        "/package_descriptors/12/content_identity"
+      ]
+    },
+    {
+      "file": "src/gda_balancing/schema2/authorities/packages/core-quantity/core.quantity.conformance-vectors.json",
+      "changed_json_paths": [
+        "/content_identity",
+        "/vector_definitions/9/expect/debug_map_identity",
+        "/vector_definitions/9/expect/rir_identity",
+        "/vector_definitions/11/expect/debug_map_identity",
+        "/vector_definitions/11/expect/rir_identity",
+        "/vector_definitions/14/expect/debug_map_identity",
+        "/vector_definitions/14/expect/rir_identity",
+        "/vector_definitions/15/expect/debug_map_identity",
+        "/vector_definitions/15/expect/rir_identity",
+        "/vector_definitions/28/expect/debug_map_identity",
+        "/vector_definitions/28/expect/rir_identity",
+        "/vector_definitions/35/expect/debug_map_identity",
+        "/vector_definitions/35/expect/rir_identity",
+        "/vector_definitions/36/expect/debug_map_identity",
+        "/vector_definitions/36/expect/rir_identity"
+      ]
+    },
+    {
+      "file": "src/gda_balancing/schema2/authorities/packages/core-quantity/core.quantity.json",
+      "changed_json_paths": [
+        "/conformance_vectors/content_identity",
+        "/content_identity"
+      ]
+    },
+    {
+      "file": "src/gda_balancing/schema2/authorities/packages/game-combat/game.combat.conformance-vectors.json",
+      "changed_json_paths": [
+        "/content_identity",
+        "/vector_definitions/12/expect/debug_map_identity",
+        "/vector_definitions/12/expect/rir_identity",
+        "/vector_definitions/13/expect/debug_map_identity",
+        "/vector_definitions/13/expect/rir_identity",
+        "/vector_definitions/28/expect/debug_map_identity",
+        "/vector_definitions/28/expect/rir_identity",
+        "/vector_definitions/30/expect/debug_map_identity",
+        "/vector_definitions/30/expect/rir_identity"
+      ]
+    },
+    {
+      "file": "src/gda_balancing/schema2/authorities/packages/game-combat/game.combat.json",
+      "changed_json_paths": [
+        "/conformance_vectors/content_identity",
+        "/content_identity"
+      ]
+    },
+    {
+      "file": "src/gda_balancing/schema2/authorities/packages/standard-compiler/standard.compiler.conformance-vectors.json",
+      "changed_json_paths": [
+        "/content_identity",
+        "/vector_definitions/22/expect/debug_map_identity",
+        "/vector_definitions/22/expect/rir_identity"
+      ]
+    },
+    {
+      "file": "src/gda_balancing/schema2/authorities/packages/standard-compiler/standard.compiler.json",
+      "changed_json_paths": [
+        "/conformance_vectors/content_identity",
+        "/content_identity"
+      ]
+    },
+    {
+      "file": "src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.conformance-vectors.json",
+      "changed_json_paths": [
+        "/content_identity",
+        "/vector_definitions/0/expect/debug_map_identity",
+        "/vector_definitions/0/expect/rir_identity"
+      ]
+    },
+    {
+      "file": "src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+      "changed_json_paths": [
+        "/conformance_vectors/content_identity",
+        "/content_identity",
+        "/semantic_closure/2/definitions/23/schema/properties/selected_semantics/properties/execution_laws/properties/runtime_program/properties/numeric/properties/compatible_value_numeric_policies",
+        "/semantic_closure/2/definitions/23/schema/properties/selected_semantics/properties/execution_laws/properties/runtime_program/properties/numeric/required",
+        "/semantic_closure/2/definitions/23/schema/properties/selected_semantics/properties/execution_laws/properties/typed_envelope_profile/properties/id",
+        "/semantic_closure/2/definitions/23/schema/properties/selected_semantics/properties/execution_laws/properties/typed_envelope_profile/properties/required_constructors",
+        "/semantic_closure/2/definitions/23/schema/properties/selected_semantics/properties/execution_laws/properties/typed_envelope_profile/required",
+        "/semantic_closure/19/definitions/2/signal",
+        "/semantic_closure/19/definitions/3/signal",
+        "/semantic_closure/19/definitions/4/signal",
+        "/semantic_closure/19/definitions/5/signal",
+        "/semantic_identity"
+      ]
+    }
+  ],
+  "verification": {
+    "rename_cases": [
+      "original",
+      "numeric",
+      "typed-profile",
+      "constructors",
+      "static-reasons",
+      "all"
+    ],
+    "public_path": "Each case admits A/B authority, runs public Model check/build (8 members), Experiment check/run, validates the full result set and preserves value 7. B independently compiles and executes; A consumes its six result members. All 24 structured value vectors are also checked per role.",
+    "worker_new_and_migrated_tests": {
+      "passed": 17,
+      "seconds": 104.85
+    },
+    "worker_additional_integration": {
+      "passed": 365,
+      "seconds": 545.94,
+      "scope": "Bootstrap composition, bootstrap language and Experiment CLI in one combined command; not one required CI shard."
+    },
+    "primary_integration": {
+      "passed": 106,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 234.618,
+      "test_files": [
+        "test_authority_identity_renaming.py",
+        "test_extension_inventory.py",
+        "test_runtime_effect_renaming.py",
+        "test_runtime_mutual_consumption.py",
+        "test_ci_policy.py"
+      ]
+    },
+    "collection": {
+      "tests": 2113,
+      "package_vectors": 347,
+      "missing": [],
+      "overlapping": [],
+      "uncovered": []
+    },
+    "pyright": {
+      "errors": 0,
+      "warnings": 0
+    },
+    "model_vector_scope": {
+      "production_artifact_count": 8,
+      "independently_derived_equal_artifacts": [
+        "package-lock",
+        "rir-semantic-payload",
+        "resolved-model",
+        "debug-map"
+      ],
+      "mutually_admitted_semantic_artifacts": [
+        "package-lock",
+        "rir-semantic-payload",
+        "resolved-model"
+      ]
+    },
+    "model_vectors": [
+      {
+        "id": "model.compile.boundary-max-symbols",
+        "outcome": "admitted",
+        "identities": {
+          "rir_identity": "sha256:b8c3336940c38b545973b9ca82b9ff5cdde688147bb7ff95243b846816d1f78a",
+          "debug_map_identity": "sha256:bc4aebcbc977d9de63c9e9bc7a76d0e03a8a6ecdd4b378d1d70d02a12b8d29fb"
+        },
+        "artifacts_equal_and_mutually_admitted": true
+      },
+      {
+        "id": "model.compile.boundary-max-symbols-plus-one",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.resource_exhausted",
+            "stage": "static",
+            "pointer": "/modules/0/symbols/4096"
+          }
+        ]
+      },
+      {
+        "id": "model.compile.mutation-role-change",
+        "outcome": "admitted",
+        "identities": {
+          "rir_identity": "sha256:4842f4fda8c2bda79082591edbdf5b336d317f3e500ae802be6decec17e58a5d",
+          "debug_map_identity": "sha256:e39b096cc8ec6bf78fa141c92ba85d9d8ad37238e0b166d4fa2f595ae70c851e"
+        },
+        "artifacts_equal_and_mutually_admitted": true
+      },
+      {
+        "id": "model.compile.negative-duplicate",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.duplicate_symbol",
+            "stage": "static",
+            "pointer": "/modules/0/symbols/1/symbol"
+          }
+        ]
+      },
+      {
+        "id": "model.compile.negative-unavailable-package",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.package_unavailable",
+            "stage": "resolution",
+            "pointer": "/package_requirements/0"
+          }
+        ]
+      },
+      {
+        "id": "model.compile.positive",
+        "outcome": "admitted",
+        "identities": {
+          "rir_identity": "sha256:56f4d05868aeefaf0f702f539d72f82e9981d63bca7d6bffcc73d06d17596c29",
+          "debug_map_identity": "sha256:c589d49ee8e54b12dddd6681ee6f93c9cb8fd2e4bf519d579ee85a12aac0ae8e"
+        },
+        "artifacts_equal_and_mutually_admitted": true
+      },
+      {
+        "id": "model.compile.semantic-equivalent-order",
+        "outcome": "admitted",
+        "identities": {
+          "rir_identity": "sha256:56f4d05868aeefaf0f702f539d72f82e9981d63bca7d6bffcc73d06d17596c29",
+          "debug_map_identity": "sha256:a8c86cbd007cf5f2841b4fb747b101486a2afbf398cc1c82b8128b2529c574e7"
+        },
+        "artifacts_equal_and_mutually_admitted": true
+      },
+      {
+        "id": "quantity.assignment-policy.optional-override",
+        "outcome": "admitted",
+        "identities": {
+          "rir_identity": "sha256:5f9f0c395497074393340957e28c120b66a4c9c78554631317df9c0b61232576",
+          "debug_map_identity": "sha256:02271bfb40205a33d850355a3ea997d5454173467ca2a86025ad91ed0111d25b"
+        },
+        "artifacts_equal_and_mutually_admitted": true
+      },
+      {
+        "id": "quantity.literal.integer-admitted",
+        "outcome": "admitted",
+        "identities": {
+          "rir_identity": "sha256:7feb5580ef22dfcf1cffb7ea9ac58b8b69e7e59741962cd1fd89539533a7f83d",
+          "debug_map_identity": "sha256:9a8b1cd0ff9904722c8f7495f10982ef0c0a3b69a1da2d732eac7429b01ace10"
+        },
+        "artifacts_equal_and_mutually_admitted": true
+      },
+      {
+        "id": "formula.quantity.accept.pure-operation-closure",
+        "outcome": "admitted",
+        "identities": {
+          "rir_identity": "sha256:3616d5a8d2ecc5a6b7e590c18ef014c1202b08220527124821852f9c99df58c0",
+          "debug_map_identity": "sha256:fdf305fa7e7a9bf9d31aa1ab243e102d101dc9c65ca0b3c0f59a8a22be61760c"
+        },
+        "artifacts_equal_and_mutually_admitted": true
+      },
+      {
+        "id": "game.combat.model-binding.distinct-defenses",
+        "outcome": "admitted",
+        "identities": {
+          "rir_identity": "sha256:bbdfd38158a6b11370486c20d8e9036c6cee557fdcb5980a0bffcc4d2f19b6bd",
+          "debug_map_identity": "sha256:d25b8ea4d130a25789f5ffd57870a053c04c7e44350684fb615a54483f8a14e5"
+        },
+        "artifacts_equal_and_mutually_admitted": true
+      },
+      {
+        "id": "game.combat.model-binding.symbol-rename",
+        "outcome": "admitted",
+        "identities": {
+          "rir_identity": "sha256:27e31072c070432f518ff42af96fb546d7741cc9099f2beee374c9f6feeac67b",
+          "debug_map_identity": "sha256:47ec3572aa30ca4fcb5f994f919762ae466ec42b701085ba97193fa80e01201d"
+        },
+        "artifacts_equal_and_mutually_admitted": true
+      },
+      {
+        "id": "game.combat.model-binding.missing",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.source_contract_mismatch",
+            "stage": "static",
+            "pointer": "/entrypoints/0/arguments"
+          }
+        ]
+      },
+      {
+        "id": "game.combat.model-binding.extra",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.source_contract_mismatch",
+            "stage": "static",
+            "pointer": "/entrypoints/0/arguments/8/port"
+          }
+        ]
+      },
+      {
+        "id": "game.combat.model-binding.duplicate",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.source_contract_mismatch",
+            "stage": "static",
+            "pointer": "/entrypoints/0/arguments/3/port"
+          }
+        ]
+      },
+      {
+        "id": "game.combat.model-binding.unknown",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.source_contract_mismatch",
+            "stage": "static",
+            "pointer": "/entrypoints/0/arguments/2/port"
+          }
+        ]
+      },
+      {
+        "id": "game.combat.model-binding.illegal-role-access",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.source_contract_mismatch",
+            "stage": "static",
+            "pointer": "/entrypoints/0/arguments/2/operand"
+          }
+        ]
+      },
+      {
+        "id": "game.combat.model-binding.writable-alias",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.source_contract_mismatch",
+            "stage": "static",
+            "pointer": "/entrypoints/0/arguments"
+          }
+        ]
+      },
+      {
+        "id": "game.combat.model-binding.contract-stale-package",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.source_contract_mismatch",
+            "stage": "static",
+            "pointer": "/entrypoints/0/operation/package"
+          }
+        ]
+      },
+      {
+        "id": "game.combat.model-binding.contract-version-member-forbidden",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.source_contract_mismatch",
+            "stage": "static",
+            "pointer": "/entrypoints/0/operation/version"
+          }
+        ]
+      },
+      {
+        "id": "game.combat.model-binding.contract-stale-id",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.source_contract_mismatch",
+            "stage": "static",
+            "pointer": "/entrypoints/0/operation/id"
+          }
+        ]
+      },
+      {
+        "id": "game.combat.model-binding.contract-wrong-type",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.unresolved_name",
+            "stage": "static",
+            "pointer": "/modules/0/symbols/2/type"
+          }
+        ]
+      },
+      {
+        "id": "game.combat.model-binding.contract-wrong-representation",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.source_contract_mismatch",
+            "stage": "static",
+            "pointer": "/modules/0/symbols/2/representation"
+          }
+        ]
+      },
+      {
+        "id": "game.combat.model-binding.contract-wrong-kind",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.unknown_kind",
+            "stage": "static",
+            "pointer": "/modules/0/symbols/2/kind"
+          }
+        ]
+      },
+      {
+        "id": "game.combat.model-binding.contract-wrong-unit",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.unknown_unit",
+            "stage": "static",
+            "pointer": "/modules/0/symbols/2/unit"
+          }
+        ]
+      },
+      {
+        "id": "game.combat.model-binding.contract-wrong-numeric-policy",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.source_contract_mismatch",
+            "stage": "static",
+            "pointer": "/modules/0/symbols/2/numeric_policy"
+          }
+        ]
+      },
+      {
+        "id": "game.combat.model-binding.multiple-entrypoints",
+        "outcome": "admitted",
+        "identities": {
+          "rir_identity": "sha256:6552ebe5785a9c7af823313ed3f34532f27ce8247c5854793ad064b0f4e29c9a",
+          "debug_map_identity": "sha256:1abaa020e33abc925d95d103004d9cbd38e70a6e93028a3c176ff74e4abcb3ae"
+        },
+        "artifacts_equal_and_mutually_admitted": true
+      },
+      {
+        "id": "game.combat.model-binding.literal-wrong-type",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.source_contract_mismatch",
+            "stage": "static",
+            "pointer": "/entrypoints/0/arguments/1/operand"
+          }
+        ]
+      },
+      {
+        "id": "formula.combat.accept.damage-slot-binding",
+        "outcome": "admitted",
+        "identities": {
+          "rir_identity": "sha256:3616d5a8d2ecc5a6b7e590c18ef014c1202b08220527124821852f9c99df58c0",
+          "debug_map_identity": "sha256:fdf305fa7e7a9bf9d31aa1ab243e102d101dc9c65ca0b3c0f59a8a22be61760c"
+        },
+        "artifacts_equal_and_mutually_admitted": true
+      },
+      {
+        "id": "formula.combat.refuse.missing-or-duplicate-slot-binding",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.formula_binding_missing",
+            "stage": "static",
+            "pointer": "/entrypoints/0/operation"
+          }
+        ]
+      },
+      {
+        "id": "formula.compiler.accept.closed-static-graph",
+        "outcome": "admitted",
+        "identities": {
+          "rir_identity": "sha256:3616d5a8d2ecc5a6b7e590c18ef014c1202b08220527124821852f9c99df58c0",
+          "debug_map_identity": "sha256:fdf305fa7e7a9bf9d31aa1ab243e102d101dc9c65ca0b3c0f59a8a22be61760c"
+        },
+        "artifacts_equal_and_mutually_admitted": true
+      },
+      {
+        "id": "formula.compiler.refuse.invalid-closure",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.formula_binding_missing",
+            "stage": "static",
+            "pointer": "/formula_bindings/0/formula"
+          }
+        ]
+      },
+      {
+        "id": "formula.schema.accept.named-typed-pure-graph",
+        "outcome": "admitted",
+        "identities": {
+          "rir_identity": "sha256:3616d5a8d2ecc5a6b7e590c18ef014c1202b08220527124821852f9c99df58c0",
+          "debug_map_identity": "sha256:fdf305fa7e7a9bf9d31aa1ab243e102d101dc9c65ca0b3c0f59a8a22be61760c"
+        },
+        "artifacts_equal_and_mutually_admitted": true
+      },
+      {
+        "id": "formula.schema.refuse.dynamic-or-effectful-graph",
+        "outcome": "refused",
+        "diagnostics": [
+          {
+            "code": "language.source_contract_mismatch",
+            "stage": "static",
+            "pointer": "/modules/0/formulas/0/body"
+          }
+        ]
+      }
+    ],
+    "fresh_process_fixed_point": true,
+    "maintained_publication_graph": {
+      "kernel_identity": "sha256:82c67a6d19daf616e680f25bf4b9dbda811d2bdfc9ac4d76a683b7e49af35f8a",
+      "language_bundle_identity": "sha256:b657f266d1e42fa4d0935e9fe99d5613ba5aed9af8fddc8f3ce969216879e19c",
+      "models": [
+        {
+          "source": "examples/schema2/bounded-fold/model-source.json",
+          "source_sha256": "afef6a0f85da8a23c99d16cbf733add99a309776cfd67bbd860379a46374c316",
+          "rir_content_identity": "sha256:dc9e3ed6b4d8854e10faa9741b5a64139fd3e74b25e5a4dfd5d086fe3e073f89",
+          "rir_semantic_identity": "sha256:62533a63234a86f9c1feb1b3c9173ce85d6779175f8b18ebffdad1280a18e132",
+          "artifact_count": 8
+        },
+        {
+          "source": "examples/schema2/progression-periodic-effect/model-source.json",
+          "source_sha256": "668183f48b74c0ab83de50be5e2e7b047826f9c398cf8a29146bb546419c32f3",
+          "rir_content_identity": "sha256:47baac9144556bba2dd39ec55ef18189f2877592b973351d2ce8fe89b9c6bb27",
+          "rir_semantic_identity": "sha256:f82becf2b2e0981532fb8f447793df796950e05ff3c5ceb00e75e57282057c2f",
+          "artifact_count": 8
+        },
+        {
+          "source": "examples/schema2/roguelike-reward-build/model-source.json",
+          "source_sha256": "1ee6d1368cb548d70a9c731f75ec2c2d1d42e48b583ed28a38830adfaf82a912",
+          "rir_content_identity": "sha256:ad0f04b9c4b43f79f733073d669aadf0ddbd54f0b882f3b00e88ecb9eec0da0a",
+          "rir_semantic_identity": "sha256:76835ff950a922e43e963110bd813d1267a930e8caca66a2821084cf0b358aff",
+          "artifact_count": 8
+        },
+        {
+          "source": "examples/schema2/rpg-combat-cast/model-source.json",
+          "source_sha256": "4edc3c53e125517e46ddc69c14ccac927b5291df1d3b383f93ae50af1ada2c2c",
+          "rir_content_identity": "sha256:6122c7ed20bdc82d307c38884052c6a04ee9a9cc8c497d32ece9378751d0c17b",
+          "rir_semantic_identity": "sha256:d7d2ec130835e82c0644d3865cefb783c108ccb43232e9b303c068277b2a452f",
+          "artifact_count": 8
+        },
+        {
+          "source": "examples/schema2/rpg-periodic-effect/model-source.json",
+          "source_sha256": "e35decf348043d8f3e97606b29e57162cd43c669552c341419ee11c1186f3d67",
+          "rir_content_identity": "sha256:520f7bda2eded8a9222e2187027537f0ab7f9af092145546da5f942ec99797bc",
+          "rir_semantic_identity": "sha256:3c37289ecbc5c7c7df7a86f27749936e57186723be2725c42664ec117677962b",
+          "artifact_count": 8
+        },
+        {
+          "source": "examples/schema2/rpg-stat-composition/model-source.json",
+          "source_sha256": "4687141ad0a126e3e8a8af2fcfe04d4f30d7810df941002b851a4c8dbcead321",
+          "rir_content_identity": "sha256:90fabd4dd8bceef6a93103287388a9ccaff08a240f0b5404038e66ed52caa2fa",
+          "rir_semantic_identity": "sha256:9dfa259d1032027a1abf48de12b8d7ee8d62c9836e1bbed8379d246f40ef0cdf",
+          "artifact_count": 8
+        },
+        {
+          "source": "examples/schema2/structured-selection/model-source.json",
+          "source_sha256": "a2586415e7064cf2d4c7ddd4dc8680e6ccd307007cc5dc8ee5496c96d833356b",
+          "rir_content_identity": "sha256:bee611d17fccb5f6a633f6e22b818ce4e0471ad99c115b7df45edca7bb0de2bd",
+          "rir_semantic_identity": "sha256:839d8ddcb10b5e22fd10cbfab1d154eddf02559d5abd3e0f81f0ffa44eba7384",
+          "artifact_count": 8
+        }
+      ],
+      "experiment_updates": [
+        {
+          "path": "examples/schema2/bounded-fold/experiment.json",
+          "before": "sha256:0b6a5279abb0b6f3384d9686c868c17f2036e3717aeaa83a63c7de597f3df196",
+          "after": "sha256:62533a63234a86f9c1feb1b3c9173ce85d6779175f8b18ebffdad1280a18e132",
+          "before_sha256": "00436cb2c7c0b2f329088a2779940c4580b7a09718e5534324bd9feb9bc63736",
+          "checked": true
+        },
+        {
+          "path": "examples/schema2/progression-periodic-effect/experiment.json",
+          "before": "sha256:ef89917e88c3056ee2b5922e2da304a827680b6d4413d59b2f915dcee498226c",
+          "after": "sha256:f82becf2b2e0981532fb8f447793df796950e05ff3c5ceb00e75e57282057c2f",
+          "before_sha256": "f7b9fe93f6468821d4ec1f43dbef1ba0da464224f8cf13c1d65db621e525d0ba",
+          "checked": true
+        },
+        {
+          "path": "examples/schema2/roguelike-reward-build/experiment.json",
+          "before": "sha256:899835fa19458dde1b289d58684129b21cc2d65c224149b06589b8335ff06dc8",
+          "after": "sha256:76835ff950a922e43e963110bd813d1267a930e8caca66a2821084cf0b358aff",
+          "before_sha256": "d6700a527b21207e848704f335798bee6c17a552069b970697ae03be9f774f69",
+          "checked": true
+        },
+        {
+          "path": "examples/schema2/rpg-combat-cast/experiment.json",
+          "before": "sha256:c6cf2287cf892f41db74455b1e4be6f8a506e16e46445cfb817941073104f246",
+          "after": "sha256:d7d2ec130835e82c0644d3865cefb783c108ccb43232e9b303c068277b2a452f",
+          "before_sha256": "d8b95b9e934174db90384778117120458af3e525fe489158750edb3be8e9a131",
+          "checked": true
+        },
+        {
+          "path": "examples/schema2/rpg-combat-cast/multi-time-experiment.json",
+          "before": "sha256:c6cf2287cf892f41db74455b1e4be6f8a506e16e46445cfb817941073104f246",
+          "after": "sha256:d7d2ec130835e82c0644d3865cefb783c108ccb43232e9b303c068277b2a452f",
+          "before_sha256": "b1a1d081b29fbbaab89a489620adc1993bedafffe1779fe20beff67266aa2188",
+          "checked": true
+        },
+        {
+          "path": "examples/schema2/rpg-periodic-effect/experiment.json",
+          "before": "sha256:f967d6cbd524ca9135e0f2f37f5e107dae77af1262623485a59505b3a4a2ae8f",
+          "after": "sha256:3c37289ecbc5c7c7df7a86f27749936e57186723be2725c42664ec117677962b",
+          "before_sha256": "2d2541148a0c58a8d3c3996f6c927a3686bdc33776c2e98a44431fcfd77bb6c1",
+          "checked": true
+        },
+        {
+          "path": "examples/schema2/rpg-periodic-effect/same-time-experiment.json",
+          "before": "sha256:f967d6cbd524ca9135e0f2f37f5e107dae77af1262623485a59505b3a4a2ae8f",
+          "after": "sha256:3c37289ecbc5c7c7df7a86f27749936e57186723be2725c42664ec117677962b",
+          "before_sha256": "46600ad57dfd10176ffa9c8bb76da78e60183f331a175dab274c7133ea159709",
+          "checked": true
+        },
+        {
+          "path": "examples/schema2/rpg-stat-composition/experiment.json",
+          "before": "sha256:5592eba00c0fd77126b28d4199d36bf3ef6f69283fe10779cc91c0f075d37377",
+          "after": "sha256:9dfa259d1032027a1abf48de12b8d7ee8d62c9836e1bbed8379d246f40ef0cdf",
+          "before_sha256": "e964a4e13bad180aec4b1c5fa093674d6d447ff549a4a161b35c9a3c48338733",
+          "checked": true
+        },
+        {
+          "path": "examples/schema2/structured-selection/experiment.json",
+          "before": "sha256:87abf5100d6ddb8192cba029cebb1191faebb053df36ea6c19cecb4fb9185a39",
+          "after": "sha256:839d8ddcb10b5e22fd10cbfab1d154eddf02559d5abd3e0f81f0ffa44eba7384",
+          "before_sha256": "f5a466acc72ea4b636a5405ab90d2b7e0a48db8cb4544e9668951b5f7e93e364",
+          "checked": true
+        }
+      ]
+    },
+    "final_graph_revalidation": {
+      "kernel_identity": "sha256:82c67a6d19daf616e680f25bf4b9dbda811d2bdfc9ac4d76a683b7e49af35f8a",
+      "language_bundle_identity": "sha256:0539e7eebb289809a1cc3104c982f1a6c8dba9acf1cd8e627838245824f79a0d",
+      "models": [
+        {
+          "source": "examples/schema2/bounded-fold/model-source.json",
+          "rir_semantic_identity": "sha256:62533a63234a86f9c1feb1b3c9173ce85d6779175f8b18ebffdad1280a18e132",
+          "final_graph_admitted": true
+        },
+        {
+          "source": "examples/schema2/progression-periodic-effect/model-source.json",
+          "rir_semantic_identity": "sha256:f82becf2b2e0981532fb8f447793df796950e05ff3c5ceb00e75e57282057c2f",
+          "final_graph_admitted": true
+        },
+        {
+          "source": "examples/schema2/roguelike-reward-build/model-source.json",
+          "rir_semantic_identity": "sha256:76835ff950a922e43e963110bd813d1267a930e8caca66a2821084cf0b358aff",
+          "final_graph_admitted": true
+        },
+        {
+          "source": "examples/schema2/rpg-combat-cast/model-source.json",
+          "rir_semantic_identity": "sha256:d7d2ec130835e82c0644d3865cefb783c108ccb43232e9b303c068277b2a452f",
+          "final_graph_admitted": true
+        },
+        {
+          "source": "examples/schema2/rpg-periodic-effect/model-source.json",
+          "rir_semantic_identity": "sha256:3c37289ecbc5c7c7df7a86f27749936e57186723be2725c42664ec117677962b",
+          "final_graph_admitted": true
+        },
+        {
+          "source": "examples/schema2/rpg-stat-composition/model-source.json",
+          "rir_semantic_identity": "sha256:9dfa259d1032027a1abf48de12b8d7ee8d62c9836e1bbed8379d246f40ef0cdf",
+          "final_graph_admitted": true
+        },
+        {
+          "source": "examples/schema2/structured-selection/model-source.json",
+          "rir_semantic_identity": "sha256:839d8ddcb10b5e22fd10cbfab1d154eddf02559d5abd3e0f81f0ffa44eba7384",
+          "final_graph_admitted": true
+        }
+      ]
+    },
+    "primary_byte_verification": "Every final authority byte hash in source-oracles-final.json and all seven Source byte hashes match integrated files.",
+    "primary_final_graph_revalidation": {
+      "kernel_identity": "sha256:82c67a6d19daf616e680f25bf4b9dbda811d2bdfc9ac4d76a683b7e49af35f8a",
+      "language_bundle_identity": "sha256:0539e7eebb289809a1cc3104c982f1a6c8dba9acf1cd8e627838245824f79a0d",
+      "models": [
+        {
+          "source": "examples/schema2/bounded-fold/model-source.json",
+          "rir_content_identity": "sha256:dc9e3ed6b4d8854e10faa9741b5a64139fd3e74b25e5a4dfd5d086fe3e073f89",
+          "rir_semantic_identity": "sha256:62533a63234a86f9c1feb1b3c9173ce85d6779175f8b18ebffdad1280a18e132",
+          "admitted": true
+        },
+        {
+          "source": "examples/schema2/progression-periodic-effect/model-source.json",
+          "rir_content_identity": "sha256:47baac9144556bba2dd39ec55ef18189f2877592b973351d2ce8fe89b9c6bb27",
+          "rir_semantic_identity": "sha256:f82becf2b2e0981532fb8f447793df796950e05ff3c5ceb00e75e57282057c2f",
+          "admitted": true
+        },
+        {
+          "source": "examples/schema2/roguelike-reward-build/model-source.json",
+          "rir_content_identity": "sha256:ad0f04b9c4b43f79f733073d669aadf0ddbd54f0b882f3b00e88ecb9eec0da0a",
+          "rir_semantic_identity": "sha256:76835ff950a922e43e963110bd813d1267a930e8caca66a2821084cf0b358aff",
+          "admitted": true
+        },
+        {
+          "source": "examples/schema2/rpg-combat-cast/model-source.json",
+          "rir_content_identity": "sha256:6122c7ed20bdc82d307c38884052c6a04ee9a9cc8c497d32ece9378751d0c17b",
+          "rir_semantic_identity": "sha256:d7d2ec130835e82c0644d3865cefb783c108ccb43232e9b303c068277b2a452f",
+          "admitted": true
+        },
+        {
+          "source": "examples/schema2/rpg-periodic-effect/model-source.json",
+          "rir_content_identity": "sha256:520f7bda2eded8a9222e2187027537f0ab7f9af092145546da5f942ec99797bc",
+          "rir_semantic_identity": "sha256:3c37289ecbc5c7c7df7a86f27749936e57186723be2725c42664ec117677962b",
+          "admitted": true
+        },
+        {
+          "source": "examples/schema2/rpg-stat-composition/model-source.json",
+          "rir_content_identity": "sha256:90fabd4dd8bceef6a93103287388a9ccaff08a240f0b5404038e66ed52caa2fa",
+          "rir_semantic_identity": "sha256:9dfa259d1032027a1abf48de12b8d7ee8d62c9836e1bbed8379d246f40ef0cdf",
+          "admitted": true
+        },
+        {
+          "source": "examples/schema2/structured-selection/model-source.json",
+          "rir_content_identity": "sha256:bee611d17fccb5f6a633f6e22b818ce4e0471ad99c115b7df45edca7bb0de2bd",
+          "rir_semantic_identity": "sha256:839d8ddcb10b5e22fd10cbfab1d154eddf02559d5abd3e0f81f0ffa44eba7384",
+          "admitted": true
+        }
+      ],
+      "experiments": [
+        {
+          "path": "examples/schema2/bounded-fold/experiment.json",
+          "sha256": "94523f5bc0a75dbe22458b1177446f82cd352eb8bc82639cc914ab7b969ba4e2",
+          "rir_semantic_identity": "sha256:62533a63234a86f9c1feb1b3c9173ce85d6779175f8b18ebffdad1280a18e132",
+          "checked": true
+        },
+        {
+          "path": "examples/schema2/progression-periodic-effect/experiment.json",
+          "sha256": "8d095edc9615a7800479854097ca2f6baa17bdb8ca078153eb456bbb88719cca",
+          "rir_semantic_identity": "sha256:f82becf2b2e0981532fb8f447793df796950e05ff3c5ceb00e75e57282057c2f",
+          "checked": true
+        },
+        {
+          "path": "examples/schema2/roguelike-reward-build/experiment.json",
+          "sha256": "30eaf9dcc524d3b917abf940033f1fbaab727fc8e2390ffd782c4cdb60498164",
+          "rir_semantic_identity": "sha256:76835ff950a922e43e963110bd813d1267a930e8caca66a2821084cf0b358aff",
+          "checked": true
+        },
+        {
+          "path": "examples/schema2/rpg-combat-cast/experiment.json",
+          "sha256": "ef6948331e5f912009450c06d5bf620fdb59f8ecdcf83f9e193cf396f8989585",
+          "rir_semantic_identity": "sha256:d7d2ec130835e82c0644d3865cefb783c108ccb43232e9b303c068277b2a452f",
+          "checked": true
+        },
+        {
+          "path": "examples/schema2/rpg-combat-cast/multi-time-experiment.json",
+          "sha256": "8c1abbaf343b20401cec3937812ecb9536b73cb3d3bc00fe5cddcf46f04ff683",
+          "rir_semantic_identity": "sha256:d7d2ec130835e82c0644d3865cefb783c108ccb43232e9b303c068277b2a452f",
+          "checked": true
+        },
+        {
+          "path": "examples/schema2/rpg-periodic-effect/experiment.json",
+          "sha256": "0fc5a0b0056e836312587b6df3d1adec5e08c92a8dcdd078486f404811f87a23",
+          "rir_semantic_identity": "sha256:3c37289ecbc5c7c7df7a86f27749936e57186723be2725c42664ec117677962b",
+          "checked": true
+        },
+        {
+          "path": "examples/schema2/rpg-periodic-effect/same-time-experiment.json",
+          "sha256": "e8eb5c9caf1e6a30bdbe254d09702cb36bf165c1c62d6a4c541a5ee6e8dd61b6",
+          "rir_semantic_identity": "sha256:3c37289ecbc5c7c7df7a86f27749936e57186723be2725c42664ec117677962b",
+          "checked": true
+        },
+        {
+          "path": "examples/schema2/rpg-stat-composition/experiment.json",
+          "sha256": "d1297f7f96a8509bebe9881e8c6c539f8ead655f9faf17b066e54ff832ec7925",
+          "rir_semantic_identity": "sha256:9dfa259d1032027a1abf48de12b8d7ee8d62c9836e1bbed8379d246f40ef0cdf",
+          "checked": true
+        },
+        {
+          "path": "examples/schema2/structured-selection/experiment.json",
+          "sha256": "7507c3d755fa9a1aabc9c681fe1a46acb83671fb1a7d5f708fbaf3319f714456",
+          "rir_semantic_identity": "sha256:839d8ddcb10b5e22fd10cbfab1d154eddf02559d5abd3e0f81f0ffa44eba7384",
+          "checked": true
+        }
+      ]
+    },
+    "independent_patch_spec_review": {
+      "head": "56872e5dfb33de4f46f02543dfd088291b1209cb",
+      "reviewed_delta": "cc1ea71cd08c9591a28d2439d6d18a476faf047b..f88419a265fe857373bc66b0ac52702b945e7fcd",
+      "findings": 0,
+      "tests": {
+        "roles.xml": {
+          "tests": 16,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0
+        },
+        "reasons.xml": {
+          "tests": 5,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0
+        }
+      },
+      "limits": [
+        "Bounded four-role patch review only, not complete #878 inventory or final acceptance",
+        "No full package CI, wheel or HTTP revalidation",
+        "Three extra malformed graph probes refused at integrity ingress, not claimed as semantic-law witnesses"
+      ],
+      "files": {
+        "roles.xml": {
+          "relative_path": "roles.xml",
+          "sha256": "afd94cfa0b41614efa0f143933ddfd1805583328354609b93c12261db9e1a73e"
+        },
+        "reasons.xml": {
+          "relative_path": "reasons.xml",
+          "sha256": "94a1cae4b2dc123fea7d8d85d82fca0bb7c9f6e8e82363aab629465b70134866"
+        },
+        "probe.py": {
+          "relative_path": "probe.py",
+          "sha256": "0750c0635c72118a3b7d42edf409db72237c23199f41e2c42df47059b88675ec"
+        },
+        "probe.json": {
+          "relative_path": "probe.json",
+          "sha256": "e7b7ce7049457fad35952869974f0d9720934f826b47fc02cc70e2184ed5e3c2"
+        },
+        "independent-kernel-delta.json": {
+          "relative_path": "independent-kernel-delta.json",
+          "sha256": "3a16fcd3225f44d1e8e2e9f8e25a40996774f74b7286b2072c969afe2e3dafea"
+        },
+        "diagnostic-remap/all/cli-results.json": {
+          "relative_path": "diagnostic-remap/all/cli-results.json",
+          "sha256": "adfade75da6c0a5cf7af6ec7c23dac66313e9ebd3e493fde1d83538bbf423acd"
+        }
+      },
+      "extra_public_diagnostic_remap": {
+        "passed": true,
+        "kernel_identity": "sha256:82c67a6d19daf616e680f25bf4b9dbda811d2bdfc9ac4d76a683b7e49af35f8a",
+        "mapping": {
+          "language.structured_value_unknown_enum": "language.opaque_enum_observation"
+        }
+      },
+      "semantic_refusals": {
+        "runtime-numeric-law": [
+          {
+            "consumer": "A",
+            "admitted": false,
+            "diagnostics": [
+              [
+                "static",
+                "kernel.vector_mismatch",
+                "language.runtime"
+              ]
+            ]
+          },
+          {
+            "consumer": "B",
+            "admitted": false,
+            "diagnostics": [
+              [
+                "static",
+                "kernel.vector_mismatch",
+                "language.runtime"
+              ]
+            ]
+          }
+        ],
+        "profile-borrowed-owner": [
+          {
+            "consumer": "A",
+            "admitted": false,
+            "diagnostics": [
+              [
+                "static",
+                "kernel.vector_mismatch",
+                "language.literal-typing-profiles"
+              ]
+            ]
+          },
+          {
+            "consumer": "B",
+            "admitted": false,
+            "diagnostics": [
+              [
+                "static",
+                "kernel.vector_mismatch",
+                "language.literal-typing-profiles"
+              ]
+            ]
+          }
+        ],
+        "static-wrong-stage": [
+          {
+            "consumer": "A",
+            "admitted": false,
+            "diagnostics": [
+              [
+                "static",
+                "kernel.vector_mismatch",
+                "language.definitions"
+              ]
+            ]
+          },
+          {
+            "consumer": "B",
+            "admitted": false,
+            "diagnostics": [
+              [
+                "static",
+                "kernel.vector_mismatch",
+                "language.definitions"
+              ]
+            ]
+          }
+        ]
+      },
+      "integrity_refusals": {
+        "numeric-missing": [
+          {
+            "consumer": "A",
+            "admitted": false,
+            "diagnostics": [
+              [
+                "ingress",
+                "kernel.identity_mismatch",
+                "language-bundle.language.packages.0.semantic_identity"
+              ]
+            ]
+          },
+          {
+            "consumer": "B",
+            "admitted": false,
+            "diagnostics": [
+              [
+                "ingress",
+                "kernel.identity_mismatch",
+                "language-bundle.language.packages.0.semantic_identity"
+              ]
+            ]
+          }
+        ],
+        "numeric-duplicate": [
+          {
+            "consumer": "A",
+            "admitted": false,
+            "diagnostics": [
+              [
+                "ingress",
+                "kernel.identity_mismatch",
+                "language-bundle.language.packages.0.semantic_identity"
+              ]
+            ]
+          },
+          {
+            "consumer": "B",
+            "admitted": false,
+            "diagnostics": [
+              [
+                "ingress",
+                "kernel.identity_mismatch",
+                "language-bundle.language.packages.0.semantic_identity"
+              ]
+            ]
+          }
+        ],
+        "constructor-not-exported": [
+          {
+            "consumer": "A",
+            "admitted": false,
+            "diagnostics": [
+              [
+                "ingress",
+                "kernel.identity_mismatch",
+                "language-bundle.language.packages.14.semantic_identity"
+              ]
+            ]
+          },
+          {
+            "consumer": "B",
+            "admitted": false,
+            "diagnostics": [
+              [
+                "ingress",
+                "kernel.identity_mismatch",
+                "language-bundle.language.packages.14.semantic_identity"
+              ]
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "limits": [
+    "The provisional old Kernel failed the recorded renaming probes. This correction replaces its contract before the eventual build freeze; it is not evidence that the old Kernel was invariant.",
+    "The first maintained publication used the pre-oracle-refresh LDB seal. All seven produced RIRs and all nine committed Experiment bindings were then checked against the final sealed graph; the two LDB identities are intentionally kept distinct.",
+    "These fixed-role tests use bounded explicit rename maps. Full graph token inventory, bijection, final fixed builds and full CI remain open.",
+    "The initial focused run had one obsolete private signal expectation and the intermediate new test read the wrong error-envelope field. Both failed observations remain in the raw logs and are not reported as passing runs.",
+    "No authenticated receipt, formal release, main merge or completion of #878 is claimed."
+  ],
+  "reproduction": [
+    "PYTHONPATH=src:tests uv run --frozen pytest tests/test_authority_identity_renaming.py tests/test_structured_values.py -q",
+    "PYTHONPATH=src:tests uv run --frozen pytest tests/test_schema2_model_lowerer_conformance.py -q",
+    "uv run --frozen python tools/ci.py verify-inventory"
+  ],
+  "raw_evidence_files": [
+    {
+      "relative_path": "IMPLEMENTATION.md",
+      "bytes": 4386,
+      "sha256": "4636221c5bd6cdea3d17918796e74b75b3933bddd5bcca15d13add7530976030"
+    },
+    {
+      "relative_path": "result.json",
+      "bytes": 106687,
+      "sha256": "acdc7d28ef97fb804f02376f489ffdc2b622d2ff2fd1e869d9dad9b137de7f36"
+    },
+    {
+      "relative_path": "roles-red/results.json",
+      "bytes": 14799,
+      "sha256": "c18edf0c95fab13a5e0d5b7e0168e7a35a741e3e336a77e70a3ab86eea2ab878"
+    },
+    {
+      "relative_path": "semantic-negative.json",
+      "bytes": 8018,
+      "sha256": "63931932aa04317243a4f7368d5b86b6da587ae52e4361c6cc5ae281a6c259d2"
+    },
+    {
+      "relative_path": "rename-green.log",
+      "bytes": 111,
+      "sha256": "849f0540b40113f2fde4261558720ef808f39ec5b186da982870766141d03d82"
+    },
+    {
+      "relative_path": "focused.log",
+      "bytes": 1020,
+      "sha256": "67bcd0c6c8d71950878e18095c9f2b2a5bd57cf4297d51a6e51a19c7bc8c46e9"
+    },
+    {
+      "relative_path": "integration.log",
+      "bytes": 512,
+      "sha256": "ba1e19698abb2c6a70ee056a22fad1633cdbe609a48ac69d967fde4a418912ee"
+    },
+    {
+      "relative_path": "source-oracles-before-refresh.json",
+      "bytes": 526873,
+      "sha256": "347537fc0190245d6759d26f13754dcc9f04f36899fbf9395faba46ff2b2dfe4"
+    },
+    {
+      "relative_path": "source-oracles-final.json",
+      "bytes": 526910,
+      "sha256": "cf8a48db5afc4d73d4c8d0d18508b0e5958e66f70696b340dfc340a16296c7ae"
+    },
+    {
+      "relative_path": "maintained/receipt.json",
+      "bytes": 67934,
+      "sha256": "877fd364e295290b9f356688824258dcd4b2c9867ed4e4918e3b3a8b463781a9"
+    },
+    {
+      "relative_path": "maintained/final-seal-verification.json",
+      "bytes": 1820,
+      "sha256": "727022edbf3e4ffad193ee10af33d221bf5b107011028416f4c84b3f7f6ff5de"
+    },
+    {
+      "relative_path": "machine-delta-paths.json",
+      "bytes": 5828,
+      "sha256": "e928d1124e5356e41dea433b1940eacdce77650cd3d58c42350d3cf050e20144"
+    }
+  ]
+}

@@ -18,6 +18,7 @@ from gda_balancing.domain.model import (
 )
 import schema2_value_program_reference_support as reference
 from schema2_value_program_production_support import evaluate_value_program_vector
+from gda_balancing.domain.program_reachability import formula_lifecycle_phases
 
 
 @pytest.fixture(scope="module")
@@ -34,6 +35,7 @@ def compiled_programs():
         {p["site"]["context"]["phase"]: p for p in rir["initialization_programs"]},
         contract["numeric"],
         {row["id"]: row for row in contract["nodes"]},
+        formula_lifecycle_phases(contract),
     )
 
 
@@ -63,7 +65,7 @@ def test_vectors_observe_the_actual_formula_evaluator(monkeypatch):
 def test_formula_charge_precedes_cache_and_uses_compiled_bound(
     compiled_programs, phase
 ):
-    programs, numeric, nodes = compiled_programs
+    programs, numeric, nodes, phases = compiled_programs
     program = programs[phase]
     assert len(program["body"]) == 2
     assert program["resource_bounds"]["max_steps"] == 3
@@ -71,6 +73,7 @@ def test_formula_charge_precedes_cache_and_uses_compiled_bound(
     kwargs: dict[str, Any] = dict(
         numeric=numeric,
         runtime_nodes=nodes,
+        lifecycle_phases=phases,
         phase=phase,
         frame_identity="frame.first",
         runtime_limit=8,
@@ -102,7 +105,7 @@ def test_formula_charge_precedes_cache_and_uses_compiled_bound(
 def test_same_formula_operands_in_new_frames_have_distinct_cache_entries(
     compiled_programs, phase
 ):
-    programs, numeric, nodes = compiled_programs
+    programs, numeric, nodes, phases = compiled_programs
     cache = {}
     consumed = 0
     for frame, expected_entries in (("first", 1), ("second", 2), ("first", 2)):
@@ -111,6 +114,7 @@ def test_same_formula_operands_in_new_frames_have_distinct_cache_entries(
             {"level": 2, "damage_per_level": 3},
             numeric=numeric,
             runtime_nodes=nodes,
+            lifecycle_phases=phases,
             frame_identity=frame,
             phase=phase,
             consumed_steps=consumed,
@@ -124,7 +128,7 @@ def test_same_formula_operands_in_new_frames_have_distinct_cache_entries(
 
 
 def test_formula_numeric_refusal_preserves_the_actual_site_and_frame(compiled_programs):
-    programs, _numeric, nodes = compiled_programs
+    programs, _numeric, nodes, phases = compiled_programs
     program = programs["event"]
     cache = {}
     with pytest.raises(runtime._InitializationProgramFault) as error:
@@ -133,6 +137,7 @@ def test_formula_numeric_refusal_preserves_the_actual_site_and_frame(compiled_pr
             {"level": 2, "damage_per_level": 3},
             numeric={"minimum": 0, "maximum": 5},
             runtime_nodes=nodes,
+            lifecycle_phases=phases,
             frame_identity="refusing-event",
             phase="event",
             consumed_steps=1,
@@ -165,13 +170,14 @@ def test_formula_numeric_refusal_preserves_the_actual_site_and_frame(compiled_pr
 def test_invalid_formula_requests_do_not_pollute_or_hide_behind_cache(
     compiled_programs, mutation
 ):
-    programs, numeric, nodes = compiled_programs
+    programs, numeric, nodes, phases = compiled_programs
     program = deepcopy(programs["initialization"])
     operands = {"level": 2, "damage_per_level": 3}
     cache = {}
     kwargs: dict[str, Any] = dict(
         numeric=numeric,
         runtime_nodes=nodes,
+        lifecycle_phases=phases,
         frame_identity="frame",
         phase="initialization",
         consumed_steps=0,

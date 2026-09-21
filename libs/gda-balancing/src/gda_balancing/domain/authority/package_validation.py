@@ -1,6 +1,7 @@
 """Package closure, semantic projection, and evidence validation."""
 
 from typing import Any, cast
+from copy import deepcopy
 
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.domain.authority.package_semantics import (
@@ -151,12 +152,11 @@ def _replay_comparison_vector_is_closed(
         return False
     observed_checks = []
     for member in observation_members:
-        key = member.replace("_", "-")
-        if key not in policy["checks"]:
+        if member not in policy["checks"]:
             return False
         observed_checks.append(
             {
-                "key": key,
+                "key": member,
                 "match": _canonical_equal(original[member], replay[member]),
                 "original": original[member],
                 "replay": replay[member],
@@ -519,8 +519,7 @@ def _package_evidence_vectors_are_closed(
                     and _signed_int64(row.get("value"))
                     for row in inp["operands"]
                 )
-                or [row["name"] for row in inp["operands"]]
-                != sorted({row["name"] for row in inp["operands"]})
+                or len(inp["operands"]) != len({row["name"] for row in inp["operands"]})
                 or not isinstance(inp.get("resource_limit"), int)
                 or isinstance(inp["resource_limit"], bool)
                 or inp["resource_limit"] < 0
@@ -928,6 +927,8 @@ def _diagnostic_catalog_matches_vectors(language_bundle: dict[str, Any]) -> bool
 def _package_semantic_closure_is_closed(
     package: dict[str, Any],
     contract: Any,
+    *,
+    kernel: dict[str, Any],
 ) -> bool:
     if not isinstance(contract, dict):
         return False
@@ -1004,15 +1005,12 @@ def _package_semantic_closure_is_closed(
         or set(semantic_projection)
         != {
             "domain",
-            "extension_inventory_member",
             "path_inventory_member",
             "source_member",
             "path_member",
         }
         or semantic_projection.get("source_member") != "semantic_closure"
         or semantic_projection.get("path_member") != "authority_path"
-        or semantic_projection.get("extension_inventory_member")
-        != "runtime_semantic_excluded_extensions"
         or not isinstance(semantic_projection.get("domain"), str)
         or not isinstance(semantic_projection.get("path_inventory_member"), str)
     ):
@@ -1028,11 +1026,11 @@ def _package_semantic_closure_is_closed(
     ):
         return False
     try:
-        runtime_closure = package_runtime_semantic_closure(package, semantic_projection)
+        runtime_closure = package_runtime_semantic_closure(package, kernel)
         expected = content_identity(
             semantic_projection["domain"], cast(JsonValue, runtime_closure)
         )
-    except (TypeError, ValueError):
+    except (KeyError, TypeError, ValueError):
         return False
     return package.get("semantic_identity") == expected
 
@@ -1041,6 +1039,8 @@ def _package_semantic_projections_are_exact(
     packages: list[dict[str, Any]],
     contract: Any,
     language_bundle: dict[str, Any],
+    *,
+    kernel: dict[str, Any],
 ) -> bool:
     if not isinstance(contract, dict):
         return False
@@ -1050,6 +1050,7 @@ def _package_semantic_projections_are_exact(
     projections = closure_contract.get("projections")
     if not isinstance(projections, list):
         return False
+    protocol_projection: dict[str, Any] | None = None
     for index, projection in enumerate(projections):
         if not isinstance(projection, dict):
             return False
@@ -1073,6 +1074,30 @@ def _package_semantic_projections_are_exact(
             ):
                 return False
             embedded.extend(entry["definitions"])
+
+        if authority_path in {
+            "language.artifact_wire_schemas",
+            "language.artifact_contracts",
+        }:
+            from gda_balancing.domain.authority.graph import project_artifact_protocols
+
+            if protocol_projection is None:
+                protocol_projection = cast(
+                    dict[str, Any], deepcopy(language_bundle["language"])
+                )
+                for collection in ("artifact_wire_schemas", "artifact_contracts"):
+                    protocol_projection[collection] = [
+                        deepcopy(value)
+                        for package in packages
+                        for entry in package["semantic_closure"]
+                        if entry["authority_path"] == "language." + collection
+                        for value in entry["definitions"]
+                    ]
+                try:
+                    project_artifact_protocols(kernel, protocol_projection)
+                except (KeyError, TypeError, ValueError):
+                    return False
+            embedded = protocol_projection[authority_path.removeprefix("language.")]
 
         def definition_value(value: Any) -> bytes | None:
             if key_member is not None and (

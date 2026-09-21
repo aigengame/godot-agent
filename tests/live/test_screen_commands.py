@@ -1823,3 +1823,22 @@ def test_frames_summary_render_is_one_aggregate_line(monkeypatch, tmp_path):
     assert "captured 2 frames" in result.stdout
     assert f"-> {out_dir}/frame_%04d.png" in result.stdout
     assert "frame_0000.png\n" not in result.stdout  # no per-frame rows
+
+
+def test_await_events_reuses_action_event_mode_without_capability_metadata(
+    monkeypatch, tmp_path
+):
+    reply = screen_capture_reply(_PNG_B64, width=8, height=8)
+    reply["predicate"] = _predicate_report()
+    _align_receipt(reply)
+    events = [
+        {"type": "action", "action": "jump", "as_event": True, "frame": 1},
+        {"type": "key", "key": "Right", "frame": 2},
+    ]
+
+    result, out = _await_capture(
+        monkeypatch, tmp_path, reply, "--await-events", json.dumps(events)
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert out.exists()

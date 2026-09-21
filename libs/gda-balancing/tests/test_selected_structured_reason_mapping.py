@@ -188,7 +188,7 @@ def test_lookup_fault_identity_follows_the_selected_kernel_signal():
             authority=authority,
             resource_limit=1024,
         )
-    assert captured.value.reason_id == replacement
+    assert captured.value.signal == reason["signal"]
     assert structured_fault_reason(captured.value, authority=authority) == reason
     assert (
         evaluate_structured_value_vector(

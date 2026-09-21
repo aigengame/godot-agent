@@ -16,7 +16,7 @@ from gda_balancing.domain.authority.context import (
     packaged_authority_context,
 )
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.domain.model import MODEL_REFUSAL_CATALOG
+from gda_balancing.domain.model import model_refusal_catalog
 
 
 class TemplateListInput(BaseModel):
@@ -98,7 +98,7 @@ def template_get_handler(
 
 
 def template_get_success_schema() -> dict[str, object]:
-    """Closed release framing; member payload precision is LDB-owned."""
+    """Frame a release already admitted under its selected LDB contract."""
     identity = {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
     manifest_entry = {
         "type": "object",
@@ -134,7 +134,7 @@ def template_get_success_schema() -> dict[str, object]:
     return {
         "type": "object",
         "properties": {
-            "artifact_kind": {"const": "template-release"},
+            "artifact_kind": {"type": "string", "minLength": 1},
             "artifact_version": {"const": "2.0.0"},
             "wire_schema_identity": identity,
             "id": {"type": "string", "minLength": 1},
@@ -180,7 +180,7 @@ TEMPLATE_LIST = CommandDescriptor(
     fixtures=ConformanceFixtures(),
     schema_major=2,
     structured_params=True,
-    refusal_catalog=MODEL_REFUSAL_CATALOG,
+    refusal_catalog_provider=model_refusal_catalog,
     usage_codes=("argument_conflict", "invalid_argument", "unknown_argument"),
 )
 
@@ -203,7 +203,7 @@ TEMPLATE_GET = CommandDescriptor(
     ),
     schema_major=2,
     structured_params=True,
-    refusal_catalog=MODEL_REFUSAL_CATALOG,
+    refusal_catalog_provider=model_refusal_catalog,
     usage_codes=("argument_conflict", "invalid_argument", "unknown_argument"),
     success_schema=template_get_success_schema,
 )

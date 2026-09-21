@@ -976,6 +976,22 @@ the list distinguishes three states: absent (this channel does not parse stderr)
 failure that computed none, and the prose above is unchanged: `diagnostics` still
 carries the same recognized-error lines and both labelled streams, rendered from the
 same single parse.
+
+A successful run also reports the launch's **`User-data placement`** (#850) — where its
+`user://` actually was, so a failed persistence write is attributable to the environment
+rather than read as a game regression. `engine_data_path` is always present (null only
+when the platform's own variable is unset); `user_data_root` and `log_file` appear only
+under the global `--user-data-root DIR` — which precedes the subcommand, `gda
+--user-data-root DIR script run <path>` — since that is the one case in which the log
+outlives the launch, the default being a private temporary file gda removes. Both are
+omitted rather than null when they are not facts. The facts come off the shared launch
+primitive's `Raw run`, and `script run` is the only channel that publishes them:
+`scene preflight`, `export run`, `resource import` and the sentinel commands read the
+same run and disclose none. So does a FAILURE of this command — `--strict`'s
+`script_failed`, a `launch_timeout` — which keeps its pre-#850 shape: disclosing the
+placement there means extending ADR-0004's `Failure evidence` producer set, which is
+that ADR's decision and a follow-up, not this one.
+
 The script executes in full, within the trusted-project assumption (ADR-0009).
 
 ### `project`
@@ -1044,20 +1060,86 @@ engine-bookkeeping settings and the non-setting properties the engine's property
 are filtered out, so only real `ProjectSettings` keys appear. Like the rest of the group it requires
 a resolved project (`project_not_found`, exit 4, otherwise) and never instantiates a scene.
 
-**Input actions** (established by #380): `gda project add-input-action NAME --key K...` registers an
-InputMap action under `input/<name>` — the compound `{deadzone, events}` entry `project set` cannot
-express — with **key events only** for this slice (mouse/joypad kinds may extend it later). `--key`
-is repeatable and accepts a Godot key **name** (`J`, `Space`, `Escape`) or a raw base-10 **keycode**;
-an unresolvable token is a clean `invalid_key` error (exit 4, nothing saved). `--deadzone` overrides
-Godot's `0.5` default; `--physical` binds physical keycodes (keyboard position, layout-independent)
-instead of layout keycodes. The action is built from real `InputEventKey` objects and persisted via
-`ProjectSettings.save()`, so the serialization is exactly the engine's own `var_to_str` form — the
-editor and a running game load it identically to a hand-authored entry, and the action is immediately
-driveable by `gda input action NAME` in a live session started afterwards. Adding an existing action
+**Input actions** (established by #380, joypad kinds added by #842): `gda project add-input-action
+NAME --key K... --joy-button B... --joy-axis A...` registers an InputMap action under `input/<name>`
+— the compound `{deadzone, events}` entry `project set` cannot express — from keyboard and controller
+bindings declared in ONE call. Each option is repeatable and **at least one binding of any kind** is
+required (a call naming none is a usage error, exit 2). `--key` accepts a Godot key **name** (`J`,
+`Space`, `Escape`) or a raw base-10 **keycode**; `--joy-button` a `JoyButton` name (`A`, `Start`,
+`DPadLeft`, …) or index; `--joy-axis` an axis DIRECTION spelled `<axis>[:<sign>]` (`LeftX:-`,
+`TriggerRight`), since an axis names a whole stick dimension and the sign is what makes it one
+binding — an omitted sign is `+`. Joypad names are case- and separator-insensitive (`DPadLeft`,
+`dpad_left`, `DPAD_LEFT` are one button), and `gda project add-input-action --help` / `--schema`
+list the accepted set; an unresolvable joypad token is a clean `invalid_key` error naming that set
+(exit 4, nothing saved), and an unresolvable key name is `invalid_key` naming the token alone.
+`--device` pins this call's joypad events to one joypad, `-1`..`2147483647` (the engine's 32-bit
+device field — a larger number is refused, since it would wrap to a different joypad); it defaults
+to `-1` (`InputMap.ALL_DEVICES`, every joypad) and is set explicitly, because a script-constructed
+event starts at device `0` — key events are always `-1` and `--device` never touches them. `--deadzone`
+overrides Godot's `0.5` default; `--physical` binds physical keycodes (keyboard position,
+layout-independent) instead of layout keycodes. The action is built from real `InputEventKey`,
+`InputEventJoypadButton` and `InputEventJoypadMotion` objects — appended in that kind order — and
+persisted via `ProjectSettings.save()`, so the serialization is exactly the engine's own `var_to_str`
+form — the editor and a running game load it identically to a hand-authored entry, and the action is
+immediately driveable by `gda input action NAME` in a live session started afterwards. Adding an existing action
 name is `already_exists` (never a silent clobber — remove first to replace; note the engine registers
 the built-in `ui_*` actions as defaults, so adding e.g. `ui_accept` reports `already_exists` by
 design). `gda project remove-input-action NAME` unregisters the action and persists `project.godot`;
 a missing action is `unknown_setting`, mirroring `remove-autoload`. A failed save is `save_failed`.
+
+**What a write does to `project.godot`** (established by #843): every writer in this group —
+`set`, `add-autoload`, `remove-autoload`, `add-input-action`, `remove-input-action` — persists
+through `ProjectSettings.save()`, which does not edit the file but **reserializes** it from the
+engine's merged settings (`ProjectSettings::save_custom`). Three things follow that the caller
+never asked for: an explicit line whose value equals the engine's initial value is **deleted**
+(`if (v->variant == v->initial) continue;`), `application/config/features` is **added or
+rewritten** (the rendering method appended, `C#` added or removed, unsupported features trimmed —
+and an older list can pull further compatibility settings in with it), and the **sections are
+written in the engine's own order**. gda bounds the write to the request and discloses the rest:
+it reads `project.godot` before the operation, **restores the dropped declarations verbatim**
+into the section they were written in, and reports the residual mutation on **every** write
+result — `added_settings`, `rewritten_settings`, `restored_settings`, and `sections_reordered`
+(one human line per non-empty category). The layout is NOT restored: the engine owns it, so gda
+says the order changed instead of fighting it. The **addressed** setting is in none of those
+lists — its new value, its appearance or its removal IS the request — with one exception it is
+named under `restored_settings` for: a `set` of a setting TO the engine default on a file that
+never declared it, where there is nothing in the pre-write file to restore, so the operation
+moves that default aside and the ENGINE writes the line from the request's coerced value (gda
+hand-builds no Godot literal, the ADR-0033 rule).
+
+Five residuals stay out of scope, and are listed rather than fixed so a reader is not surprised
+by them. **Comments**: the engine writes its own header and keeps none of the file's. The **key
+order inside** a section: only the section order is reported. **Line endings**: the engine's
+writer emits LF, so a CRLF `project.godot` comes back LF — unlike the harness install, which is
+gda's own line edit and preserves CRLF (ADR-0018, #654); a write goes through the engine, and gda
+restores lines into what it wrote. A **byte-order mark**: Godot's reader does not strip one, so
+the engine reads the marked first key as a setting of its own and leaves a permanent duplicate
+(`"ï»¿config_version"=5`) beside the `config_version=5` its writer always emits — gda reports it
+under `added_settings` and does not remove it, because it is a setting the file now declares. And
+a key whose spelling gda cannot decode is excluded from every comparison, so it is neither
+restored nor reported. That decoder mirrors `VariantParser`'s tokenizer — four hex digits after
+`\u`, SIX after `\U`, every other escape standing for the character it precedes, and a bare key
+dropping every character of code 32 or less (`parse_tag_assign_eof` accumulates only `c > 32`, so
+`foo bar` IS `foobar`) — so what stays refused is what the engine refuses the whole FILE for: a
+truncated or non-hex escape, an unpaired UTF-16 surrogate. Near-unreachable either way, since the
+engine's own `property_name_encode` escapes only `\\` and `\"`. A file gda cannot read on either
+side, or a run with no project resolved, rewrites nothing and reports the four keys as they are
+declared — empty — which on that one path means **unknown**, not "nothing changed": gda has no
+reading to compare, so it makes no claim about what the save did.
+
+The restore also runs when the operation FAILED (PR #898 review): a run that never reached the
+save leaves the file equal to what gda read, so nothing is written, while a run that saved and
+then crashed or timed out has already dropped the declarations and gets them back. The failure
+envelope is the operation's own, unchanged — so on that path the repair is not reported, and a
+file the engine left half-written is restored into as it stands, since that is not detectable
+from outside. A restore gda cannot write is itself `save_failed` (exit 4), naming the
+declarations to put back by hand; a restore gda REFUSES because `project.godot` changed on disk
+after the engine wrote it is `file_changed_externally` (exit 4), which names them too and leaves
+the other writer's file exactly as it found it. The restore is an optimistic, atomic replace of
+the engine's output (ADR-0018 Decision 4, the guarantee the scene/script writers already give):
+staged in a sibling file, re-checked against the target's mtime and size, and committed with one
+rename — a reader sees the engine's output or the restored file, never a half-written one. If the
+operation had already failed, its envelope stands instead.
 
 | Command | Description |
 | --- | --- |
@@ -1066,7 +1148,7 @@ a missing action is `unknown_setting`, mirroring `remove-autoload`. A failed sav
 | `gda project list` | List the project's settings keys (customized by default; `--all` adds defaults, `--section` filters) |
 | `gda project set` | Modify a project setting (value coerced to its declared type) |
 | `gda project add-autoload` / `remove-autoload` | Register / unregister an autoload singleton |
-| `gda project add-input-action` / `remove-input-action` | Register / unregister an InputMap action (key events) |
+| `gda project add-input-action` / `remove-input-action` | Register / unregister an InputMap action (key, joypad button and joypad axis events) |
 
 ### `resource`
 
@@ -1167,6 +1249,18 @@ resolved absolute artifact path. Missing output parent directories are created
 before the native export and reported in `created_dirs`, outermost to innermost;
 an uncreatable parent is reported as `export_output_parent_failed` before Godot
 runs.
+
+Export-template discovery follows the user-data placement (#840). Godot reads the
+templates from its data directory, and `--user-data-root` relocates exactly that,
+so a release/debug run under an isolated root finds none even where the host has
+them installed. `gda export get` therefore reports `templates_root` — the
+export-templates directory checked, which holds the `templates_version` directory
+— and `templates_root_host`, the host's directory when the redirect hid installed
+templates there (null otherwise). The `export_templates_missing` failure names the
+same two directories in its message, gives the two remedies (run without the
+redirect, or `--mode pack`, which needs no templates), and carries them typed on
+`evidence` as `templates_root_checked` / `templates_root_host` — the second key
+present only in the hidden case, which is how the two shapes are told apart.
 
 ### Asset-file groups (create/edit files; headless)
 
@@ -1322,7 +1416,41 @@ re-derives every verdict from a running engine.
   [`node`](#node).
 
 - **`game` (the running game's scene graph):** `game tree` reads the runtime scene
-  tree (shipped — the Phase-2 bootstrap tracer, #7); runtime node property `game get` /
+  tree (shipped — the Phase-2 bootstrap tracer, #7) from the running current scene
+  (`/root` only when none is current — an autoload is that scene's sibling, so seeing
+  one takes `--root /root`), bounded on request by `--root <runtime path>` (the subtree
+  to serialize; an unknown path is `live_node_not_found`) and `--max-depth N` (0 = the
+  addressed node alone) — shipped, #849, from GDA-DF-052, where an unfiltered read of a
+  production UI exceeded the client's budget and was truncated by IT, which a caller
+  cannot tell from a complete read. What a bound leaves out of the selected subtree is
+  counted rather than dropped: `omitted_nodes` totals the unserialized nodes at every
+  depth, `truncated` is that total above zero, and a node whose children were not walked
+  carries `children_omitted` — its DIRECT children only, and the key is absent when
+  nothing was omitted, so the unbounded read pays nothing per node. Unbounded stays the
+  default and the caller's choice; the follow-up read is a narrower `--root`, not a
+  continuation token, which would page a snapshot the live tree has already left behind.
+  `game find` (shipped, [#855](https://github.com/aigengame/godot-agent/issues/855),
+  from GDA-DF-051, where a rebuilt screen moved an actor slot from `Enemy0` to `Enemy1`
+  and a full-tree read was the only way to find it again) answers "which node is it
+  NOW": it walks from the same root and returns a FLAT list of matches — `path`, `name`,
+  `type` and the node's own `script_path` — plus `count`. Five selectors are ANDed, and
+  at least one is required: a selector-less find is `game tree` flattened, refused as a
+  usage error (and published as an `anyOf` beside the model validator, so a schema-only
+  client reaches the same verdict). `--type` is the ENGINE class and subclass-inclusive
+  — `Button` matches a `CheckBox` — and it never sees a project `class_name`; `--script
+  <res://path>` is the selector that does, matching the node's attached script or any
+  script in its base chain. `--group` and `--name` are the plain identity checks.
+  `--unique-name` matches a `%`-addressable node whose OWNER is the search root or lies
+  inside the searched subtree, because a unique name is per owner and a running tree
+  holds many owners (every autoload, every instanced sub-scene) — the same `%Name`
+  declared by an owner ABOVE the search root is not a match. A class name the engine
+  does not know matches nothing, which is an empty successful search rather than a
+  refusal. `--root` / `--max-depth` bound the search as they bound the tree read, and
+  the same two counters ride back, here counting what the search never REACHED: while
+  `omitted_nodes` is above zero, an empty match list has not proved a node absent.
+  Ambiguity is data rather than an error — zero matches is a success with an empty list,
+  every candidate is returned, and the ops that need ONE node keep taking an exact path.
+  Runtime node property `game get` /
   `game set` (shipped, #220, extended by #422/#473) read and mutate a running node's live
   properties — the live counterparts of headless `node get` / `node set`, applying the
   **same** value-coercion table and returning the observed read-back value plus
@@ -1448,8 +1576,33 @@ re-derives every verdict from a running engine.
   `mouse` sub-group, so each maps to a single `<group>_<command>` MCP tool name
   (ADR-0005/0011/0012). Key/mouse events ride the game's real input flow via the
   root viewport's `push_input` (scene-aware); actions go through
-  `Input.action_press`/`action_release` against the running `InputMap`. For mouse
-  ops and sequence mouse events, the reliable injected coordinate is
+  `Input.action_press`/`action_release` against the running `InputMap`. Those are
+  two DISJOINT routes and every result names the one it used (`injection_route`,
+  #838): `viewport_event` for an `InputEvent` pushed through the viewport, and
+  `action_state` for an action — a change to the POLLED action state that builds no
+  `InputEvent` and so reaches no `_input` / `_gui_input` / `_unhandled_input`
+  handler. gda derives the route CLI-side from the event kind; the phased ops
+  (`input tap`, `input mouse-click`, `input sequence`) report it per phase, since
+  one sequence can mix the two — a tap targets exactly one of `--key` / `--action`,
+  and that target (with its mode, below) selects the route both its phases take.
+  Drive event-driven UI with a key or mouse event and use an action where the game
+  polls `Input.is_action_*`: a successful action injection is not evidence that the
+  event path works (GDA-DF-048, GDA-DF-075). The state route is an action's DEFAULT,
+  not its only door: `input action --as-event`, `input tap --action --as-event` and
+  a sequence `action` event with `"as_event": true` deliver the action as an
+  `InputEventAction` pushed through the same root viewport (#854), so handlers
+  matching it can receive the event while `Input.is_action_pressed` stays untouched —
+  those results report `viewport_event`, per phase on the phased ops. The opt-in is
+  explicit because changing the default would silently alter what every existing
+  call means, and the delivery is `Viewport.push_input` rather than
+  `Input.parse_input_event`, which would drive both routes at once and leave the
+  reported route with nothing to distinguish. `--as-event` rides an action: a key
+  tap already pushes an event and refuses it model-side.
+  Normal event propagation and consumption rules still apply: the route is not
+  proof that a specific handler ran or a UI action succeeded. Use the current
+  bundled harness; after updating gda, stop/start an existing daemon session so
+  the game loads it. Mixed-version sessions are not supported (ADR-0018).
+  For mouse ops and sequence mouse events, the reliable injected coordinate is
   `InputEventMouseButton.position` / `InputEventMouseMotion.position`; Godot may
   leave `Viewport.get_mouse_position()` and `Node2D.get_global_mouse_position()`
   stale in daemon sessions, so game code should read the injected coordinate from

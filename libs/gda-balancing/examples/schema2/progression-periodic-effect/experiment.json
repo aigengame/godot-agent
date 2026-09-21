@@ -1,56 +1,18 @@
 {
-  "schema_version": "2.0.0",
   "id": "example.progression-periodic-effect.snapshot",
   "model": {
-    "rir_semantic_identity": "sha256:ef89917e88c3056ee2b5922e2da304a827680b6d4413d59b2f915dcee498226c"
+    "rir_semantic_identity": "sha256:6fae4083f541c483a6fdf9c2c66758c7e01837958c1698b8a3d626f7cde0408f"
   },
   "seed": {
     "algorithm": "splitmix64-v1",
     "value": 20260804
   },
   "runtime": {
-    "profile": "standard.exact-int64-event-v1",
-    "required_evaluator": {
-      "operation_kinds": [
-        "event-fragment",
-        "event-program"
-      ],
-      "instruction_nodes": [
-        "constant",
-        "copy",
-        "draw",
-        "if",
-        "less-than",
-        "multiply",
-        "schedule",
-        "subtract",
-        "subtract-state",
-        "write-state"
-      ],
-      "effects": [
-        "event.commit",
-        "event.schedule",
-        "metric.observe",
-        "rng.named-stream",
-        "snapshot.commit"
-      ],
-      "numeric_policies": [
-        "exact-int64"
-      ],
-      "rng_algorithms": [
-        "splitmix64-v1"
-      ],
-      "runtime_profiles": [
-        "standard.exact-int64-event-v1"
-      ]
-    }
+    "profile": "standard.exact-int64-event-v1"
   },
   "scenarios": [
     {
       "id": "snapshot-periodic",
-      "named_streams": [
-        "effect-instance"
-      ],
       "terminal_condition": {
         "kind": "queue-drained"
       },

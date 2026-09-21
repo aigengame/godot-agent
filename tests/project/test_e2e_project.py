@@ -15,7 +15,8 @@ import json
 
 import pytest
 
-from tests.support import Gda
+from gda.commands.project import INPUT_EVENT_DEVICE_MAX
+from tests.support import Gda, panel_text
 
 from tests.conftest import project_godot
 
@@ -385,7 +386,9 @@ def test_project_remove_autoload_unregisters_and_round_trips(godot_project):
 
     removed = Gda(godot_project)("project", "remove-autoload", "Global", "--json")
     assert removed.returncode == 0, removed.stdout + removed.stderr
-    assert json.loads(removed.stdout) == {"name": "Global"}
+    # Plus the residual-mutation report every project write carries (#843), which
+    # test_every_project_writer_keeps_an_explicit_default_line covers on its own.
+    assert json.loads(removed.stdout)["name"] == "Global"
 
     # Round-trip: the autoload is gone from project.godot — a fresh get reports it
     # as an unknown setting, exit 4.
@@ -579,7 +582,7 @@ def test_project_remove_input_action_unregisters_and_persists(godot_project):
 
     removed = Gda(godot_project)("project", "remove-input-action", "jump", "--json")
     assert removed.returncode == 0, removed.stdout + removed.stderr
-    assert json.loads(removed.stdout) == {"name": "jump"}
+    assert json.loads(removed.stdout)["name"] == "jump"
 
     # The action is gone from project.godot — no lingering InputEventKey literal.
     normalized = _normalized_project_godot(godot_project)
@@ -607,3 +610,503 @@ def test_project_info_without_project_is_a_clean_error():
     assert proc.returncode == 4
     err = json.loads(proc.stdout)["error"]
     assert err["code"] == "project_not_found"
+
+
+# --- joypad bindings (#842) --------------------------------------------------
+
+# A headless probe of the InputMap the ENGINE built from project.godot: it prints
+# one JSON line per bound event of an action, so the assertion is on what the
+# engine loaded, not on what gda wrote. `project get` reads the stored SETTING;
+# this reads the InputMap the running game actually consults, which is the thing
+# a controller binding has to reach.
+INPUT_MAP_PROBE_GD = """\
+extends SceneTree
+
+func _initialize() -> void:
+\tvar rows := []
+\tfor event in InputMap.action_get_events("jump"):
+\t\tvar row := {"class": event.get_class(), "device": event.device}
+\t\tif event is InputEventKey:
+\t\t\trow["keycode"] = event.keycode
+\t\telif event is InputEventJoypadButton:
+\t\t\trow["button_index"] = event.button_index
+\t\telif event is InputEventJoypadMotion:
+\t\t\trow["axis"] = event.axis
+\t\t\trow["axis_value"] = event.axis_value
+\t\trows.append(row)
+\tprint("INPUT_MAP=", JSON.stringify(rows))
+\tquit(0)
+"""
+
+
+@pytest.mark.e2e
+def test_project_add_input_action_persists_key_and_joypad_events_in_var_to_str_form(
+    godot_project,
+):
+    # The #380 byte-equivalence regression, EXTENDED to the joypad event types
+    # (#842): one call declares a key, a joypad button and a joypad axis
+    # direction, and project.godot carries all three as the engine's own
+    # var_to_str Object literals — gda hand-builds none of them (ADR-0033).
+    # Issue #843 extends this same fixture with its restored-line assertions.
+    added = Gda(godot_project).json(
+        "project",
+        "add-input-action",
+        "jump",
+        "--key",
+        "Space",
+        "--joy-button",
+        "A",
+        "--joy-axis",
+        "LeftX:-",
+    )
+
+    assert added["name"] == "jump"
+    assert added["events"] == [
+        {"kind": "key", "key": "Space", "keycode": 32, "physical": False},
+        {"kind": "joy_button", "button": "A", "button_index": 0, "device": -1},
+        {
+            "kind": "joy_axis",
+            "axis": "LeftX:-",
+            "axis_index": 0,
+            "axis_value": -1.0,
+            "device": -1,
+        },
+    ]
+
+    normalized = _normalized_project_godot(godot_project)
+    assert "[input]" in normalized
+    assert "Object(InputEventKey" in normalized
+    assert "Object(InputEventJoypadButton" in normalized
+    assert "Object(InputEventJoypadMotion" in normalized
+    # JOY_BUTTON_A is 0 and JOY_AXIS_LEFT_X is 0 (godot 4.6.3-stable,
+    # core/input/input_enums.h); the `-` sign is axis_value -1.0.
+    assert '"button_index":0' in normalized
+    assert '"axis":0' in normalized
+    assert '"axis_value":-1.0' in normalized
+    # Every event matches ANY device by default (InputMap ALL_DEVICES).
+    assert '"device":0' not in normalized
+    assert '"device":-1' in normalized
+
+
+@pytest.mark.e2e
+def test_project_add_input_action_joypad_events_read_back_through_project_get(
+    godot_project,
+):
+    # The structured verification the AC asks for: `project get input/<name>`
+    # projects the stored compound value, so the joypad events read back with
+    # their device, button_index and axis/axis_value (ADR-0035 inline kind).
+    Gda(godot_project).json(
+        "project",
+        "add-input-action",
+        "jump",
+        "--joy-button",
+        "DPadLeft",
+        "--joy-axis",
+        "TriggerRight",
+    )
+
+    value = Gda(godot_project).json("project", "get", "input/jump")["value"]
+    assert value["deadzone"] == 0.5
+    events = {event["type"]: event for event in value["events"]}
+    # JOY_BUTTON_DPAD_LEFT is 13, JOY_AXIS_TRIGGER_RIGHT is 5 (4.6.3-stable).
+    assert events["InputEventJoypadButton"]["button_index"] == 13
+    assert events["InputEventJoypadButton"]["device"] == -1
+    assert events["InputEventJoypadMotion"]["axis"] == 5
+    # An omitted sign is the POSITIVE direction.
+    assert events["InputEventJoypadMotion"]["axis_value"] == 1.0
+    assert events["InputEventJoypadMotion"]["device"] == -1
+
+
+@pytest.mark.e2e
+def test_project_add_input_action_bindings_reach_the_loaded_input_map(godot_project):
+    # The engine-side half of the verification: after the project loads, the
+    # bindings are in the InputMap the running game consults.
+    Gda(godot_project).json(
+        "project",
+        "add-input-action",
+        "jump",
+        "--key",
+        "Space",
+        "--joy-button",
+        "A",
+        "--joy-axis",
+        "LeftX:-",
+    )
+    (godot_project / "input_map_probe.gd").write_text(
+        INPUT_MAP_PROBE_GD, encoding="utf-8"
+    )
+
+    run = Gda(godot_project).json(
+        "script", "run", "res://input_map_probe.gd", retry=True
+    )
+
+    line = next(
+        row for row in run["stdout"].splitlines() if row.startswith("INPUT_MAP=")
+    )
+    rows = json.loads(line.removeprefix("INPUT_MAP="))
+    assert rows == [
+        {"class": "InputEventKey", "device": -1, "keycode": 32},
+        {"class": "InputEventJoypadButton", "device": -1, "button_index": 0},
+        {
+            "class": "InputEventJoypadMotion",
+            "device": -1,
+            "axis": 0,
+            "axis_value": -1.0,
+        },
+    ]
+
+
+@pytest.mark.e2e
+def test_project_add_input_action_device_pins_the_joypad_events(godot_project):
+    # --device applies to the joypad events of THIS call. The key event stays at
+    # ALL_DEVICES: a real keyboard event carries its own device id, so pinning it
+    # to a joypad number would stop it matching (the #380 reason).
+    added = Gda(godot_project).json(
+        "project",
+        "add-input-action",
+        "jump",
+        "--key",
+        "Space",
+        "--joy-button",
+        "A",
+        "--device",
+        "1",
+    )
+
+    assert added["events"][0] == {
+        "kind": "key",
+        "key": "Space",
+        "keycode": 32,
+        "physical": False,
+    }
+    assert added["events"][1]["device"] == 1
+
+    value = Gda(godot_project).json("project", "get", "input/jump")["value"]
+    events = {event["type"]: event for event in value["events"]}
+    assert events["InputEventKey"]["device"] == -1
+    assert events["InputEventJoypadButton"]["device"] == 1
+
+
+@pytest.mark.e2e
+def test_project_add_input_action_refuses_a_device_the_engine_field_cannot_hold(
+    godot_project,
+):
+    # InputEvent.device is a 32-bit field: the engine ACCEPTED 4294967295 and
+    # stored -1 (every joypad), so a binding meant for one joypad silently
+    # matched all of them. The ceiling is refused before any engine is spawned,
+    # and the project is untouched; the largest representable device round-trips.
+    before = (godot_project / "project.godot").read_text(encoding="utf-8")
+
+    refused = Gda(godot_project)(
+        "project",
+        "add-input-action",
+        "overflow",
+        "--joy-button",
+        "A",
+        "--device",
+        "4294967295",
+        "--json",
+    )
+
+    assert refused.returncode == 2, refused.stdout + refused.stderr
+    assert (godot_project / "project.godot").read_text(encoding="utf-8") == before
+
+    added = Gda(godot_project).json(
+        "project",
+        "add-input-action",
+        "last_pad",
+        "--joy-button",
+        "A",
+        "--device",
+        str(INPUT_EVENT_DEVICE_MAX),
+    )
+    assert added["events"][0]["device"] == INPUT_EVENT_DEVICE_MAX
+
+    value = Gda(godot_project).json("project", "get", "input/last_pad")["value"]
+    assert value["events"][0]["device"] == INPUT_EVENT_DEVICE_MAX
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    ("option", "token", "accepted"),
+    [
+        ("--joy-button", "NotAButton", "DPadLeft"),
+        ("--joy-axis", "NotAnAxis:-", "TriggerRight"),
+        # A recognized axis with an unusable sign is the same refusal: the whole
+        # token could not be resolved to a binding.
+        ("--joy-axis", "LeftX:sideways", "TriggerRight"),
+    ],
+)
+def test_project_add_input_action_unresolvable_joypad_token_names_the_accepted_set(
+    godot_project, option, token, accepted
+):
+    err = Gda(godot_project).error(
+        "project",
+        "add-input-action",
+        "jump",
+        option,
+        token,
+        code="invalid_key",
+    )
+
+    assert err["category"] == "operation"
+    assert token.split(":")[0] in err["message"]
+    # The message names the accepted set, so a caller can correct without
+    # reading the docs (#842 AC).
+    assert accepted in err["message"]
+    # Nothing was saved.
+    assert "[input]" not in _normalized_project_godot(godot_project)
+
+
+@pytest.mark.e2e
+def test_project_add_input_action_with_no_binding_is_a_usage_error(godot_project):
+    bad = Gda(godot_project)("project", "add-input-action", "jump", "--json")
+
+    assert bad.returncode == 2, bad.stdout + bad.stderr
+    assert "at least one binding" in panel_text(bad.stderr)
+    assert (
+        not (godot_project / "project.godot")
+        .read_text(encoding="utf-8")
+        .count("[input]")
+    )
+
+
+# --- Bounded project writes (#843) -------------------------------------------
+#
+# `ProjectSettings.save()` reserializes the whole file, so every writer in this
+# group changes lines the caller never named. These run against the REAL engine —
+# the drop rule, the features list and the section order are its behaviour, not a
+# fixture's. The e2e fixture already carries the declaration this is about:
+# `debug/file_logging/enable_file_logging=false` equals the engine default, so the
+# save deletes it (that is GDA-DF-068, found on a keyboard-only add-input-action).
+
+_DEFAULT_EQUAL_LINE = "file_logging/enable_file_logging=false"
+_DEFAULT_EQUAL_SETTING = "debug/file_logging/enable_file_logging"
+
+
+@pytest.mark.e2e
+def test_every_project_writer_keeps_an_explicit_default_line(godot_project):
+    # One fixture through all five writers, in sequence: each save would delete the
+    # explicit default-equal declaration, and each reports the restore it made.
+    (godot_project / "global.gd").write_text("extends Node\n", encoding="utf-8")
+    gda = Gda(godot_project, json_output=True)
+    writes = (
+        ("project", "set", "application/config/name", "--value", "renamed"),
+        ("project", "add-autoload", "Global", "res://global.gd"),
+        ("project", "remove-autoload", "Global"),
+        # Carries a joypad binding (#842): the two slices' regressions meet on the
+        # final add-input-action shape rather than each running its own sequence.
+        (
+            "project",
+            "add-input-action",
+            "jump",
+            "--key",
+            "J",
+            "--joy-button",
+            "A",
+            "--joy-axis",
+            "LeftX:-",
+        ),
+        ("project", "remove-input-action", "jump"),
+    )
+    for write in writes:
+        data = gda.json(*write)
+        assert data["restored_settings"] == [_DEFAULT_EQUAL_SETTING], write
+        text = (godot_project / "project.godot").read_text(encoding="utf-8")
+        assert _DEFAULT_EQUAL_LINE in text, write
+
+    # The engine still LOADS the restored file: a fresh process reads the setting
+    # back through project get, and the value is the one the file declares.
+    got = gda.json("project", "get", _DEFAULT_EQUAL_SETTING)
+    assert got["value"] is False
+    # And the write the sequence asked for landed, unaffected by the restore.
+    assert gda.json("project", "get", "application/config/name")["value"] == "renamed"
+
+
+@pytest.mark.e2e
+def test_project_set_to_the_engine_default_leaves_the_line_present(godot_project):
+    # The addressed setting cannot be restored FROM the file: it was never written
+    # there. `application/config/description` defaults to "", so setting it to ""
+    # is the case the engine's writer drops — the op moves the default aside and
+    # the line is written anyway, reported as restored.
+    gda = Gda(godot_project, json_output=True)
+
+    data = gda.json("project", "set", "application/config/description", "--value", "")
+
+    assert data["value"] == ""
+    assert "application/config/description" in data["restored_settings"]
+    text = (godot_project / "project.godot").read_text(encoding="utf-8")
+    assert 'config/description=""' in text
+    # And the engine reads the declaration back rather than its own default.
+    assert gda.json("project", "get", "application/config/description")["value"] == ""
+
+
+@pytest.mark.e2e
+def test_the_features_list_the_engine_writes_is_reported(godot_project):
+    # The fixture declares no application/config/features, so the first save ADDS
+    # one; the second changes nothing, so it is reported by neither category.
+    gda = Gda(godot_project, json_output=True)
+
+    first = gda.json("project", "set", "application/config/name", "--value", "one")
+    second = gda.json("project", "set", "application/config/name", "--value", "two")
+
+    assert first["added_settings"] == ["application/config/features"]
+    assert first["rewritten_settings"] == []
+    assert second["added_settings"] == []
+    assert second["rewritten_settings"] == []
+
+
+@pytest.mark.e2e
+def test_a_stale_features_list_is_reported_as_rewritten(tmp_path):
+    # A features list the engine changes on its own is the rewrite half of the
+    # report — and an older list can pull further settings in with it, which is
+    # exactly what `added_settings` is for.
+    project = tmp_path / "stale"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot(extra='config/features=PackedStringArray("4.5")'),
+        encoding="utf-8",
+    )
+
+    data = Gda(project, json_output=True).json(
+        "project", "set", "application/config/name", "--value", "renamed"
+    )
+
+    assert data["rewritten_settings"] == ["application/config/features"]
+    assert data["restored_settings"] == [_DEFAULT_EQUAL_SETTING]
+
+
+@pytest.mark.e2e
+def test_a_hand_ordered_file_reports_the_engine_reordering_it(tmp_path):
+    # The engine writes the sections in its own order. gda does not restore the
+    # layout — it says the order changed, and the file keeps the engine's.
+    project = tmp_path / "ordered"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot(extra="[zsection]\n\nmy/custom=42"), encoding="utf-8"
+    )
+
+    data = Gda(project, json_output=True).json(
+        "project", "set", "application/config/name", "--value", "renamed"
+    )
+
+    assert data["sections_reordered"] is True
+    text = (project / "project.godot").read_text(encoding="utf-8")
+    assert text.index("[debug]") < text.index("[zsection]")
+
+
+# --- what the file SAYS versus what a second recognizer read (PR #898, round 3) -
+#
+# Three spellings the engine reads one way and gda read another, each proven by a
+# FRESH engine launch after the write — `project get` / `project list` in a new
+# process, never the reply of the `set` that made the change. Each one made a
+# SUCCESSFUL `project set` leave the project saying something the caller did not
+# ask for.
+
+
+def _customized(gda) -> set[str]:
+    """The setting names a fresh engine reads as DECLARED in project.godot.
+
+    `project list` derives them by re-parsing the file with the engine's own
+    ConfigFile (`_customized_settings`), so it answers what the file says after
+    the restore, not what gda thinks it wrote.
+    """
+    return {entry["setting"] for entry in gda.json("project", "list")["settings"]}
+
+
+@pytest.mark.e2e
+def test_a_header_spelling_inside_a_value_does_not_move_a_restored_line(tmp_path):
+    # `String::c_escape_multiline` escapes only `\` and `"`, so the engine writes a
+    # multi-line String back with its newlines LITERAL — a value can hold a line
+    # spelled exactly like a section header. gda's restore rescanned the raw lines
+    # for `[debug]`, found the one inside the description, and wrote the dropped
+    # declaration into `[application]` instead: `restored_settings` named the
+    # setting while the file declared a different one.
+    project = tmp_path / "multiline"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot(extra='config/description="line one\n[debug]\nline three"'),
+        encoding="utf-8",
+    )
+    gda = Gda(project, json_output=True)
+
+    data = gda.json("project", "set", "application/config/name", "--value", "renamed")
+
+    assert data["restored_settings"] == [_DEFAULT_EQUAL_SETTING]
+    assert data["added_settings"] == ["application/config/features"]
+    # What the fresh engine reads back: the restored line is in the section it came
+    # from, and no stray copy of it landed in [application].
+    customized = _customized(gda)
+    assert _DEFAULT_EQUAL_SETTING in customized
+    assert "application/file_logging/enable_file_logging" not in customized
+    assert gda.json("project", "get", _DEFAULT_EQUAL_SETTING)["value"] is False
+    # The value that only LOOKS like a header is untouched, and the request landed.
+    described = gda.json("project", "get", "application/config/description")
+    assert described["value"] == "line one\n[debug]\nline three"
+    assert gda.json("project", "get", "application/config/name")["value"] == "renamed"
+
+
+@pytest.mark.e2e
+def test_a_bare_key_holding_a_space_is_the_key_the_engine_reads(tmp_path):
+    # `parse_tag_assign_eof` accumulates only characters of code > 32, so the
+    # engine reads `foo bar=false` as the setting `zsection/foobar`. gda kept the
+    # space, saw a second setting the save had "dropped", and restored the old
+    # declaration UNDER the value `project set` had just written — a successful
+    # write whose value read back false on the next launch.
+    project = tmp_path / "barekey"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot(extra="[zsection]\n\nfoo bar=false"), encoding="utf-8"
+    )
+    gda = Gda(project, json_output=True)
+
+    data = gda.json("project", "set", "zsection/foobar", "--value", "true")
+
+    assert data["value"] is True
+    assert data["restored_settings"] == [_DEFAULT_EQUAL_SETTING]
+    # The fresh engine reads the value the write asked for, once and only once.
+    assert gda.json("project", "get", "zsection/foobar")["value"] is True
+    text = (project / "project.godot").read_text(encoding="utf-8")
+    assert "foo bar=false" not in text
+
+
+@pytest.mark.e2e
+def test_a_six_digit_escaped_key_is_restored_like_any_other(tmp_path):
+    # `VariantParser::get_token` reads SIX hex digits after `\U`, so
+    # `"\U000066ile_logging/enable_file_logging"` IS
+    # `file_logging/enable_file_logging`. gda demanded eight, could not name the
+    # key, and left it out of the comparison — the save dropped the declaration and
+    # the report said nothing was restored.
+    project = tmp_path / "escaped"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot().replace(
+            f"{_DEFAULT_EQUAL_LINE}\n",
+            '"\\U000066ile_logging/enable_file_logging"=false\n',
+        ),
+        encoding="utf-8",
+    )
+    gda = Gda(project, json_output=True)
+
+    data = gda.json("project", "set", "application/config/name", "--value", "renamed")
+
+    assert data["restored_settings"] == [_DEFAULT_EQUAL_SETTING]
+    # The fresh engine still reads the declaration — in its original spelling, put
+    # back verbatim rather than re-authored.
+    assert _DEFAULT_EQUAL_SETTING in _customized(gda)
+    assert gda.json("project", "get", _DEFAULT_EQUAL_SETTING)["value"] is False
+    text = (project / "project.godot").read_text(encoding="utf-8")
+    assert '"\\U000066ile_logging/enable_file_logging"=false' in text
+
+
+@pytest.mark.e2e
+def test_a_bounded_write_renders_its_report_for_a_human(godot_project):
+    written = Gda(godot_project)(
+        "project", "set", "application/config/name", "--value", "renamed"
+    )
+
+    assert written.returncode == 0, written.stdout + written.stderr
+    lines = written.stdout.strip().splitlines()
+    assert lines[0] == 'set application/config/name (String) = "renamed"'
+    assert "engine added: application/config/features" in lines
+    assert f"gda restored: {_DEFAULT_EQUAL_SETTING}" in lines

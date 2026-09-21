@@ -1,0 +1,223 @@
+{
+  "source_head": "4c6130fa3370e9118848ca9713a40c76fbe42c1f",
+  "production_base": "1596e77ea6807d4b91b8709da52c72eed346b0de",
+  "scope": "One stream declaration/reference rename; a semantic counterexample, not the exhaustive token inventory or authenticated invariance claim.",
+  "kernel_rng_law": {
+    "algorithm": "splitmix64-v1",
+    "candidate_encoding": {
+      "alphabet": "0123456789abcdef",
+      "case": "lowercase",
+      "radix": 16,
+      "width_bits": 64,
+      "zero_pad": true
+    },
+    "interval_sampling": {
+      "bias_policy": "accepted-modulo-bias-v1",
+      "bounds": "inclusive",
+      "candidates_per_draw": 1,
+      "mapping": "unsigned-modulo-width"
+    },
+    "seed_encoding": "unsigned-modulo-2^64",
+    "state_transition": {
+      "increment_hex": "9e3779b97f4a7c15",
+      "mix_steps": [
+        {
+          "multiply_hex": "bf58476d1ce4e5b9",
+          "xor_shift_right": 30
+        },
+        {
+          "multiply_hex": "94d049bb133111eb",
+          "xor_shift_right": 27
+        },
+        {
+          "xor_shift_right": 31
+        }
+      ]
+    },
+    "stream_derivation": {
+      "byte_order": "big",
+      "combine": "unsigned-add-modulo-2^64",
+      "digest_slice": {
+        "length": 8,
+        "offset": 0
+      },
+      "hash": "sha256"
+    },
+    "stream_name_encoding": "utf-8",
+    "trace_members": [
+      "stream",
+      "index",
+      "candidate_hex",
+      "accepted",
+      "minimum",
+      "maximum",
+      "value"
+    ],
+    "word_bits": 64
+  },
+  "reproduction": {
+    "source": "examples/schema2/structured-selection/model-source.json",
+    "experiment": "examples/schema2/structured-selection/experiment.json",
+    "authority_operation": "standard.conformance.structured.select-v1",
+    "steps": [
+      "Build unchanged Model Source against the original graph; rebind the maintained Experiment to the resulting RIR semantic identity and execute it.",
+      "Change draw.stream from selection to renamed.selection in the selected Operation; recompute package graph seals. Change Scenario.named_streams consistently, with seed, Source and typed inputs unchanged.",
+      "Independently admit both graphs, compile all eight Model members, admit RIR, check each Experiment, execute, and validate each complete result set.",
+      "Execute structured.select.success through production and independent Event consumers on each graph; preserve the original numerical expectation and record its actual comparison result."
+    ]
+  },
+  "rows": [
+    {
+      "stream": "selection",
+      "kernel": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+      "ldb": "sha256:58a42db14b212162ef24022266e700397da38636484f5dd935a97af8b955d617",
+      "source_sha256": "9dc991280973943d410941fe10fe97b0d71e6d341f3a602ee84ea715ef93bc88",
+      "rir_semantic_identity": "sha256:87abf5100d6ddb8192cba029cebb1191faebb053df36ea6c19cecb4fb9185a39",
+      "artifact_kinds": [
+        "build-receipt",
+        "capability-manifest",
+        "debug-map",
+        "model-explanation",
+        "package-lock",
+        "resolution-receipt",
+        "resolved-model",
+        "rir-semantic-payload"
+      ],
+      "seed": {
+        "algorithm": "splitmix64-v1",
+        "value": 20260811
+      },
+      "admissions": {
+        "production": true,
+        "independent": true
+      },
+      "accepted": true,
+      "outcome_type": "ExperimentExecutionSuccess",
+      "report": null,
+      "independent_draw": {
+        "stream": "selection",
+        "index": 0,
+        "candidate_hex": "e9d99c027e25cf36",
+        "accepted": true,
+        "minimum": 0,
+        "maximum": 1,
+        "value": 0
+      },
+      "whole_artifact_set_valid": true,
+      "normative_vector": {
+        "id": "structured.select.success",
+        "original_expected_completion": {
+          "id": "selected",
+          "kind": "outcome"
+        },
+        "observed_completion": {
+          "id": "selected",
+          "kind": "outcome"
+        },
+        "production_equals_independent": true,
+        "matches_original_expect": true
+      }
+    },
+    {
+      "stream": "renamed.selection",
+      "kernel": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+      "ldb": "sha256:3a7d779edf390038f030fcdd0fbd87aa0d52ff2f131d42fc87a799c4486c728c",
+      "source_sha256": "9dc991280973943d410941fe10fe97b0d71e6d341f3a602ee84ea715ef93bc88",
+      "rir_semantic_identity": "sha256:2ec9570eccde09a711414214a428010e618f77c0ba9a488d75c7f90e4a5368ec",
+      "artifact_kinds": [
+        "build-receipt",
+        "capability-manifest",
+        "debug-map",
+        "model-explanation",
+        "package-lock",
+        "resolution-receipt",
+        "resolved-model",
+        "rir-semantic-payload"
+      ],
+      "seed": {
+        "algorithm": "splitmix64-v1",
+        "value": 20260811
+      },
+      "admissions": {
+        "production": true,
+        "independent": true
+      },
+      "accepted": false,
+      "outcome_type": "ExperimentExecutionRefusal",
+      "report": {
+        "stage": "runtime",
+        "variant": "post-dispatch",
+        "diagnostics": [
+          {
+            "code": "standard.conformance.candidate_mismatch",
+            "message": "Runtime scheduler refused standard-conformance-candidate-mismatch",
+            "primary": {
+              "kind": "artifact",
+              "content_identity": "sha256:f33c2cc19f67445de4b114324334610ba90776d500c3c47caef291c287f9034b",
+              "pointer": "/scenarios/0/entrypoint"
+            },
+            "related": []
+          }
+        ],
+        "truncated": false,
+        "terminal_audit": null
+      },
+      "independent_draw": {
+        "stream": "renamed.selection",
+        "index": 0,
+        "candidate_hex": "12a11c9e5ed0b8db",
+        "accepted": true,
+        "minimum": 0,
+        "maximum": 1,
+        "value": 1
+      },
+      "whole_artifact_set_valid": true,
+      "normative_vector": {
+        "id": "structured.select.success",
+        "original_expected_completion": {
+          "id": "selected",
+          "kind": "outcome"
+        },
+        "observed_completion": {
+          "kind": "refusal",
+          "reason": "standard.conformance.reason.candidate-mismatch"
+        },
+        "production_equals_independent": true,
+        "matches_original_expect": false
+      }
+    }
+  ],
+  "raw_evidence": [
+    {
+      "file": "probe.py",
+      "bytes": 6206,
+      "sha256": "451bc82b3b77c1e9d651c68afece08abef7527731660c36cea7eac96dc3725f7"
+    },
+    {
+      "file": "receipt.json",
+      "bytes": 43461,
+      "sha256": "6354ef5d7ff1665fcfba1892ba18148e24d6f8a6b2fa765244e354c5f85e1ecf"
+    },
+    {
+      "file": "renamed.selection.json",
+      "bytes": 22165,
+      "sha256": "c4c418500f5943412870b15248b8a1cc3877330c9b5b47e5fdf08421e79ae40d"
+    },
+    {
+      "file": "selection.json",
+      "bytes": 43391,
+      "sha256": "1346f8d5aa9b0258cbec0767297ff2f12533fa9156081cf91e3522a599ea62ee"
+    }
+  ],
+  "decision": [
+    "Include and rename this non-Kernel binding identity; the Kernel also consumes its spelling as entropy input.",
+    "Require unchanged-law execution and independent agreement separately on each graph. Explicit entropy changes can cause different numeric values and downstream outcomes.",
+    "Inverse name mapping cannot restore original numbers or control flow. Do not alter numerical golden expectations or claim renamed all-vector PASS."
+  ],
+  "limits": [
+    "This finite witness is not an exhaustive token inventory or authenticated Extension Invariance Receipt.",
+    "No numeric vector expectation was changed; the two graph candidates admit and execute, but this script does not claim renamed all-vector conformance.",
+    "The captured application flow uses domain/application APIs; this counterexample does not claim a separate CLI subprocess or independent six-member Runtime producer.",
+    "The original operation-execution vector is one of 347 maintained vectors; the other 346 were not executed by this probe."
+  ]
+}

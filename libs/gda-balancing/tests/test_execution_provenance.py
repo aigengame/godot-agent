@@ -107,7 +107,7 @@ def test_original_outcome_survives_a_different_producer(
         if row["id"] == checked.value["runtime"]["profile"]
     )
     assert profile["runtime_profile"] == selected_profile
-    assert profile["runtime_profile"]["extensions"] == selected_profile["extensions"]
+    assert profile["experiment_judgments"] == checked.experiment_judgments
     assert profile["rir_semantic_identity"] == checked.rir["semantic_identity"]
 
     if producer_change == "implementation":
@@ -225,9 +225,7 @@ def test_new_execution_still_refuses_an_unsupported_actual_operator(
     assert isinstance(prepared, Schema2RefusalReport)
     assert prepared.stage == "resolution"
     assert isinstance(prepared.diagnostics[0].primary, ArtifactLocation)
-    assert prepared.diagnostics[0].primary.pointer == (
-        "/runtime/required_evaluator/instruction_nodes"
-    )
+    assert prepared.diagnostics[0].primary.pointer == ("/runtime/profile")
 
 
 @pytest.mark.parametrize("outcome", ["success", "verdict", "runtime-refusal"])

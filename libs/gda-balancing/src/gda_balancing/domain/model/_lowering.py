@@ -5,13 +5,25 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, cast
 
+from gda_balancing.domain.formula._source_body import inline_parameter_contract
+from gda_balancing.domain.authority.source_projection import (
+    SourceProjection,
+    author_source_native_token,
+    derive_default_source_native_bindings,
+    project_source_native_token,
+    source_assignment_binding,
+    source_assignment_role,
+)
+
 
 from gda_balancing.domain.artifacts import (
-    _artifact_contract,
+    artifact_contract_for_role,
     _identified_artifact,
 )
 from gda_balancing.domain.artifact_semantics import artifact_semantic_projection
+from gda_balancing.domain.template_contract import template_model_results_are_supported
 from gda_balancing.domain.authority.graph import NamespaceSelection
+from gda_balancing.domain.authority.vector_validation import _fact_is_closed
 from gda_balancing.domain.authority.admission import project_operation_composition
 from gda_balancing.domain.canonical import (
     JsonValue,
@@ -45,12 +57,15 @@ from gda_balancing.domain.structured_values import (
     structured_fault_reason,
 )
 
+from gda_balancing.domain.authority.rir_projection import rir_collection_output
+from gda_balancing.domain.authority.package_semantics import (
+    package_runtime_semantic_closure,
+)
+
 from gda_balancing.domain.model._resolution import (
     CheckedModel,
     ModelSourceContext,
-    _FORMULA_REASON,
     _formula_contexts,
-    _formula_policy,
     _language,
     _model_lowering,
     _operation_formula_slots,
@@ -59,7 +74,6 @@ from gda_balancing.domain.model._resolution import (
     _pointer,
     _resolution_profile,
     _selected_source_operation_coordinates,
-    _selected_values,
 )
 from gda_balancing.domain.model._operation_call_domain_adapters import (
     build_operation_call_domain_input,
@@ -81,18 +95,39 @@ def lowering_inputs(
     list[tuple[dict[str, Any], tuple[object, ...]]],
 ]:
     """Resolve the authority-owned inputs shared by checking and compilation."""
-    lock = _package_lock(checked)
+    _source_fact_transport(checked.kernel)
     language = _language(checked.language_bundle)
     lowering = _model_lowering(checked.language_bundle)
-    declarations: list[dict[str, JsonValue]] = []
-    for fields, _source_pointer in source_rows:
+    source_bindings = derive_default_source_native_bindings(
+        checked.kernel, checked.language_bundle
+    )
+    initial_facts = []
+    for fields, source_pointer in source_rows:
         structured = fields.get("value_kind") == "nominal-structured"
+        admitted_fields = deepcopy(fields)
+        if "domain_kind" in admitted_fields:
+            admitted_fields["domain_kind"] = author_source_native_token(
+                source_bindings,
+                "source.symbol.domain_kind.discriminator",
+                admitted_fields["domain_kind"],
+            )
         fact = {
             "kind": lowering[
                 "structured_initial_fact_kind" if structured else "initial_fact_kind"
             ],
-            "fields": fields,
+            "fields": admitted_fields,
         }
+        if not _fact_is_closed(
+            fact, checked.kernel["meta_format"], checked.language_bundle
+        ):
+            raise _SourceFactError(
+                _pointer(source_pointer),
+                f"initial Fact {fact['kind']!r} does not close its declared contract",
+            )
+        initial_facts.append((fact, structured))
+    lock = _package_lock(checked)
+    declarations: list[dict[str, JsonValue]] = []
+    for fact, structured in initial_facts:
         rule_chain_member = "structured_rule_chain" if structured else "rule_chain"
         for invocation in cast(list[dict[str, str]], lowering[rule_chain_member]):
             fact = _apply_language_rule(
@@ -102,8 +137,44 @@ def lowering_inputs(
                 judgment=invocation["judgment"],
                 facts=[fact],
             )
-        declarations.append(cast(dict[str, JsonValue], fact["fields"]))
+        declaration = cast(dict[str, JsonValue], fact["fields"])
+        if "domain_kind" in declaration:
+            declaration["domain_kind"] = cast(
+                JsonValue,
+                project_source_native_token(
+                    source_bindings,
+                    "source.symbol.domain_kind.discriminator",
+                    declaration["domain_kind"],
+                ),
+            )
+        declarations.append(declaration)
     return lock, declarations, lowering, source_rows
+
+
+class _SourceFactError(ValueError):
+    """A Source Symbol cannot be transported into its declared initial Fact."""
+
+    def __init__(self, pointer: str, message: str) -> None:
+        super().__init__(message)
+        self.pointer = pointer
+
+
+def _source_fact_transport(kernel: dict[str, Any]) -> None:
+    law = kernel["meta_format"]["language_definitions"]["collections"][
+        "model_lowerings"
+    ]["source_fact_transport"]
+    if law != {
+        "unadapted_members": "copy-name-and-value",
+        "adapters": [
+            "semantic-symbol-name",
+            "resolved-symbol-identity",
+            "imported-type-identity",
+            "nominal-export-kind",
+        ],
+        "adapter_conflicts": "refuse",
+        "initial_fact_admission": "before-first-language-rule",
+    }:
+        raise ValueError("the Source-to-Fact transport law is unsupported")
 
 
 class _RuntimeProjectionResourceExhausted(Exception):
@@ -139,30 +210,36 @@ class _RuntimeProjectionBudget:
 
 
 def checked_model_template_facts(checked: CheckedModel) -> dict[str, JsonValue]:
-    """Project generic graph facts consumed by Template admission profiles."""
-    lowering = _model_lowering(checked.language_bundle)
-    profile = _resolution_profile(
-        checked.language_bundle, cast(str, lowering["resolution_profile"])
-    )
-    requirements_member = cast(str, profile["requirements_member"])
-    root_requirements = list(cast(list[str], checked.source[requirements_member]))
-    resolved_packages = [
-        package.namespace for package in checked.namespace_selection.packages
+    """Project Template results from their already admitted Model-owned origins."""
+    primitives = checked.kernel["meta_format"]["template_admission"]["primitive_spec"][
+        "primitives"
     ]
-    source_symbols = []
-    for fields, _source_pointer in checked.hir.source_rows:
-        resolved = cast(dict[str, str], fields["resolved_symbol"])
-        source_symbols.append(
-            {
-                **fields,
-                "id": f"{resolved['module']}.{resolved['name']}",
-            }
-        )
-    return {
-        "root_requirements": cast(JsonValue, root_requirements),
-        "resolved_packages": cast(JsonValue, resolved_packages),
-        "source_symbols": cast(JsonValue, source_symbols),
-    }
+    matches = [row for row in primitives if row["id"] == "model-source-admission"]
+    if len(matches) != 1 or not template_model_results_are_supported(
+        matches[0].get("results")
+    ):
+        raise ValueError("Model Source results have no supported Template origin law")
+    results = matches[0]["results"]
+    facts: dict[str, JsonValue] = {}
+    for name, result in results.items():
+        origin = result["origin"]
+        if origin == "selected-resolution-requirements":
+            requirements_member = "package_requirements"
+            facts[name] = list(
+                cast(list[str], checked.source_projection.value[requirements_member])
+            )
+        elif origin == "admitted-namespace-selection":
+            facts[name] = [
+                package.namespace for package in checked.namespace_selection.packages
+            ]
+        elif origin == "admitted-initial-source-fact-fields":
+            # These rows already passed the selected initial Fact field contracts.
+            facts[name] = cast(
+                JsonValue, [dict(fields) for fields, _ in checked.hir.source_rows]
+            )
+        else:
+            raise ValueError("Template Model result origin is unsupported")
+    return facts
 
 
 def _rir_semantic_projection(
@@ -170,7 +247,7 @@ def _rir_semantic_projection(
     rir: dict[str, JsonValue],
 ) -> dict[str, JsonValue]:
     """Project an RIR artifact or payload to executable semantics only."""
-    contract = _artifact_contract(language_bundle, "rir-semantic-payload")
+    contract = artifact_contract_for_role(language_bundle, "rir-semantic-payload")
     projection = contract.get("semantic_identity_projection")
     if not isinstance(projection, dict):
         raise ValueError("RIR artifact contract has no semantic identity projection")
@@ -180,7 +257,7 @@ def _rir_semantic_projection(
 def _rir_semantic_identity(
     language_bundle: dict[str, Any], rir: dict[str, JsonValue]
 ) -> str:
-    contract = _artifact_contract(language_bundle, "rir-semantic-payload")
+    contract = artifact_contract_for_role(language_bundle, "rir-semantic-payload")
     domain = contract.get("semantic_identity_domain")
     if not isinstance(domain, str) or not domain:
         raise ValueError("RIR artifact contract has no semantic identity domain")
@@ -204,37 +281,34 @@ def _identified_rir_artifact(
 
 
 def _resolved_source_symbols(
-    source: dict[str, Any], language_bundle: dict[str, Any]
+    projection: SourceProjection,
+    language_bundle: dict[str, Any],
+    kernel: dict[str, Any],
 ) -> list[tuple[dict[str, Any], tuple[object, ...]]]:
+    source = projection.value
+    _source_fact_transport(kernel)
     lowering = _model_lowering(language_bundle)
     profile = _resolution_profile(
         language_bundle, cast(str, lowering["resolution_profile"])
     )
     language = _language(language_bundle)
-    model_id = _path_value(source, cast(str, profile["manifest_id_path"]))
-    modules_member = cast(str, profile["modules_member"])
-    module_id_member = cast(str, profile["module_id_member"])
-    imports_member = cast(str, profile["imports_member"])
-    symbols_member = cast(str, profile["symbols_member"])
-    alias_member = cast(str, profile["import_alias_member"])
-    package_member = cast(str, profile["import_package_member"])
-    import_symbol_member = cast(str, profile["import_symbol_member"])
-    source_symbol_member = cast(str, profile["symbol_name_member"])
+    model_id = _path_value(source, "manifest.id")
+    modules_member = "modules"
+    module_id_member = "id"
+    imports_member = "imports"
+    symbols_member = "symbols"
+    alias_member = "alias"
+    package_member = "package"
+    import_symbol_member = "symbol"
+    source_symbol_member = "symbol"
     fact_symbol_member = cast(str, profile["symbol_fact_member"])
-    source_type_member = cast(str, profile["symbol_type_member"])
-    requirements_member = cast(str, profile["requirements_member"])
+    source_type_member = "type"
+    requirements_member = "package_requirements"
     requirements = set(cast(list[str], source[requirements_member]))
     packages = {
         item["id"]: item for item in cast(list[dict[str, Any]], language["packages"])
     }
-    selected_source_rows = {
-        pointer: value
-        for value, pointer in _selected_values(
-            source, cast(list[str], lowering["source_selector"])
-        )
-    }
     rows: list[tuple[dict[str, Any], tuple[object, ...]]] = []
-    resolved_source_pointers: set[tuple[object, ...]] = set()
     module_ids: set[str] = set()
     resolved_names: set[tuple[str, str, str]] = set()
     for module_index, module in enumerate(
@@ -271,11 +345,6 @@ def _resolved_source_symbols(
                 symbols_member,
                 symbol_index,
             )
-            if source_pointer not in selected_source_rows:
-                continue
-            if selected_source_rows[source_pointer] is not source_symbol:
-                raise ValueError("model lowering source selection was ambiguous")
-            resolved_source_pointers.add(source_pointer)
             alias = source_symbol[source_type_member]
             imported = imports.get(alias)
             if imported is None:
@@ -295,28 +364,39 @@ def _resolved_source_symbols(
                 for key, value in source_symbol.items()
                 if key not in {source_symbol_member, source_type_member}
             }
-            fields[fact_symbol_member] = name
-            fields["resolved_symbol"] = resolved_symbol
-            fields["type_identity"] = {
-                "package": imported[package_member],
-                "id": imported[import_symbol_member],
-            }
+            adapters: list[tuple[str, Any]] = [
+                (fact_symbol_member, name),
+                ("resolved_symbol", resolved_symbol),
+                (
+                    "type_identity",
+                    {
+                        "package": imported[package_member],
+                        "id": imported[import_symbol_member],
+                    },
+                ),
+            ]
             nominal_exports = packages[imported[package_member]]["exports"][
                 "nominal_types"
             ]
-            if imported[import_symbol_member] in nominal_exports:
-                fields["value_kind"] = "nominal-structured"
+            nominal = imported[import_symbol_member] in nominal_exports
+            adapters.append(("value_kind", "nominal-structured"))
+            owned_destinations = set(fields)
+            for destination, value in adapters:
+                if destination in owned_destinations:
+                    raise _SourceFactError(
+                        _pointer(source_pointer),
+                        f"initial Fact adapter destination {destination!r} already has an owner",
+                    )
+                owned_destinations.add(destination)
+                if destination != "value_kind" or nominal:
+                    fields[destination] = value
             rows.append(
                 (
                     fields,
                     source_pointer,
                 )
             )
-    if set(selected_source_rows) != resolved_source_pointers:
-        raise ValueError(
-            "model lowering source selector is outside the resolution profile"
-        )
-    entry_module = _path_value(source, cast(str, profile["manifest_entry_module_path"]))
+    entry_module = _path_value(source, "manifest.entry_module")
     if entry_module not in module_ids:
         raise ValueError("manifest entry_module does not name a module")
     return sorted(
@@ -334,6 +414,7 @@ def _formula_contract_mismatch_reason(
     target_contract: dict[str, Any],
     *,
     operation: bool,
+    reasons: dict[str, str],
 ) -> str | None:
     if operation:
         formula_type = formula_contract.get("type_identity")
@@ -357,13 +438,13 @@ def _formula_contract_mismatch_reason(
             and formula_contract.get("domain") == target_contract.get("domain")
         )
     if not type_matches:
-        return _FORMULA_REASON["type-mismatch"]
+        return reasons["type-mismatch"]
     if formula_contract.get("kind") != target_contract.get("kind"):
-        return _FORMULA_REASON["kind-mismatch"]
+        return reasons["kind-mismatch"]
     if formula_contract.get("unit") != target_contract.get("unit"):
-        return _FORMULA_REASON["unit-mismatch"]
+        return reasons["unit-mismatch"]
     if formula_contract.get("numeric_policy") != target_contract.get("numeric_policy"):
-        return _FORMULA_REASON["numeric-profile-mismatch"]
+        return reasons["numeric-profile-mismatch"]
     return None
 
 
@@ -480,6 +561,7 @@ def _reachable_derived_formula_sites(
     formulas: list[dict[str, Any]],
     bindings: list[dict[str, Any]],
     entrypoints: list[dict[str, Any]],
+    derived_role: str,
 ) -> set[tuple[str, str]]:
     """Close derived Formula sites reachable from executable entrypoints/slots."""
 
@@ -498,7 +580,7 @@ def _reachable_derived_formula_sites(
                     name = value.get("symbol")
                 if isinstance(module, str) and isinstance(name, str):
                     key = (module, name)
-                    if declarations_by_symbol.get(key, {}).get("role") == "derived":
+                    if declarations_by_symbol.get(key, {}).get("role") == derived_role:
                         found.add(key)
             for child in value.values():
                 found.update(derived_symbols(child))
@@ -585,29 +667,28 @@ def _resolved_formula_programs_and_bindings_impl(
     list[dict[str, JsonValue]],
     list[tuple[str, str]],
 ]:
-    profile = _resolution_profile(
-        checked.language_bundle,
-        cast(str, _model_lowering(checked.language_bundle)["resolution_profile"]),
+    derived_role = _derived_symbol_role(
+        _assignment_policy(_model_lowering(checked.language_bundle))
     )
     modules = cast(
         list[dict[str, Any]],
-        checked.source[cast(str, profile["modules_member"])],
+        checked.source_projection.value["modules"],
     )
-    formulas_member = cast(str, policy["module_formulas_member"])
-    formula_id_member = cast(str, policy["formula_id_member"])
-    formula_parameters_member = cast(str, policy["formula_parameters_member"])
-    formula_result_member = cast(str, policy["formula_result_member"])
-    formula_body_member = cast(str, policy["formula_body_member"])
-    body_nodes_member = cast(str, policy["body_nodes_member"])
-    body_result_member = cast(str, policy["body_result_member"])
-    node_id_member = cast(str, policy["node_id_member"])
-    parameter_id_member = cast(str, policy["parameter_id_member"])
-    bindings_member = cast(str, policy["bindings_member"])
-    binding_site_member = cast(str, policy["binding_site_member"])
-    binding_formula_member = cast(str, policy["binding_formula_member"])
-    binding_arguments_member = cast(str, policy["binding_arguments_member"])
-    binding_parameter_member = cast(str, policy["binding_parameter_member"])
-    binding_operand_member = cast(str, policy["binding_operand_member"])
+    formulas_member = "formulas"
+    formula_id_member = "id"
+    formula_parameters_member = "parameters"
+    formula_result_member = "result"
+    formula_body_member = "body"
+    body_nodes_member = "nodes"
+    body_result_member = "result"
+    node_id_member = "id"
+    parameter_id_member = "id"
+    bindings_member = "formula_bindings"
+    binding_site_member = "site"
+    binding_formula_member = "formula"
+    binding_arguments_member = "arguments"
+    binding_parameter_member = "parameter"
+    binding_operand_member = "operand"
     declarations_by_source = {
         (
             cast(dict[str, str], declaration["resolved_symbol"])["module"],
@@ -616,7 +697,7 @@ def _resolved_formula_programs_and_bindings_impl(
         for declaration in declarations
     }
     domains = cast(dict[str, str], policy["identity_domains"])
-    formula_contexts = _formula_contexts(checked.language_bundle)
+    formula_contexts = _formula_contexts(checked.kernel)
     actual_operand_domain = cast(
         str,
         checked.kernel["meta_format"]["runtime_program"]["invocation_contract"][
@@ -626,23 +707,30 @@ def _resolved_formula_programs_and_bindings_impl(
     prototypes: dict[tuple[str, str], dict[str, Any]] = {}
     formula_pointers: dict[tuple[str, str], str] = {}
     for module_index, module in enumerate(modules):
-        module_id = cast(str, module[cast(str, profile["module_id_member"])])
+        module_id = cast(str, module["id"])
         imports = {
-            cast(str, item[cast(str, profile["import_alias_member"])]): {
-                "alias": cast(str, item[cast(str, profile["import_alias_member"])]),
-                "package": cast(str, item[cast(str, profile["import_package_member"])]),
-                "symbol": cast(str, item[cast(str, profile["import_symbol_member"])]),
+            cast(str, item["alias"]): {
+                "alias": cast(str, item["alias"]),
+                "package": cast(str, item["package"]),
+                "symbol": cast(str, item["symbol"]),
             }
             for item in cast(
                 list[dict[str, Any]],
-                module[cast(str, profile["imports_member"])],
+                module["imports"],
             )
         }
         for formula_index, source_formula in enumerate(
             cast(list[dict[str, Any]], module.get(formulas_member, []))
         ):
             failure_context[:] = [
-                f"/modules/{module_index}/{formulas_member}/{formula_index}"
+                _pointer(
+                    (
+                        "modules",
+                        module_index,
+                        formulas_member,
+                        formula_index,
+                    )
+                )
             ]
             formula_id = source_formula.get(formula_id_member)
             key = (module_id, cast(str, formula_id))
@@ -684,7 +772,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 int, policy["max_nodes_per_formula"]
             ):
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["resource-exhausted"],
+                    policy["refusal_reasons"]["resource-exhausted"],
                     failure_context[0],
                     "Formula body exceeds its admitted node bound",
                 )
@@ -702,8 +790,13 @@ def _resolved_formula_programs_and_bindings_impl(
                 "source_body": body,
                 "source_expression": source_formula["expression"],
             }
-            formula_pointers[key] = (
-                f"/modules/{module_index}/{formulas_member}/{formula_index}"
+            formula_pointers[key] = _pointer(
+                (
+                    "modules",
+                    module_index,
+                    formulas_member,
+                    formula_index,
+                )
             )
 
     dependencies: dict[tuple[str, str], list[tuple[str, str]]] = {}
@@ -729,10 +822,6 @@ def _resolved_formula_programs_and_bindings_impl(
                 if target not in prototypes:
                     raise ValueError("Formula call names no declaration")
                 calls.append(target)
-            elif node.get("node") not in cast(list[str], policy["allowed_body_nodes"]):
-                raise ValueError(
-                    "Formula expression node is outside the admitted policy"
-                )
         dependencies[key] = calls
 
     visiting: set[tuple[str, str]] = set()
@@ -742,7 +831,7 @@ def _resolved_formula_programs_and_bindings_impl(
     def visit(key: tuple[str, str]) -> None:
         if key in visiting:
             raise _FormulaResolutionError(
-                _FORMULA_REASON["cycle"],
+                policy["refusal_reasons"]["cycle"],
                 f"{formula_pointers[key]}/body",
                 "Formula call graph contains a cycle",
             )
@@ -865,7 +954,7 @@ def _resolved_formula_programs_and_bindings_impl(
                     or operation.get("effects") != []
                 ):
                     raise _FormulaResolutionError(
-                        _FORMULA_REASON["purity-mismatch"],
+                        policy["refusal_reasons"]["purity-mismatch"],
                         formula_pointers[key],
                         "Formula operation call is unresolved or effectful",
                     )
@@ -1022,7 +1111,7 @@ def _resolved_formula_programs_and_bindings_impl(
                     )
                 ):
                     raise _FormulaResolutionError(
-                        _FORMULA_REASON["type-mismatch"],
+                        policy["refusal_reasons"]["type-mismatch"],
                         formula_pointers[key],
                         "Formula conditional requires the Kernel Boolean contract",
                     )
@@ -1123,7 +1212,7 @@ def _resolved_formula_programs_and_bindings_impl(
     failure_context.clear()
     selected_formula_keys: set[tuple[str, str]] = set()
     source_bindings = cast(
-        list[dict[str, Any]], checked.source.get(bindings_member, [])
+        list[dict[str, Any]], checked.source_projection.value.get(bindings_member, [])
     )
     binding_pointer_by_formula: dict[tuple[str, str], str] = {}
     for binding_index, source_binding in enumerate(source_bindings):
@@ -1132,14 +1221,14 @@ def _resolved_formula_programs_and_bindings_impl(
         selected_formula_keys.add(formula_key)
         binding_pointer_by_formula.setdefault(
             formula_key,
-            f"/{bindings_member}/{binding_index}/{binding_formula_member}",
+            _pointer([bindings_member, binding_index, binding_formula_member]),
         )
     pending = list(selected_formula_keys)
     while pending:
         key = pending.pop()
         if key not in resolved_by_key:
             raise _FormulaResolutionError(
-                _FORMULA_REASON["binding-missing"],
+                policy["refusal_reasons"]["binding-missing"],
                 binding_pointer_by_formula[key],
                 "Formula binding names no declaration",
             )
@@ -1189,7 +1278,10 @@ def _resolved_formula_programs_and_bindings_impl(
                 )
                 | {"result": node["result"]}
             )
-    for source_entrypoint in cast(list[dict[str, Any]], checked.source["entrypoints"]):
+    for source_entrypoint in cast(
+        list[dict[str, Any]],
+        checked.source_projection.value["entrypoints"],
+    ):
         operation_ref = cast(dict[str, str], source_entrypoint["operation"])
         coordinate = (operation_ref["package"], operation_ref["id"])
         operation = operations_by_coordinate.get(coordinate)
@@ -1217,7 +1309,7 @@ def _resolved_formula_programs_and_bindings_impl(
     )
     concrete_operation_calls = call_domain_projection.calls
     selected_operation_coordinates = _selected_source_operation_coordinates(
-        checked.source,
+        checked.source_projection.value["entrypoints"],
         lock,
         _operation_reference_node_ids(checked.kernel),
         formula_operation_roots,
@@ -1240,7 +1332,7 @@ def _resolved_formula_programs_and_bindings_impl(
     bound_derived_sites: set[tuple[str, str]] = set()
     bound_operation_slots: set[tuple[str, str, str]] = set()
     for binding_index, source_binding in enumerate(source_bindings):
-        binding_pointer = f"/{bindings_member}/{binding_index}"
+        binding_pointer = _pointer([bindings_member, binding_index])
         failure_context[:] = [binding_pointer]
         source_site = cast(dict[str, Any], source_binding[binding_site_member])
         source_formula_ref = cast(
@@ -1266,9 +1358,9 @@ def _resolved_formula_programs_and_bindings_impl(
             or set(binding_parameter_ids) != set(binding_parameters)
         ):
             reason = (
-                _FORMULA_REASON["binding-duplicate"]
+                policy["refusal_reasons"]["binding-duplicate"]
                 if len(binding_parameter_ids) != len(set(binding_parameter_ids))
-                else _FORMULA_REASON["binding-missing"]
+                else policy["refusal_reasons"]["binding-missing"]
             )
             raise _FormulaResolutionError(
                 reason,
@@ -1282,15 +1374,15 @@ def _resolved_formula_programs_and_bindings_impl(
                 cast(str, source_site.get("symbol")),
             )
             site_declaration = declarations_by_source.get(site_key)
-            if site_declaration is None or site_declaration.get("role") != "derived":
+            if site_declaration is None or site_declaration.get("role") != derived_role:
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["unreachable"],
+                    policy["refusal_reasons"]["unreachable"],
                     f"{binding_pointer}/site",
                     "Formula binding site is not a reachable derived Symbol",
                 )
             if site_key in bound_derived_sites:
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["binding-duplicate"],
+                    policy["refusal_reasons"]["binding-duplicate"],
                     f"{binding_pointer}/site",
                     "Formula derived Symbol is bound more than once",
                 )
@@ -1298,6 +1390,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 cast(dict[str, Any], formula["result"]),
                 site_declaration,
                 operation=False,
+                reasons=policy["refusal_reasons"],
             )
             if mismatch_reason is not None:
                 raise _FormulaResolutionError(
@@ -1326,7 +1419,7 @@ def _resolved_formula_programs_and_bindings_impl(
                     ),
                     formula_contexts[phase],
                 )
-                for phase in ("initialization", "event", "observation")
+                for phase in formula_contexts
             ]
         elif source_site.get("kind") == "operation-slot":
             source_operation = cast(dict[str, Any], source_site.get("operation"))
@@ -1338,20 +1431,27 @@ def _resolved_formula_programs_and_bindings_impl(
             selected_slot = selected_slots.get(slot_key)
             if selected_slot is None:
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["unreachable"],
+                    policy["refusal_reasons"]["unreachable"],
                     f"{binding_pointer}/site",
                     "Formula binding site is not a selected Operation slot",
                 )
             if slot_key in bound_operation_slots:
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["binding-duplicate"],
+                    policy["refusal_reasons"]["binding-duplicate"],
                     f"{binding_pointer}/site",
                     "Formula Operation slot is bound more than once",
                 )
             operation, slot, operation_identity = selected_slot
-            if slot.get("context") != formula_contexts["event"]:
+            if (
+                slot.get("context")
+                != formula_contexts[
+                    checked.kernel["meta_format"]["runtime_program"][
+                        "runtime_configuration"
+                    ]["lifecycle_roles"]["active"]
+                ]
+            ):
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["context-mismatch"],
+                    policy["refusal_reasons"]["context-mismatch"],
                     f"{binding_pointer}/site",
                     "Formula Operation slot uses no admitted Runtime context",
                 )
@@ -1372,7 +1472,7 @@ def _resolved_formula_programs_and_bindings_impl(
                     or slot_parameter is None
                 ):
                     raise _FormulaResolutionError(
-                        _FORMULA_REASON["binding-missing"],
+                        policy["refusal_reasons"]["binding-missing"],
                         f"{binding_pointer}/arguments/{len(arguments)}/operand",
                         "Formula Operation-slot argument is unresolved",
                     )
@@ -1380,6 +1480,7 @@ def _resolved_formula_programs_and_bindings_impl(
                     binding_parameters[parameter_id],
                     slot_parameter,
                     operation=True,
+                    reasons=policy["refusal_reasons"],
                 )
                 if mismatch_reason is not None:
                     raise _FormulaResolutionError(
@@ -1392,7 +1493,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 )
                 if len(projected_parameters) != len(concrete_calls):
                     raise _FormulaResolutionError(
-                        _FORMULA_REASON["type-mismatch"],
+                        policy["refusal_reasons"]["type-mismatch"],
                         f"{binding_pointer}/arguments/{len(arguments)}/operand",
                         "Formula Operation-slot call-site projection is incomplete",
                     )
@@ -1400,7 +1501,7 @@ def _resolved_formula_programs_and_bindings_impl(
                     actual_contract = parameter_projection.get(slot_parameter_id)
                     if not isinstance(actual_contract, dict):
                         raise _FormulaResolutionError(
-                            _FORMULA_REASON["type-mismatch"],
+                            policy["refusal_reasons"]["type-mismatch"],
                             f"{binding_pointer}/arguments/{len(arguments)}/operand",
                             "Formula slot source is unresolved",
                         )
@@ -1408,7 +1509,7 @@ def _resolved_formula_programs_and_bindings_impl(
                         binding_parameters[parameter_id], actual_contract
                     ):
                         raise _FormulaResolutionError(
-                            _FORMULA_REASON["type-mismatch"],
+                            policy["refusal_reasons"]["type-mismatch"],
                             f"{binding_pointer}/arguments/{len(arguments)}/operand",
                             "Formula Operation-slot parameter does not cover its "
                             "concrete call-site domain",
@@ -1435,6 +1536,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 cast(dict[str, Any], formula["result"]),
                 cast(dict[str, Any], slot["result"]),
                 operation=True,
+                reasons=policy["refusal_reasons"],
             )
             if mismatch_reason is not None:
                 raise _FormulaResolutionError(
@@ -1448,7 +1550,7 @@ def _resolved_formula_programs_and_bindings_impl(
                     call_result, cast(dict[str, Any], formula["result"])
                 ):
                     raise _FormulaResolutionError(
-                        _FORMULA_REASON["type-mismatch"],
+                        policy["refusal_reasons"]["type-mismatch"],
                         f"{binding_pointer}/formula",
                         "Formula Operation-slot result exceeds its concrete "
                         "call-site domain",
@@ -1458,7 +1560,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 cast(list[str], slot["permitted_refusals"])
             ):
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["refusal-widening"],
+                    policy["refusal_reasons"]["refusal-widening"],
                     f"{binding_pointer}/formula",
                     "Formula closure widens its Operation-slot refusals",
                 )
@@ -1466,7 +1568,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 cast(list[str], closure["operation_dependencies"])
             ):
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["cycle"],
+                    policy["refusal_reasons"]["cycle"],
                     f"{binding_pointer}/formula",
                     "Formula closure cycles through its Operation slot",
                 )
@@ -1477,7 +1579,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 int, closure["termination_measure"]
             ) > cast(int, slot["termination_measure"]):
                 raise _FormulaResolutionError(
-                    _FORMULA_REASON["resource-exhausted"],
+                    policy["refusal_reasons"]["resource-exhausted"],
                     f"{binding_pointer}/formula",
                     "Formula closure exceeds its Operation-slot resource contract",
                 )
@@ -1530,8 +1632,8 @@ def _resolved_formula_programs_and_bindings_impl(
             )
     if bound_operation_slots != set(selected_slots):
         raise _FormulaResolutionError(
-            _FORMULA_REASON["binding-missing"],
-            "/entrypoints/0/operation",
+            policy["refusal_reasons"]["binding-missing"],
+            _pointer(["entrypoints", 0, "operation"]),
             "every selected Operation Formula slot requires exactly one binding",
         )
     resolved_formulas = [resolved_by_key[key] for key in sorted(selected_formula_keys)]
@@ -1540,15 +1642,19 @@ def _resolved_formula_programs_and_bindings_impl(
             declarations_by_source,
             cast(list[dict[str, Any]], resolved_formulas),
             cast(list[dict[str, Any]], resolved_bindings),
-            cast(list[dict[str, Any]], checked.source["entrypoints"]),
+            cast(
+                list[dict[str, Any]],
+                checked.source_projection.value["entrypoints"],
+            ),
+            derived_role,
         )
         != bound_derived_sites
     ):
         raise _FormulaResolutionError(
-            _FORMULA_REASON["unreachable"],
+            policy["refusal_reasons"]["unreachable"],
             next(
                 (
-                    f"/{bindings_member}/{index}/{binding_site_member}"
+                    _pointer([bindings_member, index, binding_site_member])
                     for index, binding in enumerate(source_bindings)
                     if cast(dict[str, Any], binding[binding_site_member]).get("kind")
                     == "derived-symbol"
@@ -1570,10 +1676,14 @@ def _resolved_formula_programs_and_bindings_impl(
                         declarations_by_source,
                         cast(list[dict[str, Any]], resolved_formulas),
                         cast(list[dict[str, Any]], resolved_bindings),
-                        cast(list[dict[str, Any]], checked.source["entrypoints"]),
+                        cast(
+                            list[dict[str, Any]],
+                            checked.source_projection.value["entrypoints"],
+                        ),
+                        derived_role,
                     )
                 ),
-                f"/{bindings_member}",
+                _pointer([bindings_member]),
             ),
             "derived Formula binding is outside the executable entrypoint closure",
         )
@@ -1615,7 +1725,7 @@ def _resolved_formula_programs_and_bindings(
         if failure_context:
             message = str(error)
             if "incompatible" in message or "does not match" in message:
-                reason_id = _FORMULA_REASON["type-mismatch"]
+                reason_id = policy["refusal_reasons"]["type-mismatch"]
             else:
                 reason_id = cast(
                     str,
@@ -1647,44 +1757,65 @@ def _resolved_formulas_and_bindings(
     list[tuple[str, str]],
 ]:
     """Normalize authoring sugar, then resolve one Formula program grammar."""
-    policy = _formula_policy(checked.language_bundle)
     profile = _resolution_profile(
         checked.language_bundle,
         cast(str, _model_lowering(checked.language_bundle)["resolution_profile"]),
     )
-    normalized_source = deepcopy(checked.source)
+    # Resolve authored roots before interpreting their Formula binding sites.
+    # An unknown root must not broaden selection to every installed Operation.
+    for index, entrypoint in enumerate(checked.source_projection.value["entrypoints"]):
+        reference = entrypoint["operation"]
+        if not any(
+            row["package"] == reference["package"]
+            and row["definition"]["id"] == reference["id"]
+            for row in lock["operations"]
+        ):
+            member = (
+                "package"
+                if reference["package"] not in {row["id"] for row in lock["packages"]}
+                else "id"
+            )
+            raise _EntrypointBindingError(
+                _pointer(
+                    [
+                        "entrypoints",
+                        index,
+                        "operation",
+                        member,
+                    ]
+                ),
+                f"entrypoint Operation is not selected: {entrypoint['id']}",
+            )
+    policy = profile["formula_resolution"]
+    normalized_source = deepcopy(checked.source_projection.value)
     changed = False
-    normalizations = cast(list[dict[str, str]], policy["inline_body_normalizations"])
+    inline = inline_parameter_contract(checked.kernel)
     for module in cast(
         list[dict[str, Any]],
-        normalized_source[cast(str, profile["modules_member"])],
+        normalized_source["modules"],
     ):
         for formula in cast(
             list[dict[str, Any]],
-            module.get(cast(str, policy["module_formulas_member"]), []),
+            module.get("formulas", []),
         ):
-            body = formula.get(cast(str, policy["formula_body_member"]))
+            body = formula.get("body")
             if not isinstance(body, dict):
                 continue
-            for normalization in normalizations:
-                parameter_member = normalization["parameter_member"]
-                if (
-                    set(body) != {"node", parameter_member}
-                    or body.get("node") != (normalization["node"])
-                ):
-                    continue
-                formula[cast(str, policy["formula_body_member"])] = {
-                    cast(str, policy["body_nodes_member"]): [],
-                    cast(str, policy["body_result_member"]): {
-                        "kind": normalization["result_kind"],
-                        parameter_member: body[parameter_member],
-                    },
+            operand = inline.operand(body)
+            if operand is not None:
+                formula["body"] = {
+                    "nodes": [],
+                    "result": operand,
                 }
                 changed = True
-                break
     normalized = (
         ModelSourceContext(
-            source=normalized_source,
+            source=checked.source,
+            source_projection=SourceProjection(
+                normalized_source,
+                checked.source_projection.authored_paths,
+                checked.source,
+            ),
             source_identity=checked.source_identity,
             kernel=checked.kernel,
             language_bundle=checked.language_bundle,
@@ -1713,8 +1844,6 @@ def _assignment_policy(
     if (
         not isinstance(rows, list)
         or not rows
-        or policy.get("scenario_target_cardinality") != "one-per-resolved-actual"
-        or policy.get("duplicate_actual_policy") != "collapse"
         or any(
             not isinstance(row, dict)
             or not isinstance(row.get("role"), str)
@@ -1825,10 +1954,7 @@ def _assignment_role_is_total(row: dict[str, Any]) -> bool:
                 mode["experiment_cardinality"] != "forbidden"
                 or mode["initialization_source"]
                 in {"model", "model-with-experiment-override"}
-                or (
-                    row["role"] == "derived"
-                    and mode["initialization_source"] == "resolved-model"
-                )
+                or mode["initialization_source"] == "resolved-model"
                 for mode in modes
             )
             and all(
@@ -1872,6 +1998,13 @@ def _assignment_policy_by_role(
     rows = cast(list[dict[str, Any]], policy["roles"])
     by_role = {cast(str, row["role"]): row for row in rows}
     return by_role
+
+
+def _derived_symbol_role(assignment_policy: dict[str, Any]) -> str:
+    return source_assignment_binding(
+        assignment_policy,
+        initialization_source="resolved-model",
+    ).role
 
 
 def _assignment_mode_for_declaration(
@@ -1952,6 +2085,101 @@ def _inline_pure_expression_instruction(
     return compiled
 
 
+def _inline_pure_operation(
+    coordinate: tuple[str, str],
+    operations: dict[tuple[str, str], dict[str, Any]],
+    values: dict[str, dict[str, JsonValue]],
+    *,
+    prefix: str,
+    reference: Callable[[dict[str, JsonValue]], str],
+    local: Callable[[str], dict[str, JsonValue]],
+    literal: Callable[[JsonValue], dict[str, JsonValue]],
+    emit: Callable[[dict[str, JsonValue]], None],
+    result_target: str | None = None,
+    stack: tuple[tuple[str, str], ...] = (),
+) -> dict[str, JsonValue] | None:
+    """Expand one admitted scalar call in lexical order for both Formula emitters.
+
+    Each nested invoke contributes one ordinary value instruction in addition
+    to its complete child body. Unit requires a real invocation program boundary
+    and is refused by scalar Formula inference before this lowering.
+    """
+    if coordinate in stack:
+        raise ValueError("Formula Operation call graph is cyclic")
+    operation = operations[coordinate]
+    if set(values) != {port["id"] for port in operation["inputs"]}:
+        raise ValueError("Formula Operation arguments are incomplete")
+    values = dict(values)
+    results: dict[str, dict[str, JsonValue] | None] = {}
+    source = operation["result"]["source"]
+    returned_local = source.get("name") if source["kind"] == "local" else None
+    for index, instruction in enumerate(operation["body"]):
+        target = f"{prefix}.{index}"
+        if instruction["node"] == "invoke":
+            arguments: dict[str, dict[str, JsonValue]] = {}
+            for argument in instruction["arguments"]:
+                operand = argument["operand"]
+                kind = operand["kind"]
+                if kind == "literal":
+                    value = literal(operand["literal"])
+                elif kind in {"port", "local"}:
+                    value = values[operand[kind]]
+                else:
+                    raise ValueError("Formula Operation operand has no scalar lowering")
+                arguments[argument["port"]] = value
+            child = instruction["operation"]
+            result = _inline_pure_operation(
+                (child["package"], child["id"]),
+                operations,
+                arguments,
+                prefix=target,
+                reference=reference,
+                local=local,
+                literal=literal,
+                emit=emit,
+                stack=(*stack, coordinate),
+            )
+            binding = instruction["result"]
+            if result_target is not None and (
+                (binding["kind"] == "local" and binding.get("name") == returned_local)
+                or (
+                    source["kind"] == "operation-result"
+                    and source["site"] == instruction["site"]
+                )
+            ):
+                target = result_target
+            if result is None:
+                raise ValueError(
+                    "Formula scalar value program cannot express a Unit invocation"
+                )
+            emit({"node": "copy", "target": target, "value": reference(result)})
+            result = local(target)
+            results[instruction["site"]] = result
+            if binding["kind"] == "local":
+                if result is None:
+                    raise ValueError("Formula Unit return cannot bind a scalar local")
+                values[binding["name"]] = result
+            elif binding["kind"] not in {"operation-result", "discard"}:
+                raise ValueError("Formula Operation return binding is malformed")
+            continue
+        source_target = instruction.get("target")
+        if result_target is not None and source_target == returned_local:
+            target = result_target
+        emit(
+            _inline_pure_expression_instruction(
+                instruction, target=target, values=values, reference=reference
+            )
+        )
+        values[source_target] = local(target)
+    if source["kind"] in {"port", "local"}:
+        return values[source["name"]]
+    if source["kind"] == "operation-result":
+        return results[source["site"]]
+    if source["kind"] == "unit":
+        return None
+    raise ValueError("Formula Operation result source is unresolved")
+
+
 def _specialize_operation_formula_slots(
     selected_semantics: dict[str, JsonValue],
     formulas: list[dict[str, JsonValue]],
@@ -2028,12 +2256,6 @@ def _specialize_operation_formula_slots(
             target = result_target if node_id == final_local else f"{prefix}.{node_id}"
             if node["node"] == "operation-call":
                 operation_ref = cast(dict[str, Any], node["operation"])
-                called_operation = operations[
-                    (
-                        cast(str, operation_ref["package"]),
-                        cast(str, operation_ref["id"]),
-                    )
-                ]
                 child_values = {
                     cast(str, argument["port"]): runtime_operand(
                         cast(dict[str, Any], argument["operand"]),
@@ -2043,38 +2265,19 @@ def _specialize_operation_formula_slots(
                     )
                     for argument in cast(list[dict[str, Any]], node["arguments"])
                 }
-                child_result_source = cast(
-                    dict[str, Any], called_operation["result"]["source"]
+                called_result = _inline_pure_operation(
+                    (operation_ref["package"], operation_ref["id"]),
+                    operations,
+                    child_values,
+                    prefix=f"{prefix}.{node_id}",
+                    reference=runtime_reference,
+                    local=lambda name: {"kind": "local", "local": name},
+                    literal=lambda value: {"kind": "literal", "literal": value},
+                    emit=instructions.append,
+                    result_target=target,
                 )
-                child_result_name = (
-                    cast(str, child_result_source["name"])
-                    if child_result_source["kind"] in {"local", "port"}
-                    else None
-                )
-                for child_index, child_instruction in enumerate(
-                    cast(list[dict[str, Any]], called_operation["body"])
-                ):
-                    child_target_name = cast(str, child_instruction.get("target", ""))
-                    child_target = (
-                        target
-                        if child_target_name == child_result_name
-                        else f"{prefix}.{node_id}.{child_index}"
-                    )
-
-                    compiled_child = _inline_pure_expression_instruction(
-                        child_instruction,
-                        target=child_target,
-                        values=child_values,
-                        reference=runtime_reference,
-                    )
-                    instructions.append(compiled_child)
-                    child_values[child_target_name] = {
-                        "kind": "local",
-                        "local": child_target,
-                    }
-                if child_result_name is None:
-                    raise ValueError("Formula pure Operation has no value result")
-                called_result = child_values[child_result_name]
+                if called_result is None:
+                    raise ValueError("Formula Unit return cannot bind a scalar result")
                 if called_result != {"kind": "local", "local": target}:
                     instructions.append(
                         {
@@ -2083,9 +2286,12 @@ def _specialize_operation_formula_slots(
                             "value": runtime_reference(called_result),
                         }
                     )
-                # The Formula node itself is charged in addition to its
-                # selected pure Operation body.
-                instructions.append({"node": "copy", "target": target, "value": target})
+                else:
+                    # The Formula node's own charge when the selected return
+                    # already occupies its target; port returns use the copy above.
+                    instructions.append(
+                        {"node": "copy", "target": target, "value": target}
+                    )
             elif node["node"] == "conditional":
                 condition = runtime_operand(
                     cast(dict[str, Any], node["condition"]),
@@ -2427,12 +2633,6 @@ def _compile_initialization_programs(
                 site_identity = instruction_site(formula, node_id, prefix)
                 if node["node"] == "operation-call":
                     operation_ref = cast(dict[str, Any], node["operation"])
-                    operation = operations[
-                        (
-                            cast(str, operation_ref["package"]),
-                            cast(str, operation_ref["id"]),
-                        )
-                    ]
                     values = {
                         cast(str, argument["port"]): source_for_operand(
                             cast(dict[str, Any], argument["operand"]),
@@ -2442,35 +2642,25 @@ def _compile_initialization_programs(
                         )
                         for argument in cast(list[dict[str, Any]], node["arguments"])
                     }
-                    result_source = cast(dict[str, Any], operation["result"]["source"])
-                    result_name = (
-                        cast(str, result_source["name"])
-                        if result_source["kind"] in {"local", "port"}
-                        else None
+                    operation_result = _inline_pure_operation(
+                        (operation_ref["package"], operation_ref["id"]),
+                        operations,
+                        values,
+                        prefix=target,
+                        reference=reference,
+                        local=lambda name: {"kind": "local", "name": name},
+                        literal=lambda value: add_input(
+                            f"{target}.$literal.{len(inputs)}",
+                            {"kind": "literal", "value": value},
+                        ),
+                        emit=lambda instruction: emit(
+                            instruction, evaluation_site_identity=site_identity
+                        ),
                     )
-                    for child_index, child in enumerate(
-                        cast(list[dict[str, Any]], operation["body"])
-                    ):
-                        child_target_name = cast(str, child.get("target", ""))
-                        child_target = f"{target}.{child_index}"
-
-                        compiled_child = _inline_pure_expression_instruction(
-                            child,
-                            target=child_target,
-                            values=values,
-                            reference=reference,
+                    if operation_result is None:
+                        raise ValueError(
+                            "Formula Unit return cannot bind a scalar result"
                         )
-                        emit(
-                            compiled_child,
-                            evaluation_site_identity=site_identity,
-                        )
-                        values[child_target_name] = {
-                            "kind": "local",
-                            "name": child_target,
-                        }
-                    if result_name is None:
-                        raise ValueError("pure Operation has no value result")
-                    operation_result = values[result_name]
                     emit(
                         {
                             "node": "copy",
@@ -2628,7 +2818,7 @@ def _value_policy_is_valid(
         ):
             return False
         domain = declaration.get("domain")
-        if declaration.get("domain_kind") == "closed-interval" and (
+        if (
             not isinstance(domain, dict)
             or not isinstance(domain.get("minimum"), int)
             or not isinstance(domain.get("maximum"), int)
@@ -2651,11 +2841,8 @@ def _invalid_source_value_policy_pointer(
             cast(list[str], language_bundle["language"]["quantity"]["symbol_roles"])
         ),
     )
-    profile = _resolution_profile(
-        language_bundle, cast(str, lowering["resolution_profile"])
-    )
-    modules_member = cast(str, profile["modules_member"])
-    symbols_member = cast(str, profile["symbols_member"])
+    modules_member = "modules"
+    symbols_member = "symbols"
     for module_index, module in enumerate(
         cast(list[dict[str, Any]], source[modules_member])
     ):
@@ -2675,17 +2862,25 @@ def _invalid_source_value_policy_pointer(
     return None
 
 
-def _formula_failure_pointer(source: dict[str, Any], message: str) -> str:
+def _formula_failure_pointer(
+    source: dict[str, Any],
+    message: str,
+) -> str:
+    binding_pointer = _pointer(("formula_bindings",))
     if "binding" in message.lower() or "derived Symbol" in message:
-        return "/formula_bindings"
+        return binding_pointer
+    modules_member = "modules"
+    formulas_member = "formulas"
     for module_index, module in enumerate(
-        cast(list[dict[str, Any]], source.get("modules", []))
+        cast(list[dict[str, Any]], source.get(modules_member, []))
     ):
-        formulas = cast(list[dict[str, Any]], module.get("formulas", []))
+        formulas = cast(list[dict[str, Any]], module.get(formulas_member, []))
         if formulas:
-            suffix = "/body" if "body" in message.lower() or "cycle" in message else ""
-            return f"/modules/{module_index}/formulas/0{suffix}"
-    return "/formula_bindings"
+            parts = [modules_member, module_index, formulas_member, 0]
+            if "body" in message.lower() or "cycle" in message:
+                parts.append("body")
+            return _pointer(parts)
+    return binding_pointer
 
 
 def _symbol_initialization_contract(
@@ -2975,6 +3170,7 @@ def _resolved_entrypoints(
         ),
     )
     assignment_by_role = _assignment_policy_by_role(assignment_policy)
+    derived_role = _derived_symbol_role(assignment_policy)
     if any(
         not _value_policy_is_valid(declaration, assignment_policy)
         for declaration in declarations
@@ -3013,9 +3209,12 @@ def _resolved_entrypoints(
     entrypoints: list[dict[str, JsonValue]] = []
     seen_entrypoints: set[str] = set()
     for entrypoint_index, source_entrypoint in enumerate(
-        cast(list[dict[str, Any]], checked.source["entrypoints"])
+        cast(
+            list[dict[str, Any]],
+            checked.source_projection.value["entrypoints"],
+        )
     ):
-        pointer = f"/entrypoints/{entrypoint_index}"
+        pointer = _pointer(["entrypoints", entrypoint_index])
         entrypoint_id = cast(str, source_entrypoint["id"])
         if entrypoint_id in seen_entrypoints:
             raise _EntrypointBindingError(
@@ -3023,6 +3222,13 @@ def _resolved_entrypoints(
                 f"duplicate Model entrypoint: {entrypoint_id}",
             )
         seen_entrypoints.add(entrypoint_id)
+        operation_pointer = _pointer(
+            [
+                "entrypoints",
+                entrypoint_index,
+                "operation",
+            ]
+        )
         operation_ref = cast(dict[str, str], source_entrypoint["operation"])
         operation_row = operations.get((operation_ref["package"], operation_ref["id"]))
         if operation_row is None:
@@ -3031,7 +3237,7 @@ def _resolved_entrypoints(
             else:
                 member = "id"
             raise _EntrypointBindingError(
-                f"{pointer}/operation/{member}",
+                f"{operation_pointer}/{member}",
                 f"entrypoint Operation is not selected: {entrypoint_id}",
             )
         operation = cast(dict[str, Any], operation_row["definition"])
@@ -3077,7 +3283,7 @@ def _resolved_entrypoints(
             dependency = declarations_by_source.get(dependency_key)
             if dependency is None:
                 raise _EntrypointBindingError(
-                    f"{pointer}/operation",
+                    operation_pointer,
                     "entrypoint Formula Symbol dependency is unresolved",
                 )
             dependency_body = cast(
@@ -3100,10 +3306,10 @@ def _resolved_entrypoints(
             if (
                 dependency_target is None
                 and dependency_initializer is None
-                and dependency.get("role") != "derived"
+                and dependency.get("role") != derived_role
             ):
                 raise _EntrypointBindingError(
-                    f"{pointer}/operation",
+                    operation_pointer,
                     "entrypoint Formula Symbol dependency is absent from the "
                     "pre-event Snapshot",
                 )
@@ -3111,7 +3317,7 @@ def _resolved_entrypoints(
                 previous_target = scenario_targets.get(dependency_identity)
                 if previous_target is not None and previous_target != dependency_target:
                     raise _EntrypointBindingError(
-                        f"{pointer}/operation",
+                        operation_pointer,
                         "one Formula dependency derived conflicting assignment "
                         "contracts",
                     )
@@ -3129,7 +3335,7 @@ def _resolved_entrypoints(
                     and previous_payload_target != event_payload_target
                 ):
                     raise _EntrypointBindingError(
-                        f"{pointer}/operation",
+                        operation_pointer,
                         "one Formula dependency derived conflicting Event-local "
                         "payload contracts",
                     )
@@ -3149,7 +3355,7 @@ def _resolved_entrypoints(
                     and previous_external_target != external_fact_target
                 ):
                     raise _EntrypointBindingError(
-                        f"{pointer}/operation",
+                        operation_pointer,
                         "one Formula dependency derived conflicting external-fact "
                         "contracts",
                     )
@@ -3161,7 +3367,7 @@ def _resolved_entrypoints(
                     and previous_initializer != dependency_initializer
                 ):
                     raise _EntrypointBindingError(
-                        f"{pointer}/operation",
+                        operation_pointer,
                         "one Formula dependency derived conflicting initializers",
                     )
                 initializers[dependency_identity] = dependency_initializer
@@ -3283,7 +3489,7 @@ def _resolved_entrypoints(
                             "one actual target derived conflicting initializers",
                         )
                     initializers[operand_identity] = initializer
-                if role == "derived":
+                if role == derived_role:
                     resolved_key = (
                         cast(str, resolved_symbol["model"]),
                         cast(str, resolved_symbol["module"]),
@@ -3760,15 +3966,6 @@ def _package_definitions(package: dict[str, Any], authority_path: str) -> list[A
     return cast(list[Any], matches[0])
 
 
-def _runtime_semantic_closure(package: dict[str, Any]) -> list[dict[str, JsonValue]]:
-    runtime_paths = set(cast(list[str], package["runtime_semantic_paths"]))
-    return [
-        cast(dict[str, JsonValue], entry)
-        for entry in cast(list[dict[str, Any]], package["semantic_closure"])
-        if entry["authority_path"] in runtime_paths
-    ]
-
-
 def _namespace_type_exports(packages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(
         [
@@ -3901,7 +4098,10 @@ def _package_lock(checked: ModelSourceContext) -> dict[str, JsonValue]:
                 {
                     "package": package["id"],
                     "semantic_identity": package["semantic_identity"],
-                    "definitions": _runtime_semantic_closure(package),
+                    "definitions": package_runtime_semantic_closure(
+                        package,
+                        checked.kernel,
+                    ),
                 }
                 for package in selected_packages
             ],
@@ -3959,16 +4159,28 @@ def _runtime_projection(
     declarations: list[dict[str, Any]],
     lowering: dict[str, Any],
     budget: _RuntimeProjectionBudget,
+    *,
+    kernel: dict[str, Any],
+    entrypoints: list[dict[str, Any]],
+    entrypoint_reference_member: str,
+    formulas: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Project declaration-reachable semantics directly from current owners."""
+    """Project declarations and actual Operation roots from current owners."""
     profile = cast(dict[str, Any], lowering["runtime_projection"])
+    source_bindings = derive_default_source_native_bindings(kernel, language_bundle)
     packages = _namespace_packages(selection, language_bundle)
     namespace_members = {
         "types": _namespace_type_exports(packages),
         "capability_bindings": _namespace_capability_bindings(selection),
     }
     runtime_closures = [
-        {"package": package["id"], "definitions": _runtime_semantic_closure(package)}
+        {
+            "package": package["id"],
+            "definitions": package_runtime_semantic_closure(
+                package,
+                kernel,
+            ),
+        }
         for package in packages
     ]
 
@@ -4024,6 +4236,52 @@ def _runtime_projection(
         catalogs[collection["id"]] = rows
 
     selected: dict[str, set[int]] = {collection_id: set() for collection_id in catalogs}
+    root_law = kernel["meta_format"]["runtime_projection"]["operation_roots"]
+    operation_collection = profile["operation_roots"]["collection"]
+    operation_rows = catalogs[operation_collection]
+    package_member, id_member = root_law["coordinate_members"]
+    operation_definitions = {
+        (row["package"], row["value"][id_member]): row["value"]
+        for row in operation_rows
+    }
+    roots: set[tuple[str, str]] = set()
+    for index, entrypoint in enumerate(entrypoints):
+        reference = entrypoint[entrypoint_reference_member]
+        coordinate = (reference[package_member], reference[id_member])
+        if coordinate not in operation_definitions:
+            member = (
+                package_member
+                if coordinate[0] not in {row["id"] for row in packages}
+                else id_member
+            )
+            raise _EntrypointBindingError(
+                f"/entrypoints/{index}/operation/{member}",
+                f"entrypoint Operation is not selected: {entrypoint['id']}",
+            )
+        roots.add(coordinate)
+    for formula in formulas:
+        for node in path_value(formula, root_law["formula_nodes_path"]):
+            budget.consume()  # Existing runtime-instruction charge for this scan.
+            if (
+                node[root_law["formula_node_kind_member"]]
+                == root_law["formula_node_kind"]
+            ):
+                reference = node[root_law["formula_reference_member"]]
+                roots.add((reference[package_member], reference[id_member]))
+    reachable = closed_operation_coordinates(
+        roots,
+        operation_definitions,
+        _operation_reference_node_ids(kernel),
+        consume_instruction=budget.consume,
+    )
+    if not reachable <= operation_definitions.keys():
+        raise ValueError("Operation root or dependency is outside selected namespaces")
+    for coordinate in sorted(reachable):
+        for index, row in enumerate(operation_rows):
+            budget.consume()  # Existing seed-candidate charge.
+            if (row["package"], row["value"][id_member]) == coordinate:
+                selected[operation_collection].add(index)
+
     for seed in cast(list[dict[str, Any]], profile["seeds"]):
         collection_id = cast(str, seed["collection"])
         catalog = catalogs[collection_id]
@@ -4057,6 +4315,12 @@ def _runtime_projection(
                     if seed.get("missing_target") == "not-applicable":
                         continue
                     raise
+                if seed["declaration_path"] == ["domain_kind"]:
+                    target = project_source_native_token(
+                        source_bindings,
+                        "source.symbol.domain_kind.discriminator",
+                        target,
+                    )
                 if canonical_bytes(target) == canonical_bytes(expected):
                     matches.append(index)
             if not matches:
@@ -4067,10 +4331,8 @@ def _runtime_projection(
     type_reference_closure = cast(dict[str, Any], profile.get("type_reference_closure"))
     if set(type_reference_closure) != {
         "constructor_kind_path",
-        "coordinate_members",
         "source_collection",
         "source_definition_path",
-        "structural_kind_member",
         "target_constructor_collection",
         "target_type_collection",
     }:
@@ -4078,10 +4340,16 @@ def _runtime_projection(
 
     def nested_type_terms(root: Any) -> tuple[set[tuple[str, str]], set[str]]:
         coordinate_members = cast(
-            list[str], type_reference_closure["coordinate_members"]
+            list[str],
+            kernel["meta_format"]["literal_typing"]["typed_envelope_profile"][
+                "admission"
+            ]["nominal_type_reference"]["coordinate_members"],
         )
         structural_kind_member = cast(
-            str, type_reference_closure["structural_kind_member"]
+            str,
+            kernel["meta_format"]["runtime_projection"]["type_reference_closure"][
+                "structural_match"
+            ]["definition_kind_member"],
         )
         coordinates: set[tuple[str, str]] = set()
         structural_kinds: set[str] = set()
@@ -4191,7 +4459,15 @@ def _runtime_projection(
         for index, row in enumerate(catalogs[constructor_target_id]):
             budget.consume()
             try:
-                constructor_kind = path_value(row["value"], constructor_kind_path)
+                constructor_kind = path_value(
+                    row["value"],
+                    [
+                        *constructor_kind_path[:-1],
+                        kernel["meta_format"]["runtime_projection"][
+                            "type_reference_closure"
+                        ]["structural_match"]["constructor_kind_member"],
+                    ],
+                )
             except ValueError:
                 continue
             if constructor_kind in structural_kinds:
@@ -4216,22 +4492,13 @@ def _runtime_projection(
     closure_values: dict[tuple[str, str], list[Any]] = {}
 
     def projected_runtime_value(collection: dict[str, Any], value: Any) -> Any:
-        excluded_members = collection.get("excluded_members", [])
-        excluded_extensions = collection.get("excluded_extension_members", [])
-        if not excluded_members and not excluded_extensions:
+        output_role = rir_collection_output(kernel, collection["source"])
+        excluded = output_role[2] if output_role is not None else ()
+        if not excluded:
             return value
         if not isinstance(value, dict):
-            raise ValueError("runtime member exclusion requires a definition")
-        projected_value = deepcopy(value)
-        for member in cast(list[str], excluded_members):
-            projected_value.pop(member, None)
-        extensions = projected_value.get("extensions")
-        if isinstance(extensions, dict):
-            for member in cast(list[str], excluded_extensions):
-                extensions.pop(member, None)
-            if not extensions:
-                projected_value.pop("extensions")
-        return projected_value
+            raise ValueError("compiled member exclusion requires a definition")
+        return {name: item for name, item in value.items() if name not in excluded}
 
     for collection in cast(list[dict[str, Any]], profile["collections"]):
         collection_id = cast(str, collection["id"])
@@ -4250,10 +4517,10 @@ def _runtime_projection(
                 closure_values.setdefault(
                     (cast(str, row["package"]), authority_path), []
                 ).append(row["value"])
-        output_member = collection["output_member"]
-        if output_member is None:
+        output_role = rir_collection_output(kernel, collection["source"])
+        if output_role is None:
             continue
-        shape = collection["output_shape"]
+        output_member, shape, _ = output_role
         if shape == "as-is":
             projected_values: list[Any] = [row["value"] for row in rows]
         elif shape == "package-definition":
@@ -4270,55 +4537,49 @@ def _runtime_projection(
             raise ValueError("unknown admitted runtime projection output shape")
         projection[cast(str, output_member)] = projected_values
 
-    for output in cast(list[dict[str, Any]], profile["outputs"]):
-        source_rows = {
-            "packages": packages,
-            "package_semantic_closures": runtime_closures,
-        }[output["source_member"]]
-        kind = output["kind"]
-        if kind == "selected-packages":
-            output_values: list[Any] = [
-                {
-                    member: cast(dict[str, Any], row)[member]
-                    for member in cast(list[str], output["members"])
-                }
-                for row in source_rows
-                if (
-                    budget.consume() is None
-                    and cast(dict[str, Any], row)[output["package_member"]]
-                    in selected_packages
+    # These two results are fixed compiled namespace evidence. The authored
+    # projection still selects definitions; it no longer configures their wire keys.
+    projection["packages"] = [
+        {"id": row["id"]}
+        for row in packages
+        if budget.consume() is None and row["id"] in selected_packages
+    ]
+    projected_closures: list[Any] = []
+    for closure in runtime_closures:
+        budget.consume()
+        package = closure["package"]
+        if package not in selected_packages:
+            continue
+        entries = []
+        for entry in closure["definitions"]:
+            authority_path = entry["authority_path"]
+            definitions = closure_values.get((package, authority_path))
+            if definitions:
+                entries.append(
+                    {"authority_path": authority_path, "definitions": definitions}
                 )
-            ]
-        elif kind == "selected-semantic-closures":
-            output_values = []
-            for closure in cast(list[dict[str, Any]], source_rows):
-                budget.consume()
-                package = cast(str, closure[output["package_member"]])
-                if package not in selected_packages:
-                    continue
-                entries = []
-                for entry in cast(
-                    list[dict[str, Any]], closure[output["entries_member"]]
-                ):
-                    authority_path = cast(str, entry[output["authority_path_member"]])
-                    definitions = closure_values.get((package, authority_path))
-                    if definitions:
-                        entries.append(
-                            {
-                                output["authority_path_member"]: authority_path,
-                                output["definitions_member"]: definitions,
-                            }
-                        )
-                if entries:
-                    output_values.append(
-                        {
-                            output["package_member"]: package,
-                            output["entries_member"]: entries,
-                        }
-                    )
-        else:
-            raise ValueError("unknown admitted runtime projection output kind")
-        projection[cast(str, output["output_member"])] = output_values
+        if entries:
+            projected_closures.append({"package": package, "definitions": entries})
+    projection["package_semantic_closures"] = projected_closures
+    symbol_role_law = cast(
+        dict[str, Any],
+        kernel["meta_format"]["runtime_projection"]["symbol_role_bindings"],
+    )
+    role_bindings: dict[str, str] = {}
+    assignment_policy = cast(dict[str, Any], lowering["assignment_policy"])
+    for binding in cast(list[dict[str, Any]], symbol_role_law["bindings"]):
+        budget.consume()  # One law-selector charge per Kernel-owned binding.
+        role = source_assignment_role(
+            assignment_policy,
+            **cast(dict[str, Any], binding["role_fields"]),
+            **cast(dict[str, Any], binding["mode_fields"]),
+        )
+        role_bindings[cast(str, binding["slot"])] = role
+    if symbol_role_law.get("distinct") is not True or len(
+        set(role_bindings.values())
+    ) != len(role_bindings):
+        raise ValueError("runtime Symbol role bindings are not distinct")
+    projection[cast(str, symbol_role_law["output_member"])] = role_bindings
     return projection
 
 

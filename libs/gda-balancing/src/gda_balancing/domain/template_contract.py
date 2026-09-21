@@ -8,6 +8,15 @@ execution cannot drift into separate copies of that support boundary.
 from typing import Any
 
 
+def template_model_results_are_supported(results: Any) -> bool:
+    """Support the fixed Model primitive origins, without duplicating their types."""
+    return results == {
+        "root_requirements": {"origin": "selected-resolution-requirements"},
+        "resolved_packages": {"origin": "admitted-namespace-selection"},
+        "source_symbols": {"origin": "admitted-initial-source-fact-fields"},
+    }
+
+
 TEMPLATE_SELECTOR_CONTRACT: dict[str, Any] = {
     "path_semantics": "ordered-flatten",
     "roots": [

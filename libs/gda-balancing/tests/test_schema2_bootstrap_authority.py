@@ -20,6 +20,33 @@ def _package_vector_subject(ldb, package_id):
     return f"language-bundle.language.packages.{index}.vectors"
 
 
+def _reidentified_authored_graph(kernel, ldb):
+    """Reseal the authored graph without deriving an admitted language index."""
+    descriptors = {
+        descriptor["id"]: descriptor for descriptor in ldb.root["package_descriptors"]
+    }
+    package_sizes = []
+    for package in ldb.package_releases:
+        size = len(_encoded(package))
+        package_sizes.append(size)
+        descriptor = descriptors[package["id"]]
+        descriptor["byte_size"] = size
+        descriptor["content_identity"] = package["content_identity"]
+    vector_set_sizes = [
+        len(_encoded(vector_set)) for vector_set in ldb.package_conformance_vector_sets
+    ]
+    ldb.root["kernel_identity"] = kernel["content_identity"]
+    ldb.root["content_identity"] = _identity("language-definition-bundle-v2", ldb.root)
+    return LanguageBundleGraph(
+        root=ldb.root,
+        package_releases=ldb.package_releases,
+        package_conformance_vector_sets=ldb.package_conformance_vector_sets,
+        root_byte_size=len(_encoded(ldb.root)),
+        package_byte_sizes=package_sizes,
+        vector_set_byte_sizes=vector_set_sizes,
+    )
+
+
 def test_two_independent_consumers_admit_the_exact_authority_and_inventories():
     authority = _authority_candidate()
     kernel = authority["kernel"]
@@ -855,16 +882,25 @@ def test_two_consumers_refuse_reidentified_runtime_component_drift(
         bootstrap_support, "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]
     )
 
-    first = _consumer_a(kernel, authority["language_bundle"])
-    second = _consumer_b(kernel, authority["language_bundle"])
+    ldb = authority["language_bundle"]
+    # Each consumer rederives the Trace from the changed Kernel; a stale
+    # caller-supplied generated Schema must not mask the runtime law mutation.
+    graph = LanguageBundleGraph(
+        root=ldb.root,
+        package_releases=ldb.package_releases,
+        package_conformance_vector_sets=ldb.package_conformance_vector_sets,
+        root_byte_size=ldb.root_byte_size,
+        package_byte_sizes=list(ldb.package_byte_sizes),
+        vector_set_byte_sizes=list(ldb.vector_set_byte_sizes),
+    )
+    first = _consumer_a(kernel, graph)
+    second = _consumer_b(kernel, graph)
 
     assert first == second
     assert first["admitted"] is False
-    assert (
-        "static",
-        "kernel.vector_mismatch",
-        "language.runtime",
-    ) in first["diagnostics"]
+    assert ("static", "kernel.vector_mismatch", "language.runtime") in first[
+        "diagnostics"
+    ]
 
 
 def test_two_consumers_refuse_cancel_target_without_a_prior_schedule_producer():
@@ -913,7 +949,8 @@ def test_two_consumers_accept_a_kernel_owned_boundary_token_change(monkeypatch):
     step = kernel["meta_format"]["runtime_program"]["step"]
     step["boundaries"][0] = "kernel-owned-initial"
     step["boundary_roles"]["initial"] = "kernel-owned-initial"
-    _reidentify(kernel, authority["language_bundle"])
+    kernel["content_identity"] = _identity("schema-major-kernel-v2", kernel)
+    graph = _reidentified_authored_graph(kernel, authority["language_bundle"])
     monkeypatch.setattr(
         production_bootstrap, "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]
     )
@@ -921,36 +958,11 @@ def test_two_consumers_accept_a_kernel_owned_boundary_token_change(monkeypatch):
         bootstrap_support, "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]
     )
 
-    first = _consumer_a(kernel, authority["language_bundle"])
-    second = _consumer_b(kernel, authority["language_bundle"])
+    first = _consumer_a(kernel, graph)
+    second = _consumer_b(kernel, graph)
 
     assert first == second
     assert first["admitted"] is True
-
-
-def test_rir_semantic_projection_members_close_against_the_wire_schema():
-    authority = _authority_candidate()
-    ldb = authority["language_bundle"]
-    contract = next(
-        row
-        for row in ldb["language"]["artifact_contracts"]
-        if row["artifact_kind"] == "rir-semantic-payload"
-    )
-    contract["semantic_identity_projection"]["collection_member_exclusions"][0][
-        "excluded_members"
-    ] = ["host-invented-member"]
-    _refresh_package_closure_and_reidentify(ldb)
-
-    first = _consumer_a(authority["kernel"], ldb)
-    second = _consumer_b(authority["kernel"], ldb)
-
-    assert first == second
-    assert first["admitted"] is False
-    assert (
-        "static",
-        "kernel.vector_mismatch",
-        "language.definitions.artifact-semantic-projections",
-    ) in first["diagnostics"]
 
 
 def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
@@ -976,50 +988,16 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
     ]["runtime_profiles"]
     assert "formula_evaluation" not in runtime_profile_contract["field_types"]
     assert "formula_evaluation" not in runtime_profile_contract["optional_members"]
-    assert runtime_profile["extensions"]["standard.formula"] == {
-        "cache": {
-            "admission": "optional-non-semantic",
-            "charge_policy": "same-as-uncached-evaluation",
-            "key_members": [
-                "evaluation-site-identity",
-                "frame-or-snapshot-identity",
-                "canonical-operands",
-                "numeric-profile-identity",
-            ],
-            "snapshot_change": "requires-reevaluation",
-        },
-        "contexts": [
-            {
-                "frame": "pre-snapshot",
-                "phase": "initialization",
-                "publication": "atomic-before-snapshot-0",
-                "reads": "immutable-initialization-frame",
-            },
-            {
-                "frame": "pre-event-snapshot",
-                "phase": "event",
-                "publication": "inside-atomic-event",
-                "reads": "committed-pre-event-state",
-            },
-            {
-                "frame": "post-transition-snapshot",
-                "phase": "observation",
-                "publication": "after-atomic-event",
-                "reads": "committed-post-transition-state",
-            },
-        ],
-        "initialization_refusal": {
-            "published_artifacts": [],
-            "published_audit": False,
-            "published_events": False,
-            "published_snapshots": False,
-        },
-        "resource_charge": {
-            "basis": "specialized-operation-instruction-closure",
-            "cache_hit": "same-as-evaluation",
-        },
-        "snapshot_identity_domain": "runtime-snapshot-v2",
-    }
+    assert "extensions" not in runtime_profile_contract["field_types"]
+    assert "extensions" not in runtime_profile_contract["optional_members"]
+    assert "extensions" not in runtime_profile
+    runtime = kernel["meta_format"]["runtime_program"]
+    assert (
+        runtime["runtime_configuration"]["formula_initialization_phase"]
+        == "initialization"
+    )
+    assert runtime["runtime_configuration"]["lifecycle_roles"]["active"] == "event"
+    assert runtime["scheduler"]["observation"]["phase"] == "observation"
     expected_vector_ids = {
         "standard.schema": {
             "formula.schema.accept.named-typed-pure-graph",
@@ -1100,9 +1078,9 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         for definition in entry["definitions"]
         if definition["id"] == "exact-import-resolution-v1"
     )
-    assert resolution_profile["extensions"]["standard.formula"][
-        "fixed_value_type_aliases"
-    ] == [{"alias": "Boolean", "contract": "kernel-boolean"}]
+    assert resolution_profile["formula_resolution"]["fixed_value_type_aliases"] == [
+        {"alias": "Boolean", "contract": "kernel-boolean"}
+    ]
     quantity_operations = {
         definition["id"]: definition
         for entry in packages["core.quantity"]["semantic_closure"]
@@ -1158,6 +1136,10 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         "projection-missing-path",
         "projection-wrong-result-type",
         "scalar-routing-drift",
+        "experiment-binding-missing",
+        "experiment-binding-wrong-stage",
+        "experiment-numeric-missing",
+        "experiment-numeric-wrong-predicate",
     ),
 )
 def test_two_consumers_refuse_reidentified_authority_paths_without_typed_closure(
@@ -1184,8 +1166,16 @@ def test_two_consumers_refuse_reidentified_authority_paths_without_typed_closure
         seed["target_path"] = (
             ["missing_member"] if mutation == "projection-missing-path" else []
         )
-    else:
+    elif mutation == "scalar-routing-drift":
         profile["modules_member"] = "host_drift"
+    elif mutation == "experiment-binding-missing":
+        profile["experiment_binding_reason"] = "absent.reason"
+    elif mutation == "experiment-binding-wrong-stage":
+        profile["experiment_binding_reason"] = "quantity.reason.invalid-domain"
+    elif mutation == "experiment-numeric-missing":
+        profile["experiment_numeric_domain_reason"] = "absent.reason"
+    else:
+        profile["experiment_numeric_domain_reason"] = "model.reason.name-ambiguity"
     _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -1212,6 +1202,7 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
         "admitted_language_index",
         "authority_wire_schema_projection",
         "fact",
+        "formula_resolution",
         "term",
         "rule",
         "rule_selection",
@@ -1435,7 +1426,9 @@ def test_package_release_identity_binds_normative_vector_definitions():
         for _, code, subject in first["diagnostics"]
     ), first["diagnostics"]
 
-    _bind_package_vector_set(package, _package_vector_set(ldb, package))
+    _bind_package_vector_set(
+        package, _package_vector_set(ldb, package), kernel=authority["kernel"]
+    )
     _reidentify_graph_root(ldb)
 
     package = ldb["language"]["packages"][0]
@@ -1476,7 +1469,7 @@ def test_two_consumers_project_kernel_package_coordinate_patterns():
     vector_set = _package_vector_set(ldb, package)
     package["id"] = "game/combat"
     vector_set["package_id"] = package["id"]
-    _bind_package_vector_set(package, vector_set)
+    _bind_package_vector_set(package, vector_set, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -1568,7 +1561,9 @@ def test_reidentified_package_evidence_vector_mutations_refuse_in_both_consumers
             vector["input"]["values"][0]["value"] = True
         else:
             vector["kind"] = "host-operation-execution"
-    _bind_package_vector_set(package, _package_vector_set(ldb, package))
+    _bind_package_vector_set(
+        package, _package_vector_set(ldb, package), kernel=authority["kernel"]
+    )
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -1746,7 +1741,7 @@ def test_reidentified_ldb_and_package_shapes_remain_closed(mutation):
             for row in diagnostic_entry["definitions"]
             if row["code"] == diagnostic_code
         )["host_semantics"] = True
-        _reidentify_package_release(package)
+        _reidentify_package_release(package, kernel=authority["kernel"])
     elif mutation == "package-id-type":
         package["id"] = 7
     elif mutation == "retired-package-version-member":
@@ -1771,7 +1766,7 @@ def test_reidentified_package_cannot_reference_an_unowned_vector():
     package = ldb["language"]["packages"][0]
     vector_set = _package_vector_set(ldb, package)
     vector_set["vectors"][0] = "host.missing"
-    _bind_package_vector_set(package, vector_set)
+    _bind_package_vector_set(package, vector_set, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], authority["language_bundle"])
@@ -1814,7 +1809,7 @@ def test_reidentified_duplicate_vector_id_is_refused_by_both_consumers():
     )
     vector_set["vectors"].append(duplicate["id"])
     vector_set["vector_definitions"].append(duplicate)
-    _bind_package_vector_set(package, vector_set)
+    _bind_package_vector_set(package, vector_set, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -1991,7 +1986,9 @@ def test_reidentified_conflicting_duplicate_binding_refuses_in_both_consumers():
     conflicting_fact["fields"]["role"] = "input"
     vector["input"]["facts"].append(conflicting_fact)
     vector["expect"]["fields"]["role"] = "input"
-    _bind_package_vector_set(package, _package_vector_set(ldb, package))
+    _bind_package_vector_set(
+        package, _package_vector_set(ldb, package), kernel=authority["kernel"]
+    )
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -2018,9 +2015,14 @@ def test_old_identity_tamper_and_reidentified_behavior_or_token_mutations_refuse
     for index in range(len(baseline["kernel"]["admission"]["laws"])):
         authority = deepcopy(baseline)
         authority["kernel"]["admission"]["laws"][index]["operation"] += ".renamed"
-        _reidentify(authority["kernel"], authority["language_bundle"])
-        first = _consumer_a(authority["kernel"], authority["language_bundle"])
-        second = _consumer_b(authority["kernel"], authority["language_bundle"])
+        authority["kernel"]["content_identity"] = _identity(
+            "schema-major-kernel-v2", authority["kernel"]
+        )
+        graph = _reidentified_authored_graph(
+            authority["kernel"], authority["language_bundle"]
+        )
+        first = _consumer_a(authority["kernel"], graph)
+        second = _consumer_b(authority["kernel"], graph)
         assert first == second
         assert any(
             code == "kernel.identity_mismatch" for _, code, _ in first["diagnostics"]
@@ -2032,7 +2034,7 @@ def test_old_identity_tamper_and_reidentified_behavior_or_token_mutations_refuse
         rule_id = ldb["language"]["rules"][index]["id"]
         package = next(
             candidate
-            for candidate in ldb["language"]["packages"]
+            for candidate in ldb.package_releases
             if rule_id in candidate["exports"]["language_rules"]
         )
         rules = next(
@@ -2046,10 +2048,10 @@ def test_old_identity_tamper_and_reidentified_behavior_or_token_mutations_refuse
             if definition["id"] == rule_id
         )
         rule["conclusion"]["fact_kind"] += ".changed"
-        _reidentify_package_release(package)
-        _reidentify_graph_root(ldb)
-        first = _consumer_a(authority["kernel"], ldb)
-        second = _consumer_b(authority["kernel"], ldb)
+        _reidentify_package_release(package, kernel=authority["kernel"])
+        graph = _reidentified_authored_graph(authority["kernel"], ldb)
+        first = _consumer_a(authority["kernel"], graph)
+        second = _consumer_b(authority["kernel"], graph)
         assert first == second
         assert any(
             code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"]
@@ -2065,13 +2067,18 @@ def test_old_identity_tamper_and_reidentified_behavior_or_token_mutations_refuse
             collection = collection[part]
         if owner == "kernel":
             collection[0]["id"] += ".renamed"
-            _reidentify(authority["kernel"], authority["language_bundle"])
+            authority["kernel"]["content_identity"] = _identity(
+                "schema-major-kernel-v2", authority["kernel"]
+            )
+            graph = _reidentified_authored_graph(
+                authority["kernel"], authority["language_bundle"]
+            )
         else:
             ldb = authority["language_bundle"]
             rule_id = collection[0]["id"]
             package = next(
                 candidate
-                for candidate in ldb["language"]["packages"]
+                for candidate in ldb.package_releases
                 if rule_id in candidate["exports"]["language_rules"]
             )
             rules = next(
@@ -2089,10 +2096,10 @@ def test_old_identity_tamper_and_reidentified_behavior_or_token_mutations_refuse
                 package["exports"]["language_rules"].index(rule_id)
             ] = renamed
             rule["id"] = renamed
-            _reidentify_package_release(package)
-            _reidentify_graph_root(ldb)
-        first = _consumer_a(authority["kernel"], authority["language_bundle"])
-        second = _consumer_b(authority["kernel"], authority["language_bundle"])
+            _reidentify_package_release(package, kernel=authority["kernel"])
+            graph = _reidentified_authored_graph(authority["kernel"], ldb)
+        first = _consumer_a(authority["kernel"], graph)
+        second = _consumer_b(authority["kernel"], graph)
         assert first == second
         expected_code = (
             "kernel.identity_mismatch"

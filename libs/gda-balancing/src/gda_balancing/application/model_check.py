@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from gda_balancing.domain.authority.context import AdmittedAuthorityContext
 from gda_balancing.domain.model import check_model_source, verify_checked_model
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
@@ -14,9 +15,13 @@ class ModelCheckReport:
     language_bundle_identity: str
 
 
-def check_model(source: str) -> ModelCheckReport | Schema2RefusalReport:
+def check_model(
+    source: str,
+    *,
+    authority_context: AdmittedAuthorityContext | None = None,
+) -> ModelCheckReport | Schema2RefusalReport:
     """Check and self-admit one Model Source Package."""
-    checked = check_model_source(source)
+    checked = check_model_source(source, authority_context=authority_context)
     if isinstance(checked, Schema2RefusalReport):
         return checked
     verify_checked_model(checked)

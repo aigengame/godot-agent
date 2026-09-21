@@ -5,7 +5,6 @@ import pytest
 from gda_balancing.domain.experiment import (
     CheckedExperiment,
     check_experiment_value,
-    derive_scenario_program_requirements,
 )
 from gda_balancing.domain.model import (
     AdmittedRir,
@@ -72,13 +71,6 @@ def test_admitted_fold_item_result_composes_with_numeric_event_consumers(consume
     for row in specification["scenarios"][0]["assignments"]:
         if row["target"]["name"] == "selected_count":
             row["value"] = 2
-    requirements, _streams = derive_scenario_program_requirements(
-        rir,
-        "fold",
-        operation["runtime_profile"],
-        context.kernel["meta_format"]["runtime_program"]["named_rng"]["algorithm"],
-    )
-    specification["runtime"]["required_evaluator"] = requirements
     checked = check_experiment_value(specification, program, authority_context=context)
     assert isinstance(checked, CheckedExperiment), checked
 

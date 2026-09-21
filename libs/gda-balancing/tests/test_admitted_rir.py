@@ -133,9 +133,7 @@ def _changed_context(context, mutate):
                 JsonValue,
                 package_runtime_semantic_closure(
                     package,
-                    kernel["meta_format"]["package_release"][
-                        "semantic_identity_projection"
-                    ],
+                    kernel,
                 ),
             ),
         )
@@ -156,6 +154,7 @@ def _changed_context(context, mutate):
         packages,
         vectors,
         kernel["admission"]["required_language_members"],
+        kernel=kernel,
         root_byte_size=len(canonical_bytes(root)),
         package_byte_sizes=[len(canonical_bytes(package)) for package in packages],
         vector_set_byte_sizes=[len(canonical_bytes(vector)) for vector in vectors],
@@ -334,7 +333,10 @@ def test_rir_rejects_reinserted_operation_vector_references(copy, compiled, cont
     )
     contract = select_artifact_contract(context.language_bundle, "rir-semantic-payload")
     _reidentify(candidate, contract.definition["identity_domain"])
-    assert contract.verify(candidate) is (copy == "closure")
+    # The current RIR wire contract closes both the direct Operation copy and
+    # its semantic-closure mirror. Retired vector references cannot re-enter
+    # through either representation.
+    assert not contract.verify(candidate)
     with pytest.raises(RirAdmissionError):
         admit_rir(candidate, authority_context=context)
 

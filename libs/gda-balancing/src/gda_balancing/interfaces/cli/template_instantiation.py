@@ -1,6 +1,7 @@
 """CLI adapter for instantiating packaged Template releases."""
 
 from collections.abc import Callable
+from dataclasses import replace
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -9,14 +10,17 @@ from gda_balancing.interfaces.cli.descriptors import (
     CommandDescriptor,
     ConformanceFixtures,
 )
-from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.artifact_set import (
+    ArtifactSetPlan,
+    ProtocolArtifactSetMemberSpec,
+)
 from gda_balancing.domain.template import TemplateProvider, minimal_release
 from gda_balancing.domain.authority.context import (
     AuthorityContextProvider,
     packaged_authority_context,
 )
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.domain.model import MODEL_REFUSAL_CATALOG
+from gda_balancing.domain.model import model_refusal_catalog
 from gda_balancing.interfaces.cli.surface import descriptor_identity
 
 
@@ -51,13 +55,11 @@ class TemplateInstantiateResult(BaseModel):
 
 
 _TEMPLATE_INSTANTIATE_ARTIFACT_SET = (
-    ArtifactSetMemberSpec(
-        "model-source-package",
+    ProtocolArtifactSetMemberSpec(
         "model-source-package",
         role="primary",
     ),
-    ArtifactSetMemberSpec(
-        "template-instantiation-receipt",
+    ProtocolArtifactSetMemberSpec(
         "template-instantiation-receipt",
     ),
 )
@@ -67,6 +69,7 @@ def template_instantiate_handler(
     provider: TemplateProvider,
     *,
     publication_fault: str | None = None,
+    artifact_set: ArtifactSetPlan = _TEMPLATE_INSTANTIATE_ARTIFACT_SET,
     authority_context_provider: AuthorityContextProvider = packaged_authority_context,
 ) -> Callable[
     [TemplateInstantiateInput],
@@ -82,8 +85,10 @@ def template_instantiate_handler(
             inp.package_id,
             inp.out,
             inp.invocation_key,
-            descriptor_identity(TEMPLATE_INSTANTIATE),
-            TEMPLATE_INSTANTIATE.artifact_set,
+            descriptor_identity(
+                replace(TEMPLATE_INSTANTIATE, artifact_set=artifact_set)
+            ),
+            artifact_set,
             provider,
             authority_context_provider,
             publication_fault=publication_fault,
@@ -123,7 +128,7 @@ TEMPLATE_INSTANTIATE = CommandDescriptor(
     artifact_set=_TEMPLATE_INSTANTIATE_ARTIFACT_SET,
     schema_major=2,
     structured_params=True,
-    refusal_catalog=MODEL_REFUSAL_CATALOG,
+    refusal_catalog_provider=model_refusal_catalog,
     usage_codes=(
         "argument_conflict",
         "invalid_argument",

@@ -192,10 +192,10 @@ def test_exact_replay_comparison_applies_admitted_ordered_policy(accepted_execut
     }
     assert comparison.value["result"] == "matched"
     assert [row["key"] for row in comparison.value["checks"]] == [
-        "evaluation-outcome-status",
-        "event-trace-identity",
-        "snapshot-series-identity",
-        "metric-dataset-identity",
+        "evaluation_outcome_status",
+        "event_trace_identity",
+        "snapshot_series_identity",
+        "metric_dataset_identity",
     ]
     assert all(row["match"] is True for row in comparison.value["checks"])
     assert validate_exact_replay_comparison(
@@ -555,7 +555,7 @@ def test_public_replay_mismatch_publishes_only_comparison_evidence(
     assert (exit_code, stderr) == (1, "")
     result = json.loads(stdout)
     assert result["outcome"] == "mismatched"
-    assert result["mismatches"] == ["metric-dataset-identity"]
+    assert result["mismatches"] == ["metric_dataset_identity"]
     logical_names = {
         row["logical_name"] for row in result["artifact_set"]["member_locators"]
     }
@@ -681,7 +681,7 @@ def test_replay_consumes_detached_policy_reasons_and_output_contracts(
 
     monkeypatch.setattr(comparison_module, "reason_by_id", ambient_lookup_forbidden)
     monkeypatch.setattr(
-        comparison_module, "select_artifact_contract", ambient_lookup_forbidden
+        comparison_module, "select_protocol_artifact_contract", ambient_lookup_forbidden
     )
     monkeypatch.setattr(
         artifact_module, "select_artifact_contract", ambient_lookup_forbidden

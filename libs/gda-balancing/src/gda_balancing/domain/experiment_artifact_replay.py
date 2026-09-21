@@ -16,7 +16,10 @@ from gda_balancing.domain.operation_program import (
     operation_body_instructions,
     selected_operation_index,
 )
-from gda_balancing.domain.program_reachability import reachable_formula_programs
+from gda_balancing.domain.program_reachability import (
+    formula_lifecycle_phases,
+    reachable_formula_programs,
+)
 from gda_balancing.domain.runtime.projections import (
     operation_formula_evaluation_record,
     resolved_display_names,
@@ -75,10 +78,9 @@ def _admit_declared_numeric(
     value: int, numeric: dict[str, Any], declaration: dict[str, Any]
 ) -> int:
     admitted = _admit_numeric(value, numeric)
-    if declaration["domain_kind"] == "closed-interval":
-        domain = cast(dict[str, int], declaration["domain"])
-        if not domain["minimum"] <= admitted <= domain["maximum"]:
-            raise OverflowError("value is outside its declared numeric domain")
+    domain = cast(dict[str, int], declaration["domain"])
+    if not domain["minimum"] <= admitted <= domain["maximum"]:
+        raise OverflowError("value is outside its declared numeric domain")
     return admitted
 
 
@@ -104,7 +106,7 @@ def admit_declared_value(
             resource_limit=structured_resource_limit,
         )
         if canonical_bytes(admitted[type_member]) != canonical_bytes(declared_type):
-            raise StructuredValueFault("structured.reason.type-mismatch", "/type")
+            raise StructuredValueFault("structured-value-type-mismatch", "/type")
         return cast(JsonValue, admitted)
     value_member = "value"
     if (
@@ -120,13 +122,11 @@ def admit_declared_value(
             )
             if canonical_bytes(admitted[type_member]) != canonical_bytes(declared_type):
                 raise StructuredValueFault(
-                    "structured.reason.type-mismatch", f"/{type_member}"
+                    "structured-value-type-mismatch", f"/{type_member}"
                 )
             value = admitted[value_member]
     if not isinstance(value, int) or isinstance(value, bool):
-        raise StructuredValueFault(
-            "structured.reason.type-mismatch", f"/{value_member}"
-        )
+        raise StructuredValueFault("structured-value-type-mismatch", f"/{value_member}")
     return _admit_declared_numeric(value, numeric, declaration)
 
 
@@ -308,7 +308,7 @@ def _append_replay_list(
             item, authority=authority, resource_limit=resource_limit
         )
         if item_envelope[type_member] != element:
-            raise StructuredValueFault("structured.reason.type-mismatch", "/item/type")
+            raise StructuredValueFault("structured-value-type-mismatch", "/item/type")
     else:
         item_envelope = admit_typed_value(
             {type_member: element, value_member: item},
@@ -317,13 +317,7 @@ def _append_replay_list(
         )
     values = cast(list[JsonValue], admitted[value_member])
     if len(values) == maximum:
-        reason = next(
-            row
-            for row in authority.reasons.values()
-            if row.get("stage") == "runtime"
-            and row.get("signal") == law["refusal_signal"]
-        )
-        raise StructuredValueFault(reason["id"], "/value")
+        raise StructuredValueFault(law["refusal_signal"], "/value", stage="runtime")
     return {
         type_member: admitted[type_member],
         value_member: [*values, item_envelope[value_member]],
@@ -421,7 +415,7 @@ def execute_value_instruction(
                     right[type_member]
                 ):
                     raise StructuredValueFault(
-                        "structured.reason.type-mismatch", f"/{type_member}"
+                        "structured-value-type-mismatch", f"/{type_member}"
                     )
             result = left_integer == right_integer
         elif left_integer is None and right_integer is None:
@@ -487,11 +481,14 @@ def evaluate_initialization_programs(
     selected_entrypoints: Sequence[dict[str, Any]],
     frame_token: JsonValue | None = None,
     frame_identity: str | None = None,
-    phase: str = "initialization",
+    phase: str,
 ) -> int:
     """Independently replay closed Formula initialization programs."""
     programs = reachable_formula_programs(
-        checked.rir, selected_entrypoints, phase=phase
+        checked.rir,
+        selected_entrypoints,
+        phase=phase,
+        runtime=runtime_contract(checked),
     )
     if not programs:
         return consumed_steps
@@ -522,7 +519,7 @@ def evaluate_initialization_programs(
     numeric = cast(dict[str, Any], runtime_contract(checked)["numeric"])
     node_contracts = runtime_nodes(checked)
     if frame_identity is None:
-        if phase != "initialization":
+        if phase != formula_lifecycle_phases(runtime_contract(checked))[0]:
             raise ValueError(
                 "observation requires an exact committed Snapshot identity"
             )

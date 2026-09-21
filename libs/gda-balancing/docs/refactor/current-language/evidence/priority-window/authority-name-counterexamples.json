@@ -1,0 +1,534 @@
+{
+  "source_head": "c16896a3b5b7dd5681f4fa9f875cfda8f52927b6",
+  "scope": "Four bounded coherent LDB identity-renaming probes with unchanged Kernel and Python. These are counterexamples to name-independent admission, not an exhaustive inventory.",
+  "baseline": {
+    "A": {
+      "admitted": true,
+      "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+      "language_bundle_identity": "sha256:ff4bc5680b3c18bc3b01dbe515fa2fbbead068a5056bb0ff9850700e5eef3709",
+      "diagnostics": []
+    },
+    "B": {
+      "admitted": true,
+      "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+      "language_bundle_identity": "sha256:ff4bc5680b3c18bc3b01dbe515fa2fbbead068a5056bb0ff9850700e5eef3709",
+      "diagnostics": []
+    }
+  },
+  "cases": {
+    "numeric-policy": {
+      "A": {
+        "admitted": false,
+        "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+        "language_bundle_identity": "sha256:2ece103432f460cd3a0f9f4aff17027c031e0b1b45704e920dc85fd28944d9dd",
+        "diagnostics": [
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.core.quantity.quantity.add.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.core.quantity.quantity.floor-divide.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.core.quantity.quantity.floor-zero.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.core.quantity.quantity.less-than.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.core.quantity.quantity.maximum.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.core.quantity.quantity.minimum.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.core.quantity.quantity.multiply.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.core.quantity.quantity.subtract.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.action.append-counter.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.action.cancel-reverse-step.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.action.count-match.body.4.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.action.propose.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.build.game.build.replace-reward-v1.body.12.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.check.game.check.critical-v1.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.check.game.check.hit-v1.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.combat.game.combat.damage-v1.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.combat.game.combat.eligible-cast-v1.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.effect.game.effect.apply-snapshot-periodic-v1.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.effect.game.effect.contribute@1.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.effect.game.effect.tick-live-periodic-v1.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.effect.game.effect.tick-snapshot-periodic-v1.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.generation.game.generation.select-reward-v1#guard-4.body.2.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.progression.game.progression.contribution@1.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.resource.game.resource.spend-v1.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.turn.open.body.2.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.turn.pass.body.3.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.turn.respond.body.2.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.standard.conformance.structured.bounded.count-step.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.standard.conformance.structured.bounded.filter-step.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.standard.conformance.structured.bounded.order-step.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.standard.conformance.structured.standard.conformance.structured.select-v1.body.6.typing"
+          ]
+        ]
+      },
+      "B": {
+        "admitted": false,
+        "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+        "language_bundle_identity": "sha256:2ece103432f460cd3a0f9f4aff17027c031e0b1b45704e920dc85fd28944d9dd",
+        "diagnostics": [
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.core.quantity.quantity.add.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.core.quantity.quantity.floor-divide.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.core.quantity.quantity.floor-zero.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.core.quantity.quantity.less-than.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.core.quantity.quantity.maximum.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.core.quantity.quantity.minimum.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.core.quantity.quantity.multiply.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.core.quantity.quantity.subtract.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.action.append-counter.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.action.cancel-reverse-step.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.action.count-match.body.4.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.action.propose.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.build.game.build.replace-reward-v1.body.12.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.check.game.check.critical-v1.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.check.game.check.hit-v1.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.combat.game.combat.damage-v1.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.combat.game.combat.eligible-cast-v1.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.effect.game.effect.apply-snapshot-periodic-v1.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.effect.game.effect.contribute@1.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.effect.game.effect.tick-live-periodic-v1.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.effect.game.effect.tick-snapshot-periodic-v1.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.generation.game.generation.select-reward-v1#guard-4.body.2.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.progression.game.progression.contribution@1.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.resource.game.resource.spend-v1.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.turn.open.body.2.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.turn.pass.body.3.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.game.turn.respond.body.2.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.standard.conformance.structured.bounded.count-step.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.standard.conformance.structured.bounded.filter-step.body.0.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.standard.conformance.structured.bounded.order-step.body.1.typing"
+          ],
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.operations.standard.conformance.structured.standard.conformance.structured.select-v1.body.6.typing"
+          ]
+        ]
+      },
+      "changed_occurrences": 621,
+      "public_exit_codes": [
+        2,
+        2
+      ]
+    },
+    "typed-profile": {
+      "A": {
+        "admitted": false,
+        "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+        "language_bundle_identity": "sha256:57016f1656526918a25c7b112386d3a6ce85652ea6464999bd37dde4274911cb",
+        "diagnostics": [
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.literal-typing-profiles"
+          ]
+        ]
+      },
+      "B": {
+        "admitted": false,
+        "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+        "language_bundle_identity": "sha256:57016f1656526918a25c7b112386d3a6ce85652ea6464999bd37dde4274911cb",
+        "diagnostics": [
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.literal-typing-profiles"
+          ]
+        ]
+      },
+      "public_exit_codes": [
+        2
+      ]
+    },
+    "constructors": {
+      "A": {
+        "admitted": false,
+        "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+        "language_bundle_identity": "sha256:3269ca97c8dd5b73941ddc103e32ccf0fee04002a63ea40c40393f3e84e1479d",
+        "diagnostics": [
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.literal-typing-profiles"
+          ]
+        ]
+      },
+      "B": {
+        "admitted": false,
+        "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+        "language_bundle_identity": "sha256:3269ca97c8dd5b73941ddc103e32ccf0fee04002a63ea40c40393f3e84e1479d",
+        "diagnostics": [
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.literal-typing-profiles"
+          ]
+        ]
+      },
+      "public_exit_codes": [
+        2
+      ]
+    },
+    "static-reasons": {
+      "A": {
+        "admitted": false,
+        "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+        "language_bundle_identity": "sha256:50ab66d23c8e3f57270d39c5d57ff51d5dbcef92c5e6ba2828325cbe77c01942",
+        "diagnostics": [
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.definitions"
+          ]
+        ]
+      },
+      "B": {
+        "admitted": false,
+        "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+        "language_bundle_identity": "sha256:50ab66d23c8e3f57270d39c5d57ff51d5dbcef92c5e6ba2828325cbe77c01942",
+        "diagnostics": [
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.definitions"
+          ]
+        ]
+      },
+      "public_exit_codes": [
+        2
+      ]
+    }
+  },
+  "incompatible_policy_controls": [
+    {
+      "field": "overflow",
+      "value": "wrap",
+      "A": {
+        "admitted": false,
+        "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+        "language_bundle_identity": "sha256:19eaed5a2f1f47c21e1a39ace770630157eb1d8f7ee7f51fc5c89d3881de6c70",
+        "diagnostics": [
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.definitions"
+          ]
+        ]
+      },
+      "B": {
+        "admitted": false,
+        "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+        "language_bundle_identity": "sha256:19eaed5a2f1f47c21e1a39ace770630157eb1d8f7ee7f51fc5c89d3881de6c70",
+        "diagnostics": [
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.definitions"
+          ]
+        ]
+      }
+    },
+    {
+      "field": "rounding",
+      "value": "nearest",
+      "A": {
+        "admitted": false,
+        "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+        "language_bundle_identity": "sha256:d64e40dcdda509185a78418a5aa498440a8b3e2fb071bea9dd0b6739e5307124",
+        "diagnostics": [
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.definitions"
+          ]
+        ]
+      },
+      "B": {
+        "admitted": false,
+        "kernel_identity": "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da",
+        "language_bundle_identity": "sha256:d64e40dcdda509185a78418a5aa498440a8b3e2fb071bea9dd0b6739e5307124",
+        "diagnostics": [
+          [
+            "static",
+            "kernel.vector_mismatch",
+            "language.definitions"
+          ]
+        ]
+      }
+    }
+  ],
+  "raw_evidence": [
+    {
+      "file": "result.json",
+      "bytes": 106687,
+      "sha256": "acdc7d28ef97fb804f02376f489ffdc2b622d2ff2fd1e869d9dad9b137de7f36"
+    },
+    {
+      "file": "changed-occurrences.json",
+      "bytes": 57897,
+      "sha256": "5d1efcd079b5619a24d094cb754eb33e280e1667f7547e6e141a181dca93b8b3"
+    },
+    {
+      "file": "semantic-negative.json",
+      "bytes": 8018,
+      "sha256": "63931932aa04317243a4f7368d5b86b6da587ae52e4361c6cc5ae281a6c259d2"
+    },
+    {
+      "file": "roles-red/results.json",
+      "bytes": 14799,
+      "sha256": "c18edf0c95fab13a5e0d5b7e0168e7a35a741e3e336a77e70a3ab86eea2ab878"
+    },
+    {
+      "file": "DESIGN.md",
+      "bytes": 8768,
+      "sha256": "6ff77c36935b257d561e4bafaed272cdb604b0a5236451529a958deed123a9ed"
+    }
+  ],
+  "decision": [
+    "Delete the numeric compatibility ID list without a replacement table: the existing Quantity policy grammar fixes overflow=refuse and rounding=none. Retain Runtime profile numeric_law binding.",
+    "Select the typed profile uniquely by its declared role and actual admission law; preserve owner and closure checks without a fixed profile ID.",
+    "Derive structured constructor roles from existing closed value-rule variants, preserving profile-owner export completeness and uniqueness without fixed constructor IDs.",
+    "Use the existing stage/signal reason mechanism for the four distinct static structured faults, retaining unique reason and diagnostic ownership."
+  ],
+  "limits": [
+    "The renamed graphs fail admission and do not produce renamed RIRs. Their public failures are startup/admission evidence, not admitted renamed Experiment execution.",
+    "The original numeric baseline public build/check/run exits 0; raw subprocess receipts are under baseline/cli-results.json.",
+    "The unified correction is not implemented by this evidence record. A corrected Kernel requires truthful re-identification, affected conformance and actual maintained-input revalidation before the final build freeze."
+  ]
+}

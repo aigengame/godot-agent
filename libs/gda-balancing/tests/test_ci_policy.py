@@ -61,6 +61,7 @@ def test_unknown_path_defaults_to_the_full_balancing_matrix():
 
 
 def test_shards_pairwise_partition_every_balancing_test_file():
+    assert all(len(paths) == len(set(paths)) for paths in ci.SHARDS.values())
     groups = [set(paths) for paths in ci.SHARDS.values()]
     union: set[str] = set()
     for group in groups:
@@ -73,14 +74,18 @@ def test_shards_pairwise_partition_every_balancing_test_file():
     assert ci.REQUIRED_TEST_SHARDS == (
         "fast",
         "authority",
-        "language",
+        *(f"language-{index:02d}" for index in range(1, 5)),
         "model",
         "model-admission",
         "experiment",
         "experiment-continuation",
+        *(f"extension-{index:02d}" for index in range(1, 20)),
         "bounded-fold",
-        "composition",
+        "composition-01",
+        "composition-02",
+        "composition-03",
         "interfaces",
+        "fixed-build",
     )
     assert ci.PROCESS_TIMEOUT_SECONDS == {
         "required": 480,

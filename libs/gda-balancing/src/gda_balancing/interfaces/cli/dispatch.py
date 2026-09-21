@@ -20,12 +20,14 @@ from typing import Any, TextIO
 import jsonschema
 from pydantic import BaseModel, ValidationError
 
+from gda_balancing.domain.authority.admission import BootstrapAdmission
 from gda_balancing.domain.authority.context import AuthorityLoadError
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.domain.publication_types import PublicationError
 from gda_balancing.interfaces.cli.errors import UsageError, publication_usage_error
 from gda_balancing.interfaces.cli.descriptors import (
     CommandDescriptor,
+    handler_accepts_authority_context,
     option_bindings,
 )
 from gda_balancing.interfaces.cli.rendering import (
@@ -46,6 +48,7 @@ from gda_balancing.interfaces.cli.envelope import (
 from gda_balancing.domain.diagnostics import (
     Schema2RefusalReport,
     authority_load_refusal,
+    bootstrap_refusal,
 )
 
 _SCHEMA_FLAG = "--schema"
@@ -167,18 +170,40 @@ def _dispatch(
             raise _UsageError("unknown_command", f"unknown command: {head}")
         tail = argv[1:]
 
-    # Bare `--schema` wins over any other argument (bADR-0009).
-    if _SCHEMA_FLAG in tail:
-        from gda_balancing.interfaces.cli.surface import command_schema_projection
-
-        stdout.write(canonical_json(command_schema_projection(descriptor)))
-        return EXIT_SUCCESS
     if _HELP_FLAG in tail:
         stdout.write(_render_command_help(descriptor))
         return EXIT_SUCCESS
 
+    # Bare `--schema` wins over any other non-help argument (bADR-0009).
+    if _SCHEMA_FLAG in tail:
+        from gda_balancing.interfaces.cli.surface import command_schema_projection
+
+        authority_context = descriptor.resolved_authority_context()
+        if isinstance(authority_context, BootstrapAdmission):
+            stdout.write(
+                canonical_json(
+                    schema2_refusal_envelope(bootstrap_refusal(authority_context))
+                )
+            )
+            return EXIT_REFUSAL
+        stdout.write(
+            canonical_json(
+                command_schema_projection(
+                    descriptor,
+                    authority_context=authority_context,
+                )
+            )
+        )
+        return EXIT_SUCCESS
+
     try:
-        return _invoke_descriptor(descriptor, tail, stdout, stderr, stdin)
+        return _invoke_descriptor(
+            descriptor,
+            tail,
+            stdout,
+            stderr,
+            stdin,
+        )
     except PublicationError as err:
         usage = publication_usage_error(err)
         if usage.code not in descriptor.usage_codes:
@@ -214,14 +239,27 @@ def _invoke_descriptor(
     except ValidationError as err:
         raise _UsageError("invalid_argument", _summarize(err)) from err
 
+    authority_context = descriptor.resolved_authority_context()
+    if isinstance(authority_context, BootstrapAdmission):
+        stdout.write(
+            canonical_json(
+                schema2_refusal_envelope(bootstrap_refusal(authority_context))
+            )
+        )
+        return EXIT_REFUSAL
+
     if descriptor.execution_lifecycle == "foreground-service":
         return _invoke_foreground_descriptor(descriptor, input_obj, stdout, stderr)
     if descriptor.handler is None:
         raise TypeError("one-shot descriptor has no handler")
-    outcome = descriptor.handler(input_obj)
+    outcome = (
+        descriptor.handler(input_obj, authority_context)
+        if handler_accepts_authority_context(descriptor.handler)
+        else descriptor.handler(input_obj)
+    )
     if isinstance(outcome, Schema2RefusalReport):
         observed = {(item.code, outcome.stage) for item in outcome.diagnostics}
-        if not observed <= set(descriptor.resolved_refusal_catalog()):
+        if not observed <= set(descriptor.resolved_refusal_catalog(authority_context)):
             raise TypeError(
                 "handler returned a Schema 2.x refusal absent from its descriptor"
             )

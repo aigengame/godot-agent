@@ -14,12 +14,15 @@ DIRECTORY (ADR-0006): that one stays in the shared core below this layer, and
 the absolute imports keep the two names apart.
 """
 
-from typing import Any, Optional
+from pathlib import Path
+from typing import Annotated, Any, Literal, Optional, TypeVar, Union
 
 import typer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from gda.dispatch import dispatch_domain, params_or_bad_parameter
+from gda import dispatch
+from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
+from gda.errors import Failure, make_failure
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -33,6 +36,13 @@ from gda.models import (
     projected_value_schema_extra,
     SET_ECHO_VALUE_DESC,
     VALUE_PROJECTION_DESC,
+)
+from gda.project import PROJECT_MARKER
+from gda.project_file import (
+    ProjectFileChangedError,
+    ProjectFileRestoreError,
+    bound_project_write,
+    read_config,
 )
 from gda.render import format_value
 
@@ -381,6 +391,208 @@ class ProjectListResult(BaseModel):
     settings: list[ListedProjectSetting]
 
 
+# --- Bounded project writes (#843) -------------------------------------------
+#
+# Every writer in this group persists through ``ProjectSettings.save()``, which
+# does not write the file the caller edited — it RESERIALIZES the whole of it
+# from the engine's merged settings (`ProjectSettings::save_custom`,
+# `core/config/project_settings.cpp`). Three things follow, none of them asked
+# for by the caller:
+#
+# * an explicit line whose value equals the engine's initial value is DELETED
+#   (`if (v->variant == v->initial) continue;`) — the caller's own declaration,
+#   which tooling and humans read, silently gone on an unrelated edit;
+# * `application/config/features` is added or rewritten (the rendering method
+#   appended, `C#` added or removed, unsupported features trimmed), and an older
+#   feature list can pull further compatibility settings in with it;
+# * the sections are written in the engine's own (alphabetical) order.
+#
+# gda bounds the write to the request and discloses the rest: it restores the
+# dropped declarations verbatim into their section and reports what the save
+# added, rewrote, restored and reordered. It does NOT restore the layout — the
+# engine owns that — and it does not re-author values: a restored line is the
+# caller's own bytes, and the one line gda cannot take from the pre-write file
+# (the addressed setting, when the caller writes it to the engine default on a
+# file that never declared it) is written by the ENGINE itself, from the
+# request's coerced value, because `operations.gd` moves that setting's initial
+# value out of the way before saving.
+
+
+class ProjectWriteResult(BaseModel):
+    """The residual-mutation report every ``project`` WRITE result carries (#843).
+
+    The single authority for the four keys the five writers share, so a caller
+    reads one shape whichever setting it wrote. All four describe the file BESIDE
+    the request: the addressed setting is never in them — its new value, its
+    appearance or its removal IS the request.
+
+    They are empty on a write gda could not measure (no project resolved, or a
+    ``project.godot`` it could not read on either side): with nothing to compare,
+    silence is the honest answer rather than a guess.
+    """
+
+    added_settings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Settings the engine's save WROTE that the caller did not ask about, "
+            "and that project.godot did not declare before — "
+            "application/config/features on a file that lacked it, and any "
+            "compatibility setting the engine pulled in with it."
+        ),
+    )
+    rewritten_settings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Settings that were already declared and whose value the engine's save "
+            "changed on its own — typically application/config/features."
+        ),
+    )
+    restored_settings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Explicit declarations the engine's save dropped because their value "
+            "equals its default, and that gda wrote back verbatim — plus the "
+            "addressed setting when the caller set it to that default."
+        ),
+    )
+    sections_reordered: bool = Field(
+        default=False,
+        description=(
+            "True when the engine's save wrote the sections the two files share in "
+            "a different order. gda does not restore the layout: the engine owns it."
+        ),
+    )
+
+
+W = TypeVar("W", bound=ProjectWriteResult)
+
+# The project-setting names the autoload and input-action writers address, built
+# the way `operations.gd` builds them (AUTOLOAD_SETTING_PREFIX /
+# INPUT_SETTING_PREFIX). The CLI needs the name to keep the addressed setting out
+# of the residual report.
+AUTOLOAD_SETTING_PREFIX = "autoload/"
+INPUT_SETTING_PREFIX = "input/"
+
+
+def _bounded_write(
+    cmd: HeadlessCommand[W],
+    params: BaseModel,
+    *,
+    project: Optional[Path],
+    godot: Optional[str],
+    addressed: str,
+) -> "W | Failure":
+    """Run a project writer, restore what its save dropped, and report the rest.
+
+    The recipe channel (ADR-0023) is the one descriptor-driven hook the argv and
+    ``--params-json`` paths share, so both take this same path (ADR-0015) without
+    the shared dispatch tail learning anything about this group. The sentinel op
+    still does the writing (``cmd.execute``); this wraps it in the part only the
+    CLI can do — it holds the file's PRE-write state, which no engine started
+    after the fact can recover.
+
+    ``project`` arrives ALREADY resolved from ``dispatch_recipe`` (#353).
+    Projectless is not refused here: the operation itself reports
+    ``project_not_found``, and this simply has nothing to measure.
+
+    The restore runs on a FAILED operation too (PR #898 review). A run that never
+    reached ``ProjectSettings.save()`` leaves the file equal to what was read, so
+    nothing is written; a run that saved and THEN failed — a crash, a timeout —
+    has already dropped the declarations, and leaving them gone because the
+    command also failed would be the worse half of both outcomes. The failure
+    envelope is returned unchanged: its code and diagnostics are the operation's,
+    and a repair the result cannot mention is still a repair. A file the engine
+    left half-written is not detectable from outside, so the restore writes into
+    whatever it finds there.
+
+    The restore itself is an optimistic, atomic replace of the engine's output
+    (ADR-0018 Decision 4): a file that changed between that output being read
+    and the restore being committed is left alone and reported as
+    `file_changed_externally`, so a concurrent editor's edit is never
+    clobbered by the repair.
+    """
+    marker = None if project is None else project / PROJECT_MARKER
+    before = None if marker is None else read_config(marker)
+    # The runner seam is read off the module at call time — never imported by name
+    # — so a test monkeypatch on ``gda.dispatch.make_runner`` still binds.
+    outcome = cmd.execute(
+        params, godot=godot, project=project, make_runner=dispatch.make_runner
+    )
+    if marker is None:
+        return outcome
+    try:
+        mutation = bound_project_write(marker, before, addressed=addressed)
+    except (ProjectFileChangedError, ProjectFileRestoreError) as exc:
+        # The engine reserialized the file and gda did not get the declarations
+        # back into it. An operation that ALSO failed keeps its own envelope —
+        # that failure is the caller's first problem, and this one would displace
+        # it; otherwise the write is what failed, so the result becomes one.
+        # WHICH code depends on why the restore did not land, because the two ask
+        # different things of the caller: a refused write is a file to make
+        # writable (`save_failed`, reused by semantic match — the reuse the code
+        # registry describes: a project file gda could not save), while a file
+        # that moved under gda is another writer to reconcile with
+        # (`file_changed_externally`, ADR-0018 Decision 4 — the same verdict
+        # `operations.gd` reports for its own read-modify-write ops).
+        if isinstance(outcome, Failure):
+            return outcome
+        code = (
+            "file_changed_externally"
+            if isinstance(exc, ProjectFileChangedError)
+            else "save_failed"
+        )
+        return make_failure(code, str(exc), "")
+    if isinstance(outcome, Failure):
+        return outcome
+    return outcome.model_copy(
+        update={
+            "added_settings": list(mutation.added),
+            "rewritten_settings": list(mutation.rewritten),
+            # The operation reports the addressed setting it had to force back
+            # (a `project set` to the engine's own default); the CLI adds the
+            # declarations it restored itself.
+            "restored_settings": [*outcome.restored_settings, *mutation.restored],
+            "sections_reordered": mutation.sections_reordered,
+        }
+    )
+
+
+def _render_write_mutation(written: ProjectWriteResult) -> list[str]:
+    """One line per NON-EMPTY category of the residual report (#843).
+
+    A clean write is the common case and stays a single line — four empty
+    categories printed every time would bury the answer the command was asked for.
+    """
+    lines: list[str] = []
+    if written.added_settings:
+        lines.append("engine added: " + ", ".join(written.added_settings))
+    if written.rewritten_settings:
+        lines.append("engine rewrote: " + ", ".join(written.rewritten_settings))
+    if written.restored_settings:
+        lines.append("gda restored: " + ", ".join(written.restored_settings))
+    if written.sections_reordered:
+        lines.append("sections reordered by the engine")
+    return lines
+
+
+# The shared help paragraph the five writers carry, so an agent reading one
+# command's --help (or its --schema description) learns what a save does to the
+# file without having to have read the catalog. Composed into each command's own
+# summary by `_write_help`, which keeps the five from drifting apart.
+BOUNDED_WRITE_HELP = (
+    "Saving reserializes project.godot through the engine: it drops explicit "
+    "lines whose value equals the engine default, adds or rewrites "
+    "application/config/features, and reorders the sections. gda restores the "
+    "dropped lines and reports the rest as added_settings, rewritten_settings, "
+    "restored_settings and sections_reordered."
+)
+
+
+def _write_help(summary: str) -> str:
+    """A project writer's help: its own summary, then the shared save note."""
+    return f"{summary}\n\n{BOUNDED_WRITE_HELP}"
+
+
 class ProjectSetParams(BaseModel):
     """The operation params of ``gda project set`` (issue #111).
 
@@ -409,7 +621,7 @@ class ProjectSetParams(BaseModel):
     )
 
 
-class ProjectSetResult(BaseModel):
+class ProjectSetResult(ProjectWriteResult):
     """The result of ``gda project set``: the one setting it set (issue #111).
 
     Echoes the ``setting`` set, the declared ``type`` the CLI value was coerced
@@ -455,7 +667,7 @@ class ProjectAddAutoloadParams(BaseModel):
     )
 
 
-class ProjectAddAutoloadResult(BaseModel):
+class ProjectAddAutoloadResult(ProjectWriteResult):
     """The result of ``gda project add-autoload``: the autoload it registered.
 
     Echoes the autoload's ``name`` and the ``path`` exactly as it was persisted to
@@ -487,7 +699,7 @@ class ProjectRemoveAutoloadParams(BaseModel):
     )
 
 
-class ProjectRemoveAutoloadResult(BaseModel):
+class ProjectRemoveAutoloadResult(ProjectWriteResult):
     """The result of ``gda project remove-autoload``: the autoload it removed.
 
     Echoes the ``name`` of the autoload that was unregistered, so an agent can
@@ -498,16 +710,110 @@ class ProjectRemoveAutoloadResult(BaseModel):
     name: str = Field(description="The unregistered autoload's global name.")
 
 
+# The joypad binding NAMES `--joy-button` / `--joy-axis` accept, for the help and
+# schema prose. The RESOLVER's table lives in `operations.gd`, mapping each name
+# to the engine's own JoyButton/JoyAxis constant (issue #842); these tuples are a
+# doc-facing copy, pinned to that table by
+# tests/project/test_input_action_joy_names.py, which in turn diffs it against
+# the enum the engine itself dumps. The copy exists because the CLI has to
+# document the accepted set without reading GDScript at import time.
+JOY_BUTTON_NAMES: tuple[str, ...] = (
+    "A",
+    "B",
+    "X",
+    "Y",
+    "Back",
+    "Guide",
+    "Start",
+    "LeftStick",
+    "RightStick",
+    "LeftShoulder",
+    "RightShoulder",
+    "DPadUp",
+    "DPadDown",
+    "DPadLeft",
+    "DPadRight",
+    "Misc1",
+    "Paddle1",
+    "Paddle2",
+    "Paddle3",
+    "Paddle4",
+    "Touchpad",
+)
+
+JOY_AXIS_NAMES: tuple[str, ...] = (
+    "LeftX",
+    "LeftY",
+    "RightX",
+    "RightY",
+    "TriggerLeft",
+    "TriggerRight",
+)
+
+JOY_BUTTON_DESC = (
+    "A joypad button to bind (repeatable): a JoyButton NAME — "
+    + ", ".join(JOY_BUTTON_NAMES)
+    + " (case- and separator-insensitive, so DPadLeft, dpad_left and DPAD_LEFT "
+    "are one button) — or a base-10 button index."
+)
+
+JOY_AXIS_DESC = (
+    "A joypad axis DIRECTION to bind (repeatable), spelled <axis>[:<sign>]: a "
+    "JoyAxis name — "
+    + ", ".join(JOY_AXIS_NAMES)
+    + " (case- and separator-insensitive) — or a base-10 axis index, with the "
+    "sign + (the default) or - selecting the direction, e.g. LeftX:- for stick "
+    "left. One direction is one binding."
+)
+
+# InputEvent.device is a 32-bit field in the engine. A larger integer is not
+# refused by GDScript's 64-bit int but WRAPS on assignment (4294967295 becomes
+# -1, every joypad; 2147483648 becomes -2147483648), so the bound is the model's,
+# refused before any engine is spawned.
+INPUT_EVENT_DEVICE_MAX = 2**31 - 1
+
+DEVICE_DESC = (
+    "The joypad device this call's joypad bindings match: -1 (the default) is "
+    "InputMap.ALL_DEVICES and matches every joypad, 0 and up name one specific "
+    f"joypad, at most {INPUT_EVENT_DEVICE_MAX} (the engine stores an event's "
+    "device as a 32-bit integer; a larger number would wrap and match a "
+    "different joypad). Key bindings are always -1 and are unaffected."
+)
+
+
+# The "at least one binding" rule, published as JSON Schema so a standard Draft
+# 2020-12 validator reaches the SAME verdict as the model. ADR-0015 makes the
+# params model the one authority for both, which means the published input
+# contract must not be wider than the ABI `--params-json` actually accepts, and a
+# model-validator cross-field rule has to be visible to a plain validator (#743).
+# While `keys` was the only binding kind the rule rode on it as `minItems: 1`;
+# spread across three lists it becomes an `anyOf` — at least one list present and
+# non-empty. `_check_at_least_one_binding` below stays the ENFORCING authority; a
+# parity corpus (tests/project/test_project_commands.py) runs the same payloads
+# through the schema and the model and requires one verdict, so the two cannot
+# drift.
+_AT_LEAST_ONE_BINDING_SCHEMA: dict[str, Any] = {
+    "anyOf": [
+        {"required": [field], "properties": {field: {"minItems": 1}}}
+        for field in ("keys", "joy_buttons", "joy_axes")
+    ]
+}
+
+
 class ProjectAddInputActionParams(BaseModel):
-    """The operation params of ``gda project add-input-action`` (issue #380).
+    """The operation params of ``gda project add-input-action`` (issues #380, #842).
 
     Registers an InputMap action: ``name`` is the action name (the key under the
-    ``input/`` section of ``project.godot``), bound to one or more keyboard keys.
-    The operation builds real ``InputEventKey`` events and persists the action
-    via ``ProjectSettings`` — never a hand-built string — so the serialization is
+    ``input/`` section of ``project.godot``), bound to keyboard keys, joypad
+    buttons and joypad axis directions — at least one binding of any kind. The
+    operation builds real ``InputEventKey`` / ``InputEventJoypadButton`` /
+    ``InputEventJoypadMotion`` events and persists the action via
+    ``ProjectSettings`` — never a hand-built string — so the serialization is
     exactly the engine's own ``var_to_str`` form. The project is process context
     (``--project``), not an operation param (ADR-0006).
     """
+
+    model_config = ConfigDict(json_schema_extra=_AT_LEAST_ONE_BINDING_SCHEMA)
 
     name: str = Field(
         description=(
@@ -516,11 +822,25 @@ class ProjectAddInputActionParams(BaseModel):
         )
     )
     keys: list[str] = Field(
-        min_length=1,
+        default_factory=list,
         description=(
-            "The keys to bind (at least one): each item is a Godot key NAME "
+            "The keys to bind: each item is a Godot key NAME "
             "(e.g. J, Space, Escape) or a base-10 keycode integer string."
         ),
+    )
+    joy_buttons: list[str] = Field(
+        default_factory=list,
+        description=JOY_BUTTON_DESC,
+    )
+    joy_axes: list[str] = Field(
+        default_factory=list,
+        description=JOY_AXIS_DESC,
+    )
+    device: int = Field(
+        default=-1,
+        ge=-1,
+        le=INPUT_EVENT_DEVICE_MAX,
+        description=DEVICE_DESC,
     )
     deadzone: float = Field(
         default=0.5,
@@ -539,19 +859,36 @@ class ProjectAddInputActionParams(BaseModel):
         ),
     )
 
+    @model_validator(mode="after")
+    def _check_at_least_one_binding(self) -> "ProjectAddInputActionParams":
+        """Refuse an action that would match nothing.
+
+        The rule spans the three binding lists, so it cannot be a ``minItems``
+        on one of them: ``--key`` stopped being individually required when the
+        joypad kinds landed (#842), and an action registered with an empty event
+        list is a dead entry no input can ever trigger. This check is the
+        enforcing authority; ``_AT_LEAST_ONE_BINDING_SCHEMA`` publishes the same
+        rule so a schema-only client is refused here too, not surprised at
+        dispatch.
+        """
+        if not self.keys and not self.joy_buttons and not self.joy_axes:
+            raise ValueError(
+                "at least one binding is required: pass --key, --joy-button "
+                "or --joy-axis."
+            )
+        return self
+
 
 class InputActionKeyEvent(BaseModel):
-    """One key binding of a registered InputMap action (issue #380).
+    """One KEY binding of a registered InputMap action (issue #380).
 
-    ``kind`` discriminates the event type so mouse/joypad kinds can extend the
-    shape later without breaking; this slice emits only ``key`` events. ``key``
-    echoes the raw ``--key`` token, ``keycode`` the Godot keycode it resolved to,
-    and ``physical`` whether it was bound as ``physical_keycode``.
+    ``key`` echoes the raw ``--key`` token, ``keycode`` the Godot keycode it
+    resolved to, and ``physical`` whether it was bound as ``physical_keycode``.
+    A key event is always bound at device -1 (``InputMap.ALL_DEVICES``), so it
+    carries no ``device`` of its own.
     """
 
-    kind: str = Field(
-        default="key", description="The event kind ('key' for this slice)."
-    )
+    kind: Literal["key"] = Field(default="key", description="The event kind.")
     key: str = Field(description="The raw --key token as given (name or keycode).")
     keycode: int = Field(description="The Godot keycode the token resolved to.")
     physical: bool = Field(
@@ -559,18 +896,78 @@ class InputActionKeyEvent(BaseModel):
     )
 
 
-class ProjectAddInputActionResult(BaseModel):
+class InputActionJoyButtonEvent(BaseModel):
+    """One joypad BUTTON binding of a registered InputMap action (issue #842).
+
+    ``button`` echoes the raw ``--joy-button`` token, ``button_index`` the
+    ``JoyButton`` value it resolved to, and ``device`` the joypad the binding
+    matches (-1 = every joypad).
+    """
+
+    kind: Literal["joy_button"] = Field(
+        default="joy_button", description="The event kind."
+    )
+    button: str = Field(
+        description="The raw --joy-button token as given (name or index)."
+    )
+    button_index: int = Field(
+        description="The Godot JoyButton value the token resolved to."
+    )
+    device: int = Field(
+        description="The joypad device the binding matches (-1 = every joypad)."
+    )
+
+
+class InputActionJoyAxisEvent(BaseModel):
+    """One joypad AXIS DIRECTION binding of a registered action (issue #842).
+
+    ``axis`` echoes the raw ``--joy-axis`` token (sign included),
+    ``axis_index`` the ``JoyAxis`` value it resolved to, ``axis_value`` the
+    direction the sign selected (+1.0 or -1.0), and ``device`` the joypad the
+    binding matches (-1 = every joypad).
+    """
+
+    kind: Literal["joy_axis"] = Field(default="joy_axis", description="The event kind.")
+    axis: str = Field(description="The raw --joy-axis token as given, sign included.")
+    axis_index: int = Field(
+        description="The Godot JoyAxis value the token resolved to."
+    )
+    axis_value: float = Field(
+        description="The direction the token's sign selected: +1.0 or -1.0."
+    )
+    device: int = Field(
+        description="The joypad device the binding matches (-1 = every joypad)."
+    )
+
+
+# One bound event, as a DISCRIMINATED union on `kind` (#842). #380 shipped `kind`
+# on the key event precisely so the joypad kinds could extend the shape without
+# breaking it; making the extension a discriminated union publishes each kind's
+# own field set in the schema, so a client reads what a joypad event carries from
+# the contract rather than from a sample payload.
+InputActionEvent = Annotated[
+    Union[InputActionKeyEvent, InputActionJoyButtonEvent, InputActionJoyAxisEvent],
+    Field(discriminator="kind"),
+]
+
+
+class ProjectAddInputActionResult(ProjectWriteResult):
     """The result of ``gda project add-input-action``: the action it registered.
 
     Echoes the action's ``name``, the ``deadzone`` persisted, and the resolved
-    key ``events`` exactly as they were bound — so an agent can confirm each key
-    token mapped to the intended keycode without re-reading ``project.godot``.
+    ``events`` exactly as they were bound — so an agent can confirm each token
+    mapped to the intended keycode, button or axis direction without re-reading
+    ``project.godot``. The events are reported (and persisted) in kind order:
+    keys, then joypad buttons, then joypad axis directions.
     """
 
     name: str = Field(description="The registered input action's name.")
     deadzone: float = Field(description="The deadzone persisted with the action.")
-    events: list[InputActionKeyEvent] = Field(
-        description="The key events bound to the action, in --key order."
+    events: list[InputActionEvent] = Field(
+        description=(
+            "The events bound to the action: the --key ones first, then the "
+            "--joy-button ones, then the --joy-axis ones, each in argv order."
+        )
     )
 
 
@@ -586,7 +983,7 @@ class ProjectRemoveInputActionParams(BaseModel):
     name: str = Field(description="The name of the input action to unregister.")
 
 
-class ProjectRemoveInputActionResult(BaseModel):
+class ProjectRemoveInputActionResult(ProjectWriteResult):
     """The result of ``gda project remove-input-action``: the action it removed.
 
     Echoes the ``name`` of the input action that was unregistered, so an agent
@@ -616,8 +1013,13 @@ def render_project_get(got: "ProjectGetResult") -> str:
 
 
 def render_project_set(was_set: "ProjectSetResult") -> str:
-    """Render a set setting as ``set <setting> (<type>) = <value>``."""
-    return f"set {was_set.setting} ({was_set.type}) = {format_value(was_set.value)}"
+    """Render a set setting as ``set <setting> (<type>) = <value>``.
+
+    Followed by one line per non-empty residual-mutation category (#843), the
+    shared tail every project WRITE renders.
+    """
+    line = f"set {was_set.setting} ({was_set.type}) = {format_value(was_set.value)}"
+    return "\n".join([line, *_render_write_mutation(was_set)])
 
 
 def render_project_list(listed: "ProjectListResult") -> str:
@@ -641,32 +1043,54 @@ def render_project_list(listed: "ProjectListResult") -> str:
 
 def render_project_add_autoload(added: "ProjectAddAutoloadResult") -> str:
     """Render a registered autoload as ``added autoload <name> = <path>``."""
-    return f"added autoload {added.name} = {added.path}"
+    line = f"added autoload {added.name} = {added.path}"
+    return "\n".join([line, *_render_write_mutation(added)])
 
 
 def render_project_remove_autoload(removed: "ProjectRemoveAutoloadResult") -> str:
     """Render an unregistered autoload as ``removed autoload <name>``."""
-    return f"removed autoload {removed.name}"
+    line = f"removed autoload {removed.name}"
+    return "\n".join([line, *_render_write_mutation(removed)])
+
+
+def _render_input_action_binding(event: "InputActionEvent") -> str:
+    """Render one bound event as ``<token> -> <resolved>``, per kind."""
+    if isinstance(event, InputActionKeyEvent):
+        physical = " (physical)" if event.physical else ""
+        return f"{event.key} -> {event.keycode}{physical}"
+    if isinstance(event, InputActionJoyButtonEvent):
+        return f"joy button {event.button} -> {event.button_index}"
+    return f"joy axis {event.axis} -> {event.axis_index} ({event.axis_value})"
 
 
 def render_project_add_input_action(added: "ProjectAddInputActionResult") -> str:
-    """Render a registered input action with its resolved key bindings.
+    """Render a registered input action with its resolved bindings.
 
-    e.g. ``added input action jump (deadzone 0.5): J -> 74, Space -> 32``; a
-    physical binding is marked ``(physical)`` after its keycode.
+    e.g. ``added input action jump (deadzone 0.5): J -> 74, joy button A -> 0
+    [device -1]``; a physical key binding is marked ``(physical)`` after its
+    keycode, and an axis direction shows the ``axis_value`` its sign selected.
+    The device is stated ONCE at the end, and only when the action has a joypad
+    binding: ``--device`` is a property of the call, not of a single binding, and
+    it never applies to a key event.
     """
-    bindings = ", ".join(
-        f"{event.key} -> {event.keycode}" + (" (physical)" if event.physical else "")
+    bindings = ", ".join(_render_input_action_binding(event) for event in added.events)
+    line = f"added input action {added.name} (deadzone {added.deadzone}): {bindings}"
+    joypad = [
+        event
         for event in added.events
-    )
-    return f"added input action {added.name} (deadzone {added.deadzone}): {bindings}"
+        if isinstance(event, (InputActionJoyButtonEvent, InputActionJoyAxisEvent))
+    ]
+    if joypad:
+        line += f" [device {joypad[0].device}]"
+    return "\n".join([line, *_render_write_mutation(added)])
 
 
 def render_project_remove_input_action(
     removed: "ProjectRemoveInputActionResult",
 ) -> str:
     """Render an unregistered input action as ``removed input action <name>``."""
-    return f"removed input action {removed.name}"
+    line = f"removed input action {removed.name}"
+    return "\n".join([line, *_render_write_mutation(removed)])
 
 
 def render_project_find_references(found: "ProjectFindReferencesResult") -> str:
@@ -739,11 +1163,89 @@ PROJECT_LIST_COMMAND: HeadlessCommand[ProjectListResult] = HeadlessCommand(
     render=render_project_list,
 )
 
+# --- Recipe channels: the five project WRITERS (ADR-0023, #843) ---------------
+# Each carries a `recipe` because one half of its contract is decided CLI-side:
+# the file as it stood BEFORE the engine's save, which no engine started after the
+# fact can recover. The op still does the writing; `_bounded_write` restores what
+# the save dropped and reports the rest. The addressed setting each recipe names is
+# what keeps the request itself out of that report.
+
+
+def _project_set_recipe(
+    params: "ProjectSetParams", *, project: Optional[Path], godot: Optional[str]
+) -> "ProjectSetResult | Failure":
+    return _bounded_write(
+        PROJECT_SET_COMMAND,
+        params,
+        project=project,
+        godot=godot,
+        addressed=params.setting,
+    )
+
+
+def _project_add_autoload_recipe(
+    params: "ProjectAddAutoloadParams", *, project: Optional[Path], godot: Optional[str]
+) -> "ProjectAddAutoloadResult | Failure":
+    return _bounded_write(
+        PROJECT_ADD_AUTOLOAD_COMMAND,
+        params,
+        project=project,
+        godot=godot,
+        addressed=AUTOLOAD_SETTING_PREFIX + params.name,
+    )
+
+
+def _project_remove_autoload_recipe(
+    params: "ProjectRemoveAutoloadParams",
+    *,
+    project: Optional[Path],
+    godot: Optional[str],
+) -> "ProjectRemoveAutoloadResult | Failure":
+    return _bounded_write(
+        PROJECT_REMOVE_AUTOLOAD_COMMAND,
+        params,
+        project=project,
+        godot=godot,
+        addressed=AUTOLOAD_SETTING_PREFIX + params.name,
+    )
+
+
+def _project_add_input_action_recipe(
+    params: "ProjectAddInputActionParams",
+    *,
+    project: Optional[Path],
+    godot: Optional[str],
+) -> "ProjectAddInputActionResult | Failure":
+    return _bounded_write(
+        PROJECT_ADD_INPUT_ACTION_COMMAND,
+        params,
+        project=project,
+        godot=godot,
+        addressed=INPUT_SETTING_PREFIX + params.name,
+    )
+
+
+def _project_remove_input_action_recipe(
+    params: "ProjectRemoveInputActionParams",
+    *,
+    project: Optional[Path],
+    godot: Optional[str],
+) -> "ProjectRemoveInputActionResult | Failure":
+    return _bounded_write(
+        PROJECT_REMOVE_INPUT_ACTION_COMMAND,
+        params,
+        project=project,
+        godot=godot,
+        addressed=INPUT_SETTING_PREFIX + params.name,
+    )
+
+
 PROJECT_SET_COMMAND: HeadlessCommand[ProjectSetResult] = HeadlessCommand(
     operation="project-set",
     input_model=ProjectSetParams,
     output_model=ProjectSetResult,
     render=render_project_set,
+    recipe=_project_set_recipe,
 )
 
 PROJECT_ADD_AUTOLOAD_COMMAND: HeadlessCommand[ProjectAddAutoloadResult] = (
@@ -752,6 +1254,7 @@ PROJECT_ADD_AUTOLOAD_COMMAND: HeadlessCommand[ProjectAddAutoloadResult] = (
         input_model=ProjectAddAutoloadParams,
         output_model=ProjectAddAutoloadResult,
         render=render_project_add_autoload,
+        recipe=_project_add_autoload_recipe,
     )
 )
 
@@ -761,6 +1264,7 @@ PROJECT_REMOVE_AUTOLOAD_COMMAND: HeadlessCommand[ProjectRemoveAutoloadResult] = 
         input_model=ProjectRemoveAutoloadParams,
         output_model=ProjectRemoveAutoloadResult,
         render=render_project_remove_autoload,
+        recipe=_project_remove_autoload_recipe,
     )
 )
 
@@ -770,6 +1274,7 @@ PROJECT_ADD_INPUT_ACTION_COMMAND: HeadlessCommand[ProjectAddInputActionResult] =
         input_model=ProjectAddInputActionParams,
         output_model=ProjectAddInputActionResult,
         render=render_project_add_input_action,
+        recipe=_project_add_input_action_recipe,
     )
 )
 
@@ -779,6 +1284,7 @@ PROJECT_REMOVE_INPUT_ACTION_COMMAND: HeadlessCommand[ProjectRemoveInputActionRes
         input_model=ProjectRemoveInputActionParams,
         output_model=ProjectRemoveInputActionResult,
         render=render_project_remove_input_action,
+        recipe=_project_remove_input_action_recipe,
     )
 )
 
@@ -969,7 +1475,14 @@ def find_unused_resources(
     )
 
 
-@_app.command(name="set", cls=PROJECT_SET_COMMAND.command_class())
+@_app.command(
+    name="set",
+    cls=PROJECT_SET_COMMAND.command_class(),
+    help=_write_help(
+        "Set a project setting, coercing the value to its declared Godot type, "
+        "then save."
+    ),
+)
 def project_set(
     setting: str = typer.Argument(
         ...,
@@ -989,8 +1502,8 @@ def project_set(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Set a project setting, coercing the value to its declared Godot type, then save."""
-    dispatch_domain(
+    """Set a project setting; help text is `help=` above (the shared save note)."""
+    dispatch_recipe(
         PROJECT_SET_COMMAND,
         ProjectSetParams(setting=setting, value=value),
         json_output=json_output,
@@ -999,7 +1512,14 @@ def project_set(
     )
 
 
-@_app.command(name="add-autoload", cls=PROJECT_ADD_AUTOLOAD_COMMAND.command_class())
+@_app.command(
+    name="add-autoload",
+    cls=PROJECT_ADD_AUTOLOAD_COMMAND.command_class(),
+    help=_write_help(
+        "Register an autoload singleton (name → script/scene path), then save "
+        "project.godot."
+    ),
+)
 def project_add_autoload(
     name: str = typer.Argument(
         ..., help="The autoload singleton's global name (the autoload/<name> key)."
@@ -1014,8 +1534,8 @@ def project_add_autoload(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Register an autoload singleton (name → script/scene path), then save project.godot."""
-    dispatch_domain(
+    """Register an autoload; help text is `help=` above (the shared save note)."""
+    dispatch_recipe(
         PROJECT_ADD_AUTOLOAD_COMMAND,
         ProjectAddAutoloadParams(name=name, path=path),
         json_output=json_output,
@@ -1025,7 +1545,11 @@ def project_add_autoload(
 
 
 @_app.command(
-    name="remove-autoload", cls=PROJECT_REMOVE_AUTOLOAD_COMMAND.command_class()
+    name="remove-autoload",
+    cls=PROJECT_REMOVE_AUTOLOAD_COMMAND.command_class(),
+    help=_write_help(
+        "Unregister an autoload singleton by name, then save project.godot."
+    ),
 )
 def project_remove_autoload(
     name: str = typer.Argument(
@@ -1037,8 +1561,8 @@ def project_remove_autoload(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Unregister an autoload singleton by name, then save project.godot."""
-    dispatch_domain(
+    """Unregister an autoload; help text is `help=` above (the shared save note)."""
+    dispatch_recipe(
         PROJECT_REMOVE_AUTOLOAD_COMMAND,
         ProjectRemoveAutoloadParams(name=name),
         json_output=json_output,
@@ -1048,19 +1572,40 @@ def project_remove_autoload(
 
 
 @_app.command(
-    name="add-input-action", cls=PROJECT_ADD_INPUT_ACTION_COMMAND.command_class()
+    name="add-input-action",
+    cls=PROJECT_ADD_INPUT_ACTION_COMMAND.command_class(),
+    help=_write_help(
+        "Register an InputMap action bound to keys and/or joypad inputs, then "
+        "save project.godot."
+    ),
 )
 def project_add_input_action(
     name: str = typer.Argument(
         ..., help="The input action's name (the input/<name> key)."
     ),
     keys: list[str] = typer.Option(
-        ...,
+        [],
         "--key",
         help=(
-            "A key to bind (repeatable, at least one): a Godot key name "
-            "(e.g. J, Space, Escape) or a base-10 keycode integer."
+            "A key to bind (repeatable): a Godot key name "
+            "(e.g. J, Space, Escape) or a base-10 keycode integer. At least one "
+            "binding of any kind is required."
         ),
+    ),
+    joy_buttons: list[str] = typer.Option(
+        [],
+        "--joy-button",
+        help=JOY_BUTTON_DESC,
+    ),
+    joy_axes: list[str] = typer.Option(
+        [],
+        "--joy-axis",
+        help=JOY_AXIS_DESC,
+    ),
+    device: int = typer.Option(
+        -1,
+        "--device",
+        help=DEVICE_DESC,
     ),
     deadzone: float = typer.Option(
         0.5,
@@ -1081,15 +1626,18 @@ def project_add_input_action(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Register an InputMap action bound to one or more keys, then save project.godot."""
+    """Register an input action; help text is `help=` above (the shared save note)."""
     params = params_or_bad_parameter(
         ProjectAddInputActionParams,
         name=name,
         keys=keys,
+        joy_buttons=joy_buttons,
+        joy_axes=joy_axes,
+        device=device,
         deadzone=deadzone,
         physical=physical,
     )
-    dispatch_domain(
+    dispatch_recipe(
         PROJECT_ADD_INPUT_ACTION_COMMAND,
         params,
         json_output=json_output,
@@ -1099,7 +1647,9 @@ def project_add_input_action(
 
 
 @_app.command(
-    name="remove-input-action", cls=PROJECT_REMOVE_INPUT_ACTION_COMMAND.command_class()
+    name="remove-input-action",
+    cls=PROJECT_REMOVE_INPUT_ACTION_COMMAND.command_class(),
+    help=_write_help("Unregister an InputMap action by name, then save project.godot."),
 )
 def project_remove_input_action(
     name: str = typer.Argument(..., help="The name of the input action to unregister."),
@@ -1109,8 +1659,8 @@ def project_remove_input_action(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Unregister an InputMap action by name, then save project.godot."""
-    dispatch_domain(
+    """Unregister an input action; help text is `help=` above (the shared save note)."""
+    dispatch_recipe(
         PROJECT_REMOVE_INPUT_ACTION_COMMAND,
         ProjectRemoveInputActionParams(name=name),
         json_output=json_output,

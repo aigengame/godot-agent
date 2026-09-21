@@ -35,11 +35,6 @@ from gda_balancing.domain.authority.context import (
 from gda_balancing.domain.authority.graph import derive_language_index
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.domain.model import (
-    CheckedModel,
-    check_model_source_value,
-    checked_model_template_facts,
-)
 from gda_balancing.domain.authority.projections import wire_schema_projection
 from gda_balancing.domain.authority.package_semantics import (
     package_runtime_semantic_closure,
@@ -50,6 +45,15 @@ from gda_balancing.domain.wire_schema import (
     wire_schema_identity_for_kind,
 )
 from schema2_authority_support import refresh_package_semantic_closures
+
+from gda_balancing.domain.model._resolution import ModelSourceContext
+from schema2_bootstrap_conformance_support import (
+    _consumer_b_template_model_results_are_supported,
+)
+from test_schema2_model_lowerer_conformance import (
+    _reference_check_source,
+    _reference_resolved_symbols,
+)
 
 
 def _reidentify_release(release):
@@ -92,14 +96,11 @@ def _reidentify_language_bundle(kernel, language_bundle):
         for vector_set in language_bundle.package_conformance_vector_sets
     }
     for package in language_bundle["language"]["packages"]:
-        semantic_projection = kernel["meta_format"]["package_release"][
-            "semantic_identity_projection"
-        ]
         package["semantic_identity"] = content_identity(
             "domain-package-semantic-closure-v2",
             cast(
                 JsonValue,
-                package_runtime_semantic_closure(package, semantic_projection),
+                package_runtime_semantic_closure(package, kernel),
             ),
         )
         vector_set = vector_sets_by_namespace[package["id"]]
@@ -152,6 +153,7 @@ def _reidentify_language_bundle(kernel, language_bundle):
         packages,
         vector_sets,
         kernel["admission"]["required_language_members"],
+        kernel=kernel,
         root_byte_size=len(canonical_bytes(root)),
         package_byte_sizes=package_sizes,
         vector_set_byte_sizes=vector_set_sizes,
@@ -350,16 +352,28 @@ def _reference_primitive_is_supported(primitive):
         if kind == "model-source-admission"
         else "preserve-graph"
     )
+    members = {
+        "argument_members",
+        "argument_types",
+        "charges",
+        "evaluation",
+        "failure",
+        "id",
+        "result_effect",
+    }
     return (
-        evaluation == _REFERENCE_EXECUTION_LAWS.get(kind)
+        set(primitive)
+        == members | ({"results"} if kind == "model-source-admission" else set())
+        and evaluation == _REFERENCE_EXECUTION_LAWS.get(kind)
         and primitive.get("result_effect") == effect
         and primitive.get("failure")
         == {"mode": "judgment-diagnostic", "short_circuit": True}
         and primitive.get("charges") == _REFERENCE_CHARGES.get(kind)
         and (
             kind != "model-source-admission"
-            or primitive.get("result_members")
-            == ["root_requirements", "resolved_packages", "source_symbols"]
+            or _consumer_b_template_model_results_are_supported(
+                primitive.get("results")
+            )
         )
     )
 
@@ -372,7 +386,7 @@ def _reference_argument_is_typed(
     roles,
     derived,
     roots,
-    result_members,
+    result_names,
 ):
     kind = contract["kind"]
     if kind == "selector":
@@ -401,7 +415,7 @@ def _reference_argument_is_typed(
                     roles=roles,
                     derived=derived,
                     roots=roots,
-                    result_members=result_members,
+                    result_names=result_names,
                 )
                 for item in value
             )
@@ -430,7 +444,7 @@ def _reference_argument_is_typed(
                 isinstance(binding, dict)
                 and set(binding) == {"result", "source"}
                 and isinstance(binding.get("source"), str)
-                and binding["source"] in result_members
+                and binding["source"] in result_names
                 and isinstance(binding.get("result"), str)
                 and bool(binding["result"])
                 and binding["result"] not in derived
@@ -498,6 +512,34 @@ def _reference_json_pointer(source, pointer, replacement):
     else:
         return None
     return result
+
+
+def _reference_template_model_results(checked: ModelSourceContext, results):
+    """Project admitted B Model inputs and Facts using the actual fixed origins.
+
+    The caller first completes _reference_check_source, including independent
+    initial Fact validation. Reuse its Source-to-Fact owner, not A's HIR view.
+    """
+    if not _consumer_b_template_model_results_are_supported(results):
+        raise ValueError("unsupported Template Model result origins")
+    projected = {}
+    for name, contract in results.items():
+        match contract["origin"]:
+            case "selected-resolution-requirements":
+                value = checked.source_projection.value["package_requirements"]
+            case "admitted-namespace-selection":
+                value = [
+                    package.namespace
+                    for package in checked.namespace_selection.packages
+                ]
+            case "admitted-initial-source-fact-fields":
+                value = [
+                    fields for fields, _pointer in _reference_resolved_symbols(checked)
+                ]
+            case _:
+                raise ValueError("unknown Template Model result origin")
+        projected[name] = deepcopy(value)
+    return projected
 
 
 def _reference_template_admission(release, kernel, language_bundle):
@@ -591,7 +633,7 @@ def _reference_template_admission(release, kernel, language_bundle):
                         roles=roles,
                         derived=derived,
                         roots=set(meta["selector"]["roots"]),
-                        result_members=set(primitive.get("result_members", [])),
+                        result_names=set(primitive.get("results", {})),
                     )
                     for name, type_id in primitive["argument_types"].items()
                 )
@@ -624,17 +666,13 @@ def _reference_template_admission(release, kernel, language_bundle):
                 if len(candidates) != 1:
                     raise ValueError("ambiguous Model Source")
                 admitted_source = candidates[0]
-                result = check_model_source_value(
-                    admitted_source,
-                    kernel=kernel,
-                    language_bundle=language_bundle,
+                result = _reference_check_source(
+                    admitted_source, kernel, language_bundle
                 )
-                if isinstance(result, Schema2RefusalReport):
-                    return False, result.diagnostics[0].code
+                if not isinstance(result, ModelSourceContext):
+                    return False, result[0][0]
                 checked_source = result
-                facts = checked_model_template_facts(result)
-                if set(facts) != set(primitive["result_members"]):
-                    raise ValueError("Model Source result shape drifted")
+                facts = _reference_template_model_results(result, primitive["results"])
                 for binding in arguments[evaluation["bindings"]]:
                     if binding["result"] in derived:
                         raise ValueError("duplicate Model Source result binding")
@@ -760,25 +798,21 @@ def _reference_template_admission(release, kernel, language_bundle):
                         admitted_source, pointer[0], value[0]
                     )
                     outcome = (
-                        check_model_source_value(
-                            mutated,
-                            kernel=kernel,
-                            language_bundle=language_bundle,
-                        )
+                        _reference_check_source(mutated, kernel, language_bundle)
                         if mutated is not None
                         else None
                     )
                     if arguments[evaluation["outcome"]] == "admitted":
-                        holds = isinstance(outcome, CheckedModel)
+                        holds = isinstance(outcome, ModelSourceContext)
                     else:
                         expected = _reference_project(
                             [vector], arguments[evaluation["diagnostic_path"]], budget
                         )
                         holds = (
                             len(expected) == 1
-                            and isinstance(outcome, Schema2RefusalReport)
-                            and len(outcome.diagnostics) == 1
-                            and outcome.diagnostics[0].code == expected[0]
+                            and isinstance(outcome, tuple)
+                            and len(outcome) == 1
+                            and outcome[0][0] == expected[0]
                         )
                     if not holds:
                         break
@@ -1061,7 +1095,6 @@ def _install_negative_vector_artifact_contract(
         {
             "artifact_kind": "negative-vector",
             "identity_domain": "negative-vector-v2",
-            "identity_excluded_members": [],
             "schema_kind": schema_kind,
             "wire_schema_identity_domain": wire_identity_domain,
         }
@@ -2499,8 +2532,6 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
     scenario = experiment["scenarios"][0]
     scenario["event_plan"] = scenario["event_plan"][:1]
     scenario["terminal_condition"] = {"kind": "event-count", "maximum": 1}
-    for node in ("guard-block", "require"):
-        experiment["runtime"]["required_evaluator"]["instruction_nodes"].remove(node)
     retained_assignments = {
         "enemy_defense",
         "enemy_health",

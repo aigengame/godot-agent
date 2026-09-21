@@ -55,7 +55,7 @@ def test_nominal_reference_refuses_members_outside_the_selected_profile(extra_me
             resource_limit=10,
         )
 
-    assert fault.value.reason_id == "structured.reason.type-mismatch"
+    assert fault.value.signal == "structured-value-type-mismatch"
 
 
 def test_record_lookup_returns_its_declared_fixed_nominal_field_type():
@@ -108,5 +108,5 @@ def test_record_lookup_consumes_the_declared_structured_operation_bound():
             resource_limit=100,
         )
 
-    assert fault.value.reason_id == "structured.reason.type-mismatch"
+    assert fault.value.signal == "structured-value-type-mismatch"
     assert fault.value.pointer == "/type"

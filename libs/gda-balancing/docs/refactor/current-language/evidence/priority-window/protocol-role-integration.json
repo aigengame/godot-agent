@@ -1,0 +1,235 @@
+{
+  "status": "Integrated bounded protocol-role correction; complete #878 invariance remains open",
+  "primary_head": "53c449b19",
+  "production_commits": [
+    "3444efff8",
+    "12b5bb34d",
+    "724fe0395",
+    "7250ebefe"
+  ],
+  "kernel_identity": "sha256:9dc4e8991b70970d32d1012a7545dee57ef7ac2f4966721694255f39d6ff3c2c",
+  "ldb_identity": "sha256:bd686f47b7044b406bb495f98c17cf615e6127b1f68ef154190179a31c654259",
+  "decision": "One optional role on each Wire Schema Definition separates Kernel core responsibility from open schema and artifact-kind names. Artifact Contracts retain the only identity-domain owner for identified artifacts; standalone inputs own their domain inline. No duplicate role on Contract or kind/shape fallback.",
+  "routing_correction": "field-binding-source follows a Kernel relation field to its lexical binder and actual source path; the retired binding-source spelling coupling is deleted.",
+  "validation_scopes": {
+    "primary_combined_initial": {
+      "path": "/private/tmp/gda-878-root/protocol-integration.xml",
+      "sha256": "6ae875e591ba33dd50259b6f94f64211628fdcb46f945914c6fa07853c8dd691",
+      "tests": 136,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 152.638
+    },
+    "primary_fixture_correction": {
+      "path": "/private/tmp/gda-878-root/protocol-fixtures.xml",
+      "sha256": "a449e1bcfa5e539d243a2442e49cd485ff7b79d566fd7973e960f4966014b147",
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 5.287
+    },
+    "worker_core_and_publication": {
+      "path": "/private/tmp/gda-878-protocol-core.xml",
+      "sha256": "f53b177982ddc17cbc390fb5b5d781ed52e89070ab4def9597730d69a106474f",
+      "tests": 29,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 62.693
+    },
+    "worker_local_resolution_bindings": {
+      "path": "/private/tmp/gda-878-field-binding.xml",
+      "sha256": "089f5f3fae71ae4e9684c05e7a288fdd9ad08975d77e05fb746991a281629caf",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 11.63
+    },
+    "worker_template_pair": {
+      "path": "/private/tmp/gda-878-protocol-template.xml",
+      "sha256": "b27265340d0a756810b53e4946c82e58970338c3a8415956bf5ececb8755ec78",
+      "tests": 53,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 55.948
+    },
+    "worker_permanent_model_vectors": {
+      "path": "/private/tmp/gda-878-protocol-model-vectors.xml",
+      "sha256": "3f94d1f3f0a1bfff4ffe9578b6b563e599e575a486cf4d098730df5bebeac77d",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 21.64
+    }
+  },
+  "integration_correction": "The initial combined run passed135 and failed1 because its intentionally incomplete authoring graph used an identity map, which now refuses before gap checking. The corrected test supplies actual changed names and still verifies uncovered-role refusal. The16-case follow-up also executes concrete resolved-publication fixtures, including concurrent recovery and forged terminal admission.",
+  "inventory": {
+    "current_test_count": 2212,
+    "current_package_vector_count": 347,
+    "missing_tests": [],
+    "missing_package_vectors": [],
+    "overlapping_tests": [],
+    "uncovered_tests": [],
+    "unexpected_shard_tests": []
+  },
+  "static": {
+    "ruff": "check and format pass,219 files",
+    "pyright": "0 errors, 0 warnings, 0 informations"
+  },
+  "model_vector_check": {
+    "head": "7ce9f373f07d7f0f174e563cc90ef8a1ada504e6",
+    "vector_count": 34,
+    "updated_expected_identity_count": 0,
+    "written_files": [],
+    "package_semantic_identities_unchanged": true,
+    "raw": {
+      "path": "/private/tmp/gda-878-protocol-validation/oracle-refresh.json",
+      "sha256": "188604d54facac339e7cae24fa2070cbf162965e7daac948b4317f60cc9dcdbd"
+    }
+  },
+  "reproduction": "From libs/gda-balancing run pytest tests/test_artifact_protocol_roles.py tests/test_resolution_field_binding_roles.py tests/test_template_protocol_roles.py tests/test_projection_collection_renaming.py tests/test_extension_inventory.py tests/test_extension_renaming.py tests/test_ci_policy.py, then the three named publication cases recorded in protocol-fixtures.xml. Use the pinned checkout and its frozen uv environment.",
+  "limits": [
+    "Do not add overlapping scoped test counts into a unique total.",
+    "No final full-suite CI or full independent review claimed.",
+    "Complete reachable schema/vector/Source/Experiment/artifact/result token inventory and exhaustive renamed execution are still unfinished.",
+    "No authenticated Extension Invariance claim or #542-544 activation."
+  ],
+  "independent_formula_correction": {
+    "primary_commit": "46937f6aa",
+    "worker_commit": "7bc09a9b3",
+    "change": "Select the uniquely declared Source protocol_role in the existing independent Formula schema reader. Actual rendered expression parses to the authored body; absent/duplicate Source roles refuse.",
+    "worker_focused_checks": {
+      "tests": 4,
+      "passed": 4,
+      "seconds": 21.27
+    },
+    "primary_checks": {
+      "tests": 17,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "path": "/private/tmp/gda-878-root/protocol-formula.xml",
+      "sha256": "d3e6e3526feec3218f0069db604429cb9542a66e78365c352ef16007fca04795"
+    }
+  },
+  "worker_final_validation": {
+    "head": "7bc09a9b379e52d7ca6fbbe7180c56992459ad57",
+    "oracle_validation": {
+      "source_vectors": 34,
+      "admitted": 13,
+      "identity_updates": 0,
+      "authority_writes": 0,
+      "negative_diagnostics_lock_relations_preserved": true
+    },
+    "maintained_bindings": {
+      "model_sources": 7,
+      "experiment_specifications": 9,
+      "all_admitted": true,
+      "writes": 0,
+      "boundary": "Domain APIs; distinct from wheel/public subprocess results"
+    },
+    "wheels": [
+      {
+        "case": "original",
+        "sha256": "3da21f8e8a88f9d4ef01189da9d6fb999ee7254f41c480da11261e37a8b4bde8",
+        "command_exit_codes": [
+          0,
+          0,
+          0,
+          0,
+          2
+        ],
+        "metrics": {
+          "ordered_value": 1234,
+          "selected_count": 2
+        },
+        "refusal": "runtime.numeric_overflow",
+        "module_import_verified_from_wheel": true
+      },
+      {
+        "case": "renamed",
+        "sha256": "9799b1a756e23f4f94c4d2934f11f56a0afe9e014981c774dffcf0f48eb08149",
+        "command_exit_codes": [
+          0,
+          0,
+          0,
+          0,
+          2
+        ],
+        "metrics": {
+          "ordered_value": 1234,
+          "selected_count": 2
+        },
+        "refusal": "runtime.numeric_overflow",
+        "module_import_verified_from_wheel": true
+      }
+    ],
+    "public_protocol_coverage": [
+      "actual original and 26 renamed core kind references; Source/Experiment schema selection, Model build/inspect, six-member Runtime, exact Replay",
+      "independent four-member compilation and six-member Runtime mutual semantic admission",
+      "wire-valid resealed trace Formula and terminal first-refusal/prefix forgeries refused",
+      "authenticated six-member success and three-member terminal publication labels arbitrary; semantic role cardinality retained",
+      "missing/duplicate/unknown/wrong-category core roles refuse; extension kind/schema remain unrelated/open",
+      "all recipe-local binders renamed while concrete output fields retain routing and source obligations",
+      "original/renamed Formula public rendering and independent parse/pair; missing/duplicate Source role refuse"
+    ],
+    "limits": [
+      "Not a full-suite or final-primary-head acceptance claim; parent serial integration and independent reviews remain separate.",
+      "Ordinary authenticated publication is not deferred authenticated Extension Invariance activation under issues542\u2013544.",
+      "Independent bounded Runtime produces successful six-member sets; this slice does not claim an independent terminal-audit producer.",
+      "All-core rename uses consistent named mappings; open extension test separately proves different artifact kind and schema kind.",
+      "Wheel timings are one bounded workflow observation, not benchmarks."
+    ],
+    "raw": {
+      "path": "/private/tmp/gda-878-protocol-validation/FINAL-RECEIPT.json",
+      "sha256": "50bc0adb5b4f1a1897c972797203c17a0a748f146e9a158f38248f26f357163d",
+      "verified_raw_files": 25
+    }
+  },
+  "inventory_after_formula_correction": {
+    "current_test_count": 2214,
+    "current_package_vector_count": 347,
+    "missing_tests": [],
+    "missing_package_vectors": [],
+    "overlapping_tests": [],
+    "uncovered_tests": [],
+    "unexpected_shard_tests": []
+  },
+  "independent_ddma_review": {
+    "head": "8267f8d389d307c80a2b87a4ef089ab919ec9ddd",
+    "findings": 0,
+    "targeted_tests_passed": 22,
+    "template_probe": {
+      "review_head": "8267f8d389d307c80a2b87a4ef089ab919ec9ddd",
+      "renamed_local_roles": {
+        "source": "opaque.template.role.0",
+        "experiment": "opaque.template.role.1",
+        "dependencies": "opaque.template.role.2",
+        "defaults": "opaque.template.role.3",
+        "compatibility": "opaque.template.role.4",
+        "documentation": "opaque.template.role.5",
+        "coverage": "opaque.template.role.6",
+        "golden": "opaque.template.role.7",
+        "negative-vector": "opaque.template.role.8",
+        "boundary-vector": "opaque.template.role.9"
+      },
+      "kernel_unchanged": true,
+      "authority_A": true,
+      "authority_B": true,
+      "migrated_release_admits": true,
+      "public_template_get": 0,
+      "public_template_instantiate": 0,
+      "editable_source_checks": true,
+      "compiled_result_type": "dict",
+      "compiled_result_count": 8
+    },
+    "receipt_sha256": "0782da7452d95f8c3874fb31851d5c8089a335c6cb91f8183fe8e0926e3de35f",
+    "receipt_path": "/private/tmp/gda-878-ddma-8267/template-local-role/migrated-release/receipt.json",
+    "scope": "Protocol-role/routing/Template correction only; full issue and inventory acceptance not claimed."
+  }
+}

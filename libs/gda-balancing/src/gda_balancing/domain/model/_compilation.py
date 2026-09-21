@@ -3,7 +3,10 @@
 from copy import deepcopy
 from typing import Any, cast
 
-from gda_balancing.domain.artifacts import _identified_artifact
+from gda_balancing.domain.artifacts import (
+    _identified_artifact,
+    artifacts_by_protocol_role,
+)
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
 )
@@ -73,6 +76,7 @@ def validate_compiled_artifacts(
     """Require one compiled Model set to match its exact authority and source."""
     kernel = authority_context.kernel
     language_bundle = authority_context.language_bundle
+    artifacts = artifacts_by_protocol_role(language_bundle, artifacts)
     semantic_artifacts = {
         name: cast(dict[str, Any], artifacts[name])
         for name in ("package-lock", "rir-semantic-payload", "resolved-model")
@@ -87,8 +91,7 @@ def validate_compiled_artifacts(
     rir = artifacts["rir-semantic-payload"]
     resolved = artifacts["resolved-model"]
     lowering = _model_lowering(language_bundle)
-    output_member = lowering.get("output_member")
-    declarations = rir.get(output_member) if isinstance(output_member, str) else None
+    declarations = rir.get("declarations")
     if not isinstance(declarations, list):
         raise CompiledArtifactAdmissionError(
             "RIR declaration output is not an admitted list"
@@ -342,7 +345,6 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
     profile = _resolution_profile(
         checked.language_bundle, cast(str, lowering["resolution_profile"])
     )
-    output_member = cast(str, lowering["output_member"])
     selected_semantics = deepcopy(hir.runtime_projection)
     initialization_programs = deepcopy(hir.initialization_programs)
     entrypoints = deepcopy(hir.entrypoints)
@@ -350,7 +352,7 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
     rir = _identified_rir_artifact(
         checked.language_bundle,
         {
-            output_member: cast(JsonValue, declarations),
+            "declarations": cast(JsonValue, declarations),
             "formulas": cast(JsonValue, formulas),
             "formula_bindings": cast(JsonValue, formula_bindings),
             "initialization_programs": cast(JsonValue, initialization_programs),
@@ -380,7 +382,7 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
                 JsonValue,
                 [
                     {
-                        "rir_pointer": _pointer((output_member, index)),
+                        "rir_pointer": _pointer(("declarations", index)),
                         "source_pointer": _pointer(source_rows[index][1]),
                     }
                     for index in range(len(declarations))

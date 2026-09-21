@@ -5,14 +5,23 @@ from typing import cast
 
 from gda_balancing.domain.authority.context import AdmittedAuthorityContext
 from gda_balancing.domain.authority.graph import resolve_current_namespaces
+from gda_balancing.domain.authority.source_projection import (
+    author_source_value,
+    project_source_value,
+    source_assignment_binding,
+    source_assignment_policy,
+    source_native_contract_values,
+    source_schema_member,
+)
 from gda_balancing.domain.canonical import JsonValue, content_identity
 from gda_balancing.domain.model import model_source_identity_domain
+from gda_balancing.domain.artifacts import select_protocol_artifact_contract
 
 from ._release_semantics import (
-    _artifact_identity_domain,
     _member,
     _member_schema_identities,
     _template_admission_profile,
+    _template_model_source_member_kind,
 )
 
 
@@ -25,17 +34,71 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
     selection = resolve_current_namespaces(
         context.current_namespace_packages(), ["core.quantity"]
     )
+    source_schema = context.source_semantic_index.schema
+    source_bindings = context.source_native_binding_index
+    symbol_schema = context.source_semantic_index.role_anchors[
+        source_bindings.roles["source.symbol"]
+    ][0]
+
+    def one_native_value(member: str) -> JsonValue:
+        values = source_native_contract_values(language_bundle, symbol_schema, member)
+        if len(values) != 1:
+            raise ValueError(
+                f"quantity-minimal requires one Source native {member} value"
+            )
+        return deepcopy(values[0])
+
+    assignment_policy = source_assignment_policy(language_bundle)
+    parameter = source_assignment_binding(
+        assignment_policy,
+        initialization_source="experiment",
+        binding_kind="operand",
+        entrypoint_result=False,
+        entrypoint_operand_access=("read",),
+        value_member="forbidden",
+        experiment_cardinality="required",
+        event_payload_cardinality="optional",
+        external_fact_cardinality="forbidden",
+        override=False,
+    )
+    derived = source_assignment_binding(
+        assignment_policy,
+        initialization_source="resolved-model",
+        binding_kind="operand",
+        entrypoint_result=False,
+        entrypoint_operand_access=("read",),
+        value_member="forbidden",
+        experiment_cardinality="forbidden",
+        event_payload_cardinality="forbidden",
+        external_fact_cardinality="forbidden",
+        override=False,
+    )
+    output = source_assignment_binding(
+        assignment_policy,
+        initialization_source="execution",
+        binding_kind="result",
+        entrypoint_result=True,
+        entrypoint_operand_access=(),
+        value_member="forbidden",
+        experiment_cardinality="forbidden",
+        event_payload_cardinality="forbidden",
+        external_fact_cardinality="forbidden",
+        override=False,
+    )
     quantity_contract: dict[str, JsonValue] = {
         "type": "quantity",
-        "representation": "Int",
-        "kind": "scalar",
-        "unit": "1",
-        "domain_kind": "closed-interval",
+        "representation": one_native_value("representation"),
+        "kind": one_native_value("kind"),
+        "unit": one_native_value("unit"),
+        "domain_kind": one_native_value("domain"),
         "domain": {"minimum": 0, "maximum": 100},
-        "numeric_policy": "exact-int64",
+        "numeric_policy": one_native_value("numeric_policy"),
     }
-    starter: dict[str, JsonValue] = {
-        "schema_version": "2.0.0",
+    _, schema_version_schema = source_schema_member(
+        source_schema, source_bindings.members["source.root.schema_version"]
+    )
+    starter_semantic: dict[str, JsonValue] = {
+        "schema_version": cast(str, schema_version_schema["const"]),
         "manifest": {
             "id": "standard.quantity-minimal.starter",
             "entry_module": "main",
@@ -55,20 +118,20 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
                     {
                         "symbol": "value",
                         **deepcopy(quantity_contract),
-                        "role": "parameter",
-                        "value_policy": {"mode": "experiment-required"},
+                        "role": parameter.role,
+                        "value_policy": {"mode": parameter.mode},
                     },
                     {
                         "symbol": "derived_value",
                         **deepcopy(quantity_contract),
-                        "role": "derived",
-                        "value_policy": {"mode": "none"},
+                        "role": derived.role,
+                        "value_policy": {"mode": derived.mode},
                     },
                     {
                         "symbol": "output_value",
                         **deepcopy(quantity_contract),
-                        "role": "output",
-                        "value_policy": {"mode": "none"},
+                        "role": output.role,
+                        "value_policy": {"mode": output.mode},
                     },
                 ],
                 "formulas": [
@@ -149,12 +212,19 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
             }
         ],
     }
+    starter = author_source_value(starter_semantic, source_schema, source_bindings)
+    starter_projection = project_source_value(starter, source_schema, source_bindings)
     profile = _template_admission_profile(language_bundle)
     member_identity_domain = cast(str, profile["member_identity_domain"])
     source_identity_domain = model_source_identity_domain(language_bundle)
-    release_identity_domain = _artifact_identity_domain(
+    release_contract = select_protocol_artifact_contract(
         language_bundle, "template-release"
     )
+    source_kind = _template_model_source_member_kind(kernel, profile)
+    member_kinds = {
+        row["role"]: row["member_kind"]
+        for row in cast(list[dict[str, str]], profile["member_roles"])
+    }
     starter_identity = content_identity(source_identity_domain, starter)
     experiment_id = "standard.quantity-minimal.experiment"
     golden_id = "standard.quantity-minimal.golden"
@@ -179,14 +249,14 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
     members = [
         build_member(
             "starter-model-source",
-            "model-source-package",
-            schema_identities["model-source-package"],
+            source_kind,
+            schema_identities[source_kind],
             starter,
         ),
         build_member(
             "experiment-specification",
-            "experiment-template",
-            schema_identities["experiment-template"],
+            member_kinds["experiment"],
+            schema_identities[member_kinds["experiment"]],
             {
                 "schema_version": "2.0.0",
                 "id": experiment_id,
@@ -197,8 +267,8 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
                 "metrics": [
                     {
                         "id": "value",
-                        "kind": "scalar",
-                        "unit": "1",
+                        "kind": deepcopy(quantity_contract["kind"]),
+                        "unit": deepcopy(quantity_contract["unit"]),
                         "target": {"minimum": 0, "maximum": 100},
                     }
                 ],
@@ -206,8 +276,8 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
         ),
         build_member(
             "declared-package-dependencies",
-            "declared-package-dependencies",
-            schema_identities["declared-package-dependencies"],
+            member_kinds["dependencies"],
+            schema_identities[member_kinds["dependencies"]],
             {
                 "schema_version": "2.0.0",
                 "packages": [package.namespace for package in selection.packages],
@@ -215,17 +285,26 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
         ),
         build_member(
             "defaults",
-            "template-defaults",
-            schema_identities["template-defaults"],
+            member_kinds["defaults"],
+            schema_identities[member_kinds["defaults"]],
             {
                 "schema_version": "2.0.0",
-                "symbol_values": [{"symbol": "main.value", "value": 50}],
+                "symbol_values": [
+                    {
+                        "symbol": {
+                            "model": "standard.quantity-minimal.starter",
+                            "module": "main",
+                            "name": "value",
+                        },
+                        "value": 50,
+                    }
+                ],
             },
         ),
         build_member(
             "compatibility",
-            "template-compatibility",
-            schema_identities["template-compatibility"],
+            member_kinds["compatibility"],
+            schema_identities[member_kinds["compatibility"]],
             {
                 "schema_version": "2.0.0",
                 "kernel_identity": kernel_identity,
@@ -235,8 +314,8 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
         ),
         build_member(
             "documentation",
-            "template-documentation",
-            schema_identities["template-documentation"],
+            member_kinds["documentation"],
+            schema_identities[member_kinds["documentation"]],
             {
                 "schema_version": "2.0.0",
                 "media_type": "text/markdown",
@@ -245,8 +324,8 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
         ),
         build_member(
             "coverage-matrix",
-            "genre-coverage-matrix",
-            schema_identities["genre-coverage-matrix"],
+            member_kinds["coverage"],
+            schema_identities[member_kinds["coverage"]],
             {
                 "schema_version": "2.0.0",
                 "rows": [
@@ -266,39 +345,47 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
         ),
         build_member(
             "golden-scenario",
-            "golden-scenario",
-            schema_identities["golden-scenario"],
+            member_kinds["golden"],
+            schema_identities[member_kinds["golden"]],
             {
                 "schema_version": "2.0.0",
                 "id": golden_id,
                 "experiment": experiment_id,
                 "model_source_identity": starter_identity,
-                "symbol": "main.value",
+                "symbol": {
+                    "model": "standard.quantity-minimal.starter",
+                    "module": "main",
+                    "name": "value",
+                },
                 "value": 50,
             },
         ),
         build_member(
             "negative-vector",
-            "negative-vector",
-            schema_identities["negative-vector"],
+            member_kinds["negative-vector"],
+            schema_identities[member_kinds["negative-vector"]],
             {
                 "schema_version": "2.0.0",
                 "id": negative_id,
                 "diagnostic": "language.invalid_domain",
                 "mutation": {
-                    "pointer": "/modules/0/symbols/0/domain",
+                    "pointer": starter_projection.authored_pointer(
+                        "/modules/0/symbols/0/domain"
+                    ),
                     "value": {"minimum": 1, "maximum": 0},
                 },
             },
         ),
         build_member(
             "boundary-vector",
-            "boundary-vector",
-            schema_identities["boundary-vector"],
+            member_kinds["boundary-vector"],
+            schema_identities[member_kinds["boundary-vector"]],
             {
                 "schema_version": "2.0.0",
                 "id": boundary_id,
-                "pointer": "/modules/0/symbols/0/domain/maximum",
+                "pointer": starter_projection.authored_pointer(
+                    "/modules/0/symbols/0/domain/maximum"
+                ),
                 "value": 100,
                 "expected": "accepted",
             },
@@ -317,16 +404,10 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
         for member in members
     ]
     body: dict[str, JsonValue] = {
-        "artifact_kind": "template-release",
-        "artifact_version": "2.0.0",
-        "wire_schema_identity": schema_identities["template-release"],
         "id": "standard.quantity-minimal",
         "kernel_identity": kernel_identity,
         "language_bundle_identity": language_bundle_identity,
         "manifest": cast(JsonValue, manifest),
         "members": cast(JsonValue, members),
     }
-    return {
-        **body,
-        "content_identity": content_identity(release_identity_domain, body),
-    }
+    return release_contract.identify(body)

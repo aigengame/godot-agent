@@ -150,6 +150,7 @@ def _reidentify_graph(kernel, ldb):
         releases,
         vector_sets,
         kernel["admission"]["required_language_members"],
+        kernel=kernel,
         root_byte_size=root_byte_size,
         package_byte_sizes=package_sizes,
         vector_set_byte_sizes=vector_set_sizes,
@@ -1478,28 +1479,6 @@ def test_package_dependencies_are_closed_namespace_references(run_cli):
             assert isinstance(dependency, str)
             assert dependency in coordinates
 
-    schema_package = next(
-        release
-        for release in authority["package_releases"]
-        if release["id"] == "standard.schema"
-    )
-    wire_definitions = next(
-        entry["definitions"]
-        for entry in schema_package["semantic_closure"]
-        if entry["authority_path"] == "language.artifact_wire_schemas"
-    )
-    lock_schema = next(
-        item["schema"]
-        for item in wire_definitions
-        if item["artifact_kind"] == "package-lock"
-    )
-    edge_schema = lock_schema["properties"]["dependency_edges"]["items"]
-    assert set(edge_schema["required"]) == {
-        "from_package",
-        "kind",
-        "to_package",
-    }
-
     quantity = next(
         release
         for release in authority["package_releases"]
@@ -1577,10 +1556,10 @@ def test_standard_experiment_owns_closed_exact_replay_policy(run_cli):
     experiment = releases["standard.experiment"]
     policy = {
         "checks": [
-            "evaluation-outcome-status",
-            "event-trace-identity",
-            "snapshot-series-identity",
-            "metric-dataset-identity",
+            "evaluation_outcome_status",
+            "event_trace_identity",
+            "snapshot_series_identity",
+            "metric_dataset_identity",
         ],
         "comparator": "canonical-equal",
         "id": "exact-replay-v1",
@@ -1764,6 +1743,12 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
         == authority["language_bundle"]["content_identity"]
     )
     schemas = {item["artifact_kind"]: item["schema"] for item in projection["schemas"]}
+    edge_schema = schemas["package-lock"]["properties"]["dependency_edges"]["items"]
+    assert set(edge_schema["required"]) == {
+        "from_package",
+        "kind",
+        "to_package",
+    }
     assert set(schemas) == {
         "artifact-set-manifest",
         "artifact-set-receipt",
@@ -1996,11 +1981,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                 "formula parse": FORMULA_PARSE,
                 "formula render": FORMULA_RENDER,
             }[path]
-            source = tmp_path / f"{path.replace(' ', '-')}.json"
-            source.write_text(
-                descriptor.fixtures.valid_document or "", encoding="utf-8"
-            )
-            argv = [*path.split(), str(source)]
+            argv = invocation(descriptor)
         else:
             descriptor = {
                 "model build": MODEL_BUILD,
@@ -2056,8 +2037,11 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         ("language.formula_resource_exhausted", "static"),
         ("language.formula_cycle", "static"),
         ("language.formula_notation_mismatch", "static"),
+        ("language.formula_notation_parse_failure", "parse"),
+        ("language.formula_notation_resource_exhausted", "parse"),
         ("language.package_unavailable", "resolution"),
         ("language.resolution_ambiguity", "resolution"),
+        ("language.resolved_authority_mismatch", "resolution"),
     }
     experiment_check = {
         ("language.source_too_large", "ingress"),
@@ -2096,12 +2080,8 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         ("evaluation.observation_unavailable", "evaluation"),
     }
     evidence_verify_only = {
-        ("evaluation.evaluable_cyclic_prerequisite", "evaluation"),
-        ("evaluation.evaluable_extra_prerequisite", "evaluation"),
         ("evaluation.evaluable_ineligible_outcome", "evaluation"),
-        ("evaluation.evaluable_mismatched_prerequisite", "evaluation"),
-        ("evaluation.evaluable_missing_prerequisite", "evaluation"),
-        ("evaluation.evaluable_unresolved_prerequisite", "evaluation"),
+        ("evaluation.evaluable_outcome_mismatch", "evaluation"),
         ("evaluation.unknown_evidence_claim_kind", "evaluation"),
     }
     expected = {

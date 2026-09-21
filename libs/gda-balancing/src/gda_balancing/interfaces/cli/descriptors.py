@@ -15,13 +15,22 @@ designation replaces that field's option binding (bADR-0011's binding law).
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeVar
 
 from pydantic import BaseModel
 
-from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.artifact_set import ArtifactSetPlan
+from gda_balancing.domain.authority.admission import (
+    BOOTSTRAP_REFUSAL_CATALOG,
+    BootstrapAdmission,
+    SCHEMA2_REFUSAL_STAGES,
+)
+from gda_balancing.domain.authority.context import (
+    AdmittedAuthorityContext,
+    AuthorityContextProvider,
+    resolve_authority_context,
+)
 from gda_balancing.interfaces.cli.envelope import USAGE_CODES
-from gda_balancing.domain.authority.admission import SCHEMA2_REFUSAL_STAGES
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 # Reserved by bADR-0007 for Phase 2; the conformance harness asserts no
@@ -29,6 +38,21 @@ from gda_balancing.domain.diagnostics import Schema2RefusalReport
 RESERVED_GROUPS = frozenset({"evaluation", "tuning"})
 RESERVED_META: frozenset[str] = frozenset()
 _SCHEMA2_REFUSAL_STAGES = frozenset(SCHEMA2_REFUSAL_STAGES)
+_AUTHORITY_CONTEXT_HANDLER = "__gda_balancing_authority_context_handler__"
+_AuthorityHandler = TypeVar("_AuthorityHandler", bound=Callable[..., object])
+
+
+def authority_context_handler(
+    handler: _AuthorityHandler,
+) -> _AuthorityHandler:
+    """Mark a handler factory result as accepting dispatch's admitted context."""
+    setattr(handler, _AUTHORITY_CONTEXT_HANDLER, True)
+    return handler
+
+
+def handler_accepts_authority_context(handler: Callable[..., object]) -> bool:
+    """Keep fault-injected replacement handlers on the original one-arg contract."""
+    return getattr(handler, _AUTHORITY_CONTEXT_HANDLER, False) is True
 
 
 @dataclass(frozen=True)
@@ -132,7 +156,7 @@ class RefusalArtifactSetSpec:
     """One stage-owned artifact set published before a typed refusal."""
 
     stage: Literal["runtime"]
-    members: tuple[ArtifactSetMemberSpec, ...]
+    members: ArtifactSetPlan
     variant: str | None = None
 
     def __post_init__(self) -> None:
@@ -200,14 +224,18 @@ class CommandDescriptor:
     # the descriptor's exact output model; the runner returns only after shutdown.
     foreground_runner: Callable[..., int] | None = field(default=None)
     # Current multi-artifact producers own publication in their handlers.
-    artifact_set: tuple[ArtifactSetMemberSpec, ...] = field(default=())
-    verdict_artifact_set: tuple[ArtifactSetMemberSpec, ...] = field(default=())
+    artifact_set: ArtifactSetPlan = field(default=())
+    verdict_artifact_set: ArtifactSetPlan = field(default=())
     # Receipt fields and accepted member sets are derived from their producer
     # descriptors. A consumer cannot maintain a parallel artifact-role list.
     input_artifact_sets: tuple[ArtifactSetInputSpec, ...] = field(default=())
     # The active surface is Standard Schema 2.x.
     schema_major: Literal[2] = field(default=2)
     structured_params: bool = field(default=False)
+    # File-backed commands bind one authority provider at their composition root.
+    # Surface projections and handlers resolve this same source instead of reading
+    # packaged authority independently.
+    authority_context_provider: AuthorityContextProvider | None = field(default=None)
     # Exact per-command error authority for Schema 2.x.  The catalog is a
     # reverse-conformance projection of Kernel/LDB Diagnostics; dispatch and
     # --schema both consume it, so an undeclared stage/code cannot leak.
@@ -215,7 +243,7 @@ class CommandDescriptor:
     # A catalog that depends on admitted authority may be resolved at the first
     # refusal/schema projection. The owning descriptor module need not admit the
     # authority at import; static descriptors continue to use the field above.
-    refusal_catalog_provider: Callable[[], tuple[tuple[str, str], ...]] | None = field(
+    refusal_catalog_provider: Callable[..., tuple[tuple[str, str], ...]] | None = field(
         default=None
     )
     # Stage-specific refusal fields remain closed and descriptor-owned. Their
@@ -372,13 +400,33 @@ class CommandDescriptor:
     def refusal_stages(self) -> tuple[str, ...]:
         return tuple(sorted({stage for _, stage in self.resolved_refusal_catalog()}))
 
-    def resolved_refusal_catalog(self) -> tuple[tuple[str, str], ...]:
+    def resolved_authority_context(
+        self,
+    ) -> AdmittedAuthorityContext | BootstrapAdmission | None:
+        """Resolve the descriptor-owned authority source without an ambient loader."""
+        if self.authority_context_provider is None:
+            return None
+        return resolve_authority_context(self.authority_context_provider)
+
+    def resolved_refusal_catalog(
+        self,
+        authority_context: AdmittedAuthorityContext | None = None,
+    ) -> tuple[tuple[str, str], ...]:
         """Resolve and validate the descriptor's exact refusal catalog."""
-        catalog = (
-            self.refusal_catalog_provider()
-            if self.refusal_catalog_provider is not None
-            else self.refusal_catalog
-        )
+        if authority_context is None:
+            resolved = self.resolved_authority_context()
+            if isinstance(resolved, BootstrapAdmission):
+                catalog = BOOTSTRAP_REFUSAL_CATALOG
+                self._validate_refusal_catalog(catalog)
+                return catalog
+            authority_context = resolved
+        catalog = self.refusal_catalog
+        if self.refusal_catalog_provider is not None:
+            catalog = (
+                self.refusal_catalog_provider(authority_context)
+                if self.authority_context_provider is not None
+                else self.refusal_catalog_provider()
+            )
         self._validate_refusal_catalog(catalog)
         return catalog
 
@@ -404,7 +452,7 @@ class CommandDescriptor:
 
 def artifact_sets_for_input(
     item: ArtifactSetInputSpec,
-) -> tuple[tuple[ArtifactSetMemberSpec, ...], ...]:
+) -> tuple[ArtifactSetPlan, ...]:
     """Derive every accepted member set from one producer descriptor."""
     producer = item.producer
     return tuple(

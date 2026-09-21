@@ -1,5 +1,7 @@
 """Public Formula notation conversion for Standard Schema 2.0 (#606)."""
 
+from gda_balancing.domain.authority.context import packaged_authority_context
+
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -35,14 +37,21 @@ def _quantity_contract(identifier: str) -> dict[str, object]:
 
 
 def test_contextual_reason_is_independent_of_human_message_wording() -> None:
+    context = packaged_authority_context()
     error = formula_notation_module._FormulaContextError(
-        "model.reason.formula-type-mismatch",
+        "type-mismatch",
         "This reworded message says unresolved, ambiguous, and duplicate.",
     )
-
-    refusal = formula_notation_module._contextual_refusal(error)
-
-    assert refusal.reason_id == "model.reason.formula-type-mismatch"
+    refusal = formula_notation_module._contextual_refusal(error, context)
+    profile = next(
+        row
+        for row in context.language_bundle["language"]["resolution_profiles"]
+        if row["default"]
+    )
+    assert (
+        refusal.reason_id
+        == profile["formula_resolution"]["refusal_reasons"]["type-mismatch"]
+    )
 
 
 def _boolean_contract(identifier: str) -> dict[str, object]:
@@ -753,7 +762,12 @@ def test_formula_parse_reverse_admits_its_canonical_pair(
     tmp_path: Path, run_cli, monkeypatch
 ) -> None:
     source = tmp_path / "parse-request.json"
-    source.write_text(formula_command_module._VALID_PARSE_REQUEST, encoding="utf-8")
+    source.write_text(
+        formula_command_module._formula_fixture(
+            packaged_authority_context(), parsing=True, refusing=False
+        ),
+        encoding="utf-8",
+    )
     admitted_pairs: list[dict] = []
     real_admit = formula_notation_module.admit_formula_pair
 
@@ -1047,21 +1061,19 @@ def test_standard_schema_owns_the_closed_formula_notation_grammar(run_cli) -> No
 
     assert (exit_code, stderr) == (0, "")
     release = json.loads(stdout)
-    source_schema = next(
-        definition["schema"]
+    source_definition = next(
+        definition
         for closure in release["semantic_closure"]
         if closure["authority_path"] == "language.wire_schemas"
         for definition in closure["definitions"]
         if definition["artifact_kind"] == "model-source-package"
     )
-    grammar = source_schema["$defs"]["formulaNotationGrammar"]["const"]
+    grammar = source_definition["formula_grammar"]
     assert grammar == {
-        "version": "1.1.0",
         "bare_identifier_pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
         "identifier_token_pattern": "[A-Za-z_][A-Za-z0-9_]*",
         "integer_literal_pattern": "-?(?:0|[1-9][0-9]*)",
         "whitespace_pattern": "\\s+",
-        "signed_integer_context": "operand-position",
         "reserved_identifiers": ["else", "if", "let", "then"],
         "identifier_quote": "`",
         "escape_character": "\\",
@@ -1078,7 +1090,7 @@ def test_standard_schema_owns_the_closed_formula_notation_grammar(run_cli) -> No
         "max_group_depth": 1536,
         "max_tokens": 4096,
     }
-    notation_schema = source_schema["$defs"]["formulaOperationNotation"]
+    notation_schema = source_definition["operation_notation_schema"]
     assert notation_schema["oneOf"][0]["required"] == [
         "kind",
         "token",
@@ -1114,16 +1126,12 @@ def test_standard_compiler_owns_formula_notation_contextual_policy(run_cli) -> N
         for definition in closure["definitions"]
         if definition["id"] == "exact-import-resolution-v1"
     )
-    conversion = profile["extensions"]["standard.formula"]["notation_conversion"]
-    assert conversion["condition_contract"] == "kernel-boolean"
-    assert conversion["formula_argument_compatibility"] == "exact-resolved-contract"
-    assert conversion["formula_result_compatibility"] == "exact-resolved-contract"
-    assert conversion["literal_typing"] == "selected-unique-formal-match"
-    assert conversion["literal_result_inference"] == "contextual-anchor"
-    assert conversion["operation_argument_compatibility"] == "exact-operation-formal"
-    assert conversion["symbol_resolution"] == "exact-module-coordinate"
+    conversion = profile["formula_resolution"]["notation_conversion"]
+    assert set(conversion) == {
+        "infix_parser",
+        "local_result_inference",
+    }
     assert conversion["infix_parser"] == {
-        "algorithm": "shunting-yard",
         "generated_local_separator": "__notation_",
     }
     assert {
@@ -2228,7 +2236,7 @@ def test_independent_consumer_mutually_admits_production_formula_pairs() -> None
                 request, context.language_bundle, kernel=context.kernel
             )
             independent_expression = independently_render_body(
-                formula["body"], request, context.language_bundle
+                formula["body"], request, context.language_bundle, kernel=context.kernel
             )
             independent_pair = deepcopy(request)
             independent_pair["formula"]["expression"] = independent_expression
@@ -2309,7 +2317,7 @@ def test_independent_consumer_types_zero_node_results() -> None:
 def test_independent_consumer_enforces_notation_resource_bounds() -> None:
     context = authority_module.packaged_authority_context()
     grammar = next(
-        definition["schema"]["$defs"]["formulaNotationGrammar"]["const"]
+        definition["formula_grammar"]
         for package in context.language_bundle["language"]["packages"]
         if package["id"] == "standard.schema"
         for closure in package["semantic_closure"]
@@ -2378,18 +2386,17 @@ def test_independent_consumer_requires_exact_context_and_algorithm(
         for row in language_bundle["language"]["resolution_profiles"]
         if row.get("default") is True
     )
-    profile["extensions"]["standard.formula"]["notation_conversion"]["infix_parser"][
+    profile["formula_resolution"]["notation_conversion"]["infix_parser"][
         "algorithm"
     ] = "ignored-host-algorithm"
     _refresh_package_closure_and_reidentify(language_bundle)
     drifted = authority_module.admit_authority_context(kernel, language_bundle)
-    assert isinstance(drifted, authority_module.AdmittedAuthorityContext)
+    assert not isinstance(drifted, authority_module.AdmittedAuthorityContext)
+    assert not drifted.admitted
     request["schema_version"] = "2.0.0"
     request["module"] = {"id": "main", "imports": []}
 
-    assert not independently_admit_pair(
-        request, drifted.language_bundle, kernel=drifted.kernel
-    )
+    assert not independently_admit_pair(request, language_bundle, kernel=kernel)
 
     kernel, language_bundle = pristine_authority_context.mutable_pair()
     profile = next(
@@ -2397,16 +2404,15 @@ def test_independent_consumer_requires_exact_context_and_algorithm(
         for row in language_bundle["language"]["resolution_profiles"]
         if row.get("default") is True
     )
-    profile["extensions"]["standard.formula"]["notation_conversion"][
-        "symbol_resolution"
-    ] = "ignored-host-resolution"
+    profile["formula_resolution"]["notation_conversion"]["symbol_resolution"] = (
+        "ignored-host-resolution"
+    )
     _refresh_package_closure_and_reidentify(language_bundle)
     drifted = authority_module.admit_authority_context(kernel, language_bundle)
-    assert isinstance(drifted, authority_module.AdmittedAuthorityContext)
+    assert not isinstance(drifted, authority_module.AdmittedAuthorityContext)
+    assert not drifted.admitted
 
-    assert not independently_admit_pair(
-        request, drifted.language_bundle, kernel=drifted.kernel
-    )
+    assert not independently_admit_pair(request, language_bundle, kernel=kernel)
 
 
 def test_independent_consumer_covers_every_formula_node_and_operand_kind() -> None:

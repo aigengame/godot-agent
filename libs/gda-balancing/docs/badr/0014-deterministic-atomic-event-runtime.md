@@ -98,6 +98,11 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 
 ## Decision
 
+**Replay member correction (#878, 2026-09-08):** The policy's ordered `checks` and each
+comparison check's `key` directly name the Kernel Replay vector's `observation_members`.
+The former hyphenated aliases and host spelling translation are deleted. Policy ownership,
+complete comparison order and canonical equality remain unchanged; there is no legacy fallback.
+
 - **The runtime is a sequential scheduler of atomic Event transactions.** It maintains immutable
   committed state at Snapshot boundaries and a totally ordered event queue. Exactly one event is
   dispatched at a time by the normative scheduler. Parallel evaluators may speculate internally,

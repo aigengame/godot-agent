@@ -4,6 +4,23 @@ status: accepted
 
 # Use one Metrics schema and immutable evidence for evaluation, calibration, and approval
 
+> **Candidate validation supersession (2026-09-08, #878):**
+> The current candidate/open path deletes the authored `subject_roles` and
+> `prerequisite_edges`, mirrored host graph, graph projector and graph-only judgments.
+> Unused `permitted_issuer_classes` and `permitted_verifier_classes` placeholders also
+> retire; no current candidate code consumes them.
+> Existing Publication, RIR, Experiment and complete ArtifactSet validators already own
+> the actual subjects and cross-bindings. Application runs those validators before
+> Domain judges the selected LDB claim's eligibility from the validated outcome.
+> The result carries the same five explicit subject identities without a graph carrier.
+> The claim id is selected from the admitted definition, not a host literal.
+> Retired synthetic graph errors and their pointers are not preserved as compatibility
+> behavior; real member, binding, capability and terminal-audit failures still refuse.
+> This supersedes the graph-shape requirement below only for current candidate
+> validation. Future assertion relationships and #542–#544 retain their activation
+> conditions. [The implementation record](../refactor/current-language/PRIORITY-WINDOW.md#evidence-candidate-validation)
+> owns the deletion mapping, evidence and remaining #878 gates.
+
 > **Execution-binding supersession (2026-09-07, [bADR-0028](0028-current-language-refactor-and-pre-1.0-retirement.md#execution-identity-implementation-875-2026-09-07)):**
 > The current `evaluable` graph no longer requires Source, Model-build publication, whole LDB
 > or exact Build wrappers. Its subjects are existing RIR semantic identity, Experiment, pure Runtime
@@ -164,8 +181,8 @@ append-only evidence graph.
   admitted claim-kind identity whose LDB entry fixes subject types, required prerequisite graph,
   eligibility judgment, permitted issuer/verifier class, and positive/negative vectors. Domain
   packages may provide subject artifacts and package-specific policies, but they cannot mint new
-  claim labels or weaken a registered prerequisite. Adding or changing a claim kind is a versioned
-  LDB change; unknown strings and package-local aliases are `evaluation` refusals. `approved` remains
+  claim labels or weaken a registered prerequisite. Adding or changing a claim kind changes the
+  current admitted LDB; unknown strings and package-local aliases are `evaluation` refusals. `approved` remains
   excluded because governance belongs only to Approval Record authority.
 
 - **Evidence issuance is a validated judgment, never a side effect of successful serialization or

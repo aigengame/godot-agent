@@ -1,33 +1,10 @@
 {
-  "schema_version": "2.0.0",
   "id": "roguelike.reward-build-feedback.baseline",
   "model": {
-    "rir_semantic_identity": "sha256:899835fa19458dde1b289d58684129b21cc2d65c224149b06589b8335ff06dc8"
+    "rir_semantic_identity": "sha256:f68d8bc77b898e34f18cbee2896e24b57df414c24cff60e060560262228a5388"
   },
   "runtime": {
-    "profile": "standard.exact-int64-event-v1",
-    "required_evaluator": {
-      "effects": ["event.commit", "metric.observe", "rng.named-stream", "snapshot.commit"],
-      "instruction_nodes": [
-        "add",
-        "constant",
-        "copy",
-        "draw",
-        "equal",
-        "guard-block",
-        "if",
-        "is-empty",
-        "less-than-or-equal",
-        "lookup",
-        "precondition-greater-than-or-equal",
-        "require",
-        "write-state"
-      ],
-      "numeric_policies": ["exact-int64"],
-      "operation_kinds": ["event-program"],
-      "rng_algorithms": ["splitmix64-v1"],
-      "runtime_profiles": ["standard.exact-int64-event-v1"]
-    }
+    "profile": "standard.exact-int64-event-v1"
   },
   "seed": {"algorithm": "splitmix64-v1", "value": 20260812},
   "scenarios": [
@@ -157,7 +134,6 @@
           "value": 10
         }
       ],
-      "named_streams": ["reward"],
       "event_plan": [
         {
           "kind": "transition-invocation",

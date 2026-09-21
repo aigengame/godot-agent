@@ -1,0 +1,626 @@
+{
+  "scope": "#878 required Resolution parse-reason reference, not complete Source/Resolution/Formula inventory closure.",
+  "implementation_diff_base": "e45f7cc02fae266c9320a44435b0dfd83f01a6fa",
+  "raw_baseline": {
+    "head": "4bdc60c8e51062e06be25baf6fe225cd0bcdcd04",
+    "src_and_tests_equal_to_diff_base": true
+  },
+  "core_head": "57081b6ff0b4a99c7e5f568739afa4428f1d27d2",
+  "checkpoints": {
+    "A": "a52948cca9345fcdbfcca7b91e8966174ac94786",
+    "B": "0a967a191c9aebeddf611f586edebb20cdb857ff",
+    "CI_registration": "f495a7bcdd5049951b5d76362f4bba2a7fc4613c"
+  },
+  "authority": {
+    "kernel": "sha256:5bb3deb5cf3649bf391b51806d6fe3bb64a18315e8f33ca63b5dfe1183c2e1bd",
+    "ldb": "sha256:acb383dd2f2464ad9eae839f92a50ee7272188e02f93216e96473907006bffcb",
+    "changed_resources": [
+      {
+        "path": "src/gda_balancing/schema2/authorities/kernel.json",
+        "old_sha256": "2cd1df9830659c0efabc199742f7057632cad80ccc0fa42bc47bad28ea893e5e",
+        "sha256": "6cba321685efce412ed134719ee57e454b2d3fd781810b86df8c10ded39734b3",
+        "old_bytes": 154681,
+        "bytes": 154620
+      },
+      {
+        "path": "src/gda_balancing/schema2/authorities/language-bundle.json",
+        "old_sha256": "3cd4e1ff9aad7bff60f54c7b5e4ae06c36b9a1e9987e501ac5e82081d115b585",
+        "sha256": "ef2576dc9c8171ca9256709ae3404fb8d4b61a9ad996827ff97c0f5e497056ae",
+        "old_bytes": 2809,
+        "bytes": 2809
+      },
+      {
+        "path": "src/gda_balancing/schema2/authorities/packages/standard-compiler/standard.compiler.json",
+        "old_sha256": "e8dd6617865b93b8f21f463363ad74a5d75fdb32bfd5138037b71b51b54d924b",
+        "sha256": "5723f28d7dd35354ed1cbf7db1c56fbaaefc95860af87180201c81eb7e2be3e0",
+        "old_bytes": 18919,
+        "bytes": 18791
+      },
+      {
+        "path": "src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+        "old_sha256": "71984903a11944dd2a0e5cd81d30ab50c488aea3c19194acea08974292e45679",
+        "sha256": "e6a7e46e93cc83e676796d83c688083ee6f5302585fd3da6aa33ac4b10d37f29",
+        "old_bytes": 202248,
+        "bytes": 202129
+      }
+    ]
+  },
+  "owner": {
+    "profile_field": "/meta_format/language_definitions/collections/resolution_profiles/field_types/parse_reason",
+    "reference": "/admission/laws/5/arguments/references/6",
+    "target": "language_bundle.language.reasons.id",
+    "stage_law": "/meta_format/resolution_judgment/parse_reason_stage",
+    "required_stage": "parse",
+    "resolution_stage_order_unchanged": [
+      "static",
+      "resolution"
+    ],
+    "actual_profile_reference": "/packages/8/semantic_closure/20/definitions/0/parse_reason",
+    "selector": "src/gda_balancing/domain/diagnostics.py::source_parse_reason",
+    "selector_rule": "Use the unique admitted default Resolution profile and resolve its actual reason reference. No fixed reason ID, wrapper spelling, fallback or registry.",
+    "callers": [
+      "Model Source bytes/value checking",
+      "Experiment bytes/value checking",
+      "Imported RIR bytes/value admission",
+      "Formula conversion request parsing and public refusal catalogs"
+    ],
+    "Formula_request_API": "read_formula_request(data, context): the admitted authority context is required.",
+    "removed": [
+      "Resolution extensions, including standard.source-boundary",
+      "Unread dependency_closure and capability_selection const fields",
+      "The same retired fields in the Package Lock embedded Resolution wire contract"
+    ],
+    "retained": [
+      "Actual dependency/provider judgment operations and relation recipes",
+      "Existing reason/diagnostic definitions and their declared references",
+      "Formula DSL, other reason identities and all other Source/Resolution contracts"
+    ]
+  },
+  "baseline_counterexample": {
+    "mutation": "Correctly reseal a coherent rename of the single Source-boundary extension wrapper; valid Source and original Kernel remain fixed.",
+    "authority": "Control and renamed-wrapper A/B admission succeed; independent baseline also admits missing and wrong-stage reason references.",
+    "public_control": {
+      "valid_check": 0,
+      "valid_build": 0,
+      "malformed_check": 2,
+      "malformed_build": 2
+    },
+    "public_renamed_wrapper": {
+      "valid_check": 0,
+      "valid_build": 0,
+      "malformed_check": 4,
+      "malformed_build": 4
+    },
+    "corrected": "Old wrapper or retired-field reentry, absent/unresolved/nonstring references and wrong-stage reasons refuse at authority admission. Public old-wrapper check returns exit 2 at static/kernel.vector_mismatch before byte parsing.",
+    "raw_receipt": {
+      "path": "/private/tmp/gda-878-source-resolution-evidence/source-boundary-v2/receipt.json",
+      "bytes": 122851,
+      "sha256": "498662d347739c56f9003f62251ac42f1cf17582f0cd8ac0337f2e7206feab78"
+    }
+  },
+  "public_green": [
+    {
+      "mode": "original",
+      "commands": 8,
+      "returncodes": [
+        0,
+        0,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "RIR": {
+        "bytes": 50452,
+        "sha256": "c70017294c424092711bd7d6449a290f8c9efbfb34e01a375c9ff847f69b6ccf",
+        "semantic_identity": "sha256:cc898ce62f64df33c397c62b022e556d4ec3411ed5ab99bb126a371d8cefd143"
+      },
+      "raw_commands": {
+        "path": "/private/tmp/gda-878-source-resolution-evidence/a-callers-tmp/test_public_source_parse_follo0/original/cli-results.json",
+        "bytes": 9274,
+        "sha256": "55229117f4ca16f077ed009ada2113cb2e13afb333c32752080925cc0702c508"
+      }
+    },
+    {
+      "mode": "reason-renamed",
+      "commands": 8,
+      "returncodes": [
+        0,
+        0,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "RIR": {
+        "bytes": 50452,
+        "sha256": "c70017294c424092711bd7d6449a290f8c9efbfb34e01a375c9ff847f69b6ccf",
+        "semantic_identity": "sha256:cc898ce62f64df33c397c62b022e556d4ec3411ed5ab99bb126a371d8cefd143"
+      },
+      "raw_commands": {
+        "path": "/private/tmp/gda-878-source-resolution-evidence/a-callers-tmp/test_public_source_parse_follo0/reason-renamed/cli-results.json",
+        "bytes": 9400,
+        "sha256": "4e7d6e4fb7215d59b625175ad30c9a63c9917fa647988675abe5a8e90750cc1a"
+      }
+    },
+    {
+      "mode": "diagnostic-renamed",
+      "commands": 8,
+      "returncodes": [
+        0,
+        0,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "RIR": {
+        "bytes": 50452,
+        "sha256": "c70017294c424092711bd7d6449a290f8c9efbfb34e01a375c9ff847f69b6ccf",
+        "semantic_identity": "sha256:cc898ce62f64df33c397c62b022e556d4ec3411ed5ab99bb126a371d8cefd143"
+      },
+      "raw_commands": {
+        "path": "/private/tmp/gda-878-source-resolution-evidence/a-callers-tmp/test_public_source_parse_follo0/diagnostic-renamed/cli-results.json",
+        "bytes": 9472,
+        "sha256": "51e4800e2637c3af1330354c05040ac32f8b736e358aa85b3f488fddd5d16869"
+      }
+    }
+  ],
+  "public_expectations": {
+    "valid_build_members": 8,
+    "malformed_inputs": [
+      "Model check/build",
+      "Formula parse/render",
+      "Experiment JSON with valid RIR",
+      "RIR JSON before Experiment admission"
+    ],
+    "expected_stage": "parse",
+    "expected_diagnostics": 1,
+    "expected_pointer": "",
+    "reason_only_rename": "The complete Model parse envelope remains equal.",
+    "diagnostic_rename": "The observed code follows the renamed definition; only that explicitly renamed code is normalized when comparing other callers. Caller identity/message and full refusal structure remain unchanged.",
+    "additional_old_wrapper_public_cases": 2,
+    "frozen_public_source_limit": "Only final list[str] type annotation differs from the 24-command source snapshots; exact diff saved. Post-commit retained ingress/provider tests and full static checks passed."
+  },
+  "independent_B": {
+    "authority": "Independently follows the existing reason-reference and Kernel parse-stage laws; no A reason selector is called to derive the judgment.",
+    "actual_four_artifact_comparison": "Original and renamed-reason inputs each compile package-lock, RIR, resolved-model and debug-map independently; complete byte parity and mutual admission hold.",
+    "cross_reason_rename": {
+      "source_bytes_equal": true,
+      "complete_RIR_equal": true,
+      "complete_Debug_Map_equal": true,
+      "full_parse_error_envelope_equal": true,
+      "identity_limit": "Package Lock and Resolved Model identities change with their correctly renamed authority inputs; no blanket identity equality claimed."
+    },
+    "parser_limit": "Public commands invoke A as an integration boundary. B independently validates the selected reason/stage and semantic artifacts; it is not a second byte parser."
+  },
+  "preservation": {
+    "actual_bounded_fold_RIR": {
+      "old": {
+        "sha256": "c70017294c424092711bd7d6449a290f8c9efbfb34e01a375c9ff847f69b6ccf",
+        "bytes": 50452,
+        "semantic_identity": "sha256:cc898ce62f64df33c397c62b022e556d4ec3411ed5ab99bb126a371d8cefd143"
+      },
+      "new": {
+        "sha256": "c70017294c424092711bd7d6449a290f8c9efbfb34e01a375c9ff847f69b6ccf",
+        "bytes": 50452,
+        "semantic_identity": "sha256:cc898ce62f64df33c397c62b022e556d4ec3411ed5ab99bb126a371d8cefd143"
+      },
+      "equal": true
+    },
+    "all_13_vector_files_byte_equal": true,
+    "numeric_verdict_resource_expectations_unchanged": true,
+    "retained_resolution_judgment_members": [
+      "closed",
+      "input",
+      "law_format",
+      "operations",
+      "relation_recipe_format",
+      "relation_schemas",
+      "resource_accounting",
+      "result",
+      "routing_equivalences",
+      "stage_order"
+    ],
+    "identity_limit": "Kernel/LDB, compiler profile, Package Lock Schema and dependent build identities change truthfully. Complete RIR byte equality is only the actual bounded-fold witness; no unrun corpus equivalence is asserted.",
+    "prior_Receipt_and_Publication_text_sha256": "c546117ab74c3c65700512633d9253409576b28dd6e24f61245822540a9bbe1a"
+  },
+  "tests": {
+    "worker_XMLs": [
+      {
+        "path": "/private/tmp/gda-878-source-resolution-evidence/a-first.xml",
+        "bytes": 6356,
+        "sha256": "27a90685d5b39d4c7629280d720c0cbd3b98ef17a955c0c01f0ea022491c2b0e",
+        "tests": 16,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "seconds": 9.514
+      },
+      {
+        "path": "/private/tmp/gda-878-source-resolution-evidence/a-second.xml",
+        "bytes": 6358,
+        "sha256": "23e0636e75394df83fc81ad984c2de93f5bae59e55c794586bf57ddb45068ab3",
+        "tests": 16,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "seconds": 9.511
+      },
+      {
+        "path": "/private/tmp/gda-878-source-resolution-evidence/a-final.xml",
+        "bytes": 6373,
+        "sha256": "d3471d80cfad14182df59acaa6402ceb6bba4856ca4ea4466831ad27133dba2d",
+        "tests": 16,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "seconds": 16.932
+      },
+      {
+        "path": "/private/tmp/gda-878-source-resolution-evidence/a-callers.xml",
+        "bytes": 2773,
+        "sha256": "64dcf3475b3a1a55935bc8ca5479d6b313629e7aba8ca1b3942559172374a125",
+        "tests": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "seconds": 47.762
+      },
+      {
+        "path": "/private/tmp/gda-878-source-resolution-evidence/retained-first.xml",
+        "bytes": 1107,
+        "sha256": "c5c27b443ce84927bd25ba5d95e8a5798df419a9c276390e39ba2e9f1d7a4e7b",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "seconds": 4.293
+      },
+      {
+        "path": "/private/tmp/gda-878-source-resolution-evidence/retained-callers.xml",
+        "bytes": 1694,
+        "sha256": "9791efc946830b4e26f60fd43bdf6181dc8c9004e4151092d2e69fc57523aecb",
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "seconds": 4.489
+      },
+      {
+        "path": "/private/tmp/gda-878-source-resolution-evidence/retained-experiment.xml",
+        "bytes": 736,
+        "sha256": "83fd14eada79c85445240fb1c69d69a92fedc14240093643417543e4a628bf1e",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "seconds": 4.327
+      },
+      {
+        "path": "/private/tmp/gda-878-source-resolution-evidence/retained-paired.xml",
+        "bytes": 719,
+        "sha256": "ca65e1f5a159798f1d989648f70afd70a461b703c0db22cf41b088f0fb355bb4",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "seconds": 3.686
+      },
+      {
+        "path": "/private/tmp/gda-resolution-b-evidence/green.xml",
+        "bytes": 2769,
+        "sha256": "734ce91dd2921871819975db02efb1aea5445e4ec7e0ed60d2069b0d679bd84c",
+        "tests": 14,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "seconds": 29.56
+      }
+    ],
+    "current_A_pass_source": "a-callers.xml: all 16 focused cases passed; a-final.xml is historical 15 pass / 1 fail.",
+    "retained_A_scope": "Separate ingress/provider/Experiment checks passed; runs overlap and are not summed as unique coverage.",
+    "current_B_pass_source": "green.xml: 14 cases, including one retained frontend discriminator.",
+    "intermediate_failures": {
+      "intermediate_lock_schema_failure": "a-first/a-second: 15pass1fail; actual Package Lock embedded Resolution copy still required deleted policy fields. Same-owner schema migrated.",
+      "intermediate_catalog_failure": "a-final: 15pass1fail; legal reason rename admitted then public import4 because old fixed reason ID remained in refusal catalogs. All same-reason readers/catalogs ported."
+    }
+  },
+  "review": {
+    "fixed_head": "57081b6ff0b4a99c7e5f568739afa4428f1d27d2",
+    "DDMA": {
+      "findings": 0,
+      "targeted_tests": 10,
+      "explicit_context_paths": [
+        {
+          "renamed_reason_and_diagnostic": false,
+          "A_admitted": true,
+          "B_admitted": true,
+          "reason": "model.reason.source-parse-failure",
+          "diagnostic": "language.source_parse_failure",
+          "paths": [
+            "model-bytes",
+            "model-memory",
+            "rir-bytes",
+            "experiment-bytes",
+            "experiment-memory",
+            "formula-parse-application",
+            "formula-render-application",
+            "rir-memory",
+            "formula-domain-bytes"
+          ],
+          "report_stages_parse": true,
+          "direct_fault_reasons_match": true,
+          "valid_RIR_admitted_with_packaged_lookup_forbidden": true
+        },
+        {
+          "renamed_reason_and_diagnostic": true,
+          "A_admitted": true,
+          "B_admitted": true,
+          "reason": "review.source-parse-reason",
+          "diagnostic": "review.source_parse_failure",
+          "paths": [
+            "model-bytes",
+            "model-memory",
+            "rir-bytes",
+            "experiment-bytes",
+            "experiment-memory",
+            "formula-parse-application",
+            "formula-render-application",
+            "rir-memory",
+            "formula-domain-bytes"
+          ],
+          "report_stages_parse": true,
+          "direct_fault_reasons_match": true,
+          "valid_RIR_admitted_with_packaged_lookup_forbidden": true
+        }
+      ],
+      "formula_context_required": true,
+      "log": {
+        "path": "/private/tmp/gda-878-ddma-resolution-5708-proof/pytest.log",
+        "bytes": 100,
+        "sha256": "700d76503a3a3565fb3f6deec343fc6997b914d0973ccd825b317ace54d1db06"
+      }
+    },
+    "Standards": {
+      "verdict": "0 findings",
+      "old_test_definitions_AST_unchanged": 74,
+      "retained_test": {
+        "path": "/private/tmp/gda-878-source-resolution-standards-lkc531ch/retained.xml",
+        "bytes": 433,
+        "sha256": "53ec52d129ec654b2603db86706011f4cc7edec0e058299425c83543bcd8b96d",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "reported_seconds": 3.4,
+        "scope": "The retained frontend diagnostic rename test executes size, parse and structural refusal boundaries through its migrated helper."
+      }
+    },
+    "Spec": {
+      "findings": [],
+      "new_test_files": {
+        "path": "/private/tmp/gda-878-spec-resolution-570/targeted.xml",
+        "bytes": 5107,
+        "sha256": "38639bbb690cc19a337d21dbffc6a8114677866345f2cd538ea25655c185920e",
+        "tests": 29,
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "seconds": 73.131
+      },
+      "actual_build_comparison": {
+        "gaps_exactly_equal": true,
+        "gap_count": 34,
+        "tokens_before_after": [
+          1607,
+          1607
+        ],
+        "occurrences_before_after": [
+          6461,
+          6462
+        ],
+        "rir_bytes": 50452,
+        "rir_sha256": "c70017294c424092711bd7d6449a290f8c9efbfb34e01a375c9ff847f69b6ccf",
+        "rir_equal": true,
+        "lock_profile_removed": {
+          "capability_selection": "single-provider",
+          "dependency_closure": "required-transitive",
+          "extensions": {
+            "standard.source-boundary": {
+              "parse_reason": "model.reason.source-parse-failure"
+            }
+          }
+        },
+        "lock_profile_added": {
+          "parse_reason": "model.reason.source-parse-failure"
+        },
+        "lock_profile_other_changes": {}
+      },
+      "explicit_context_observations": [
+        "RIR value",
+        "Experiment value",
+        "Formula request bytes"
+      ]
+    },
+    "scope_limit": "Independent core reviews do not review the later CI registration or this documentation change; no complete CI/Model corpus/Runtime proof is implied."
+  },
+  "inventory": {
+    "before": {
+      "tokens": 1607,
+      "occurrences": 6461,
+      "gaps": 34
+    },
+    "after": {
+      "tokens": 1607,
+      "occurrences": 6462,
+      "gaps": 34
+    },
+    "new_reference_occurrences": [
+      {
+        "token": {
+          "role": "language.reasons",
+          "owner": [],
+          "name": "model.reason.source-parse-failure"
+        },
+        "pointer": "/packages/8/semantic_closure/20/definitions/0/parse_reason",
+        "use": "reference",
+        "law": "/admission/laws/5/arguments/references/6",
+        "location": "value",
+        "projection": ""
+      }
+    ],
+    "all_gap_rows_unchanged": true,
+    "complete_resolution_claim": false
+  },
+  "primary_checks": {
+    "CI_policy_cases": 12,
+    "resource_rebuild_exit": 0,
+    "Ruff_exit": 0,
+    "configured_full_Pyright": {
+      "errors": 0,
+      "warnings": 0
+    },
+    "collection": {
+      "tests": 2667,
+      "vectors": 339,
+      "missing_tests": [],
+      "missing_package_vectors": [],
+      "overlapping_tests": [],
+      "uncovered_tests": [],
+      "unexpected_shard_tests": []
+    },
+    "full_CI_execution": false,
+    "earlier_A_static_scope": "The A receipt separately records 8 warnings from an unconfigured full-package invocation at unchanged wildcard-import sites; current primary configured Pyright has zero errors and warnings.",
+    "source_correspondence": {
+      "A_source_and_resource_files_equal": 156,
+      "B_changed_files_equal": 3
+    },
+    "raw_references_verified_by_primary": 87,
+    "fixed_parse_reason_ID_production_readers": [],
+    "retired_profile_fields_absent": [
+      "capability_selection",
+      "dependency_closure",
+      "extensions"
+    ],
+    "verification_note": "The first primary verification attempt resolved src/... references against the evidence directory; the corrected script follows their declared source root. No product or raw input changed."
+  },
+  "raw_receipts": {
+    "A": {
+      "path": "/private/tmp/gda-878-source-resolution-evidence/final-a-receipt.json",
+      "bytes": 35476,
+      "sha256": "33be05ca589c2d85d451abbb8ba57d247d1171ffd00fdd203f05e44481e9a179"
+    },
+    "B": {
+      "path": "/private/tmp/gda-resolution-b-evidence/final-receipt.json",
+      "bytes": 24817,
+      "sha256": "f32713966a9ce17ec5c5acb7ad1eb4d24ae8e0582b72be084e0f718545441557"
+    },
+    "DDMA": {
+      "path": "/private/tmp/gda-878-ddma-resolution-5708-proof/receipt.json",
+      "bytes": 132741,
+      "sha256": "e574fa574116f67a0e53277f0ead52e943b17a3bfd71ae45a5d93df4ad587ec2"
+    },
+    "Standards": {
+      "path": "/private/tmp/gda-878-source-resolution-standards-lkc531ch/REVIEW-RECEIPT.json",
+      "bytes": 5600,
+      "sha256": "5fa6663553c870a2356ee773051bd1888725d5acce59a6614c60c25807ed4447"
+    },
+    "Spec": {
+      "path": "/private/tmp/gda-878-spec-resolution-570/receipt.json",
+      "bytes": 13760,
+      "sha256": "e9bb971057068c35a275327d27756ef8b39c0dce9de12aef627bb3b08b460129"
+    },
+    "primary": {
+      "path": "/private/tmp/gda-878-root/resolution-root-verification.json",
+      "bytes": 46458,
+      "sha256": "fc6d5920aaffbea54ddd2c43b8d7e36a542eea45c13df11d6d9e6e564b863d43"
+    }
+  },
+  "raw_indexes_and_checks": [
+    {
+      "path": "/private/tmp/gda-878-source-resolution-docs-evidence/verification.json",
+      "bytes": 32809,
+      "sha256": "5359ea814aeab0a2939e4b12af3268798eb7fa0582654e9440aee2283156bfca"
+    },
+    {
+      "path": "/private/tmp/gda-878-source-resolution-docs-evidence/verify_refs.py",
+      "bytes": 3338,
+      "sha256": "ae96139b589dcf7103141b7b618078e20de0f45839093c55416708c21a905a4b"
+    },
+    {
+      "path": "/private/tmp/gda-878-source-resolution-evidence/resource-migration.json",
+      "bytes": 947,
+      "sha256": "dfce5c6b9eba65f193b0258cee7a8942cd80da47315613f98ebc234030d5619d"
+    },
+    {
+      "path": "/private/tmp/gda-878-source-resolution-evidence/lock-wire-migration.json",
+      "bytes": 1368,
+      "sha256": "2604b80e0260f989f212f0bdb4df6a52c3b2f387c5e51c7f01ac869ce1d00cee"
+    },
+    {
+      "path": "/private/tmp/gda-878-source-resolution-evidence/public-validation-source-delta.json",
+      "bytes": 928,
+      "sha256": "f65c3036fdfc71ccc0b93ff4a58918ce3e82878b0ac79a90367a4ca4cd365af3"
+    },
+    {
+      "path": "/private/tmp/gda-resolution-b-evidence/inventory-delta.json",
+      "bytes": 597,
+      "sha256": "6aa9b59832d37d5ecaccd859e9755976476096830a57be32e5ec6397450b516f"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/resolution-ci-policy.xml",
+      "bytes": 1705,
+      "sha256": "609c64fd4a1865ab6f44289b439ad5e3168047b5a8268802bbdd61d16175e5d3"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/resolution-ci-inventory.json",
+      "bytes": 2044,
+      "sha256": "d855fd8be07cfc02a77c345e56624f708f702abb4fa5a6de593c30d484d71bed"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/resolution-rebuild.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/resolution-ruff.log",
+      "bytes": 19,
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/resolution-pyright.log",
+      "bytes": 37,
+      "sha256": "6d88a1b220adb7a3d62092b6e38431f0b3fe8babe9864fab90e5849766260332"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/verify-resolution-checkpoint.py",
+      "bytes": 5002,
+      "sha256": "dccb0a667f15cb1d0e57ba7d076c0b66a2e79efaa7a5a3e00466ad723abef792"
+    }
+  ],
+  "reproduce": {
+    "cwd": "libs/gda-balancing at core_head in its configured Python environment",
+    "new_tests": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_resolution_parse_reason.py tests/test_resolution_parse_reason_independent.py --basetemp=/private/tmp/gda-resolution-reproduce --junitxml=/private/tmp/gda-resolution-reproduce.xml",
+    "raw_commands": "The A/B receipts and hashed command records preserve original arguments and stable task-local artifact paths. Documentation verification parsed the supplied XMLs and checked indexed raw hashes; it did not rerun tests."
+  },
+  "remaining": [
+    "All 34 inventory gaps remain, including the complete Resolution profile, Source grammar and Formula DSL boundaries.",
+    "No full Model/Runtime/Experiment/Evidence/Publication/Receipt suite or full CI is rerun here.",
+    "No new ADR supersession status is needed: the compiler-stage decision remains accepted and now states the existing parse boundary owner.",
+    "Final fixed-build rename proof and complete #878 acceptance remain open."
+  ],
+  "documentation_readback": {
+    "worker_and_CI_refs_checked": 84,
+    "worker_XMLs_parsed": 9,
+    "additional_Spec_refs_checked": 13,
+    "additional_review_XMLs_parsed": 2,
+    "tests_rerun": 0
+  }
+}

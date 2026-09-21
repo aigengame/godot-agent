@@ -1,0 +1,107 @@
+{
+  "head": "81235931322562b2eca3095c856f5f84ac2586ad",
+  "kernel_identity": "sha256:4ebf70685e9d42d0d8d52fc88efef2da03f25a9eab7d73527ebed138cd10a4ab",
+  "authority_source": "src/gda_balancing/schema2/authorities/packages/standard-schema/standard.schema.json",
+  "source_pointer": "/semantic_closure/2/definitions/23/schema/properties/initialization_programs/items/properties/body/items/properties/instruction/oneOf/3",
+  "wire_schema_pointer": "/properties/initialization_programs/items/properties/body/items/properties/instruction/oneOf/3",
+  "obsolete_branch": {
+    "properties": {
+      "left": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "node": {
+        "const": "maximum"
+      },
+      "right": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "target": {
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "node",
+      "target",
+      "left",
+      "right"
+    ],
+    "type": "object",
+    "unevaluatedProperties": false
+  },
+  "baseline": {
+    "artifact_contract_verify": true,
+    "model_admit_rir": true
+  },
+  "mutant": {
+    "change": {
+      "before": {
+        "node": "less-than",
+        "target": "init.sha256:e24affe29725e4307a9aafbee93b92d65ac13e4432b34d4c5ee9ca909be48956.minimum-accuracy.0",
+        "left": "base",
+        "right": "init.sha256:e24affe29725e4307a9aafbee93b92d65ac13e4432b34d4c5ee9ca909be48956.literal.1"
+      },
+      "after": {
+        "node": "maximum",
+        "target": "init.sha256:e24affe29725e4307a9aafbee93b92d65ac13e4432b34d4c5ee9ca909be48956.minimum-accuracy.0",
+        "left": "base",
+        "right": "init.sha256:e24affe29725e4307a9aafbee93b92d65ac13e4432b34d4c5ee9ca909be48956.literal.1"
+      }
+    },
+    "reidentified": [
+      "initialization program identity",
+      "RIR semantic identity",
+      "RIR content identity"
+    ],
+    "artifact_contract_identify": true,
+    "artifact_contract_verify": true,
+    "model_admit_rir": false,
+    "refusal": {
+      "reason": "model.reason.resolved-authority-mismatch",
+      "diagnostic": "language.resolved_authority_mismatch",
+      "message": "RIR input does not match its admitted semantics"
+    }
+  },
+  "derived_wire_schema_projection_includes_maximum": true,
+  "disposable_schema_branch_deletion": {
+    "baseline_wire_valid": true,
+    "mutant_wire_valid": false
+  },
+  "limits": "No Source/authority/production change, no Runtime execution of mutant, no full downstream admission bypass claimed.",
+  "public_cli": {
+    "command": "python -m gda_balancing schema get wire-schema",
+    "exit_code": 0,
+    "artifact_kind": "wire-schema-projection",
+    "maximum_const_paths": [
+      "/schemas/27/schema/properties/initialization_programs/items/properties/body/items/properties/instruction/oneOf/3/properties/node/const"
+    ]
+  },
+  "owner_issue": 879,
+  "disposition": "Required deletion closure after #878; currently verified but not implemented.",
+  "implementation": "Delete the obsolete initialization instruction union branch, reseal owning schema/package/root, require ArtifactContract rejection of a reidentified maximum node, and retain composed maximum and maintained Model controls.",
+  "identity_followup": "Prove changed Schema/content identities and preserved RIR semantic identity during implementation; do not preemptively rewrite Experiment bindings.",
+  "raw_evidence": [
+    {
+      "path": "/private/tmp/gda-879-maximum-wire-audit/receipt.json",
+      "bytes": 2827,
+      "sha256": "7421bdc800a6f406f93ec164b3b843a84fe77b501414c7f0e9ef00312b081830"
+    },
+    {
+      "path": "/private/tmp/gda-879-maximum-wire-audit/probe_wire.py",
+      "bytes": 1422,
+      "sha256": "35404d71afb8ff24dafd1057bb9c89447e0b7b5ecf37a6d650a736a3ea969781"
+    },
+    {
+      "path": "/private/tmp/gda-879-maximum-wire-audit/probe_admission.py",
+      "bytes": 4620,
+      "sha256": "a190bcb6983183d22bee6ab73a109d826a46b04321abefa9630b72a2011cb321"
+    },
+    {
+      "path": "/private/tmp/gda-879-maximum-wire-audit/inspection.json",
+      "bytes": 917,
+      "sha256": "044b881400ab67bf5f4f90f2db443da5bc979c584de42dbbd05ae3c3c06cf540"
+    }
+  ]
+}

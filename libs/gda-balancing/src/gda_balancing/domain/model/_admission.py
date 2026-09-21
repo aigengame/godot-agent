@@ -1,11 +1,13 @@
 """Admission of resolved Model artifacts against their exact authority."""
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, cast
 
 import jsonschema
 
 from gda_balancing.domain.artifacts import (
+    artifact_contract_for_role,
     _identified_artifact,
     _verify_artifact,
 )
@@ -17,6 +19,10 @@ from gda_balancing.domain.authority.graph import (
     NamespaceSelection,
     resolve_current_namespaces,
 )
+from gda_balancing.domain.authority.source_projection import (
+    author_source_native_token,
+    derive_default_source_native_bindings,
+)
 from gda_balancing.domain.canonical import (
     JsonValue,
     canonical_bytes,
@@ -25,10 +31,11 @@ from gda_balancing.domain.canonical import (
 from gda_balancing.domain.diagnostics import (
     reason_by_id,
 )
+from gda_balancing.domain.formula._source_body import inline_parameter_contract
 from gda_balancing.domain.formula.notation import (
     FormulaNotationRefusal,
     FormulaPairRefusal,
-    admit_formula_pair,
+    admit_semantic_formula_pair,
     formula_schema_version,
 )
 from gda_balancing.domain.formula.types import (
@@ -49,6 +56,7 @@ from gda_balancing.domain.operation_call_domains import (
 )
 
 from gda_balancing.domain.model._resolution import (
+    _pointer,
     ModelSourceContext,
     _formula_contexts,
     _formula_policy,
@@ -57,7 +65,6 @@ from gda_balancing.domain.model._resolution import (
     _model_lowering,
     _operation_formula_slots,
     _operation_reference_node_ids,
-    _resolution_profile,
     _selected_resolved_operation_coordinates,
 )
 from gda_balancing.domain.model._lowering import (
@@ -65,6 +72,7 @@ from gda_balancing.domain.model._lowering import (
     _assignment_policy,
     _assignment_policy_by_role,
     _compile_initialization_programs,
+    _derived_symbol_role,
     _exact_operation_coordinate,
     _formula_operation_identity,
     _formula_symbol_dependencies,
@@ -237,6 +245,7 @@ def _resolved_entrypoint_graph_is_admitted(
         ),
     )
     assignment_by_role = _assignment_policy_by_role(assignment_policy)
+    derived_role = _derived_symbol_role(assignment_policy)
     if any(
         not _value_policy_is_valid(declaration, assignment_policy)
         for declaration in declarations
@@ -333,7 +342,7 @@ def _resolved_entrypoint_graph_is_admitted(
             if (
                 dependency_target is None
                 and dependency_initializer is None
-                and dependency.get("role") != "derived"
+                and dependency.get("role") != derived_role
             ):
                 return False
             if dependency_target is not None:
@@ -484,7 +493,7 @@ def _resolved_entrypoint_graph_is_admitted(
                     ):
                         return False
                     initializers[operand_identity] = initializer
-                if role == "derived":
+                if role == derived_role:
                     resolved_key = (
                         exact_symbol["model"],
                         exact_symbol["module"],
@@ -680,6 +689,9 @@ def _formula_program_graph_is_admitted(
 ) -> bool:
     try:
         policy = _formula_policy(language_bundle)
+        derived_role = _derived_symbol_role(
+            _assignment_policy(_model_lowering(language_bundle))
+        )
         domains = cast(dict[str, str], policy["identity_domains"])
         actual_operand_domain = cast(
             str,
@@ -710,7 +722,7 @@ def _formula_program_graph_is_admitted(
                 )
             },
         }
-        formula_contexts = _formula_contexts(language_bundle)
+        formula_contexts = _formula_contexts(kernel)
     except (KeyError, TypeError, ValueError):
         return False
     if (
@@ -1199,9 +1211,8 @@ def _formula_program_graph_is_admitted(
                 set(site) != {"kind", "context", "resolved_symbol", "identity"}
                 or context_items
                 not in {
-                    tuple(sorted(formula_contexts["initialization"].items())),
-                    tuple(sorted(formula_contexts["event"].items())),
-                    tuple(sorted(formula_contexts["observation"].items())),
+                    tuple(sorted(context.items()))
+                    for context in formula_contexts.values()
                 }
                 or not isinstance(site.get("resolved_symbol"), dict)
             ):
@@ -1218,7 +1229,7 @@ def _formula_program_graph_is_admitted(
             declaration = declarations_by_symbol.get(site_key)
             if (
                 declaration is None
-                or declaration.get("role") != "derived"
+                or declaration.get("role") != derived_role
                 or context_key in bound_derived_sites
                 or not _formula_contract_matches(
                     cast(dict[str, Any], bound_formula["result"]),
@@ -1259,7 +1270,12 @@ def _formula_program_graph_is_admitted(
         elif site.get("kind") == "operation-slot":
             if (
                 set(site) != {"kind", "operation", "slot", "context", "identity"}
-                or site.get("context") != formula_contexts["event"]
+                or site.get("context")
+                != formula_contexts[
+                    kernel["meta_format"]["runtime_program"]["runtime_configuration"][
+                        "lifecycle_roles"
+                    ]["active"]
+                ]
                 or not isinstance(site.get("operation"), dict)
             ):
                 return False
@@ -1367,6 +1383,7 @@ def _formula_program_graph_is_admitted(
         cast(list[dict[str, Any]], formulas),
         cast(list[dict[str, Any]], bindings),
         cast(list[dict[str, Any]], entrypoints),
+        derived_role,
     )
     return bound_derived_sites == {
         (*site, phase)
@@ -1401,6 +1418,9 @@ def _formula_graph_is_admitted(
         )
     try:
         policy = _formula_policy(language_bundle)
+        derived_role = _derived_symbol_role(
+            _assignment_policy(_model_lowering(language_bundle))
+        )
         domains = cast(dict[str, str], policy["identity_domains"])
         actual_operand_domain = cast(
             str,
@@ -1408,7 +1428,7 @@ def _formula_graph_is_admitted(
                 "identity_domains"
             ]["actual_operand"],
         )
-        formula_contexts = _formula_contexts(language_bundle)
+        formula_contexts = _formula_contexts(kernel)
     except (KeyError, TypeError, ValueError):
         return False
     if not isinstance(formulas, list) or not isinstance(bindings, list):
@@ -1496,9 +1516,7 @@ def _formula_graph_is_admitted(
             or site.get("kind") != "derived-symbol"
             or context_items
             not in {
-                tuple(sorted(formula_contexts["initialization"].items())),
-                tuple(sorted(formula_contexts["event"].items())),
-                tuple(sorted(formula_contexts["observation"].items())),
+                tuple(sorted(context.items())) for context in formula_contexts.values()
             }
             or not isinstance(site.get("resolved_symbol"), dict)
             or not isinstance(formula_ref, dict)
@@ -1525,7 +1543,7 @@ def _formula_graph_is_admitted(
         site_declaration = declarations_by_symbol.get(site_key)
         if (
             site_declaration is None
-            or site_declaration.get("role") != "derived"
+            or site_declaration.get("role") != derived_role
             or context_key in bound_sites
         ):
             return False
@@ -1604,6 +1622,7 @@ def _formula_graph_is_admitted(
         cast(list[dict[str, Any]], formulas),
         cast(list[dict[str, Any]], bindings),
         cast(list[dict[str, Any]], entrypoints),
+        derived_role,
     )
     return bound_sites == {
         (*site, phase)
@@ -1632,20 +1651,17 @@ def _notation_operand_projection(operand: dict[str, Any]) -> dict[str, JsonValue
     return {"kind": cast(str, kind), member: cast(JsonValue, operand[member])}
 
 
-def _rir_notation_body_projection(body: dict[str, Any]) -> dict[str, JsonValue]:
+def _rir_notation_body_projection(
+    body: dict[str, Any], authority_context: AdmittedAuthorityContext
+) -> dict[str, JsonValue]:
     nodes = body.get("nodes")
     result = body.get("result")
     if not isinstance(nodes, list) or not isinstance(result, dict):
         raise ValueError("RIR Formula body has no program projection")
-    if (
-        not nodes
-        and result.get("kind") == "parameter"
-        and isinstance(result.get("parameter"), str)
-    ):
-        return {
-            "node": "parameter",
-            "parameter": cast(str, result["parameter"]),
-        }
+    inline = inline_parameter_contract(authority_context.kernel)
+    inline_body = inline.source_body(_notation_operand_projection(result))
+    if not nodes and inline_body is not None:
+        return inline_body
     projected_nodes: list[dict[str, JsonValue]] = []
     for node in cast(list[dict[str, Any]], nodes):
         kind = node.get("node")
@@ -1750,7 +1766,7 @@ def _formula_pairs_are_admitted(
                 body = formula.get("body")
                 if not isinstance(body, dict):
                     return False
-                admit_formula_pair(
+                admit_semantic_formula_pair(
                     {
                         "schema_version": formula_schema_version(authority_context),
                         "package_requirements": requirements
@@ -1762,7 +1778,8 @@ def _formula_pairs_are_admitted(
                     },
                     authority_context,
                     canonical_body=cast(
-                        dict[str, Any], _rir_notation_body_projection(body)
+                        dict[str, Any],
+                        _rir_notation_body_projection(body, authority_context),
                     ),
                     operation_coordinates=(
                         frozenset(
@@ -1791,12 +1808,9 @@ def _model_explanation_pairs_are_admitted(
     lock: dict[str, Any],
     authority_context: AdmittedAuthorityContext,
 ) -> bool:
-    output_member = _model_lowering(authority_context.language_bundle).get(
-        "output_member"
-    )
     return _formula_pairs_are_admitted(
         explanation.get("formula_explanations"),
-        rir.get(output_member) if isinstance(output_member, str) else None,
+        rir.get("declarations"),
         lock.get("root_requirements"),
         authority_context,
     )
@@ -1813,7 +1827,8 @@ def _rir_semantics_are_admitted(
     kernel = context.kernel
     ldb = context.language_bundle
     lowering = _model_lowering(ldb)
-    declarations = rir.get(cast(str, lowering["output_member"]))
+    source_bindings = derive_default_source_native_bindings(kernel, ldb)
+    declarations = rir.get("declarations")
     if not isinstance(declarations, list):
         return False
     try:
@@ -1831,6 +1846,12 @@ def _rir_semantics_are_admitted(
             cast(list[dict[str, JsonValue]], declarations),
             lowering,
             projection_budget,
+            kernel=kernel,
+            entrypoints=rir["entrypoints"],
+            entrypoint_reference_member=kernel["meta_format"]["runtime_projection"][
+                "operation_roots"
+            ]["entrypoint_reference_member"],
+            formulas=rir["formulas"],
         )
         expected_initialization_programs = _compile_initialization_programs(
             expected_runtime_projection,
@@ -1889,8 +1910,17 @@ def _rir_semantics_are_admitted(
             if isinstance(item, dict) and item.get("value_kind") == "nominal-structured"
             else "quantity"
         ]
-        if not isinstance(item, dict) or not _fact_is_admitted(
-            {"kind": terminal_kind, "fields": item}, kernel, ldb
+        if not isinstance(item, dict):
+            return False
+        admitted_item = deepcopy(item)
+        if "domain_kind" in admitted_item:
+            admitted_item["domain_kind"] = author_source_native_token(
+                source_bindings,
+                "source.symbol.domain_kind.discriminator",
+                admitted_item["domain_kind"],
+            )
+        if not _fact_is_admitted(
+            {"kind": terminal_kind, "fields": admitted_item}, kernel, ldb
         ):
             return False
         resolved_symbol = cast(dict[str, str], item["resolved_symbol"])
@@ -1953,9 +1983,9 @@ def _standalone_rir_is_admitted(
 ) -> bool:
     """Admit exact RIR bytes without any producing Model wrapper."""
     try:
-        if rir.get("artifact_kind") != "rir-semantic-payload" or not _verify_artifact(
-            rir, context.language_bundle
-        ):
+        if rir.get("artifact_kind") != artifact_contract_for_role(
+            context.language_bundle, "rir-semantic-payload"
+        )["artifact_kind"] or not _verify_artifact(rir, context.language_bundle):
             return False
         namespaces = [row["id"] for row in rir["selected_semantics"]["packages"]]
         selection = resolve_current_namespaces(
@@ -1999,18 +2029,23 @@ def admit_resolved_model(
     if not all(_verify_artifact(item, ldb) for item in (lock, rir, resolved)):
         return ResolvedModelAdmission(False, diagnostic)
     root_requirements = lock.get("root_requirements")
-    output_member = cast(str, lowering["output_member"])
-    declarations = rir.get(output_member)
+    declarations = rir.get("declarations")
     if not isinstance(root_requirements, list) or not isinstance(declarations, list):
         return ResolvedModelAdmission(False, diagnostic)
-    profile = _resolution_profile(ldb, cast(str, lowering["resolution_profile"]))
-    requirements_member = cast(str, profile["requirements_member"])
+    requirements_member = "package_requirements"
     try:
         selection = resolve_current_namespaces(
             context.current_namespace_packages(), root_requirements
         )
+        from gda_balancing.domain.authority.source_projection import SourceProjection
+
         synthetic = ModelSourceContext(
             source={requirements_member: root_requirements},
+            source_projection=SourceProjection(
+                {"package_requirements": root_requirements},
+                {"": "", "/package_requirements": _pointer([requirements_member])},
+                {requirements_member: root_requirements},
+            ),
             source_identity="unbound-for-semantic-admission",
             kernel=kernel,
             language_bundle=ldb,

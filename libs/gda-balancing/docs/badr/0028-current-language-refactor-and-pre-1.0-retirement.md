@@ -132,6 +132,27 @@ Kernel instruction charges remain explicit, and current source pairs and identit
 must be refreshed consistently. The record preserves the negative evidence and
 required validation; this amendment does not claim that #876 is complete.
 
+## S6b scope correction (#878, 2026-09-21)
+
+A backtrace of the repeatedly expanding #878 implementation found that its original bounded
+priority-window falsifier had accumulated a whole-LDB, all-vector, arbitrary-string inventory
+platform. That platform did not advance the functional acceptance boundary and multiplied helper,
+projection, mutation and CI obligations whenever an unrelated authority surface changed. The
+generic inventory mechanism is deleted rather than optimized.
+
+#878 now proves the declared priority witness's selected execution closure. Both implementations
+are fixed before mutation; only twelve explicitly selected extension-owned Type/Operation
+coordinates are listed and renamed. The complete admitted `selected_semantics` canonical hash/RIR
+semantic identity and all eight Model artifact content identities bind the remaining selected
+meaning; negative cases reject mismatch or omission without a hand-authored dependency-category
+manifest. A and B mutually consume the actual eight Model artifacts and six Runtime
+artifacts/results for the original and renamed cases. Unrelated packages, unselected vector sets or
+artifact families, and ordinary data strings are excluded. Kernel, constructors, phases and
+compiler/evaluator dispatch remain fixed. #878 does not claim an exhaustive bounded rename
+bijection. This is early falsification evidence only: #575 retains that bijection, the complete
+scenario-family and formal Extension Invariance Receipt, and #542–#544 retain authenticated claim
+activation.
+
 The project owner states that gda-balancing has not had a formal product release: existing
 release records, including the `gda-balancing-v0.1.0` tag, changelog and distribution version,
 are internal revisions. Their existence does not establish formal release or language compatibility.
@@ -204,6 +225,13 @@ counts do not authorize deletion of behavior.
    extension witness in S6b before committing to broad genre delivery. The witness must execute
    reusable admitted Operations and demonstrate specified input-dependent state transitions under
    unchanged core/host semantics; a prescribed trace cannot satisfy [#878](https://github.com/aigengame/godot-agent/issues/878).
+   Its proof boundary is the declared priority witness's selected execution closure and actual eight
+   Model plus six Runtime artifacts/results. #878 enumerates and renames only twelve selected
+   extension Type/Operation coordinates. The complete admitted `selected_semantics` canonical
+   hash/RIR semantic identity and all eight Model artifact content identities bind the remaining selected
+   meaning, with mismatch/omission negative cases and no hand-authored dependency-category
+   manifest. #575 retains the exhaustive bounded bijection. This is not an inventory
+   platform for unrelated LDB content.
 7. **Preserve established responsibility and claim boundaries.** Keep the existing
    `interfaces → application → domain → infrastructure` dependency direction, one balancing
    context, protocol-neutral execution sessions, typed outcomes, deterministic Event transactions,
@@ -253,8 +281,11 @@ Implementation issues must name the removed surface and its negative proof. In p
 execution-closure slice is followed by a required deletion slice: it must prove the old whole-LDB
 and Build-receipt fields/gates/fallback reads are absent; provenance-only changes preserve execution
 eligibility and semantic observations; changed actual execution laws or forged content still
-refuse or change the appropriate execution identity. New outputs retain honest build provenance;
-no test may achieve equality by erasing relevant execution inputs.
+refuse or change the appropriate execution identity. Final deletion verification in #879 must also
+prove that RIR `domain_kind`, the obsolete `maximum` RIR wire-union branch, and every residual
+fallback or compatibility binding are physically absent after dependency closure; deprecation,
+ignored fields, or parallel retained readers do not satisfy deletion. New outputs retain honest
+build provenance; no test may achieve equality by erasing relevant execution inputs.
 
 Each main-branch integration lands with a complete public path and coordinated current authorities, examples,
 descriptors, independent vectors, and installed-resource checks. Old test IDs may retire only with

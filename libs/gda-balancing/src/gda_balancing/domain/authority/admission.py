@@ -6,6 +6,7 @@ declared generic inputs/result and normative vectors.
 """
 
 import json
+import re
 
 import jsonschema
 from dataclasses import dataclass
@@ -13,10 +14,13 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any, cast
 
+
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.domain.authority.rir_projection import rir_collection_output
 from gda_balancing.domain.authority.graph import (
     LanguageBundleGraph,
     LanguageBundleIndex,
+    ProtocolProjectionError,
     canonical_graph_members,
     derive_language_index,
 )
@@ -31,6 +35,7 @@ from gda_balancing.domain.authority.package_validation import (
 from gda_balancing.domain.authority.runtime_validation import (
     _operation_result_source_shape_is_closed,
     _runtime_authority_is_closed,
+    _runtime_component_contract_is_closed,
     derive_operation_value_contracts,
 )
 from gda_balancing.domain.authority.template_validation import (
@@ -79,7 +84,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:27de8f1dcadb15312241509490855516dc1750543e38eb069e3b4c62980dc8da"
+    "sha256:a7ce2d7b3c5f4e98f7151a695b2ee45540593c82085cc8e03763b3d773217dcc"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -400,8 +405,201 @@ def _language_bundle_is_closed(
     )
 
 
+def _formula_resolution_contract_is_supported(contract: Any) -> bool:
+    return contract == {
+        "source_protocol_role": "model-source-package",
+        "body_nodes": ["conditional", "formula-call", "operation-call"],
+        "operand_kinds": ["literal", "local", "parameter", "symbol"],
+        "binding_sites": ["derived-symbol", "operation-slot"],
+        "static_callees": [
+            {"node": "formula-call"},
+            {"node": "operation-call"},
+        ],
+        "inference_operators": {
+            "closed-interval-add": "integer-add",
+            "literal-closed-interval": "typed-literal",
+            "copy-contract": "copy-value",
+            "closed-interval-floor-divide": "integer-floor-divide",
+            "closed-interval-select": "select-value",
+            "closed-interval-less-than": "integer-compare",
+            "closed-interval-multiply": "integer-multiply",
+            "closed-interval-subtract": "integer-subtract",
+        },
+    }
+
+
+def _formula_resolution_is_closed(
+    language_bundle: dict[str, Any], meta: dict[str, Any]
+) -> bool:
+    """Relate compiler selectors to Source grammar and inference to Kernel nodes."""
+    contract = meta.get("formula_resolution")
+    if not _formula_resolution_contract_is_supported(contract):
+        return False
+    contract = cast(dict[str, Any], contract)
+
+    try:
+        sources = [
+            row
+            for row in language_bundle["language"]["wire_schemas"]
+            if row.get("protocol_role") == contract["source_protocol_role"]
+        ]
+        if len(sources) != 1:
+            return False
+        schema = sources[0]["schema"]
+        runtime = meta["runtime_program"]
+        nodes = {row["id"]: row for row in runtime["nodes"]}
+        from gda_balancing.domain.authority.source_projection import (
+            derive_source_semantic_index,
+            derive_source_native_bindings,
+        )
+
+        wire_schema = schema
+        source_index = derive_source_semantic_index(
+            {"meta_format": meta}, language_bundle
+        )
+        if source_index.schema is not wire_schema:
+            return False
+        for authored_profile in language_bundle["language"]["resolution_profiles"]:
+            policy = authored_profile["formula_resolution"]
+            derive_source_native_bindings(
+                source_index, authored_profile.get("source_native_bindings")
+            )
+            aliases = policy["fixed_value_type_aliases"]
+            if len({row["alias"] for row in aliases}) != len(aliases) or any(
+                row["contract"] not in runtime["fixed_value_contracts"]
+                for row in aliases
+            ):
+                return False
+            conversion = policy["notation_conversion"]
+            rules = conversion["local_result_inference"]
+            if len({row["node"] for row in rules}) != len(rules):
+                return False
+            for rule in rules:
+                node = nodes[rule["node"]]
+                if (
+                    node["family"] != "expression"
+                    or node["semantics"]["operator"]
+                    != contract["inference_operators"][rule["rule"]]
+                ):
+                    return False
+                if (
+                    node["result"]["kind"] != "local"
+                    or rule["target_member"] != "target"
+                    or rule["target_member"] not in node["required_members"]
+                ):
+                    return False
+                selected = rule.get(
+                    "operand_members",
+                    [rule.get("source_member", rule.get("literal_member"))],
+                )
+                if not set(selected) <= set(node["required_members"]):
+                    return False
+                typing = node["result"]["typing"]
+                if node["semantics"]["operator"] == "integer-compare":
+                    if (
+                        node["semantics"].get("comparison") != "less-than"
+                        or not isinstance(typing, dict)
+                        or set(typing) != {"kind", "contract"}
+                        or typing.get("kind") != "fixed"
+                        or runtime["fixed_value_contracts"].get(typing.get("contract"))
+                        != runtime["fixed_value_contracts"]["kernel-boolean"]
+                    ):
+                        return False
+                    if {"kind": "runtime-numeric", "members": selected} not in node[
+                        "operand_constraints"
+                    ]:
+                        return False
+                elif node["semantics"]["operator"] == "integer-floor-divide":
+                    if (
+                        typing["members"] != selected[:1]
+                        or {"kind": "runtime-numeric", "members": selected}
+                        not in node["operand_constraints"]
+                    ):
+                        return False
+                elif typing["members"] != selected:
+                    return False
+        return True
+    except (KeyError, TypeError, ValueError, IndexError):
+        return False
+
+
+def _source_notation_contract_is_supported(contract: Any) -> bool:
+    return (
+        isinstance(contract, dict)
+        and set(contract)
+        == {
+            "role",
+            "required_members",
+            "operation_source",
+            "semantic_annotations",
+        }
+        and contract["role"] == "model-source-package"
+        and contract["required_members"]
+        == ["formula_grammar", "operation_notation_schema"]
+        and isinstance(contract["operation_source"], dict)
+        and set(contract["operation_source"]) == {"authority_path", "extension_member"}
+        and all(
+            isinstance(value, str) and value
+            for value in contract["operation_source"].values()
+        )
+    )
+
+
+def _source_notation_is_closed(language_bundle: dict[str, Any], contract: Any) -> bool:
+    """Interpret the Source role's two required Formula notation fields."""
+    if not _source_notation_contract_is_supported(contract):
+        return False
+    fields = set(contract["required_members"])
+    sources = []
+    for definition in language_bundle["language"]["wire_schemas"]:
+        if definition.get("protocol_role") == contract["role"]:
+            if not fields <= set(definition):
+                return False
+            sources.append(definition)
+        elif fields & set(definition):
+            return False
+    if len(sources) != 1:
+        return False
+    grammar = sources[0]["formula_grammar"]
+    try:
+        token = grammar["identifier_token_pattern"]
+        patterns = (
+            token,
+            grammar["integer_literal_pattern"],
+            grammar["whitespace_pattern"],
+        )
+        groups = grammar["group_delimiters"]
+        keywords = [grammar["binding_keyword"], *grammar["conditional_keywords"]]
+        punctuation = [
+            *groups,
+            grammar["named_argument_operator"],
+            grammar["binding_terminator"],
+            grammar["argument_separator"],
+            grammar["coordinate_separator"],
+            grammar["identifier_quote"],
+        ]
+        return (
+            grammar["bare_identifier_pattern"] == f"^{token}$"
+            and all(re.fullmatch(pattern, "") is None for pattern in patterns)
+            and len(groups) == 2
+            and len(grammar["conditional_keywords"]) == 3
+            and len(keywords) == len(set(keywords))
+            and all(re.fullmatch(token, keyword) is not None for keyword in keywords)
+            and set(keywords) <= set(grammar["reserved_identifiers"])
+            and all(len(character) == 1 for character in punctuation)
+            and len(punctuation) == len(set(punctuation))
+            and len(grammar["escape_character"]) == 1
+            and grammar["escape_character"] != grammar["identifier_quote"]
+            and set(grammar["escapable_identifier_characters"])
+            == {grammar["identifier_quote"], grammar["escape_character"]}
+        )
+    except (KeyError, TypeError, re.error):
+        return False
+
+
 def _wire_schema_identity_domains_are_closed(
     language_bundle: dict[str, Any],
+    protocol_roles: dict[str, Any],
 ) -> bool:
     language = language_bundle.get("language")
     if not isinstance(language, dict):
@@ -427,6 +625,7 @@ def _wire_schema_identity_domains_are_closed(
         raw_contracts
     ):
         return False
+    roles: dict[str, str] = {}
     seen: set[str] = set()
     inline_kinds: set[str] = set()
     for collection in ("wire_schemas", "artifact_wire_schemas"):
@@ -449,108 +648,24 @@ def _wire_schema_identity_domains_are_closed(
                 )
             ):
                 return False
+            role = item.get("protocol_role")
+            if role is not None:
+                if not isinstance(role, str) or role in roles:
+                    return False
+                roles[role] = kind
+                expected_roles = (
+                    protocol_roles["standalone_inputs"]
+                    if inline_domain is not None
+                    else protocol_roles["identified_artifacts"]
+                )
+                if role not in expected_roles:
+                    return False
             seen.add(kind)
             if inline_domain is not None:
                 inline_kinds.add(kind)
-    return artifact_kinds.isdisjoint(inline_kinds)
-
-
-def _profiled_equality_values(
-    authorities: dict[str, Any], contract: dict[str, Any]
-) -> list[Any] | None:
-    profile_contract = contract.get("profile")
-    template = contract.get("right_template")
-    if (
-        not isinstance(profile_contract, dict)
-        or set(profile_contract)
-        != {
-            "owner_profile_member",
-            "owners",
-            "profile_key_member",
-            "profiles",
-        }
-        or not isinstance(template, list)
-        or not template
-        or not all(
-            (isinstance(segment, str) and bool(segment))
-            or (
-                isinstance(segment, dict)
-                and set(segment) == {"profile_member"}
-                and isinstance(segment["profile_member"], str)
-                and bool(segment["profile_member"])
-            )
-            for segment in template
-        )
-    ):
-        return None
-    owners_path = profile_contract.get("owners")
-    profiles_path = profile_contract.get("profiles")
-    owner_profile_member = profile_contract.get("owner_profile_member")
-    profile_key_member = profile_contract.get("profile_key_member")
-    if (
-        not isinstance(owners_path, str)
-        or not _path_is_declared(authorities, owners_path)
-        or not isinstance(profiles_path, str)
-        or not _path_is_declared(authorities, profiles_path)
-        or not isinstance(owner_profile_member, str)
-        or not owner_profile_member
-        or not isinstance(profile_key_member, str)
-        or not profile_key_member
-    ):
-        return None
-    owners = _path_values(authorities, owners_path)
-    profiles = _path_values(authorities, profiles_path)
-    if not owners or not profiles:
-        return None
-    profile_rows = [
-        profile
-        for profile in profiles
-        if isinstance(profile, dict) and profile_key_member in profile
-    ]
-    profile_keys = [profile[profile_key_member] for profile in profile_rows]
-    if len(profile_rows) != len(profiles) or len(profile_keys) != len(
-        set(profile_keys)
-    ):
-        return None
-    profiles_by_key = dict(zip(profile_keys, profile_rows, strict=True))
-    selected_profiles: list[dict[str, Any]] = []
-    for owner in owners:
-        if (
-            not isinstance(owner, dict)
-            or owner_profile_member not in owner
-            or owner[owner_profile_member] not in profiles_by_key
-        ):
-            return None
-        profile = profiles_by_key[owner[owner_profile_member]]
-        if profile not in selected_profiles:
-            selected_profiles.append(profile)
-
-    values: list[Any] = []
-    for profile in selected_profiles:
-        segments: list[str] = []
-        for segment in template:
-            if isinstance(segment, str):
-                segments.append(segment)
-                continue
-            profile_value = profile.get(segment["profile_member"])
-            if not isinstance(profile_value, str) or not profile_value:
-                return None
-            segments.append(profile_value)
-        selected: list[Any] = [authorities]
-        for segment in segments:
-            expanded: list[Any] = []
-            for value in selected:
-                candidates = value if isinstance(value, list) else [value]
-                for candidate in candidates:
-                    if not isinstance(candidate, dict) or segment not in candidate:
-                        continue
-                    child = candidate[segment]
-                    expanded.extend(child if isinstance(child, list) else [child])
-            if not expanded:
-                return None
-            selected = expanded
-        values.extend(selected)
-    return values
+    return artifact_kinds.isdisjoint(inline_kinds) and set(roles) == set(
+        protocol_roles["identified_artifacts"] + protocol_roles["standalone_inputs"]
+    )
 
 
 def _reference_contracts_close(
@@ -743,17 +858,6 @@ def _reference_contracts_close(
             ) or not _path_is_declared(authorities, contract.get("right")):
                 return False
             right_values = _path_values(authorities, contract["right"])
-        elif set(contract) == {
-            "left",
-            "mode",
-            "profile",
-            "right_template",
-        }:
-            if not _path_is_declared(authorities, contract.get("left")):
-                return False
-            right_values = _profiled_equality_values(authorities, contract)
-            if right_values is None:
-                return False
         else:
             return False
         try:
@@ -949,17 +1053,28 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
         or set(contract)
         != {
             "closed",
+            "parse_reason_stage",
+            "source_byte_ingress",
             "input",
             "operations",
             "result",
             "stage_order",
             "relation_schemas",
             "relation_recipe_format",
-            "routing_equivalences",
             "resource_accounting",
             "law_format",
         }
         or contract.get("closed") is not True
+        or contract.get("parse_reason_stage") != "parse"
+        or contract.get("source_byte_ingress")
+        != {
+            "limit_member": "max_source_bytes",
+            "exhaustion_reason": {
+                "stage": "ingress",
+                "operation": "greater-than",
+                "limit_path": "resources.max_source_bytes",
+            },
+        }
     ):
         return False
     stages = contract.get("stage_order")
@@ -967,7 +1082,6 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
     operations = contract.get("operations")
     law_format = contract.get("law_format")
     recipe_format = contract.get("relation_recipe_format")
-    routing_equivalences = contract.get("routing_equivalences")
     resource_accounting = contract.get("resource_accounting")
     if (
         not isinstance(stages, list)
@@ -1029,39 +1143,11 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
         }
         or recipe_format.get("root_typing")
         != {
-            "source": "model-source-wire-schema",
+            "source": "semantic-model-source-schema",
             "language": "kernel-declared-language-contracts",
             "selected-packages": "required-transitive-package-closure",
             "binding": "expanded-binding-item",
         }
-        or not isinstance(routing_equivalences, list)
-        or not routing_equivalences
-        or any(
-            not isinstance(item, dict)
-            or set(item)
-            != {
-                "profile_member",
-                "recipe",
-                "subject_kind",
-                "subject",
-                "projection",
-            }
-            or not all(
-                isinstance(item.get(member), str) and item[member]
-                for member in ("profile_member", "recipe", "subject")
-            )
-            or item.get("subject_kind") not in {"binding-source", "field-term"}
-            or item.get("projection") not in {"dot-path", "last-segment"}
-            for item in routing_equivalences
-        )
-        or len(
-            {
-                item["profile_member"]
-                for item in routing_equivalences
-                if isinstance(item, dict) and "profile_member" in item
-            }
-        )
-        != len(routing_equivalences)
         or resource_accounting
         != {
             "limit_member": "max_rule_match_steps",
@@ -1341,8 +1427,8 @@ def _contract_value_kind(contract: Any) -> str | None:
 def _relation_recipe_paths_are_typed(
     profile: dict[str, Any],
     language_bundle: dict[str, Any],
-    resolution_contract: dict[str, Any],
     package_release_contract: dict[str, Any],
+    meta_format: dict[str, Any],
 ) -> bool:
     language = language_bundle.get("language")
     wire_schemas = language.get("wire_schemas") if isinstance(language, dict) else None
@@ -1352,13 +1438,23 @@ def _relation_recipe_paths_are_typed(
         item.get("schema")
         for item in wire_schemas
         if isinstance(item, dict)
-        and item.get("artifact_kind") == "model-source-package"
+        and item.get("protocol_role") == "model-source-package"
     ]
     if len(source_schemas) != 1 or not isinstance(source_schemas[0], dict):
         return False
-    source_schema = source_schemas[0]
+    from gda_balancing.domain.authority.source_projection import (
+        derive_source_semantic_index,
+        semantic_source_schema,
+    )
+
+    try:
+        source_index = derive_source_semantic_index(
+            {"meta_format": meta_format}, language_bundle
+        )
+        source_schema = semantic_source_schema(source_index.schema)
+    except (KeyError, TypeError, ValueError):
+        return False
     recipes = profile["relation_recipes"]
-    recipe_by_id = {recipe["id"]: recipe for recipe in recipes}
 
     # A shape is (representation, schema-or-values, source-origin).
     def term_shape(
@@ -1471,31 +1567,6 @@ def _relation_recipe_paths_are_typed(
             ):
                 return False
 
-    for equivalence in resolution_contract["routing_equivalences"]:
-        recipe = recipe_by_id.get(equivalence["recipe"])
-        if recipe is None:
-            return False
-        if equivalence["subject_kind"] == "binding-source":
-            matches = [
-                binding["source"]
-                for binding in recipe["bindings"]
-                if binding["name"] == equivalence["subject"]
-            ]
-        else:
-            matches = [
-                field["term"]
-                for field in recipe["fields"]
-                if field["name"] == equivalence["subject"]
-            ]
-        if len(matches) != 1 or not matches[0]["path"]:
-            return False
-        expected = (
-            ".".join(matches[0]["path"])
-            if equivalence["projection"] == "dot-path"
-            else matches[0]["path"][-1]
-        )
-        if profile.get(equivalence["profile_member"]) != expected:
-            return False
     return True
 
 
@@ -1504,6 +1575,7 @@ def _relation_recipes_are_closed(
     resolution_contract: dict[str, Any],
     language_bundle: dict[str, Any],
     package_release_contract: dict[str, Any],
+    meta_format: dict[str, Any],
 ) -> bool:
     recipes = profile.get("relation_recipes")
     schemas = resolution_contract.get("relation_schemas")
@@ -1625,8 +1697,8 @@ def _relation_recipes_are_closed(
     return _relation_recipe_paths_are_typed(
         profile,
         language_bundle,
-        resolution_contract,
         package_release_contract,
+        meta_format,
     )
 
 
@@ -1693,91 +1765,6 @@ def _definition_contract_at_path(
             return None
         selected = child
     return selected
-
-
-def _contract_assignable_to_schema(contract: dict[str, Any], schema: Any) -> bool:
-    if not isinstance(schema, dict):
-        return False
-    if "const" in contract:
-        value = contract["const"]
-        if "const" in schema and schema["const"] != value:
-            return False
-        if isinstance(schema.get("enum"), list) and value not in schema["enum"]:
-            return False
-        expected = _canonical_value_kind(value)
-        actual = schema.get("type")
-        return actual is None or actual == expected
-    if isinstance(contract.get("enum"), list) and contract["enum"]:
-        values = contract["enum"]
-        kinds = {_canonical_value_kind(value) for value in values}
-        return (
-            len(kinds) == 1
-            and schema.get("type") in {None, next(iter(kinds))}
-            and (
-                not isinstance(schema.get("enum"), list)
-                or set(values) <= set(schema["enum"])
-            )
-        )
-    value_type = contract.get("type")
-    if value_type in {"inventory-member", "non-empty-string", "string"}:
-        return schema.get("type") == "string"
-    if value_type in {"positive-signed-int64", "signed-int64"}:
-        return schema.get("type") == "integer"
-    if value_type == "boolean":
-        return schema.get("type") == "boolean"
-    if value_type == "string-list":
-        return (
-            schema.get("type") == "array"
-            and isinstance(schema.get("items"), dict)
-            and schema["items"].get("type") == "string"
-        )
-    if value_type == "canonical-value":
-        # The closed wire schema remains the structural authority for the
-        # canonical value. The Kernel contract establishes only that the
-        # language definition is canonically encodable.
-        return True
-    if value_type == "closed-discriminated-object":
-        return schema == {}
-    if value_type == "list-of":
-        item = contract.get("items")
-        return (
-            schema.get("type") == "array"
-            and isinstance(item, dict)
-            and _contract_assignable_to_schema(item, schema.get("items"))
-        )
-    is_object = value_type == "closed-object" or (
-        value_type is None
-        and isinstance(contract.get("required_members"), list)
-        and isinstance(contract.get("field_types"), dict)
-    )
-    if is_object:
-        required = contract.get("required_members")
-        optional = contract.get("optional_members", [])
-        fields = contract.get("field_types")
-        properties = schema.get("properties")
-        schema_required = schema.get("required")
-        return (
-            schema.get("type") == "object"
-            and isinstance(required, list)
-            and isinstance(optional, list)
-            and isinstance(fields, dict)
-            and isinstance(properties, dict)
-            and isinstance(schema_required, list)
-            and not set(required) & set(optional)
-            and set(required) | set(optional) == set(fields)
-            and set(fields) == set(properties)
-            and set(schema_required) == set(required)
-            and schema.get("unevaluatedProperties") is False
-            and all(
-                _contract_assignable_to_schema(fields[name], properties[name])
-                for name in fields
-            )
-        )
-    return False
-
-
-def _schema_items_match(source: Any, target: Any) -> bool:
-    return isinstance(source, dict) and isinstance(target, dict) and source == target
 
 
 def _execution_projection_is_closed(
@@ -1945,10 +1932,7 @@ def _execution_projection_is_closed(
             "typed-values",
         }:
             return False
-        if set(root) == {"when", "id"} and isinstance(root["id"], str):
-            matches = [row for row in catalog if row.get("id") == root["id"]]
-            key = (root["when"], root["id"])
-        elif (
+        if (
             set(root) == {"when", "stage", "signal"}
             and isinstance(root["stage"], str)
             and isinstance(root["signal"], str)
@@ -1975,52 +1959,49 @@ def _runtime_projection_is_closed(
     declaration_fields: dict[str, Any],
     language_definitions: dict[str, Any],
     meta_format: dict[str, Any],
+    assignment_policy: Any = None,
 ) -> bool:
     if (
         not isinstance(profile, dict)
         or set(profile)
-        != {"outputs", "collections", "seeds", "edges", "type_reference_closure"}
+        != {
+            "resource_reason",
+            "collections",
+            "seeds",
+            "edges",
+            "type_reference_closure",
+            "operation_roots",
+        }
         or not isinstance(contract, dict)
         or set(contract)
         != {
             "closed",
             "collection_source_kinds",
-            "output_shapes",
             "seed_operators",
             "edge_operators",
-            "output_kinds",
             "collection",
             "seed",
             "edge",
             "type_reference_closure",
+            "operation_roots",
             "path_typing",
-            "output_typing",
             "resource_accounting",
             "execution_closure",
+            "symbol_role_bindings",
         }
         or contract.get("closed") is not True
     ):
         return False
     source_kinds = set(cast(list[Any], contract.get("collection_source_kinds", [])))
-    output_shapes = set(cast(list[Any], contract.get("output_shapes", [])))
     seed_operators = set(cast(list[Any], contract.get("seed_operators", [])))
     edge_operators = set(cast(list[Any], contract.get("edge_operators", [])))
-    output_kinds = set(cast(list[Any], contract.get("output_kinds", [])))
     if (
         source_kinds != {"namespace-member", "semantic-closure"}
-        or output_shapes
-        != {"as-is", "package-definition", "definition", "closure-only"}
         or seed_operators != {"declaration-field"}
         or edge_operators != {"equal"}
-        or output_kinds
-        != {
-            "selected-packages",
-            "selected-semantic-closures",
-        }
         or contract.get("collection")
         != {
-            "required_members": ["id", "source", "output_member", "output_shape"],
-            "optional_members": ["excluded_extension_members", "excluded_members"],
+            "required_members": ["id", "source"],
             "namespace_source_members": ["kind", "member", "package_path"],
             "closure_source_members": ["kind", "authority_path"],
         }
@@ -2065,12 +2046,14 @@ def _runtime_projection_is_closed(
                 "source_definition_path",
                 "target_type_collection",
                 "target_constructor_collection",
-                "coordinate_members",
-                "structural_kind_member",
                 "constructor_kind_path",
             ],
             "coordinate_match": "exact-package-type-id",
-            "structural_match": "definition-kind-to-constructor-kind",
+            "structural_match": {
+                "relation": "definition-kind-to-constructor-kind",
+                "definition_kind_member": "kind",
+                "constructor_kind_member": "definition_kind",
+            },
         }
         or contract.get("path_typing")
         != {
@@ -2079,16 +2062,18 @@ def _runtime_projection_is_closed(
             "semantic_closure": "kernel-language-definition-contract",
             "empty_path": "identity",
         }
-        or contract.get("output_typing")
+        or contract.get("operation_roots")
         != {
-            "source": "collection-element-contract",
-            "target": "rir-selected-semantics-member-schema",
-            "shape_transforms": {
-                "as-is": "identity",
-                "definition": "identity",
-                "package-definition": "package-and-definition-object",
-                "closure-only": "no-output",
-            },
+            "required_members": ["collection"],
+            "authority_path": "language.operations",
+            "entrypoint_reference_member": "operation",
+            "formula_nodes_path": ["body", "nodes"],
+            "formula_node_kind_member": "node",
+            "formula_node_kind": "operation-call",
+            "formula_reference_member": "operation",
+            "coordinate_members": ["package", "id"],
+            "closure": "kernel-operation-reference-nodes",
+            "missing": "refuse",
         }
         or contract.get("resource_accounting")
         != {
@@ -2117,7 +2102,126 @@ def _runtime_projection_is_closed(
                 "limit_path": "resources.max_runtime_projection_steps",
             },
         }
+        or contract.get("symbol_role_bindings")
+        != {
+            "output_member": "symbol_role_bindings",
+            "source": "selected-model-lowering.assignment_policy.roles",
+            "cardinality": "exactly-one-per-binding",
+            "distinct": True,
+            "bindings": [
+                {
+                    "slot": "input",
+                    "role_fields": {
+                        "binding_kind": "operand",
+                        "entrypoint_result": False,
+                        "entrypoint_operand_access": ["read"],
+                    },
+                    "mode_fields": {
+                        "initialization_source": "experiment",
+                        "value_member": "forbidden",
+                        "experiment_cardinality": "required",
+                        "event_payload_cardinality": "optional",
+                        "external_fact_cardinality": ["optional", "required"],
+                        "override": False,
+                    },
+                },
+                {
+                    "slot": "state",
+                    "role_fields": {
+                        "binding_kind": "operand",
+                        "entrypoint_result": False,
+                        "entrypoint_operand_access": [
+                            "read",
+                            "read-write",
+                            "write",
+                        ],
+                    },
+                    "mode_fields": {
+                        "initialization_source": "model",
+                        "value_member": "required",
+                        "experiment_cardinality": "forbidden",
+                        "event_payload_cardinality": "forbidden",
+                        "external_fact_cardinality": "forbidden",
+                        "override": False,
+                    },
+                },
+                {
+                    "slot": "output",
+                    "role_fields": {
+                        "binding_kind": "result",
+                        "entrypoint_result": True,
+                        "entrypoint_operand_access": [],
+                    },
+                    "mode_fields": {
+                        "initialization_source": "execution",
+                        "value_member": "forbidden",
+                        "experiment_cardinality": "forbidden",
+                        "event_payload_cardinality": "forbidden",
+                        "external_fact_cardinality": "forbidden",
+                        "override": False,
+                    },
+                },
+            ],
+        }
     ):
+        return False
+
+    if assignment_policy is None:
+        language = language_bundle.get("language")
+        model_lowerings = (
+            language.get("model_lowerings") if isinstance(language, dict) else None
+        )
+        matching_lowerings = (
+            [
+                lowering
+                for lowering in model_lowerings
+                if isinstance(lowering, dict)
+                and lowering.get("runtime_projection") == profile
+            ]
+            if isinstance(model_lowerings, list)
+            else []
+        )
+        if len(matching_lowerings) != 1:
+            return False
+        assignment_policy = matching_lowerings[0].get("assignment_policy")
+
+    roles = (
+        assignment_policy.get("roles") if isinstance(assignment_policy, dict) else None
+    )
+    if not isinstance(roles, list):
+        return False
+    selected_roles: list[str] = []
+
+    def binding_field_matches(actual: Any, expected: Any) -> bool:
+        if isinstance(expected, list) and not isinstance(actual, list):
+            return actual in expected
+        return actual == expected
+
+    for binding in contract["symbol_role_bindings"]["bindings"]:
+        role_matches: list[str] = []
+        for role in roles:
+            if not isinstance(role, dict) or not all(
+                binding_field_matches(role.get(name), value)
+                for name, value in binding["role_fields"].items()
+            ):
+                continue
+            modes = role.get("modes")
+            if not isinstance(modes, list) or not any(
+                isinstance(mode, dict)
+                and all(
+                    binding_field_matches(mode.get(name), value)
+                    for name, value in binding["mode_fields"].items()
+                )
+                for mode in modes
+            ):
+                continue
+            selected = role.get("role")
+            if isinstance(selected, str) and selected:
+                role_matches.append(selected)
+        if len(role_matches) != 1:
+            return False
+        selected_roles.append(role_matches[0])
+    if len(selected_roles) != len(set(selected_roles)):
         return False
 
     def path_is_closed(path: Any, *, empty: bool = False) -> bool:
@@ -2127,117 +2231,86 @@ def _runtime_projection_is_closed(
             and all(isinstance(segment, str) and segment for segment in path)
         )
 
-    outputs = profile.get("outputs")
     collections = profile.get("collections")
     seeds = profile.get("seeds")
     edges = profile.get("edges")
     type_reference_closure = profile.get("type_reference_closure")
     if (
-        not isinstance(outputs, list)
-        or not isinstance(collections, list)
+        not isinstance(collections, list)
         or not isinstance(seeds, list)
         or not isinstance(edges, list)
-        or type_reference_closure
+        or not isinstance(type_reference_closure, dict)
+        or set(type_reference_closure)
+        != set(contract["type_reference_closure"]["required_members"])
+        or any(
+            not isinstance(type_reference_closure[member], str)
+            or not type_reference_closure[member]
+            for member in (
+                "source_collection",
+                "target_type_collection",
+                "target_constructor_collection",
+            )
+        )
+        or {
+            member: type_reference_closure[member]
+            for member in (
+                "constructor_kind_path",
+                "source_definition_path",
+            )
+        }
         != {
-            "constructor_kind_path": ["value_rule", "definition_kind"],
-            "coordinate_members": ["package", "id"],
-            "source_collection": "nominal_types",
+            "constructor_kind_path": [
+                "value_rule",
+                contract["type_reference_closure"]["structural_match"][
+                    "constructor_kind_member"
+                ],
+            ],
             "source_definition_path": ["definition"],
-            "structural_kind_member": "kind",
-            "target_constructor_collection": "constructors",
-            "target_type_collection": "types",
         }
     ):
         return False
-    output_members: list[str] = []
-    for output in outputs:
-        if not isinstance(output, dict) or output.get("kind") not in output_kinds:
-            return False
-        kind = output["kind"]
-        expected = {
-            "kind",
-            "source_member",
-            "output_member",
-            "package_member",
-        }
-        if kind == "selected-packages":
-            expected.add("members")
-        elif kind == "selected-semantic-closures":
-            expected.update(
-                {
-                    "entries_member",
-                    "authority_path_member",
-                    "definitions_member",
-                }
-            )
-        if (
-            set(output) != expected
-            or any(
-                not isinstance(output.get(member), str) or not output[member]
-                for member in expected - {"kind", "members"}
-            )
-            or (
-                "members" in output
-                and (
-                    not isinstance(output["members"], list)
-                    or not output["members"]
-                    or not all(
-                        isinstance(member, str) and member
-                        for member in output["members"]
-                    )
-                    or len(output["members"]) != len(set(output["members"]))
-                )
-            )
-        ):
-            return False
-        output_members.append(output["output_member"])
-
+    roots = profile.get("operation_roots")
+    if not isinstance(roots, dict) or set(roots) != {"collection"}:
+        return False
+    matches = [
+        collection
+        for collection in collections
+        if isinstance(collection, dict) and collection.get("id") == roots["collection"]
+    ]
+    if (
+        len(matches) != 1
+        or not isinstance(matches[0].get("source"), dict)
+        or matches[0]["source"].get("authority_path")
+        != contract["operation_roots"]["authority_path"]
+    ):
+        return False
+    rir_law = meta_format["language_definitions"]["wire_schema_protocol_roles"][
+        "rir_structure"
+    ]
+    binding_slots = [
+        binding["slot"] for binding in contract["symbol_role_bindings"]["bindings"]
+    ]
+    binding_container = rir_law.get("containers", {}).get("symbol_role_bindings")
+    expected_binding_container = {
+        "closed": True,
+        "field_types": {slot: {"type": "non-empty-string"} for slot in binding_slots},
+        "optional_members": [],
+        "required_members": binding_slots,
+        "type": "closed-object",
+    }
+    if binding_container != expected_binding_container:
+        return False
+    output_members = list(rir_law["namespace_outputs"])
     collection_ids: list[str] = []
     authority_paths: set[str] = set()
     for collection in collections:
         if not isinstance(collection, dict):
             return False
-        expected_collection_members = {
-            "id",
-            "source",
-            "output_member",
-            "output_shape",
-        }
-        expected_collection_members.update(
-            member
-            for member in ("excluded_extension_members", "excluded_members")
-            if member in collection
-        )
         if (
-            set(collection) != expected_collection_members
+            set(collection) != {"id", "source"}
             or not isinstance(collection.get("id"), str)
             or not collection["id"]
             or not isinstance(collection.get("source"), dict)
-            or collection.get("output_shape") not in output_shapes
-            or (
-                collection["output_shape"] == "closure-only"
-                and collection.get("output_member") is not None
-            )
-            or (
-                collection["output_shape"] != "closure-only"
-                and (
-                    not isinstance(collection.get("output_member"), str)
-                    or not collection["output_member"]
-                )
-            )
-            or any(
-                member in collection
-                and (
-                    not isinstance(collection[member], list)
-                    or not collection[member]
-                    or not all(
-                        isinstance(excluded, str) and excluded
-                        for excluded in collection[member]
-                    )
-                    or len(collection[member]) != len(set(collection[member]))
-                )
-                for member in ("excluded_extension_members", "excluded_members")
-            )
         ):
             return False
         source = collection["source"]
@@ -2260,11 +2333,26 @@ def _runtime_projection_is_closed(
         else:
             return False
         collection_ids.append(collection["id"])
-        if collection["output_member"] is not None:
-            output_members.append(collection["output_member"])
+        output_role = rir_collection_output({"meta_format": meta_format}, source)
+        if output_role is not None:
+            output_members.append(output_role[0])
     if len(collection_ids) != len(set(collection_ids)):
         return False
     collection_names = set(collection_ids)
+    collection_sources = {
+        collection["id"]: collection["source"] for collection in collections
+    }
+    if (
+        collection_sources.get(type_reference_closure["source_collection"])
+        != {"kind": "semantic-closure", "authority_path": "language.nominal_types"}
+        or collection_sources.get(type_reference_closure["target_type_collection"])
+        != {"kind": "namespace-member", "member": "types", "package_path": ["package"]}
+        or collection_sources.get(
+            type_reference_closure["target_constructor_collection"]
+        )
+        != {"kind": "semantic-closure", "authority_path": "language.constructors"}
+    ):
+        return False
 
     for seed in seeds:
         if not isinstance(seed, dict) or seed.get("operator") not in seed_operators:
@@ -2328,7 +2416,7 @@ def _runtime_projection_is_closed(
         item.get("schema")
         for item in wire_schemas
         if isinstance(item, dict)
-        and item.get("artifact_kind") == "rir-semantic-payload"
+        and item.get("protocol_role") == "rir-semantic-payload"
     ]
     if len(rir_schemas) != 1 or not isinstance(rir_schemas[0], dict):
         return False
@@ -2343,17 +2431,32 @@ def _runtime_projection_is_closed(
     selected_properties = (
         selected_schema.get("properties") if isinstance(selected_schema, dict) else None
     )
+    expected_binding_schema = {
+        "type": "object",
+        "properties": {
+            slot: {"type": "string", "minLength": 1} for slot in binding_slots
+        },
+        "required": sorted(binding_slots),
+        "unevaluatedProperties": False,
+    }
     packages = language.get("packages") if isinstance(language, dict) else None
-    if not isinstance(selected_properties, dict) or not _execution_projection_is_closed(
-        contract.get("execution_closure"),
-        meta_format,
-        language_bundle,
-        selected_properties,
+    if (
+        not isinstance(selected_properties, dict)
+        or selected_properties.get(contract["symbol_role_bindings"]["output_member"])
+        != expected_binding_schema
+        or not _execution_projection_is_closed(
+            contract.get("execution_closure"),
+            meta_format,
+            language_bundle,
+            selected_properties,
+        )
     ):
         return False
     if not (
         isinstance(required_outputs, list)
-        and set(output_members) | set(contract["execution_closure"]["output_members"])
+        and set(output_members)
+        | set(contract["execution_closure"]["output_members"])
+        | {contract["symbol_role_bindings"]["output_member"]}
         == set(required_outputs)
         and isinstance(selected_properties, dict)
         and isinstance(packages, list)
@@ -2463,152 +2566,6 @@ def _runtime_projection_is_closed(
         )
         if source_kind is None or source_kind != target_kind:
             return False
-    for collection in collections:
-        representation, payload = collection_shapes[collection["id"]]
-        excluded_members = set(collection.get("excluded_members", []))
-        if excluded_members:
-            field_member = "properties" if representation == "schema" else "field_types"
-            required_member = (
-                "required" if representation == "schema" else "required_members"
-            )
-            fields = payload.get(field_member)
-            required = payload.get(required_member)
-            if (
-                not isinstance(fields, dict)
-                or not isinstance(required, list)
-                or not excluded_members <= set(fields)
-            ):
-                return False
-            payload = {
-                **payload,
-                field_member: {
-                    name: value
-                    for name, value in fields.items()
-                    if name not in excluded_members
-                },
-                required_member: [
-                    name for name in required if name not in excluded_members
-                ],
-            }
-            if "optional_members" in payload:
-                payload["optional_members"] = [
-                    name
-                    for name in payload["optional_members"]
-                    if name not in excluded_members
-                ]
-        output_member = collection["output_member"]
-        if output_member is None:
-            continue
-        target = selected_properties.get(output_member)
-        if (
-            not isinstance(target, dict)
-            or target.get("type") != "array"
-            or not isinstance(target.get("items"), dict)
-        ):
-            return False
-        shape = collection["output_shape"]
-        if representation == "schema":
-            if shape != "as-is" or not _schema_items_match(payload, target["items"]):
-                return False
-        elif shape == "definition":
-            if not _contract_assignable_to_schema(payload, target["items"]):
-                return False
-        elif shape == "package-definition":
-            target_item = target["items"]
-            properties = target_item.get("properties")
-            if not (
-                target_item.get("type") == "object"
-                and isinstance(properties, dict)
-                and set(properties) == {"package", "definition"}
-                and set(target_item.get("required", [])) == {"package", "definition"}
-                and target_item.get("unevaluatedProperties") is False
-                and properties["package"].get("type") == "string"
-                and _contract_assignable_to_schema(payload, properties["definition"])
-            ):
-                return False
-        else:
-            return False
-    for output in outputs:
-        source_schema = selected_properties.get(output["source_member"])
-        target_schema = selected_properties.get(output["output_member"])
-        if (
-            not isinstance(source_schema, dict)
-            or source_schema.get("type") != "array"
-            or not isinstance(source_schema.get("items"), dict)
-            or not isinstance(target_schema, dict)
-            or target_schema.get("type") != "array"
-            or not isinstance(target_schema.get("items"), dict)
-            or _schema_value_kind(
-                _json_schema_path(
-                    source_schema["items"],
-                    [output["package_member"]],
-                )
-            )
-            != "string"
-        ):
-            return False
-        if output["kind"] == "selected-packages" and any(
-            _json_schema_path(source_schema["items"], [member]) is None
-            for member in output["members"]
-        ):
-            return False
-        if output["kind"] == "selected-packages":
-            source_properties = source_schema["items"].get("properties")
-            target_item = target_schema["items"]
-            target_properties = target_item.get("properties")
-            members = set(output["members"])
-            if not (
-                isinstance(source_properties, dict)
-                and isinstance(target_properties, dict)
-                and set(target_properties) == members
-                and set(target_item.get("required", [])) == members
-                and target_item.get("unevaluatedProperties") is False
-                and all(
-                    source_properties[member] == target_properties[member]
-                    for member in members
-                )
-            ):
-                return False
-        if output["kind"] == "selected-semantic-closures":
-            entries = _json_schema_path(
-                source_schema["items"],
-                [output["entries_member"]],
-            )
-            if (
-                not isinstance(entries, dict)
-                or entries.get("type") != "array"
-                or not isinstance(entries.get("items"), dict)
-                or _schema_value_kind(
-                    _json_schema_path(
-                        entries["items"],
-                        [output["authority_path_member"]],
-                    )
-                )
-                != "string"
-                or _json_schema_path(
-                    entries["items"],
-                    [output["definitions_member"]],
-                )
-                is None
-            ):
-                return False
-            source_item = source_schema["items"]
-            source_properties = source_item.get("properties")
-            target_item = target_schema["items"]
-            target_properties = target_item.get("properties")
-            projected = {output["package_member"], output["entries_member"]}
-            if not (
-                isinstance(source_properties, dict)
-                and isinstance(target_properties, dict)
-                and set(target_properties) == projected
-                and set(target_item.get("required", [])) == projected
-                and target_item.get("unevaluatedProperties") is False
-                and all(
-                    source_properties[member] == target_properties[member]
-                    for member in projected
-                )
-            ):
-                return False
     return True
 
 
@@ -2622,10 +2579,34 @@ def _language_definitions_are_closed(
     collections = authority.get("collections")
     if not isinstance(collections, dict):
         return False
+    lowering_contract = collections.get("model_lowerings")
+    if not isinstance(lowering_contract, dict) or lowering_contract.get(
+        "source_fact_transport"
+    ) != {
+        "unadapted_members": "copy-name-and-value",
+        "adapters": [
+            "semantic-symbol-name",
+            "resolved-symbol-identity",
+            "imported-type-identity",
+            "nominal-export-kind",
+        ],
+        "adapter_conflicts": "refuse",
+        "initial_fact_admission": "before-first-language-rule",
+    }:
+        return False
     for name, contract in collections.items():
         values = language.get(name)
         if not isinstance(values, list) or not isinstance(contract, dict):
             return False
+        if name == "artifact_contracts":
+            from gda_balancing.domain.authority.publication_projection import (
+                artifact_contract_declarations,
+            )
+
+            try:
+                values = artifact_contract_declarations(meta_format, language)
+            except (KeyError, TypeError, ValueError):
+                return False
         max_items = contract.get("max_items")
         if max_items is not None:
             if not isinstance(max_items, int) or len(values) > max_items:
@@ -2644,6 +2625,32 @@ def _language_definitions_are_closed(
             _definition_is_closed(value, contract, language_bundle) for value in values
         ):
             return False
+    if not _source_notation_is_closed(
+        language_bundle,
+        authority.get("wire_schema_protocol_roles", {}).get("source_notation"),
+    ):
+        return False
+    if not _formula_resolution_is_closed(language_bundle, meta_format):
+        return False
+    try:
+        from gda_balancing.domain.authority.source_projection import (
+            derive_source_semantic_index,
+            source_semantic_selector,
+        )
+
+        source_index = derive_source_semantic_index(
+            {"meta_format": meta_format}, language_bundle
+        )
+        for check in language["model_checks"]:
+            source_semantic_selector(
+                source_index.schema,
+                [
+                    *check.get("semantic_scope_selector", []),
+                    *check["semantic_selector"],
+                ],
+            )
+    except (KeyError, TypeError, ValueError, StopIteration):
+        return False
     quantity = language.get("quantity")
     quantity_contract = authority.get("quantity")
     if not isinstance(quantity, dict) or not isinstance(quantity_contract, dict):
@@ -2717,45 +2724,32 @@ def _language_definitions_are_closed(
         and isinstance(item.get("id"), str)
         and isinstance(item.get("stage"), str)
     }
-    accounting = (
-        resolution_contract.get("resource_accounting")
-        if isinstance(resolution_contract, dict)
-        else None
-    )
-    exhaustion_reason = (
-        accounting.get("exhaustion_reason") if isinstance(accounting, dict) else None
-    )
-    resource_reasons = [
-        item
-        for item in cast(list[dict[str, Any]], language.get("reasons", []))
-        if isinstance(exhaustion_reason, dict)
-        and item.get("stage") == exhaustion_reason.get("stage")
-        and isinstance(item.get("predicate"), dict)
-        and item["predicate"].get("operation") == exhaustion_reason.get("operation")
-        and item["predicate"].get("limit_path") == exhaustion_reason.get("limit_path")
-    ]
     runtime_projection_contract = meta_format.get("runtime_projection")
-    runtime_accounting = (
-        runtime_projection_contract.get("resource_accounting")
-        if isinstance(runtime_projection_contract, dict)
-        else None
-    )
-    runtime_exhaustion_reason = (
-        runtime_accounting.get("exhaustion_reason")
-        if isinstance(runtime_accounting, dict)
-        else None
-    )
-    runtime_resource_reasons = [
-        item
-        for item in cast(list[dict[str, Any]], language.get("reasons", []))
-        if isinstance(runtime_exhaustion_reason, dict)
-        and item.get("stage") == runtime_exhaustion_reason.get("stage")
-        and isinstance(item.get("predicate"), dict)
-        and item["predicate"].get("operation")
-        == runtime_exhaustion_reason.get("operation")
-        and item["predicate"].get("limit_path")
-        == runtime_exhaustion_reason.get("limit_path")
-    ]
+    reason_rows = {item["id"]: item for item in language.get("reasons", [])}
+
+    def resource_reference(reference: Any, owner: Any) -> bool:
+        reason = reason_rows.get(reference) if isinstance(reference, str) else None
+        expected = owner.get("exhaustion_reason") if isinstance(owner, dict) else None
+        return (
+            isinstance(reason, dict)
+            and isinstance(expected, dict)
+            and reason.get("stage") == expected.get("stage")
+            and isinstance(reason.get("predicate"), dict)
+            and all(
+                reason["predicate"].get(key) == expected.get(key)
+                for key in ("operation", "limit_path")
+            )
+        )
+
+    def predicate_reference(reference: Any, *, stage: str, operation: str) -> bool:
+        reason = reason_rows.get(reference) if isinstance(reference, str) else None
+        return (
+            isinstance(reason, dict)
+            and reason.get("stage") == stage
+            and isinstance(reason.get("predicate"), dict)
+            and reason["predicate"].get("operation") == operation
+        )
+
     if (
         len(profiles_by_id) != len(profiles)
         or not isinstance(resolution_contract, dict)
@@ -2763,20 +2757,50 @@ def _language_definitions_are_closed(
         or not isinstance(operation_specs, list)
         or not operation_specs
         or len(operations_by_id) != len(operation_specs)
-        or len(resource_reasons) != 1
-        or len(runtime_resource_reasons) != 1
         or len([profile for profile in profiles if profile.get("default") is True]) != 1
     ):
         return False
     for profile in profiles:
         chain = profile.get("judgment_chain")
+        formula_reasons = profile.get("formula_resolution", {}).get("refusal_reasons")
         if (
-            not isinstance(chain, list)
+            not resource_reference(
+                profile.get("source_byte_reason"),
+                resolution_contract.get("source_byte_ingress"),
+            )
+            or not resource_reference(
+                profile.get("resource_reason"),
+                resolution_contract.get("resource_accounting"),
+            )
+            or not isinstance(formula_reasons, dict)
+            or any(
+                reason_stages.get(reference)
+                != (
+                    "parse"
+                    if category in {"notation-parse", "notation-resource"}
+                    else "static"
+                )
+                for category, reference in formula_reasons.items()
+            )
+        ):
+            return False
+        if (
+            reason_stages.get(profile.get("parse_reason"))
+            != resolution_contract["parse_reason_stage"]
+            or reason_stages.get(profile.get("experiment_binding_reason"))
+            != "resolution"
+            or not predicate_reference(
+                profile.get("experiment_numeric_domain_reason"),
+                stage="static",
+                operation="invalid-interval",
+            )
+            or not isinstance(chain, list)
             or not _relation_recipes_are_closed(
                 profile,
                 resolution_contract,
                 language_bundle,
                 cast(dict[str, Any], meta_format["package_release"]),
+                meta_format,
             )
             or [item.get("operation") for item in chain if isinstance(item, dict)]
             != operation_order
@@ -2791,6 +2815,14 @@ def _language_definitions_are_closed(
             return False
     for lowering in lowerings:
         if not isinstance(lowering, dict):
+            return False
+        projection = lowering.get("runtime_projection")
+        if not isinstance(projection, dict) or not resource_reference(
+            projection.get("resource_reason"),
+            runtime_projection_contract.get("resource_accounting")
+            if isinstance(runtime_projection_contract, dict)
+            else None,
+        ):
             return False
         equalities = lowering.get("output_equalities")
         profile_id = lowering.get("resolution_profile")
@@ -2840,6 +2872,7 @@ def _language_definitions_are_closed(
                 fields,
                 cast(dict[str, Any], meta_format["language_definitions"]),
                 meta_format,
+                lowering.get("assignment_policy"),
             ):
                 return False
             for equality in equalities:
@@ -2872,89 +2905,30 @@ def _language_definitions_are_closed(
     return True
 
 
-def _evidence_claim_kinds_are_closed(
-    language_bundle: dict[str, Any], meta_format: dict[str, Any]
-) -> bool:
-    """Require each LDB claim kind to close its graph and eligibility vectors."""
+def _evidence_claim_kinds_are_closed(language_bundle: dict[str, Any]) -> bool:
+    """Require each LDB claim kind to close its actual eligibility vectors."""
     language = language_bundle.get("language")
-    definitions = meta_format.get("language_definitions")
-    collections = (
-        definitions.get("collections") if isinstance(definitions, dict) else None
-    )
-    contract = (
-        collections.get("evidence_claim_kinds")
-        if isinstance(collections, dict)
-        else None
-    )
-    if not isinstance(contract, dict):
-        return False
-    try:
-        graph_states = set(
-            contract["field_types"]["vectors"]["items"]["field_types"]["input"][
-                "field_types"
-            ]["graph"]["enum"]
-        )
-    except (KeyError, TypeError):
-        return False
     claim_kinds = (
         language.get("evidence_claim_kinds") if isinstance(language, dict) else None
     )
-    if not isinstance(claim_kinds, list) or graph_states <= {"exact"}:
+    if not isinstance(claim_kinds, list):
         return False
     claim_ids: set[str] = set()
     for claim_kind in claim_kinds:
         if not isinstance(claim_kind, dict):
             return False
         claim_id = claim_kind.get("id")
-        roles = claim_kind.get("subject_roles")
-        edges = claim_kind.get("prerequisite_edges")
         eligibility = claim_kind.get("eligibility")
         vectors = claim_kind.get("vectors")
         if (
             not isinstance(claim_id, str)
             or claim_id in claim_ids
-            or not isinstance(roles, list)
-            or not roles
-            or not all(isinstance(role, str) and role for role in roles)
-            or len(roles) != len(set(roles))
-            or not isinstance(edges, list)
             or not isinstance(eligibility, dict)
             or not isinstance(vectors, list)
             or not vectors
         ):
             return False
         claim_ids.add(claim_id)
-        role_set = set(roles)
-        edge_pairs = [
-            (edge.get("subject"), edge.get("prerequisite"))
-            for edge in edges
-            if isinstance(edge, dict)
-        ]
-        if (
-            len(edge_pairs) != len(edges)
-            or len(edge_pairs) != len(set(edge_pairs))
-            or any(
-                subject not in role_set
-                or prerequisite not in role_set
-                or subject == prerequisite
-                for subject, prerequisite in edge_pairs
-            )
-        ):
-            return False
-        pending = set(role_set)
-        while pending:
-            ready = {
-                role
-                for role in pending
-                if all(
-                    prerequisite not in pending
-                    for subject, prerequisite in edge_pairs
-                    if subject == role
-                )
-            }
-            if not ready:
-                return False
-            pending -= ready
         producing_outcomes = eligibility.get("producing_outcomes")
         required_variant = eligibility.get("runtime_refusal_variant")
         if (
@@ -2971,7 +2945,6 @@ def _evidence_claim_kinds_are_closed(
             return False
         vector_ids: set[str] = set()
         positive_outcomes: set[str] = set()
-        negative_graphs: set[str] = set()
         has_pre_dispatch = False
         for vector in vectors:
             if not isinstance(vector, dict) or not isinstance(
@@ -2983,13 +2956,11 @@ def _evidence_claim_kinds_are_closed(
             if not isinstance(vector_id, str) or vector_id in vector_ids:
                 return False
             vector_ids.add(vector_id)
-            graph = vector_input.get("graph")
             outcome = vector_input.get("producing_outcome")
             dispatch = vector_input.get("runtime_dispatch")
             refusal_variant = vector_input.get("runtime_refusal_variant")
             eligible = (
-                graph == "exact"
-                and dispatch == "reached"
+                dispatch == "reached"
                 and outcome in producing_outcomes
                 and (
                     (
@@ -3008,15 +2979,9 @@ def _evidence_claim_kinds_are_closed(
                 return False
             if eligible and isinstance(outcome, str):
                 positive_outcomes.add(outcome)
-            if not eligible and isinstance(graph, str) and graph != "exact":
-                negative_graphs.add(graph)
             if not eligible and dispatch == "not-reached":
                 has_pre_dispatch = True
-        if (
-            positive_outcomes != set(producing_outcomes)
-            or negative_graphs != graph_states - {"exact"}
-            or not has_pre_dispatch
-        ):
+        if positive_outcomes != set(producing_outcomes) or not has_pre_dispatch:
             return False
     return True
 
@@ -3159,10 +3124,7 @@ def _assignment_role_contract_is_total(row: dict[str, Any]) -> bool:
                 mode["experiment_cardinality"] != "forbidden"
                 or mode["initialization_source"]
                 in {"model", "model-with-experiment-override"}
-                or (
-                    row.get("role") == "derived"
-                    and mode["initialization_source"] == "resolved-model"
-                )
+                or mode["initialization_source"] == "resolved-model"
                 for mode in modes
             )
             and all(
@@ -3200,7 +3162,9 @@ def _assignment_role_contract_is_total(row: dict[str, Any]) -> bool:
     )
 
 
-def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
+def _assignment_policy_is_total(
+    kernel: dict[str, Any], language_bundle: dict[str, Any]
+) -> bool:
     language = language_bundle.get("language")
     if not isinstance(language, dict):
         return False
@@ -3224,10 +3188,6 @@ def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
         if isinstance(profile, dict) and profile.get("id") == selected_profile
     ]
     if len(profiles) != 1:
-        return False
-    modules_member = profiles[0].get("modules_member")
-    symbols_member = profiles[0].get("symbols_member")
-    if not isinstance(modules_member, str) or not isinstance(symbols_member, str):
         return False
     policy = lowerings[0].get("assignment_policy")
     if not isinstance(policy, dict) or not isinstance(policy.get("roles"), list):
@@ -3265,22 +3225,78 @@ def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
         item["schema"]
         for item in wire_schemas
         if isinstance(item, dict)
-        and item.get("artifact_kind") == "model-source-package"
+        and item.get("protocol_role") == "model-source-package"
         and isinstance(item.get("schema"), dict)
     ]
     if len(model_source_schemas) != 1:
         return False
     try:
-        schema_modes = set(
-            model_source_schemas[0]["properties"][modules_member]["items"][
-                "properties"
-            ][symbols_member]["items"]["properties"]["value_policy"]["properties"][
-                "mode"
-            ]["enum"]
+        from gda_balancing.domain.authority.source_projection import (
+            derive_source_native_bindings,
+            derive_source_semantic_index,
+            source_schema_member,
         )
-    except (KeyError, TypeError):
+
+        source_index = derive_source_semantic_index(kernel, language_bundle)
+        bindings = derive_source_native_bindings(
+            source_index, profiles[0].get("source_native_bindings")
+        )
+        module = source_schema_member(
+            model_source_schemas[0], bindings.members["source.root.modules"]
+        )[1]["items"]
+        symbol = source_schema_member(
+            module, bindings.members["source.module.symbols"]
+        )[1]["items"]
+        policy_schema = source_schema_member(
+            symbol, bindings.members["source.symbol.value_policy"]
+        )[1]
+        schema_modes = set(
+            source_schema_member(
+                policy_schema, bindings.members["source.value_policy.mode"]
+            )[1]["enum"]
+        )
+    except (KeyError, TypeError, ValueError):
         return False
     return schema_modes == declared_mode_ids
+
+
+def _profile_owner_covers_structured_constructors(
+    kernel: dict[str, Any], language_bundle: dict[str, Any], exports: dict[str, Any]
+) -> bool:
+    """Require one owned constructor for each declared structured value-rule role."""
+    contract = kernel["meta_format"]["language_definitions"]["collections"][
+        "constructors"
+    ]
+    variants = contract["field_types"]["value_rule"]["variants"]
+    roles = {
+        operator: branch
+        for operator, branch in variants.items()
+        if "definition_kind" in branch["field_types"]
+    }
+    identifiers = exports.get("constructors")
+    if (
+        not roles
+        or not isinstance(identifiers, list)
+        or len(set(identifiers)) != len(identifiers)
+    ):
+        return False
+    definitions = language_bundle["language"].get("constructors", [])
+    covered: set[str] = set()
+    for identifier in identifiers:
+        matches = [row for row in definitions if row.get("id") == identifier]
+        if len(matches) != 1 or not _definition_is_closed(
+            matches[0], contract, language_bundle
+        ):
+            return False
+        rule = matches[0].get("value_rule", {})
+        operator = rule.get("operator")
+        if operator in roles:
+            if operator in covered or not _value_matches_contract(
+                rule, roles[operator], language_bundle
+            ):
+                return False
+            covered.add(operator)
+    return covered == set(roles)
 
 
 def _literal_typing_profiles_are_closed(
@@ -3324,13 +3340,6 @@ def _literal_typing_profiles_are_closed(
                 "resource_charge_per_node": 1,
                 "type_relation": "exact-selected-type",
             },
-            "id": "standard.schema.nominal-structured",
-            "required_constructors": [
-                "standard.schema.enum",
-                "standard.schema.list",
-                "standard.schema.record",
-                "standard.schema.ref",
-            ],
             "selection": "exact-envelope-type",
             "type_member": "type",
             "value_kind": "nominal-structured",
@@ -3396,6 +3405,16 @@ def _literal_typing_profiles_are_closed(
     typed_profile_contract = cast(
         dict[str, Any], literal_contract["typed_envelope_profile"]
     )
+    if (
+        sum(
+            isinstance(profile, dict)
+            and profile.get("source_kind") == "typed-envelope"
+            and profile.get("value_kind") == typed_profile_contract["value_kind"]
+            for profile in profiles
+        )
+        != 1
+    ):
+        return False
     numeric_profiles: list[dict[str, Any]] = []
     for profile in profiles:
         profile_id = profile.get("id") if isinstance(profile, dict) else None
@@ -3410,11 +3429,11 @@ def _literal_typing_profiles_are_closed(
             if (
                 set(profile) != {"admission", "id", "source_kind", "value_kind"}
                 or profile.get("admission") != typed_profile_contract["admission"]
-                or profile_id != typed_profile_contract["id"]
                 or profile.get("value_kind") != typed_profile_contract["value_kind"]
                 or not isinstance(owner_exports, dict)
-                or set(cast(list[Any], owner_exports.get("constructors", [])))
-                != set(typed_profile_contract["required_constructors"])
+                or not _profile_owner_covers_structured_constructors(
+                    kernel, language_bundle, owner_exports
+                )
                 or not any(
                     formal.get("value_kind") == typed_profile_contract["value_kind"]
                     and isinstance(formal.get("type"), dict)
@@ -3591,6 +3610,28 @@ def _derive_operation_composition(
         or value_contracts is None
     ):
         return ("language.literal-typing-profiles",)
+    try:
+        from gda_balancing.domain.authority.source_projection import (
+            derive_source_native_bindings,
+            derive_source_semantic_index,
+        )
+
+        default_profiles = [
+            profile
+            for profile in language["resolution_profiles"]
+            if profile.get("default") is True
+        ]
+        if len(default_profiles) != 1:
+            return ("language.operations",)
+        source_bindings = derive_source_native_bindings(
+            derive_source_semantic_index(kernel, language_bundle),
+            default_profiles[0].get("source_native_bindings"),
+        )
+        interval_token = source_bindings.discriminators[
+            "source.value_contract.domain_kind.discriminator"
+        ]
+    except (KeyError, TypeError, ValueError):
+        return ("language.operations",)
     fixed_value_contracts = value_contracts.fixed_value_contracts
     runtime_numeric_policies = value_contracts.runtime_numeric_policies
     node_definitions = {
@@ -3947,7 +3988,7 @@ def _derive_operation_composition(
                                 candidate
                                 for candidate in candidates
                                 if isinstance(candidate.get("domain"), dict)
-                                and candidate["domain"].get("kind") == "closed-interval"
+                                and candidate["domain"].get("kind") == interval_token
                                 and isinstance(candidate["domain"].get("minimum"), int)
                                 and not isinstance(candidate["domain"]["minimum"], bool)
                                 and candidate["domain"]["minimum"] > 0
@@ -5071,22 +5112,38 @@ def admit_authorities(
                         graph_releases,
                         graph_vector_sets,
                         cast(list[str], required_language_members),
+                        kernel=kernel,
                         root_byte_size=graph_root_size,
                         package_byte_sizes=list(graph_package_sizes),
                         vector_set_byte_sizes=list(graph_vector_set_sizes),
                         descriptor_order=cast(list[str], descriptor_order),
                     )
+                except ProtocolProjectionError:
+                    expected_index = None
+                    runtime = kernel.get("meta_format", {}).get("runtime_program")
+                    subject = (
+                        "language.runtime"
+                        if not isinstance(runtime, dict)
+                        or not _runtime_component_contract_is_closed(runtime)
+                        else "language.definitions"
+                    )
+                    refuse(
+                        "kernel.vector_mismatch",
+                        "static",
+                        subject,
+                    )
                 except ValueError:
                     expected_index = None
-                if expected_index is None:
                     refuse(
                         "kernel.identity_mismatch",
                         "ingress",
                         "language-bundle.admitted-index",
                     )
-                elif raw_graph_candidate:
+                if expected_index is not None and raw_graph_candidate:
                     language_bundle = expected_index
-                elif dict(expected_index) != dict(language_bundle):
+                elif expected_index is not None and dict(expected_index) != dict(
+                    language_bundle
+                ):
                     refuse(
                         "kernel.identity_mismatch",
                         "ingress",
@@ -5234,11 +5291,7 @@ def admit_authorities(
         raw_meta_format if isinstance(raw_meta_format, dict) else {},
     )
     evidence_claim_kinds_are_closed = (
-        definitions_are_closed
-        and _evidence_claim_kinds_are_closed(
-            language_bundle,
-            raw_meta_format if isinstance(raw_meta_format, dict) else {},
-        )
+        definitions_are_closed and _evidence_claim_kinds_are_closed(language_bundle)
     )
     artifact_semantic_projections_are_closed = (
         definitions_are_closed
@@ -5256,6 +5309,26 @@ def admit_authorities(
     diagnostic_catalog_matches_vectors = _diagnostic_catalog_matches_vectors(
         language_bundle
     )
+    raw_language_definitions = (
+        raw_meta_format.get("language_definitions")
+        if isinstance(raw_meta_format, dict)
+        else None
+    )
+    raw_protocol_roles = (
+        raw_language_definitions.get("wire_schema_protocol_roles")
+        if isinstance(raw_language_definitions, dict)
+        else None
+    )
+    source_notation_contract = (
+        raw_protocol_roles.get("source_notation")
+        if isinstance(raw_protocol_roles, dict)
+        else None
+    )
+    source_notation_is_supported = _source_notation_contract_is_supported(
+        source_notation_contract
+    )
+    if not source_notation_is_supported:
+        refuse("kernel.vector_mismatch", "static", "kernel.meta-format.source-notation")
     admitted_packages: list[dict[str, Any]] = []
     semantic_projection_mismatch = False
     if not _package_vector_contract_is_closed(package_vector_contract):
@@ -5281,7 +5354,9 @@ def admit_authorities(
                 package_release_domain, package, canonical_encoding
             ):
                 refuse("kernel.identity_mismatch", "ingress", subject)
-            if not _package_semantic_closure_is_closed(package, package_contract):
+            if source_notation_is_supported and not _package_semantic_closure_is_closed(
+                package, package_contract, kernel=kernel
+            ):
                 refuse(
                     "kernel.identity_mismatch",
                     "ingress",
@@ -5312,10 +5387,12 @@ def admit_authorities(
                 )
             ):
                 refuse("kernel.vector_mismatch", "static", f"{subject}.vectors")
-        semantic_projection_mismatch = len(admitted_packages) == len(
-            packages
-        ) and not _package_semantic_projections_are_exact(
-            admitted_packages, package_contract, language_bundle
+        semantic_projection_mismatch = (
+            source_notation_is_supported
+            and len(admitted_packages) == len(packages)
+            and not _package_semantic_projections_are_exact(
+                admitted_packages, package_contract, language_bundle, kernel=kernel
+            )
         )
 
     cap = resources.get("max_diagnostics", 128)
@@ -5405,7 +5482,9 @@ def admit_authorities(
             "static",
             "language.definitions.artifact-semantic-projections",
         )
-    if not _assignment_policy_is_total(language_bundle):
+    if definitions_are_closed and not _assignment_policy_is_total(
+        kernel, language_bundle
+    ):
         refuse(
             "kernel.vector_mismatch",
             "static",
@@ -5434,7 +5513,16 @@ def admit_authorities(
         )
     if not _runtime_authority_is_closed(kernel, language_bundle):
         refuse("kernel.vector_mismatch", "static", "language.runtime")
-    if not _wire_schema_identity_domains_are_closed(language_bundle):
+    if not _formula_resolution_contract_is_supported(
+        meta_format.get("formula_resolution")
+    ):
+        refuse(
+            "kernel.vector_mismatch", "static", "kernel.meta-format.formula-resolution"
+        )
+    if not _wire_schema_identity_domains_are_closed(
+        language_bundle,
+        kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"],
+    ):
         refuse(
             "kernel.vector_mismatch",
             "static",

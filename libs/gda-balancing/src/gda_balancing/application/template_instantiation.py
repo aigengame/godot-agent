@@ -2,7 +2,11 @@
 
 from typing import Any
 
-from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.artifact_set import (
+    ArtifactSetPlan,
+    resolve_artifact_set,
+    label_artifacts,
+)
 from gda_balancing.domain.publication import (
     publication_authentication_key,
     select_publication_contracts,
@@ -22,7 +26,7 @@ def instantiate_template(
     out: str,
     invocation_key: str,
     descriptor_identity: str,
-    artifact_set: tuple[ArtifactSetMemberSpec, ...],
+    artifact_set: ArtifactSetPlan,
     provider: TemplateProvider,
     authority_context_provider: AuthorityContextProvider,
     *,
@@ -37,15 +41,21 @@ def instantiate_template(
     )
     if isinstance(plan, Schema2RefusalReport):
         return plan
+    artifact_set = resolve_artifact_set(plan.language_bundle, artifact_set)
+    kinds_by_label = {
+        member.logical_name: member.artifact_kind for member in artifact_set
+    }
     return publish_artifact_set(
-        plan.artifacts,
+        label_artifacts(
+            plan.artifacts, artifact_set, lambda member: member.artifact_kind
+        ),
         out,
         invocation_key,
         descriptor_identity,
         plan.command_input_identity,
         select_publication_contracts(plan.language_bundle),
         artifact_set,
-        plan.member_is_admitted,
+        lambda name, value: plan.member_is_admitted(kinds_by_label[name], value),
         publication_fault,
         authentication_key=publication_authentication_key(),
     )

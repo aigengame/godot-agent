@@ -14,7 +14,7 @@ from gda_balancing.application.experiment_replay import (
 )
 from gda_balancing.domain.artifact_set import (
     EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
-    ArtifactSetMemberSpec,
+    ProtocolArtifactSetMemberSpec,
 )
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 from gda_balancing.domain.comparison import EXACT_REPLAY_REFUSAL_REASONS
@@ -69,20 +69,30 @@ class ExperimentReplayVerdictResult(BaseModel):
 
 
 _REPLAY_SUCCESS_ARTIFACT_SET = (
-    ArtifactSetMemberSpec("replay-comparison", "replay-comparison", role="primary"),
-    ArtifactSetMemberSpec("evaluation-run", "evaluation-run"),
-    ArtifactSetMemberSpec("event-trace", "event-trace"),
-    ArtifactSetMemberSpec("snapshot-series", "snapshot-series"),
-    ArtifactSetMemberSpec("metric-dataset", "metric-dataset"),
-    ArtifactSetMemberSpec("resolved-runtime-profile", "resolved-runtime-profile"),
-    ArtifactSetMemberSpec(
-        "evaluator-capability-manifest", "evaluator-capability-manifest"
+    ProtocolArtifactSetMemberSpec("replay-comparison", role="primary"),
+    ProtocolArtifactSetMemberSpec(
+        "evaluation-run",
+    ),
+    ProtocolArtifactSetMemberSpec(
+        "event-trace",
+    ),
+    ProtocolArtifactSetMemberSpec(
+        "snapshot-series",
+    ),
+    ProtocolArtifactSetMemberSpec(
+        "metric-dataset",
+    ),
+    ProtocolArtifactSetMemberSpec(
+        "resolved-runtime-profile",
+    ),
+    ProtocolArtifactSetMemberSpec(
+        "evaluator-capability-manifest",
     ),
 )
 _REPLAY_VERDICT_ARTIFACT_SET = tuple(
     member
     for member in _REPLAY_SUCCESS_ARTIFACT_SET
-    if member.logical_name != "evaluation-run"
+    if member.protocol_role != "evaluation-run"
 )
 
 
@@ -184,7 +194,7 @@ def _project_replay_verdict_for_conformance(
         raise ValueError("Replay conformance projection requires a success result")
     return ExperimentReplayVerdictResult(
         outcome="mismatched",
-        mismatches=["evaluation-outcome-status"],
+        mismatches=["evaluation_outcome_status"],
         artifact_set=result.artifact_set,
     )
 

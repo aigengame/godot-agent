@@ -13,7 +13,11 @@ from gda_balancing.domain.canonical import (
     canonical_bytes,
     parse_canonical_object,
 )
-from gda_balancing.domain.diagnostics import Schema2RefusalReport, reason_by_id
+from gda_balancing.domain.diagnostics import (
+    Schema2RefusalReport,
+    reason_by_id,
+    source_parse_reason,
+)
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.domain.model._admission import _standalone_rir_is_admitted
 from gda_balancing.domain.model._resolution import _model_lowering, _refusal
@@ -65,7 +69,7 @@ def admit_rir(
     except (TypeError, ValueError, UnicodeError, RecursionError) as error:
         raise _admission_error(
             authority_context,
-            "model.reason.source-parse-failure",
+            cast(str, source_parse_reason(authority_context.language_bundle)["id"]),
             "RIR input is not canonical JSON data",
         ) from error
     if not _standalone_rir_is_admitted(candidate, authority_context):
@@ -94,9 +98,7 @@ def read_rir(
     try:
         candidate = parse_canonical_object(data, artifact_name="RIR")
     except (TypeError, ValueError, UnicodeError, RecursionError):
-        reason = reason_by_id(
-            authority_context.language_bundle, "model.reason.source-parse-failure"
-        )
+        reason = source_parse_reason(authority_context.language_bundle)
         return _refusal(
             cast(str, reason["diagnostic"]),
             identity,

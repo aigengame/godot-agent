@@ -1,0 +1,171 @@
+{
+  "base": "81235931322562b2eca3095c856f5f84ac2586ad",
+  "worker_commits": [
+    "28bdf8c5baed60aa27cd5450933c711d06ff9afa",
+    "48f5c9b11059a2f5c4b0b39a166849a84938fc4c"
+  ],
+  "kernel": "sha256:4ebf70685e9d42d0d8d52fc88efef2da03f25a9eab7d73527ebed138cd10a4ab",
+  "ldb": "sha256:1c9d2d91d2f36b9428a4f71082d4d52f6c0b05606694ee4ae8260c25b445580c",
+  "decision": "Use one closed compiler formula_resolution field; delete the extension wrapper, nine ineffective fields and the inconsistent allowed_body_nodes partial policy. Preserve actual Source grammar and Runtime lifecycle owners; no compatibility fallback.",
+  "inert_deleted": [
+    "dynamic_lookup",
+    "first_class_values",
+    "binding_cardinality",
+    "argument_cardinality",
+    "argument_order",
+    "same_name_capture",
+    "declaration_scope",
+    "allowed_operand_kinds",
+    "allowed_binding_sites"
+  ],
+  "real_partial_policy_deleted": "allowed_body_nodes: Operation calls were restricted while Formula calls bypassed the subset. Kernel and actual Source shapes now own accepted syntax.",
+  "inventory_integration": "Direct field selection and existing Kernel operand/body kinds replace extension-shape guessing and independent per-profile gates.",
+  "identity_comparison": {
+    "sources": 7,
+    "semantic_and_content_equal_across_all_three_snapshots": true,
+    "examples_or_oracles_changed": false
+  },
+  "earlier_public_check": {
+    "head": "28bdf8c5baed60aa27cd5450933c711d06ff9afa",
+    "commands": 32,
+    "all_exit_zero": true,
+    "all_stdout_json_parsed": true,
+    "repeated_after_subset_deletion": false
+  },
+  "worker_checks": {
+    "formula": {
+      "tests": 120,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "bootstrap_lowerer_before_test_port": {
+      "tests": 204,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 0
+    },
+    "after_exact_Kernel_inventory_test_port": {
+      "tests": 30,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "after_subset_deletion": {
+      "tests": 33,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "primary_checks": {
+    "tests": 503,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "static": "Ruff check/format, full Pyright and authority seal check passed. Two imported test files received formatting-only corrections after execution.",
+  "ci_inventory": {
+    "current_test_count": 2336,
+    "current_package_vector_count": 347,
+    "missing_package_vectors": [],
+    "missing_tests": [],
+    "overlapping_tests": [],
+    "uncovered_tests": [],
+    "unexpected_shard_tests": []
+  },
+  "independent_review": "DDMA demonstrated the three subset defects. The chosen deletion has zero remaining bounded Standards findings, with old-valid-field and actual malformed Source controls. Whole-issue review remains open.",
+  "current_inventory_scope": {
+    "graph": "Complete LDB/packages/vector sets plus bounded-fold Source; no Experiment or artifacts/results yet.",
+    "tokens": 1582,
+    "occurrences": 6138,
+    "gaps": 55
+  },
+  "raw_evidence": [
+    {
+      "path": "/private/tmp/gda-878-formula-resolution-evidence/receipt.json",
+      "bytes": 2069,
+      "sha256": "6f5d9bcbbc36845571ec0a4bde203aa1b0baedf5e408cb09eda218391d85f3ec"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-resolution-evidence/before-models.json",
+      "bytes": 2014,
+      "sha256": "4c6ff396d0ecc098cc2df7785d5ddfa67a103e84d701771568f6ae7670ff38fe"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-resolution-evidence/after-models.json",
+      "bytes": 2014,
+      "sha256": "4c6ff396d0ecc098cc2df7785d5ddfa67a103e84d701771568f6ae7670ff38fe"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-resolution-evidence/public-final/receipt.json",
+      "bytes": 65549,
+      "sha256": "6eccde5c76958fd9d01c6eb7accbb437493fec956a5828df1eb9db245f4fe88a"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-resolution-evidence/formula-green.xml",
+      "bytes": 18698,
+      "sha256": "e43e30540d6fbf6c94ca15aadcf4369276a4803ac413aa774f7dda280d9675b0"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-resolution-evidence/bootstrap-lowerer-final.xml",
+      "bytes": 34592,
+      "sha256": "3a1881b46eb144a0ee3f683af1554ec0992befdb733d0f1d5ae6e51d8ce89e06"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-resolution-evidence/final-focused.xml",
+      "bytes": 4902,
+      "sha256": "f8694daaf084f3cc0dede24ba9a780e12815ba0dec70d53bd5e2931d18c9721b"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-resolution-evidence/subset-deletion/models.json",
+      "bytes": 2014,
+      "sha256": "4c6ff396d0ecc098cc2df7785d5ddfa67a103e84d701771568f6ae7670ff38fe"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-resolution-evidence/subset-deletion/receipt.json",
+      "bytes": 1716,
+      "sha256": "a15684f34f7c584e6575bfd5fd0827821799432fec1e1d5ff56aa5380fce4d6c"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-resolution-evidence/subset-deletion/focused.xml",
+      "bytes": 5346,
+      "sha256": "fb0ce591372cc0d042f2c5a6c01b8ae69a2df5d037eed8b91490848d69015799"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/formula-resolution-integration.xml",
+      "bytes": 78840,
+      "sha256": "d0b8dfc240c190c90fdf1cd5b873fc3ebc6a214f83cd3bdd20417cccf7681755"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/formula-resolution-ci-inventory.json",
+      "bytes": 2044,
+      "sha256": "94dc8bb3ace77377acfb1d96fbeeae92d6f620f91a0ae7a1543d1c7c1256727a"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/formula-resolution-pyright.log",
+      "bytes": 37,
+      "sha256": "6d88a1b220adb7a3d62092b6e38431f0b3fe8babe9864fab90e5849766260332"
+    },
+    {
+      "path": "/private/tmp/gda-878-ddma-fr-review/subsets-receipt.json",
+      "bytes": 839,
+      "sha256": "44fd140e89e93a1bb06cacf0977ccdbc181b8984127343ccce8c4758ff89c48c"
+    },
+    {
+      "path": "/private/tmp/gda-878-ddma-fr-review/formula-call-receipt.json",
+      "bytes": 749,
+      "sha256": "f312ab267ecef60867176bdb99f1bccbe38dd525641f216406b2ab31104a98f2"
+    },
+    {
+      "path": "/private/tmp/gda-878-formula-standards-evidence/bounded-probes.json",
+      "bytes": 1017,
+      "sha256": "861c3732b6d430f7a3b278b371a0a53e240b3aa7de2449afa66bd04c78b38a7f"
+    }
+  ],
+  "limits": [
+    "All check scopes are overlapping and must not be added as a unique test total.",
+    "The original Bootstrap/Lowerer failure was an outdated exact Kernel member-list assertion; its port and later 503-test run are explicit.",
+    "Complete token coverage, final independent build freeze, full required CI and #878 acceptance are still open."
+  ]
+}

@@ -129,7 +129,7 @@ def test_public_schema_and_help_expose_only_explicit_option_inputs(run_cli) -> N
         "experiment_run_artifact_set_receipt",
     ]
     success_properties = schema["success"]["properties"]
-    assert success_properties["claim_kind"]["const"] == "evaluable"
+    assert success_properties["claim_kind"] == {"title": "Claim Kind", "type": "string"}
     assert success_properties["claim_state"]["const"] == "candidate"
     assert success_properties["producing_outcome"]["enum"] == [
         "success",
@@ -161,7 +161,7 @@ def test_public_cli_maps_missing_inputs_to_usage_exit_three(run_cli) -> None:
     ("changed_input", "stage", "code"),
     (
         ("receipt", "ingress", "kernel.identity_mismatch"),
-        ("experiment", "evaluation", "evaluation.evaluable_mismatched_prerequisite"),
+        ("experiment", "evaluation", "evaluation.evaluable_outcome_mismatch"),
     ),
 )
 def test_public_cli_refuses_corrupt_or_mismatched_run_inputs(

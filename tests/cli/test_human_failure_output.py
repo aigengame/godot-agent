@@ -213,11 +213,13 @@ _EVIDENCE_SAMPLES = {
     "target_location": "/tmp/outer/inner/main.gd",
     "project_root": "/tmp/outer",
     "owning_project": "/tmp/outer/inner",
+    "templates_root_checked": "/iso/data/Godot/export_templates",
+    "templates_root_host": "/home/dev/data/Godot/export_templates",
 }
 
 
 def test_the_sample_table_covers_every_field_the_model_publishes():
-    # The half that reds when `FailureEvidence` grows a sixth field.
+    # The half that reds when `FailureEvidence` grows a field.
     assert set(_EVIDENCE_SAMPLES) == set(FailureEvidence.model_fields)
 
 

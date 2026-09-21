@@ -2,8 +2,10 @@
 
 # ruff: noqa: F403, F405
 import schema2_bootstrap_conformance_support as bootstrap_support
+from gda_balancing.domain.authority.rir_projection import project_rir_schema
 from schema2_bootstrap_conformance_support import *
 from schema2_bootstrap_production_support import *
+from test_trace_protocol_structure import _authored, _graph
 
 
 def _rename_structural_type_member(value, *, kind, old, new):
@@ -194,6 +196,20 @@ def test_two_consumers_follow_require_refusal_reference(
         if node["id"] == "require"
     )
     require["semantics"]["refusal_reference"][member] = replacement
+    language = authority["language_bundle"]["language"]
+    rir_schema = next(
+        row
+        for row in language["artifact_wire_schemas"]
+        if row.get("protocol_role") == "rir-semantic-payload"
+    )
+    rir_schema.pop("schema")
+    rir_contract = next(
+        row
+        for row in language["artifact_contracts"]
+        if row["schema_kind"] == rir_schema["artifact_kind"]
+    )
+    rir_contract.pop("semantic_identity_projection")
+    project_rir_schema(kernel, language)
     _reidentify(kernel, authority["language_bundle"])
     monkeypatch.setattr(
         production_bootstrap, "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]
@@ -272,7 +288,6 @@ def _install_negative_vector_artifact_contract(ldb, *, retain_standalone):
         {
             "artifact_kind": "negative-vector",
             "identity_domain": "negative-vector-v2",
-            "identity_excluded_members": [],
             "schema_kind": schema_kind,
             "wire_schema_identity_domain": wire_identity_domain,
         }
@@ -751,7 +766,6 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
         "kernel-unit",
     }
     assert runtime["numeric"] == {
-        "compatible_value_numeric_policies": ["exact-int64"],
         "id": "signed-int64-v1",
         "minimum": -(1 << 63),
         "maximum": (1 << 63) - 1,
@@ -1262,11 +1276,14 @@ def test_authority_admission_requires_one_default_resolution_profile():
     for entry in package["semantic_closure"]:
         if entry["authority_path"] == "language.resolution_profiles":
             entry["definitions"] = deepcopy(ldb["language"]["resolution_profiles"])
-    _reidentify_package_release(package)
-    _reidentify_graph_root(ldb)
+    authored = _authored(ldb)
+    authored["packages"] = deepcopy(ldb["language"]["packages"])
+    # A malformed default-profile set must reach the authority boundary before
+    # any derived RIR Schema requires a unique default profile.
+    graph = _graph(authority["kernel"], authored)
 
-    first = _consumer_a(authority["kernel"], ldb)
-    second = _consumer_b(authority["kernel"], ldb)
+    first = _consumer_a(authority["kernel"], graph)
+    second = _consumer_b(authority["kernel"], graph)
 
     assert first == second
     assert first["admitted"] is False
@@ -1310,7 +1327,7 @@ def test_reidentified_package_cannot_export_an_open_host_operation_definition():
         if entry["authority_path"] == "language.operations"
     )
     operation_entry["definitions"].append(deepcopy(language["operations"][-1]))
-    _reidentify_package_release(package)
+    _reidentify_package_release(package, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -1591,7 +1608,7 @@ def test_operation_rule_must_match_every_declared_operation_vector():
         if definition["id"] == operation_id
     )
     operation["rule"] = "quantity.declare"
-    _reidentify_package_release(package)
+    _reidentify_package_release(package, kernel=authority["kernel"])
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)

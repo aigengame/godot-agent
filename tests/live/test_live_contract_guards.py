@@ -38,6 +38,7 @@ from gda.live_runner import LIVE_REQUEST_TIMEOUT
 from gda.runner import RunResult
 
 from tests.support import (
+    INPUT_TAP_ACTION_RESULT,
     PNG_1X1_B64,
     inject_live_runner,
     minimal_project,
@@ -529,12 +530,75 @@ def _screen_capture_probe(monkeypatch, tmp_path):
     return [(result, {observed})]
 
 
+def _input_action_probe(monkeypatch, tmp_path):
+    """Drive `input action`'s recipe with a reply whose strength is a sentinel.
+
+    The recipe added by #854 CORRELATES the reply's mode with the request and
+    otherwise returns the classified result untouched, so the strength the caller
+    reads is the one the harness's full-precision writer emitted. Measured rather
+    than asserted from that reading: this file's whole point is that a recipe's
+    provenance is not readable off the dispatch branch.
+    """
+    from gda.commands.input import (
+        INPUT_ACTION_COMMAND,
+        InputActionParams,
+        InputActionResult,
+    )
+
+    assert INPUT_ACTION_COMMAND.recipe is not None
+    strength = 0.3125
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(
+                {
+                    "kind": "action",
+                    "action": "jump",
+                    "pressed": True,
+                    "strength": strength,
+                    "as_event": False,
+                }
+            ),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    result = INPUT_ACTION_COMMAND.recipe(
+        InputActionParams(action="jump"), project=tmp_path, godot=None
+    )
+    assert isinstance(result, InputActionResult), result
+    return [(result, {strength})]
+
+
+def _input_tap_probe(monkeypatch, tmp_path):
+    """Drive `input tap`'s recipe with an action-tap reply carrying a sentinel."""
+    from gda.commands.input import INPUT_TAP_COMMAND, InputTapParams, InputTapResult
+
+    assert INPUT_TAP_COMMAND.recipe is not None
+    strength = 0.203125
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel({**INPUT_TAP_ACTION_RESULT, "strength": strength}),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    result = INPUT_TAP_COMMAND.recipe(
+        InputTapParams(action="jump"), project=tmp_path, godot=None
+    )
+    assert isinstance(result, InputTapResult), result
+    return [(result, {strength})]
+
+
 # The recipes whose results mix the two writers, and the probe that measures each.
 # Not a list of what to disclose — a list of what to MEASURE, and a recipe-bearing
 # command missing from it fails rather than defaulting to the engine's sentence.
 PROVENANCE_PROBES = {
     "perf monitors": _perf_monitors_probe,
     "screen capture": _screen_capture_probe,
+    "input action": _input_action_probe,
+    "input tap": _input_tap_probe,
 }
 
 

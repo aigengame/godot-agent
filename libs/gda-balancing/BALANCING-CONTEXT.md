@@ -19,7 +19,9 @@ gates, with explicit RIR input and existing RIR semantic identity. The
 implemented contract while full integration and CI acceptance remain pending. Content integrity,
 nominal ownership, actual execution policies, and consistent in-flight inputs remain. The [S3 contract record](docs/refactor/current-language/NAMESPACE-CONTRACT.md)
 maps #872's final deletion witnesses and whole-stage rollback; #879 and the full refactor
-retain their own acceptance.
+retain their own acceptance. #879 requires physical deletion of RIR `domain_kind`, the obsolete
+`maximum` RIR wire-union branch, and every remaining fallback or compatibility binding after
+dependency closure; ignored or deprecated residues do not satisfy that gate.
 
 ## Language
 
@@ -88,6 +90,16 @@ the complete graph; those indexes are not packaged or independently edited. No d
 remote lookup, or hand-maintained peer language-content authority may add a member
 (bADR-0012/0021/0022/0023).
 _Avoid_: schema registry, implementation registry, package directory as authority
+
+**Artifact protocol role**:
+A Kernel-defined core input or output responsibility, separate from its LDB-owned schema
+and artifact kind names. One Wire Schema Definition binds the role; an identified artifact
+reaches its Artifact Contract through the existing `schema_kind` reference. Standalone
+inputs use that schema directly. Every required role has one owner. Extension schemas
+and contracts can omit a core role. Publication labels remain content-bound names, but
+do not select a member's semantics. Template companion roles use the existing Template
+admission profile and do not become additional Kernel protocol roles (bADR-0012).
+_Avoid_: kind-name dispatch, logical label as semantic authority
 
 **LDB root manifest**:
 The canonical root member of one `Language Definition Bundle`. It binds the exact Kernel identity,
@@ -309,7 +321,10 @@ _Avoid_: compiler identity in RIR, semantic build id, Resolved Model provenance 
 A separately identified publication artifact that binds one producing Command invocation to the
 manifest and locators for its exact committed artifact set. It owns publication facts. It is not a
 domain member such as a Build receipt or Resolution receipt
-(bADR-0012/0013/0021).
+(bADR-0012/0013/0021). The Kernel's single Publication structure owns manifest, receipt and index
+framing, together with the receipt's transport-independent identity projection. The LDB owns their
+schema/kind names and Artifact Contract identity domains, without authored framing Schemas or
+configurable identity exclusions.
 _Avoid_: Build receipt, outcome receipt, member receipt
 
 **Package Lock**:
@@ -475,11 +490,17 @@ The canonical human-readable mathematical `expression` paired with a Formula's s
 It preserves the body's ordered `let` bindings, local identities, sharing, and final result while
 using package-owned conventional Operation spelling. The body remains the pair's authoritative
 source member; the expression is a contextual, reversible projection under the exact Kernel/LDB.
-`standard.schema` owns the lexical patterns and grouping/token bounds; the selected
+The Source Wire Schema Definition in `standard.schema` owns lexical patterns and
+grouping/token bounds in `formula_grammar`, plus `operation_notation_schema`. The Kernel
+requires these fields on the Source protocol role; neither lives in JSON Schema metadata
+or carries an unused grammar version. The selected
 `standard.compiler` Resolution profile owns contextual contract matching, local-result transfer
-rules, and infix normalization. Package Release content identity binds notation, while the
-Kernel-declared runtime-semantic projection excludes each release's explicitly inventoried
-non-runtime notation extensions.
+rules, and infix normalization through its closed `formula_resolution` field. The Kernel
+relates its actual selectors and inference rules to the Source and runtime-node contracts.
+The former compiler extension wrapper and duplicate per-profile syntax filters are retired;
+the Source and Kernel define the accepted Formula shapes. Package Release content identity
+binds notation. The runtime-semantic projection excludes Operation notation only at the
+Source-notation address declared by the Kernel; packages cannot author arbitrary exclusions.
 bADR-0024 owns its grammar, exact pair validation, identity effects, and conformance requirements.
 _Avoid_: host expression dialect, display-only operation table, fully qualified call dump
 
@@ -525,6 +546,9 @@ The exact lifecycle boundary and typed value environment in which a Formula bind
 Initialization, Event, observation, and Effect capture/re-evaluation contexts select committed
 Snapshots or the pre-Snapshot Initialization frame plus explicit operands without giving the
 Formula ambient state or timing authority (bADR-0014/0017/0022).
+The compiled context retains only its Kernel-owned phase. Its former static `frame`
+label and RuntimeProfile extension are retired; actual frame/Snapshot identities remain
+explicit evaluation inputs and continue to distinguish cache entries and artifact evidence.
 _Avoid_: formula mode, ambient evaluation environment, live formula
 
 **Core Extension Invariance**:
@@ -541,19 +565,31 @@ The immutable conformance artifact proving one Core Extension Invariance witness
 same fixed independent compiler/evaluator builds before and after an LDB/package addition. It binds
 identical Kernel, core-constructor, runtime-phase, and implementation-build identities; base/extended
 LDBs; added packages; exact Source/Experiment/vectors; mutually produced artifacts/results; and a
-complete post-build Non-Kernel Authority Token Inventory plus its exhaustive rename bijection.
+complete post-build Non-Kernel Authority Token Inventory rooted in the declared witness's selected
+execution closure plus its exhaustive rename bijection. Unselected packages, unrelated vector sets
+or artifact families, and ordinary data strings are outside that proof unless the witness actually
+selects or consumes them.
 Rebuilds, host capability additions, omitted renames, private helpers, or changed core projections
 make it ineligible. It is independently validated evidence, never semantic authority
 (bADR-0016/0017).
+The exhaustive bounded bijection belongs to the formal #575 receipt gate. #878 is an earlier
+functional falsifier: it lists and renames only twelve explicitly selected extension-owned
+Type/Operation coordinates. The complete admitted `selected_semantics` canonical hash/RIR semantic
+identity and all eight Model artifact content identities bind the remaining selected meaning;
+negative cases reject mismatch or omission. #878 maintains no hand-authored dependency-category
+manifest.
 _Avoid_: unchanged-code assertion, source diff, extension passed flag
 
 **Non-Kernel Authority Token Inventory**:
-The closed, generated traversal of the complete reachable witness artifact graph used by an
-Extension Invariance Receipt. It contains every non-Kernel identity that can affect resolution,
-dispatch, result decoding, or trace, including package/capability, type/kind/unit/role,
-Operation/parameter/result variant, Diagnostic, Signal/Event, effect/resource, profile/policy,
-Experiment/Metric/selector, and vector identities. Its independent rename mapping is an exhaustive
-bijection: an omitted, duplicate, reserved-Kernel, or extra member refuses the witness
+The closed, generated traversal rooted in one declared witness's selected execution closure and the
+artifacts/results actually generated or consumed by that witness. It contains every non-Kernel
+identity in that bounded graph that can affect resolution, dispatch, result decoding, or trace,
+including selected package/capability, type/kind/unit/role, Operation/parameter/result variant,
+Diagnostic, Signal/Event, effect/resource, profile/policy, Experiment/Metric/selector, and vector
+identities. It does not expand to unrelated LDB packages, unselected vector sets or artifact
+families, or ordinary data strings merely because they share the same authority files. Its
+independent rename mapping is an exhaustive bijection over the bounded graph: an omitted,
+duplicate, reserved-Kernel, or extra member refuses the witness
 (bADR-0016/0017).
 _Avoid_: representative token sample, package-name-only rename, implementation symbol list
 
@@ -1321,8 +1357,9 @@ from any filesystem, object-store, or transport implementation; stdout/stderr de
 after commit and is not a participant. A runtime refusal after Event dispatch begins must publish a
 separately typed terminal-audit artifact set through this boundary, but never a partial
 Evaluation/Metric/Evidence success set. Publication selects immutable framing contracts at its
-admitted boundary; execution-result commit and recovery use them with the request's selected output
-contracts, without an ambient full-LDB lookup (bADR-0015/0021/0028).
+admitted boundary from the Kernel's single Publication structure and the actual LDB role bindings.
+Execution-result commit and recovery use them with the request's selected output contracts, without
+an ambient full-LDB lookup (bADR-0015/0021/0028).
 _Avoid_: atomic file write, output directory, event transaction
 
 **Artifact set manifest**:
@@ -1418,7 +1455,8 @@ evaluator identity is embedded in the semantic run (bADR-0018/0028).
 _Avoid_: simulation result, run log, benchmark
 
 **Replay comparison policy**:
-A closed LDB policy that defines the ordered check keys and one policy-wide comparator
+A closed LDB policy whose ordered checks directly reference the Kernel Replay observation
+members, with one policy-wide comparator
 for an exact Replay comparison. `standard.experiment` owns `exact-replay-v1` at
 `language.replay_comparison_policies`. The admitted policy index is a read-only projection of that
 Package Release, not a host registry or peer authority. Replay detaches the complete owned policy,
@@ -1475,10 +1513,14 @@ never upgrades to replay identity. Progress is an evidence graph, never a mutabl
 _Avoid_: workflow status, passed flag, maturity level
 
 **Evidence claim kind**:
-A closed LDB definition, with an id and no own-version label, defining one Evidence assertion
-label's subject types, required prerequisite graph, eligibility judgment, issuer/verifier class,
-and vectors. Domain packages may provide subjects and policies but cannot mint claim labels; an unknown or incomplete
-claim kind is an `evaluation` refusal. `approved` is deliberately excluded because it belongs only
+A closed LDB definition, with an id and no own-version label, defining one claim's eligibility
+and validation vectors. The current candidate/open judgment reads that admitted id and the actual
+producing-outcome policy after existing validators admit the original publication, RIR, Experiment
+and complete result set. It carries five explicit subject identities; there is no separately
+authored or reconstructed prerequisite graph. Unused issuer/verifier-class placeholders are
+deleted. An unknown or incomplete claim kind is an `evaluation` refusal;
+the host cannot invent a label or weaken its eligibility. Future authenticated assertion
+relationships remain subject to #542–#544. `approved` is excluded because it belongs only
 to Approval Record authority (bADR-0018).
 _Avoid_: free-form evidence label, package claim alias, approved assertion
 

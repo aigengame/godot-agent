@@ -1,0 +1,382 @@
+{
+  "status": "Bounded integrated root, replay and projection correction; complete #878 remains open",
+  "primary_head": "e574141b3",
+  "integrated_commits": {
+    "operation_roots": "8eaf2c95d",
+    "priority_refusal_replay": "c7e2ae9bd",
+    "projection_collection_references": "6c215a552",
+    "constructor_addresses": "1592ce626",
+    "resolution_binding_inventory": "e574141b3",
+    "retired_inventory_mechanism_deletion": "5b9693365"
+  },
+  "operation_roots": {
+    "commit": "4201eaa8902c85e7c398b246d0fdfe41558d418a",
+    "base": "56872e5df",
+    "paired_replay_commit": "64a7d306e6f7103490c207d69a54c2ffde48df5b",
+    "replay_owner_original": "58519cf72",
+    "kernel_identity": "sha256:c0464d8780df6ec2cdd6e40cee1e9af97aaa804d2075107b14cad8e3313e862a",
+    "ldb_identity": "sha256:97473f28026ac580b17b090bab4e7a6d46a1d87eda3f7690d3a7d2711b243f67",
+    "models": [
+      {
+        "source": "examples/schema2/bounded-fold/model-source.json",
+        "semantic_identity": "sha256:ea32b36eb93a9b4286e15a5f8927fc63f6e80e7b3bcb1f40d2fa954498bc8013",
+        "operations": 4,
+        "source_sha256": "afef6a0f85da8a23c99d16cbf733add99a309776cfd67bbd860379a46374c316"
+      },
+      {
+        "source": "examples/schema2/progression-periodic-effect/model-source.json",
+        "semantic_identity": "sha256:5b67e07cc8d559ab285015d59b2d6a88602f5e5731453a5acd4dd7ffe4331ae0",
+        "operations": 7,
+        "source_sha256": "668183f48b74c0ab83de50be5e2e7b047826f9c398cf8a29146bb546419c32f3"
+      },
+      {
+        "source": "examples/schema2/roguelike-reward-build/model-source.json",
+        "semantic_identity": "sha256:ef0b9c7c084f3c4932d7a211f1f66d04776267767c081cae744697150248f359",
+        "operations": 2,
+        "source_sha256": "1ee6d1368cb548d70a9c731f75ec2c2d1d42e48b583ed28a38830adfaf82a912"
+      },
+      {
+        "source": "examples/schema2/rpg-combat-cast/model-source.json",
+        "semantic_identity": "sha256:58f77ca141165c5085246e4d72b5919161f3911e7b30b34b2b6e7484b2410656",
+        "operations": 11,
+        "source_sha256": "4edc3c53e125517e46ddc69c14ccac927b5291df1d3b383f93ae50af1ada2c2c"
+      },
+      {
+        "source": "examples/schema2/rpg-periodic-effect/model-source.json",
+        "semantic_identity": "sha256:07b658003cb92f3b297c8c73ef9ab2462978811c07084aa49308dee70be67928",
+        "operations": 12,
+        "source_sha256": "e35decf348043d8f3e97606b29e57162cd43c669552c341419ee11c1186f3d67"
+      },
+      {
+        "source": "examples/schema2/rpg-stat-composition/model-source.json",
+        "semantic_identity": "sha256:7980b01b829e42bfd0254946f5cef9f9a7490987b7c646d5dc39d22752de6e07",
+        "operations": 10,
+        "source_sha256": "4687141ad0a126e3e8a8af2fcfe04d4f30d7810df941002b851a4c8dbcead321"
+      },
+      {
+        "source": "examples/schema2/structured-selection/model-source.json",
+        "semantic_identity": "sha256:3858fa0b51e55075b105b808fa88153d494973ab33e37fc3b6c461c91d679205",
+        "operations": 1,
+        "source_sha256": "a2586415e7064cf2d4c7ddd4dc8680e6ccd307007cc5dc8ee5496c96d833356b"
+      }
+    ],
+    "experiment_count": 9,
+    "validation_scope": {
+      "real_cli_build_members": 56,
+      "real_cli_model_builds": 7,
+      "real_cli_experiment_checks": 9,
+      "unchanged_source_bytes": 7,
+      "final_context_rir_imports": 7,
+      "final_context_experiment_admission": 9
+    },
+    "paired_test_results": {
+      "model_cli_and_independent_lowerer": "237 passed in 254.92s (0:04:14)",
+      "operation_roots_preparation_priority_formula_terminal": "41 passed in 331.33s (0:05:31)"
+    },
+    "paired_tests_passed": 278,
+    "final_model_vector_receipt": "source-oracles-final-head.json",
+    "scope_limit": "Targeted and existing Model/public/preparation suites; no claim that all package CI shards ran in this worker."
+  },
+  "source_oracles": {
+    "outcomes": {
+      "admitted": 13,
+      "refused": 21
+    },
+    "fresh_process_fixed_point": true,
+    "path": "/private/tmp/gda-878-operation-roots-evidence/source-oracles-final-head.json",
+    "sha256": "0ea807804fd3fb3f06b2661b082fabeb92e9091a93a687e060865c1da6a6786f"
+  },
+  "independent_root_review": {
+    "head": "8eaf2c95d685fcf12242c57204ed2f6ed012ed15",
+    "source_sha256": {
+      "src/gda_balancing/domain/authority/admission.py": "fc88afdb6f610daad07105ba24194b6b7a42f0e4d225e0fa8cac30a96e52c92d",
+      "src/gda_balancing/domain/model/_admission.py": "030d2ccf5b583bf4c0114233d40bdba97ca393b5241411d5fc192344220f6e21",
+      "src/gda_balancing/domain/model/_checking.py": "852002c7d1910978a98139dbbeeb40ae11767264a6c3b010e8640132df504b2b",
+      "src/gda_balancing/domain/model/_lowering.py": "7848c645c2bed106872efee8e3f4e4fbeac16f4bdc4c5d61ba1b23371f3214be",
+      "src/gda_balancing/domain/model/_resolution.py": "7a465dec73894cfa98c35eae11cfbf2eeb3b53342abbce3fbe57994083787281",
+      "src/gda_balancing/domain/operation_program.py": "9e84ad0ca2755f2e6ec687a445a57fe245f8f6fe61f9ac06888b457fbdfe5626",
+      "src/gda_balancing/schema2/authorities/kernel.json": "61ecb18b1415273f4938e114542ffe97c99a39a59eae507805a7ed914af1e4a5",
+      "src/gda_balancing/schema2/authorities/language-bundle.json": "cec406ae5eb61d185c57dd3cdf47583bee49613c638c1cfc4c7210835911dfe6",
+      "tests/test_operation_root_projection.py": "2d49d6bc3fde57eeb616aa8557f16b4688e7625909aca45614117026812062b1"
+    },
+    "pytest": {
+      "tests": 20,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "seconds": 232.857,
+      "ids": [
+        "tests.test_operation_root_projection::test_unused_same_name_type_rename_preserves_actual_public_operation_closure",
+        "tests.test_operation_root_projection::test_operation_roots_are_one_closed_machine_rule[missing-rule]",
+        "tests.test_operation_root_projection::test_operation_roots_are_one_closed_machine_rule[wrong-collection]",
+        "tests.test_operation_root_projection::test_operation_roots_are_one_closed_machine_rule[extra-rule-member]",
+        "tests.test_operation_root_projection::test_operation_roots_are_one_closed_machine_rule[retired-owner-field]",
+        "tests.test_operation_root_projection::test_unknown_or_unselected_operation_root_preserves_exact_source_refusal[reference0-id]",
+        "tests.test_operation_root_projection::test_unknown_or_unselected_operation_root_preserves_exact_source_refusal[reference1-package]",
+        "tests.test_operation_root_projection::test_import_rederives_operation_roots_after_complete_rir_reidentification[unknown-entrypoint]",
+        "tests.test_operation_root_projection::test_import_rederives_operation_roots_after_complete_rir_reidentification[omit-operation]",
+        "tests.test_operation_root_projection::test_import_rederives_operation_roots_after_complete_rir_reidentification[extra-operation]",
+        "tests.test_schema2_model_cli::test_model_checks_only_actual_transitive_runtime_dependencies[declarations-only]",
+        "tests.test_schema2_model_cli::test_model_checks_only_actual_transitive_runtime_dependencies[reachable-operation]",
+        "tests.test_schema2_model_cli::test_unselected_resolution_profile_owner_still_reidentifies_lock",
+        "tests.test_model_preparation::test_specialization_keeps_distinct_bindings_on_value_equal_namespace_operations",
+        "tests.test_model_preparation::test_preparation_keeps_exact_projection_charge_and_complete_refusal[317]",
+        "tests.test_model_preparation::test_preparation_keeps_exact_projection_charge_and_complete_refusal[318]",
+        "tests.test_model_preparation::test_preparation_keeps_exact_projection_charge_and_complete_refusal[319]",
+        "tests.test_model_preparation::test_preparation_keeps_exact_projection_charge_and_complete_refusal[320]",
+        "tests.test_model_preparation::test_preparation_keeps_exact_projection_charge_and_complete_refusal[321]",
+        "tests.test_schema2_model_lowerer_conformance::test_runtime_projection_budget_drives_both_independent_consumers"
+      ]
+    },
+    "extra_probe": {
+      "head": "8eaf2c95d685fcf12242c57204ed2f6ed012ed15",
+      "unused_authored_identity_formula": {
+        "source_admitted": true,
+        "independent_rir_equal": true,
+        "all_rir_bytes_equal": true,
+        "identity_operation_selected": false
+      },
+      "fully_resealed_unbound_rir_formula": {
+        "rejected": true,
+        "message": "RIR input does not match its admitted semantics"
+      },
+      "owner_type_machine_paths": [],
+      "selected_operation_count": 12
+    },
+    "findings": [],
+    "limits": [
+      "Bounded Operation-root deletion review only; not full #878 acceptance.",
+      "Inventory and protocol-role work remain outside this patch review.",
+      "No broad suite or remote CI repeated.",
+      "No primary or remote changes."
+    ],
+    "raw": {
+      "path": "/private/tmp/gda-878-spec-roots-8eaf/receipt.json",
+      "sha256": "da970b726cc8da33ad9d2322cbb457bc65d84db18609b3ad607314027afe503e"
+    }
+  },
+  "priority_refusal": {
+    "base": "6b6f2ab76b1314234e81c528451d5780ea90df70",
+    "commit": "58519cf7269aa331643739b501f61013b2f729f2",
+    "cause": "Independent append constructed StructuredValueFault with an LDB reason ID and implicit static stage, although the current API expects an intrinsic signal and stage. Existing unique selected reason decoding failed before exact terminal replay comparison.",
+    "fix": "Construct the selected law.refusal_signal at stage runtime. Keep independent append execution, selected reason decoding, and all terminal position/reason/counter checks unchanged.",
+    "checks": {
+      "public-red": {
+        "tests": 1,
+        "failed": [
+          "test_public_priority_response_depth_refuses_before_allocating_a_fourth_action"
+        ],
+        "passed": 0
+      },
+      "regression-red": {
+        "tests": 2,
+        "failed": [
+          "test_priority_capacity_audit_replays_selected_runtime_reason[original]",
+          "test_priority_capacity_audit_replays_selected_runtime_reason[renamed-reason]"
+        ],
+        "passed": 0
+      },
+      "green": {
+        "tests": 45,
+        "failed": [],
+        "passed": 45
+      },
+      "final-green": {
+        "tests": 3,
+        "failed": [],
+        "passed": 3
+      }
+    },
+    "replayed_first_refusal": {
+      "signal": "structured-list-capacity-exceeded",
+      "operation": "append-counter",
+      "call_path": "respond/create-counter",
+      "call_site_identity": "sha256:9d65c2f74632d3da3d33515bfbe3f48824e6d5024b8aa8d58bd86f2281b9563f",
+      "evaluation_site_identity": null,
+      "instruction_index": 6,
+      "event_steps": 14,
+      "node_steps": 71
+    },
+    "old_boundary": {
+      "replayed_refusal": null,
+      "artifact_set_admitted": false
+    },
+    "new_boundary": {
+      "artifact_set_admitted": true,
+      "attempted_calls": []
+    },
+    "forgeries": [
+      "instruction_index 6 to 5",
+      "call_path respond/create-counter to respond",
+      "substitute another real RIR call_site_identity",
+      "coordinated event_steps/node_steps decrement by one",
+      "coordinated selected numeric diagnostic/reason substituted for capacity"
+    ],
+    "source_sha256": {
+      "src/gda_balancing/domain/experiment_artifact_replay.py": "fd35778e484bea2fd0c665e2b7be2f18bbd39956302bcb66ee6a74138e2c38d3",
+      "tests/test_priority_terminal_refusal.py": "e87fd7a09f789978a93d26f223aa5220eb1e66ed058cd4f2afb294f692dc91f2"
+    }
+  },
+  "projection_collections": {
+    "base": "3278a1de5",
+    "commit": "1e6da2e8f8e245eca1abd21c850da994d7a5c706",
+    "files": [
+      "libs/gda-balancing/src/gda_balancing/domain/authority/admission.py",
+      "libs/gda-balancing/tests/schema2_bootstrap_conformance_support.py",
+      "libs/gda-balancing/tests/test_projection_collection_renaming.py"
+    ],
+    "kernel_identity": "sha256:c0464d8780df6ec2cdd6e40cee1e9af97aaa804d2075107b14cad8e3313e862a",
+    "tracked_authorities_changed": false,
+    "test_sha256": "7fe6fafe1a7ca1b5d2a856dee6553924f23b140fc1ff9a1091aa614a92d230be",
+    "same_test_old_red": {
+      "failed": 1,
+      "seconds": 10.29,
+      "log": "final-test-old-red.log",
+      "cause": "static/kernel.vector_mismatch/language.definitions after coherent all-16 label rename"
+    },
+    "green": {
+      "new_cases": 19,
+      "seconds": 27.91,
+      "log": "green.log"
+    },
+    "related": {
+      "passed": 182,
+      "seconds": 136.32,
+      "log": "related.log",
+      "scope": [
+        "test_schema2_bootstrap_authority.py",
+        "test_schema2_bootstrap_composition.py",
+        "test_runtime_projection_budget_drives_both_independent_consumers"
+      ]
+    },
+    "total_passed": 201,
+    "ruff": "3 files pass",
+    "ruff_format": "3 files pass",
+    "scoped_pyright": "0 errors, 0 warnings",
+    "authority_seal": "pass",
+    "public_comparison": "Complete RIR and every run artifact member exactly equal; no field normalization or omission",
+    "not_run": "All package CI shards"
+  },
+  "primary_validation": {
+    "roots_public_priority_refusal_ci": {
+      "path": "/private/tmp/gda-878-root/root-integration.xml",
+      "sha256": "e26b804fa899cfe56db15a4ab50214471ea2358c6980aad51116564a7bfe8a7e",
+      "tests": 40,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 202.966
+    },
+    "projection_inventory_authoring_ci": {
+      "path": "/private/tmp/gda-878-root/projection-integration.xml",
+      "sha256": "01a0c36736589c0b648e6cd0ab3f73112d2d267c51645ca0c0a93b03c263f88b",
+      "tests": 99,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 57.893
+    },
+    "ci_inventory": {
+      "baseline_package_vector_count": 84,
+      "baseline_test_count": 851,
+      "baseline_test_digest": "2406fd6e45a7ce934e0ba70060070dfd84423aea9ce58dacc811453bd571a8fd",
+      "current_package_vector_count": 347,
+      "current_test_count": 2175,
+      "current_test_digest": "440bdb28dd1f800d215cf1c43be64cb0056cba52f352e73414e6829dc48f39ed",
+      "missing_package_vectors": [],
+      "missing_tests": [],
+      "overlapping_tests": [],
+      "shards": {
+        "authority": {
+          "count": 183,
+          "digest": "3dc7f6d788b16e17b188f4b13ae63b5f953da1811ce3463a908c721af8963e0a"
+        },
+        "bounded-fold": {
+          "count": 121,
+          "digest": "72fc8e66e679476167d4062948b05455bbc0b82b1f69fbc2b5dd9f884f62cd36"
+        },
+        "composition": {
+          "count": 198,
+          "digest": "df0171981d7c9ac4115d1c5140250a26621914f618b65097a2553813e08c90e0"
+        },
+        "experiment": {
+          "count": 101,
+          "digest": "be59ed29ee28124f65b1de4f9c4119d98d33f4b53afec7af36f04e7022feaae1"
+        },
+        "experiment-continuation": {
+          "count": 91,
+          "digest": "e13abaddd4d6346d4ad5c23a5458409a3eb2d6354e9b99aaa45db8cfb64aecfc"
+        },
+        "extension": {
+          "count": 171,
+          "digest": "178bec49e5f752342dacd8da87725493faa0db68ea5d1e6a4c689a526051dc68"
+        },
+        "fast": {
+          "count": 420,
+          "digest": "cc5a48f064d30e19670a0b00a1fc5e0e197f2079df58f3c81bd2908876323237"
+        },
+        "interfaces": {
+          "count": 332,
+          "digest": "ada368bc13df30c1a91e2a04adef0e272b3fd5d277a9fed432b6b64bf4337aba"
+        },
+        "language": {
+          "count": 233,
+          "digest": "003833719f5968147d1ad82be3aa9ad60932dc7e28449429301f069555f9b8f4"
+        },
+        "model": {
+          "count": 257,
+          "digest": "81f06130362e85f92a45d3c3459d1575fb03720d127f98c3b03210d01d2cf717"
+        },
+        "model-admission": {
+          "count": 41,
+          "digest": "1aaecb7b55b74fe2413e9e0c0a437a0bb021c92d969523260c730ab09c4c7dfa"
+        },
+        "smoke": {
+          "count": 27,
+          "digest": "d70b23b13c8920305103d06ee6712c62ec0f890c18acf820adec2bb56e3f31a6"
+        }
+      },
+      "uncovered_tests": [],
+      "unexpected_shard_tests": []
+    },
+    "ruff": "check and format pass, 216 files",
+    "pyright": "0 errors, 0 warnings, 0 informations"
+  },
+  "ci_obligation_change": {
+    "reason": "Actual Operation roots replace incidental Type-label edges and alter observed compile charges. Cover both sides of the current exact boundary; preserve two-owner specialization and independent comparison.",
+    "prior_required_limits": [
+      372,
+      373,
+      374
+    ],
+    "new_required_limits": [
+      317,
+      318,
+      319,
+      320,
+      321
+    ],
+    "old_test": "test_specialization_does_not_bind_a_value_equal_operation_in_another_namespace",
+    "current_test": "test_specialization_keeps_distinct_bindings_on_value_equal_namespace_operations",
+    "scope": "The current test also checks the unused second owner is absent, then selects both owners through real Formula bindings. Alias, equal-value and JSON-detached projections agree with independent compilation."
+  },
+  "reproduction": {
+    "cwd": "libs/gda-balancing",
+    "python_tests": [
+      "tests/test_operation_root_projection.py",
+      "tests/test_model_preparation.py",
+      "tests/test_priority_terminal_refusal.py",
+      "tests/test_projection_collection_renaming.py",
+      "tests/test_extension_inventory.py",
+      "tests/test_extension_renaming.py",
+      "tests/test_ci_policy.py"
+    ],
+    "inventory_command": "uv run python tools/ci.py verify-inventory --report <output.json>"
+  },
+  "limits": [
+    "Checkpoint scopes and test counts must not be summed as unique full-suite coverage.",
+    "The Operation-root change deliberately alters selected compile dependencies and their derived artifact identities; seven maintained authored Source files are unchanged.",
+    "Protocol-role/routing authority migration and complete reachable token coverage are unfinished at this primary head.",
+    "No final independent-build freeze, complete bijection, all-shard CI, #878 closure or authenticated Extension Invariance claim."
+  ]
+}

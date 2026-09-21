@@ -1,0 +1,180 @@
+{
+  "command": "python3 tools/priority_build_freeze.py --proof-dir /private/tmp/gda-878-fixed-proof-final-2",
+  "head_before_slice": "ce630f8018b57aeb0ed2698e9d854ba04031149d",
+  "interpretation": "The direct-wheel bounded-fold case executes A build/check/run from installed wheel and exchanges six results with the frozen B harness. The priority baseline uses a pre-frozen authority fixture copy whose Python bytes equal the installed wheel; it is not a direct wheel execution. This proves a fixed-build prerequisite only. The complete reachable graph, exhaustive rename, four-way exchange, and causal variant remain open.",
+  "manifest_files": {
+    "manifest.after.json": {
+      "bytes": 478437,
+      "path": "/private/tmp/gda-878-fixed-proof-final-2/manifest.after.json",
+      "sha256": "4a2e0bfd1a9ecdaa918cf24f182e5177f7f3c50ad391ecf7d8597aaffe90201a"
+    },
+    "manifest.before.json": {
+      "bytes": 478437,
+      "path": "/private/tmp/gda-878-fixed-proof-final-2/manifest.before.json",
+      "sha256": "4a2e0bfd1a9ecdaa918cf24f182e5177f7f3c50ad391ecf7d8597aaffe90201a"
+    }
+  },
+  "receipt": {
+    "a_installed_tree_sha256": "bae8e11b3731375701827e1c612c7f3f92fc6b603a4b4931103dd1e4f2153bfe",
+    "a_priority_fixture_runtime_sha256": "5adcb8901e4453d9f4c412bb973271ddd38652ddb265d97eb2211791ce95bad1",
+    "a_public_processes": [
+      {
+        "executable": "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/bin/python3.13",
+        "import_origin_count": 466,
+        "package_origin": "/private/tmp/gda-878-fixed-proof-final-2/frozen/fixture/runtime/gda_balancing/__init__.py",
+        "sys_path": [
+          "/private/tmp/gda-878-fixed-proof-final-2/output",
+          "/private/tmp/gda-878-fixed-proof-final-2/frozen/fixture/runtime",
+          "/private/tmp/gda-878-fixed-proof-final-2/frozen/harness",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/lib/python313.zip",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/lib/python3.13",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13-macos-aarch64-none/lib/python3.13/lib-dynload",
+          "/private/tmp/gda-878-fixed-proof-final-2/venv/lib/python3.13/site-packages"
+        ]
+      },
+      {
+        "executable": "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/bin/python3.13",
+        "import_origin_count": 465,
+        "package_origin": "/private/tmp/gda-878-fixed-proof-final-2/frozen/fixture/runtime/gda_balancing/__init__.py",
+        "sys_path": [
+          "/private/tmp/gda-878-fixed-proof-final-2/output",
+          "/private/tmp/gda-878-fixed-proof-final-2/frozen/fixture/runtime",
+          "/private/tmp/gda-878-fixed-proof-final-2/frozen/harness",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/lib/python313.zip",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/lib/python3.13",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13-macos-aarch64-none/lib/python3.13/lib-dynload",
+          "/private/tmp/gda-878-fixed-proof-final-2/venv/lib/python3.13/site-packages"
+        ]
+      },
+      {
+        "executable": "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/bin/python3.13",
+        "import_origin_count": 466,
+        "package_origin": "/private/tmp/gda-878-fixed-proof-final-2/frozen/fixture/runtime/gda_balancing/__init__.py",
+        "sys_path": [
+          "/private/tmp/gda-878-fixed-proof-final-2/output",
+          "/private/tmp/gda-878-fixed-proof-final-2/frozen/fixture/runtime",
+          "/private/tmp/gda-878-fixed-proof-final-2/frozen/harness",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/lib/python313.zip",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/lib/python3.13",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13-macos-aarch64-none/lib/python3.13/lib-dynload",
+          "/private/tmp/gda-878-fixed-proof-final-2/venv/lib/python3.13/site-packages"
+        ]
+      },
+      {
+        "executable": "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/bin/python3.13",
+        "import_origin_count": 466,
+        "package_origin": "/private/tmp/gda-878-fixed-proof-final-2/venv/lib/python3.13/site-packages/gda_balancing/__init__.py",
+        "sys_path": [
+          "/private/tmp/gda-878-fixed-proof-final-2/output/direct-wheel",
+          "/private/tmp/gda-878-fixed-proof-final-2/frozen/harness",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/lib/python313.zip",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/lib/python3.13",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13-macos-aarch64-none/lib/python3.13/lib-dynload",
+          "/private/tmp/gda-878-fixed-proof-final-2/venv/lib/python3.13/site-packages"
+        ]
+      },
+      {
+        "executable": "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/bin/python3.13",
+        "import_origin_count": 465,
+        "package_origin": "/private/tmp/gda-878-fixed-proof-final-2/venv/lib/python3.13/site-packages/gda_balancing/__init__.py",
+        "sys_path": [
+          "/private/tmp/gda-878-fixed-proof-final-2/output/direct-wheel",
+          "/private/tmp/gda-878-fixed-proof-final-2/frozen/harness",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/lib/python313.zip",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/lib/python3.13",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13-macos-aarch64-none/lib/python3.13/lib-dynload",
+          "/private/tmp/gda-878-fixed-proof-final-2/venv/lib/python3.13/site-packages"
+        ]
+      },
+      {
+        "executable": "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/bin/python3.13",
+        "import_origin_count": 466,
+        "package_origin": "/private/tmp/gda-878-fixed-proof-final-2/venv/lib/python3.13/site-packages/gda_balancing/__init__.py",
+        "sys_path": [
+          "/private/tmp/gda-878-fixed-proof-final-2/output/direct-wheel",
+          "/private/tmp/gda-878-fixed-proof-final-2/frozen/harness",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/lib/python313.zip",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/lib/python3.13",
+          "/Users/lelej/.local/share/uv/python/cpython-3.13-macos-aarch64-none/lib/python3.13/lib-dynload",
+          "/private/tmp/gda-878-fixed-proof-final-2/venv/lib/python3.13/site-packages"
+        ]
+      }
+    ],
+    "a_wheel_install_record_sha256": "99cbac81d4a7d314e35a669e586a114df73ebb98d5c0fe382e3a0b7cbd4662a3",
+    "a_wheel_product_members_verified": 165,
+    "a_wheel_sha256": "819879488eb1c5c54570ed242c80dd1aee114e37b3ce52afb7c61947e1b38ec6",
+    "b_executable_harness_sha256": "e702d3f11baf46ecd445899fdb62af17cd29e7e85be06502560df425758a4996",
+    "b_import_origin_count": 392,
+    "b_shared_data_tree_sha256": "0e1e415cbb69407b347b6dc4e1e1a1da444b769be026d0aefd2420c5f644d0e7",
+    "baseline": {
+      "a_admits_b": true,
+      "a_package_origin": "/private/tmp/gda-878-fixed-proof-final-2/venv/lib/python3.13/site-packages/gda_balancing/__init__.py",
+      "a_rir_identity": "sha256:b55ee4ce7fd0b9174c3141dd6fe5ef93b82aa6369ffa77e8cbd715a5da544158",
+      "b_admits_a": true,
+      "b_executable": "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/bin/python3.13",
+      "b_harness_origin": "/private/tmp/gda-878-fixed-proof-final-2/frozen/harness/priority_build_freeze_worker.py",
+      "b_rir_identity": "sha256:b55ee4ce7fd0b9174c3141dd6fe5ef93b82aa6369ffa77e8cbd715a5da544158",
+      "b_sys_path": [
+        "/private/tmp/gda-878-fixed-proof-final-2/frozen/harness",
+        "/private/tmp/gda-878-fixed-proof-final-2/frozen/tests",
+        "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/lib/python313.zip",
+        "/Users/lelej/.local/share/uv/python/cpython-3.13.13-macos-aarch64-none/lib/python3.13",
+        "/Users/lelej/.local/share/uv/python/cpython-3.13-macos-aarch64-none/lib/python3.13/lib-dynload",
+        "/private/tmp/gda-878-fixed-proof-final-2/venv/lib/python3.13/site-packages"
+      ],
+      "baseline_metric": 7,
+      "direct_wheel": {
+        "a_admits_b": true,
+        "a_entrypoint": "installed wheel via python -m gda_balancing; PYTHONPATH only frozen audit hook",
+        "a_rir_identity": "sha256:cc898ce62f64df33c397c62b022e556d4ec3411ed5ab99bb126a371d8cefd143",
+        "b_admits_a": true,
+        "b_rir_identity": "sha256:cc898ce62f64df33c397c62b022e556d4ec3411ed5ab99bb126a371d8cefd143",
+        "mutual_result_members": [
+          "evaluation-run",
+          "evaluator-capability-manifest",
+          "event-trace",
+          "metric-dataset",
+          "resolved-runtime-profile",
+          "snapshot-series"
+        ],
+        "samples": {
+          "ordered_value": 1234,
+          "selected_count": 2
+        }
+      },
+      "mutual_result_members": [
+        "evaluation-run",
+        "evaluator-capability-manifest",
+        "event-trace",
+        "metric-dataset",
+        "resolved-runtime-profile",
+        "snapshot-series"
+      ]
+    },
+    "frozen_member_counts": {
+      "a_wheel": 2,
+      "b_harness_and_shared_data": 502,
+      "installed_dependencies_and_a": 1348,
+      "python_executable": 1,
+      "python_stdlib": 1564
+    },
+    "full_manifest_sha256": "4a2e0bfd1a9ecdaa918cf24f182e5177f7f3c50ad391ecf7d8597aaffe90201a",
+    "missing_for_ac2": [
+      "complete reachable non-Kernel inventory and exhaustive bijection",
+      "fixed original/renamed A and B mutual artifact/result exchange",
+      "baseline plus variant causal comparison over the full graph"
+    ],
+    "pre_post_manifests_equal": true,
+    "python_executable_sha256": "7fc33c67b5d5d91b3ce9ab16d2a354ad623f438c24eed3f543a57fc635aea683",
+    "python_stdlib_tree_sha256": "e2fb5f4849b7c21cbb4a13a4f37e8c664ec58acf4c6053f3a871f4760b7fe32e",
+    "scope": "fixed-build prerequisite; not complete #878 AC2",
+    "single_byte_tamper_refusal": "harness: changed membership/content: ['priority_build_freeze_worker.py']"
+  },
+  "validation": {
+    "ci_inventory": "3246 current tests; no missing, overlap, uncovered, or unexpected shard tests; fixed-build shard has 2 tests",
+    "focused_pytest": "14 passed in 34.25s",
+    "pyright": "0 errors, 0 warnings",
+    "ruff_check": "passed",
+    "ruff_format": "passed"
+  }
+}

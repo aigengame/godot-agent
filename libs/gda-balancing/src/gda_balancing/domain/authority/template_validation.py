@@ -10,6 +10,7 @@ from gda_balancing.domain.template_contract import (
     TEMPLATE_PRIMITIVE_RESULT_EFFECTS,
     TEMPLATE_RESOURCE_ACCOUNTING,
     TEMPLATE_SELECTOR_CONTRACT,
+    template_model_results_are_supported,
 )
 from gda_balancing.domain.authority.contract_validation import _exact_path_value
 
@@ -40,7 +41,7 @@ def _template_primitive_argument_is_closed(
     roots: set[str],
     roles: set[str],
     produced_derived: set[str],
-    result_members: set[str],
+    result_names: set[str],
 ) -> bool:
     kind = contract["kind"]
     if kind == "selector":
@@ -60,7 +61,7 @@ def _template_primitive_argument_is_closed(
                     roots=roots,
                     roles=roles,
                     produced_derived=produced_derived,
-                    result_members=result_members,
+                    result_names=result_names,
                 )
                 for item in value
             )
@@ -89,7 +90,7 @@ def _template_primitive_argument_is_closed(
                 isinstance(binding, dict)
                 and set(binding) == {"result", "source"}
                 and isinstance(binding.get("source"), str)
-                and binding["source"] in result_members
+                and binding["source"] in result_names
                 and isinstance(binding.get("result"), str)
                 and bool(binding["result"])
                 and binding["result"] not in produced_derived
@@ -119,10 +120,10 @@ def _template_primitive_arguments_are_closed(
     produced_derived: set[str],
 ) -> bool:
     declared = primitive.get("argument_types")
-    result_members = primitive.get("result_members", [])
+    result_names = primitive.get("results", {})
     return (
         isinstance(declared, dict)
-        and isinstance(result_members, list)
+        and isinstance(result_names, dict)
         and set(arguments) == set(primitive.get("argument_members", []))
         and all(
             isinstance(type_id, str)
@@ -134,7 +135,7 @@ def _template_primitive_arguments_are_closed(
                 roots=roots,
                 roles=roles,
                 produced_derived=produced_derived,
-                result_members=set(result_members),
+                result_names=set(result_names),
             )
             for name, type_id in declared.items()
         )
@@ -276,7 +277,7 @@ def _template_admission_profiles_are_closed(
                     "failure",
                     "id",
                     "result_effect",
-                    "result_members",
+                    "results",
                 },
             )
             or not isinstance(primitive.get("id"), str)
@@ -306,30 +307,18 @@ def _template_admission_profiles_are_closed(
             or not _template_primitive_evaluation_is_closed(primitive)
         ):
             return False
-        result_members = primitive.get("result_members")
+        result_names = primitive.get("results")
         evaluation_kind = primitive["evaluation"]["kind"]
         if (
             (primitive["result_effect"] == "bind-model-facts")
-            != (result_members is not None)
+            != (result_names is not None)
             or (
-                result_members is not None
-                and (
-                    not isinstance(result_members, list)
-                    or not result_members
-                    or len(result_members) != len(set(result_members))
-                    or not all(
-                        isinstance(member, str) and member for member in result_members
-                    )
-                )
+                result_names is not None
+                and not template_model_results_are_supported(result_names)
             )
             or primitive["result_effect"]
             != TEMPLATE_PRIMITIVE_RESULT_EFFECTS.get(evaluation_kind)
             or primitive["charges"] != TEMPLATE_PRIMITIVE_CHARGES.get(evaluation_kind)
-            or (
-                evaluation_kind == "model-source-admission"
-                and result_members
-                != ["root_requirements", "resolved_packages", "source_symbols"]
-            )
         ):
             return False
         primitives_by_id[primitive["id"]] = primitive
@@ -447,7 +436,15 @@ def _template_admission_profiles_are_closed(
         row["role"]
         for row in role_rows
         if isinstance(row, dict)
-        and row.get("member_kind") == "model-source-package"
+        and row.get("member_kind")
+        == next(
+            (
+                schema["artifact_kind"]
+                for schema in language["wire_schemas"]
+                if schema.get("protocol_role") == "model-source-package"
+            ),
+            None,
+        )
         and isinstance(row.get("role"), str)
     }
     resolution_profiles = language.get("resolution_profiles")
@@ -559,15 +556,15 @@ def _template_admission_profiles_are_closed(
         evaluation = cast(dict[str, Any], primitive["evaluation"])
         if evaluation["kind"] == "model-source-admission":
             bindings = arguments.get("fact_bindings")
-            result_members = primitive.get("result_members")
+            result_names = primitive.get("results")
             if (
                 not isinstance(bindings, list)
                 or not bindings
-                or not isinstance(result_members, list)
+                or not isinstance(result_names, dict)
                 or any(
                     not isinstance(binding, dict)
                     or set(binding) != {"result", "source"}
-                    or binding.get("source") not in result_members
+                    or binding.get("source") not in result_names
                     or not isinstance(binding.get("result"), str)
                     or not binding["result"]
                     for binding in bindings

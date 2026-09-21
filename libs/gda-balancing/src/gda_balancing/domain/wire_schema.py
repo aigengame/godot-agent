@@ -21,6 +21,38 @@ def _wire_schema_definition(
     return matches[0]
 
 
+def wire_schema_definition_for_role(
+    language_bundle: dict[str, Any], protocol_role: str
+) -> dict[str, Any]:
+    language = language_bundle["language"]
+    matches = [
+        row
+        for collection in ("wire_schemas", "artifact_wire_schemas")
+        for row in language[collection]
+        if row.get("protocol_role") == protocol_role
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"wire schema protocol role is not unique: {protocol_role}")
+    return matches[0]
+
+
+def protocol_kind(language_bundle: dict[str, Any], protocol_role: str) -> str:
+    """Resolve a protocol's actual artifact kind or standalone input schema kind."""
+    definition = wire_schema_definition_for_role(language_bundle, protocol_role)
+    contracts = [
+        row
+        for row in language_bundle["language"]["artifact_contracts"]
+        if row["schema_kind"] == definition["artifact_kind"]
+    ]
+    if len(contracts) == 1 and "wire_schema_identity_domain" not in definition:
+        return contracts[0]["artifact_kind"]
+    if not contracts and "wire_schema_identity_domain" in definition:
+        return definition["artifact_kind"]
+    raise ValueError(
+        f"protocol wire schema has ambiguous identity ownership: {protocol_role}"
+    )
+
+
 def wire_schema_identity_domain(
     language_bundle: dict[str, Any],
     schema_kind: str,

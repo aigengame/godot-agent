@@ -11,6 +11,7 @@ import jsonschema
 
 from gda_balancing.domain.authority.context import AdmittedAuthorityContext
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
+from gda_balancing.domain.formula._source_body import inline_parameter_contract
 from gda_balancing.domain.formula.types import (
     formula_contract_from_operation,
     formula_contract_matches,
@@ -20,7 +21,19 @@ from gda_balancing.domain.formula.types import (
 from gda_balancing.domain.authority.runtime_validation import (
     operation_literal_context_contract,
 )
-from gda_balancing.domain.formula.inference import infer_formula_operation_result
+from gda_balancing.domain.operation_program import closed_operation_coordinates
+from gda_balancing.domain.operation_call_domains import (
+    ConcreteOperationCallDomainInput,
+    project_concrete_operation_call_domains,
+)
+from gda_balancing.domain.authority.graph import resolve_current_namespaces
+from gda_balancing.domain.wire_schema import wire_schema_definition_for_role
+from gda_balancing.domain.authority.source_projection import (
+    author_source_value,
+    project_source_value,
+    semantic_source_schema,
+    source_schema_member,
+)
 
 
 @dataclass(frozen=True)
@@ -63,83 +76,47 @@ class _FormulaNotationResourceError(ValueError):
 
 
 class _FormulaContextError(ValueError):
-    """A contextual failure with an explicit LDB-owned machine reason."""
+    """A contextual failure category interpreted by the selected Formula owner."""
 
-    def __init__(self, reason_id: str, message: str) -> None:
+    def __init__(self, category: str, message: str) -> None:
         super().__init__(message)
-        self.reason_id = reason_id
+        self.category = category
 
 
-def _contextual_refusal(error: ValueError) -> FormulaNotationRefusal:
-    message = str(error)
+def _contextual_refusal(
+    error: ValueError, authority_context: AdmittedAuthorityContext
+) -> FormulaNotationRefusal:
+    profile = _formula_resolution_profile(authority_context)
     reason = (
-        error.reason_id
+        profile["formula_resolution"]["refusal_reasons"][error.category]
         if isinstance(error, _FormulaContextError)
-        else "model.reason.source-contract-mismatch"
+        else profile["structural_reason"]
     )
-    return FormulaNotationRefusal(reason, message)
+    return FormulaNotationRefusal(reason, str(error))
 
 
 def _notation_authority(
     authority_context: AdmittedAuthorityContext,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    packages = cast(
-        list[dict[str, Any]], authority_context.language_bundle["language"]["packages"]
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    definition = wire_schema_definition_for_role(
+        authority_context.language_bundle, "model-source-package"
     )
-    matches: list[dict[str, Any]] = []
-    for package in packages:
-        if package.get("id") != "standard.schema":
-            continue
-        for closure in cast(list[dict[str, Any]], package["semantic_closure"]):
-            if closure.get("authority_path") != "language.wire_schemas":
-                continue
-            matches.extend(
-                cast(dict[str, Any], definition["schema"])
-                for definition in cast(list[dict[str, Any]], closure["definitions"])
-                if definition.get("artifact_kind") == "model-source-package"
-            )
-    if len(matches) != 1:
-        raise ValueError("standard.schema has no unique Formula notation authority")
-    definitions = matches[0].get("$defs")
-    if not isinstance(definitions, dict):
-        raise ValueError("standard.schema has no Formula notation definitions")
-    grammar_schema = definitions.get("formulaNotationGrammar")
-    notation_schema = definitions.get("formulaOperationNotation")
-    grammar = grammar_schema.get("const") if isinstance(grammar_schema, dict) else None
-    if not isinstance(grammar, dict) or not isinstance(notation_schema, dict):
-        raise ValueError("standard.schema Formula notation authority is incomplete")
-    token_pattern = grammar.get("identifier_token_pattern")
-    bare_pattern = grammar.get("bare_identifier_pattern")
-    integer_pattern = grammar.get("integer_literal_pattern")
-    whitespace_pattern = grammar.get("whitespace_pattern")
-    if (
-        grammar.get("version") != "1.1.0"
-        or not isinstance(token_pattern, str)
-        or bare_pattern != f"^{token_pattern}$"
-        or not isinstance(integer_pattern, str)
-        or not isinstance(whitespace_pattern, str)
-        or grammar.get("signed_integer_context") != "operand-position"
-        or not isinstance(grammar.get("max_group_depth"), int)
-        or cast(int, grammar["max_group_depth"]) < 1
-    ):
-        raise ValueError("standard.schema Formula notation grammar is malformed")
-    try:
-        if (
-            re.fullmatch(token_pattern, "") is not None
-            or re.fullmatch(integer_pattern, "") is not None
-            or re.fullmatch(whitespace_pattern, "") is not None
-        ):
-            raise ValueError("Formula notation token patterns admit empty input")
-    except re.error as err:
-        raise ValueError("Formula notation token pattern is malformed") from err
-    return grammar, notation_schema
+    return (
+        definition["formula_grammar"],
+        definition["operation_notation_schema"],
+        authority_context.kernel["meta_format"]["language_definitions"][
+            "wire_schema_protocol_roles"
+        ]["source_notation"]["operation_source"],
+    )
 
 
 def formula_notation_request_identity_domain(
     authority_context: AdmittedAuthorityContext,
 ) -> str:
     """Return the authority-owned domain for conversion-request locations."""
-    grammar, _notation_schema = _notation_authority(authority_context)
+    grammar, _notation_schema, _operation_source = _notation_authority(
+        authority_context
+    )
     identity_domain = grammar.get("request_identity_domain")
     if not isinstance(identity_domain, str) or not identity_domain:
         raise ValueError("Formula notation request identity domain is malformed")
@@ -174,6 +151,7 @@ def _identifier(value: object, grammar: dict[str, Any]) -> str:
 def _operation_catalog(
     authority_context: AdmittedAuthorityContext,
 ) -> dict[tuple[str, str], dict[str, Any]]:
+    _, _, operation_source = _notation_authority(authority_context)
     catalog: dict[tuple[str, str], dict[str, Any]] = {}
     packages = cast(
         list[dict[str, Any]], authority_context.language_bundle["language"]["packages"]
@@ -181,7 +159,7 @@ def _operation_catalog(
     for package in packages:
         package_id = cast(str, package["id"])
         for closure in cast(list[dict[str, Any]], package["semantic_closure"]):
-            if closure.get("authority_path") != "language.operations":
+            if closure.get("authority_path") != operation_source["authority_path"]:
                 continue
             for operation in cast(list[dict[str, Any]], closure["definitions"]):
                 catalog[(package_id, cast(str, operation["id"]))] = operation
@@ -192,10 +170,11 @@ def _validated_operation_notation(
     operation: dict[str, Any],
     grammar: dict[str, Any],
     notation_schema: dict[str, Any],
+    operation_source: dict[str, Any],
 ) -> dict[str, Any] | None:
     extensions = operation.get("extensions")
     notation = (
-        extensions.get("standard.formula-notation")
+        extensions.get(operation_source["extension_member"])
         if isinstance(extensions, dict)
         else None
     )
@@ -214,7 +193,7 @@ def _validated_operation_notation(
             or spelling in grammar["reserved_identifiers"]
         ):
             raise _FormulaContextError(
-                "model.reason.name-ambiguity",
+                "name-ambiguity",
                 "Formula function notation spelling is ambiguous",
             )
         return notation
@@ -242,7 +221,7 @@ def _selected_operation_notations(
     authority_context: AdmittedAuthorityContext,
     operation_coordinates: frozenset[tuple[str, str]] | None,
 ) -> tuple[_OperationNotation, ...]:
-    grammar, notation_schema = _notation_authority(authority_context)
+    grammar, notation_schema, operation_source = _notation_authority(authority_context)
     requirements = request.get("package_requirements")
     if operation_coordinates is None and not isinstance(requirements, list):
         raise ValueError("Formula context has no package requirements")
@@ -265,7 +244,9 @@ def _selected_operation_notations(
     for coordinate, operation in candidates:
         if operation.get("purity") != "pure":
             continue
-        notation = _validated_operation_notation(operation, grammar, notation_schema)
+        notation = _validated_operation_notation(
+            operation, grammar, notation_schema, operation_source
+        )
         if notation is not None:
             declarations.append(_OperationNotation(coordinate, operation, notation))
     spellings = [
@@ -277,7 +258,7 @@ def _selected_operation_notations(
     ]
     if len(set(spellings)) != len(spellings):
         raise _FormulaContextError(
-            "model.reason.name-ambiguity",
+            "name-ambiguity",
             "Formula Operation notation spelling is ambiguous",
         )
     return tuple(declarations)
@@ -306,64 +287,78 @@ def _formula_resolution_profile(
     return profile
 
 
+def _authored_formula_schemas(
+    authority_context: AdmittedAuthorityContext,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    schema = authority_context.source_semantic_index.schema
+    members = authority_context.source_native_binding_index.members
+    module_schema = source_schema_member(schema, members["source.root.modules"])[1][
+        "items"
+    ]
+    formula_schema = source_schema_member(
+        module_schema, members["source.module.formulas"]
+    )[1]["items"]
+    return module_schema, formula_schema
+
+
+def _project_formula_request(
+    request: dict[str, Any], authority_context: AdmittedAuthorityContext
+) -> dict[str, Any]:
+    try:
+        module_schema, formula_schema = _authored_formula_schemas(authority_context)
+        projected = dict(request)
+        for member, selected_schema in (
+            ("module", module_schema),
+            ("formula", formula_schema),
+        ):
+            if member in request:
+                projected[member] = project_source_value(
+                    request[member],
+                    selected_schema,
+                    authority_context.source_native_binding_index,
+                ).value
+        if "modules" in request:
+            projected["modules"] = [
+                project_source_value(
+                    module,
+                    module_schema,
+                    authority_context.source_native_binding_index,
+                ).value
+                for module in request["modules"]
+            ]
+        return projected
+    except FormulaNotationRefusal:
+        raise
+    except ValueError as err:
+        raise _contextual_refusal(err, authority_context) from err
+
+
 def _formula_policy(authority_context: AdmittedAuthorityContext) -> dict[str, Any]:
     profile = _formula_resolution_profile(authority_context)
-    extensions = profile.get("extensions")
-    policy = (
-        extensions.get("standard.formula") if isinstance(extensions, dict) else None
-    )
-    if not isinstance(policy, dict):
-        raise ValueError("Formula conversion has no selected Formula policy")
-    conversion = policy.get("notation_conversion")
-    infix_parser = (
-        conversion.get("infix_parser") if isinstance(conversion, dict) else None
-    )
-    if (
-        not isinstance(conversion, dict)
-        or conversion.get("condition_contract") != "kernel-boolean"
-        or conversion.get("formula_argument_compatibility") != "exact-resolved-contract"
-        or conversion.get("formula_result_compatibility") != "exact-resolved-contract"
-        or conversion.get("literal_typing") != "selected-unique-formal-match"
-        or conversion.get("literal_result_inference") != "contextual-anchor"
-        or conversion.get("operation_argument_compatibility")
-        != "exact-operation-formal"
-        or conversion.get("symbol_resolution") != "exact-module-coordinate"
-        or not isinstance(infix_parser, dict)
-        or infix_parser.get("algorithm") != "shunting-yard"
-        or not isinstance(infix_parser.get("generated_local_separator"), str)
-        or not infix_parser["generated_local_separator"]
-    ):
-        raise ValueError("Formula conversion policy is incomplete")
-    return policy
+    return profile["formula_resolution"]
 
 
 def _formula_source_schema(
     authority_context: AdmittedAuthorityContext,
 ) -> dict[str, Any]:
-    packages = cast(
-        list[dict[str, Any]], authority_context.language_bundle["language"]["packages"]
-    )
-    schemas = [
-        definition.get("schema")
-        for package in packages
-        if package.get("id") == "standard.schema"
-        for closure in cast(list[dict[str, Any]], package["semantic_closure"])
-        if closure.get("authority_path") == "language.wire_schemas"
-        for definition in cast(list[dict[str, Any]], closure["definitions"])
-        if definition.get("artifact_kind") == "model-source-package"
-    ]
-    if len(schemas) != 1 or not isinstance(schemas[0], dict):
+    schema = wire_schema_definition_for_role(
+        authority_context.language_bundle, "model-source-package"
+    ).get("schema")
+    if not isinstance(schema, dict):
         raise ValueError("Formula conversion has no exact source schema")
-    return schemas[0]
+    return semantic_source_schema(schema)
 
 
 def formula_schema_version(
     authority_context: AdmittedAuthorityContext,
 ) -> str:
+    member = authority_context.source_native_binding_index.members[
+        "source.root.schema_version"
+    ]
     version = (
         _formula_source_schema(authority_context)
         .get("properties", {})
-        .get("schema_version", {})
+        .get(member, {})
         .get("const")
     )
     if not isinstance(version, str):
@@ -377,7 +372,7 @@ def _module_imports(
     authority_context: AdmittedAuthorityContext,
     profile: dict[str, Any],
 ) -> dict[str, dict[str, str]]:
-    requirements = request.get(profile["requirements_member"])
+    requirements = request.get("package_requirements")
     if not isinstance(requirements, list):
         raise ValueError("Formula context has no package requirements")
     requirement_keys: set[str] = set()
@@ -386,7 +381,7 @@ def _module_imports(
             raise ValueError("Formula package requirement is malformed")
         if requirement in requirement_keys:
             raise _FormulaContextError(
-                "model.reason.name-ambiguity",
+                "name-ambiguity",
                 "Formula package requirement is duplicate",
             )
         requirement_keys.add(requirement)
@@ -399,16 +394,21 @@ def _module_imports(
     }
     if any(key not in packages for key in requirement_keys):
         raise _FormulaContextError(
-            "model.reason.unresolved-name",
+            "name-unresolved",
             "Formula package requirement is unresolved",
         )
-    imports = module.get(profile["imports_member"])
+    imports = module.get("imports")
     if not isinstance(imports, list):
         raise ValueError("Formula module context has no imports")
     source_schema = _formula_source_schema(authority_context)
-    import_schema = source_schema["properties"][profile["modules_member"]]["items"][
-        "properties"
-    ][profile["imports_member"]]["items"]
+    members = authority_context.source_native_binding_index.members
+    modules_schema = source_schema_member(
+        source_schema, members["source.root.modules"]
+    )[1]
+    imports_schema = source_schema_member(
+        modules_schema["items"], members["source.module.imports"]
+    )[1]
+    import_schema = imports_schema["items"]
     import_validator = jsonschema.Draft202012Validator(source_schema).evolve(
         schema=import_schema
     )
@@ -416,17 +416,17 @@ def _module_imports(
     for item in imports:
         if not import_validator.is_valid(item):
             raise ValueError("Formula module import is malformed")
-        alias = cast(str, item[profile["import_alias_member"]])
+        alias = cast(str, item["alias"])
         if alias in resolved:
             raise _FormulaContextError(
-                "model.reason.name-ambiguity",
+                "name-ambiguity",
                 "Formula module import alias is ambiguous",
             )
-        package_key = cast(str, item[profile["import_package_member"]])
+        package_key = cast(str, item["package"])
         package = packages.get(package_key)
         if package_key not in requirement_keys or package is None:
             raise _FormulaContextError(
-                "model.reason.unresolved-name",
+                "name-unresolved",
                 f"Formula import {alias!r} is unresolved",
             )
         exported_types = {
@@ -434,10 +434,10 @@ def _module_imports(
             for exported in cast(list[dict[str, Any]], package["exports"]["types"])
             if isinstance(exported, dict)
         }
-        symbol = cast(str, item[profile["import_symbol_member"]])
+        symbol = cast(str, item["symbol"])
         if symbol not in exported_types:
             raise _FormulaContextError(
-                "model.reason.unresolved-name",
+                "name-unresolved",
                 f"Formula import {alias!r} is unresolved",
             )
         resolved[alias] = {
@@ -576,6 +576,7 @@ class _FormulaParser:
             raise ValueError("Formula conversion source schema version is unavailable")
         self.profile = _formula_resolution_profile(authority_context)
         self.policy = _formula_policy(authority_context)
+        self.inline = inline_parameter_contract(authority_context.kernel)
         self.conversion_policy = cast(
             dict[str, Any], self.policy["notation_conversion"]
         )
@@ -587,13 +588,13 @@ class _FormulaParser:
         for candidate in modules:
             if not isinstance(candidate, dict):
                 raise _FormulaContextError(
-                    "model.reason.name-ambiguity",
+                    "name-ambiguity",
                     "Formula module closure is malformed or ambiguous",
                 )
             candidate_id = candidate.get("id")
             if not isinstance(candidate_id, str) or candidate_id in modules_by_id:
                 raise _FormulaContextError(
-                    "model.reason.name-ambiguity",
+                    "name-ambiguity",
                     "Formula module closure is malformed or ambiguous",
                 )
             modules_by_id[candidate_id] = candidate
@@ -604,9 +605,9 @@ class _FormulaParser:
             raise ValueError("Formula current module is outside its module closure")
         closure_module = modules_by_id[module_id]
         for member in (
-            self.profile["imports_member"],
-            self.profile["symbols_member"],
-            self.policy["module_formulas_member"],
+            "imports",
+            "symbols",
+            "formulas",
         ):
             if member in module and module[member] != closure_module.get(member, []):
                 raise ValueError(
@@ -641,13 +642,13 @@ class _FormulaParser:
                 formula_id = item.get("id") if isinstance(item, dict) else None
                 if not isinstance(formula_id, str):
                     raise _FormulaContextError(
-                        "model.reason.name-ambiguity",
+                        "name-ambiguity",
                         "Formula declaration coordinate is ambiguous",
                     )
                 key = (declaration_module, formula_id)
                 if key in self.formula_declarations:
                     raise _FormulaContextError(
-                        "model.reason.name-ambiguity",
+                        "name-ambiguity",
                         "Formula declaration coordinate is ambiguous",
                     )
                 self.formula_declarations[key] = (
@@ -666,7 +667,7 @@ class _FormulaParser:
         }
         if len(self.contracts) != len(parameters):
             raise _FormulaContextError(
-                "model.reason.name-ambiguity",
+                "name-ambiguity",
                 "Formula parameter context is malformed or duplicate",
             )
         for contract in self.contracts.values():
@@ -697,7 +698,7 @@ class _FormulaParser:
                 key = cast(tuple[str, str], coordinate)
                 if key in self.symbol_contracts:
                     raise _FormulaContextError(
-                        "model.reason.name-ambiguity",
+                        "name-ambiguity",
                         "Formula module Symbol coordinate is ambiguous",
                     )
                 self.resolve_contract(symbol, imports_by_module[symbol_module])
@@ -725,11 +726,31 @@ class _FormulaParser:
             ]
         }
         self.locals: dict[str, dict[str, Any]] = {}
-        self.grammar, _notation_schema = _notation_authority(authority_context)
+        self.grammar, _notation_schema, _operation_source = _notation_authority(
+            authority_context
+        )
         group_delimiters = cast(list[str], self.grammar["group_delimiters"])
         if len(group_delimiters) != 2:
             raise ValueError("Formula notation group delimiters are malformed")
         self.open_group, self.close_group = group_delimiters
+        catalog = _operation_catalog(authority_context)
+        if operation_coordinates is not None:
+            # Imported Formula pairs name their direct calls. Concrete return
+            # inference also consumes those calls' admitted lexical dependencies;
+            # the visible notation names remain restricted to the direct roots.
+            closure = closed_operation_coordinates(operation_coordinates, catalog)
+            if not closure <= catalog.keys():
+                raise ValueError("Formula Operation dependency is unresolved")
+            self.operation_catalog = {key: catalog[key] for key in closure}
+        else:
+            selection = resolve_current_namespaces(
+                authority_context.current_namespace_packages(),
+                request["package_requirements"],
+            )
+            namespaces = {package.namespace for package in selection.packages}
+            self.operation_catalog = {
+                key: value for key, value in catalog.items() if key[0] in namespaces
+            }
         self.notations = _selected_operation_notations(
             request, authority_context, operation_coordinates
         )
@@ -773,13 +794,13 @@ class _FormulaParser:
             and item.notation.get("token" if kind == "infix" else "name") == spelling
         ]
         if not matches:
-            raise FormulaNotationRefusal(
-                "model.reason.unresolved-name",
+            raise _FormulaContextError(
+                "name-unresolved",
                 f"Formula notation {spelling!r} is unresolved",
             )
         if len(matches) != 1:
-            raise FormulaNotationRefusal(
-                "model.reason.name-ambiguity",
+            raise _FormulaContextError(
+                "name-ambiguity",
                 f"Formula notation {spelling!r} is ambiguous",
             )
         return matches[0]
@@ -812,16 +833,16 @@ class _FormulaParser:
         if len(segments) == 2:
             contract = self.symbol_contracts.get((segments[0], segments[1]))
             if contract is None:
-                raise FormulaNotationRefusal(
-                    "model.reason.unresolved-name",
+                raise _FormulaContextError(
+                    "name-unresolved",
                     f"Formula Symbol {'.'.join(segments)!r} is unresolved",
                 )
             return (
                 {"kind": "symbol", "module": segments[0], "symbol": segments[1]},
                 contract,
             )
-        raise FormulaNotationRefusal(
-            "model.reason.unresolved-name",
+        raise _FormulaContextError(
+            "name-unresolved",
             f"Formula name {'.'.join(segments)!r} is unresolved",
         )
 
@@ -868,7 +889,7 @@ class _FormulaParser:
                 or not domain["minimum"] <= value <= domain["maximum"]
             ):
                 raise _FormulaContextError(
-                    "model.reason.formula-type-mismatch",
+                    "type-mismatch",
                     "Formula literal is outside its contextual contract",
                 )
             contract = expected
@@ -877,7 +898,7 @@ class _FormulaParser:
             self.resolve_contract(expected),
         ):
             raise _FormulaContextError(
-                "model.reason.formula-type-mismatch",
+                "type-mismatch",
                 "Formula operand is incompatible with its formal contract",
             )
         return contract
@@ -897,7 +918,7 @@ class _FormulaParser:
             )
             if literal_contract is None:
                 raise _FormulaContextError(
-                    "model.reason.formula-type-mismatch",
+                    "type-mismatch",
                     "Formula operand is incompatible with its Operation port",
                 )
             literal_domain = literal_contract.get("domain")
@@ -921,7 +942,7 @@ class _FormulaParser:
             self.resolve_contract(contract), expected
         ):
             raise _FormulaContextError(
-                "model.reason.formula-type-mismatch",
+                "type-mismatch",
                 "Formula operand is incompatible with its Operation port",
             )
         return contract
@@ -947,7 +968,7 @@ class _FormulaParser:
             when_false, false_contract = self.parenthesized_operand()
             if true_contract is None or false_contract is None:
                 raise _FormulaContextError(
-                    "model.reason.formula-type-mismatch",
+                    "type-mismatch",
                     "Formula conditional branch contract cannot be inferred",
                 )
             if not formula_contract_matches(
@@ -955,7 +976,7 @@ class _FormulaParser:
                 self.resolve_contract(false_contract),
             ):
                 raise _FormulaContextError(
-                    "model.reason.formula-type-mismatch",
+                    "type-mismatch",
                     "Formula conditional branches are incompatible",
                 )
             return [
@@ -982,7 +1003,7 @@ class _FormulaParser:
             resolved_declaration = self.formula_declarations.get((module, formula_id))
             if resolved_declaration is None:
                 raise _FormulaContextError(
-                    "model.reason.unresolved-name",
+                    "name-unresolved",
                     "Formula call coordinate is unresolved",
                 )
             declaration, declaration_imports = resolved_declaration
@@ -994,7 +1015,7 @@ class _FormulaParser:
                     self.take(cast(str, self.grammar["named_argument_operator"]))
                     if parameter in arguments:
                         raise _FormulaContextError(
-                            "model.reason.name-ambiguity",
+                            "name-ambiguity",
                             "Formula call repeats a named argument",
                         )
                     arguments[parameter] = self.parenthesized_operand()
@@ -1020,7 +1041,7 @@ class _FormulaParser:
                 parameters
             ):
                 raise _FormulaContextError(
-                    "model.reason.formula-type-mismatch",
+                    "type-mismatch",
                     "Formula call does not totally bind its parameters",
                 )
             for parameter, (operand, contract) in arguments.items():
@@ -1173,7 +1194,7 @@ class _FormulaParser:
             )
             if target != local and (target in self.locals or target in self.contracts):
                 raise _FormulaContextError(
-                    "model.reason.name-ambiguity",
+                    "name-ambiguity",
                     "Formula generated local identity is ambiguous",
                 )
             node, contract = self.operation_node(target, item, [left, right])
@@ -1192,13 +1213,13 @@ class _FormulaParser:
         ports = operation.notation.get("ordered_ports")
         if not isinstance(ports, list) or len(ports) != len(operands):
             raise _FormulaContextError(
-                "model.reason.formula-type-mismatch",
+                "type-mismatch",
                 "Formula call does not totally bind notation ports",
             )
         inputs = operation.declaration.get("inputs")
         if not isinstance(inputs, list):
             raise _FormulaContextError(
-                "model.reason.formula-type-mismatch",
+                "type-mismatch",
                 "Formula Operation has no formal port contracts",
             )
         formals = {
@@ -1208,7 +1229,7 @@ class _FormulaParser:
         }
         if set(ports) != set(formals) or len(formals) != len(inputs):
             raise _FormulaContextError(
-                "model.reason.formula-type-mismatch",
+                "type-mismatch",
                 "Formula notation ports do not close Operation inputs",
             )
         typed_operands = [
@@ -1249,37 +1270,91 @@ class _FormulaParser:
         fallback = self.formula.get("result")
         if not isinstance(fallback, dict):
             raise _FormulaContextError(
-                "model.reason.formula-type-mismatch",
+                "type-mismatch",
                 "Formula local result cannot be inferred",
             )
         anchor = next(
             (contract for _operand, contract in operands if isinstance(contract, dict)),
             self.resolve_contract(fallback),
         )
-        if (
-            self.conversion_policy.get("literal_result_inference")
-            != "contextual-anchor"
-        ):
-            raise _FormulaContextError(
-                "model.reason.formula-type-mismatch",
-                "Formula literal result-inference policy is malformed",
-            )
         contracts = [
             cast(dict[str, Any], contract or anchor) for _operand, contract in operands
         ]
         try:
-            return infer_formula_operation_result(
-                operation.declaration,
-                [cast(str, port) for port in ports],
-                contracts,
-                self.resolve_contract(fallback),
-                self.conversion_policy,
-                self.source_type_aliases,
-                boolean_contract=self.boolean_contract,
+            runtime = self.authority_context.kernel["meta_format"]["runtime_program"]
+            invocation_nodes = frozenset(
+                row["id"]
+                for row in runtime["nodes"]
+                if row["semantics"]["operator"] == "invoke-operation"
             )
+
+            def literal_contract(
+                value: Any, formal: dict[str, Any]
+            ) -> dict[str, Any] | None:
+                selected = operation_literal_context_contract(
+                    value, formal, self.authority_context.kernel, self.literal_semantics
+                )
+                if selected is None:
+                    return None
+                contract = dict(formula_contract_from_operation(selected))
+                if isinstance(value, int) and not isinstance(value, bool):
+                    contract.update(
+                        domain_kind="closed-interval",
+                        domain={"minimum": value, "maximum": value},
+                    )
+                return contract
+
+            def no_iteration(_formal: dict[str, Any]) -> dict[str, Any]:
+                raise ValueError(
+                    "Formula scalar body cannot execute a dynamic iteration"
+                )
+
+            projection = project_concrete_operation_call_domains(
+                ConcreteOperationCallDomainInput(
+                    operations=self.operation_catalog,
+                    roots={
+                        operation.coordinate: [
+                            {
+                                "arguments": dict(
+                                    zip(
+                                        ports,
+                                        [
+                                            self.resolve_contract(value)
+                                            for value in contracts
+                                        ],
+                                        strict=True,
+                                    )
+                                )
+                            }
+                        ]
+                    },
+                    formula_slot_bindings=frozenset(),
+                    operation_node_ids=invocation_nodes,
+                    invocation_node_ids=invocation_nodes,
+                    conversion_policy=self.conversion_policy,
+                    boolean_contract=self.boolean_contract,
+                    literal_contract=literal_contract,
+                    iteration_contract=no_iteration,
+                    snapshot_contracts={},
+                    snapshot_operand_names={},
+                ),
+                scalar_return_roots=frozenset({operation.coordinate}),
+            )
+            inferred = deepcopy(projection.root_results[operation.coordinate][0])
+            if "type_identity" not in fallback:
+                identity = inferred.pop("type_identity")
+                alias = self.source_type_aliases.get(
+                    (identity["package"], identity["id"])
+                )
+                if alias is None:
+                    raise ValueError(
+                        "Formula Operation result has no Source type alias"
+                    )
+                inferred["type"] = alias
+            return inferred
         except ValueError as err:
             raise _FormulaContextError(
-                "model.reason.formula-type-mismatch",
+                "type-mismatch",
                 str(err),
             ) from err
 
@@ -1293,7 +1368,7 @@ class _FormulaParser:
             local = self.take("identifier").value
             if local in self.locals or local in self.contracts:
                 raise _FormulaContextError(
-                    "model.reason.name-ambiguity",
+                    "name-ambiguity",
                     "Formula local identity is duplicate or captures a parameter",
                 )
             self.take(cast(str, self.grammar["named_argument_operator"]))
@@ -1309,12 +1384,13 @@ class _FormulaParser:
             contract,
             self.result_contract,
         )
-        if not nodes and result.get("kind") == "parameter":
-            return {"node": "parameter", "parameter": result["parameter"]}
+        inline_body = self.inline.source_body(result)
+        if not nodes and inline_body is not None:
+            return inline_body
         return {"nodes": nodes, "result": result}
 
 
-def parse_formula_expression(
+def _parse_semantic_formula_expression(
     request: dict[str, Any],
     authority_context: AdmittedAuthorityContext,
     *,
@@ -1325,7 +1401,7 @@ def parse_formula_expression(
     expression = formula.get("expression") if isinstance(formula, dict) else None
     if not isinstance(expression, str):
         raise FormulaNotationRefusal(
-            "formula.reason.notation-parse-failure",
+            _formula_policy(authority_context)["refusal_reasons"]["notation-parse"],
             "Formula parse request has no expression",
         )
     try:
@@ -1334,19 +1410,21 @@ def parse_formula_expression(
         ).parse()
     except _FormulaNotationResourceError as err:
         raise FormulaNotationRefusal(
-            "formula.reason.notation-resource-exhausted", str(err)
+            _formula_policy(authority_context)["refusal_reasons"]["notation-resource"],
+            str(err),
         ) from err
     except _FormulaNotationSyntaxError as err:
         raise FormulaNotationRefusal(
-            "formula.reason.notation-parse-failure", str(err)
+            _formula_policy(authority_context)["refusal_reasons"]["notation-parse"],
+            str(err),
         ) from err
     except FormulaNotationRefusal:
         raise
     except ValueError as err:
-        raise _contextual_refusal(err) from err
+        raise _contextual_refusal(err, authority_context) from err
 
 
-def admit_formula_pair(
+def admit_semantic_formula_pair(
     request: dict[str, Any],
     authority_context: AdmittedAuthorityContext,
     *,
@@ -1362,17 +1440,17 @@ def admit_formula_pair(
     if not isinstance(body, dict) or not isinstance(expression, str):
         raise ValueError("Formula pair request is structurally incomplete")
     try:
-        rendered = render_formula_body(body, authority_context)
+        rendered = render_semantic_formula_body(body, authority_context)
     except FormulaNotationRefusal as err:
         raise FormulaPairRefusal(err.reason_id, "body", err.message) from err
     if expression != rendered:
         raise FormulaPairRefusal(
-            "model.reason.formula-notation-mismatch",
+            _formula_policy(authority_context)["refusal_reasons"]["notation-mismatch"],
             "expression",
             "Formula expression is not the canonical projection of its body",
         )
     try:
-        parsed = parse_formula_expression(
+        parsed = _parse_semantic_formula_expression(
             request, authority_context, operation_coordinates=operation_coordinates
         )
     except FormulaNotationRefusal as err:
@@ -1381,10 +1459,56 @@ def admit_formula_pair(
         cast(JsonValue, canonical_body if canonical_body is not None else body)
     ):
         raise FormulaPairRefusal(
-            "model.reason.formula-notation-mismatch",
+            _formula_policy(authority_context)["refusal_reasons"]["notation-mismatch"],
             "expression",
             "Formula expression does not reconstruct its canonical body",
         )
+
+
+def parse_formula_expression(
+    request: dict[str, Any],
+    authority_context: AdmittedAuthorityContext,
+    *,
+    operation_coordinates: frozenset[tuple[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Interpret one authored request through its admitted Source role mapping."""
+    semantic = _parse_semantic_formula_expression(
+        _project_formula_request(request, authority_context),
+        authority_context,
+        operation_coordinates=operation_coordinates,
+    )
+    _, formula_schema = _authored_formula_schemas(authority_context)
+    body_schema = source_schema_member(
+        formula_schema,
+        authority_context.source_native_binding_index.members["source.formula.body"],
+    )[1]
+    return author_source_value(
+        semantic, body_schema, authority_context.source_native_binding_index
+    )
+
+
+def admit_formula_pair(
+    request: dict[str, Any],
+    authority_context: AdmittedAuthorityContext,
+) -> None:
+    """Admit an authored body/expression pair through the Source boundary."""
+    try:
+        admit_semantic_formula_pair(
+            _project_formula_request(request, authority_context), authority_context
+        )
+    except FormulaPairRefusal as error:
+        _, formula_schema = _authored_formula_schemas(authority_context)
+        member_slot = {
+            "body": "source.formula.body",
+            "expression": "source.formula.expression",
+        }.get(error.member)
+        semantic_member = (
+            authority_context.source_native_binding_index.members[member_slot]
+            if member_slot is not None
+            else error.member
+        )
+        member, _ = source_schema_member(formula_schema, semantic_member)
+        raise FormulaPairRefusal(error.reason_id, member, error.message) from error
 
 
 def _render_operand(operand: object, grammar: dict[str, Any]) -> str:
@@ -1420,6 +1544,7 @@ def _render_operation_call(
     catalog: dict[tuple[str, str], dict[str, Any]],
     grammar: dict[str, Any],
     notation_schema: dict[str, Any],
+    operation_source: dict[str, Any],
 ) -> str:
     coordinate = node.get("operation")
     if not isinstance(coordinate, dict):
@@ -1428,18 +1553,20 @@ def _render_operation_call(
         (cast(str, coordinate.get("package")), cast(str, coordinate.get("id")))
     )
     if operation is None or operation.get("purity") != "pure":
-        raise FormulaNotationRefusal(
-            "model.reason.unresolved-name",
+        raise _FormulaContextError(
+            "name-unresolved",
             "Formula operation call is unresolved or effectful",
         )
-    notation = _validated_operation_notation(operation, grammar, notation_schema)
+    notation = _validated_operation_notation(
+        operation, grammar, notation_schema, operation_source
+    )
     if notation is None:
         raise ValueError("Formula operation has no admitted notation declaration")
     arguments = node.get("arguments")
     ordered_ports = notation.get("ordered_ports")
     if not isinstance(arguments, list) or not isinstance(ordered_ports, list):
         raise _FormulaContextError(
-            "model.reason.formula-type-mismatch",
+            "type-mismatch",
             "Formula notation has no total ordered port mapping",
         )
     by_port = {
@@ -1449,7 +1576,7 @@ def _render_operation_call(
     }
     if set(by_port) != set(ordered_ports) or len(by_port) != len(arguments):
         raise _FormulaContextError(
-            "model.reason.formula-type-mismatch",
+            "type-mismatch",
             "Formula operation arguments do not match notation ports",
         )
     rendered = [_render_operand(by_port[port], grammar) for port in ordered_ports]
@@ -1505,11 +1632,13 @@ def _render_formula_body(
     authority_context: AdmittedAuthorityContext,
 ) -> str:
     """Render one structured Formula body from sealed operation notation."""
-    grammar, notation_schema = _notation_authority(authority_context)
+    grammar, notation_schema, operation_source = _notation_authority(authority_context)
     if not isinstance(body, dict):
         raise ValueError("Formula body must be an object")
-    if set(body) == {"node", "parameter"} and body.get("node") == "parameter":
-        return _identifier(body.get("parameter"), grammar)
+    inline = inline_parameter_contract(authority_context.kernel)
+    operand = inline.operand(body)
+    if operand is not None:
+        return _render_operand(operand, grammar)
     nodes = body.get("nodes")
     result = body.get("result")
     if not isinstance(nodes, list) or not isinstance(result, dict):
@@ -1525,7 +1654,9 @@ def _render_formula_body(
             raise ValueError("Formula local identities must be unique")
         seen_locals.add(local)
         if node.get("node") == "operation-call":
-            expression = _render_operation_call(node, catalog, grammar, notation_schema)
+            expression = _render_operation_call(
+                node, catalog, grammar, notation_schema, operation_source
+            )
         elif node.get("node") == "formula-call":
             expression = _render_formula_call(node, grammar)
         elif node.get("node") == "conditional":
@@ -1549,7 +1680,7 @@ def _render_formula_body(
     return "\n".join(lines)
 
 
-def render_formula_body(
+def render_semantic_formula_body(
     body: object,
     authority_context: AdmittedAuthorityContext,
 ) -> str:
@@ -1559,4 +1690,29 @@ def render_formula_body(
     except FormulaNotationRefusal:
         raise
     except ValueError as err:
-        raise _contextual_refusal(err) from err
+        raise _contextual_refusal(err, authority_context) from err
+
+
+def render_formula_body(
+    body: object,
+    authority_context: AdmittedAuthorityContext,
+) -> str:
+    """Read one authored body through its Source role before rendering notation."""
+    try:
+        if not isinstance(body, dict):
+            raise ValueError("Formula body must be an object")
+        _, formula_schema = _authored_formula_schemas(authority_context)
+        body_schema = source_schema_member(
+            formula_schema,
+            authority_context.source_native_binding_index.members[
+                "source.formula.body"
+            ],
+        )[1]
+        semantic = project_source_value(
+            body, body_schema, authority_context.source_native_binding_index
+        ).value
+        return render_semantic_formula_body(semantic, authority_context)
+    except FormulaNotationRefusal:
+        raise
+    except ValueError as err:
+        raise _contextual_refusal(err, authority_context) from err

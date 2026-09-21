@@ -1,0 +1,167 @@
+{
+  "scope": "Delete unneeded name sorting for value-program input bindings; retain uniqueness and instruction order.",
+  "base": "73bdbaa6324998c7d0cac96a143deef8e13649b0",
+  "review_head": "560a8cf85454f1a93f97df20747054a98f8ba5a9",
+  "kernel": "sha256:b13ab5a5e3a6741bfca0ccd70b8e033bdeea0d11bf076aef54d021ae59c0e582",
+  "authority_files_changed": [],
+  "decision": "Remove the sorting gate from production admission, independent admission and inventory. Both actual evaluators use a name-to-value mapping and normalize cache keys internally; no authoring adapter is added.",
+  "independent_probe": {
+    "capture_origin": "fresh rerun; original review probes had inline tool output only",
+    "reviewed_head": "560a8cf85454f1a93f97df20747054a98f8ba5a9",
+    "kernel_identity": "sha256:b13ab5a5e3a6741bfca0ccd70b8e033bdeea0d11bf076aef54d021ae59c0e582",
+    "scope": "value-program input.operands only; no admission code changes",
+    "vectors": 24,
+    "permutations": 2276,
+    "phases": [
+      "initialization",
+      "event",
+      "observation"
+    ],
+    "reference_observations": 2276,
+    "production_observations": 6828,
+    "assertion": "all seven observation fields equal unchanged authored expect for every operand row permutation",
+    "duplicate_probe_scope": "direct evaluators bypass admission; demonstrates why duplicate-name refusal must remain",
+    "duplicate_observations": [
+      {
+        "duplicate_position": "first",
+        "operands": [
+          {
+            "name": "right",
+            "value": 0
+          },
+          {
+            "name": "left",
+            "value": -9223372036854775808
+          },
+          {
+            "name": "right",
+            "value": 9223372036854775807
+          }
+        ],
+        "production": {
+          "cache_entries": 0,
+          "charge": 2,
+          "outcome": "admitted",
+          "result": 9223372036854775807,
+          "result_artifact": true,
+          "signal": null,
+          "site": "formula.maximum.extrema"
+        },
+        "reference": {
+          "cache_entries": 0,
+          "charge": 2,
+          "outcome": "admitted",
+          "result": 9223372036854775807,
+          "result_artifact": true,
+          "signal": null,
+          "site": "formula.maximum.extrema"
+        }
+      },
+      {
+        "duplicate_position": "last",
+        "operands": [
+          {
+            "name": "left",
+            "value": -9223372036854775808
+          },
+          {
+            "name": "right",
+            "value": 9223372036854775807
+          },
+          {
+            "name": "right",
+            "value": 0
+          }
+        ],
+        "production": {
+          "cache_entries": 0,
+          "charge": 2,
+          "outcome": "admitted",
+          "result": 0,
+          "result_artifact": true,
+          "signal": null,
+          "site": "formula.maximum.extrema"
+        },
+        "reference": {
+          "cache_entries": 0,
+          "charge": 2,
+          "outcome": "admitted",
+          "result": 0,
+          "result_artifact": true,
+          "signal": null,
+          "site": "formula.maximum.extrema"
+        }
+      }
+    ],
+    "elapsed_seconds": 0.415766
+  },
+  "primary_checks": {
+    "red": {
+      "tests": 1,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 0
+    },
+    "green": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "integration": {
+      "tests": 177,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "permanent_witness": "Non-order-preserving left/right rename to z_left/a_right retains two authority admissions and actual observations. Original and renamed graphs exercise every operand permutation with independent evaluation and three production lifecycle phases. Duplicate right=0 at first/last position refuses in A/B and inventory.",
+  "source_sha256_at_review_head": {
+    "src/gda_balancing/domain/runtime/execution.py": "cc1ab5f7522f5dcf379ba32e17c47b048ca44d97c866726e98038260a4d9bb3f",
+    "src/gda_balancing/domain/authority/package_validation.py": "4e7dbff94bae487ced7fd81a9f42cd29f6f357441c3a38a1cb27b39cb4da38f0",
+    "tests/schema2_authority_support.py": "51d91d9c4f5223b02909d3040fa207edea67321be587b934ed9ca73c9a77b8dc",
+    "tests/schema2_bootstrap_conformance_support.py": "9a3ee9d87bdc4e6623f4aebbaa3e529e792cc5728f00950195f4b12a1337b157",
+    "tests/schema2_extension_inventory_support.py": "fa9cc4c63dcb23d44a43c007fc4123593a1833a063bd57a568a5a7a8f2aba40f",
+    "tests/schema2_value_program_production_support.py": "603892d68315e8996f9bfd1514bc4d62ae482b46aba043c59084bf99cbe94848",
+    "tests/schema2_value_program_reference_support.py": "4dc4c97d90e98970742e785ce3c41ed48805688fe114ced1a532c0f655d33373"
+  },
+  "raw_evidence": [
+    {
+      "path": "/private/tmp/gda-878-value-standards-evidence/probe_operand_permutations.py",
+      "bytes": 5740,
+      "sha256": "191ec819f3158a2fb84d2e3fdbe04594bb20e8a621ed296374c78d048fcfa86d"
+    },
+    {
+      "path": "/private/tmp/gda-878-value-standards-evidence/recaptured-results.json",
+      "bytes": 15726,
+      "sha256": "962713add5b2b5560364782a85b45c484b54a8f9a04dc1a8d9d8931b8bb04c10"
+    },
+    {
+      "path": "/private/tmp/gda-878-value-standards-evidence/scope.json",
+      "bytes": 1411,
+      "sha256": "bf53ba753aeb2bbf3a2192a1f03bed4ba80d12b8746d1cb4e9b87a5849f9f2c8"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/value-order-red.xml",
+      "bytes": 7222,
+      "sha256": "a53d7f62a6ce7b24fde561637d6a5840672201c8880792aa7e9999872dc8b9b5"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/value-order-green.xml",
+      "bytes": 1162,
+      "sha256": "428bf6c2998e03da01751a24126835ecbb89e68632156109c60d9ae1123ed5a5"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/value-order-integration.xml",
+      "bytes": 27767,
+      "sha256": "c6ca841594e4bf735b11dd5c32a7decb22d90d97eedb6f913ab24539eb5bd1ed"
+    }
+  ],
+  "static": "Ruff check/format and full Pyright passed.",
+  "limits": [
+    "This is a finite vector wire constraint deletion, not complete Extension Invariance.",
+    "The original independent review initially suggested an authoring sorter; actual authority/behavior checks support deleting the gate instead.",
+    "Input element shape/numeric validation, name uniqueness, instruction order, cache canonicalization and numerical vector expectations are unchanged.",
+    "The full current required CI and final complete graph/fixed-build proof remain open."
+  ]
+}

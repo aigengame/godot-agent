@@ -1,0 +1,987 @@
+"""Finite independent Scenario execution and Runtime artifact consumption.
+
+Execution reads selected RIR semantics. The independently checked source context
+supplies RIR admission, input/output wire contracts and fixed Kernel identity recipes.
+"""
+
+from copy import deepcopy
+from pathlib import Path
+import hashlib
+import platform
+from typing import Any
+
+import jsonschema
+
+from schema2_operation_execution_independent_support import (
+    ReferenceEventFrame,
+    ReferenceEventDispatch,
+    _reference_fact_rows,
+    reference_execute_event,
+)
+from schema2_bootstrap_conformance_support import (
+    _consumer_b_evaluate_structured_value_vector,
+)
+from test_schema2_model_lowerer_conformance import (
+    ModelSourceContext,
+    _reference_artifact,
+    _reference_content_identity,
+    _reference_semantic_artifacts,
+)
+
+
+class IndependentRuntimeUnsupported(ValueError):
+    """This reference build refuses unsupported scope; not a language fault."""
+
+
+def _coordinate(symbol):
+    return tuple(symbol[key] for key in ("model", "module", "name"))
+
+
+def _schema(context, name):
+    return next(
+        row["schema"]
+        for row in context.language_bundle["language"]["artifact_wire_schemas"]
+        if row.get("protocol_role") == name
+    )
+
+
+def _metric_identity(metric):
+    members = (
+        "id",
+        "kind",
+        "unit",
+        "dimensions",
+        "window",
+        "aggregation",
+        "replication",
+        "missing",
+        "censoring",
+        "observation",
+    )
+    return _reference_content_identity(
+        "metric-definition-v2", {name: metric[name] for name in members}
+    )
+
+
+def _build_identity():
+    sources = []
+    for name in (
+        "schema2_runtime_independent_support.py",
+        "schema2_operation_execution_independent_support.py",
+        "schema2_bootstrap_conformance_support.py",
+        "test_schema2_model_lowerer_conformance.py",
+    ):
+        content = Path(__file__).with_name(name).read_bytes()
+        sources.append(
+            {"path": name, "content_sha256": hashlib.sha256(content).hexdigest()}
+        )
+    return _reference_content_identity("evaluator-build-v1", sources)
+
+
+def _reference_experiment_judgments(context, specification):
+    language = context.language_bundle["language"]
+    selected = []
+    for metric in specification["metrics"]:
+        discriminator = {
+            **{
+                name: deepcopy(metric[name])
+                for name in (
+                    "kind",
+                    "aggregation",
+                    "replication",
+                    "missing",
+                    "censoring",
+                )
+            },
+            "observation": {"source": metric["observation"]["source"]},
+            "window": {"kind": metric["window"]["kind"]},
+        }
+        definitions = [
+            row
+            for row in language["experiment_metric_judgments"]
+            if row["selector"] == discriminator
+        ]
+        if len(definitions) != 1:
+            raise ValueError("Independent Metric selection is not unique")
+        selected.append({"metric": metric["id"], "judgment": deepcopy(definitions[0])})
+    acceptance = [
+        row
+        for row in language["experiment_acceptance_judgments"]
+        if row["id"] == specification["acceptance"]["policy"]
+    ]
+    if len(acceptance) != 1:
+        raise ValueError("Independent acceptance selection is not unique")
+    return {"metrics": selected, "acceptance": deepcopy(acceptance[0])}
+
+
+def _supported_shape(specification, rir, judgments, execution_roles):
+    if len(specification["scenarios"]) != 1:
+        raise IndependentRuntimeUnsupported("this checkpoint supports one Scenario")
+    if rir["initialization_programs"] or rir["formula_bindings"]:
+        raise IndependentRuntimeUnsupported(
+            "Formula lifecycle execution is not implemented"
+        )
+    scenario = specification["scenarios"][0]
+    if any(event.get("payload") for event in scenario["event_plan"]):
+        raise IndependentRuntimeUnsupported("transition payloads are not implemented")
+    if scenario["terminal_condition"]["kind"] not in {"queue-drained", "event-count"}:
+        raise IndependentRuntimeUnsupported("unsupported terminal condition")
+    names = [row["resolved_symbol"]["name"] for row in rir["declarations"]]
+    if len(names) != len(set(names)):
+        raise IndependentRuntimeUnsupported(
+            "ambiguous display names are not implemented"
+        )
+    declarations_by_name = {
+        row["resolved_symbol"]["name"]: row for row in rir["declarations"]
+    }
+    for metric, selected in zip(
+        specification["metrics"], judgments["metrics"], strict=True
+    ):
+        observed = declarations_by_name.get(metric["observation"]["member"])
+        if not (
+            selected["judgment"]["operator"] == "single-terminal-integer"
+            and metric["dimensions"] == []
+            and observed is not None
+            and observed["role"] == execution_roles["state"]
+            and isinstance(observed.get("numeric_policy"), str)
+        ):
+            raise IndependentRuntimeUnsupported("unsupported Metric projection")
+    runtime = rir["selected_semantics"]["execution_laws"]["runtime_program"]
+    allowed = {
+        "integer-add",
+        "integer-subtract",
+        "integer-multiply",
+        "integer-floor-divide",
+        "typed-literal",
+        "copy-value",
+        "integer-compare",
+        "select-value",
+        "state-write",
+        "invoke-operation",
+        "bounded-pure-fold",
+        "bounded-list-append",
+        "schedule-operation",
+        "guarded-outcome-block",
+        "typed-require",
+        "bounded-lookup",
+        "collection-is-empty",
+        "canonical-equal",
+        "gameplay-precondition",
+    }
+    # Capability names belong to this declared machine, not authored Operation IDs.
+    operators = {row["id"]: row["semantics"]["operator"] for row in runtime["nodes"]}
+    operations = {
+        (row["package"], row["definition"]["id"]): row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+    }
+    entrypoints = {row["id"]: row for row in rir["entrypoints"]}
+    reachable = set()
+    supported_effects = set()
+    required_nodes = set()
+    root_operations = []
+
+    def instructions(body):
+        for instruction in body:
+            required_nodes.add(instruction["node"])
+            operator = operators[instruction["node"]]
+            if operator not in allowed:
+                raise IndependentRuntimeUnsupported(
+                    f"unimplemented reachable instruction semantics: {operator}"
+                )
+            if operator in {
+                "invoke-operation",
+                "bounded-pure-fold",
+                "schedule-operation",
+            }:
+                visit(instruction["operation"])
+            if operator == "guarded-outcome-block":
+                instructions(instruction["body"])
+
+    def visit(reference):
+        coordinate = (reference["package"], reference["id"])
+        if coordinate in reachable:
+            return
+        reachable.add(coordinate)
+        operation = operations[coordinate]
+        instructions(operation["body"])
+        supported_effects.update(operation["effects"])
+
+    for event in scenario["event_plan"]:
+        if event["kind"] == "transition-invocation":
+            root = entrypoints[event["entrypoint"]]["operation"]
+            root_operations.append(operations[(root["package"], root["id"])])
+            visit(root)
+    required = {
+        "operation_kinds": sorted(
+            {operations[key]["operation_kind"] for key in reachable}
+        ),
+        "instruction_nodes": sorted(required_nodes),
+        "effects": sorted(
+            {effect for row in root_operations for effect in row["effects"]}
+        ),
+        "numeric_policies": sorted({row["numeric_policy"] for row in root_operations}),
+        "rng_algorithms": [specification["seed"]["algorithm"]],
+        "runtime_profiles": [specification["runtime"]["profile"]],
+    }
+    missing = [
+        node
+        for node in required["instruction_nodes"]
+        if operators.get(node) not in allowed
+    ]
+    if missing:
+        raise IndependentRuntimeUnsupported(
+            f"unimplemented instruction semantics: {missing}"
+        )
+    numeric_policies = sorted(
+        row["id"] for row in rir["selected_semantics"]["numeric_profiles"]
+    )
+    profiles = [
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row.get("evaluation") == runtime["version"]
+        and row.get("runtime_program_version") == runtime["version"]
+        and row.get("numeric_policy") in numeric_policies
+        and row.get("numeric_law") == runtime["numeric"]["id"]
+    ]
+    if specification["runtime"]["profile"] not in {row["id"] for row in profiles}:
+        raise IndependentRuntimeUnsupported(
+            "runtime profile has no supported numeric law"
+        )
+    available = {
+        "operation_kinds": ["event-program", "event-fragment", "pure-expression"],
+        "instruction_nodes": sorted(
+            node for node, operator in operators.items() if operator in allowed
+        ),
+        "effects": sorted(supported_effects),
+        "numeric_policies": numeric_policies,
+        "rng_algorithms": [runtime["named_rng"]["algorithm"]],
+        "runtime_profiles": sorted(row["id"] for row in profiles),
+    }
+    for member, values in required.items():
+        if not set(values) <= set(available[member]):
+            raise IndependentRuntimeUnsupported(
+                f"unimplemented evaluator requirement: {member}"
+            )
+    return available, required
+
+
+def reference_runtime_artifacts(
+    context: ModelSourceContext, rir: dict[str, Any], specification: dict[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """Execute a supported Scenario independently, then identify its six members."""
+    if rir != _reference_semantic_artifacts(context)["rir-semantic-payload"]:
+        raise ValueError("RIR does not equal independent compilation")
+    jsonschema.Draft202012Validator(
+        _schema(context, "experiment-specification")
+    ).validate(specification)
+    if specification["model"] != {"rir_semantic_identity": rir["semantic_identity"]}:
+        raise ValueError("Experiment selects a different semantic program")
+    judgments = _reference_experiment_judgments(context, specification)
+    semantic = rir["selected_semantics"]
+    execution_roles = semantic["symbol_role_bindings"]
+    available, _required = _supported_shape(
+        specification, rir, judgments, execution_roles
+    )
+    runtime = semantic["execution_laws"]["runtime_program"]
+    scheduler = runtime["scheduler"]
+    journal = scheduler["runtime_journal"]
+    profile = next(
+        row
+        for row in semantic["runtime_profiles"]
+        if row["id"] == specification["runtime"]["profile"]
+    )
+    bounds = profile["resource_bounds"]
+    experiment_identity = _reference_content_identity(
+        context.kernel["meta_format"]["language_definitions"][
+            "wire_schema_protocol_roles"
+        ]["experiment_input_structure"]["identity"]["domain"],
+        specification,
+    )
+    profile_domain = context.kernel["meta_format"]["runtime_profile_definition"][
+        "domain"
+    ]
+    resolved_profile = _reference_artifact(
+        context,
+        "resolved-runtime-profile",
+        {
+            "experiment_identity": experiment_identity,
+            "rir_semantic_identity": rir["semantic_identity"],
+            "runtime_profile_definition_identity": _reference_content_identity(
+                profile_domain, profile
+            ),
+            "runtime_profile": deepcopy(profile),
+            "experiment_judgments": judgments,
+        },
+    )
+    binding = {
+        "experiment_identity": experiment_identity,
+        "resolved_runtime_profile_identity": resolved_profile["content_identity"],
+    }
+    scenario = specification["scenarios"][0]
+    scenario_id = scenario["id"]
+    identity_rule = scheduler["event_identity"]
+
+    def order(event):
+        result = []
+        for rule in scheduler["ordering"]:
+            value = event["ordering_key"][rule["member"]]
+            if "rank" in rule:
+                value = rule["rank"].index(value)
+            result.append(-value if rule["direction"] == "descending" else value)
+        return tuple(result)
+
+    def identify_event(fields, projection):
+        material = {
+            "experiment_identity": experiment_identity,
+            "scenario_id": scenario_id,
+            **fields,
+        }
+        return _reference_content_identity(
+            identity_rule["domain"], {key: material[key] for key in projection}
+        )
+
+    roots = []
+    root_map = []
+    for index, authored in enumerate(scenario["event_plan"]):
+        ordering = {
+            "logical_time": authored["logical_time"],
+            "phase": scheduler["root_phases"][authored["kind"]],
+            "priority": authored["priority"],
+            "enqueue_sequence": index,
+        }
+        event_id = identify_event(
+            {"root_event_ref": authored["root_event_ref"], **ordering},
+            identity_rule["variants"]["root"],
+        )
+        roots.append(
+            {
+                **deepcopy(authored),
+                "event_id": event_id,
+                "ordering_key": ordering,
+                "zero_time_depth": 0,
+            }
+        )
+        del roots[-1]["logical_time"]
+        del roots[-1]["priority"]
+        root_map.append(
+            {
+                "scenario": scenario_id,
+                "root_event_ref": authored["root_event_ref"],
+                "event_id": event_id,
+            }
+        )
+    pending = sorted(roots, key=order)
+    if not pending or len(pending) > bounds["max_queue_events"]:
+        raise IndependentRuntimeUnsupported("empty root plan or queue budget refusal")
+    if len(pending) + len(specification["metrics"]) > bounds["max_total_events"]:
+        raise IndependentRuntimeUnsupported(
+            "terminal-audit production is not implemented"
+        )
+    catalog = []
+    events = []
+    snapshots = []
+    catalog_identity = _reference_content_identity(
+        journal["event_catalog"]["domain"], []
+    )
+    trace_identity = _reference_content_identity(
+        journal["committed_trace"]["domain"], []
+    )
+    root_map_identity = _reference_content_identity(
+        journal["root_event_map"]["domain"], root_map
+    )
+
+    def catalog_event(event):
+        nonlocal catalog_identity
+        record = {
+            "scenario": scenario_id,
+            "event_id": event["event_id"],
+            "kind": event["kind"],
+            "ordering_key": deepcopy(event["ordering_key"]),
+            "event_spec": deepcopy(event),
+            "event_spec_identity": _reference_content_identity(
+                journal["event_spec"]["domain"], event
+            ),
+        }
+        catalog.append(record)
+        catalog_identity = _reference_content_identity(
+            journal["event_catalog"]["domain"],
+            {"previous_identity": catalog_identity, "record": record},
+        )
+
+    for event in pending:
+        catalog_event(event)
+    declarations = {
+        _coordinate(row["resolved_symbol"]): row for row in rir["declarations"]
+    }
+    state_keys = {
+        key
+        for key, row in declarations.items()
+        if row["role"] == execution_roles["state"]
+    }
+    initializers = {}
+    for entrypoint in rir["entrypoints"]:
+        for row in entrypoint["scenario_input_contract"]["initializers"]:
+            initializers[_coordinate(row["target"])] = deepcopy(row["value"])
+    initializers.update(
+        {
+            _coordinate(row["target"]): deepcopy(row["value"])
+            for row in scenario["assignments"]
+        }
+    )
+
+    def admit_value(key, value):
+        declaration = declarations[key]
+        if declaration.get("value_kind") == "nominal-structured":
+            if (
+                not isinstance(value, dict)
+                or value.get("type") != declaration["type_identity"]
+            ):
+                raise ValueError("input nominal owner differs from declaration")
+            result = _consumer_b_evaluate_structured_value_vector(
+                {
+                    "input": {
+                        "action": "admit",
+                        "left": value,
+                        "right": None,
+                        "key": None,
+                        "limit": None,
+                    }
+                },
+                selected_semantics=semantic,
+                resource_limit=semantic["execution_resources"]["max_rule_match_steps"],
+            )
+            if result["outcome"] != "admitted":
+                raise ValueError("input structured value is not admitted")
+        else:
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ValueError("input quantity is not an integer")
+            interval = declaration["domain"]
+            if not interval["minimum"] <= value <= interval["maximum"]:
+                raise ValueError("input quantity is outside declared domain")
+            if (
+                not runtime["numeric"]["minimum"]
+                <= value
+                <= runtime["numeric"]["maximum"]
+            ):
+                raise ValueError("input quantity is outside numeric domain")
+
+    for key, value in initializers.items():
+        admit_value(key, value)
+    input_sequences = {}
+    for authored in scenario["event_plan"]:
+        if authored["kind"] != "external-input":
+            continue
+        source = authored["source_identity"]
+        if authored["source_sequence"] != input_sequences.get(source, 0):
+            raise ValueError("external input source sequence is not contiguous")
+        input_sequences[source] = authored["source_sequence"] + 1
+        for row in authored["facts"]:
+            key = _coordinate(row["target"])
+            if declarations[key]["role"] != execution_roles["input"]:
+                raise ValueError("external input must target an input declaration")
+            admit_value(key, row["value"])
+    frame = ReferenceEventFrame(initializers, {}, {}, 0, {})
+    next_sequence = len(roots)
+    lifecycle = runtime["runtime_configuration"]["lifecycle_roles"]
+    boundaries = runtime["step"]["boundary_roles"]
+
+    def state_rows():
+        return [
+            {
+                "name": declarations[key]["resolved_symbol"]["name"],
+                "value": deepcopy(frame.values[key]),
+            }
+            for key in sorted(state_keys)
+        ]
+
+    def snapshot(event, event_steps, boundary, lifecycle_state, name):
+        event_id = event["event_id"] if event else None
+        logical_time = event["ordering_key"]["logical_time"] if event else None
+        current = {
+            "index": len(snapshots),
+            "event_id": event_id,
+            "logical_time": logical_time,
+        }
+        continuation = {
+            "lifecycle_state": lifecycle_state,
+            "step_boundary": boundary,
+            "scenario_cursor": 0,
+            "event_catalog": {
+                "count": len(catalog),
+                "prefix_identity": catalog_identity,
+            },
+            "pending_event_count": len(pending),
+            "committed_trace": {
+                "count": len(events),
+                "prefix_identity": trace_identity,
+            },
+            "current_snapshot": current,
+            "rng": [],
+            "resource_ledger": {
+                "event_steps": event_steps,
+                "node_steps": frame.node_steps,
+                "queue_events": len(pending),
+                "total_events": len(catalog),
+            },
+            "next_enqueue_sequence": next_sequence,
+            "root_event_map_identity": root_map_identity,
+            "resolved_runtime_profile_identity": resolved_profile["content_identity"],
+        }
+        row = {
+            **current,
+            "name": name,
+            "scenario": scenario_id,
+            "values": state_rows(),
+            "continuation": continuation,
+        }
+        fields = {
+            "experiment_identity": experiment_identity,
+            "scenario_id": scenario_id,
+            **row,
+        }
+        contract = scheduler["snapshot_identity"]
+        row["snapshot_identity"] = _reference_content_identity(
+            contract["domain"], {key: fields[key] for key in contract["projection"]}
+        )
+        snapshots.append(row)
+        return row["snapshot_identity"]
+
+    def commit_event(event, charge, boundary, lifecycle_state, snapshot_name):
+        nonlocal trace_identity
+        events.append(event)
+        trace_identity = _reference_content_identity(
+            journal["committed_trace"]["domain"],
+            {"previous_identity": trace_identity, "record": event},
+        )
+        event["snapshot_after_identity"] = snapshot(
+            event, charge, boundary, lifecycle_state, snapshot_name
+        )
+
+    snapshot(
+        None, 0, boundaries["initial"], lifecycle["ready"], f"{scenario_id}:initial"
+    )
+    operations = {
+        (row["package"], row["definition"]["id"]): row["definition"]
+        for row in semantic["operations"]
+    }
+    entrypoints = {row["id"]: row for row in rir["entrypoints"]}
+    maximum = scenario["terminal_condition"].get("maximum")
+    committed = 0
+    while pending:
+        active = pending.pop(0)
+        ordering = active["ordering_key"]
+        if ordering["logical_time"] > bounds["max_logical_time"]:
+            raise IndependentRuntimeUnsupported(
+                "terminal-audit production is not implemented"
+            )
+        if active["kind"] == "external-input":
+            before = state_rows()
+            updated = dict(frame.values)
+            updated.update(
+                {
+                    _coordinate(row["target"]): deepcopy(row["value"])
+                    for row in active["facts"]
+                }
+            )
+            frame = ReferenceEventFrame(
+                updated, frame.rng_states, frame.rng_indices, frame.node_steps, ordering
+            )
+            contract = scheduler["external_input_identity"]
+            material = {
+                "experiment_identity": experiment_identity,
+                "scenario_id": scenario_id,
+                **active,
+            }
+            external_identity = _reference_content_identity(
+                contract["domain"],
+                {key: material[key] for key in contract["projection"]},
+            )
+            actual = {
+                "operation": None,
+                "entrypoint": None,
+                "calls": [],
+                "outcome": {"id": "input-admitted", "kind": "success"},
+                "facts": _reference_fact_rows(
+                    {key[2]: value for key, value in frame.values.items()}
+                ),
+                "state_before": before,
+                "state_after": state_rows(),
+                "rng_draws": [],
+                "schedules": [],
+                "cancellations": [],
+            }
+            charge = 0
+        else:
+            entrypoint = (
+                entrypoints[active["entrypoint"]]
+                if active["kind"] == "transition-invocation"
+                else None
+            )
+            ref = (
+                entrypoint["operation"]
+                if entrypoint is not None
+                else active["operation"]
+            )
+            coordinate = (ref["package"], ref["id"])
+            actual = reference_execute_event(
+                {},
+                operations[coordinate],
+                operations,
+                scenario,
+                seed=specification["seed"]["value"],
+                resolved_entrypoint=entrypoint,
+                resolved_declarations=rir["declarations"],
+                resolved_call_sites=rir["call_sites"],
+                root_operation_coordinate=coordinate,
+                selected_semantics=semantic,
+                resource_limit=bounds["max_node_steps"],
+                include_execution_evidence=True,
+                frame=ReferenceEventFrame(
+                    frame.values,
+                    frame.rng_states,
+                    frame.rng_indices,
+                    frame.node_steps,
+                    ordering,
+                ),
+                dispatch=ReferenceEventDispatch(
+                    active, experiment_identity, next_sequence
+                ),
+            )
+            if "refusal" in actual:
+                raise IndependentRuntimeUnsupported(
+                    f"terminal-audit production is not implemented: {actual['refusal']}"
+                )
+            charge = actual.pop("execution_evidence")["resource_charge"]
+            frame = actual.pop("continuation")
+            children = actual.pop("scheduled_events")
+            for child in children:
+                if (
+                    child["ordering_key"]["logical_time"] > bounds["max_logical_time"]
+                    or child["zero_time_depth"] > bounds["max_zero_time_depth"]
+                ):
+                    raise IndependentRuntimeUnsupported(
+                        "scheduled Event resource refusal"
+                    )
+                catalog_event(child)
+            next_sequence += len(children)
+            pending.extend(children)
+            pending.sort(key=order)
+            if (
+                len(pending) > bounds["max_queue_events"]
+                or len(catalog) > bounds["max_total_events"]
+            ):
+                raise IndependentRuntimeUnsupported("scheduled Event resource refusal")
+            external_identity = None
+        if charge > bounds["max_event_steps"]:
+            raise IndependentRuntimeUnsupported(
+                "terminal-audit production is not implemented"
+            )
+        actual.update(
+            {
+                "index": len(events),
+                "event_id": active["event_id"],
+                "ordering_key": deepcopy(ordering),
+                "external_input_identity": external_identity,
+                "observation": None,
+                "formula_evaluations": [],
+                "snapshot_before_identity": snapshots[-1]["snapshot_identity"],
+            }
+        )
+        if "root_event_ref" in active:
+            actual["root_event_ref"] = active["root_event_ref"]
+        else:
+            actual["parent_event_id"] = active["parent_event_id"]
+            actual["schedule_call_site_identity"] = active["call_site_identity"]
+        committed += 1
+        logical_boundary = (
+            not pending
+            or pending[0]["ordering_key"]["logical_time"] != ordering["logical_time"]
+        )
+        done = (
+            not pending
+            or maximum is not None
+            and committed >= maximum
+            and logical_boundary
+        )
+        boundary = (
+            boundaries["terminal"]
+            if done
+            else boundaries["logical"]
+            if logical_boundary
+            else None
+        )
+        commit_event(
+            actual,
+            charge,
+            boundary,
+            lifecycle["ready"] if boundary is not None else lifecycle["active"],
+            f"{scenario_id}:event:{active['event_id']}",
+        )
+        # Operation output bindings are Event facts, not persistent Scenario cells.
+        frame = ReferenceEventFrame(
+            {
+                key: value
+                for key, value in frame.values.items()
+                if declarations[key]["role"] != execution_roles["output"]
+            },
+            frame.rng_states,
+            frame.rng_indices,
+            frame.node_steps,
+            frame.ordering_key,
+        )
+        if done:
+            break
+    terminal_event = events[-1]
+    terminal_snapshot = snapshots[-1]["snapshot_identity"]
+    terminal_time = terminal_event["ordering_key"]["logical_time"]
+    observations = []
+    samples = []
+    for index, metric in enumerate(specification["metrics"]):
+        metric_id = _metric_identity(metric)
+        ordering = {
+            "logical_time": terminal_time,
+            "phase": scheduler["observation"]["phase"],
+            "priority": scheduler["observation"]["priority"],
+            "enqueue_sequence": next_sequence,
+        }
+        event_id = identify_event(
+            {"metric_definition_identity": metric_id, **ordering},
+            identity_rule["variants"]["observation"],
+        )
+        next_sequence += 1
+        catalog_event(
+            {
+                "kind": "observation",
+                "event_id": event_id,
+                "metric_definition_identity": metric_id,
+                "ordering_key": ordering,
+            }
+        )
+        event = {
+            "index": len(events),
+            "event_id": event_id,
+            "ordering_key": ordering,
+            "entrypoint": None,
+            "operation": None,
+            "outcome": {"id": "observation-emitted", "kind": "success"},
+            "state_before": state_rows(),
+            "state_after": state_rows(),
+            "facts": _reference_fact_rows(
+                {key[2]: value for key, value in frame.values.items()}
+            ),
+            "calls": [],
+            "rng_draws": [],
+            "schedules": [],
+            "cancellations": [],
+            "formula_evaluations": [],
+            "external_input_identity": None,
+            "observation": {
+                "metric": metric["id"],
+                "metric_definition_identity": metric_id,
+                "window": deepcopy(metric["window"]),
+            },
+            "snapshot_before_identity": snapshots[-1]["snapshot_identity"],
+        }
+        last = index == len(specification["metrics"]) - 1
+        commit_event(
+            event,
+            0,
+            boundaries["terminal"] if last else boundaries["observation"],
+            lifecycle["terminal"] if last else lifecycle["active"],
+            f"{scenario_id}:terminal"
+            if last
+            else f"{scenario_id}:observation:{metric['id']}",
+        )
+        observations.append(event_id)
+        value = next(
+            row["value"]
+            for row in event["state_after"]
+            if row["name"] == metric["observation"]["member"]
+        )
+        if type(value) is not int:
+            raise IndependentRuntimeUnsupported("noninteger Metric sample")
+        observation = metric["observation"]
+        samples.append(
+            {
+                "metric": metric["id"],
+                "metric_definition_identity": metric_id,
+                "scenario": scenario_id,
+                "status": "value",
+                "value": value,
+                "unit": metric["unit"],
+                "logical_time": terminal_time,
+                "event_id": event_id,
+                "snapshot_identity": snapshots[-1]["snapshot_identity"],
+                "window": metric["window"]["name"],
+                "dimensions": [],
+                "replication_identity": scenario_id,
+                "source_kind": "simulated",
+                "provenance": {
+                    "scenario": scenario_id,
+                    "observation_source": observation["source"],
+                    "observation_name": observation["name"],
+                    "observation_member": observation["member"],
+                },
+                "within_target": metric["target"]["minimum"]
+                <= value
+                <= metric["target"]["maximum"],
+                "source": observation["source"],
+                "member": observation["member"],
+            }
+        )
+    statuses = [
+        {
+            "scenario": scenario_id,
+            "condition": deepcopy(scenario["terminal_condition"]),
+            "reason": "event-count-reached"
+            if maximum is not None and committed >= maximum
+            else "queue-drained",
+            "event_count": committed,
+            "terminal_event_id": terminal_event["event_id"],
+            "terminal_snapshot_identity": terminal_snapshot,
+            "observation_event_ids": observations,
+            "final_snapshot_identity": snapshots[-1]["snapshot_identity"],
+            "logical_time": terminal_time,
+        }
+    ]
+    common = {**binding, "root_event_map": root_map}
+    trace = _reference_artifact(
+        context,
+        "event-trace",
+        {
+            **common,
+            "scenario": scenario_id,
+            "terminal_statuses": statuses,
+            "events": events,
+        },
+    )
+    series = _reference_artifact(
+        context,
+        "snapshot-series",
+        {
+            **common,
+            "scenario": scenario_id,
+            "event_trace_identity": trace["content_identity"],
+            "event_catalog": catalog,
+            "snapshots": snapshots,
+        },
+    )
+    samples.sort(
+        key=lambda row: (row["metric_definition_identity"], row["replication_identity"])
+    )
+    dataset = _reference_artifact(
+        context,
+        "metric-dataset",
+        {
+            **binding,
+            "metric_definition_identities": sorted(
+                {_metric_identity(row) for row in specification["metrics"]}
+            ),
+            "data_version": "1",
+            "partition": "evaluation",
+            "ordering": "metric-definition-identity,replication-identity",
+            "ingestion_transformation_identity": None,
+            "samples": samples,
+        },
+    )
+    acceptance = judgments["acceptance"]
+    if (
+        acceptance["operator"] != "all-metrics-within-target"
+        or not samples
+        or any(type(row["within_target"]) is not bool for row in samples)
+    ):
+        raise ValueError("Independent acceptance has unsupported inputs or operator")
+    failed = [row["metric"] for row in samples if not row["within_target"]]
+    outcome = "rejected" if failed else "accepted"
+    outcome_roles = [
+        role
+        for role in context.kernel["meta_format"]["language_definitions"][
+            "wire_schema_protocol_roles"
+        ]["metric_outcome_structure"]["outcomes"]
+        if _schema(context, role)["properties"]["outcome"] == {"const": outcome}
+    ]
+    if len(outcome_roles) != 1:
+        raise ValueError("Independent acceptance has no unique outcome contract")
+    primary_name = outcome_roles[0]
+    primary = _reference_artifact(
+        context,
+        primary_name,
+        {
+            **common,
+            "event_trace_identity": trace["content_identity"],
+            "snapshot_series_identity": series["content_identity"],
+            "metric_dataset_identity": dataset["content_identity"],
+            "terminal_statuses": statuses,
+            "outcome": _schema(context, primary_name)["properties"]["outcome"]["const"],
+            **({"failed_metrics": failed} if failed else {}),
+        },
+    )
+    manifest = _reference_artifact(
+        context,
+        "evaluator-capability-manifest",
+        {
+            "implementation": "gda-balancing.independent-runtime-test-consumer-v1",
+            "evaluator_build_identity": _build_identity(),
+            "platform": {
+                "implementation": platform.python_implementation(),
+                "python": platform.python_version(),
+                "system": platform.system(),
+                "machine": platform.machine() or "unknown",
+            },
+            **available,
+        },
+    )
+    return {
+        primary_name: primary,
+        "event-trace": trace,
+        "snapshot-series": series,
+        "metric-dataset": dataset,
+        "resolved-runtime-profile": resolved_profile,
+        "evaluator-capability-manifest": manifest,
+    }
+
+
+def reference_admits_runtime_artifacts(context, rir, specification, artifacts):
+    """Check supplied members against fresh independent execution and wire identity."""
+    try:
+        expected = reference_runtime_artifacts(context, rir, specification)
+        roles_by_kind = {
+            value["artifact_kind"]: role for role, value in expected.items()
+        }
+        actual_by_role = {}
+        for value in artifacts.values():
+            role = roles_by_kind.get(value.get("artifact_kind"))
+            if role is None or role in actual_by_role:
+                return False
+            actual_by_role[role] = value
+        artifacts = actual_by_role
+        if set(expected) != set(artifacts):
+            return False
+        for name, actual in artifacts.items():
+            payload = {
+                key: value
+                for key, value in actual.items()
+                if key
+                not in {
+                    "artifact_kind",
+                    "artifact_version",
+                    "wire_schema_identity",
+                    "content_identity",
+                }
+            }
+            if _reference_artifact(context, name, payload) != actual:
+                return False
+            if name != "evaluator-capability-manifest" and actual != expected[name]:
+                return False
+        available = artifacts["evaluator-capability-manifest"]
+        _, required = _supported_shape(
+            specification,
+            rir,
+            _reference_experiment_judgments(context, specification),
+            rir["selected_semantics"]["symbol_role_bindings"],
+        )
+        return all(
+            set(values) <= set(available[key]) for key, values in required.items()
+        )
+    except (KeyError, ValueError, TypeError, StopIteration, jsonschema.ValidationError):
+        return False

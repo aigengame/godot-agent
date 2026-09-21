@@ -19,7 +19,9 @@ binding deletion; the [execution-identity record](refactor/current-language/EXEC
 records the native contract while full integration and CI acceptance remain pending.
 The [S3 contract record](refactor/current-language/NAMESPACE-CONTRACT.md)
 accounts for #872's final deletion witnesses and rollback; #879 and full conformance retain
-their separate acceptance.
+their separate acceptance. #879 requires physical deletion of RIR `domain_kind`, the obsolete
+`maximum` RIR wire-union branch, and every remaining fallback or compatibility binding after
+dependency closure; deprecation or an ignored parallel reader is not closure.
 
 The refactor keeps typed language, compiler and Runtime responsibilities, real execution-policy
 identity, exact content integrity, and consistent in-flight inputs. It does not activate the
@@ -829,6 +831,43 @@ meta-format. They cover grammar, name resolution, typing, effects, lowering, eva
 steps, diagnostic construction, and resource exhaustion. Rule prose explains a rule; it does not
 replace its structured semantics.
 
+Core input/output responsibilities use Kernel-defined Artifact protocol roles. The LDB
+binds each role on one Wire Schema Definition and links identified artifacts through
+the existing Artifact Contract. Schema names, artifact kind names and publication labels
+do not become host dispatch authority; extension schemas may omit a core role
+(bADR-0012). Resolution recipes address semantic Source members through the admitted
+Source projection and own only their lexical binder names. Diagnostics map projected
+semantic paths back through the projection's authored paths, so a Wire Schema rename
+does not create a second editable routing address.
+
+Event Trace structure is derived from the actual Kernel in the language index.
+The Kernel owns its closed protocol containers and reuses the existing scheduler,
+outcome and nominal-value contracts. The LDB retains the Schema declaration and
+Artifact Contract binding, with distinct open names, but cannot author an independent
+Trace `schema`. Independent admission constructs the same projection without using
+the production generator. Source grammar and nominal Record/Enum values retain their
+existing owners; this Trace change does not relocate all artifact schemas (bADR-0013).
+
+The Source Wire Schema Definition also owns `formula_grammar` and
+`operation_notation_schema`. The Kernel requires both on its Source protocol role;
+generic notation remains in `standard.schema`, independently of contextual compiler
+resolution. These are explicit authority fields, outside the Source JSON Schema.
+Their old `$defs` metadata placement and unused grammar-version gate are deleted
+(#878, bADR-0024). Grammar changes retain exact Package/LDB integrity without changing
+the identity of an unchanged Source Schema.
+
+The compiler Resolution profile owns contextual Formula policy in its required, closed
+`formula_resolution` field. Admission relates its selectors to the actual Source Schema
+and local-result inference to existing Kernel node laws. Real budgets, charges, aliases
+and normalization choices remain in that owner. The former compiler extension wrapper,
+nine ineffective configuration fields and the inconsistent extra body-node filter are
+deleted. Source alternatives and their Kernel contract define accepted Formula shapes;
+there is no second per-profile syntax subset. Formula lifecycle phases come from the
+Kernel Runtime laws: initialization from `formula_initialization_phase`, Event from
+the active lifecycle role, and observation from the scheduler observation contract.
+The unused RuntimeProfile extension and static `context.frame` labels are deleted;
+Runtime reads the laws in its selected execution closure (bADR-0024).
+
 The pure-expression judgment is closed to literals, typed reads, pure calls, value selection, local
 bindings, statically bounded aggregation, and lookup. Named-stream sampling is a separate judgment
 with a statically declared random-stream effect; it is never reclassified as pure. Recursion and
@@ -892,7 +931,9 @@ remains owned by Model Source.
 
 Formula evaluation uses one timing model across derived values and Operations. A Formula itself has
 no lifecycle timing. Every read or call lowers to an identified evaluation site with explicit
-operands and context.
+operands and a phase-only context. The actual Initialization-frame or Snapshot identity
+remains a separate dynamic evaluation input; deleting a static frame label does not
+remove that identity or its cache and artifact checks.
 
 A `derived` Symbol is read-only computed data, not stored state. Repeated reads at one site use the
 same pure result and deterministic charge vector when the frame or Snapshot, operands, and Numeric
@@ -1591,15 +1632,16 @@ difference alone no longer forces a different semantic profile or forbids exact 
 
 `standard.experiment` owns `exact-replay-v1` under the Kernel-admitted
 `language.replay_comparison_policies` collection. The native definition has `id`, one policy-wide
-`comparator`, and an ordered `checks` list of stable keys, with no own-version label. The initial
-policy uses `canonical-equal` for these four keys:
+`comparator`, and an ordered `checks` list that directly references the Kernel Replay vector's
+`observation_members`, with no own-version label or spelling aliases. The initial policy uses
+`canonical-equal` for these four members:
 
 | Check key |
 | --- |
-| `evaluation-outcome-status` |
-| `event-trace-identity` |
-| `snapshot-series-identity` |
-| `metric-dataset-identity` |
+| `evaluation_outcome_status` |
+| `event_trace_identity` |
+| `snapshot_series_identity` |
+| `metric_dataset_identity` |
 
 The exact Replay contract requires pure Runtime-profile identity equality before dispatch.
 This is a fixed precondition, not a policy field or caller-selectable mode. Event-trace identity
@@ -1689,6 +1731,19 @@ receipt and index. Commit and recovery use those framing contracts; execution-re
 admission reuses the admitted request's selected output contracts. Schema/kind/digest checks,
 independent cross-artifact admission, authenticated anchors and atomic visibility remain.
 Publication does not look up omitted framing meaning in the full LDB.
+
+One closed Kernel `publication_structure` owns manifest, receipt and index framing (bADR-0012).
+One authority projection derives their Wire Schemas and the receipt's transport-only identity
+exclusions, reusing the common artifact envelope. LDB declarations retain their actual schema and
+artifact kind names through unique role-to-contract bindings. Authored framing Schema overrides,
+the receipt-only projection API and the redundant `manifest.frame` / `publication-index.adapter`
+markers are deleted. The typed member map, invocation and command-input bindings, and authenticated
+committed anchor remain required. Transport relocation preserves receipt identity; changing the
+manifest still changes the bound receipt.
+
+The [Publication checkpoint](refactor/current-language/PRIORITY-WINDOW.md#publication-framing-structure)
+records the intentional manifest/index identity changes and the independent verification scope.
+It does not establish compatibility with previously authenticated publications or complete #878.
 
 Every successful `model build` artifact set includes its Debug Map and Model explanation. Its Build
 receipt and artifact-set framing bind both exact identities. If either projection cannot be
@@ -2002,30 +2057,37 @@ and deduplication, and explicit truncation before aggregation runs.
 
 #### First candidate/open evidence-verification slice
 
-Issue #541 delivers the first executable `evidence verify` judgment. This slice validates the exact
-artifact graph for the LDB-owned `evaluable` claim kind. A successful result is only
+Issue #541 delivers the first executable `evidence verify` judgment; #875 and #878 remove its
+unnecessary build bindings and duplicate graph representation. The current path validates actual
+artifacts and the selected LDB claim's eligibility. The packaged claim id is `evaluable`; the command
+reads the admitted definition and does not hardcode that id in its result. A successful result is only
 `candidate`/open. It does not issue an Evidence assertion, authenticate an independent Verifier, or
 close a claim.
 
 The current command takes explicit `rir`, `specification` and
-`experiment_run_artifact_set_receipt` inputs, plus `claim_kind: evaluable`. It independently admits
-the supplied RIR, checks the Experiment's semantic binding, authenticates the complete original
-run publication and validates its semantic outcome. Model Source, compiler invocation and a
+`experiment_run_artifact_set_receipt` inputs, plus the selected `claim_kind`. It authenticates the
+complete original run publication, independently admits the supplied RIR, checks the Experiment's
+semantic binding, selects the claim and validates the complete semantic outcome before judging
+eligibility. Model Source, compiler invocation and a
 Model-build publication are not prerequisites. Build provenance remains separately verifiable
 when claimed. No store scan, sibling-path guessing or replacement receipt supplies execution input.
 
-The LDB-owned prerequisite graph relates five subjects: existing RIR semantic identity, Experiment,
-pure Runtime profile, supplied evaluator manifest and authenticated Experiment-run Artifact-set
-receipt. Experiment binds RIR meaning; the profile binds Experiment and RIR; the publication binds
-Experiment, profile and producer. Missing, extra, duplicate, mismatched, unresolved and cyclic
-prerequisites remain refusals. Post-dispatch refusal additionally requires the complete terminal
-audit and all independent journal, rollback and cross-artifact checks.
+The candidate result names five subjects directly: existing RIR semantic identity, Experiment,
+pure Runtime profile, original evaluator manifest and authenticated Experiment-run Artifact-set
+receipt. Experiment admission owns the RIR binding. Full ArtifactSet admission recomputes the
+expected profile, checks every result member and producer capability, and validates journal,
+rollback and terminal-audit closure. Publication admission authenticates original member bytes,
+identities and closed membership. These owners replace the duplicate authored subject/edge lists,
+host graph and graph-only checker; no replacement graph is added to the Kernel. Missing, extra or
+duplicate real members, false bindings, unsupported capabilities and incomplete terminal audits
+still refuse. Synthetic graph cycles have no public input representation; their retired diagnostics
+and edge pointers are not a compatibility contract.
 
 The `evaluable` judgment means that the Experiment, admitted RIR semantics, pure Runtime profile
 and supported producer passed admission and reached Runtime dispatch. A successful producing
 outcome, a completed `experiment-verdict` artifact set, or a complete post-dispatch Runtime-refusal
 outcome can support the judgment. Invalid Experiment or Metric intent, evaluator-capability failure,
-Runtime-profile admission failure, a pre-dispatch refusal, or an incomplete outcome graph cannot
+Runtime-profile admission failure, a pre-dispatch refusal, or an incomplete outcome set cannot
 support it. The judgment does not establish execution success, Metric-target success,
 reproducibility, cross-evaluator conformance, or Claim closure.
 
@@ -2131,15 +2193,28 @@ Closure publishes an independently validated Extension Invariance Receipt throug
 
 1. Freeze the identities of both independent implementation builds before traversing the witness
    graph.
-2. Traverse the complete reachable graph into a closed Non-Kernel Authority Token Inventory. The
-   inventory covers every non-Kernel identity that can affect resolution, dispatch, result decoding,
-   or trace.
+2. Root traversal in the declared witness's selected execution closure and the artifacts/results it
+   actually generates or consumes, then derive a closed Non-Kernel Authority Token Inventory. The
+   inventory covers every non-Kernel identity in that bounded graph that can affect resolution,
+   dispatch, result decoding, or trace. It excludes unrelated packages, unselected vector sets or
+   artifact families, and ordinary data strings.
 3. Independently validate an exhaustive bijection that renames every inventory member.
 4. Require both implementations to consume each other's artifacts without a rebuild.
 5. Bind the identical core projections and build identities, inventory, rename map, and public
    results into the receipt.
 
 An omitted token class or representative-only rename fails the gate.
+
+Issue #878 is the bounded early falsifier for this gate. It fixes two independent builds, exercises
+the declared priority witness's selected execution closure, renames explicitly selected
+extension-owned Type and Operation identities, and binds the complete admitted `selected_semantics`
+canonical hash/RIR semantic identity plus all eight Model artifact content identities. Only the
+twelve extension Type/Operation coordinates are enumerated; negative cases reject binding mismatch
+or omission without a hand-authored dependency-category manifest. A and B mutually consume the
+actual eight Model artifacts and six Runtime artifacts/results. It does not claim the exhaustive bounded
+bijection or publish or activate the formal Extension Invariance Receipt. Issue #575 retains that
+bijection, the complete scenario-family and receipt work; #542–#544 retain authenticated claim
+activation and trust ownership.
 
 No further disposable architecture prototypes are planned. Gate 1 resolved the bounded semantic-
 authority mechanism risk; additional validation belongs in the permanent conformance and production

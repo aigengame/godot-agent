@@ -1,0 +1,107 @@
+{
+  "head": "be57268d0bae18863008c955774d9e73fa370e28",
+  "status": "Confirmed counterexample; protocol-structure implementation is pending.",
+  "mutation": "Select the Wire Schema Definition by protocol_role event-trace. Rename schema.properties.events to trace_rows and its required item; reseal only the owning package and LDB root.",
+  "invariants": {
+    "source_files_equal": 124,
+    "kernel_unchanged_sha256": "af30666b8d65b73308d334f824fd46b589c20931a6d426ec56d9edaeac29ac05",
+    "only_changed_resources": [
+      "language-bundle.json",
+      "packages/standard-schema/standard.schema.json"
+    ],
+    "same_model_source_bytes": true,
+    "same_experiment_bytes": true,
+    "same_rir_value": true,
+    "generated_event_rows": 3,
+    "generated_events_equal_successful_baseline": true,
+    "terminal_statuses_equal_successful_baseline": true
+  },
+  "public_observations": [
+    {
+      "renamed": false,
+      "A": true,
+      "B": true,
+      "build_members": 8,
+      "experiment_check": true,
+      "run_exit": 0
+    },
+    {
+      "renamed": true,
+      "A": true,
+      "B": true,
+      "build_members": 8,
+      "experiment_check": true,
+      "run_exit": 4
+    }
+  ],
+  "consumer_boundary": {
+    "actual_method": "ArtifactContract.identify validates actual generated event-trace using the selected renamed Schema.",
+    "errors": [
+      {
+        "validator": "required",
+        "message": "'trace_rows' is a required property",
+        "path": [],
+        "schema_path": [
+          "required"
+        ]
+      },
+      {
+        "validator": "unevaluatedProperties",
+        "message": "Unevaluated properties are not allowed ('events' was unexpected)",
+        "path": [],
+        "schema_path": [
+          "unevaluatedProperties"
+        ]
+      }
+    ],
+    "observation_method": "Existing renamed prepared inputs; fresh task store; actual public dispatch and evaluator. Wrapper calls original ArtifactContract.identify, observes its exception and rethrows unchanged."
+  },
+  "projection_inventory": {
+    "schema_targets": 7,
+    "existing_field_declarations": 0,
+    "decision": "Keep both Artifact projection gaps until an actual field owner exists. Ordinary absent identity exclusion literals are legal no-ops, not dotted field paths."
+  },
+  "accepted_direction": "Declare irreducible core protocol structures in the Kernel and derive their schemas from those laws and existing semantic owners. Delete corresponding independently authored LDB structures. First validate one event-trace slice; no all-schema relocation or configurable host-key table.",
+  "preserved_variability": [
+    "LDB-owned Schema and Artifact kind names bound through protocol roles",
+    "Actual Source selectors and Formula grammar",
+    "Nominal Type/Record/Enum member identities and actual selected profile values"
+  ],
+  "next_validation": [
+    "Wrong fixed protocol shape refuses at authority admission",
+    "Current and coherently renamed Schema/Artifact kind public runs succeed",
+    "Nominal typed payload uses its actual declaration owner",
+    "Forged Trace semantic records still refuse"
+  ],
+  "raw_hash_verification": {
+    "trace_files": 29,
+    "projection_files": 19
+  },
+  "raw_evidence": [
+    {
+      "path": "/private/tmp/gda-878-trace-field-consumer-evidence/FINAL-RECEIPT.json",
+      "bytes": 11454,
+      "sha256": "fcf7f10d2479863e577353b2b266959f06022abdf12e6525cd4b83e2e4430833"
+    },
+    {
+      "path": "/private/tmp/gda-878-projection-inventory-evidence/FINAL-RECEIPT.json",
+      "bytes": 11800,
+      "sha256": "b3236bf897db8b7fdbdcf640699412dd59187b4b8c2ac280ec2af68ae06ba7ff"
+    },
+    {
+      "path": "/private/tmp/gda-878-ddma-wire-protocol-proof/public-trace-field.py",
+      "bytes": 2091,
+      "sha256": "f6873c223371a6ab3230e2e74a19d87133a331f15c90623819cb2ba334a09815"
+    },
+    {
+      "path": "/private/tmp/gda-878-trace-field-consumer-evidence/consumer-exception.json",
+      "bytes": 53446,
+      "sha256": "96c96a87f47ed56e9e80323820cd2ba8c298f1900795a5724dd68f99ed19b552"
+    }
+  ],
+  "limits": [
+    "The successful baseline did not include a separate Model check command.",
+    "The observer invokes and rethrows the original consumer; it does not replace execution or provide an oracle.",
+    "No complete field inventory, all-schema derivation, or final extension proof is established."
+  ]
+}

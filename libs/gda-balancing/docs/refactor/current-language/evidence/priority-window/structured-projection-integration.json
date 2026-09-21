@@ -1,0 +1,81 @@
+{
+  "base": "be57268d0bae18863008c955774d9e73fa370e28",
+  "kernel": "sha256:b13ab5a5e3a6741bfca0ccd70b8e033bdeea0d11bf076aef54d021ae59c0e582",
+  "ldb": "sha256:b2117315054db3054b0d7d0814179fb1761900546d60f19a0b865c96108c5b96",
+  "slices": {
+    "structured_inventory": "c468e5068a3a2de149e7595ad3326283ce051911",
+    "projection_addresses": "808f20a8014e4e612dafe064486b5299a6dfba0e"
+  },
+  "decisions": [
+    "Anonymous structured Type/value roles reuse existing typed traversal and actual independent observations.",
+    "RFC 6901 projections rewrite all selected decoded segments simultaneously; equal user text remains data.",
+    "Artifact semantic projection closure optionally reports existing validated Schema addresses. It introduces no new admission condition; inventory consumption is a following slice."
+  ],
+  "graph_scope": "Complete current LDB and its packages/vector sets, with bounded-fold Source; no Experiment or generated artifact/result graph yet.",
+  "inventory": {
+    "tokens": 1582,
+    "occurrences": 6138,
+    "gaps": 55
+  },
+  "primary_checks": {
+    "tests": 133,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "priority_public_check": {
+    "head": "7de2c5bd454b2cf33b9a7ac4f1dae185ec1b1c83",
+    "tests": 18,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "worker_projection_checks": {
+    "tests": 17,
+    "baseline_decisions": "13 cases exactly match old predicate, current no-output call and current output call; 1 accepted / 12 refused.",
+    "verified_raw_files": 14,
+    "changed_file_fingerprints_verified": 2
+  },
+  "independent_structured_review": {
+    "verdict": "0 actionable findings",
+    "scope": "560a8cf85...c468e5068: six permanent cases and nominal/anonymous owner and changed first-fault probes. A changed first-fault leaves an observation-mismatch gap."
+  },
+  "primary_changed_files": {
+    "tests/test_extension_inventory.py": "7b777c634015f89a11d9ac1df33cdd559e012df26ca5315b2e35150a2d0a0437",
+    "tests/test_extension_renaming.py": "3844e7a14ae9e8eb54d4cefef0a213a91f9e8514514ec6273edd14edd51189a1",
+    "tests/schema2_extension_renaming_support.py": "7ed3d6d2e32969fcfe58dc561a6764f3eab463835a79f272ac5af81e16c2d93d",
+    "tools/ci.py": "54576d6838261a5dfdde06ccc9841783a34195961a760f6f9fd3bc513f98bca3"
+  },
+  "raw_evidence": [
+    {
+      "path": "/private/tmp/gda-878-root/structured-projection-integration.xml",
+      "bytes": 20102,
+      "sha256": "204f65944394c9362dc36bb4bbdbf6196e8786a7ac646d8330cfc7b881eaf4b4"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/structured-projection-pyright.log",
+      "bytes": 37,
+      "sha256": "6d88a1b220adb7a3d62092b6e38431f0b3fe8babe9864fab90e5849766260332"
+    },
+    {
+      "path": "/private/tmp/gda-878-root/priority-7de.xml",
+      "bytes": 3014,
+      "sha256": "aa291c307ec2d3055c066e67f9772334ed23e6668793c87cf92c18355168ea1d"
+    },
+    {
+      "path": "/private/tmp/gda-878-projection-addresses-evidence/FINAL-RECEIPT.json",
+      "bytes": 9460,
+      "sha256": "e3354888cc17b7b3659c61effd153d5e326ae7f700255d55e0f9c488d9ce7bf2"
+    },
+    {
+      "path": "/private/tmp/gda-878-structured-inventory-receipt.json",
+      "bytes": 18845,
+      "sha256": "3912084b56e0456bbf963e694890788a09a950d170039588d9f50a437e64d566"
+    }
+  ],
+  "limits": [
+    "All 24 current structured vectors preserve their actual authored observations; only the complete Enum-selector rename is established, not all constructor renames.",
+    "Remaining gaps must close before complete token renaming and independent fixed-build exchange.",
+    "Ruff check/format and full Pyright passed; whole-issue required CI remains open."
+  ]
+}

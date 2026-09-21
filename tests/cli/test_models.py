@@ -3,6 +3,8 @@
 import json
 
 import jsonschema
+import pytest
+from pydantic import ValidationError
 
 from gda.commands.node import (
     NodeAddResult,
@@ -44,6 +46,9 @@ from gda.commands.export import (
     ExportRunResult,
 )
 from gda.commands.project import (
+    InputActionJoyAxisEvent,
+    InputActionJoyButtonEvent,
+    InputActionKeyEvent,
     ListedProjectSetting,
     ProjectAddAutoloadResult,
     ProjectAddInputActionResult,
@@ -273,6 +278,11 @@ def test_every_evidence_field_is_optional_in_the_published_schema():
         "target_location",
         "project_root",
         "owning_project",
+        # The two export-templates directories a --user-data-root redirect puts at
+        # odds (#840): the one this run checked, and the host one holding the
+        # templates it could not see.
+        "templates_root_checked",
+        "templates_root_host",
     }
 
 
@@ -825,9 +835,9 @@ def test_export_list_result_round_trips_a_project_with_no_presets():
 def test_export_get_result_round_trips_preset_details_and_template_status():
     # export get reports one preset's details plus export-template readiness
     # (issue #114): the preset's index/name/platform/runnable and export_path,
-    # then whether the running engine version's templates are installed and which
-    # version directory was checked — the readiness an agent asserts before an
-    # export run.
+    # then whether the running engine version's templates are installed, which
+    # version directory was checked and which directory it was looked for in
+    # (#840) — the readiness an agent asserts before an export run.
     payload = {
         "index": 1,
         "name": "Web",
@@ -836,6 +846,11 @@ def test_export_get_result_round_trips_preset_details_and_template_status():
         "export_path": "build/index.html",
         "templates_installed": True,
         "templates_version": "4.6.3.stable",
+        "templates_root": "/home/dev/data/Godot/export_templates",
+        # Nothing is hidden on an unredirected run, and the key is still emitted
+        # (as null) rather than dropped — the success half publishes its full key
+        # set, unlike the failure envelope's optional keys.
+        "templates_root_host": None,
     }
 
     got = ExportGetResult.model_validate(payload)
@@ -845,6 +860,8 @@ def test_export_get_result_round_trips_preset_details_and_template_status():
     assert got.export_path == "build/index.html"
     assert got.templates_installed is True
     assert got.templates_version == "4.6.3.stable"
+    assert got.templates_root == "/home/dev/data/Godot/export_templates"
+    assert got.templates_root_host is None
     assert json.loads(got.model_dump_json()) == payload
 
 
@@ -859,12 +876,19 @@ def test_export_get_result_round_trips_missing_templates():
         "export_path": "",
         "templates_installed": False,
         "templates_version": "4.6.3.stable",
+        # #840: the directory checked, and the host one whose templates a
+        # --user-data-root redirect hid — the pair that tells this shape ("hidden
+        # from this run") from the plain one below.
+        "templates_root": "/iso/data/Godot/export_templates",
+        "templates_root_host": "/home/dev/data/Godot/export_templates",
     }
 
     got = ExportGetResult.model_validate(payload)
 
     assert got.templates_installed is False
     assert got.export_path == ""
+    assert got.templates_root == "/iso/data/Godot/export_templates"
+    assert got.templates_root_host == "/home/dev/data/Godot/export_templates"
     assert json.loads(got.model_dump_json()) == payload
 
 
@@ -1210,6 +1234,17 @@ def test_project_get_result_round_trips_a_typed_setting():
     assert json.loads(got.model_dump_json()) == payload
 
 
+# The residual-mutation report every project WRITE result carries (#843), empty:
+# what a save that changed nothing besides the request reports. Spelled once so the
+# five round-trip payloads below stay a statement about their OWN echo.
+NO_RESIDUAL_MUTATION = {
+    "added_settings": [],
+    "rewritten_settings": [],
+    "restored_settings": [],
+    "sections_reordered": False,
+}
+
+
 def test_project_set_result_round_trips_the_coerced_setting():
     # project set echoes the one setting it wrote (issue #111): the setting name,
     # the declared type the CLI value was coerced to, and the coerced value as
@@ -1226,7 +1261,7 @@ def test_project_set_result_round_trips_the_coerced_setting():
     assert was_set.setting == "application/config/name"
     assert was_set.type == "String"
     assert was_set.value == "Renamed Game"
-    assert json.loads(was_set.model_dump_json()) == payload
+    assert json.loads(was_set.model_dump_json()) == payload | NO_RESIDUAL_MUTATION
 
 
 def test_project_add_autoload_result_round_trips_the_registered_autoload():
@@ -1242,7 +1277,7 @@ def test_project_add_autoload_result_round_trips_the_registered_autoload():
 
     assert added.name == "Global"
     assert added.path == "*res://global.gd"
-    assert json.loads(added.model_dump_json()) == payload
+    assert json.loads(added.model_dump_json()) == payload | NO_RESIDUAL_MUTATION
 
 
 def test_project_remove_autoload_result_round_trips_the_unregistered_name():
@@ -1253,14 +1288,13 @@ def test_project_remove_autoload_result_round_trips_the_unregistered_name():
     removed = ProjectRemoveAutoloadResult.model_validate(payload)
 
     assert removed.name == "Global"
-    assert json.loads(removed.model_dump_json()) == payload
+    assert json.loads(removed.model_dump_json()) == payload | NO_RESIDUAL_MUTATION
 
 
 def test_project_add_input_action_result_round_trips_the_registered_action():
     # project add-input-action echoes the action it registered (issue #380): the
     # name, the persisted deadzone, and each key event with the raw token, the
-    # resolved keycode, and whether it was bound as physical_keycode. `kind`
-    # discriminates the event type so mouse/joypad kinds can extend it later.
+    # resolved keycode, and whether it was bound as physical_keycode.
     payload = {
         "name": "jump",
         "deadzone": 0.2,
@@ -1274,10 +1308,59 @@ def test_project_add_input_action_result_round_trips_the_registered_action():
 
     assert added.name == "jump"
     assert added.deadzone == 0.2
-    assert [event.keycode for event in added.events] == [74, 4194320]
-    assert added.events[0].kind == "key"
-    assert added.events[1].physical is True
-    assert json.loads(added.model_dump_json()) == payload
+    keys = [event for event in added.events if isinstance(event, InputActionKeyEvent)]
+    assert [event.keycode for event in keys] == [74, 4194320]
+    assert keys[0].kind == "key"
+    assert keys[1].physical is True
+    assert json.loads(added.model_dump_json()) == payload | NO_RESIDUAL_MUTATION
+
+
+def test_project_add_input_action_result_round_trips_joypad_events():
+    # `kind` was put on the key event so joypad kinds could extend it (#380);
+    # #842 is that extension, as a DISCRIMINATED union: each kind validates into
+    # its own model with its own fields, and a wrong-kind field is a refusal
+    # rather than a silently ignored extra.
+    payload = {
+        "name": "jump",
+        "deadzone": 0.5,
+        "events": [
+            {"kind": "joy_button", "button": "A", "button_index": 0, "device": -1},
+            {
+                "kind": "joy_axis",
+                "axis": "LeftX:-",
+                "axis_index": 0,
+                "axis_value": -1.0,
+                "device": 1,
+            },
+        ],
+    }
+
+    added = ProjectAddInputActionResult.model_validate(payload)
+
+    button, axis = added.events
+    assert isinstance(button, InputActionJoyButtonEvent)
+    assert (button.button, button.button_index, button.device) == ("A", 0, -1)
+    assert isinstance(axis, InputActionJoyAxisEvent)
+    assert (axis.axis, axis.axis_index, axis.axis_value, axis.device) == (
+        "LeftX:-",
+        0,
+        -1.0,
+        1,
+    )
+    assert json.loads(added.model_dump_json()) == payload | NO_RESIDUAL_MUTATION
+
+
+def test_project_add_input_action_result_rejects_an_unknown_event_kind():
+    # The discriminator is closed: an event kind the contract does not publish is
+    # a validation refusal, not an untyped passthrough.
+    with pytest.raises(ValidationError):
+        ProjectAddInputActionResult.model_validate(
+            {
+                "name": "jump",
+                "deadzone": 0.5,
+                "events": [{"kind": "mouse_button", "button_index": 1}],
+            }
+        )
 
 
 def test_project_remove_input_action_result_round_trips_the_unregistered_name():
@@ -1288,6 +1371,24 @@ def test_project_remove_input_action_result_round_trips_the_unregistered_name():
     removed = ProjectRemoveInputActionResult.model_validate(payload)
 
     assert removed.name == "jump"
+    assert json.loads(removed.model_dump_json()) == payload | NO_RESIDUAL_MUTATION
+
+
+def test_a_project_write_result_round_trips_its_residual_mutation():
+    # The report is part of the write contract (#843), not a CLI-only decoration:
+    # it validates and re-emits like every other field of the result.
+    payload = {
+        "name": "jump",
+        "added_settings": ["application/config/features"],
+        "rewritten_settings": [],
+        "restored_settings": ["debug/file_logging/enable_file_logging"],
+        "sections_reordered": True,
+    }
+
+    removed = ProjectRemoveInputActionResult.model_validate(payload)
+
+    assert removed.restored_settings == ["debug/file_logging/enable_file_logging"]
+    assert removed.sections_reordered is True
     assert json.loads(removed.model_dump_json()) == payload
 
 

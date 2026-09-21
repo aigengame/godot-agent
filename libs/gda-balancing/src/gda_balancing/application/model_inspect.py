@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.artifact_set import ArtifactSetPlan
 from gda_balancing.domain.model import (
     ModelInspectAdmissionError,
     read_model_explanation,
@@ -21,7 +21,7 @@ class ModelExplanation:
 def inspect_model(
     receipt: str,
     descriptor_identity: str,
-    artifact_set: tuple[ArtifactSetMemberSpec, ...],
+    artifact_set: ArtifactSetPlan,
 ) -> ModelExplanation | Schema2RefusalReport:
     """Authenticate a build receipt and return its Model explanation."""
     try:

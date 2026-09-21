@@ -12,7 +12,17 @@ root (``gda.cli``).
 
 Live input injection into the RUNNING game's engine session via the gda harness
 (ADR-0017, ADR-0019). Key/mouse events ride the game's real input flow via the
-root viewport's push_input; actions go through Input.action_press/release. Mouse
+root viewport's push_input; actions go through Input.action_press/release. Those
+are two DISJOINT routes and every result names the one it used
+(``injection_route``, #838): an action changes the polled state and, ON THAT
+ROUTE, reaches no ``_input`` / ``_gui_input`` / ``_unhandled_input`` handler, so a
+successful action injection is not evidence that the event path works. That route
+is the default, not the only one an action can take: ``--as-event`` (``as_event``
+on a sequence ``action`` event) delivers the action as an ``InputEventAction``
+through the same ``push_input``, so it reaches those handlers and leaves the polled
+state untouched (#854). gda derives the route
+CLI-side from the event kind and that one opt-in — the harness reports what it
+injected, not which door it went through — in ONE place (:func:`injection_route`). Mouse
 event.position is the reliable injected coordinate; Godot does not expose a
 reliable daemon-session seam for updating Viewport.get_mouse_position() /
 Node2D.get_global_mouse_position(), so those tracked positions may stay stale. Every
@@ -30,12 +40,15 @@ reached the harness without passing the model (a direct daemon caller).
 
 import json
 from enum import Enum
+from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, get_args
 
 import typer
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
-from gda.dispatch import dispatch_domain, params_or_bad_parameter
+from gda import dispatch
+from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
+from gda.errors import Failure, classify_live, make_failure
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -46,12 +59,113 @@ from gda.headless import (
 )
 from gda.live_numbers import LIVE_ENGINE_PRECISION
 from gda.models import MAX_WINDOW_FRAMES, RelayedLiveParams
+from gda.runner import RunResult
 
 # The keyboard modifier names a key/sequence/tap may carry, mapped to the
 # InputEventKey modifier flag the harness sets. A Literal is the ONE authority for
 # runtime validation and the emitted enum (ADR-0015), so a schema client rejects a
 # typo such as "control" before it ever becomes a silently dropped harness flag.
 InputModifier = Literal["shift", "ctrl", "alt", "meta"]
+
+# How an injected input reaches the running game (#838). The group has exactly two
+# routes and they are DISJOINT: `action_state` drives Input.action_press /
+# Input.action_release, which changes the polled action state and constructs no
+# InputEvent at all, so no `_input` / `_gui_input` / `_unhandled_input` handler ever
+# sees it; `viewport_event` pushes an InputEvent through the root viewport, the same
+# surface real OS input flows through. A state change is not an event, and reading a
+# successful action injection as evidence that the event path works cost two
+# dogfooding rounds a false product diagnosis (GDA-DF-048, GDA-DF-075). One Literal
+# is the authority for the vocabulary and the emitted enum, as `InputModifier` is
+# for modifiers (ADR-0015).
+InjectionRoute = Literal["action_state", "viewport_event"]
+
+ACTION_STATE: InjectionRoute = "action_state"
+VIEWPORT_EVENT: InjectionRoute = "viewport_event"
+
+# The phase vocabulary an injected gesture or sequence reports, declared once for
+# the result field and for the per-event derivation that fills it.
+InputPhaseName = Literal["move", "press", "release"]
+
+# The route EVERY event kind takes, declared per kind with NO fallback. A default
+# would silently claim `viewport_event` for a kind added later that changes state
+# instead — and no test could see it, since the wrong answer is the common one. The
+# key set is exactly the sequence union's membership (`InputEventType`, declared far
+# down this module and covering the single-frame ops' kinds too); a test holds the
+# two together, so a sixth kind fails on ABSENCE until it declares its route.
+INJECTION_ROUTES: dict[str, InjectionRoute] = {
+    "key": VIEWPORT_EVENT,
+    "mouse_click": VIEWPORT_EVENT,
+    "mouse_button": VIEWPORT_EVENT,
+    "mouse_move": VIEWPORT_EVENT,
+    "action": ACTION_STATE,
+}
+
+# The route field's description, written once: it rides six result models, so a
+# per-model copy would multiply the same two sentences.
+_INJECTION_ROUTE_DESC = (
+    "How the injection reached the game: 'action_state' for an action driven "
+    "through Input.action_press/action_release (a change to the POLLED action "
+    "state, delivered to no _input / _gui_input / _unhandled_input handler), or "
+    "'viewport_event' for an InputEvent pushed through the root viewport."
+)
+
+
+def injection_route(kind: str, *, as_event: bool = False) -> InjectionRoute:
+    """The route an injected event of ``kind`` takes into the running game (#838, #854).
+
+    The ONE place gda decides a route, and it takes exactly two inputs. It is
+    decided CLI-side because that is where the knowledge is: the harness reply
+    reports what was injected, not which of the engine's two doors it went through.
+    The KIND decides the default — an action is a state change; every other kind
+    (key, mouse click/button/move) is an event pushed through the root viewport.
+
+    ``as_event`` is the caller's explicit OPT-IN to the other door (#854): the state
+    route becomes the event route, because gda then builds an ``InputEventAction``
+    and pushes it through the same viewport. It is offered by the state-route kind
+    ALONE, read off the table above rather than from a second membership list, and
+    asking for it on a kind that already pushes an event raises — an inert flag is
+    the failure the group's per-kind rules exist to prevent (GDA-DF-037).
+
+    An undeclared kind RAISES rather than defaulting. Every caller passes either a
+    literal from this module or the validated ``type`` of a union variant, so an
+    unknown kind is a gda programming error, never caller input — and a wrong route
+    published as a fact is worse than a crash the test suite catches first.
+    """
+    try:
+        route = INJECTION_ROUTES[kind]
+    except KeyError:
+        raise ValueError(
+            f"no injection route is declared for the input kind {kind!r}; "
+            "add it to INJECTION_ROUTES"
+        ) from None
+    if not as_event:
+        return route
+    if route != ACTION_STATE:
+        raise ValueError(
+            f"the event mode is not declared for the input kind {kind!r}: it "
+            f"already takes the {route} route"
+        )
+    return VIEWPORT_EVENT
+
+
+def _action_reply_route(data: dict[str, object]) -> InjectionRoute:
+    """Decode the current harness's required action mode, not a version capability."""
+    mode = data.get("as_event")
+    if not isinstance(mode, bool):
+        raise ValueError("an action reply requires a boolean 'as_event' field.")
+    return injection_route("action", as_event=mode)
+
+
+def _route_correlation_error(
+    requested: InjectionRoute, applied: InjectionRoute
+) -> str | None:
+    """Compare the request with the public route produced by reply decoding."""
+    if requested == applied:
+        return None
+    return (
+        f"the harness applied the {applied} route for a request that asked for "
+        f"the {requested} route."
+    )
 
 
 class MouseButton(str, Enum):
@@ -71,7 +185,9 @@ class InputKeyParams(RelayedLiveParams):
     """The params of ``gda input key``: inject one key event (#221).
 
     Pushes an ``InputEventKey`` for ``key`` (with any ``modifiers``) into the
-    running game's root viewport, so it rides the game's real input flow. ``key``
+    running game's root viewport, so it rides the game's real input flow — the
+    ``viewport_event`` route, which is what ``_input``, ``_gui_input`` and
+    ``_unhandled_input`` handlers observe. ``key``
     is a Godot key name (e.g. ``Right``, ``A``, ``Space``, ``Escape``) the harness
     resolves with ``OS.find_keycode_from_string``; an unresolvable name is the
     typed ``live_invalid_key`` error. By default the event is a press; ``released``
@@ -101,7 +217,8 @@ class InputKeyResult(BaseModel):
     Echoes the resolved ``keycode`` (so an agent can confirm the name mapped as
     intended), the ``key`` name, the ``modifiers`` applied, and whether it was a
     ``pressed`` event — the live counterpart's confirmation that the event was
-    pushed at a frame boundary (ADR-0020).
+    pushed at a frame boundary (ADR-0020) — plus the ``injection_route`` it took,
+    always ``viewport_event`` for a key (#838).
     """
 
     kind: str = Field(default="key", description="The injected event kind ('key').")
@@ -111,6 +228,9 @@ class InputKeyResult(BaseModel):
         default_factory=list, description="The modifier keys held with the key."
     )
     pressed: bool = Field(description="True for a press event, false for a release.")
+    injection_route: InjectionRoute = Field(
+        default=injection_route("key"), description=_INJECTION_ROUTE_DESC
+    )
 
 
 class InputMouseClickParams(RelayedLiveParams):
@@ -186,10 +306,12 @@ class InputMouseMoveResult(BaseModel):
     """The result of ``gda input mouse-move``: the motion event injected (#221).
 
     Echoes the event ``kind`` (``mouse_move``), the viewport ``position`` it was
-    pushed to as ``[x, y]``, and the historically shared ``button`` / ``double``
+    pushed to as ``[x, y]``, the historically shared ``button`` / ``double``
     fields (always null for a move; ``mouse-click`` now reports its own gesture
-    result, :class:`InputMouseClickResult`). This echoed position mirrors the
-    mouse event's position; engine-tracked mouse positions may remain stale.
+    result, :class:`InputMouseClickResult`), and the ``injection_route`` it took,
+    always ``viewport_event`` for a motion event (#838). This echoed position
+    mirrors the mouse event's position; engine-tracked mouse positions may remain
+    stale.
     """
 
     kind: Literal["mouse_move"] = Field(
@@ -211,32 +333,70 @@ class InputMouseMoveResult(BaseModel):
         default=None,
         description="Always null for a move (a historical field).",
     )
+    injection_route: InjectionRoute = Field(
+        default=injection_route("mouse_move"), description=_INJECTION_ROUTE_DESC
+    )
 
 
 class InputEventPhase(BaseModel):
-    """One phase of an injected activation gesture (#652).
+    """One phase of an injected gesture or sequence (#652, #838).
 
     The structured evidence that an activation op injected the COMPLETE gesture
-    rather than a bare press: the 0-based process-frame offset within the op's
-    window, and the phase applied there (``move``, ``press``, or ``release``).
-    Both fields are constrained so a payload outside the gesture vocabulary
-    fails output validation (``contract_violation``) instead of passing through
-    as a successful result.
+    rather than a bare press: the 0-based frame offset within the op's
+    window, the phase applied there (``move``, ``press``, or ``release``), and the
+    route that phase took into the game. The route rides the PHASE rather than the
+    result's head because one sequence can hold both kinds and so mix the two; a
+    tap does not — its one target selects the route both its phases take (the state
+    route with ``--action``, the event route with ``--key``) — but it reports the
+    same per-phase shape. Every field is constrained so a payload outside the
+    vocabulary fails output validation (``contract_violation``) instead of passing
+    through as a successful result.
     """
 
     frame: int = Field(
-        ge=0, description="The 0-based process-frame offset within the op's window."
+        ge=0,
+        description=(
+            "The 0-based frame offset within the op's window, on the op's clock "
+            "(process frames; a sequence uses the clock its result reports)."
+        ),
     )
-    phase: Literal["move", "press", "release"] = Field(
+    phase: InputPhaseName = Field(
         description="The gesture phase applied at this frame: move, press, or release."
     )
+    injection_route: InjectionRoute = Field(description=_INJECTION_ROUTE_DESC)
+
+
+def _phases_routed(data: object, route: InjectionRoute) -> object:
+    """Fold a decoded route into each phase of a raw result payload (#838).
+
+    The harness reply names the phases and the frames they landed on; the ROUTE is
+    gda's to derive (:func:`injection_route`), so it is folded in BEFORE the phase
+    models are built. That is what lets ``InputEventPhase.injection_route`` be
+    required rather than a default nobody set. Returns a new payload — the incoming
+    mapping (a shared fixture, a caller's dict) is never mutated — and passes
+    anything that is not the expected shape through untouched, leaving the refusal
+    to the ordinary field validation.
+    """
+    if not isinstance(data, dict):
+        return data
+    phases = data.get("phases")
+    if not isinstance(phases, list):
+        return data
+    return {
+        **data,
+        "phases": [
+            {**phase, "injection_route": route} if isinstance(phase, dict) else phase
+            for phase in phases
+        ],
+    }
 
 
 class InputMouseClickResult(BaseModel):
     """The result of ``gda input mouse-click``: the complete click gesture injected (#652).
 
-    ``phases`` reports each injected phase and the window frame it landed on
-    (move at 0, press at 1, release at 2); ``focus_before`` / ``focus_after``
+    ``phases`` reports each injected phase, the window frame it landed on
+    (move at 0, press at 1, release at 2) and the ``injection_route`` it took
+    (always ``viewport_event`` for a click, #838); ``focus_before`` / ``focus_after``
     report the root viewport's focused Control around the gesture (null when
     none) — the activation evidence the engine exposes. The gesture contract is
     VALIDATED here, not merely described: a payload whose phases are not
@@ -283,6 +443,14 @@ class InputMouseClickResult(BaseModel):
         ),
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _name_the_route(cls, data: object) -> object:
+        # Every phase of a click is an InputEvent pushed through the root viewport,
+        # so the whole gesture takes one route — but it is still reported per phase,
+        # because a phase is where a mixed-route op (a sequence) can differ.
+        return _phases_routed(data, injection_route("mouse_click"))
+
     @model_validator(mode="after")
     def _check_gesture(self) -> "InputMouseClickResult":
         # The gesture IS the contract (#652): a reply whose phases are not
@@ -301,13 +469,36 @@ class InputMouseClickResult(BaseModel):
 class InputActionParams(RelayedLiveParams):
     """The params of ``gda input action``: press or release an input action (#221).
 
-    Drives ``Input.action_press`` / ``Input.action_release`` for the named action,
-    so the running game observes it through its ``InputMap`` exactly as a real
-    binding would fire. ``action`` MUST be declared in the running ``InputMap`` —
+    Drives ``Input.action_press`` / ``Input.action_release`` for the named action:
+    the ``action_state`` route, a change to the POLLED action state that
+    ``Input.is_action_pressed`` / ``is_action_just_pressed`` observe. It builds no
+    ``InputEvent``, so ``_input``, ``_gui_input`` and ``_unhandled_input`` never see
+    it — drive event-driven UI with ``gda input key`` or a mouse command (the
+    ``viewport_event`` route) instead, and use an action where the game polls
+    ``Input.is_action_*`` (#838). ``action`` MUST be declared in the running
+    ``InputMap`` —
     an unknown action is the typed ``live_unknown_action`` error (validated
     harness-side via ``InputMap.has_action``). By default the action is pressed;
     ``release`` releases it instead. ``strength`` is the analog strength of a press,
     0..1; it is ignored on a release.
+
+    ``as_event`` opts INTO the other route (#854): gda builds an
+    ``InputEventAction`` (action, pressed, strength) and pushes it through the root
+    viewport instead, so ``_input``, ``_gui_input`` and ``_unhandled_input``
+    handlers matching the action can receive it, while ``Input.is_action_pressed``
+    stays untouched. The default stays the state route — flipping it would silently
+    change what every existing call means. Delivery is ``Viewport.push_input``,
+    never ``Input.parse_input_event``, which would drive both routes at once and
+    collapse the two-valued ``injection_route`` into "both".
+
+    Matrix for an action and the key it is mapped to (Input.is_action_pressed |
+    _input/_unhandled_input | focused Control _gui_input):
+      input action            : yes | no  | no
+      input action --as-event : no  | yes | yes
+      input key <mapped key>  : no  | yes | yes
+
+    Delivery follows Godot's normal propagation and event consumption rules; the
+    route is not proof that every handler ran or that a UI action succeeded.
     """
 
     action: str = Field(
@@ -325,6 +516,17 @@ class InputActionParams(RelayedLiveParams):
         strict=True,
         description="The analog press strength, 0..1 (ignored on a release).",
     )
+    as_event: bool = Field(
+        default=False,
+        strict=True,
+        description=(
+            "Deliver the action as an InputEventAction pushed through the root "
+            "viewport (the viewport_event route) instead of changing the polled "
+            "action state: _input / _gui_input / _unhandled_input handlers "
+            "matching the action receive it, and Input.is_action_pressed stays "
+            "untouched."
+        ),
+    )
 
 
 class InputActionResult(BaseModel):
@@ -332,7 +534,13 @@ class InputActionResult(BaseModel):
 
     Echoes the ``action`` driven, whether it was a ``pressed`` event, and the
     ``strength`` applied (the press strength; 0.0 on a release) — confirmation the
-    action fired against the running ``InputMap`` at a frame boundary (ADR-0020).
+    action fired against the running ``InputMap`` at a frame boundary (ADR-0020) —
+    plus the ``injection_route`` it took: ``action_state`` for the default state
+    injection (#838), ``viewport_event`` when the caller asked for the event mode
+    (#854). That field is what keeps a state injection from reading as event-path
+    evidence — the polled state changed, no handler was called — and it is also the
+    whole disclosure of the mode: the route IS the echo, in the vocabulary every
+    input result already speaks.
     """
 
     kind: str = Field(
@@ -345,6 +553,27 @@ class InputActionResult(BaseModel):
             "The press strength applied (0.0 on a release). " + LIVE_ENGINE_PRECISION
         )
     )
+    injection_route: InjectionRoute = Field(
+        default=injection_route("action"), description=_INJECTION_ROUTE_DESC
+    )
+
+
+class _InputActionReply(RootModel[InputActionResult]):
+    """Decode a harness action reply into a public value inside the classifier."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _decode(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        return {**data, "injection_route": _action_reply_route(data)}
+
+
+def _classify_input_action(
+    result: RunResult, binary: Path | None
+) -> InputActionResult | Failure:
+    reply = classify_live(result, binary, _InputActionReply)
+    return reply if isinstance(reply, Failure) else reply.root
 
 
 class InputTapParams(RelayedLiveParams):
@@ -356,7 +585,17 @@ class InputTapParams(RelayedLiveParams):
     window frame 0, holds for ``hold_frames`` process frames, releases at frame
     ``hold_frames``, then lets ``settle_frames`` more frames run so the game
     observes the release before the op returns. Exactly one of ``key`` /
-    ``action`` selects the target; ``modifiers`` ride a key tap only,
+    ``action`` selects the target — and the target picks the ROUTE (#838): a key
+    tap pushes an ``InputEventKey`` through the root viewport (``viewport_event``,
+    which is what ``_input`` / ``_gui_input`` / ``_unhandled_input`` observe),
+    while an action tap drives ``Input.action_press`` / ``action_release``
+    (``action_state``, a change to the polled state that reaches no handler at
+    all). Tap a key for event-driven UI; tap an action where the game polls
+    ``Input.is_action_*`` — or add ``as_event`` to an ACTION tap (#854) to send
+    ``InputEventAction`` presses/releases through the viewport instead, which
+    reaches the handlers and leaves the polled state untouched (``gda input action
+    --help`` carries the full conformance matrix). It rides an action tap only: a
+    key tap already pushes an event. ``modifiers`` ride a key tap only,
     ``strength`` an action tap only. The whole window —
     ``hold_frames + settle_frames + 1`` frames — is bounded model-side to the
     shared per-window ceiling (ADR-0015, #223). The two failures that need the
@@ -415,6 +654,16 @@ class InputTapParams(RelayedLiveParams):
             "before the op returns."
         ),
     )
+    as_event: bool = Field(
+        default=False,
+        strict=True,
+        description=(
+            "Deliver an action tap as InputEventAction presses/releases pushed "
+            "through the root viewport (the viewport_event route) instead of "
+            "changing the polled action state. Rides an action tap only: a key "
+            "tap already pushes an event."
+        ),
+    )
 
     @model_validator(mode="after")
     def _check_tap(self) -> "InputTapParams":
@@ -430,6 +679,11 @@ class InputTapParams(RelayedLiveParams):
         if self.key is not None and self.strength is not None:
             raise ValueError(
                 "'strength' rides an action tap only; a key tap has no strength."
+            )
+        if self.key is not None and self.as_event:
+            raise ValueError(
+                "'as_event' rides an action tap only; a key tap already pushes an "
+                "event through the viewport."
             )
         if self.action is not None and self.strength is None:
             # The params model owns the derived default (ADR-0015): normalizing
@@ -454,7 +708,9 @@ class InputTapResult(BaseModel):
     Echoes the target — ``key`` + ``keycode`` + ``modifiers`` for a key tap,
     ``action`` + ``strength`` for an action tap; the other family is null — the
     frame counts, the injected ``phases`` (the press at window frame 0, the
-    release at frame ``hold_frames``), and the focus evidence around the gesture.
+    release at frame ``hold_frames``, each naming the ``injection_route`` its
+    target took — the event route for an action tap the caller opted into the
+    event mode, #854), and the focus evidence around the gesture.
     The evidence is VALIDATED, not merely described: exactly one target family,
     ``frames == hold_frames + settle_frames + 1``, and exactly the phases
     press@0 / release@hold_frames — a reply outside that contract fails output
@@ -555,7 +811,35 @@ class InputTapResult(BaseModel):
                 "a tap result reports exactly the phases press@0 and "
                 "release@hold_frames."
             )
+        if key_tap and any(p.injection_route != VIEWPORT_EVENT for p in self.phases):
+            raise ValueError("a key tap uses the viewport_event route.")
+        if len({phase.injection_route for phase in self.phases}) != 1:
+            raise ValueError(
+                "a tap result reports one injection route across both phases."
+            )
         return self
+
+
+class _InputTapReply(RootModel[InputTapResult]):
+    """Decode wire phases before the public tap model checks gesture invariants."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _decode(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        if data.get("action") is not None:
+            return _phases_routed(data, _action_reply_route(data))
+        if "as_event" in data:
+            raise ValueError("a key tap reply cannot carry 'as_event'.")
+        return _phases_routed(data, injection_route("key"))
+
+
+def _classify_input_tap(
+    result: RunResult, binary: Path | None
+) -> InputTapResult | Failure:
+    reply = classify_live(result, binary, _InputTapReply)
+    return reply if isinstance(reply, Failure) else reply.root
 
 
 # The event types a `gda input sequence` may carry. A sequence event reuses the
@@ -758,8 +1042,9 @@ class KeySequenceEvent(_SequenceEvent):
     """A key event in a sequence: the ``gda input key`` shape at a clock offset.
 
     Pushes an ``InputEventKey`` for ``key`` (with any ``modifiers``) into the
-    running game's root viewport. It presses by default and releases with
-    ``released`` — the action kind's ``release`` is NOT accepted here.
+    running game's root viewport — the ``viewport_event`` route, delivered to
+    ``_input`` / ``_gui_input`` / ``_unhandled_input``. It presses by default and
+    releases with ``released`` — the action kind's ``release`` is NOT accepted here.
     """
 
     type: Literal[InputEventType.KEY] = Field(description="The event kind.")
@@ -890,9 +1175,15 @@ class ActionSequenceEvent(_SequenceEvent):
     """An input action in a sequence: the ``gda input action`` shape.
 
     Drives ``Input.action_press`` / ``action_release`` for ``action``, which must
-    be declared in the running ``InputMap``. It presses by default and releases
-    with ``release`` — the mouse-button kind's ``pressed`` is NOT accepted here,
-    so a hold is a press event and a later ``release: true`` event.
+    be declared in the running ``InputMap``. This is the ``action_state`` route: it
+    changes the POLLED action state and builds no ``InputEvent``, so no ``_input``,
+    ``_gui_input`` or ``_unhandled_input`` handler sees it — use a ``key`` or mouse
+    event in the same sequence to drive event-driven UI (#838), or set ``as_event``
+    on this event to deliver the action itself as an ``InputEventAction`` through
+    the viewport (#854). One sequence may mix all three, and the result names the
+    route per phase. It presses by default and releases with ``release`` — the
+    mouse-button kind's ``pressed`` is NOT accepted here, so a hold is a press
+    event and a later ``release: true`` event.
     """
 
     type: Literal[InputEventType.ACTION] = Field(description="The event kind.")
@@ -910,6 +1201,16 @@ class ActionSequenceEvent(_SequenceEvent):
         le=1.0,
         strict=True,
         description="The analog press strength, 0..1.",
+    )
+    as_event: bool = Field(
+        default=False,
+        strict=True,
+        description=(
+            "Deliver this action as an InputEventAction pushed through the root "
+            "viewport (the viewport_event route) instead of changing the polled "
+            "action state, so _input / _gui_input / _unhandled_input handlers "
+            "matching it receive the event."
+        ),
     )
 
 
@@ -954,6 +1255,18 @@ class InputSequenceParams(RelayedLiveParams):
     rejected. The window runs for as many selected-clock frames as the largest event
     offset requires (at least one). ``events`` must be non-empty; each event is
     validated model-side (ADR-0015).
+
+    A sequence may mix the two INJECTION ROUTES (#838), so the result names one per
+    injected phase. An ``action`` event takes the ``action_state`` route —
+    ``Input.action_press`` / ``action_release``, a change to the polled action state
+    that reaches no ``_input`` / ``_gui_input`` / ``_unhandled_input`` handler —
+    while ``key``, ``mouse_click``, ``mouse_button`` and ``mouse_move`` events take
+    the ``viewport_event`` route, an ``InputEvent`` pushed through the root
+    viewport. An ``action`` event with ``as_event`` takes that second route too
+    (#854): gda pushes an ``InputEventAction`` through the viewport, so the
+    handlers see it and the polled state stays untouched. Drive event-driven UI
+    with the event kinds; use plain ``action`` events where the game polls
+    ``Input.is_action_*``.
 
     The window the sequence requests — ``max(offset) + 1`` frames on the selected
     clock — is bounded model-side to ``MAX_WINDOW_FRAMES`` (#223). The time-windowed
@@ -1008,6 +1321,72 @@ class InputSequenceParams(RelayedLiveParams):
         return self
 
 
+def _event_phases(event: "InputSequenceEvent") -> list[InputPhaseName]:
+    """The phases one sequence event injects, in the order the harness applies them.
+
+    Mirrors ``_apply_sequence_event`` harness-side: a motion event is a move, a
+    ``mouse_click`` is the press AND the release the harness pushes on the SAME
+    frame (a same-frame pair fully activates a ``Button``), and every other kind is
+    the single edge it spells with its own field — ``released`` for a key,
+    ``release`` for an action and for the normalized mouse-button phase.
+    """
+    if isinstance(event, MouseMoveSequenceEvent):
+        return ["move"]
+    if isinstance(event, MouseClickSequenceEvent):
+        return ["press", "release"]
+    if isinstance(event, KeySequenceEvent):
+        return ["release" if event.released else "press"]
+    return ["release" if event.release else "press"]
+
+
+def _event_route(event: "InputSequenceEvent") -> InjectionRoute:
+    """The route one sequence event takes: its kind, plus its own opt-in (#854).
+
+    The mode is a field of the ACTION variant alone, so it is read off the variant
+    rather than looked for on every kind — the union is what says which kinds can
+    ask for it, and ``injection_route`` is what says what asking means.
+    """
+    as_event = isinstance(event, ActionSequenceEvent) and event.as_event
+    return injection_route(event.type, as_event=as_event)
+
+
+def sequence_phases(params: "InputSequenceParams") -> list[InputEventPhase]:
+    """The phases a requested sequence injects, in APPLICATION order (#838).
+
+    Derived from the REQUEST, because the harness reply COUNTS the events without
+    enumerating them: only the CLI holds them. Each phase carries the offset its
+    event named on the sequence's clock and the route its kind takes — with the
+    per-event ``as_event`` opt-in folded in (#854) — so a sequence that mixes a
+    state action, an event-mode action and a key event reports each one's route
+    rather than one verdict for the whole window.
+
+    Ordered the way the harness APPLIES them, not the way the request listed them,
+    so a phase list reads like the gesture ops' — those report their phases in frame
+    order, and a sequence whose events were written out of order would otherwise
+    disagree with its siblings about what a phase list means. The harness's sampler
+    advances the selected clock one index at a time and, at each index, walks the
+    events in request order applying those due there; a STABLE sort by ``frame``
+    reproduces exactly that: by frame ascending, request order within a frame.
+    """
+    phases: list[tuple[int, InputPhaseName, InjectionRoute]] = [
+        (
+            (
+                event.physics_frame
+                if event.physics_frame is not None
+                else (event.frame or 0)
+            ),
+            phase,
+            _event_route(event),
+        )
+        for event in params.events
+        for phase in _event_phases(event)
+    ]
+    return [
+        InputEventPhase(frame=frame, phase=phase, injection_route=route)
+        for frame, phase, route in sorted(phases, key=lambda entry: entry[0])
+    ]
+
+
 class InputSequenceResult(BaseModel):
     """The result of ``gda input sequence``: what the harness injected (#221).
 
@@ -1015,7 +1394,8 @@ class InputSequenceResult(BaseModel):
     clock, ``physics`` for the explicit Godot physics clock), the number of
     ``events`` applied, and the number of ``frames`` the window spanned on that
     clock (one past the largest selected offset), confirming the whole sequence was
-    injected over the window at frame boundaries (ADR-0020).
+    injected over the window at frame boundaries (ADR-0020) — plus the ``phases``
+    the request injected and the route each took (#838).
     """
 
     kind: str = Field(default="sequence", description="The op kind ('sequence').")
@@ -1029,6 +1409,19 @@ class InputSequenceResult(BaseModel):
     events: int = Field(description="The number of events injected.")
     frames: int = Field(
         description="The number of selected-clock frames the window spanned."
+    )
+    phases: list[InputEventPhase] = Field(
+        default_factory=list,
+        description=(
+            "The phases the requested events injected and the offsets they landed "
+            "on, each naming the route it took: one press or release per key, "
+            "action or mouse_button event, a move per mouse_move event, and a "
+            "press plus a release for a mouse_click event (the harness pushes that "
+            "pair on one frame). In APPLICATION order — by frame, request order "
+            "within a frame — which is how the harness applies them. gda derives "
+            "this from the request: the harness reply counts the events, it does "
+            "not enumerate them."
+        ),
     )
 
 
@@ -1062,11 +1455,23 @@ def render_input_mouse_click(injected: "InputMouseClickResult") -> str:
 
 
 def render_input_tap(injected: "InputTapResult") -> str:
-    """Render a tap as its target, phases, and settle window, plus focus evidence (#652)."""
+    """Render a tap as its target, phases, and settle window, plus focus evidence (#652).
+
+    An ACTION tap's target names the mode when the caller opted in (#854), for the
+    reason ``render_input_action`` gives: before the opt-in, ``tap action X`` meant
+    the state route, and nothing else on this line shows which door it took now. A
+    KEY tap needs nothing — its printed target already names its only route.
+    """
+    mode = (
+        " as event"
+        if injected.action is not None
+        and injected.phases[0].injection_route == VIEWPORT_EVENT
+        else ""
+    )
     target = (
         f"key {injected.key}"
         if injected.key is not None
-        else f"action {injected.action}"
+        else f"action {injected.action}{mode}"
     )
     gesture = " -> ".join(f"{p.phase}@{p.frame}" for p in injected.phases)
     focus = _render_focus(injected.focus_before, injected.focus_after)
@@ -1077,10 +1482,21 @@ def render_input_tap(injected: "InputTapResult") -> str:
 
 
 def render_input_action(injected: "InputActionResult") -> str:
-    """Render an injected action event as ``action <name> <pressed|released>`` (#221)."""
+    """Render an injected action event as ``action <name> <pressed|released>`` (#221).
+
+    Names the mode when the caller opted in (#854). The trigger is AMBIGUITY, not a
+    route that varies: #838 left the human renderers alone because every line
+    already implied its route — this one meant the state route, a ``key`` line the
+    event route — and printing what the line already implies says nothing. The
+    opt-in breaks that implication here, and nothing else on the human channel
+    disambiguates it, so the line says which door it was. Same reason on an action
+    tap; a sequence's line names no kinds at all, so it was never route-bearing and
+    stays as it is.
+    """
+    mode = " as event" if injected.injection_route == VIEWPORT_EVENT else ""
     if injected.pressed:
-        return f"action {injected.action} pressed (strength {injected.strength})"
-    return f"action {injected.action} released"
+        return f"action {injected.action} pressed{mode} (strength {injected.strength})"
+    return f"action {injected.action} released{mode}"
 
 
 def render_input_sequence(injected: "InputSequenceResult") -> str:
@@ -1115,13 +1531,48 @@ INPUT_MOUSE_MOVE_COMMAND: HeadlessCommand[InputMouseMoveResult] = HeadlessComman
 )
 
 
+def _input_action_recipe(params, *, project, godot):
+    """Run an action and compare the decoded route with the requested route."""
+    outcome = INPUT_ACTION_COMMAND.execute(
+        params, godot=godot, project=project, make_runner=dispatch.make_live_runner
+    )
+    if isinstance(outcome, Failure):
+        return outcome
+    error = _route_correlation_error(
+        injection_route("action", as_event=params.as_event), outcome.injection_route
+    )
+    if error is not None:
+        return make_failure("contract_violation", error, "")
+    return outcome
+
+
 INPUT_ACTION_COMMAND: HeadlessCommand[InputActionResult] = HeadlessCommand(
     operation="input-action",
     input_model=InputActionParams,
     output_model=InputActionResult,
     render=render_input_action,
     kind=ExecutionKind.LIVE,
+    classify=_classify_input_action,
+    recipe=_input_action_recipe,
 )
+
+
+def _input_tap_recipe(params, *, project, godot):
+    """Run a tap and compare its validated phase route with the request."""
+    outcome = INPUT_TAP_COMMAND.execute(
+        params, godot=godot, project=project, make_runner=dispatch.make_live_runner
+    )
+    if isinstance(outcome, Failure):
+        return outcome
+    error = _route_correlation_error(
+        injection_route(
+            "action" if params.action is not None else "key", as_event=params.as_event
+        ),
+        outcome.phases[0].injection_route,
+    )
+    if error is not None:
+        return make_failure("contract_violation", error, "")
+    return outcome
 
 
 INPUT_TAP_COMMAND: HeadlessCommand[InputTapResult] = HeadlessCommand(
@@ -1130,7 +1581,38 @@ INPUT_TAP_COMMAND: HeadlessCommand[InputTapResult] = HeadlessCommand(
     output_model=InputTapResult,
     render=render_input_tap,
     kind=ExecutionKind.LIVE,
+    classify=_classify_input_tap,
+    recipe=_input_tap_recipe,
 )
+
+
+def _input_sequence_recipe(params, *, project, godot):
+    """Run the sequence op, correlate the reply, then name each event's route (#838).
+
+    The one ``input`` command whose result the CLI completes (ADR-0023): the reply
+    counts the events it applied without enumerating them, and only the request
+    holds the per-event routes. That is also why the reply must be CORRELATED with
+    the request before the phases are folded in, the way ``perf monitors`` does it:
+    the phases are derived from what was ASKED, so publishing them beside a count
+    that says something else was applied would make the result state two different
+    sequences at once. A self-consistent reply for a DIFFERENT request is still a
+    ``contract_violation``. The op itself still runs
+    through the descriptor's own ``execute``, so the runner seam, the classifier and
+    the stderr handling are the shared ones, not a second copy.
+    """
+    outcome = INPUT_SEQUENCE_COMMAND.execute(
+        params, godot=godot, project=project, make_runner=dispatch.make_live_runner
+    )
+    if isinstance(outcome, Failure):
+        return outcome
+    if outcome.events != len(params.events):
+        return make_failure(
+            "contract_violation",
+            f"the harness applied {outcome.events} events for a "
+            f"{len(params.events)}-event request.",
+            "",
+        )
+    return outcome.model_copy(update={"phases": sequence_phases(params)})
 
 
 INPUT_SEQUENCE_COMMAND: HeadlessCommand[InputSequenceResult] = HeadlessCommand(
@@ -1139,6 +1621,7 @@ INPUT_SEQUENCE_COMMAND: HeadlessCommand[InputSequenceResult] = HeadlessCommand(
     output_model=InputSequenceResult,
     render=render_input_sequence,
     kind=ExecutionKind.LIVE,
+    recipe=_input_sequence_recipe,
 )
 
 
@@ -1298,6 +1781,15 @@ def input_action(
         max=1.0,
         help="The analog press strength, 0..1 (ignored on a release).",
     ),
+    as_event: bool = typer.Option(
+        False,
+        "--as-event",
+        help=(
+            "Deliver the action as an InputEventAction through the root viewport "
+            "(_input / _gui_input / _unhandled_input receive it) instead of "
+            "changing the polled action state."
+        ),
+    ),
     json_output: bool = json_option(),
     schema: bool = INPUT_ACTION_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
@@ -1307,10 +1799,31 @@ def input_action(
     """Press or release a named input action in the running game (live).
 
     Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017) and
-    drives Input.action_press / action_release against the running InputMap, so the
-    game observes the action exactly as a real binding would fire. An action absent
-    from the InputMap is `live_unknown_action`. With no daemon it reports
-    `daemon_not_running`.
+    drives Input.action_press / action_release against the running InputMap.
+    That is the `action_state` route: it changes the polled action state, which
+    Input.is_action_pressed / is_action_just_pressed observe, and it builds no
+    InputEvent — so on that route _input, _gui_input and _unhandled_input never
+    see it, however the action is bound. Drive event-driven UI with
+    `gda input key` or a mouse command (the `viewport_event` route) and use an
+    action where the game polls Input.is_action_*; the result names the route it
+    took. An action absent from the InputMap is `live_unknown_action`. With no
+    daemon it reports `daemon_not_running`.
+
+    --as-event opts INTO the other door (#854): gda builds an InputEventAction
+    (action, pressed, strength) and pushes it through the root viewport, so the
+    handlers above can receive it and Input.is_action_pressed stays untouched. The
+    default is unchanged — flipping it would silently change what every existing
+    call means. The delivery is Viewport.push_input, never
+    Input.parse_input_event, which would drive both routes at once.
+
+    Matrix for an action and the key it is mapped to (Input.is_action_pressed |
+    _input/_unhandled_input | focused Control _gui_input):
+      input action            : yes | no  | no
+      input action --as-event : no  | yes | yes
+      input key <mapped key>  : no  | yes | yes
+
+    Delivery follows Godot's normal propagation and event consumption rules; the
+    route is not proof that every handler ran or that a UI action succeeded.
 
     A value the engine reports crosses the wire at full binary64 precision — the
     reply is serialized with Godot's full-precision JSON writer, so a small or
@@ -1319,9 +1832,13 @@ def input_action(
     value.
     """
     params = params_or_bad_parameter(
-        InputActionParams, action=action, release=release, strength=strength
+        InputActionParams,
+        action=action,
+        release=release,
+        strength=strength,
+        as_event=as_event,
     )
-    dispatch_domain(
+    dispatch_recipe(
         INPUT_ACTION_COMMAND,
         params,
         json_output=json_output,
@@ -1381,6 +1898,15 @@ def input_tap(
             "before the op returns."
         ),
     ),
+    as_event: bool = typer.Option(
+        False,
+        "--as-event",
+        help=(
+            "Deliver an ACTION tap as InputEventAction presses/releases through "
+            "the root viewport instead of changing the polled action state. Not "
+            "valid with --key."
+        ),
+    ),
     json_output: bool = json_option(),
     schema: bool = INPUT_TAP_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
@@ -1395,9 +1921,19 @@ def input_tap(
     without advancing it — so the tap presses at window frame 0, holds for
     --hold-frames process frames, releases, then runs --settle-frames more
     frames before returning. The result reports the injected phases plus the
-    focused Control before and after the tap. Exactly one of --key/--action; an
-    unresolvable key is `live_invalid_key`, an action absent from the running
-    InputMap is `live_unknown_action`. With no daemon it reports
+    focused Control before and after the tap. Exactly one of --key/--action, and
+    the target picks the ROUTE each phase reports: --key pushes an InputEventKey
+    through the root viewport (`viewport_event`, seen by _input / _gui_input /
+    _unhandled_input), while --action drives Input.action_press / action_release
+    (`action_state`, a change to the polled state that reaches no handler at all).
+    Tap a key to exercise event-driven UI; tap an action where the game polls
+    Input.is_action_*, or add --as-event to an ACTION tap (#854) to push
+    InputEventAction presses/releases through the viewport instead — the handlers
+    receive them and the polled state stays untouched, so both phases report
+    `viewport_event` (`gda input action --help` carries the full conformance
+    matrix). --as-event rides an action tap only: a key tap already pushes an
+    event. An unresolvable key is `live_invalid_key`, an action absent from the
+    running InputMap is `live_unknown_action`. With no daemon it reports
     `daemon_not_running`.
 
     A value the engine reports crosses the wire at full binary64 precision — the
@@ -1414,8 +1950,9 @@ def input_tap(
         strength=strength,
         hold_frames=hold_frames,
         settle_frames=settle_frames,
+        as_event=as_event,
     )
-    dispatch_domain(
+    dispatch_recipe(
         INPUT_TAP_COMMAND,
         params,
         json_output=json_output,
@@ -1471,13 +2008,21 @@ def input_sequence(
     `physics_frame: 0` and release it at `physics_frame: 30` for a 30-physics-frame
     hold. A `mouse_button` press followed by `mouse_move` events and a matching
     `mouse_button` release carries the held-button mask on the motion events for
-    drag handlers. For sequence mouse events, read the injected coordinate from the
-    mouse event's position; Godot may leave Viewport.get_mouse_position() /
+    drag handlers. A sequence may MIX the two injection routes and the result names
+    one per injected phase, in the order the harness applies them: an `action` event
+    takes the `action_state` route (Input.action_press / action_release — the polled
+    state, seen by no _input, _gui_input or _unhandled_input handler), while `key`,
+    `mouse_click`, `mouse_button` and `mouse_move` events take the `viewport_event`
+    route, an InputEvent pushed through the root viewport. An `action` event with
+    `"as_event": true` takes that second route too (#854): gda pushes an
+    InputEventAction, so the handlers see it and the polled state stays untouched.
+    For sequence mouse events, read the injected coordinate from the mouse event's
+    position; Godot may leave Viewport.get_mouse_position() /
     Node2D.get_global_mouse_position() stale in daemon sessions. A malformed
-    `--events` (not a JSON array, an empty list, an
-    ill-formed event, or mixed `frame`/`physics_frame` clocks) is a usage error; with
-    no daemon it reports `daemon_not_running`. An event's action absent from the
-    InputMap is `live_unknown_action`, an unresolvable key `live_invalid_key`.
+    `--events` (not a JSON array, an empty list, an ill-formed event, or mixed
+    `frame`/`physics_frame` clocks) is a usage error; with no daemon it reports
+    `daemon_not_running`. An event's action absent from the InputMap is
+    `live_unknown_action`, an unresolvable key `live_invalid_key`.
     """
     # --events is a JSON array on the argv path; the model is the source of truth for
     # the per-event shape (ADR-0015), so a parse or validation failure is a usage
@@ -1488,7 +2033,7 @@ def input_sequence(
     except json.JSONDecodeError as exc:
         raise typer.BadParameter(f"--events is not valid JSON: {exc}") from exc
     params = params_or_bad_parameter(InputSequenceParams, events=decoded)
-    dispatch_domain(
+    dispatch_recipe(
         INPUT_SEQUENCE_COMMAND,
         params,
         json_output=json_output,

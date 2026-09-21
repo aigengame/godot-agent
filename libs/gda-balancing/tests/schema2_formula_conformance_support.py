@@ -14,32 +14,44 @@ from typing import Any, cast
 import jsonschema
 
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
+from schema2_bootstrap_conformance_support import (
+    _CONSUMER_B_SOURCE_DISCRIMINATOR_ABI,
+    _consumer_b_inline_parameter_operand,
+    _consumer_b_project_source_role,
+    _consumer_b_value_matches,
+)
 
 
-def _source_schema(language_bundle: dict[str, Any]) -> dict[str, Any]:
+class FormulaReferenceFailure(ValueError):
+    """An independently observed semantic failure at a Formula interpretation site."""
+
+    def __init__(self, category: str, message: str):
+        super().__init__(message)
+        self.category = category
+
+
+def _source_definition(language_bundle: dict[str, Any]) -> dict[str, Any]:
     schemas = [
-        definition["schema"]
+        definition
         for package in language_bundle["language"]["packages"]
-        if package.get("id") == "standard.schema"
         for closure in package["semantic_closure"]
         if closure.get("authority_path") == "language.wire_schemas"
         for definition in closure["definitions"]
-        if definition.get("artifact_kind") == "model-source-package"
+        if definition.get("protocol_role") == "model-source-package"
     ]
     if len(schemas) != 1:
         raise ValueError("independent consumer found no unique Model Source schema")
     return schemas[0]
 
 
+def _source_schema(language_bundle: dict[str, Any]) -> dict[str, Any]:
+    return _source_definition(language_bundle)["schema"]
+
+
 def _authority(
     language_bundle: dict[str, Any],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    grammar = (
-        _source_schema(language_bundle)
-        .get("$defs", {})
-        .get("formulaNotationGrammar", {})
-        .get("const")
-    )
+    grammar = _source_definition(language_bundle).get("formula_grammar")
     if not isinstance(grammar, dict):
         raise ValueError("independent consumer found no Formula grammar")
     return grammar, cast(
@@ -58,54 +70,394 @@ def _resolution_profile(language_bundle: dict[str, Any]) -> dict[str, Any]:
     return profiles[0]
 
 
-def _formula_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
-    policy = (
-        _resolution_profile(language_bundle)
-        .get("extensions", {})
-        .get("standard.formula")
-    )
-    if not isinstance(policy, dict):
+def _formula_policy(
+    language_bundle: dict[str, Any], *, kernel: dict[str, Any]
+) -> dict[str, Any]:
+    policy = _resolution_profile(language_bundle)["formula_resolution"]
+    contract = kernel["meta_format"]["language_definitions"]["collections"][
+        "resolution_profiles"
+    ]["field_types"]["formula_resolution"]
+    if not _consumer_b_value_matches(policy, contract, language_bundle):
         raise ValueError("independent consumer found no Formula policy")
     return policy
 
 
-def _conversion_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
-    policy = _formula_policy(language_bundle).get("notation_conversion")
-    infix_parser = policy.get("infix_parser") if isinstance(policy, dict) else None
-    if (
-        not isinstance(policy, dict)
-        or policy.get("condition_contract") != "kernel-boolean"
-        or policy.get("formula_argument_compatibility") != "exact-resolved-contract"
-        or policy.get("formula_result_compatibility") != "exact-resolved-contract"
-        or policy.get("literal_typing") != "selected-unique-formal-match"
-        or policy.get("literal_result_inference") != "contextual-anchor"
-        or policy.get("operation_argument_compatibility") != "exact-operation-formal"
-        or policy.get("symbol_resolution") != "exact-module-coordinate"
-        or not isinstance(infix_parser, dict)
-        or infix_parser.get("algorithm") != "shunting-yard"
-        or not isinstance(infix_parser.get("generated_local_separator"), str)
-        or not infix_parser["generated_local_separator"]
+def _source_native_binding(
+    language_bundle: dict[str, Any], slot: str, kind: str
+) -> dict[str, Any]:
+    matches = [
+        row
+        for row in _resolution_profile(language_bundle)["source_native_bindings"]
+        if row.get("slot") == slot and row.get("kind") == kind
+    ]
+    if len(matches) != 1:
+        raise ValueError("independent Source native binding is unavailable")
+    return matches[0]
+
+
+def _source_role_token(language_bundle: dict[str, Any], slot: str) -> str:
+    return cast(str, _source_native_binding(language_bundle, slot, "role")["role"])
+
+
+def _source_member_token(language_bundle: dict[str, Any], slot: str) -> str:
+    return cast(str, _source_native_binding(language_bundle, slot, "member")["member"])
+
+
+def _source_abi_value_and_paths(
+    value: dict[str, Any],
+    language_bundle: dict[str, Any],
+    owner_slot: str,
+    *,
+    preserve_native_discriminators: bool = False,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Map projected Source members and paths to fixed host ABI slots."""
+
+    def child_pointer(pointer: str, member: str | int) -> str:
+        encoded = str(member).replace("~", "~0").replace("/", "~1")
+        return f"{pointer}/{encoded}"
+
+    native_members: set[tuple[str, str]] = set()
+
+    def collect_native_members(node: Any, inherited_role: str | None = None) -> None:
+        if not isinstance(node, dict):
+            return
+        role = node.get("semantic_role", inherited_role)
+        properties = node.get("properties")
+        if isinstance(properties, dict):
+            if isinstance(role, str):
+                for field in properties.values():
+                    if not isinstance(field, dict):
+                        continue
+                    member = field.get("semantic_member")
+                    contract = field.get("semantic_native_contract")
+                    if (
+                        not isinstance(member, str)
+                        or not isinstance(contract, dict)
+                        or not isinstance(contract.get("language_reference"), str)
+                    ):
+                        continue
+                    value_location = contract.get("value_location")
+                    selected_member = (
+                        value_location.get("semantic_member", member)
+                        if isinstance(value_location, dict)
+                        else member
+                    )
+                    if isinstance(selected_member, str):
+                        native_members.add((role, selected_member))
+            for field in properties.values():
+                collect_native_members(field)
+        collect_native_members(node.get("items"))
+        for branch in node.get("oneOf", []):
+            collect_native_members(
+                branch,
+                role if isinstance(properties, dict) else inherited_role,
+            )
+
+    collect_native_members(_source_schema(language_bundle))
+
+    def native_value(
+        child: Any, semantic_pointer: str, stable_pointer: str
+    ) -> tuple[Any, dict[str, str]]:
+        paths = {stable_pointer: semantic_pointer}
+        if isinstance(child, dict):
+            result = {}
+            for member, nested in child.items():
+                mapped, nested_paths = native_value(
+                    nested,
+                    child_pointer(semantic_pointer, member),
+                    child_pointer(stable_pointer, member),
+                )
+                result[member] = mapped
+                paths.update(nested_paths)
+            return result, paths
+        if isinstance(child, list):
+            result = []
+            for index, nested in enumerate(child):
+                mapped, nested_paths = native_value(
+                    nested,
+                    child_pointer(semantic_pointer, index),
+                    child_pointer(stable_pointer, index),
+                )
+                result.append(mapped)
+                paths.update(nested_paths)
+            return result, paths
+        return deepcopy(child), paths
+
+    def target_value(
+        child: Any,
+        targets: list[str],
+        semantic_pointer: str,
+        stable_pointer: str,
+    ) -> tuple[Any, dict[str, str]]:
+        if not isinstance(child, dict):
+            raise ValueError("independent Source ABI target is malformed")
+        if len(targets) == 1:
+            return walk(
+                child,
+                targets[0],
+                semantic_pointer,
+                stable_pointer,
+            )
+        candidates: list[tuple[dict[str, Any], dict[str, str]]] = []
+        for target in targets:
+            try:
+                candidates.append(walk(child, target, semantic_pointer, stable_pointer))
+            except ValueError:
+                continue
+        identities = {
+            (
+                canonical_bytes(cast(JsonValue, candidate)),
+                tuple(sorted(paths.items())),
+            )
+            for candidate, paths in candidates
+        }
+        if not candidates or len(identities) != 1:
+            raise ValueError("independent Source ABI target is ambiguous")
+        return candidates[0]
+
+    def walk(
+        current: dict[str, Any],
+        current_owner_slot: str,
+        semantic_pointer: str,
+        stable_pointer: str,
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        rows = [
+            row
+            for row in _resolution_profile(language_bundle)["source_native_bindings"]
+            if row.get("kind") == "member"
+            and row.get("owner_slot") == current_owner_slot
+        ]
+        by_member = {row["member"]: row for row in rows}
+        if len(by_member) != len(rows) or not set(current) <= set(by_member):
+            raise ValueError(
+                f"independent Source ABI member is unavailable for {current_owner_slot}"
+            )
+
+        result: dict[str, Any] = {}
+        paths = {stable_pointer: semantic_pointer}
+        for member, child in current.items():
+            row = by_member[member]
+            slot = cast(str, row["slot"])
+            stable_member = slot.rsplit(".", 1)[1]
+            targets = cast(list[str], row["target_slots"])
+            shape = row["shape"]
+            semantic_child = child_pointer(semantic_pointer, member)
+            stable_child = child_pointer(stable_pointer, stable_member)
+            if targets and shape == "array":
+                if not isinstance(child, list):
+                    raise ValueError("independent Source ABI array is malformed")
+                mapped = []
+                child_paths = {stable_child: semantic_child}
+                for index, item in enumerate(child):
+                    nested, nested_paths = target_value(
+                        item,
+                        targets,
+                        child_pointer(semantic_child, index),
+                        child_pointer(stable_child, index),
+                    )
+                    mapped.append(nested)
+                    child_paths.update(nested_paths)
+            elif targets:
+                mapped, child_paths = target_value(
+                    child, targets, semantic_child, stable_child
+                )
+            else:
+                mapped, child_paths = native_value(child, semantic_child, stable_child)
+            discriminator = next(
+                (
+                    (discriminator_slot, internal_value)
+                    for discriminator_slot, (
+                        discriminator_owner,
+                        discriminator_member,
+                        internal_value,
+                    ) in _CONSUMER_B_SOURCE_DISCRIMINATOR_ABI.items()
+                    if discriminator_owner == current_owner_slot
+                    and discriminator_member == slot
+                ),
+                None,
+            )
+            if discriminator is not None:
+                discriminator_slot, internal_value = discriminator
+                binding = _source_native_binding(
+                    language_bundle, discriminator_slot, "discriminator"
+                )
+                if mapped != binding.get("value"):
+                    raise ValueError("independent Source discriminator is incoherent")
+                role = _source_role_token(language_bundle, current_owner_slot)
+                member_token = cast(str, row["member"])
+                if not (
+                    preserve_native_discriminators
+                    and (role, member_token) in native_members
+                ):
+                    mapped = deepcopy(internal_value)
+            result[stable_member] = mapped
+            paths.update(child_paths)
+        return result, paths
+
+    return walk(value, owner_slot, "", "")
+
+
+def _source_abi_value(
+    value: dict[str, Any], language_bundle: dict[str, Any], owner_slot: str
+) -> dict[str, Any]:
+    """Independently map projected Source members to fixed host ABI slots."""
+    result, _paths = _source_abi_value_and_paths(value, language_bundle, owner_slot)
+    return result
+
+
+def _source_abi_selector(
+    selector: list[str],
+    language_bundle: dict[str, Any],
+    owner_slots: tuple[str, ...] = ("source.root",),
+) -> tuple[list[str], tuple[str, ...]]:
+    """Map an LDB Source selector to stable host ABI member names."""
+    rows = _resolution_profile(language_bundle)["source_native_bindings"]
+    current_owners = set(owner_slots)
+    result: list[str] = []
+    for segment in selector:
+        if segment == "*":
+            result.append(segment)
+            continue
+        matches = [
+            row
+            for row in rows
+            if row.get("kind") == "member"
+            and row.get("owner_slot") in current_owners
+            and row.get("member") == segment
+        ]
+        stable_members = {cast(str, row["slot"]).rsplit(".", 1)[1] for row in matches}
+        if len(stable_members) != 1:
+            raise ValueError("independent Source ABI selector is ambiguous")
+        result.append(next(iter(stable_members)))
+        current_owners = {
+            target for row in matches for target in cast(list[str], row["target_slots"])
+        }
+    return result, tuple(sorted(current_owners))
+
+
+def _inline_source_parameter(
+    kernel: dict[str, Any], language_bundle: dict[str, Any]
+) -> tuple[str, str, str]:
+    kind, reference = _consumer_b_inline_parameter_operand(kernel["meta_format"])
+    discriminator = _source_native_binding(
+        language_bundle, "source.inline_parameter.discriminator", "discriminator"
+    )
+    member = _source_member_token(language_bundle, "source.inline_parameter.parameter")
+    if discriminator.get(
+        "owner_slot"
+    ) != "source.inline_parameter" or discriminator.get(
+        "member"
+    ) != _source_member_token(language_bundle, "source.inline_parameter.node"):
+        raise ValueError("independent inline Formula role is ambiguous")
+    return kind, reference, member
+
+
+def _inline_authored_source_member(
+    language_bundle: dict[str, Any], *, kernel: dict[str, Any]
+) -> str:
+    _kind, _reference, semantic_member = _inline_source_parameter(
+        kernel, language_bundle
+    )
+    inline_role = _source_role_token(language_bundle, "source.inline_parameter")
+    matches: list[str] = []
+
+    def collect(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        if node.get("semantic_role") == inline_role:
+            matches.extend(
+                name
+                for name, child in node.get("properties", {}).items()
+                if isinstance(child, dict)
+                and child.get("semantic_member") == semantic_member
+            )
+        for child in node.get("properties", {}).values():
+            collect(child)
+        if "items" in node:
+            collect(node["items"])
+        for child in node.get("oneOf", []):
+            collect(child)
+
+    collect(_source_schema(language_bundle))
+    if len(matches) != 1:
+        raise ValueError("independent inline Formula address is ambiguous")
+    return matches[0]
+
+
+def normalize_source_body(
+    body: dict[str, Any], language_bundle: dict[str, Any], *, kernel: dict[str, Any]
+) -> dict[str, Any]:
+    """Independently adapt the declared Source field to the fixed operand role."""
+    kind, reference, source_member = _inline_source_parameter(kernel, language_bundle)
+    try:
+        projected = _consumer_b_project_source_role(
+            body,
+            _source_role_token(language_bundle, "source.inline_parameter"),
+            kernel,
+            language_bundle,
+        ).value
+    except ValueError:
+        try:
+            return _source_abi_value(
+                _consumer_b_project_source_role(
+                    body,
+                    _source_role_token(language_bundle, "source.program"),
+                    kernel,
+                    language_bundle,
+                ).value,
+                language_bundle,
+                "source.program",
+            )
+        except ValueError as program_error:
+            raise ValueError(
+                "independent inline Formula body is malformed"
+            ) from program_error
+    if not isinstance(projected.get(source_member), str):
+        raise ValueError("independent inline Formula parameter is malformed")
+    return {
+        "nodes": [],
+        "result": {"kind": kind, reference: projected[source_member]},
+    }
+
+
+def normalize_semantic_body(
+    body: dict[str, Any], language_bundle: dict[str, Any], *, kernel: dict[str, Any]
+) -> dict[str, Any]:
+    """Map a projected body to the fixed ABI while preserving its union variant."""
+    _kind, reference, _source_member = _inline_source_parameter(kernel, language_bundle)
+    try:
+        projected = _source_abi_value(body, language_bundle, "source.inline_parameter")
+    except ValueError:
+        try:
+            return _source_abi_value(body, language_bundle, "source.program")
+        except ValueError as program_error:
+            raise ValueError(
+                "independent Formula program body is malformed"
+            ) from program_error
+    if set(projected) != {"node", reference} or not isinstance(
+        projected.get(reference), str
     ):
-        raise ValueError("independent consumer found no notation conversion policy")
-    return policy
+        raise ValueError("independent inline Formula body is malformed")
+    return projected
 
 
 def _validate_context(
-    request: dict[str, Any], language_bundle: dict[str, Any]
-) -> list[dict[str, Any]]:
+    request: dict[str, Any], language_bundle: dict[str, Any], *, kernel: dict[str, Any]
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     language = language_bundle["language"]
-    profile = _resolution_profile(language_bundle)
     source_schema = _source_schema(language_bundle)
-    schema_version = source_schema["properties"]["schema_version"]["const"]
+    version_member = _source_member_token(language_bundle, "source.root.schema_version")
+    version_fields = [
+        child
+        for child in source_schema["properties"].values()
+        if child.get("semantic_member") == version_member
+    ]
+    if len(version_fields) != 1:
+        raise ValueError("independent Source version role is ambiguous")
+    schema_version = version_fields[0]["const"]
     if request.get("schema_version") != schema_version:
         raise ValueError("independent Formula source schema version is unavailable")
-    import_schema = source_schema["properties"][profile["modules_member"]]["items"][
-        "properties"
-    ][profile["imports_member"]]["items"]
-    import_validator = jsonschema.Draft202012Validator(source_schema).evolve(
-        schema=import_schema
-    )
-    requirements = request.get(profile["requirements_member"])
+    requirements = request.get("package_requirements")
     if not isinstance(requirements, list):
         raise ValueError("independent Formula requirements are malformed")
     requirement_keys: set[str] = set()
@@ -126,41 +478,84 @@ def _validate_context(
     modules = request.get("modules", [current_module])
     if not isinstance(current_module, dict) or not isinstance(modules, list):
         raise ValueError("independent Formula module closure is malformed")
-    modules_by_id: dict[str, dict[str, Any]] = {}
-    for module in modules:
-        module_id = (
-            module.get(profile["module_id_member"])
-            if isinstance(module, dict)
-            else None
+    module_role = _source_role_token(language_bundle, "source.module")
+    module_members = {
+        row["member"]
+        for row in _resolution_profile(language_bundle)["source_native_bindings"]
+        if row.get("kind") == "member" and row.get("owner_slot") == "source.module"
+    }
+    projected_modules = [
+        _source_abi_value(
+            _consumer_b_project_source_role(
+                module,
+                module_role,
+                kernel,
+                language_bundle,
+                omitted_members=module_members,
+            ).value,
+            language_bundle,
+            "source.module",
         )
+        for module in modules
+        if isinstance(module, dict)
+    ]
+    if len(projected_modules) != len(modules):
+        raise ValueError("independent Formula module closure is malformed")
+    projected_current = _source_abi_value(
+        _consumer_b_project_source_role(
+            current_module,
+            module_role,
+            kernel,
+            language_bundle,
+            omitted_members=module_members,
+        ).value,
+        language_bundle,
+        "source.module",
+    )
+    formula = request.get("formula")
+    if not isinstance(formula, dict):
+        raise ValueError("independent Formula declaration is malformed")
+    formula_body = _source_member_token(language_bundle, "source.formula.body")
+    formula_expression = _source_member_token(
+        language_bundle, "source.formula.expression"
+    )
+    projected_formula = _source_abi_value(
+        _consumer_b_project_source_role(
+            formula,
+            _source_role_token(language_bundle, "source.formula"),
+            kernel,
+            language_bundle,
+            omitted_members={formula_body, formula_expression},
+        ).value,
+        language_bundle,
+        "source.formula",
+    )
+    if not {"body", "expression"} & set(projected_formula):
+        raise ValueError("independent Formula has no Source representation")
+    modules_by_id: dict[str, dict[str, Any]] = {}
+    for module in projected_modules:
+        module_id = module.get("id")
         if not isinstance(module_id, str) or module_id in modules_by_id:
             raise ValueError("independent Formula module closure is ambiguous")
         modules_by_id[module_id] = module
-    current_id = current_module.get(profile["module_id_member"])
+    current_id = projected_current.get("id")
     if not isinstance(current_id, str) or current_id not in modules_by_id:
         raise ValueError("independent current module is outside its closure")
     closure_module = modules_by_id[current_id]
-    formula_member = _formula_policy(language_bundle)["module_formulas_member"]
-    for member in (
-        profile["imports_member"],
-        profile["symbols_member"],
-        formula_member,
-    ):
-        if member in current_module and current_module[member] != closure_module.get(
-            member, []
-        ):
+    for member in ("imports", "symbols", "formulas"):
+        if member in projected_current and projected_current[
+            member
+        ] != closure_module.get(member, []):
             raise ValueError("independent current module conflicts with its closure")
-    for module in modules:
-        imports = module.get(profile["imports_member"])
+    for module in projected_modules:
+        imports = module.get("imports")
         if not isinstance(imports, list):
             raise ValueError("independent Formula imports are malformed")
         aliases: set[str] = set()
         for imported in imports:
-            if not import_validator.is_valid(imported):
-                raise ValueError("independent Formula import is malformed")
-            alias = imported.get(profile["import_alias_member"])
-            package_key = imported.get(profile["import_package_member"])
-            symbol = imported.get(profile["import_symbol_member"])
+            alias = imported.get("alias")
+            package_key = imported.get("package")
+            symbol = imported.get("symbol")
             if (
                 not isinstance(alias, str)
                 or alias in aliases
@@ -181,7 +576,7 @@ def _validate_context(
             )
             if package_key not in requirement_keys or symbol not in exported_types:
                 raise ValueError("independent Formula import is unresolved")
-    return modules
+    return projected_modules, projected_current, projected_formula
 
 
 def _identifier(value: Any, grammar: dict[str, Any]) -> str:
@@ -222,33 +617,64 @@ def _operand(value: Any, grammar: dict[str, Any]) -> str:
 
 
 def _selected_notations(
-    request: dict[str, Any], language_bundle: dict[str, Any]
+    request: dict[str, Any], language_bundle: dict[str, Any], kernel: dict[str, Any]
 ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    notation_validator = jsonschema.Draft202012Validator(
+        _source_definition(language_bundle)["operation_notation_schema"]
+    )
+    operation_source = kernel["meta_format"]["language_definitions"][
+        "wire_schema_protocol_roles"
+    ]["source_notation"]["operation_source"]
     selected = set(request.get("package_requirements", []))
     rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for package in language_bundle["language"]["packages"]:
         if package["id"] not in selected:
             continue
         for entry in package["semantic_closure"]:
-            if entry["authority_path"] != "language.operations":
+            if entry["authority_path"] != operation_source["authority_path"]:
                 continue
             for operation in entry["definitions"]:
                 notation = operation.get("extensions", {}).get(
-                    "standard.formula-notation"
+                    operation_source["extension_member"]
                 )
                 if operation.get("purity") == "pure" and isinstance(notation, dict):
+                    if not notation_validator.is_valid(notation):
+                        raise ValueError(
+                            "Operation notation violates its selected schema"
+                        )
                     rows.append(({**operation, "package": package["id"]}, notation))
     return rows
 
 
 def render_body(
-    body: dict[str, Any], request: dict[str, Any], language_bundle: dict[str, Any]
+    body: dict[str, Any],
+    request: dict[str, Any],
+    language_bundle: dict[str, Any],
+    *,
+    kernel: dict[str, Any],
 ) -> str:
-    _validate_context(request, language_bundle)
+    return render_semantic_body(
+        normalize_source_body(body, language_bundle, kernel=kernel),
+        request,
+        language_bundle,
+        kernel=kernel,
+    )
+
+
+def render_semantic_body(
+    body: dict[str, Any],
+    request: dict[str, Any],
+    language_bundle: dict[str, Any],
+    *,
+    kernel: dict[str, Any],
+) -> str:
+    """Render B's parsed/projected semantic body without re-reading authored keys."""
+    _validate_context(request, language_bundle, kernel=kernel)
     grammar, _operations = _authority(language_bundle)
-    if set(body) == {"node", "parameter"} and body.get("node") == "parameter":
-        return _identifier(body["parameter"], grammar)
-    notations = _selected_notations(request, language_bundle)
+    kind, reference, member = _inline_source_parameter(kernel, language_bundle)
+    if body.get("node") == kind:
+        body = {"nodes": [], "result": {"kind": kind, reference: body[member]}}
+    notations = _selected_notations(request, language_bundle, kernel)
     by_coordinate = {
         (
             cast(str, operation.get("package", "")),
@@ -304,7 +730,9 @@ def render_body(
             )
         else:
             raise ValueError("node kind is not admitted")
-        lines.append(f"let {_identifier(node['id'], grammar)} = {rhs};")
+        lines.append(
+            f"{grammar['binding_keyword']} {_identifier(node['id'], grammar)} = {rhs};"
+        )
     lines.append(_operand(body["result"], grammar))
     return "\n".join(lines)
 
@@ -351,7 +779,7 @@ def _unquote(text: str, grammar: dict[str, Any]) -> str:
             index += 1
         return "".join(output)
     if not re.fullmatch(cast(str, grammar["bare_identifier_pattern"]), text):
-        raise ValueError("bare identifier is malformed")
+        raise FormulaReferenceFailure("notation-parse", "bare identifier is malformed")
     return text
 
 
@@ -378,7 +806,7 @@ def _parse_operand(
         return {"kind": "local", "local": name}
     if name in parameters:
         return {"kind": "parameter", "parameter": name}
-    raise ValueError("operand name is unresolved")
+    raise FormulaReferenceFailure("name-unresolved", "operand name is unresolved")
 
 
 def _source_contract(value: dict[str, Any]) -> dict[str, Any]:
@@ -471,6 +899,7 @@ def _notation_resource_usage(
     grammar: dict[str, Any],
     request: dict[str, Any],
     language_bundle: dict[str, Any],
+    kernel: dict[str, Any],
 ) -> tuple[int, int]:
     punctuation = {
         *cast(list[str], grammar["group_delimiters"]),
@@ -484,7 +913,9 @@ def _notation_resource_usage(
     operators = sorted(
         (
             cast(str, notation["token"])
-            for _operation, notation in _selected_notations(request, language_bundle)
+            for _operation, notation in _selected_notations(
+                request, language_bundle, kernel
+            )
             if notation.get("kind") == "infix"
         ),
         key=len,
@@ -511,7 +942,9 @@ def _notation_resource_usage(
                     index += 1
                 index += 1
             if index >= len(expression):
-                raise ValueError("independent quoted identifier is malformed")
+                raise FormulaReferenceFailure(
+                    "notation-parse", "independent quoted identifier is malformed"
+                )
             index += 1
         elif character in punctuation:
             index += 1
@@ -536,11 +969,15 @@ def _notation_resource_usage(
                     None,
                 )
                 if operator is None:
-                    raise ValueError("independent Formula token is unresolved")
+                    raise FormulaReferenceFailure(
+                        "notation-parse", "independent Formula token is unresolved"
+                    )
                 index += len(operator)
         count += 1
     if depth != 0:
-        raise ValueError("independent Formula grouping is unbalanced")
+        raise FormulaReferenceFailure(
+            "notation-parse", "independent Formula grouping is unbalanced"
+        )
     return count, maximum_depth
 
 
@@ -564,12 +1001,38 @@ def _infer_result(
     fallback: dict[str, Any],
     policy: dict[str, Any],
     boolean_contract: dict[str, Any],
+    *,
+    operations: dict[tuple[str, str], dict[str, Any]],
+    kernel: dict[str, Any],
+    imports: dict[str, tuple[str, str]],
+    stack: tuple[tuple[str, str], ...] = (),
 ) -> dict[str, Any]:
+    coordinate = (cast(str, operation.get("package")), cast(str, operation.get("id")))
+    if coordinate in stack:
+        raise ValueError("independent Formula operation graph is recursive")
+    if (
+        operation.get("purity") != "pure"
+        or operation.get("operation_kind") != "pure-expression"
+    ):
+        raise ValueError("independent Formula Operation is not a pure expression")
+    actuals = dict(zip(ports, contracts, strict=True))
+    canonical_ports = [
+        cast(str, formal["id"])
+        for formal in cast(list[dict[str, Any]], operation.get("inputs", []))
+    ]
+    if set(actuals) != set(canonical_ports) or len(actuals) != len(canonical_ports):
+        raise ValueError("independent Formula Operation inputs are unresolved")
+    ports = canonical_ports
+    contracts = [actuals[port] for port in ports]
     anchor = next((row for row in contracts if isinstance(row, dict)), fallback)
     values = {
         port: deepcopy(contract or anchor)
         for port, contract in zip(ports, contracts, strict=True)
     }
+    port_values = deepcopy(values)
+    produced_locals: set[str] = set()
+    results_by_site: dict[str, dict[str, Any]] = {}
+    seen_sites: set[str] = set()
     rules = policy.get("local_result_inference")
     if not isinstance(rules, list):
         raise ValueError("independent result policy is malformed")
@@ -577,6 +1040,14 @@ def _infer_result(
         row.get("node"): row
         for row in rules
         if isinstance(row, dict) and isinstance(row.get("node"), str)
+    }
+    runtime = kernel["meta_format"]["runtime_program"]
+    invocation = runtime["invocation_contract"]
+    source_shapes = invocation["result_source_shapes"]
+    invocation_nodes = {
+        row["id"]
+        for row in runtime["nodes"]
+        if row.get("semantics", {}).get("operator") == "invoke-operation"
     }
 
     def interval(contract: dict[str, Any]) -> tuple[int, int] | None:
@@ -632,7 +1103,125 @@ def _infer_result(
         selected_values = [pair[0 if selected == x else 1] for pair in pairs]
         return min(selected_values), max(selected_values)
 
-    for instruction in operation.get("body", []):
+    body = operation.get("body")
+    if not isinstance(body, list):
+        raise ValueError("independent inference Operation body is malformed")
+    for instruction in body:
+        if not isinstance(instruction, dict):
+            raise ValueError("independent inference instruction is malformed")
+        if instruction.get("node") in invocation_nodes:
+            reference = instruction.get("operation")
+            child_coordinate: tuple[str, str] | None = None
+            if (
+                isinstance(reference, dict)
+                and set(reference) == {"package", "id"}
+                and isinstance(reference.get("package"), str)
+                and isinstance(reference.get("id"), str)
+            ):
+                child_coordinate = (reference["package"], reference["id"])
+            child = (
+                operations.get(child_coordinate)
+                if child_coordinate is not None
+                else None
+            )
+            if (
+                child is None
+                or child.get("purity") != "pure"
+                or child.get("operation_kind") != "pure-expression"
+            ):
+                raise ValueError("independent nested Operation is unresolved")
+            site = instruction.get("site")
+            if not isinstance(site, str) or not site or site in seen_sites:
+                raise ValueError("independent nested Operation site is unresolved")
+            seen_sites.add(site)
+            child_ports = [
+                cast(str, formal["id"])
+                for formal in cast(list[dict[str, Any]], child.get("inputs", []))
+            ]
+            formals = {
+                cast(str, formal["id"]): formal
+                for formal in cast(list[dict[str, Any]], child.get("inputs", []))
+            }
+            arguments = instruction.get("arguments")
+            if (
+                not isinstance(arguments, list)
+                or [
+                    argument.get("port") if isinstance(argument, dict) else None
+                    for argument in arguments
+                ]
+                != child_ports
+            ):
+                raise ValueError(
+                    "independent nested Operation arguments are unresolved"
+                )
+            child_contracts: list[dict[str, Any] | None] = []
+            for argument in arguments:
+                operand = argument.get("operand")
+                kind = operand.get("kind") if isinstance(operand, dict) else None
+                actual = None
+                if isinstance(operand, dict) and kind in {"port", "local"}:
+                    member = cast(str, kind)
+                    name = operand.get(member)
+                    if isinstance(name, str):
+                        actual = values.get(name)
+                elif isinstance(operand, dict) and kind == "literal":
+                    value = operand.get("literal")
+                    if isinstance(value, int) and not isinstance(value, bool):
+                        actual = with_interval(anchor, (value, value))
+                formal = formals[cast(str, argument["port"])]
+                if actual is None or not _operation_contract_matches(
+                    actual, formal, imports
+                ):
+                    raise ValueError(
+                        "independent nested Operation operand is incompatible"
+                    )
+                child_contracts.append(deepcopy(actual))
+            child_result = _infer_result(
+                child,
+                child_ports,
+                child_contracts,
+                fallback,
+                policy,
+                boolean_contract,
+                operations=operations,
+                kernel=kernel,
+                imports=imports,
+                stack=(*stack, coordinate),
+            )
+            binding = instruction.get("result")
+            if not isinstance(binding, dict):
+                raise ValueError("independent nested Operation result is unresolved")
+            binding_kind = binding.get("kind")
+            if binding_kind == "local":
+                name = binding.get("name")
+                if (
+                    set(binding) != {"kind", "name"}
+                    or not isinstance(name, str)
+                    or not name
+                    or name in values
+                ):
+                    raise ValueError(
+                        "independent nested Operation result is unresolved"
+                    )
+                values[name] = child_result
+                produced_locals.add(name)
+            elif binding_kind == "operation-result":
+                if set(binding) != {"kind"}:
+                    raise ValueError(
+                        "independent nested Operation result is unresolved"
+                    )
+                results_by_site[site] = child_result
+            elif binding_kind == "discard":
+                if (
+                    set(binding) != {"kind"}
+                    or child.get("result", {}).get("discardable") is not True
+                ):
+                    raise ValueError(
+                        "independent nested Operation result is not discardable"
+                    )
+            else:
+                raise ValueError("independent nested Operation result is unresolved")
+            continue
         rule = (
             by_node.get(instruction.get("node"))
             if isinstance(instruction, dict)
@@ -644,6 +1233,8 @@ def _infer_result(
         )
         if not isinstance(rule, dict) or not isinstance(target, str):
             raise ValueError("independent inference instruction is unresolved")
+        if target in values:
+            raise ValueError("independent inference target is ambiguous")
         comparisons = {
             name: pair
             for name, pair in comparisons.items()
@@ -652,17 +1243,21 @@ def _infer_result(
         rule_id = rule.get("rule")
         if rule_id == "literal-closed-interval":
             literal = instruction.get(rule["literal_member"])
-            if not isinstance(literal, int):
+            if not isinstance(literal, int) or isinstance(literal, bool):
                 raise ValueError("independent literal inference is malformed")
             values[target] = with_interval(anchor, (literal, literal))
         elif rule_id == "copy-contract":
-            copied = instruction[rule["source_member"]]
+            copied = instruction.get(rule["source_member"])
+            if not isinstance(copied, str) or copied not in values:
+                raise ValueError("independent inference operand is unresolved")
             values[target] = deepcopy(values[copied])
             if copied in comparisons:
                 comparisons[target] = comparisons[copied]
         elif rule_id == "closed-interval-less-than":
-            assert policy["condition_contract"] == "kernel-boolean"
-            comparisons[target] = tuple(instruction[m] for m in rule["operand_members"])
+            operands = tuple(instruction.get(m) for m in rule["operand_members"])
+            if not all(isinstance(name, str) and name in values for name in operands):
+                raise ValueError("independent inference operand is unresolved")
+            comparisons[target] = cast(tuple[str, str], operands)
             values[target] = deepcopy(boolean_contract)
         elif rule_id in {
             "closed-interval-add",
@@ -671,9 +1266,14 @@ def _infer_result(
             "closed-interval-select",
             "closed-interval-subtract",
         }:
-            left_name, right_name = [
-                instruction[member] for member in rule["operand_members"]
-            ]
+            operand_names = tuple(
+                instruction.get(member) for member in rule["operand_members"]
+            )
+            if not all(
+                isinstance(name, str) and name in values for name in operand_names
+            ):
+                raise ValueError("independent inference operand is unresolved")
+            left_name, right_name = cast(tuple[str, str], operand_names)
             left, right = values[left_name], values[right_name]
             left_bounds, right_bounds = interval(left), interval(right)
             if left_bounds is None or right_bounds is None:
@@ -734,12 +1334,35 @@ def _infer_result(
                 )
         else:
             raise ValueError("independent inference rule is unknown")
+        produced_locals.add(target)
     result = operation["result"]
-    source_policy = policy["operation_result_source"]
-    source = result[source_policy["source_member"]]
-    if source.get("kind") != source_policy["kind"]:
-        raise ValueError("independent result source kind is malformed")
-    return values[source[source_policy["name_member"]]]
+    source = result.get("source") if isinstance(result, dict) else None
+    source_kind = source.get("kind") if isinstance(source, dict) else None
+    shape = source_shapes.get(source_kind) if isinstance(source_kind, str) else None
+    if (
+        not isinstance(source, dict)
+        or not isinstance(shape, list)
+        or set(source) != set(shape)
+    ):
+        raise ValueError("independent result source is malformed")
+    if source_kind == "local":
+        name = source.get("name")
+        if name not in produced_locals:
+            raise ValueError("independent local result producer is unresolved")
+        return deepcopy(values[cast(str, name)])
+    if source_kind == "port":
+        name = source.get("name")
+        if name not in port_values:
+            raise ValueError("independent port result producer is unresolved")
+        return deepcopy(port_values[cast(str, name)])
+    if source_kind == "operation-result":
+        site = source.get("site")
+        if site not in results_by_site:
+            raise ValueError("independent Operation result producer is unresolved")
+        return deepcopy(results_by_site[cast(str, site)])
+    if source_kind == "unit":
+        raise ValueError("independent Formula Operation result is not scalar")
+    raise ValueError("independent result source kind is unresolved")
 
 
 def parse_canonical(
@@ -750,15 +1373,14 @@ def parse_canonical(
     kernel: dict[str, Any],
 ) -> dict[str, Any]:
     grammar, _operations = _authority(language_bundle)
-    policy = _conversion_policy(language_bundle)
-    formula_policy = _formula_policy(language_bundle)
-    modules = _validate_context(request, language_bundle)
+    formula_policy = _formula_policy(language_bundle, kernel=kernel)
+    policy = formula_policy["notation_conversion"]
+    modules, module, formula = _validate_context(
+        request, language_bundle, kernel=kernel
+    )
     quote = cast(str, grammar["identifier_quote"])
     escape = cast(str, grammar["escape_character"])
-    parameters = {
-        row["id"]: _source_contract(row) for row in request["formula"]["parameters"]
-    }
-    module = request["module"]
+    parameters = {row["id"]: _source_contract(row) for row in formula["parameters"]}
     module_id = module["id"]
     imports_by_module = {
         row["id"]: {
@@ -771,6 +1393,34 @@ def parse_canonical(
         for row in modules
     }
     imports = imports_by_module[module_id]
+    selected_packages = set(request["package_requirements"])
+    packages_by_id = {
+        package["id"]: package for package in language_bundle["language"]["packages"]
+    }
+    pending = list(selected_packages)
+    while pending:
+        package_id = pending.pop()
+        package = packages_by_id.get(package_id)
+        if package is None:
+            raise FormulaReferenceFailure(
+                "name-unresolved",
+                "independent Formula package requirement is unresolved",
+            )
+        for dependency in package["dependencies"]["required"]:
+            if dependency not in selected_packages:
+                selected_packages.add(dependency)
+                pending.append(dependency)
+    operations = {
+        (package["id"], definition["id"]): {
+            **definition,
+            "package": package["id"],
+        }
+        for package in language_bundle["language"]["packages"]
+        if package["id"] in selected_packages
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.operations"
+        for definition in closure["definitions"]
+    }
     symbols: dict[tuple[str, str], dict[str, Any]] = {}
     declarations: dict[
         tuple[str, str], tuple[dict[str, Any], dict[str, tuple[str, str]]]
@@ -796,17 +1446,27 @@ def parse_canonical(
             )
     lines = expression.split("\n")
     if len(expression.encode("utf-8")) > grammar["max_expression_bytes"]:
-        raise ValueError("independent Formula expression exceeds its byte bound")
+        raise FormulaReferenceFailure(
+            "notation-resource", "independent Formula expression exceeds its byte bound"
+        )
     token_count, group_depth = _notation_resource_usage(
-        expression, grammar, request, language_bundle
+        expression, grammar, request, language_bundle, kernel
     )
     if token_count > grammar["max_tokens"]:
-        raise ValueError("independent Formula expression exceeds its token bound")
+        raise FormulaReferenceFailure(
+            "notation-resource",
+            "independent Formula expression exceeds its token bound",
+        )
     if group_depth > grammar["max_group_depth"]:
-        raise ValueError("independent Formula expression exceeds its group-depth bound")
+        raise FormulaReferenceFailure(
+            "notation-resource",
+            "independent Formula expression exceeds its group-depth bound",
+        )
     if len(lines) - 1 > formula_policy["max_nodes_per_formula"]:
-        raise ValueError("independent Formula expression exceeds its node bound")
-    notations = _selected_notations(request, language_bundle)
+        raise FormulaReferenceFailure(
+            "notation-resource", "independent Formula expression exceeds its node bound"
+        )
+    notations = _selected_notations(request, language_bundle, kernel)
     functions = {
         notation["name"]: (operation, notation)
         for operation, notation in notations
@@ -832,7 +1492,9 @@ def parse_canonical(
                 (cast(str, operand["module"]), cast(str, operand["symbol"]))
             )
             if contract is None:
-                raise ValueError("independent Symbol contract is unresolved")
+                raise FormulaReferenceFailure(
+                    "name-unresolved", "independent Symbol contract is unresolved"
+                )
             return operand, contract
         return operand, None
 
@@ -844,22 +1506,91 @@ def parse_canonical(
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         ports = cast(list[str], notation["ordered_ports"])
         if len(ports) != len(values):
-            raise ValueError("independent Operation arity is malformed")
+            raise FormulaReferenceFailure(
+                "type-mismatch", "independent Operation arity is malformed"
+            )
         operands = [typed_operand(value) for value in values]
         formals = {row["id"]: row for row in operation["inputs"]}
-        if set(ports) != set(formals) or any(
-            not _operation_contract_matches(contract, formals[port], imports)
-            for port, (_operand, contract) in zip(ports, operands, strict=True)
-        ):
-            raise ValueError("independent Operation port contract is incompatible")
-        result = _infer_result(
-            operation,
-            ports,
-            [contract for _operand, contract in operands],
-            _source_contract(request["formula"]["result"]),
-            policy,
-            _boolean_formula_contract(kernel),
-        )
+        if set(ports) != set(formals) or len(formals) != len(operation["inputs"]):
+            raise FormulaReferenceFailure(
+                "type-mismatch", "independent Operation port contract is incompatible"
+            )
+        typed_operands = []
+        for port, (operand, contract) in zip(ports, operands, strict=True):
+            if contract is None and operand.get("kind") == "literal":
+                literal = operand.get("value")
+                matches = [
+                    row
+                    for row in language_bundle["language"]["literal_typing_profiles"]
+                    if isinstance(literal, int)
+                    and not isinstance(literal, bool)
+                    and row.get("source_kind") == "integer"
+                    and isinstance(row.get("minimum"), int)
+                    and isinstance(row.get("maximum"), int)
+                    and row["minimum"] <= literal <= row["maximum"]
+                    and row.get("type") == formals[port].get("type")
+                    and all(
+                        row.get(member) == formals[port].get(member)
+                        for member in (
+                            "representation",
+                            "kind",
+                            "unit",
+                            "domain",
+                            "numeric_policy",
+                        )
+                    )
+                ]
+                aliases = [
+                    alias
+                    for alias, coordinate in imports.items()
+                    if len(matches) == 1
+                    and coordinate
+                    == (matches[0]["type"]["package"], matches[0]["type"]["id"])
+                ]
+                if len(matches) != 1 or len(aliases) != 1:
+                    raise FormulaReferenceFailure(
+                        "type-mismatch",
+                        "independent Operation literal contract is incompatible",
+                    )
+                # Generic actual formals retain the existing contextual anchor.
+                # Only an explicit interval owner narrows a literal operand.
+                if matches[0]["domain"].get("kind") == "closed-interval":
+                    contract = {
+                        "type": aliases[0],
+                        **{
+                            member: deepcopy(matches[0][member])
+                            for member in (
+                                "representation",
+                                "kind",
+                                "unit",
+                                "numeric_policy",
+                            )
+                        },
+                        "domain_kind": "closed-interval",
+                        "domain": {"minimum": literal, "maximum": literal},
+                    }
+            if not _operation_contract_matches(contract, formals[port], imports):
+                raise FormulaReferenceFailure(
+                    "type-mismatch",
+                    "independent Operation port contract is incompatible",
+                )
+            typed_operands.append((operand, contract))
+        try:
+            result = _infer_result(
+                operation,
+                ports,
+                [contract for _operand, contract in typed_operands],
+                _source_contract(formula["result"]),
+                policy,
+                _boolean_formula_contract(kernel),
+                operations=operations,
+                kernel=kernel,
+                imports=imports,
+            )
+        except FormulaReferenceFailure:
+            raise
+        except ValueError as error:
+            raise FormulaReferenceFailure("type-mismatch", str(error)) from error
         return (
             {
                 "id": local,
@@ -868,10 +1599,15 @@ def parse_canonical(
                     "package": operation["package"],
                     "id": operation["id"],
                 },
-                "arguments": [
-                    {"port": port, "operand": operand}
-                    for port, (operand, _contract) in zip(ports, operands, strict=True)
-                ],
+                "arguments": sorted(
+                    [
+                        {"port": port, "operand": operand}
+                        for port, (operand, _contract) in zip(
+                            ports, typed_operands, strict=True
+                        )
+                    ],
+                    key=lambda argument: cast(str, argument["port"]),
+                ),
                 "result": result,
             },
             result,
@@ -879,7 +1615,7 @@ def parse_canonical(
 
     if len(lines) == 1:
         operand, result_contract = typed_operand(lines[0])
-        expected = _source_contract(request["formula"]["result"])
+        expected = _source_contract(formula["result"])
         if result_contract is None and operand.get("kind") == "literal":
             value = operand.get("value")
             domain = expected.get("domain")
@@ -891,24 +1627,46 @@ def parse_canonical(
                 or not isinstance(domain.get("maximum"), int)
                 or not domain["minimum"] <= value <= domain["maximum"]
             ):
-                raise ValueError("independent literal result is incompatible")
+                raise FormulaReferenceFailure(
+                    "type-mismatch", "independent literal result is incompatible"
+                )
             result_contract = expected
         if result_contract != expected:
-            raise ValueError("independent Formula result contract is incompatible")
-        if operand.get("kind") == "parameter":
-            return {"node": "parameter", "parameter": operand["parameter"]}
+            raise FormulaReferenceFailure(
+                "type-mismatch", "independent Formula result contract is incompatible"
+            )
+        parameter_kind, parameter_reference, _source_member = _inline_source_parameter(
+            kernel, language_bundle
+        )
+        if operand.get("kind") == parameter_kind:
+            authored_member = _inline_authored_source_member(
+                language_bundle, kernel=kernel
+            )
+            return {
+                "node": parameter_kind,
+                authored_member: operand[parameter_reference],
+            }
         return {"nodes": [], "result": operand}
 
     for line in lines[:-1]:
-        if not line.startswith("let ") or not line.endswith(";"):
-            raise ValueError("canonical binding line is malformed")
-        assignment = _split_outside(line[4:-1], " = ", quote, escape)
+        binding_prefix = grammar["binding_keyword"] + " "
+        if not line.startswith(binding_prefix) or not line.endswith(";"):
+            raise FormulaReferenceFailure(
+                "notation-parse", "canonical binding line is malformed"
+            )
+        assignment = _split_outside(
+            line[len(binding_prefix) : -1], " = ", quote, escape
+        )
         if len(assignment) != 2:
-            raise ValueError("canonical binding assignment is malformed")
+            raise FormulaReferenceFailure(
+                "notation-parse", "canonical binding assignment is malformed"
+            )
         local = _unquote(assignment[0], grammar)
         rhs = assignment[1]
         if local in locals_ or local in parameters:
-            raise ValueError("independent binding local is ambiguous")
+            raise FormulaReferenceFailure(
+                "name-ambiguity", "independent binding local is ambiguous"
+            )
         if rhs.startswith("if "):
             branches = _split_outside(rhs[3:], " then ", quote, escape)
             tails = (
@@ -917,7 +1675,9 @@ def parse_canonical(
                 else []
             )
             if len(tails) != 2:
-                raise ValueError("conditional is malformed")
+                raise FormulaReferenceFailure(
+                    "notation-parse", "conditional is malformed"
+                )
             condition, condition_contract = typed_operand(branches[0])
             when_true, true_contract = typed_operand(tails[0])
             when_false, false_contract = typed_operand(tails[1])
@@ -928,7 +1688,9 @@ def parse_canonical(
                 or true_contract is None
                 or true_contract != false_contract
             ):
-                raise ValueError("independent conditional contract is incompatible")
+                raise FormulaReferenceFailure(
+                    "type-mismatch", "independent conditional contract is incompatible"
+                )
             node = {
                 "id": local,
                 "node": "conditional",
@@ -952,7 +1714,9 @@ def parse_canonical(
             else:
                 coordinate = _split_outside(head, ".", quote, escape)
                 if len(coordinate) != 2:
-                    raise ValueError("call coordinate is malformed")
+                    raise FormulaReferenceFailure(
+                        "notation-parse", "call coordinate is malformed"
+                    )
                 named = [
                     _split_outside(value, " = ", quote, escape) for value in arguments
                 ]
@@ -960,7 +1724,10 @@ def parse_canonical(
                     (_unquote(coordinate[0], grammar), _unquote(coordinate[1], grammar))
                 )
                 if resolved_declaration is None:
-                    raise ValueError("independent Formula coordinate is unresolved")
+                    raise FormulaReferenceFailure(
+                        "name-unresolved",
+                        "independent Formula coordinate is unresolved",
+                    )
                 declaration, declaration_imports = resolved_declaration
                 expected_parameters = {
                     row["id"]: _source_contract(row)
@@ -980,7 +1747,9 @@ def parse_canonical(
                     )
                     for parameter, (_operand, contract) in parsed_arguments.items()
                 ):
-                    raise ValueError("independent Formula argument is incompatible")
+                    raise FormulaReferenceFailure(
+                        "type-mismatch", "independent Formula argument is incompatible"
+                    )
                 node = {
                     "id": local,
                     "node": "formula-call",
@@ -1022,31 +1791,87 @@ def parse_canonical(
         nodes.append(node)
         locals_[local] = result_contract
     result_operand, result_contract = typed_operand(lines[-1])
-    if result_contract != _source_contract(request["formula"]["result"]):
-        raise ValueError("independent Formula result contract is incompatible")
+    if not _formula_contract_matches(
+        result_contract,
+        imports,
+        _source_contract(formula["result"]),
+        imports,
+    ):
+        raise FormulaReferenceFailure(
+            "type-mismatch", "independent Formula result contract is incompatible"
+        )
     return {
         "nodes": nodes,
         "result": result_operand,
     }
 
 
+def pair_refusal(
+    request: dict[str, Any], language_bundle: dict[str, Any], *, kernel: dict[str, Any]
+) -> tuple[str | None, str] | None:
+    """Independently preserve the renderer-first pair admission fault boundary."""
+    authored_formula = request.get("formula")
+    if not isinstance(authored_formula, dict):
+        return None, "body"
+
+    def authored_member(projection: Any, semantic_member: str) -> str:
+        segment = projection.authored_paths.get(
+            f"/{semantic_member}", f"/{semantic_member}"
+        ).rsplit("/", 1)[-1]
+        return segment.replace("~1", "/").replace("~0", "~")
+
+    member = "body"
+    try:
+        projection = _consumer_b_project_source_role(
+            authored_formula,
+            _source_role_token(language_bundle, "source.formula"),
+            kernel,
+            language_bundle,
+        )
+        formula = projection.value
+        body_token = _source_member_token(language_bundle, "source.formula.body")
+        expression_token = _source_member_token(
+            language_bundle, "source.formula.expression"
+        )
+        body = cast(dict[str, Any], formula[body_token])
+        normalized_body = normalize_semantic_body(body, language_bundle, kernel=kernel)
+        expression = cast(str, formula[expression_token])
+        member = authored_member(projection, body_token)
+        rendered = render_semantic_body(
+            normalized_body, request, language_bundle, kernel=kernel
+        )
+        member = authored_member(projection, expression_token)
+        if rendered != expression:
+            return "notation-mismatch", member
+        parsed = parse_canonical(expression, request, language_bundle, kernel=kernel)
+        if isinstance(parsed.get("nodes"), list) and isinstance(
+            parsed.get("result"), dict
+        ):
+            normalized_parsed = deepcopy(parsed)
+        else:
+            parsed_semantic = _consumer_b_project_source_role(
+                parsed,
+                _source_role_token(language_bundle, "source.inline_parameter"),
+                kernel,
+                language_bundle,
+            ).value
+            normalized_parsed = normalize_semantic_body(
+                cast(dict[str, Any], parsed_semantic),
+                language_bundle,
+                kernel=kernel,
+            )
+        if canonical_bytes(cast(JsonValue, normalized_parsed)) != canonical_bytes(
+            cast(JsonValue, normalized_body)
+        ):
+            return "notation-mismatch", member
+    except FormulaReferenceFailure as error:
+        return error.category, member
+    except (KeyError, TypeError, ValueError):
+        return None, member
+    return None
+
+
 def admit_pair(
     request: dict[str, Any], language_bundle: dict[str, Any], *, kernel: dict[str, Any]
 ) -> bool:
-    formula = request.get("formula")
-    if (
-        not isinstance(formula, dict)
-        or not isinstance(formula.get("body"), dict)
-        or not isinstance(formula.get("expression"), str)
-    ):
-        return False
-    body = cast(dict[str, Any], formula["body"])
-    expression = cast(str, formula["expression"])
-    try:
-        rendered = render_body(body, request, language_bundle)
-        parsed = parse_canonical(expression, request, language_bundle, kernel=kernel)
-    except (KeyError, TypeError, ValueError):
-        return False
-    return expression == rendered and canonical_bytes(
-        cast(JsonValue, parsed)
-    ) == canonical_bytes(cast(JsonValue, body))
+    return pair_refusal(request, language_bundle, kernel=kernel) is None

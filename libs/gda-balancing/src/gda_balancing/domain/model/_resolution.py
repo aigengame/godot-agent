@@ -11,6 +11,7 @@ import jsonschema
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     _deep_freeze,
+    packaged_authority_context,
 )
 from gda_balancing.domain.authority.graph import (
     NamespaceClosureProjection,
@@ -34,10 +35,17 @@ from gda_balancing.domain.diagnostics import (
 )
 from gda_balancing.domain.formula.notation import (
     FormulaPairRefusal,
-    admit_formula_pair,
+    admit_semantic_formula_pair,
 )
 from gda_balancing.domain.operation_program import closed_operation_coordinates
+from gda_balancing.domain.program_reachability import formula_lifecycle_phases
 from gda_balancing.domain.model._preparation import _TypedHIR
+from gda_balancing.domain.authority.source_projection import (
+    SourceNativeBindingIndex,
+    SourceProjection,
+    derive_default_source_native_bindings,
+    source_semantic_selector,
+)
 
 _RESOLVER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-exact-resolver-v1"
 _RelationBindings: TypeAlias = dict[str, tuple[Any, tuple[object, ...] | None]]
@@ -68,41 +76,26 @@ def _normalized_absolute_path(value: str) -> Path:
     return path
 
 
-_FORMULA_REASON = {
-    "binding-missing": "model.reason.formula-binding-missing",
-    "binding-duplicate": "model.reason.formula-binding-duplicate",
-    "type-mismatch": "model.reason.formula-type-mismatch",
-    "kind-mismatch": "model.reason.formula-kind-mismatch",
-    "unit-mismatch": "model.reason.formula-unit-mismatch",
-    "numeric-profile-mismatch": "model.reason.formula-numeric-profile-mismatch",
-    "purity-mismatch": "model.reason.formula-purity-mismatch",
-    "context-mismatch": "model.reason.formula-context-mismatch",
-    "unreachable": "model.reason.formula-unreachable",
-    "refusal-widening": "model.reason.formula-refusal-widening",
-    "resource-exhausted": "model.reason.formula-resource-exhausted",
-    "cycle": "model.reason.formula-cycle",
-    "notation-mismatch": "model.reason.formula-notation-mismatch",
-}
-
-
-MODEL_REFUSAL_REASONS = (
-    "model.reason.source-too-large",
-    "model.reason.source-parse-failure",
-    "model.reason.source-contract-mismatch",
-    "quantity.reason.invalid-domain",
-    "quantity.reason.unknown-kind",
-    "quantity.reason.unknown-unit",
-    "model.reason.duplicate-symbol",
-    "quantity.reason.resource-exhausted",
-    "model.reason.resolution-resource-exhausted",
-    "model.reason.runtime-projection-resource-exhausted",
-    "model.reason.unresolved-name",
-    "model.reason.name-ambiguity",
-    "model.reason.package-unavailable",
-    "model.reason.resolution-ambiguity",
-    *_FORMULA_REASON.values(),
-)
-MODEL_REFUSAL_CATALOG = refusal_catalog_for_reasons(MODEL_REFUSAL_REASONS)
+def model_refusal_catalog(
+    language_bundle: dict[str, Any] | None = None,
+) -> tuple[tuple[str, str], ...]:
+    """Project only the selected Model pipeline's declared refusal owners."""
+    if language_bundle is None:
+        language_bundle = packaged_authority_context().language_bundle
+    profile = _resolution_profile(language_bundle)
+    lowering = _model_lowering(language_bundle)
+    reason_ids = [
+        profile["source_byte_reason"],
+        profile["parse_reason"],
+        profile["structural_reason"],
+        profile["resource_reason"],
+        lowering["runtime_projection"]["resource_reason"],
+        lowering["admission_reason"],
+        *(row["reason"] for row in profile["judgment_chain"]),
+        *(row["reason"] for row in _language(language_bundle)["model_checks"]),
+        *profile["formula_resolution"]["refusal_reasons"].values(),
+    ]
+    return refusal_catalog_for_reasons(dict.fromkeys(reason_ids), language_bundle)
 
 
 @dataclass(frozen=True)
@@ -110,6 +103,7 @@ class ModelSourceContext:
     """Inputs for resolution; these alone do not authorize compilation."""
 
     source: dict[str, Any]
+    source_projection: SourceProjection
     source_identity: str
     kernel: dict[str, Any]
     language_bundle: dict[str, Any]
@@ -132,6 +126,15 @@ class CheckedModel(ModelSourceContext):
         ):
             raise ValueError("checked Model must retain its admitted authority context")
         object.__setattr__(self, "source", _deep_freeze(self.source))
+        object.__setattr__(
+            self,
+            "source_projection",
+            SourceProjection(
+                _deep_freeze(self.source_projection.value),
+                _deep_freeze(self.source_projection.authored_paths),
+                self.source,
+            ),
+        )
 
 
 class _ResolutionResourceExhausted(Exception):
@@ -245,87 +248,7 @@ def _formula_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
     profile = _resolution_profile(
         language_bundle, cast(str, lowering["resolution_profile"])
     )
-    extensions = profile.get("extensions")
-    policy = (
-        extensions.get("standard.formula") if isinstance(extensions, dict) else None
-    )
-    string_members = (
-        "module_formulas_member",
-        "bindings_member",
-        "formula_id_member",
-        "formula_parameters_member",
-        "formula_result_member",
-        "formula_body_member",
-        "body_nodes_member",
-        "body_result_member",
-        "node_id_member",
-        "parameter_id_member",
-        "binding_arguments_member",
-        "binding_parameter_member",
-        "binding_operand_member",
-        "binding_site_member",
-        "binding_formula_member",
-        "binding_cardinality",
-        "argument_cardinality",
-        "argument_order",
-        "same_name_capture",
-        "declaration_scope",
-    )
-    list_members = (
-        "allowed_binding_sites",
-        "allowed_body_nodes",
-        "allowed_operand_kinds",
-    )
-    identity_domains = (
-        policy.get("identity_domains") if isinstance(policy, dict) else None
-    )
-    inline_body_normalizations = (
-        policy.get("inline_body_normalizations") if isinstance(policy, dict) else None
-    )
-    if (
-        not isinstance(policy, dict)
-        or any(
-            not isinstance(policy.get(member), str) or not policy[member]
-            for member in string_members
-        )
-        or any(
-            not isinstance(policy.get(member), list)
-            or not policy[member]
-            or not all(isinstance(item, str) and item for item in policy[member])
-            for member in list_members
-        )
-        or not isinstance(policy.get("first_class_values"), bool)
-        or not isinstance(policy.get("dynamic_lookup"), bool)
-        or not isinstance(policy.get("max_nodes_per_formula"), int)
-        or cast(int, policy["max_nodes_per_formula"]) <= 0
-        or not isinstance(policy.get("resource_charge_per_node"), int)
-        or cast(int, policy["resource_charge_per_node"]) <= 0
-        or not isinstance(inline_body_normalizations, list)
-        or not inline_body_normalizations
-        or not all(
-            isinstance(normalization, dict)
-            and set(normalization) == {"node", "parameter_member", "result_kind"}
-            and all(
-                isinstance(normalization.get(member), str) and normalization[member]
-                for member in ("node", "parameter_member", "result_kind")
-            )
-            for normalization in inline_body_normalizations
-        )
-        or len(
-            {
-                cast(str, normalization["node"])
-                for normalization in inline_body_normalizations
-            }
-        )
-        != len(inline_body_normalizations)
-        or not isinstance(identity_domains, dict)
-        or any(
-            not isinstance(domain, str) or not domain
-            for domain in identity_domains.values()
-        )
-    ):
-        raise ValueError("the admitted resolution profile has no closed Formula policy")
-    return cast(dict[str, Any], policy)
+    return cast(dict[str, Any], profile["formula_resolution"])
 
 
 def _operation_formula_slots(
@@ -344,35 +267,11 @@ def _operation_formula_slots(
     return cast(list[dict[str, Any]], slots)
 
 
-def _formula_contexts(language_bundle: dict[str, Any]) -> dict[str, dict[str, str]]:
-    profiles = cast(
-        list[dict[str, Any]], _language(language_bundle)["runtime_profiles"]
-    )
-    candidates: list[dict[str, dict[str, str]]] = []
-    for profile in profiles:
-        extensions = profile.get("extensions")
-        formula = (
-            extensions.get("standard.formula") if isinstance(extensions, dict) else None
-        )
-        contexts = formula.get("contexts") if isinstance(formula, dict) else None
-        if not isinstance(contexts, list):
-            continue
-        by_phase: dict[str, dict[str, str]] = {}
-        for context in contexts:
-            if not isinstance(context, dict):
-                continue
-            phase = context.get("phase")
-            frame = context.get("frame")
-            if isinstance(phase, str) and isinstance(frame, str):
-                by_phase[phase] = {"phase": phase, "frame": frame}
-        candidates.append(by_phase)
-    if len(candidates) != 1 or set(candidates[0]) != {
-        "initialization",
-        "event",
-        "observation",
-    }:
-        raise ValueError("the admitted Runtime profile has no unique Formula contexts")
-    return candidates[0]
+def _formula_contexts(kernel: dict[str, Any]) -> dict[str, dict[str, str]]:
+    return {
+        phase: {"phase": phase}
+        for phase in formula_lifecycle_phases(kernel["meta_format"]["runtime_program"])
+    }
 
 
 def _operation_reference_node_ids(kernel: dict[str, Any]) -> set[str]:
@@ -388,7 +287,7 @@ def _operation_reference_node_ids(kernel: dict[str, Any]) -> set[str]:
 
 
 def _selected_source_operation_coordinates(
-    source: dict[str, Any],
+    entrypoints: list[dict[str, Any]],
     lock: dict[str, Any],
     operation_node_ids: set[str],
     additional_roots: set[tuple[str, str]] | None = None,
@@ -403,14 +302,10 @@ def _selected_source_operation_coordinates(
     }
     selected = {
         (cast(str, operation["package"]), cast(str, operation["id"]))
-        for entrypoint in cast(list[dict[str, Any]], source.get("entrypoints", []))
+        for entrypoint in entrypoints
         if isinstance((operation := entrypoint.get("operation")), dict)
     }
     selected.update(additional_roots or set())
-    if any(coordinate not in operations for coordinate in selected):
-        # Exact Operation-resolution diagnostics own precedence over Formula
-        # reachability when an authored root coordinate cannot resolve.
-        return set(operations)
     return closed_operation_coordinates(selected, operations, operation_node_ids)
 
 
@@ -478,12 +373,12 @@ def _path_value(root: Any, dotted: str) -> Any:
 
 
 def _selected_values(
-    root: Any, selector: list[str], parts: tuple[object, ...] = ()
+    root: Any, selector: list[str | None], parts: tuple[object, ...] = ()
 ) -> list[tuple[Any, tuple[object, ...]]]:
     if not selector:
         return [(root, parts)]
     head, *tail = selector
-    if head == "*":
+    if head is None:
         if not isinstance(root, list):
             return []
         return [
@@ -549,26 +444,20 @@ def _reason_matches(
     raise ValueError(f"unknown admitted reason operation: {operation}")
 
 
-def _unique_reason(
-    language_bundle: dict[str, Any],
-    *,
-    stage: str,
-    operation: str,
-    limit_path: str | None = None,
-) -> dict[str, Any]:
-    matches = []
-    for reason in cast(list[dict[str, Any]], _language(language_bundle)["reasons"]):
-        predicate = cast(dict[str, Any], reason["predicate"])
-        if reason["stage"] != stage or predicate["operation"] != operation:
-            continue
-        if limit_path is not None and predicate.get("limit_path") != limit_path:
-            continue
-        matches.append(reason)
-    if len(matches) != 1:
-        raise ValueError(
-            "the admitted Model Source boundary requires one matching diagnostic reason"
+def _model_check_paths(
+    language: dict[str, Any],
+) -> Iterable[tuple[dict[str, Any], list[str | None], list[str | None]]]:
+    schema = next(
+        row["schema"]
+        for row in language["wire_schemas"]
+        if row.get("protocol_role") == "model-source-package"
+    )
+    for check in language["model_checks"]:
+        scope = check.get("semantic_scope_selector", [])
+        authored = source_semantic_selector(
+            schema, [*scope, *check["semantic_selector"]]
         )
-    return matches[0]
+        yield check, authored[: len(scope)], authored[len(scope) :]
 
 
 def _model_check_diagnostics(
@@ -581,20 +470,20 @@ def _model_check_diagnostics(
         item["id"]: item for item in cast(list[dict[str, Any]], language["reasons"])
     }
     diagnostics: list[Schema2Diagnostic] = []
-    for check in cast(list[dict[str, Any]], language["model_checks"]):
+    for check, scope_selector, selector in _model_check_paths(language):
         reason = reasons[check["reason"]]
         scopes = (
             _selected_values(
                 source,
-                cast(list[str], check["scope_selector"]),
+                scope_selector,
             )
-            if "scope_selector" in check
+            if scope_selector
             else [(source, ())]
         )
         for scope, scope_path in scopes:
             selected = _selected_values(
                 scope,
-                cast(list[str], check["selector"]),
+                selector,
                 scope_path,
             )
             values = [value for value, _ in selected]
@@ -642,10 +531,14 @@ def _model_check_diagnostics(
                 location = (
                     selected[limit][1]
                     if len(selected) > limit
-                    else tuple(check["selector"])
+                    else tuple("*" if part is None else part for part in selector)
                 )
             else:
-                location = selected[0][1] if selected else tuple(check["selector"])
+                location = (
+                    selected[0][1]
+                    if selected
+                    else tuple("*" if part is None else part for part in selector)
+                )
             diagnostics.append(
                 Schema2Diagnostic(
                     code=diagnostic_code,
@@ -657,37 +550,34 @@ def _model_check_diagnostics(
 
 
 def _formula_pair_diagnostics(
-    source: dict[str, Any],
+    projection: SourceProjection,
     source_identity: str,
     authority_context: AdmittedAuthorityContext,
 ) -> list[Schema2Diagnostic]:
+    source = projection.value
     diagnostics: list[Schema2Diagnostic] = []
+    modules_member = "modules"
+    formulas_member = "formulas"
     requirements = source.get("package_requirements")
-    modules = source.get("modules")
+    modules = source.get(modules_member)
     if not isinstance(requirements, list) or not isinstance(modules, list):
         return diagnostics
     for module_index, module in enumerate(modules):
         if not isinstance(module, dict):
             continue
-        formulas = module.get("formulas", [])
+        formulas = module.get(formulas_member, [])
         if not isinstance(formulas, list):
             continue
-        module_context = {
-            "id": module.get("id"),
-            "imports": module.get("imports"),
-            "symbols": module.get("symbols"),
-            "formulas": formulas,
-        }
         for formula_index, formula in enumerate(formulas):
             if not isinstance(formula, dict):
                 continue
             try:
-                admit_formula_pair(
+                admit_semantic_formula_pair(
                     {
                         "schema_version": source.get("schema_version"),
                         "package_requirements": requirements,
                         "modules": modules,
-                        "module": module_context,
+                        "module": module,
                         "formula": formula,
                     },
                     authority_context,
@@ -700,9 +590,16 @@ def _formula_pair_diagnostics(
                         message=err.message,
                         primary=_location(
                             source_identity,
-                            (
-                                f"/modules/{module_index}/formulas/"
-                                f"{formula_index}/{err.member}"
+                            projection.authored_pointer(
+                                _pointer(
+                                    (
+                                        modules_member,
+                                        module_index,
+                                        formulas_member,
+                                        formula_index,
+                                        err.member,
+                                    )
+                                )
                             ),
                         ),
                     )
@@ -732,15 +629,10 @@ def _schema_error_code(
     reasons = {
         item["id"]: item for item in cast(list[dict[str, Any]], language["reasons"])
     }
-    for check in cast(list[dict[str, Any]], language["model_checks"]):
-        selector = tuple(
-            [
-                *cast(list[str], check.get("scope_selector", [])),
-                *cast(list[str], check["selector"]),
-            ]
-        )
+    for check, scope, selected in _model_check_paths(language):
+        selector = (*scope, *selected)
         if len(selector) == len(path) and all(
-            expected == "*" or expected == actual
+            expected is None or expected == actual
             for expected, actual in zip(selector, path, strict=True)
         ):
             return cast(str, reasons[check["reason"]]["diagnostic"])
@@ -790,16 +682,72 @@ def _preferred_schema_errors(
             else None
         )
         branches.setdefault(branch, []).append(child)
-    selected = min(
-        branches.values(),
-        key=lambda items: (
-            sum(_schema_error_pointer_count(item) for item in items),
-            tuple(str(item.schema_path) for item in items),
+    alternatives = (
+        error.schema.get(error.validator, [])
+        if isinstance(error.schema, dict) and isinstance(error.validator, str)
+        else []
+    )
+
+    def branch_affinity(branch: object) -> tuple[int, int, int, int]:
+        if not isinstance(branch, int) or not isinstance(error.instance, dict):
+            return (0, 0, 0, 0)
+        if not isinstance(alternatives, list) or branch >= len(alternatives):
+            return (0, 0, 0, 0)
+        schema = alternatives[branch]
+        if not isinstance(schema, dict):
+            return (0, 0, 0, 0)
+        properties = schema.get("properties", {})
+        if not isinstance(properties, dict):
+            return (0, 0, 0, 0)
+        constants = [
+            (name, child["const"])
+            for name, child in properties.items()
+            if isinstance(child, dict) and "const" in child
+        ]
+        mismatches = sum(
+            name in error.instance and error.instance[name] != expected
+            for name, expected in constants
+        )
+        matches = sum(
+            name in error.instance and error.instance[name] == expected
+            for name, expected in constants
+        )
+        overlap = len(set(properties) & set(error.instance))
+        required = schema.get("required", [])
+        required_present = (
+            len(set(required) & set(error.instance))
+            if isinstance(required, list)
+            else 0
+        )
+        return (mismatches, -matches, -overlap, -required_present)
+
+    if any(
+        isinstance(branch, int) and branch_affinity(branch)[0] > 0
+        for branch in branches
+    ) and not any(
+        isinstance(branch, int) and branch_affinity(branch)[1] < 0
+        for branch in branches
+    ):
+        return [error]
+
+    _selected_branch, selected = min(
+        branches.items(),
+        key=lambda row: (
+            *branch_affinity(row[0]),
+            sum(_schema_error_pointer_count(item) for item in row[1]),
+            tuple(str(item.schema_path) for item in row[1]),
         ),
     )
-    return [
+    preferred = [
         preferred for child in selected for preferred in _preferred_schema_errors(child)
     ]
+    return (
+        [error]
+        if any(
+            item.validator in {"oneOf", "anyOf"} and item.context for item in preferred
+        )
+        else preferred
+    )
 
 
 def _schema_error_diagnostics(
@@ -807,22 +755,18 @@ def _schema_error_diagnostics(
     source_identity: str,
     language_bundle: dict[str, Any],
 ) -> list[Schema2Diagnostic]:
-    error_path = tuple(error.absolute_path)
-    if (
-        error.validator in {"oneOf", "anyOf"}
-        and error.context
-        and len(error_path) >= 2
-        and error_path[-2] == "symbols"
-    ):
-        return [
-            diagnostic
-            for preferred in _preferred_schema_errors(error)
-            for diagnostic in _schema_error_diagnostics(
-                preferred,
-                source_identity,
-                language_bundle,
-            )
-        ]
+    if error.validator in {"oneOf", "anyOf"} and error.context:
+        preferred_errors = _preferred_schema_errors(error)
+        if len(preferred_errors) != 1 or preferred_errors[0] is not error:
+            return [
+                diagnostic
+                for preferred in preferred_errors
+                for diagnostic in _schema_error_diagnostics(
+                    preferred,
+                    source_identity,
+                    language_bundle,
+                )
+            ]
     code = _schema_error_code(error, language_bundle)
     base = tuple(error.absolute_path)
     pointers: list[tuple[object, ...]] = []
@@ -857,19 +801,22 @@ def _schema_error_diagnostics(
 
 
 def _resolution_relations(
-    source: dict[str, Any],
+    source_projection: SourceProjection,
     language_bundle: dict[str, Any],
     profile: dict[str, Any],
     budget: _ResolutionBudget,
-    projection: NamespaceClosureProjection,
+    namespace_projection: NamespaceClosureProjection,
+    source_bindings: SourceNativeBindingIndex,
 ) -> dict[str, list[dict[str, Any]]]:
+    source = source_projection.value
     language = _language(language_bundle)
     available_packages = {
         package["id"]: package
         for package in cast(list[dict[str, Any]], language["packages"])
     }
     selected_package_values = [
-        available_packages[package.namespace] for package in projection.packages
+        available_packages[package.namespace]
+        for package in namespace_projection.packages
     ]
 
     def evaluate_term(
@@ -891,9 +838,21 @@ def _resolution_relations(
         else:
             raise ValueError(f"unknown admitted relation term root: {root}")
         for segment in cast(list[str], term["path"]):
-            value = value[segment]
+            resolved_segment = segment
+            if pointer is not None and isinstance(value, dict) and segment not in value:
+                candidates = {
+                    slot.rsplit(".", 1)[-1]
+                    for slot, member in source_bindings.members.items()
+                    if member == segment and slot.rsplit(".", 1)[-1] in value
+                }
+                if len(candidates) != 1:
+                    raise ValueError(
+                        "Source relation path has no unique native binding"
+                    )
+                resolved_segment = candidates.pop()
+            value = value[resolved_segment]
             if pointer is not None:
-                pointer = (*pointer, segment)
+                pointer = (*pointer, resolved_segment)
         return value, pointer
 
     relations: dict[str, list[dict[str, Any]]] = {}
@@ -942,7 +901,9 @@ def _resolution_relations(
                         raise ValueError(
                             "admitted relation pointer has no source location"
                         )
-                    pointers[field["name"]] = _pointer(pointer)
+                    pointers[field["name"]] = source_projection.authored_pointer(
+                        _pointer(pointer)
+                    )
             rows.append({"values": values, "pointers": pointers})
         relations[recipe["id"]] = rows
     return relations
@@ -1003,7 +964,7 @@ def _resolution_law_failures(
 
 
 def _resolution_diagnostics(
-    source: dict[str, Any],
+    source_projection: SourceProjection,
     source_identity: str,
     kernel: dict[str, Any],
     language_bundle: dict[str, Any],
@@ -1027,12 +988,7 @@ def _resolution_diagnostics(
         item["id"]: item
         for item in cast(list[dict[str, Any]], resolution_contract["operations"])
     }
-    resource_reason = _unique_reason(
-        language_bundle,
-        stage="static",
-        operation="greater-than",
-        limit_path="resources.max_rule_match_steps",
-    )
+    resource_reason = reason_by_id(language_bundle, profile["resource_reason"])
     budget = _ResolutionBudget(
         cast(
             int,
@@ -1045,7 +1001,12 @@ def _resolution_diagnostics(
     diagnostics: list[Schema2Diagnostic] = []
     try:
         relations = _resolution_relations(
-            source, language_bundle, profile, budget, projection
+            source_projection,
+            language_bundle,
+            profile,
+            budget,
+            projection,
+            derive_default_source_native_bindings(kernel, language_bundle),
         )
         for judgment in cast(list[dict[str, Any]], profile["judgment_chain"]):
             operation_spec = operation_specs[judgment["operation"]]

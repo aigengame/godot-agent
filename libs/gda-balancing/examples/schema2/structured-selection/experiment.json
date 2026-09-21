@@ -31,41 +31,10 @@
     }
   ],
   "model": {
-    "rir_semantic_identity": "sha256:87abf5100d6ddb8192cba029cebb1191faebb053df36ea6c19cecb4fb9185a39"
+    "rir_semantic_identity": "sha256:baaa6fa20ba72a8b66c3fe32cb0ebbe88ebda97415dd125d7b9ce1b7b18830a7"
   },
   "runtime": {
-    "profile": "standard.exact-int64-event-v1",
-    "required_evaluator": {
-      "effects": [
-        "event.commit",
-        "metric.observe",
-        "rng.named-stream",
-        "snapshot.commit"
-      ],
-      "instruction_nodes": [
-        "constant",
-        "draw",
-        "equal",
-        "guard-block",
-        "if",
-        "is-empty",
-        "lookup",
-        "require",
-        "write-state"
-      ],
-      "numeric_policies": [
-        "exact-int64"
-      ],
-      "operation_kinds": [
-        "event-program"
-      ],
-      "rng_algorithms": [
-        "splitmix64-v1"
-      ],
-      "runtime_profiles": [
-        "standard.exact-int64-event-v1"
-      ]
-    }
+    "profile": "standard.exact-int64-event-v1"
   },
   "scenarios": [
     {
@@ -158,16 +127,12 @@
         }
       ],
       "id": "select-one",
-      "named_streams": [
-        "selection"
-      ],
       "terminal_condition": {
         "kind": "event-count",
         "maximum": 1
       }
     }
   ],
-  "schema_version": "2.0.0",
   "seed": {
     "algorithm": "splitmix64-v1",
     "value": 20260811

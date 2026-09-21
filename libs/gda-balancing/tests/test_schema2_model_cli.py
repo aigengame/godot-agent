@@ -20,6 +20,7 @@ import gda_balancing.domain.model._compilation as model_compilation_module
 import gda_balancing.domain.model._checking as model_checking_module
 import gda_balancing.domain.model._inspection as model_inspection_module
 import gda_balancing.interfaces.cli.model_build as model_build_command_module
+import gda_balancing.interfaces.cli.model_check as model_check_command_module
 import gda_balancing.interfaces.cli.model_inspect as model_inspect_command_module
 import gda_balancing.domain.authority.context as authority_module
 import gda_balancing.domain.authority.admission as bootstrap_module
@@ -35,6 +36,7 @@ import jsonschema
 import pytest
 from gda_balancing.domain.model import admit_rir
 from gda_balancing.domain.artifact_semantics import artifact_semantic_projection
+from gda_balancing.domain.artifact_set import resolve_artifact_set
 from gda_balancing.domain.authority.admission import admit_authorities
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.domain.diagnostics import ArtifactLocation, Schema2RefusalReport
@@ -73,13 +75,133 @@ _RPG_STAT_COMPOSITION_SOURCE = (
 )
 
 
-def _inject_authority_context(monkeypatch, kernel, language_bundle):
+def _admitted_authority_context(kernel, language_bundle):
     context = authority_module.admit_authority_context(kernel, language_bundle)
     assert isinstance(context, authority_module.AdmittedAuthorityContext)
-    monkeypatch.setattr(
-        model_checking_module, "packaged_authority_context", lambda: context
-    )
     return context
+
+
+def _model_check_registry(context):
+    return (model_check_command_module.model_check_descriptor(lambda: context),)
+
+
+def _model_build_registry(context):
+    return (model_build_command_module.model_build_descriptor(lambda: context),)
+
+
+def test_model_file_descriptors_share_one_injected_authority_per_dispatch(
+    tmp_path, run_cli, monkeypatch
+):
+    """Custom registries need no packaged-authority side channel."""
+    import gda_balancing.interfaces.cli.model_check as model_check_command_module
+    import gda_balancing.interfaces.cli.surface as surface_module
+
+    context = authority_module.packaged_authority_context()
+    source = tmp_path / "provider-model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    calls: list[authority_module.AdmittedAuthorityContext] = []
+
+    def provider():
+        calls.append(context)
+        return context
+
+    def ambient_loader_is_forbidden():
+        raise AssertionError("custom Model dispatch read packaged authority")
+
+    build = model_build_command_module.model_build_descriptor(provider)
+    check = model_check_command_module.model_check_descriptor(provider)
+    monkeypatch.setattr(
+        model_checking_module,
+        "packaged_authority_context",
+        ambient_loader_is_forbidden,
+    )
+    monkeypatch.setattr(
+        model_module,
+        "packaged_authority_context",
+        ambient_loader_is_forbidden,
+    )
+    monkeypatch.setattr(
+        surface_module,
+        "packaged_authority_context",
+        ambient_loader_is_forbidden,
+    )
+
+    schema_exit, schema_stdout, schema_stderr = run_cli(
+        ["model", "build", "--schema"], registry=(build,)
+    )
+    assert (schema_exit, schema_stderr) == (0, "")
+    schema = json.loads(schema_stdout)
+    assert schema["descriptor_identity"] == descriptor_identity(
+        build, authority_context=context
+    )
+    assert calls == [context]
+
+    calls.clear()
+    check_exit, check_stdout, check_stderr = run_cli(
+        ["model", "check", str(source)], registry=(check,)
+    )
+    assert (check_exit, check_stderr) == (0, "")
+    assert (
+        json.loads(check_stdout)["language_bundle_identity"]
+        == (context.language_bundle["content_identity"])
+    )
+    assert calls == [context]
+
+    calls.clear()
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "provider-model-out.json"),
+            "--invocation-key",
+            "a" * 64,
+        ],
+        registry=(build,),
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    assert json.loads(build_stdout)["descriptor_identity"] == descriptor_identity(
+        build, authority_context=context
+    )
+    assert calls == [context]
+
+
+@pytest.mark.parametrize("provider_behavior", ["raises", "refuses"])
+@pytest.mark.parametrize(
+    ("argv", "usage_code"),
+    [
+        (["model", "check", "--unknown", "value"], "unknown_argument"),
+        (["model", "check"], "invalid_argument"),
+    ],
+)
+def test_model_usage_binding_precedes_custom_authority_resolution(
+    run_cli,
+    provider_behavior,
+    argv,
+    usage_code,
+):
+    """Malformed argv is a usage outcome even when command authority would fail."""
+    import gda_balancing.interfaces.cli.model_check as model_check_command_module
+
+    context = authority_module.packaged_authority_context()
+    refused_kernel, refused_ldb = context.mutable_pair()
+    refused_kernel["content_identity"] = "sha256:" + "0" * 64
+    calls = 0
+
+    def provider():
+        nonlocal calls
+        calls += 1
+        if provider_behavior == "raises":
+            raise AssertionError("usage binding invoked the authority provider")
+        return refused_kernel, refused_ldb
+
+    descriptor = model_check_command_module.model_check_descriptor(provider)
+    exit_code, stdout, stderr = run_cli(argv, registry=(descriptor,))
+
+    assert (exit_code, stdout) == (3, "")
+    assert json.loads(stderr)["error"]["code"] == usage_code
+    assert calls == 0
 
 
 def test_artifact_semantic_projection_treats_empty_root_exclusion_as_noop():
@@ -415,7 +537,6 @@ def test_roguelike_model_build_publishes_the_reward_formula_boundary(tmp_path, r
 
     assert formula["expression"] == "rare_weight"
     assert binding["site"]["context"] == {
-        "frame": "pre-event-snapshot",
         "phase": "event",
     }
     assert binding["site"]["slot"] == "rare-threshold-policy"
@@ -586,15 +707,12 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
         "observation",
     }
     assert bindings_by_phase["initialization"]["site"]["context"] == {
-        "frame": "pre-snapshot",
         "phase": "initialization",
     }
     assert bindings_by_phase["observation"]["site"]["context"] == {
-        "frame": "post-transition-snapshot",
         "phase": "observation",
     }
     assert bindings_by_phase["event"]["site"]["context"] == {
-        "frame": "pre-event-snapshot",
         "phase": "event",
     }
     assert (
@@ -695,14 +813,9 @@ def test_formula_parameter_sugar_normalizes_to_same_formula_and_rir_through_conv
         == "/modules/0/formulas/0/expression"
     )
     assert isinstance(checked_sugar, model_module.CheckedModel)
-    policy = model_module._formula_policy(checked_sugar.language_bundle)
-    assert policy["inline_body_normalizations"] == [
-        {
-            "node": "parameter",
-            "parameter_member": "parameter",
-            "result_kind": "parameter",
-        }
-    ]
+    assert checked_sugar.source_projection.value["modules"][0]["formulas"][0][
+        "body"
+    ] == {"node": "parameter", "parameter": "base"}
     context = checked_sugar.authority_context
     assert isinstance(context, authority_module.AdmittedAuthorityContext)
     program_body = program_source["modules"][0]["formulas"][0]["body"]
@@ -735,28 +848,28 @@ def test_formula_parameter_sugar_normalizes_to_same_formula_and_rir_through_conv
     assert converted_rir == sugar_rir
 
 
-def test_formula_policy_uses_authority_values_without_host_spelling_or_limit_pins():
-    _kernel, language_bundle = mutable_authorities()
+def test_formula_policy_uses_authority_limits_and_identity_domains():
+    kernel, language_bundle = mutable_authorities()
     candidate = deepcopy(language_bundle)
     profile = next(
         row
         for row in candidate["language"]["resolution_profiles"]
         if row["id"] == "exact-import-resolution-v1"
     )
-    policy = profile["extensions"]["standard.formula"]
-    policy["body_nodes_member"] = "authority-owned-expressions"
-    policy["allowed_body_nodes"] = ["authority-owned-node"]
+    policy = profile["formula_resolution"]
     policy["max_nodes_per_formula"] = 37
     policy["resource_charge_per_node"] = 41
-    policy["identity_domains"]["formula"] = "authority-formula-domain"
+    policy["identity_domains"]["declaration"] = "authority-formula-domain"
 
-    resolved = model_module._formula_policy(candidate)
+    _reidentify_language_bundle(candidate)
+    context = authority_module.admit_authority_context(kernel, candidate)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext), context
 
-    assert resolved["body_nodes_member"] == "authority-owned-expressions"
-    assert resolved["allowed_body_nodes"] == ["authority-owned-node"]
+    resolved = model_module._formula_policy(context.language_bundle)
+
     assert resolved["max_nodes_per_formula"] == 37
     assert resolved["resource_charge_per_node"] == 41
-    assert resolved["identity_domains"]["formula"] == "authority-formula-domain"
+    assert resolved["identity_domains"]["declaration"] == "authority-formula-domain"
 
 
 def test_model_build_publishes_the_formula_explanation(tmp_path, run_cli):
@@ -1714,7 +1827,6 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
     assert binding["site"]["slot"] == "damage-policy"
     assert binding["site"]["context"] == {
         "phase": "event",
-        "frame": "pre-event-snapshot",
     }
     assert [row["operand"]["parameter"] for row in binding["arguments"]] == [
         "damage_before_defense",
@@ -2040,7 +2152,6 @@ def test_formula_slot_authority_drift_reaches_the_public_model_check_refusal(
     diagnostic,
     pointer,
     run_cli,
-    monkeypatch,
 ):
     source = (
         Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
@@ -2073,15 +2184,11 @@ def test_formula_slot_authority_drift_reaches_the_public_model_check_refusal(
         "stage": "static",
     }
     _reidentify_language_bundle(language_bundle)
-    drifted = authority_module.admit_authority_context(kernel, language_bundle)
-    assert isinstance(drifted, authority_module.AdmittedAuthorityContext)
-    monkeypatch.setattr(
-        model_checking_module,
-        "packaged_authority_context",
-        lambda: drifted,
-    )
+    drifted = _admitted_authority_context(kernel, language_bundle)
 
-    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+    exit_code, stdout, stderr = run_cli(
+        ["model", "check", str(source)], registry=_model_check_registry(drifted)
+    )
 
     assert (exit_code, stderr) == (2, "")
     row = json.loads(stdout)["error"]["diagnostics"][0]
@@ -2483,7 +2590,7 @@ def test_resolved_model_admission_rejects_reidentified_nested_formula_domain_esc
     }
     rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
     kernel, language_bundle = mutable_authorities()
-    policy = model_lowering_module._formula_policy(language_bundle)
+    policy = model_module._formula_policy(language_bundle)
     domains = cast(dict[str, str], policy["identity_domains"])
     formula = next(row for row in rir["formulas"] if row["id"] == formula_id)
     next(
@@ -2579,7 +2686,7 @@ def test_resolved_model_admission_rejects_reidentified_call_domain_mutations(
     }
     rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
     kernel, language_bundle = mutable_authorities()
-    policy = model_lowering_module._formula_policy(language_bundle)
+    policy = model_module._formula_policy(language_bundle)
     domains = cast(dict[str, str], policy["identity_domains"])
     selected_operations = {
         row["definition"]["id"]: row["definition"]
@@ -2977,7 +3084,6 @@ def test_operation_reachability_follows_kernel_operation_members_after_node_rena
         "packages": [{"id": "example.runtime"}],
         "operations": operations,
     }
-    source = {"entrypoints": [{"operation": root}]}
     selected_semantics = {
         "packages": lock["packages"],
         "operations": operations,
@@ -2992,7 +3098,7 @@ def test_operation_reachability_follows_kernel_operation_members_after_node_rena
     assert operation_nodes == {"defer"}
     assert (
         model_module._selected_source_operation_coordinates(
-            source, lock, operation_nodes
+            entrypoints, lock, operation_nodes
         )
         == expected
     )
@@ -3022,11 +3128,37 @@ def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
     assert json.loads(stdout)["checked"] is True
 
 
-def test_model_check_refuses_an_omitted_transitive_manifest_dependency(
-    tmp_path, run_cli, monkeypatch
+@pytest.mark.parametrize(
+    "executable", [False, True], ids=["declarations-only", "reachable-operation"]
+)
+def test_model_checks_only_actual_transitive_runtime_dependencies(
+    tmp_path, run_cli, executable
 ):
     source = tmp_path / "missing-transitive-dependency.json"
-    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    value = _model_source()
+    if executable:
+        value["entrypoints"] = [
+            {
+                "id": "identity",
+                "operation": {"package": "core.quantity", "id": "quantity.identity"},
+                "arguments": [
+                    {
+                        "port": "value",
+                        "operand": {
+                            "kind": "symbol",
+                            "module": "main",
+                            "symbol": "parameter_value",
+                        },
+                    }
+                ],
+                "result": {
+                    "kind": "symbol",
+                    "module": "main",
+                    "symbol": "output_value",
+                },
+            }
+        ]
+    source.write_text(json.dumps(value), encoding="utf-8")
     exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
     assert (exit_code, stderr) == (0, "")
     assert json.loads(stdout)["checked"] is True
@@ -3055,10 +3187,39 @@ def test_model_check_refuses_an_omitted_transitive_manifest_dependency(
     _reidentify_language_bundle(candidate_ldb)
     # A coherent graph can contain compiler authority outside the selected closure.
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    context = _admitted_authority_context(kernel, candidate_ldb)
+    from test_schema2_model_lowerer_conformance import _reference_check_source
 
-    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+    independent = _reference_check_source(value, kernel, candidate_ldb)
+    if executable:
+        assert independent == (("language.source_contract_mismatch", "/entrypoints"),)
+    else:
+        assert not isinstance(independent, tuple), independent
 
+    exit_code, stdout, stderr = run_cli(
+        ["model", "check", str(source)], registry=_model_check_registry(context)
+    )
+
+    if not executable:
+        # No runtime reference uses compiler's compile.exact-int64 profile.
+        # The separate compilation profile remains fully captured in Lock.
+        assert (exit_code, stderr) == (0, "")
+        checked = model_checking_module.check_model_source_value(
+            value, authority_context=context
+        )
+        assert isinstance(checked, model_module.CheckedModel), checked
+        artifacts = model_compilation_module.compile_checked_model(checked)
+        assert len(artifacts) == 8
+        from gda_balancing.domain.model import AdmittedRir, admit_rir
+
+        assert isinstance(
+            admit_rir(
+                cast(dict[str, Any], artifacts["rir-semantic-payload"]),
+                authority_context=checked.authority_context,
+            ),
+            AdmittedRir,
+        )
+        return
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
     assert error["stage"] == "static"
@@ -3139,7 +3300,7 @@ def test_model_source_checks_transitive_selected_capability_cardinality(
     )
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    context = _admitted_authority_context(kernel, candidate_ldb)
     source_document = _model_source()
     source_document["package_requirements"].extend(
         [
@@ -3160,7 +3321,9 @@ def test_model_source_checks_transitive_selected_capability_cardinality(
         monkeypatch.setattr(
             model_checking_module, "admit_namespace_selection", refuse_finalization
         )
-    result = model_checking_module.check_model_source(str(source))
+    result = model_checking_module.check_model_source(
+        str(source), authority_context=context
+    )
 
     if provider_count == 1:
         assert isinstance(result, model_module.CheckedModel), result
@@ -3265,7 +3428,7 @@ def test_model_check_reports_all_static_diagnostics_in_canonical_location_order(
 
 
 def test_model_check_applies_the_ldb_diagnostic_cap_and_marks_truncation(
-    tmp_path, run_cli, monkeypatch
+    tmp_path, run_cli
 ):
     source_document = _model_source()
     for symbol in _symbols(source_document)[:3]:
@@ -3277,9 +3440,11 @@ def test_model_check_applies_the_ldb_diagnostic_cap_and_marks_truncation(
     candidate_ldb["resources"]["max_diagnostics"] = 2
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    context = _admitted_authority_context(kernel, candidate_ldb)
 
-    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+    exit_code, stdout, stderr = run_cli(
+        ["model", "check", str(source)], registry=_model_check_registry(context)
+    )
 
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
@@ -3819,15 +3984,16 @@ def test_model_publisher_materializes_the_descriptor_declared_primary_member(
         for member in model_build_command_module.MODEL_BUILD.artifact_set
     )
     out = tmp_path / "primary.json"
+    context = model_compilation_module.authority_context_for_checked(checked)
 
     publication_module.publish_lazy_artifact_set(
-        model_compilation_module.authority_context_for_checked(checked),
+        context,
         checked.source_identity,
         str(out),
         "b" * 64,
         "sha256:" + "b" * 64,
         model_compilation_module.model_build_command_input_identity(checked),
-        artifact_set,
+        resolve_artifact_set(context.language_bundle, artifact_set),
         lambda: model_compilation_module.compile_checked_model(checked),
         model_compilation_module.validate_compiled_artifacts,
     )
@@ -4105,7 +4271,7 @@ def test_model_build_rejects_changed_input_for_the_same_store_invocation_key_eve
 
 
 def test_model_build_rejects_invocation_key_reuse_after_exact_authority_changes(
-    tmp_path, run_cli, monkeypatch
+    tmp_path, run_cli
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
@@ -4130,7 +4296,7 @@ def test_model_build_rejects_invocation_key_reuse_after_exact_authority_changes(
     candidate_ldb["resources"]["max_diagnostics"] -= 1
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    context = _admitted_authority_context(kernel, candidate_ldb)
 
     exit_code, stdout, stderr = run_cli(
         [
@@ -4141,7 +4307,8 @@ def test_model_build_rejects_invocation_key_reuse_after_exact_authority_changes(
             str(tmp_path / "second.json"),
             "--invocation-key",
             key,
-        ]
+        ],
+        registry=_model_build_registry(context),
     )
 
     assert (exit_code, stdout) == (3, "")
@@ -4564,18 +4731,22 @@ def test_same_invocation_key_concurrent_writers_recover_one_committed_set(
     )
     key = "6" * 64
     descriptor = descriptor_identity(model_build_command_module.MODEL_BUILD)
+    context = model_compilation_module.authority_context_for_checked(checked)
+    artifact_set = resolve_artifact_set(
+        context.language_bundle, model_build_command_module.MODEL_BUILD.artifact_set
+    )
 
     def publish(out: Path, *, announce: bool = False):
         if announce:
             second_started.set()
         return publication_module.publish_lazy_artifact_set(
-            model_compilation_module.authority_context_for_checked(checked),
+            context,
             checked.source_identity,
             str(out),
             key,
             descriptor,
             model_compilation_module.model_build_command_input_identity(checked),
-            model_build_command_module.MODEL_BUILD.artifact_set,
+            artifact_set,
             lambda: model_compilation_module.compile_checked_model(checked),
             model_compilation_module.validate_compiled_artifacts,
         )
@@ -4932,14 +5103,11 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
     }
     projected_vectors = {vector["id"]: vector for vector in language_bundle["vectors"]}
     for package in language_bundle["language"]["packages"]:
-        semantic_projection = kernel["meta_format"]["package_release"][
-            "semantic_identity_projection"
-        ]
         package["semantic_identity"] = content_identity(
             "domain-package-semantic-closure-v2",
             cast(
                 JsonValue,
-                package_runtime_semantic_closure(package, semantic_projection),
+                package_runtime_semantic_closure(package, kernel),
             ),
         )
         vector_set = vector_sets_by_namespace[package["id"]]
@@ -5000,6 +5168,7 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
             packages,
             vector_sets,
             kernel["admission"]["required_language_members"],
+            kernel=kernel,
             root_byte_size=language_bundle.root_byte_size,
             package_byte_sizes=package_sizes,
             vector_set_byte_sizes=vector_set_sizes,
@@ -5659,7 +5828,7 @@ def test_resolved_model_admission_rejects_reidentified_literal_context_tamper(
     assert admission.diagnostics == ("language.resolved_authority_mismatch",)
 
 
-def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch):
+def test_literal_profile_reidentity_changes_rir_semantics(tmp_path):
     source_value = _model_source()
     source_value["entrypoints"] = [
         {
@@ -5707,9 +5876,11 @@ def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch)
     assert old_id != profile["id"]
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted
-    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    context = _admitted_authority_context(kernel, candidate_ldb)
 
-    changed_checked = model_checking_module.check_model_source(str(source))
+    changed_checked = model_checking_module.check_model_source(
+        str(source), authority_context=context
+    )
     assert isinstance(changed_checked, model_module.CheckedModel)
     changed = model_compilation_module.lower_checked_model(changed_checked)
     changed_rir = cast(dict[str, Any], changed["rir-semantic-payload"])
@@ -6054,11 +6225,7 @@ def test_one_operation_can_resolve_at_multiple_sites_with_distinct_bindings():
             checked.kernel,
             selected,
             language_bundle=checked.language_bundle,
-            declarations=rir[
-                checked.language_bundle["language"]["model_lowerings"][0][
-                    "output_member"
-                ]
-            ],
+            declarations=rir["declarations"],
         ),
     )
     hit_sites = [
@@ -6186,11 +6353,7 @@ def test_nested_call_rejects_undeclared_child_closure_widening(
             checked.kernel,
             selected,
             language_bundle=checked.language_bundle,
-            declarations=rir[
-                checked.language_bundle["language"]["model_lowerings"][0][
-                    "output_member"
-                ]
-            ],
+            declarations=rir["declarations"],
         )
 
 
@@ -6210,6 +6373,8 @@ def test_authority_admission_rejects_an_orphan_assignment_mode():
             "initialization_source": "execution",
             "value_member": "forbidden",
             "experiment_cardinality": "forbidden",
+            "event_payload_cardinality": "forbidden",
+            "external_fact_cardinality": "forbidden",
             "override": False,
         }
     )
@@ -6966,7 +7131,25 @@ def test_symbol_assignment_semantics_follow_the_admitted_per_role_mode_contracts
 
 def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):
     source = tmp_path / "model-source.json"
-    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    value = _model_source()
+    value["entrypoints"] = [
+        {
+            "id": "identity",
+            "operation": {"package": "core.quantity", "id": "quantity.identity"},
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "parameter_value",
+                    },
+                }
+            ],
+            "result": {"kind": "symbol", "module": "main", "symbol": "output_value"},
+        }
+    ]
+    source.write_text(json.dumps(value), encoding="utf-8")
     checked = model_checking_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
     original = model_compilation_module.lower_checked_model(checked)
@@ -6991,15 +7174,7 @@ def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):
     assert original_selected != original_lock["selected_semantics"]
     assert mutated_selected != mutated_lock["selected_semantics"]
     assert [row["definition"]["id"] for row in original_selected["operations"]] == [
-        "quantity.add",
-        "quantity.floor-divide",
-        "quantity.floor-zero",
         "quantity.identity",
-        "quantity.less-than",
-        "quantity.maximum",
-        "quantity.minimum",
-        "quantity.multiply",
-        "quantity.subtract",
     ]
     assert original_selected["conversions"] == []
     original_closures = cast(
@@ -7148,35 +7323,23 @@ def test_selected_notation_mutation_reidentifies_content_not_rir_semantics():
     assert original["build-receipt"] != mutated["build-receipt"]
 
 
-def test_rir_semantic_identity_consumes_the_sealed_artifact_projection():
+def test_rir_semantic_projection_excludes_formula_notation_and_keeps_closure():
     source = _rpg_source_value()
-    baseline = model_checking_module.check_model_source_value(source)
-    assert isinstance(baseline, model_module.CheckedModel)
-    original = model_compilation_module.lower_checked_model(baseline)
-    candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline.language_bundle))
-    contract = next(
-        row
-        for row in candidate_ldb["language"]["artifact_contracts"]
-        if row["artifact_kind"] == "rir-semantic-payload"
-    )
-    contract["semantic_identity_projection"]["collection_member_exclusions"][0][
-        "excluded_members"
-    ] = ["closure"]
-    _reidentify_language_bundle(candidate_ldb)
-    candidate = _check_with_candidate_ldb(source, baseline.kernel, candidate_ldb)
-    mutated = model_compilation_module.lower_checked_model(candidate)
+    checked = model_checking_module.check_model_source_value(source)
+    assert isinstance(checked, model_module.CheckedModel)
+    artifacts = model_compilation_module.lower_checked_model(checked)
+    rir = cast(dict[str, JsonValue], artifacts["rir-semantic-payload"])
 
-    assert (
-        original["rir-semantic-payload"]["semantic_identity"]
-        != mutated["rir-semantic-payload"]["semantic_identity"]
-    )
     projection = model_lowering_module._rir_semantic_projection(
-        candidate_ldb,
-        cast(dict[str, JsonValue], mutated["rir-semantic-payload"]),
+        checked.language_bundle, rir
     )
-    formula = cast(list[dict[str, Any]], projection["formulas"])[0]
-    assert "expression" in formula
-    assert "closure" not in formula
+    formulas = cast(list[dict[str, Any]], rir["formulas"])
+    assert formulas
+    assert all("expression" in formula and formula["closure"] for formula in formulas)
+    assert projection["formulas"] == [
+        {member: value for member, value in formula.items() if member != "expression"}
+        for formula in formulas
+    ]
 
 
 def test_selected_unreachable_notation_preserves_both_rir_identities():
@@ -7240,7 +7403,7 @@ def test_unselected_resolution_profile_owner_still_reidentifies_lock():
         for row in candidate_ldb["language"]["resolution_profiles"]
         if row["id"] == "exact-import-resolution-v1"
     )
-    profile["extensions"]["standard.formula"]["max_nodes_per_formula"] += 1
+    profile["formula_resolution"]["max_nodes_per_formula"] += 1
     _reidentify_language_bundle(candidate_ldb)
     candidate = _check_with_candidate_ldb(source, packaged.kernel, candidate_ldb)
     mutated = model_compilation_module.lower_checked_model(candidate)
@@ -7328,12 +7491,12 @@ def test_unlocked_escaping_authority_changes_rir_content_not_semantics():
     original = model_compilation_module.lower_checked_model(baseline)
 
     candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline.language_bundle))
-    source_schema = next(
-        row["schema"]
+    source_definition = next(
+        row
         for row in candidate_ldb["language"]["wire_schemas"]
         if row["artifact_kind"] == "model-source-package"
     )
-    grammar = source_schema["$defs"]["formulaNotationGrammar"]["const"]
+    grammar = source_definition["formula_grammar"]
     grammar["escape_character"] = "~"
     grammar["escapable_identifier_characters"] = ["`", "~"]
     source["modules"][0]["formulas"][0]["expression"] = (
@@ -7543,9 +7706,7 @@ def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
     assert original["resolved-model"] != mutated["resolved-model"]
 
 
-def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
-    tmp_path, monkeypatch
-):
+def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(tmp_path):
     kernel, baseline_ldb = mutable_authorities()
     candidate_ldb = deepcopy(baseline_ldb)
     language = candidate_ldb["language"]
@@ -7632,7 +7793,6 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
                 "state_policy": "commit",
             }
         ],
-        "owner_type": "Quantity",
         "purity": "event",
         "refusals": [
             "runtime.reason.step-limit",
@@ -7742,9 +7902,11 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     ]
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
-    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    context = _admitted_authority_context(kernel, candidate_ldb)
 
-    checked = model_checking_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(
+        str(source), authority_context=context
+    )
     assert isinstance(checked, model_module.CheckedModel)
     artifacts = model_compilation_module.lower_checked_model(checked)
 
@@ -7765,23 +7927,10 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     context = model_compilation_module.authority_context_for_checked(checked)
     program = admit_rir(rir, authority_context=context)
     experiment_value = {
-        "schema_version": "2.0.0",
         "id": "example.economy.purchase",
         "model": {"rir_semantic_identity": program.semantic_identity},
         "runtime": {
             "profile": "standard.exact-int64-event-v1",
-            "required_evaluator": {
-                "operation_kinds": ["event-program"],
-                "instruction_nodes": ["copy", "subtract-state"],
-                "effects": [
-                    "event.commit",
-                    "metric.observe",
-                    "snapshot.commit",
-                ],
-                "numeric_policies": ["exact-int64"],
-                "rng_algorithms": ["splitmix64-v1"],
-                "runtime_profiles": ["standard.exact-int64-event-v1"],
-            },
         },
         "seed": {"algorithm": "splitmix64-v1", "value": 20260727},
         "scenarios": [
@@ -7815,7 +7964,6 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
                         "value": 25,
                     },
                 ],
-                "named_streams": [],
                 "terminal_condition": {"kind": "event-count", "maximum": 1},
             }
         ],
@@ -7861,7 +8009,7 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
 
 @pytest.mark.parametrize(
     "unused_semantics",
-    ("domain", "runtime-profile", "capability"),
+    ("runtime-profile", "capability"),
 )
 def test_unreachable_package_semantics_do_not_change_rir(
     tmp_path,
@@ -7875,10 +8023,7 @@ def test_unreachable_package_semantics_do_not_change_rir(
     candidate_ldb = deepcopy(checked.language_bundle)
     language = candidate_ldb["language"]
     package = language["packages"][0]
-    if unused_semantics == "domain":
-        language["quantity"]["domains"].append("unused-domain")
-        package["exports"]["domains"].append("unused-domain")
-    elif unused_semantics == "runtime-profile":
+    if unused_semantics == "runtime-profile":
         language["runtime_profiles"].append(
             {
                 "id": "compile.unused",
@@ -7907,9 +8052,7 @@ def test_unreachable_package_semantics_do_not_change_rir(
     assert original["resolved-model"] != mutated["resolved-model"]
 
 
-def test_resolution_step_exhaustion_is_a_typed_static_refusal(
-    tmp_path, run_cli, monkeypatch
-):
+def test_resolution_step_exhaustion_is_a_typed_static_refusal(tmp_path, run_cli):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
     kernel, candidate_ldb = mutable_authorities()
@@ -7928,9 +8071,11 @@ def test_resolution_step_exhaustion_is_a_typed_static_refusal(
     successor["input"]["value"] = 2
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    context = _admitted_authority_context(kernel, candidate_ldb)
 
-    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+    exit_code, stdout, stderr = run_cli(
+        ["model", "check", str(source)], registry=_model_check_registry(context)
+    )
 
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
@@ -7942,7 +8087,7 @@ def test_resolution_step_exhaustion_is_a_typed_static_refusal(
 
 @pytest.mark.parametrize("command", ("check", "build"))
 def test_runtime_projection_step_exhaustion_is_a_typed_static_refusal(
-    tmp_path, run_cli, monkeypatch, command
+    tmp_path, run_cli, command
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
@@ -7962,7 +8107,7 @@ def test_runtime_projection_step_exhaustion_is_a_typed_static_refusal(
     successor["input"]["value"] = 2
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    context = _admitted_authority_context(kernel, candidate_ldb)
 
     output = tmp_path / "published"
     arguments = ["model", command, str(source)]
@@ -7975,7 +8120,12 @@ def test_runtime_projection_step_exhaustion_is_a_typed_static_refusal(
                 "a" * 64,
             ]
         )
-    exit_code, stdout, stderr = run_cli(arguments)
+    registry = (
+        _model_check_registry(context)
+        if command == "check"
+        else _model_build_registry(context)
+    )
+    exit_code, stdout, stderr = run_cli(arguments, registry=registry)
 
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]

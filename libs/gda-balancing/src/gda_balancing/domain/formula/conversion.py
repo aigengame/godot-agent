@@ -1,5 +1,7 @@
 """Canonical Formula body and mathematical-notation conversion."""
 
+from gda_balancing.domain.diagnostics import source_resolution_profile
+
 import json
 from copy import deepcopy
 from dataclasses import dataclass
@@ -7,6 +9,7 @@ from typing import Any, cast
 
 from gda_balancing.domain.formula import notation
 from gda_balancing.domain.authority.context import AdmittedAuthorityContext
+from gda_balancing.domain.authority.source_projection import source_schema_member
 from gda_balancing.domain.canonical import (
     JsonValue,
     content_identity,
@@ -18,6 +21,7 @@ from gda_balancing.domain.diagnostics import (
     Schema2Diagnostic,
     Schema2RefusalReport,
     reason_by_id,
+    source_parse_reason,
 )
 
 
@@ -29,13 +33,15 @@ class FormulaConversion:
     expression: str
 
 
-def read_formula_request(data: bytes) -> dict[str, Any]:
+def read_formula_request(
+    data: bytes, context: AdmittedAuthorityContext
+) -> dict[str, Any]:
     """Admit one canonical Formula conversion request document."""
     try:
         return parse_canonical_object(data, artifact_name="Formula conversion request")
     except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as err:
         raise notation.FormulaNotationRefusal(
-            "model.reason.source-parse-failure",
+            cast(str, source_parse_reason(context.language_bundle)["id"]),
             f"Formula conversion request is outside canonical JSON: {err}",
         ) from err
 
@@ -45,17 +51,25 @@ def render_formula_request(
     context: AdmittedAuthorityContext,
 ) -> FormulaConversion:
     """Render and reverse-admit one structured Formula body."""
+    _, formula_schema = notation._authored_formula_schemas(context)
+    members = context.source_native_binding_index.members
+    body_member, _ = source_schema_member(
+        formula_schema, members["source.formula.body"]
+    )
+    expression_member, _ = source_schema_member(
+        formula_schema, members["source.formula.expression"]
+    )
     formula = request.get("formula")
-    if not isinstance(formula, dict) or not isinstance(formula.get("body"), dict):
+    if not isinstance(formula, dict) or not isinstance(formula.get(body_member), dict):
         raise notation.FormulaNotationRefusal(
-            "model.reason.source-contract-mismatch",
+            source_resolution_profile(context.language_bundle)["structural_reason"],
             "Formula render request has no structured body",
         )
-    body = cast(dict[str, Any], formula["body"])
+    body = cast(dict[str, Any], formula[body_member])
     expression = notation.render_formula_body(body, context)
     paired_request = deepcopy(request)
     paired_formula = cast(dict[str, Any], paired_request["formula"])
-    paired_formula["expression"] = expression
+    paired_formula[expression_member] = expression
     notation.admit_formula_pair(paired_request, context)
     return FormulaConversion(body=body, expression=expression)
 
@@ -65,12 +79,20 @@ def parse_formula_request(
     context: AdmittedAuthorityContext,
 ) -> FormulaConversion:
     """Parse notation and reverse-admit its canonical Formula pair."""
+    _, formula_schema = notation._authored_formula_schemas(context)
+    members = context.source_native_binding_index.members
+    body_member, _ = source_schema_member(
+        formula_schema, members["source.formula.body"]
+    )
+    expression_member, _ = source_schema_member(
+        formula_schema, members["source.formula.expression"]
+    )
     body = notation.parse_formula_expression(request, context)
     expression = notation.render_formula_body(body, context)
     paired_request = deepcopy(request)
     paired_formula = cast(dict[str, Any], paired_request["formula"])
-    paired_formula["body"] = body
-    paired_formula["expression"] = expression
+    paired_formula[body_member] = body
+    paired_formula[expression_member] = expression
     notation.admit_formula_pair(paired_request, context)
     return FormulaConversion(body=body, expression=expression)
 

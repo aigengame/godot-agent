@@ -63,6 +63,11 @@ from gda_balancing.domain.runtime.projections import (
     unsupported_evaluator_requirement as _unsupported_evaluator_requirement,
 )
 
+from gda_balancing.domain.experiment_judgments import (
+    acceptance_output_role,
+    acceptance_result,
+)
+
 _INVALID_FORMULA_EVIDENCE = object()
 _EXPERIMENT_RUNTIME_REFUSAL_NAMES = frozenset(
     member.logical_name for member in EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET
@@ -112,19 +117,45 @@ def _evaluate_formula_evidence_result(
         if operation is None:
             return _INVALID_FORMULA_EVIDENCE
         variables: dict[str, Any] = dict(values)
+        returns: dict[str, JsonValue] = {}
         try:
             for instruction in cast(list[dict[str, Any]], operation["body"]):
                 node = runtime_nodes.get(cast(str, instruction.get("node")))
-                if node is None or node.get("family") != "expression":
+                if node is None:
+                    return _INVALID_FORMULA_EVIDENCE
+                if node["semantics"]["operator"] == "invoke-operation":
+                    child_arguments: dict[str, JsonValue] = {}
+                    for argument in instruction["arguments"]:
+                        operand = argument["operand"]
+                        kind = operand["kind"]
+                        if kind == "literal":
+                            value = operand["literal"]
+                        elif kind in {"port", "local"}:
+                            value = variables[operand[kind]]
+                        else:
+                            return _INVALID_FORMULA_EVIDENCE
+                        child_arguments[argument["port"]] = value
+                    result = evaluate_operation(
+                        instruction["operation"], child_arguments
+                    )
+                    if result is _INVALID_FORMULA_EVIDENCE:
+                        return result
+                    returns[instruction["site"]] = cast(JsonValue, result)
+                    binding = instruction["result"]
+                    if binding["kind"] == "local":
+                        variables[binding["name"]] = result
+                    continue
+                if node.get("family") != "expression":
                     return _INVALID_FORMULA_EVIDENCE
                 _execute_value_instruction(instruction, variables, numeric, node)
             source = cast(dict[str, Any], operation["result"]["source"])
-            if source.get("kind") not in {"local", "port"}:
-                return _INVALID_FORMULA_EVIDENCE
-            return cast(
-                JsonValue,
-                variables[cast(str, source["name"])],
-            )
+            if source.get("kind") in {"local", "port"}:
+                return cast(JsonValue, variables[cast(str, source["name"])])
+            if source.get("kind") == "operation-result":
+                return returns[source["site"]]
+            if source.get("kind") == "unit":
+                return None
+            return _INVALID_FORMULA_EVIDENCE
         except (KeyError, OverflowError, TypeError, ValueError):
             return _INVALID_FORMULA_EVIDENCE
 
@@ -441,6 +472,7 @@ def _authoritative_event_actual_values(
     events_by_id: dict[str, dict[str, JsonValue]],
 ) -> dict[bytes, Any] | None:
     declarations = _resolved_declarations(checked)
+    state_role = checked.rir["selected_semantics"]["symbol_role_bindings"]["state"]
     display_names = _resolved_display_names(declarations)
     scenario = next(
         (row for row in checked.value["scenarios"] if row["id"] == scenario_id),
@@ -460,7 +492,9 @@ def _authoritative_event_actual_values(
             cache=None,
             selected_entrypoints=scenario_entrypoints,
             frame_token={"scenario": scenario_id, "recovery": "initialization"},
-            phase="initialization",
+            phase=_runtime_contract(checked)["runtime_configuration"][
+                "formula_initialization_phase"
+            ],
         )
         parent_index = event_index
         for prior_event in sorted(
@@ -481,7 +515,7 @@ def _authoritative_event_actual_values(
         state_by_name = {cast(str, row["name"]): row["value"] for row in state_before}
         for identity, display_name in display_names.items():
             if (
-                declarations[identity]["role"] == "state"
+                declarations[identity]["role"] == state_role
                 and display_name in state_by_name
             ):
                 actual_values[identity] = state_by_name[display_name]
@@ -498,7 +532,9 @@ def _authoritative_event_actual_values(
             cache=None,
             selected_entrypoints=scenario_entrypoints,
             frame_identity=snapshot_identity,
-            phase="event",
+            phase=_runtime_contract(checked)["runtime_configuration"][
+                "lifecycle_roles"
+            ]["active"],
         )
     except (
         KeyError,
@@ -530,6 +566,7 @@ def _event_arguments(
     ]
     | None
 ):
+    state_role = checked.rir["selected_semantics"]["symbol_role_bindings"]["state"]
     if actual_values is None:
         actual_values = _authoritative_event_actual_values(
             checked,
@@ -608,7 +645,7 @@ def _event_arguments(
             continue
         target = cast(dict[str, JsonValue], operand["symbol"])
         identity = canonical_bytes(cast(JsonValue, target))
-        if declarations[identity]["role"] == "state":
+        if declarations[identity]["role"] == state_role:
             if identity not in actual_values:
                 return None
             arguments[port] = actual_values[identity]
@@ -788,11 +825,6 @@ def _scheduled_catalog_record_is_authoritative(
     )
     if operation is None:
         return False
-    root_path = (
-        _execution_path_segment(cast(str, parent_entrypoint["id"]))
-        if isinstance(parent_entrypoint, dict)
-        else f"scheduled:{parent_event.get('schedule_call_site_identity')}"
-    )
     schedule_identity = _scheduler_contract(checked)["call_site_identity"]["schedule"]
     matching_instructions = []
     for instruction in operation_body_instructions(operation["body"]):
@@ -839,63 +871,6 @@ def _scheduled_catalog_record_is_authoritative(
     scheduled_state_reference_rows = cast(
         list[dict[str, JsonValue]], schedule["state_references"]
     )
-    traced_arguments = {
-        cast(str, row["name"]): cast(JsonValue, row["value"])
-        for row in scheduled_argument_rows
-    }
-    traced_state_references = {
-        cast(str, row["name"]): cast(dict[str, JsonValue], row["target"])
-        for row in scheduled_state_reference_rows
-    }
-    instruction_ports = {
-        cast(str, binding["port"]) for binding in instruction["arguments"]
-    }
-    if (
-        set(traced_arguments) != instruction_ports
-        or not set(traced_state_references) <= instruction_ports
-    ):
-        return False
-    parent_arguments = (
-        _event_arguments(
-            checked,
-            parent_spec,
-            event_index=cast(int, parent_event["index"]),
-            state_before=cast(list[dict[str, JsonValue]], parent_event["state_before"]),
-            snapshot_identity=cast(str, parent_event["snapshot_before_identity"]),
-            scenario_id=cast(str, record["scenario"]),
-            catalog_by_id=catalog_by_id,
-            events_by_id=events_by_id,
-        )
-        if schedule_call_path == root_path
-        else None
-    )
-    direct_arguments = parent_arguments[0] if parent_arguments is not None else {}
-    direct_state_references = (
-        parent_arguments[1] if parent_arguments is not None else {}
-    )
-    for binding in instruction["arguments"]:
-        name = cast(str, binding["port"])
-        operand = cast(dict[str, Any], binding["operand"])
-        if operand["kind"] == "port":
-            source = cast(str, operand["port"])
-            if parent_arguments is not None and (
-                source not in direct_arguments
-                or traced_arguments[name] != direct_arguments[source]
-                or traced_state_references.get(name)
-                != direct_state_references.get(source)
-            ):
-                return False
-        elif operand["kind"] == "literal":
-            if (
-                traced_arguments[name] != operand["literal"]
-                or name in traced_state_references
-            ):
-                return False
-        elif operand["kind"] == "local":
-            if name in traced_state_references:
-                return False
-        else:
-            return False
     expected_zero_time_depth = (
         cast(int, parent_spec.get("zero_time_depth", 0)) + 1
         if ordering_key["logical_time"]
@@ -1072,8 +1047,14 @@ def validate_experiment_member(
 ) -> bool:
     """Re-admit one prepared output against its selected exact contract."""
     del logical_name
-    kind = value.get("artifact_kind")
-    contract = checked.output_contracts.get(kind) if isinstance(kind, str) else None
+    matches = [
+        (role, contract)
+        for role, contract in checked.output_contracts.items()
+        if contract.definition["artifact_kind"] == value.get("artifact_kind")
+    ]
+    if len(matches) != 1:
+        return False
+    kind, contract = matches[0]
     if contract is None or not contract.verify(value):
         return False
     if kind == "event-trace":
@@ -1420,11 +1401,12 @@ def _terminal_prefix_evidence(
     separate from the cumulative run charge used by the following Event.
     """
     declarations = _resolved_declarations(checked)
+    state_role = checked.rir["selected_semantics"]["symbol_role_bindings"]["state"]
     names = _resolved_display_names(declarations)
     state_ids = {
         name: identity
         for identity, name in names.items()
-        if declarations[identity]["role"] == "state"
+        if declarations[identity]["role"] == state_role
     }
     scheduler = RuntimeScheduler(_scheduler_contract(checked))
     step = _runtime_contract(checked)["step"]
@@ -1449,7 +1431,9 @@ def _terminal_prefix_evidence(
             cache=None,
             selected_entrypoints=selected,
             frame_token={"scenario": scenario_id, "recovery": "initialization"},
-            phase="initialization",
+            phase=_runtime_contract(checked)["runtime_configuration"][
+                "formula_initialization_phase"
+            ],
         )
         state = {
             name: actual_values[identity]
@@ -1526,7 +1510,9 @@ def _terminal_prefix_evidence(
                     cache=None,
                     selected_entrypoints=selected,
                     frame_identity=event["snapshot_before_identity"],
-                    phase="event",
+                    phase=_runtime_contract(checked)["runtime_configuration"][
+                        "lifecycle_roles"
+                    ]["active"],
                 )
                 arguments = _event_arguments(
                     checked,
@@ -1597,7 +1583,9 @@ def _terminal_prefix_evidence(
                     cache=None,
                     selected_entrypoints=selected,
                     frame_identity=event["snapshot_after_identity"],
-                    phase="observation",
+                    phase=_runtime_contract(checked)["scheduler"]["observation"][
+                        "phase"
+                    ],
                 )
             except _InitializationProgramFault as fault:
                 if (
@@ -2061,7 +2049,9 @@ def _terminal_audit_is_valid(
                 cache=None,
                 selected_entrypoints=prefix.selected_entrypoints,
                 frame_identity=refusing_event["snapshot_before_identity"],
-                phase="event",
+                phase=_runtime_contract(checked)["runtime_configuration"][
+                    "lifecycle_roles"
+                ]["active"],
             )
         except _InitializationProgramFault as fault:
             formula_fault = fault
@@ -2191,11 +2181,156 @@ def _terminal_audit_is_valid(
     return True
 
 
+def _metric_dataset_matches_observations(
+    checked: CheckedExperiment,
+    trace: dict[str, Any],
+    snapshot_series: dict[str, Any],
+    dataset: dict[str, Any],
+    primary_name: str,
+    primary: dict[str, Any],
+) -> bool:
+    """Derive complete samples from the already validated committed evidence."""
+    metric_operators = {
+        row["metric"]: row["judgment"]["operator"]
+        for row in checked.experiment_judgments["metrics"]
+    }
+    metrics = {
+        _metric_definition_identity(metric): metric
+        for metric in checked.value["metrics"]
+    }
+    snapshots = {row["snapshot_identity"]: row for row in snapshot_series["snapshots"]}
+    scenario_events: dict[str, list[dict[str, Any]]] = {
+        scenario["id"]: [] for scenario in checked.value["scenarios"]
+    }
+    observations: dict[tuple[str, str], dict[str, Any]] = {}
+    for event in trace["events"]:
+        snapshot = snapshots[event["snapshot_after_identity"]]
+        scenario_id = snapshot["scenario"]
+        if scenario_id not in scenario_events:
+            return False
+        observation = event["observation"]
+        if observation is None:
+            scenario_events[scenario_id].append(event)
+            continue
+        identity = observation["metric_definition_identity"]
+        metric = metrics.get(identity)
+        key = (scenario_id, identity)
+        if (
+            metric is None
+            or key in observations
+            or observation
+            != {
+                "metric": metric["id"],
+                "metric_definition_identity": identity,
+                "window": metric["window"],
+            }
+        ):
+            return False
+        observations[key] = event
+    if set(observations) != {
+        (scenario_id, identity)
+        for scenario_id in scenario_events
+        for identity in metrics
+    }:
+        return False
+
+    expected_samples: list[dict[str, Any]] = []
+    for identity, metric in metrics.items():
+        selector = metric["observation"]
+        replications = 0
+        for scenario_id, events in scenario_events.items():
+            event = observations[scenario_id, identity]
+            snapshot = snapshots[event["snapshot_after_identity"]]
+            if metric_operators[metric["id"]] == "single-event-integer":
+                values = [
+                    fact["integer"]
+                    for observed_event in events
+                    if observed_event["outcome"]["id"] == selector["name"]
+                    for fact in observed_event["facts"]
+                    if fact["name"] == selector["member"] and fact["kind"] == "integer"
+                ]
+            elif metric_operators[metric["id"]] == "single-terminal-integer":
+                values = [
+                    row["value"]
+                    for row in snapshot["values"]
+                    if row["name"] == selector["member"]
+                ]
+            else:
+                return False
+            if len(values) != 1 or type(values[0]) is not int:
+                return False
+            value = values[0]
+            replications += 1
+            expected_samples.append(
+                {
+                    "metric": metric["id"],
+                    "metric_definition_identity": identity,
+                    "scenario": scenario_id,
+                    "status": "value",
+                    "value": value,
+                    "unit": metric["unit"],
+                    "logical_time": event["ordering_key"]["logical_time"],
+                    "event_id": event["event_id"],
+                    "snapshot_identity": snapshot["snapshot_identity"],
+                    "window": metric["window"]["name"],
+                    "dimensions": metric["dimensions"],
+                    "replication_identity": scenario_id,
+                    "source_kind": "simulated",
+                    "provenance": {
+                        "scenario": scenario_id,
+                        "observation_source": selector["source"],
+                        "observation_name": selector["name"],
+                        "observation_member": selector["member"],
+                    },
+                    "within_target": metric["target"]["minimum"]
+                    <= value
+                    <= metric["target"]["maximum"],
+                    "source": selector["source"],
+                    "member": selector["member"],
+                }
+            )
+        if replications == 0:
+            return False
+    expected_samples.sort(
+        key=lambda row: (
+            row["metric_definition_identity"].encode("utf-8"),
+            row["replication_identity"].encode("utf-8"),
+        )
+    )
+    if dataset["metric_definition_identities"] != sorted(metrics) or canonical_bytes(
+        dataset["samples"]
+    ) != canonical_bytes(cast(JsonValue, expected_samples)):
+        return False
+    accepted, failed_metrics = acceptance_result(
+        checked.experiment_judgments["acceptance"], expected_samples
+    )
+    expected_role = acceptance_output_role(checked.output_contracts, accepted)
+    expected_status = checked.output_contracts[expected_role].schema["properties"][
+        "outcome"
+    ]["const"]
+    return (
+        primary_name == expected_role
+        and primary["outcome"] == expected_status
+        and (not failed_metrics or primary["failed_metrics"] == failed_metrics)
+    )
+
+
 def validate_experiment_artifact_set(
     checked: CheckedExperiment, artifacts: dict[str, dict[str, Any]]
 ) -> bool:
     """Revalidate exact semantic bindings across one Experiment artifact set."""
     try:
+        roles_by_kind = {
+            contract.definition["artifact_kind"]: role
+            for role, contract in checked.output_contracts.items()
+        }
+        by_role = {}
+        for value in artifacts.values():
+            role = roles_by_kind.get(value.get("artifact_kind"))
+            if role is None or role in by_role:
+                return False
+            by_role[role] = value
+        artifacts = by_role
         if not all(
             validate_experiment_member(checked, name, value)
             for name, value in artifacts.items()
@@ -2267,23 +2402,8 @@ def validate_experiment_artifact_set(
             or not _terminal_statuses_are_valid(trace, snapshot_series)
         ):
             return False
-        event_ids = {
-            event["event_id"] for event in cast(list[dict[str, Any]], trace["events"])
-        }
-        snapshot_ids = {
-            snapshot["snapshot_identity"]
-            for snapshot in cast(list[dict[str, Any]], snapshot_series["snapshots"])
-        }
-        metric_identities = sorted(
-            _metric_definition_identity(metric) for metric in checked.value["metrics"]
-        )
-        return dataset.get("metric_definition_identities") == metric_identities and all(
-            sample.get("event_id") in event_ids
-            and sample.get("snapshot_identity") in snapshot_ids
-            and sample.get("metric_definition_identity") in metric_identities
-            and cast(dict[str, Any], sample.get("provenance", {})).get("scenario")
-            == sample.get("scenario")
-            for sample in cast(list[dict[str, Any]], dataset["samples"])
+        return _metric_dataset_matches_observations(
+            checked, trace, snapshot_series, dataset, primary_name, primary
         )
     except (KeyError, TypeError, ValueError, IndexError):
         return False

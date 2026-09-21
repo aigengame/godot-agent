@@ -10,6 +10,62 @@ from types import MappingProxyType
 from typing import Any
 
 
+class ProtocolProjectionError(ValueError):
+    """Authored definitions cannot produce their Kernel-defined protocol."""
+
+
+def project_artifact_protocols(
+    kernel: dict[str, Any], language: dict[str, Any]
+) -> None:
+    """Expand compiled protocol owners in an otherwise authored index."""
+    from gda_balancing.domain.authority.trace_projection import project_trace_schema
+    from gda_balancing.domain.authority.rir_projection import project_rir_schema
+    from gda_balancing.domain.authority.publication_projection import (
+        project_publication_protocol,
+    )
+
+    from gda_balancing.domain.authority.template_projection import (
+        project_template_protocol,
+    )
+
+    from gda_balancing.domain.authority.replay_projection import (
+        project_replay_comparison_schema,
+    )
+    from gda_balancing.domain.authority.metric_projection import (
+        project_metric_outcome_schemas,
+    )
+
+    from gda_balancing.domain.authority.model_projection import project_model_protocols
+    from gda_balancing.domain.authority.runtime_projection import (
+        project_runtime_outputs,
+    )
+    from gda_balancing.domain.authority.runtime_evidence_projection import (
+        project_runtime_evidence_schemas,
+    )
+
+    from gda_balancing.domain.authority.experiment_projection import (
+        project_experiment_input,
+    )
+
+    try:
+        project_model_protocols(kernel, language)
+        project_runtime_outputs(kernel, language)
+        project_template_protocol(kernel, language)
+        project_trace_schema(kernel, language)
+        project_runtime_evidence_schemas(kernel, language)
+        project_rir_schema(kernel, language)
+        project_publication_protocol(kernel, language)
+        project_metric_outcome_schemas(kernel, language)
+        project_experiment_input(kernel, language)
+        project_replay_comparison_schema(kernel, language)
+        if any("schema" not in row for row in language["artifact_wire_schemas"]):
+            raise ValueError("an authored artifact schema is missing")
+    except (KeyError, TypeError, ValueError, IndexError) as error:
+        raise ProtocolProjectionError(
+            "authored definitions do not close their artifact protocols"
+        ) from error
+
+
 def canonical_graph_members(
     root: dict[str, Any],
     package_releases: list[dict[str, Any]],
@@ -161,6 +217,7 @@ def derive_language_index(
     package_conformance_vector_sets: list[dict[str, Any]],
     required_language_members: list[str],
     *,
+    kernel: dict[str, Any],
     root_byte_size: int,
     package_byte_sizes: list[int],
     vector_set_byte_sizes: list[int],
@@ -228,6 +285,7 @@ def derive_language_index(
         if isinstance(vector_definitions, list):
             vectors.extend(deepcopy(vector_definitions))
 
+    project_artifact_protocols(kernel, language)
     language["packages"] = deepcopy(package_releases)
     projection = {
         "artifact_kind": root.get("artifact_kind"),

@@ -45,6 +45,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from gda.project_file import read_config, unquote
+
 GDA_PROJECT_ENV = "GDA_PROJECT"
 
 # The file Godot uses to mark a directory as a project root.
@@ -701,72 +703,35 @@ class _MainSceneSetting:
     hidden_data_dir: bool | None
 
 
-def _strip_comment(line: str) -> str:
-    """``line`` up to a ``;`` comment outside double quotes (Godot's comment char)."""
-    quoted = False
-    escaped = False
-    for index, char in enumerate(line):
-        if escaped:
-            escaped = False
-        elif char == "\\" and quoted:
-            escaped = True
-        elif char == '"':
-            quoted = not quoted
-        elif char == ";" and not quoted:
-            return line[:index]
-    return line
-
-
-def _unquote(token: str) -> str:
-    """Strip surrounding quotes; this is not a ``ConfigFile`` escape decoder."""
-    token = token.strip()
-    if len(token) >= 2 and token[0] == '"' and token[-1] == '"':
-        return token[1:-1].replace('\\"', '"')
-    return token
-
-
-def _section_name(line: str) -> str | None:
-    """The section a ``[name]`` line opens, or ``None`` for any other line."""
-    if line.startswith("[") and line.endswith("]"):
-        return line[1:-1].strip()
-    return None
-
-
 def _read_main_scene(project: Path) -> _MainSceneSetting | None:
     """Read the main-scene setting, or ``None`` when it cannot be determined.
 
-    A minimal read of Godot's ``ConfigFile`` text: ``;`` starts a comment outside
-    quotes, sections are ``[name]`` lines, keys are ``key=value`` lines inside them
-    (a key may be quoted), and a string value is a double-quoted literal. Only the
-    settings this verdict needs and their override declarations are read. Escaped
-    application keys are left to the engine's parser. A file gda cannot read or
-    decode is ``None``: that is not a verdict about the scene, and the next step
-    that touches the file (the harness install) reports the failure as its own.
+    Reads the ``[application]`` section through the shared ``ConfigFile`` reader
+    (:mod:`gda.project_file`, #843) and takes from it only the settings this
+    verdict needs and their override declarations. An ESCAPED application key is
+    left to the engine's parser — this reader gives up on the whole file rather
+    than mistake a declaration it cannot decode for an absent setting, so the
+    verdict defers instead of refusing. A file gda cannot read or decode is
+    ``None`` too: that is not a verdict about the scene, and the next step that
+    touches the file (the harness install) reports the failure as its own.
     """
-    try:
-        text = (project / PROJECT_MARKER).read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    config = read_config(project / PROJECT_MARKER)
+    if config is None:
         return None
-    section = ""
     value = ""
     overridden = (project / _OVERRIDE_CFG).exists()
     hidden: bool | None = True
-    for raw in text.splitlines():
-        line = _strip_comment(raw).strip()
-        opened = _section_name(line)
-        if opened is not None:
-            section = opened
+    for entry in config.entries:
+        if entry.section != "application":
             continue
-        if section != "application" or "=" not in line:
-            continue
-        key, token = line.split("=", 1)
-        if "\\" in key:
+        if "\\" in entry.key_token:
             # A quoted key can encode any setting name (e.g. run/\u006dain_scene).
             # Do not mistake a declaration we cannot decode for an absent setting.
             return None
-        key = _unquote(key)
+        key = unquote(entry.key_token)
+        token = entry.value
         if key == _MAIN_SCENE_KEY:
-            value = _unquote(token)
+            value = unquote(token)
         elif key.startswith(_MAIN_SCENE_KEY + "."):
             overridden = True
         elif key == _HIDDEN_DATA_DIR_KEY:
@@ -774,7 +739,7 @@ def _read_main_scene(project: Path) -> _MainSceneSetting | None:
                 hidden = {"true": True, "false": False}.get(token.strip())
         elif key.startswith(_HIDDEN_DATA_DIR_KEY + "."):
             hidden = None
-        elif key == _SETTINGS_OVERRIDE_KEY and _unquote(token):
+        elif key == _SETTINGS_OVERRIDE_KEY and unquote(token):
             overridden = True
         elif key.startswith(_SETTINGS_OVERRIDE_KEY + "."):
             overridden = True

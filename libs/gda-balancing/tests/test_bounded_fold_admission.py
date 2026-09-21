@@ -256,8 +256,8 @@ def test_typed_append_capacity_is_a_distinct_selected_runtime_refusal():
             authority=authority,
             resource_limit=100,
         )
-    assert (fault.value.reason_id, fault.value.pointer) == (
-        "structured.reason.list-capacity-exceeded",
+    assert (fault.value.signal, fault.value.pointer) == (
+        "structured-list-capacity-exceeded",
         "/value",
     )
 
@@ -272,7 +272,7 @@ def test_typed_append_rejects_bool_in_a_quantity_list_before_capacity():
             authority=authority,
             resource_limit=100,
         )
-    assert fault.value.reason_id == "structured.reason.type-mismatch"
+    assert fault.value.signal == "structured-value-type-mismatch"
 
 
 @pytest.mark.parametrize("body_steps, expected_bound", [(0, 44), (1, 48)])
@@ -301,13 +301,10 @@ def test_fold_invocation_charge_does_not_consume_the_new_step_budget(
         ("rir-semantic-payload", ("selected_semantics", "operations")),
     ],
 )
-@pytest.mark.parametrize("inside_guard", [False, True])
-def test_operation_artifact_wires_admit_fold_and_append_with_closed_members(
-    artifact_kind, owner_path, inside_guard
+def test_operation_artifact_wires_delegate_body_shape_to_semantic_authority(
+    artifact_kind, owner_path
 ):
-    import jsonschema
-
-    _kernel, language, operations = _inputs()
+    _kernel, language, _operations = _inputs()
     schema = next(
         row["schema"]
         for row in language["language"]["artifact_wire_schemas"]
@@ -316,18 +313,21 @@ def test_operation_artifact_wires_admit_fold_and_append_with_closed_members(
     for member in owner_path:
         schema = schema["properties"][member]
     body_schema = schema["items"]["properties"]["definition"]["properties"]["body"]
-    if inside_guard:
-        body_schema = body_schema["items"]["properties"]["body"]
-    assert jsonschema.Draft202012Validator(body_schema).is_valid([])
-    validator = jsonschema.Draft202012Validator(body_schema["items"])
-    for instruction in (
-        operations[_ROOT]["body"][2],
-        operations[(_OWNER, "bounded.filter-step")]["body"][1],
-    ):
-        validator.validate(instruction)
-        invalid = {**instruction, "undeclared_capture": "threshold"}
-        with pytest.raises(jsonschema.ValidationError, match="Unevaluated properties"):
-            validator.validate(invalid)
+    assert body_schema == {}
+
+
+@pytest.mark.parametrize(
+    "coordinate, instruction_index",
+    [(_ROOT, 2), ((_OWNER, "bounded.filter-step"), 1)],
+)
+def test_operation_semantic_admission_closes_fold_and_append_members(
+    coordinate, instruction_index
+):
+    kernel, language, operations = _inputs()
+    operations[coordinate]["body"][instruction_index]["undeclared_capture"] = (
+        "threshold"
+    )
+    assert _judge(kernel, language, operations).diagnostics
 
 
 def test_selected_runtime_node_wire_covers_each_declared_law_with_closed_semantics():
@@ -477,7 +477,7 @@ def test_empty_pure_fold_step_survives_admitted_model_check_and_build():
                 vector["expect"] = []
             elif vector["probe"]["path"] == "resource_bounds.max_steps":
                 vector["expect"] = 1
-    _bind_package_vector_set(package, vectors)
+    _bind_package_vector_set(package, vectors, kernel=kernel)
     _reidentify_graph_root(language)
     admission = admit_authorities(kernel, language)
     assert admission.admitted, admission.diagnostics

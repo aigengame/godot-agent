@@ -4,7 +4,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
-from gda_balancing.domain.artifacts import ArtifactContract, select_artifact_contract
+from gda_balancing.domain.artifacts import (
+    ArtifactContract,
+    select_protocol_artifact_contract,
+)
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     _deep_freeze,
@@ -63,7 +66,7 @@ def select_exact_replay_contract(
     return ExactReplayContract(
         policy_binding=binding,
         reasons=reasons,
-        artifact=select_artifact_contract(
+        artifact=select_protocol_artifact_contract(
             authority_context.language_bundle, "replay-comparison"
         ),
     )
@@ -187,13 +190,19 @@ def _member_value(
     logical_name: str,
     output_contracts: Mapping[str, ArtifactContract],
 ) -> dict[str, Any]:
-    member = members.get(logical_name)
     contract = output_contracts.get(logical_name)
+    selected = [
+        member
+        for member in members.values()
+        if contract is not None
+        and member.artifact_kind == contract.definition["artifact_kind"]
+    ]
+    member = selected[0] if len(selected) == 1 else None
     if (
         member is None
         or contract is None
-        or member.artifact_kind != logical_name
-        or member.value.get("artifact_kind") != logical_name
+        or member.artifact_kind != contract.definition["artifact_kind"]
+        or member.value.get("artifact_kind") != contract.definition["artifact_kind"]
         or member.value.get("content_identity") != member.content_identity
         or not contract.verify(member.value)
     ):
@@ -253,7 +262,12 @@ def _producing_outcome(
         payload["failed_metrics"] = cast(JsonValue, failed_metrics)
     expected_outcome = output_contracts[outcome_kind].identify(payload)
     present_primary_names = [
-        name for name in ("evaluation-run", "experiment-verdict") if name in members
+        name
+        for name in ("evaluation-run", "experiment-verdict")
+        if any(
+            member.artifact_kind == output_contracts[name].definition["artifact_kind"]
+            for member in members.values()
+        )
     ]
     if require_primary and present_primary_names != [outcome_kind]:
         raise ValueError("Replay observation has an ineligible producing outcome")
@@ -319,23 +333,17 @@ def _comparison_value(
     if original_runtime["content_identity"] != replay_runtime["content_identity"]:
         raise ValueError("Replay inputs do not share one semantic execution identity")
 
-    observations = {
-        "evaluation-outcome-status": "evaluation_outcome_status",
-        "event-trace-identity": "event_trace_identity",
-        "snapshot-series-identity": "snapshot_series_identity",
-        "metric-dataset-identity": "metric_dataset_identity",
-    }
-    if policy_checks != list(observations):
+    if policy_checks != list(original):
         raise ValueError("the admitted Replay policy has unsupported checks")
     checks = [
         {
-            "key": key,
+            "key": member,
             "match": canonical_bytes(cast(JsonValue, original[member]))
             == canonical_bytes(cast(JsonValue, replay[member])),
             "original": original[member],
             "replay": replay[member],
         }
-        for key, member in observations.items()
+        for member in original
     ]
     return cast(
         dict[str, JsonValue],
@@ -348,7 +356,9 @@ def _comparison_value(
                     original_artifact_set_receipt_identity
                 ),
                 "original_evaluation_run_identity": original_identity,
-                "replay_outcome_kind": replay_kind,
+                "replay_outcome_kind": output_contracts[replay_kind].definition[
+                    "artifact_kind"
+                ],
                 "replay_outcome_identity": replay_identity,
                 "policy": cast(JsonValue, policy),
                 "original_observation": cast(JsonValue, original),
@@ -391,7 +401,7 @@ def compare_exact_replay(
         raise ValueError("constructed Replay comparison failed independent validation")
     return PublicationMember(
         value=value,
-        artifact_kind="replay-comparison",
+        artifact_kind=replay_contract.artifact.definition["artifact_kind"],
         wire_schema_identity=cast(str, value["wire_schema_identity"]),
         content_identity=cast(str, value["content_identity"]),
     )
@@ -450,21 +460,15 @@ def validate_published_exact_replay_comparison(
         if original_runtime["content_identity"] != replay_runtime["content_identity"]:
             return False
 
-        observations = {
-            "evaluation-outcome-status": "evaluation_outcome_status",
-            "event-trace-identity": "event_trace_identity",
-            "snapshot-series-identity": "snapshot_series_identity",
-            "metric-dataset-identity": "metric_dataset_identity",
-        }
         checks = [
             {
-                "key": key,
+                "key": member,
                 "match": canonical_bytes(cast(JsonValue, original[member]))
                 == canonical_bytes(cast(JsonValue, replay[member])),
                 "original": original[member],
                 "replay": replay[member],
             }
-            for key, member in observations.items()
+            for member in original
         ]
         expected_result = (
             "matched"
@@ -479,11 +483,12 @@ def validate_published_exact_replay_comparison(
             and value.get("original_artifact_set_receipt_identity")
             == original_artifact_set_receipt_identity
             and value.get("original_evaluation_run_identity") == original_identity
-            and value.get("replay_outcome_kind") == replay_kind
+            and value.get("replay_outcome_kind")
+            == output_contracts[replay_kind].definition["artifact_kind"]
             and value.get("replay_outcome_identity") == replay_identity
             and canonical_bytes(cast(JsonValue, value.get("policy")))
             == canonical_bytes(cast(JsonValue, policy))
-            and policy_checks == list(observations)
+            and policy_checks == list(original)
             and canonical_bytes(cast(JsonValue, value.get("original_observation")))
             == canonical_bytes(cast(JsonValue, original))
             and canonical_bytes(cast(JsonValue, value.get("replay_observation")))

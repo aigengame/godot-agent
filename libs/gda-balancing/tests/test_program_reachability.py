@@ -2,10 +2,18 @@
 
 from typing import Any
 
+import pytest
+from gda_balancing.domain.authority.context import packaged_authority_context
+
 import gda_balancing.domain.program_reachability as program_reachability_module
 
 
-def test_projects_nested_operation_only_structure():
+@pytest.fixture(scope="module")
+def runtime_contract():
+    return packaged_authority_context().kernel["meta_format"]["runtime_program"]
+
+
+def test_projects_nested_operation_only_structure(runtime_contract):
     rir = {
         "selected_semantics": {
             "packages": [{"id": "example.program"}],
@@ -56,7 +64,7 @@ def test_projects_nested_operation_only_structure():
     }
 
     projected = program_reachability_module.project_reachable_program_structure(
-        rir, [entrypoint]
+        rir, [entrypoint], runtime=runtime_contract
     )
 
     assert projected.operation_coordinates == {
@@ -66,12 +74,14 @@ def test_projects_nested_operation_only_structure():
     }
     assert projected.runtime_node_ids == {"add", "invoke", "schedule", "subtract"}
     assert all(
-        projected.formula_programs.for_phase(phase) == ()
-        for phase in program_reachability_module.LIFECYCLE_PHASES
+        projected.formula_programs[phase] == ()
+        for phase in program_reachability_module.formula_lifecycle_phases(
+            runtime_contract
+        )
     )
 
 
-def test_groups_formula_programs_by_lifecycle_phase():
+def test_groups_formula_programs_by_lifecycle_phase(runtime_contract):
     target = {"model": "example", "module": "main", "name": "derived"}
 
     def formula_program(phase: str, node: str) -> dict[str, Any]:
@@ -107,7 +117,7 @@ def test_groups_formula_programs_by_lifecycle_phase():
     }
 
     projected = program_reachability_module.project_reachable_program_structure(
-        rir, [entrypoint]
+        rir, [entrypoint], runtime=runtime_contract
     )
 
     assert projected.runtime_node_ids == {"add", "copy", "multiply", "subtract"}
@@ -116,6 +126,6 @@ def test_groups_formula_programs_by_lifecycle_phase():
         ("event", "multiply"),
         ("observation", "subtract"),
     ):
-        programs = projected.formula_programs.for_phase(phase)
+        programs = projected.formula_programs[phase]
         assert len(programs) == 1
         assert programs[0]["body"][0]["instruction"]["node"] == node
