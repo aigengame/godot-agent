@@ -38,7 +38,13 @@ from gda.harness.install import install_harness
 from gda.import_evidence import CACHE_ROOT_REL
 from gda.project_tree import ProjectTreeInventory
 from gda.runner import RunResult
-from tests.support import ENGINE_BANNER, FakeRunner, minimal_project, sentinel
+from tests.support import (
+    ENGINE_BANNER,
+    FakeRunner,
+    minimal_project,
+    sentinel,
+    unlistable,
+)
 
 # The preset the canned `export get` resolve returns. `export run` resolves the
 # preset through that sentinel op before it exports anything, so every test here
@@ -371,6 +377,28 @@ def test_an_unreadable_file_is_named_in_the_render(tmp_path):
     assert render_export_run(outcome).splitlines()[-1] == (
         f"  project tree: unchanged outside res://{CACHE_ROOT_REL}, 1 unreadable"
     )
+
+
+def test_one_unreadable_inode_is_counted_once_in_the_published_report(tmp_path):
+    # #990's declared behaviour delta, on this command's own published count: an
+    # unreadable directory that a link inside the project reaches a second time is
+    # ONE entry the report could not account for, not two. The report has counted
+    # spellings since #839 and #985 kept that while it moved the walk; the count
+    # here was 2 before and is 1 now.
+    project = minimal_project(tmp_path)
+    locked = project / "locked"
+    _write(locked / "secret.tres", "old")
+    (project / "alias").symlink_to(locked, target_is_directory=True)
+    if not unlistable(locked):
+        pytest.skip("this platform lets the owner list a mode-000 directory")
+
+    try:
+        mutations = _mutations(_export(project))
+    finally:
+        locked.chmod(0o755)
+
+    assert mutations.skipped == 1
+    assert (mutations.created, mutations.modified) == ([], [])
 
 
 def test_the_counts_must_match_the_reported_lists():

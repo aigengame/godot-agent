@@ -1262,7 +1262,9 @@ gda's scoping is in the decision and the report. A real run settles each state
 every `invalid` request settles here without spending a pass) and lists every created
 file, classified against the explicit cache root: `cache_owned` (under `res://.godot`) vs
 `source_adjacent` (`.import` and `.uid` sidecars — the GDA-DF-038 noise, accounted file by
-file). An `invalid` or `failed` asset also says WHY (#853): `reason` names the check that
+file). `skipped` qualifies that list the way it qualifies `export run`'s (#990):
+`created` is complete when the count is `0`, and `created`'s own description is the
+rule. An `invalid` or `failed` asset also says WHY (#853): `reason` names the check that
 decided it — `sidecar_marked_invalid` (the engine failed the last import),
 `sidecar_unparsable`, `receipt_unsupported`, or the settlement's own
 `dest_missing_after_pass` — and `detail` the offending line or path where the check
@@ -1289,10 +1291,11 @@ stale assets the project-wide pass will re-import (invalid ones excluded; assets
 nested project's, a `.gdignore`d or a **dot-prefixed** directory excluded too, since the
 engine's scan never reaches them, #804; assets with no
 sidecar and generated `.uid` files are the engine's to decide, so the real run's `created`
-list is the authoritative inventory). This prediction is a SECOND spelling of the walk's
-rule, not the walk: it reads the project's files from Python (`Path.rglob`), so it can
-never ask `operations.gd`, and the two are held together only by the marker names a test
-compares across the seam. Two divergences follow and are stated rather than chased (#808
+list is the authoritative inventory, complete when its `skipped` is `0`). This
+prediction is a SECOND spelling of the walk's rule, not the walk: it reads the
+project's files from Python (`Path.rglob`), so it can never ask `operations.gd`,
+and the two are held together only by the marker names a test compares across the
+seam. Two divergences follow and are stated rather than chased (#808
 review): the prediction drops dot-prefixed directories where the walk enumerates them
 (that is the engine being modelled, not a drift), and `rglob` does not descend a symlinked
 directory where the walk does (#760) — so a stale asset behind a link is not predicted,

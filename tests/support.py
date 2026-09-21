@@ -307,6 +307,39 @@ def templates_installed(gda: Gda, preset: str = "Linux/X11") -> bool:
     return gda.json("export", "get", "--preset", preset)["templates_installed"]
 
 
+def unlistable(directory: Path) -> bool:
+    """Make ``directory`` unlistable, and say whether the platform agreed.
+
+    The measurement IS the guard, and it covers root too: root lists a mode-000
+    directory, so a suite running as root skips instead of reading RED. One copy
+    for every module that locks a directory to test the inventory's ``skipped``
+    (#990), so the next platform variant has one place to reach.
+    """
+    directory.chmod(0o000)
+    try:
+        os.listdir(directory)
+    except OSError:
+        return True
+    directory.chmod(0o755)
+    return False
+
+
+def unreadable(file: Path) -> bool:
+    """Make ``file`` unreadable, and say whether the platform agreed.
+
+    The file half of :func:`unlistable`, with the same guard: root reads a
+    mode-000 file, so a suite running as root skips instead of reading RED.
+    """
+    file.chmod(0o000)
+    try:
+        with file.open("rb"):
+            pass
+    except OSError:
+        return True
+    file.chmod(0o644)
+    return False
+
+
 class FakeRunner:
     """A fakeable GodotRunner that records its calls and returns a canned result."""
 
