@@ -342,8 +342,8 @@ def test_configured_export_path_parent_dirs_are_created_and_reported(tmp_path):
 class _DirCheckingExportRunner(FakeExportRunner):
     """A native-export fake that records whether a directory existed when it ran.
 
-    The preflight's whole point is that it runs BEFORE the engine does, so the
-    only honest proof is taken from inside the export itself (#997).
+    The preflight runs BEFORE the engine does, so the only proof that the
+    directory was there in time is taken from inside the export itself (#997).
     """
 
     def __init__(self, directory: Path) -> None:
@@ -356,7 +356,10 @@ class _DirCheckingExportRunner(FakeExportRunner):
         return super().run(preset, mode, output_path)
 
 
-def test_res_output_parent_dirs_are_created_and_reported(tmp_path):
+@pytest.mark.parametrize("relative_project", [False, True])
+def test_res_output_parent_dirs_are_created_and_reported(
+    tmp_path, monkeypatch, relative_project
+):
     # issue #997: `res://` is the natural Godot spelling for a destination inside
     # the project, and the engine refuses an export whose output directory does
     # not exist ("export path does not exist", editor_export_platform.h). The
@@ -365,8 +368,17 @@ def test_res_output_parent_dirs_are_created_and_reported(tmp_path):
     # created and reported. The destination now resolves through the path
     # authority's canonical `res://` reading, down the SAME creation loop as a
     # filesystem destination: same order, same absolute strings.
+    #
+    # The RELATIVE arm is where "same strings" is earned (PR #999 review): ADR-0006
+    # resolution expands `~` and finds the marker, it does not absolutize, so
+    # `--project project` arrives as a relative path. The configured-export_path
+    # channel of this same command has always anchored it at the invoker's cwd;
+    # this channel reported `project/build` until it anchored it too, which gave
+    # one published field two shapes depending on which channel named the
+    # destination.
     project = tmp_path / "project"
     project.mkdir()
+    monkeypatch.chdir(tmp_path)
     get_runner = _get_runner({**GET_RESULT, "export_path": ""})
     export_runner = _DirCheckingExportRunner(project / "build" / "nested")
 
@@ -374,7 +386,7 @@ def test_res_output_parent_dirs_are_created_and_reported(tmp_path):
         get_runner=get_runner,
         export_runner=export_runner,
         output_override="res://build/nested/game.x86_64",
-        project=project,
+        project=Path("project") if relative_project else project,
     )
 
     assert isinstance(outcome, ExportRunResult), outcome
@@ -389,6 +401,33 @@ def test_res_output_parent_dirs_are_created_and_reported(tmp_path):
     assert export_runner.calls == [
         ("Linux/X11", "release", "res://build/nested/game.x86_64")
     ]
+
+
+def test_a_res_output_that_leaves_the_project_is_created_where_it_points(tmp_path):
+    # #997, the decision this slice makes reachable (PR #999 review). A `res://`
+    # spelling that still climbs above the namespace root after canonicalization
+    # is anchored at the project and NOT refused: gda makes its parent, and the
+    # engine then writes the artifact outside the resolved project. At base the
+    # missing parent stopped that export. The filesystem branch has always
+    # created parents wherever an absolute `--output` pointed, so this is the
+    # same answer, not a new one — and it is pinned here because nothing else
+    # says which way the decision went.
+    project = tmp_path / "project"
+    project.mkdir()
+    get_runner = _get_runner({**GET_RESULT, "export_path": ""})
+    export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+
+    outcome = _run(
+        get_runner=get_runner,
+        export_runner=export_runner,
+        output_override="res://../out/game.x86_64",
+        project=project,
+    )
+
+    assert isinstance(outcome, ExportRunResult), outcome
+    assert outcome.created_dirs == [str(project / ".." / "out")]
+    assert (tmp_path / "out").is_dir()  # OUTSIDE the project, on disk
+    assert not (project / "out").exists()
 
 
 def test_a_non_res_virtual_output_creates_nothing(tmp_path):

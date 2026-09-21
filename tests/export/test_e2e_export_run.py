@@ -185,10 +185,12 @@ def test_export_run_creates_a_res_output_parent_and_keeps_the_artifact_out(
     # not exist" check and came back as an opaque export_failed, while the
     # catalog promised the missing parents are created and reported. gda now
     # resolves the destination through the path authority's canonical `res://`
-    # reading, creates `<project>/build` before the native export, reports it in
-    # `created_dirs` exactly as a filesystem destination's parent is reported,
-    # and keeps the artifact that lands there out of the project's mutation
-    # report — it is the export's OUTPUT, not something the export left behind.
+    # reading, creates `<project>/build` before the native export, and reports it
+    # in `created_dirs` exactly as a filesystem destination's parent is reported.
+    # That half is the guard. The artifact's absence from the mutation report is
+    # a PIN: this spelling was already excluded at base, and the exclusion is one
+    # artifact by design (#839), so the `game.pck` the preset writes beside the
+    # binary is reported here as it is on every other export.
     #
     # Release mode needs the export templates, so this follows the same
     # template-presence policy as the configured-path test above: with templates
@@ -223,7 +225,7 @@ def test_export_run_creates_a_res_output_parent_and_keeps_the_artifact_out(
 
     assert run.returncode == 0, run.stdout + run.stderr
     data = json.loads(run.stdout)
-    # gda made the directory the engine refuses to create, and says so.
+    # gda made the directory the engine will not make for itself, and says so.
     assert data["created_dirs"] == [str(artifact.parent)]
     assert artifact.is_file(), f"expected the artifact at {artifact}"
     # The `--output` spelling is echoed as the caller wrote it (#403); only the
