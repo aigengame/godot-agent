@@ -241,9 +241,14 @@ def canonical_res_path(path: str) -> str:
 def res_location(path: str, project: Path) -> Path:
     """The place on disk a ``res://`` address names, under ``project`` (#997).
 
-    ONE owner for "where does this ``res://`` address land", so the parties that
-    must agree about one file cannot each answer for themselves. It is the
-    canonical address (:func:`canonical_res_path` — the engine's own
+    ONE owner of "where does this ``res://`` address land" for the two readings
+    that must not disagree about one file: ``export run``'s destination (the
+    engine's argv, the parents the preflight makes, the artifact the walk keeps
+    out) and the location a refusal reports (:func:`_anchored_target`). It does
+    NOT own every ``res://`` join in the codebase — the import-evidence reads,
+    ``resource import``'s asset mapping and the daemon's session paths each
+    still build their own, for their own questions — so a third caller adopts it
+    deliberately rather than by assumption. It is the canonical address (:func:`canonical_res_path` — the engine's own
     ``String::simplify_path`` semantics for a ``res://`` spelling) joined to the
     absolute project directory (:func:`project_absolute`, which anchors a
     relative ``--project`` at the invoker's cwd and expands ``~`` totally). A
@@ -266,9 +271,12 @@ def res_location(path: str, project: Path) -> Path:
     measured the two coming apart).
 
     It makes no containment statement. A canonical remainder that still climbs
-    above the namespace root is joined like any other, and
-    :func:`res_escape_remainder` is the separate question a caller asks when the
-    answer matters to it.
+    above the namespace root is joined AS WRITTEN — ``res://../out/x`` under
+    ``<project>`` is ``<project>/../out/x`` — so that surviving ``..`` leaves the
+    lexical reading here and is resolved by whoever walks the result, the engine
+    and the ``stat`` behind the exclusion alike. They walk the same string, so
+    they still agree with each other. :func:`res_escape_remainder` is the
+    separate question a caller asks when the answer matters to it.
     """
     return project_absolute(project) / canonical_res_path(path)[len(RES_PREFIX) :]
 

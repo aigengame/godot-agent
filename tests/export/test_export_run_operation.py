@@ -406,16 +406,22 @@ def test_res_output_parent_dirs_are_created_and_reported(
 
 
 def test_a_res_output_that_leaves_the_project_gets_no_directories(tmp_path):
-    # #997 (amended): gda makes directories in the project it was given and none
-    # outside it. A `res://` spelling that still climbs above the namespace root
-    # after canonicalization gets nothing made for it, and the engine's own
-    # check stands, exactly as before this issue — written when the parent is
-    # already there, `export_failed` when it is not. That is not a refusal (no
-    # code, no envelope) and not a containment rule: an absolute `--output`
-    # outside the project still has its parents made, as it always has.
+    # #997 (amended): a `res://` spelling that still climbs above the namespace
+    # root after canonicalization gets nothing made for it, and the engine's own
+    # check stands. For THIS spelling — a leading `../` after canonicalization,
+    # with no link on the way — that is what base did too: written when the
+    # parent is already there, `export_failed` when it is not (measured on both
+    # sides, with and without `out/`). It is not a refusal (no code, no
+    # envelope) and not a containment rule: an absolute `--output` outside the
+    # project still has its parents made, as it always has, and a directory link
+    # INSIDE the project still carries a lexically-inside position outside (the
+    # sibling test in `test_export_tree_mutations.py`).
     #
     # The engine is still handed the resolved location, because the three
     # parties must name one file whether or not gda prepares anything for it.
+    # Where the collapse changes which file that is — `res://deeper/../../out/x`
+    # with `deeper` a link — head and base write to different places, and the
+    # authority's docstring is where that boundary is stated.
     project = tmp_path / "project"
     project.mkdir()
     get_runner = _get_runner({**GET_RESULT, "export_path": ""})

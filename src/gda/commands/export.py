@@ -772,9 +772,9 @@ def _artifact_to_exclude(project: Path, output_path: str) -> Path | None:
     reaches it by — and an ``.app`` subtree is excluded without hiding the files
     beside it.
     """
-    res_location = _res_output_location(project, output_path)
-    if res_location is not None:
-        return res_location
+    location = _res_output_location(project, output_path)
+    if location is not None:
+        return location
     if not output_path or "://" in output_path:
         return None
     path = Path(output_path)
@@ -962,15 +962,26 @@ def _ensure_output_parent_dirs(
     SAME loop as a filesystem destination, in the same order and reported as the
     same absolute strings.
 
-    **gda makes directories in the project it was given, and none outside it.**
-    A ``res://`` destination whose canonical remainder still climbs above the
-    namespace root (``res://../out/x``, :func:`gda.project.res_escape_remainder`)
-    therefore gets nothing made for it, and the engine's own check stands, as it
-    did before #997: the export is written when the parent is already there, and
-    it is ``export_failed`` when it is not. That is not a refusal and it is not a
-    containment rule — an absolute ``--output`` outside the project still has its
-    parents made, exactly as before — it is the limit of what this preflight
-    takes on.
+    **gda makes the parents of the address's own LEXICAL position under the
+    project, and nothing above it.** A ``res://`` destination whose canonical
+    remainder still climbs above the namespace root (``res://../out/x``,
+    :func:`gda.project.res_escape_remainder`) gets nothing made for it, and the
+    engine's own check stands, as it did before #997: the export is written when
+    the parent is already there, and it is ``export_failed`` when it is not.
+    That is not a refusal and it is not a containment rule — an absolute
+    ``--output`` outside the project still has its parents made, exactly as
+    before — it is the limit of what this preflight takes on.
+
+    Lexical is the whole of that limit, and it is the reading
+    :func:`gda.project.path_outside_project` makes deliberately too: a DIRECTORY
+    LINK inside the project carries the address's position with it, so
+    ``res://linkdir/a/b/x`` with ``linkdir -> <elsewhere>`` reports
+    ``<project>/linkdir/a`` and ``<project>/linkdir/a/b`` in ``created_dirs``
+    while the two directories appear physically under ``<elsewhere>`` (measured;
+    base refused the export instead, for want of the parent). That is the same
+    monorepo shape the containment check accepts on purpose — a shared library
+    linked into the project IS in the project's ``res://`` namespace, and the
+    engine walks the link the same way.
 
     The other virtual schemes still resolve to nothing: ``user://`` is the
     engine's data directory, not a place this command may create, and ``uid://``

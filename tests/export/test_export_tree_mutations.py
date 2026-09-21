@@ -319,6 +319,41 @@ def test_a_dotdot_through_a_directory_link_lands_where_the_address_collapses(
     assert outcome.output_path == "res://pivot/../game.x86_64"  # the spelling, #403
 
 
+def test_a_parent_under_an_in_project_link_is_made_where_the_link_leads(tmp_path):
+    # The LIMIT of "gda makes nothing above the project", pinned because the
+    # docstring states it and a reader would not guess it (PR #999 review round
+    # 3, measured on the real engine). The in-project guard is
+    # `res_escape_remainder`, which is lexical, so an address that stays inside
+    # the namespace by its own spelling gets its parents made at that spelling's
+    # position — and a DIRECTORY LINK inside the project puts that position
+    # wherever the link leads. `created_dirs` names the in-project addresses;
+    # the directories appear physically under the link's target.
+    #
+    # Keeping it is deliberate: this is the reading
+    # `gda.project.path_outside_project` makes on purpose for a shared library
+    # linked into a project, and the engine walks the link the same way. Base
+    # refused this export instead, for want of the parent.
+    project = minimal_project(tmp_path / "project")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (project / "linkdir").symlink_to(elsewhere, target_is_directory=True)
+    runner = EngineLikeExportRunner(project)
+
+    outcome = _export_through(project, runner, "res://linkdir/a/b/game.x86_64")
+
+    assert isinstance(outcome, ExportRunResult), outcome
+    assert outcome.created_dirs == [
+        str(project / "linkdir" / "a"),
+        str(project / "linkdir" / "a" / "b"),
+    ]
+    # The addresses are in the project; the directories are not.
+    assert (elsewhere / "a" / "b").is_dir()
+    assert (elsewhere / "a" / "b" / "game.x86_64").is_file()
+    assert runner.calls == [
+        ("Linux/X11", "release", str(project / "linkdir" / "a" / "b" / "game.x86_64"))
+    ]
+
+
 def test_a_dotdot_output_exports_where_it_collapses_to(tmp_path):
     # #997 (amended): `res://build/../game.x86_64` with no `build/` used to die
     # inside the engine as an opaque export_failed — gda saw the canonical

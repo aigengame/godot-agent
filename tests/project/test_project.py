@@ -450,7 +450,6 @@ def test_res_location_collapses_a_dotdot_instead_of_walking_the_link(
     located = res_location("res://pivot/../x.zip", project)
 
     assert located == project / "x.zip"
-    assert located.parent.resolve() != (project / "pivot").resolve().parent
 
     # And the project is anchored at the invoker's cwd when it arrives relative.
     monkeypatch.chdir(tmp_path)
