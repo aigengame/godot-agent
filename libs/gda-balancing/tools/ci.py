@@ -20,9 +20,8 @@ BASELINE_PATH: Final = TEST_ROOT / "schema2-test-inventory-v1.json"
 MIGRATION_PATH: Final = TEST_ROOT / "schema2-bootstrap-migration-map.json"
 
 
-def _experiment_test_selectors() -> tuple[str, ...]:
-    """Split the slow module by test definition, keeping parameters together."""
-    filename = "test_schema2_experiment_cli.py"
+def _module_test_selectors(filename: str) -> tuple[str, ...]:
+    """Select top-level tests while keeping parameterized cases together."""
     module = ast.parse((TEST_ROOT / filename).read_text(encoding="utf-8"))
     names = sorted(
         node.name
@@ -36,7 +35,27 @@ def _experiment_test_selectors() -> tuple[str, ...]:
     return tuple(f"{filename}::{name}" for name in names)
 
 
-_EXPERIMENT_TESTS: Final = _experiment_test_selectors()
+_EXPERIMENT_TESTS: Final = _module_test_selectors("test_schema2_experiment_cli.py")
+_EXTENSION_INVENTORY_TESTS: Final = _module_test_selectors(
+    "test_extension_inventory.py"
+)
+_ANONYMOUS_VECTOR_TEST: Final = (
+    "test_extension_inventory.py::"
+    "test_anonymous_vector_scope_and_fault_paths_follow_actual_type_law"
+)
+_EXTENSION_INVENTORY_A: Final = tuple(
+    selector
+    for selector in _EXTENSION_INVENTORY_TESTS[::2]
+    if selector != _ANONYMOUS_VECTOR_TEST
+)
+_EXTENSION_INVENTORY_B: Final = (
+    *(
+        selector
+        for selector in _EXTENSION_INVENTORY_TESTS[1::2]
+        if selector != _ANONYMOUS_VECTOR_TEST
+    ),
+    _ANONYMOUS_VECTOR_TEST,
+)
 
 SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "fast": (
@@ -93,6 +112,8 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     ),
     "experiment": _EXPERIMENT_TESTS[::2],
     "experiment-continuation": _EXPERIMENT_TESTS[1::2],
+    "extension-inventory": _EXTENSION_INVENTORY_A,
+    "extension-inventory-continuation": _EXTENSION_INVENTORY_B,
     "extension": (
         "test_artifact_projection_addresses.py",
         "test_artifact_protocol_roles.py",
@@ -100,7 +121,6 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_evidence_candidate_independent.py",
         "test_evidence_claim_identity.py",
         "test_experiment_input_protocol.py",
-        "test_extension_inventory.py",
         "test_lowering_policy_inventory.py",
         "test_model_vector_inventory.py",
         "test_extension_renaming.py",

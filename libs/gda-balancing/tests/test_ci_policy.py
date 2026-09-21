@@ -61,6 +61,7 @@ def test_unknown_path_defaults_to_the_full_balancing_matrix():
 
 
 def test_shards_pairwise_partition_every_balancing_test_file():
+    assert all(len(paths) == len(set(paths)) for paths in ci.SHARDS.values())
     groups = [set(paths) for paths in ci.SHARDS.values()]
     union: set[str] = set()
     for group in groups:
@@ -78,6 +79,8 @@ def test_shards_pairwise_partition_every_balancing_test_file():
         "model-admission",
         "experiment",
         "experiment-continuation",
+        "extension-inventory",
+        "extension-inventory-continuation",
         "extension",
         "extension-graph",
         "bounded-fold",
@@ -100,6 +103,19 @@ def test_experiment_shards_preserve_every_collected_case_exactly_once():
     assert not first & second
     assert first | second == full
     # Parameterized cases keep their common fixture lifecycle in one process.
+    first_definitions = {node.split("[", 1)[0] for node in first}
+    second_definitions = {node.split("[", 1)[0] for node in second}
+    assert not first_definitions & second_definitions
+
+
+def test_extension_inventory_shards_preserve_every_collected_case_exactly_once():
+    full = ci.collect_node_ids((ci.TEST_ROOT / "test_extension_inventory.py",))
+    first = ci.collect_node_ids(ci.shard_paths("extension-inventory"))
+    second = ci.collect_node_ids(ci.shard_paths("extension-inventory-continuation"))
+
+    assert first and second
+    assert not first & second
+    assert first | second == full
     first_definitions = {node.split("[", 1)[0] for node in first}
     second_definitions = {node.split("[", 1)[0] for node in second}
     assert not first_definitions & second_definitions
