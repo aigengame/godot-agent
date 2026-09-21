@@ -1328,13 +1328,13 @@ trust axis, per the issue's triage decision).
 against the invoker's current working directory, while a preset `export_path`
 keeps Godot's project-relative convention (including a literal `~` path
 component; no shell-style home expansion). The JSON `output_path` is the
-destination as the caller named it: a filesystem `--output` made absolute
-against the invoker's cwd, a `res://` or `user://` address as given, or the
-configured `export_path` resolved against the project. Missing output parent
-directories are created before the native export and reported in
-`created_dirs`, outermost to innermost;
-an uncreatable parent is reported as `export_output_parent_failed` before Godot
-runs.
+destination as the caller named it: a `res://` or `user://` address as given,
+from `--output` or the preset; a filesystem `--output` with `~` expanded and
+made absolute against the invoker's current working directory; or a filesystem
+`export_path` from the preset, resolved against the project. Missing output
+parent directories are created before the native export and reported in
+`created_dirs`, outermost to innermost; an uncreatable parent is reported as
+`export_output_parent_failed` before Godot runs.
 
 `gda export run` also reports what the export did to the project tree
 (`project_tree_mutations`, #839). The native export runs the editor import pass, so

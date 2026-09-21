@@ -538,12 +538,12 @@ class ExportRunResult(BaseModel):
     Echoes the addressed preset's ``preset`` name and target ``platform`` (read
     from ``export_presets.cfg``), the ``mode`` that was run (the selected flavor,
     ``release`` by default; #170), and ``output_path``, the destination as the
-    caller named it — a filesystem ``--output`` made absolute against the
-    invoker's cwd, a ``res://`` or ``user://`` address as given, else the
-    preset's configured ``export_path`` resolved against the project directory
-    (#403). ``created_dirs`` lists output parent
-    directories created before the native export, from outermost to innermost
-    (#402).
+    caller named it: a ``res://`` or ``user://`` address as given, from
+    ``--output`` or the preset; a filesystem ``--output`` with ``~`` expanded
+    and made absolute against the invoker's current working directory; or a
+    filesystem ``export_path`` from the preset, resolved against the project
+    (#403). ``created_dirs`` lists output parent directories created before the
+    native export, from outermost to innermost (#402).
     ``warnings`` carries the engine's non-fatal export warnings (e.g. a missing
     optional icon), parsed best-effort from the export's stderr; an export that
     succeeds cleanly reports ``warnings == []``. Unlike the sentinel operations,
@@ -564,10 +564,11 @@ class ExportRunResult(BaseModel):
     mode: ExportRunMode = Field(description="The export flavor that was run.")
     output_path: str = Field(
         description=(
-            "The destination as the caller named it: a filesystem `--output` made "
-            "absolute against the invoker's cwd, a `res://` or `user://` address "
-            "as given, or the preset's configured `export_path` resolved against "
-            "the project."
+            "The destination as the caller named it: a `res://` or `user://` "
+            "address as given, from `--output` or the preset; a filesystem "
+            "`--output` with `~` expanded and made absolute against the invoker's "
+            "current working directory; or a filesystem `export_path` from the "
+            "preset, resolved against the project."
         )
     )
     created_dirs: list[str] = Field(
@@ -1764,8 +1765,10 @@ def run_export(
     ``--output`` overrides the preset's configured ``export_path`` and resolves a
     relative filesystem path against the invoker's current working directory;
     preset ``export_path`` values keep Godot's project-relative convention. The
-    reported ``output_path`` is the resolved artifact path, and missing output
-    parent directories are created and reported in ``created_dirs`` (#402/#403).
+    reported ``output_path`` is the destination as the caller named it — a
+    ``res://`` or ``user://`` address as given, a filesystem path made absolute
+    — and missing output parent directories are created and reported in
+    ``created_dirs`` (#402/#403).
 
     Export-template discovery follows ``--user-data-root``: Godot reads the
     templates from the data directory that option relocates, so a release or
@@ -1895,8 +1898,10 @@ def smoke_artifact(
 
     The command is PROJECTLESS: it takes no ``--project``, and neither
     ``$GDA_PROJECT`` nor the current directory is read as project context. A
-    relative artifact path resolves against the current directory, so the absolute
-    ``output_path`` from ``export run`` passes straight through.
+    relative artifact path resolves against the current directory, so a
+    filesystem ``output_path`` from ``export run`` passes straight through; a
+    ``res://`` one names the artifact only inside its project — give the file's
+    path.
 
     ``--arg`` values reach the game in order, after Godot's ``--`` separator,
     where it reads them with ``OS.get_cmdline_user_args()``. ``--quit-after N``
