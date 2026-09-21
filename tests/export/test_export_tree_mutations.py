@@ -164,6 +164,22 @@ def test_the_export_destination_resolves_to_the_artifact_kept_out(tmp_path):
     )
     assert _artifact_to_exclude(project, "res://") is None
     assert _artifact_to_exclude(project, "user://out.pck") is None
+    # #997: the reading is the path authority's canonical one, so the spellings
+    # the engine folds before it writes name the file it really writes — `\` is
+    # a separator, `.` and `//` collapse, and `..` resolves. A spelling that
+    # collapses to the project root names a directory, so it names no artifact.
+    assert (
+        _artifact_to_exclude(project, "res://build\\game.x86_64")
+        == project / "build" / "game.x86_64"
+    )
+    assert (
+        _artifact_to_exclude(project, "res://./build//game.x86_64")
+        == project / "build" / "game.x86_64"
+    )
+    assert (
+        _artifact_to_exclude(project, "res://build/../out.pck") == project / "out.pck"
+    )
+    assert _artifact_to_exclude(project, "res://build/..") is None
     assert _artifact_to_exclude(project, "") is None
     assert (
         _artifact_to_exclude(project, "build/game.x86_64")
@@ -189,6 +205,35 @@ def test_a_res_output_artifact_is_the_output_not_a_mutation(tmp_path):
     assert isinstance(outcome, ExportRunResult), outcome
     assert outcome.output_path == "res://out.pck"
     assert (project / "out.pck").is_file()
+    assert _mutations(outcome).created == []
+    assert _mutations(outcome).skipped == 0
+
+
+@pytest.mark.parametrize(
+    "spelling", ["res://build\\game.x86_64", "res://./build//game.x86_64"]
+)
+def test_a_folded_res_output_is_excluded_where_the_engine_writes_it(tmp_path, spelling):
+    # #997: Godot runs every `res://` address through `String::simplify_path`
+    # before it resolves one, so `res://build\game.x86_64` is written to
+    # `build/game.x86_64`. The exclusion joined the RAW remainder, so it kept out
+    # a file named `build\game.x86_64` that nothing ever wrote and reported the
+    # real artifact in `created` — measured on a release export against Godot
+    # 4.6.3. The `.`/`//` spelling beside it was already folded, by `PurePath`
+    # rather than by a rule, and is pinned here so the one canonical reading
+    # keeps it folded.
+    project = minimal_project(tmp_path)
+    (project / "build").mkdir()
+
+    outcome = _export(
+        project,
+        lambda: _write(project / "build" / "game.x86_64", "binary"),
+        output_override=spelling,
+    )
+
+    assert isinstance(outcome, ExportRunResult), outcome
+    assert outcome.output_path == spelling  # the caller's spelling, #403
+    assert (project / "build" / "game.x86_64").is_file()
+    assert outcome.created_dirs == []  # `build/` was already there
     assert _mutations(outcome).created == []
     assert _mutations(outcome).skipped == 0
 

@@ -176,6 +176,64 @@ def test_export_run_writes_to_configured_export_path(godot_project):
 
 
 @pytest.mark.e2e
+def test_export_run_creates_a_res_output_parent_and_keeps_the_artifact_out(
+    godot_project,
+):
+    # #997 ACCEPTANCE, live. `res://` is the natural Godot spelling for a
+    # destination inside the project. Parent creation used to drop every `://`
+    # address, so a missing `build/` reached the engine's own "export path does
+    # not exist" check and came back as an opaque export_failed, while the
+    # catalog promised the missing parents are created and reported. gda now
+    # resolves the destination through the path authority's canonical `res://`
+    # reading, creates `<project>/build` before the native export, reports it in
+    # `created_dirs` exactly as a filesystem destination's parent is reported,
+    # and keeps the artifact that lands there out of the project's mutation
+    # report — it is the export's OUTPUT, not something the export left behind.
+    #
+    # Release mode needs the export templates, so this follows the same
+    # template-presence policy as the configured-path test above: with templates
+    # absent, the structured preflight is verified live and only the success
+    # assertion is skipped.
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    # all_resources needs at least one exportable file (see the test above).
+    (godot_project / "main.gd").write_text(
+        "extends Node\n\nfunc _ready() -> void:\n\tpass\n", encoding="utf-8"
+    )
+    output = "res://build/game.x86_64"
+    artifact = godot_project / "build" / "game.x86_64"
+    assert not artifact.parent.exists(), "precondition: the parent is missing"
+    gda = Gda(godot_project)
+
+    run = gda("export", "run", "--preset", "Linux/X11", "--output", output, "--json")
+
+    if not templates_installed(gda):
+        # The template check runs BEFORE the parent creation, so nothing was
+        # created and nothing was written.
+        assert run.returncode == 4, run.stdout + run.stderr
+        err = json.loads(run.stdout)["error"]
+        assert err["code"] == "export_templates_missing", run.stdout + run.stderr
+        assert not artifact.parent.exists(), "no directory when the preflight fails"
+        pytest.skip(
+            "export templates for the running engine version are not installed; "
+            "skipping the successful-export assertion (the structured "
+            "export_templates_missing preflight was verified instead)"
+        )
+
+    assert run.returncode == 0, run.stdout + run.stderr
+    data = json.loads(run.stdout)
+    # gda made the directory the engine refuses to create, and says so.
+    assert data["created_dirs"] == [str(artifact.parent)]
+    assert artifact.is_file(), f"expected the artifact at {artifact}"
+    # The `--output` spelling is echoed as the caller wrote it (#403); only the
+    # destination's location on disk is resolved.
+    assert data["output_path"] == output
+    created = [entry["path"] for entry in data["project_tree_mutations"]["created"]]
+    assert output not in created, created
+
+
+@pytest.mark.e2e
 def test_export_run_under_a_redirect_names_both_template_directories(
     godot_project, tmp_path
 ):

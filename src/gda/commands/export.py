@@ -72,7 +72,7 @@ from gda.import_evidence import (
     CACHE_ROOT_REL,
     CreatedFileClass,
 )
-from gda.project import expand_user
+from gda.project import RES_PREFIX, canonical_res_path, expand_user
 from gda.project_tree import (
     ProjectTreeInventory,
     ProjectTreeSettlement,
@@ -699,11 +699,44 @@ def parse_export_warnings(stderr: str) -> list[str]:
 # the walk as the one thing to keep out), and the shape of the published report.
 
 
-# The one virtual scheme that names a path INSIDE the project (ADR-0006). Both
-# `--output res://out.pck` and a preset `export_path` may spell the destination
-# this way, and the engine resolves it against the project root — so the report
-# has to resolve it the same way before the walk can keep it out (#981 round 3).
-_RES_SCHEME = "res://"
+# `res://` is the one virtual scheme that names a path INSIDE the project
+# (ADR-0006). Both `--output res://out.pck` and a preset `export_path` may spell
+# the destination this way, and the engine resolves it against the project root
+# — so the export has to resolve it the same way before it can create the
+# destination's parents or keep the artifact out of the walk (#981 round 3).
+
+
+def _res_output_location(project: Optional[Path], output_path: str) -> Path | None:
+    """Where a ``res://`` destination lands on disk, else ``None`` (#997).
+
+    The ONE place this group turns a ``res://`` output into a filesystem
+    location, read by both callers that need it — the parent creation before the
+    native export and the artifact the mutation report keeps out. They answered
+    the same question apart, and the engine agreed with neither: the exclusion
+    joined the RAW remainder, so ``res://build\\game.x86_64`` was kept out as
+    ``build\\game.x86_64`` while the engine wrote ``build/game.x86_64`` and the
+    artifact came back in ``created``; the parent creation dropped every ``://``
+    address, so a missing ``build/`` failed inside the engine instead of being
+    created as the catalog promises.
+
+    The spelling is canonicalized by :func:`gda.project.canonical_res_path`, the
+    path authority's ``res://`` primitive (ADR-0006), whose docstring audits step
+    by step how it reproduces the engine's ``String::simplify_path`` — the ``\\``
+    fold included. Resolution is lexical on purpose: the location is asked for
+    BEFORE the export writes anything there.
+
+    ``None`` means "this address names no artifact in this tree": a bare
+    ``res://`` (or a spelling that collapses to it) is the project root, which is
+    a directory and not a file the export writes, and any other scheme —
+    ``user://``, ``uid://``, a caller's own ``foo://`` — is not the project's
+    namespace at all. A canonical remainder that still climbs above the root
+    (``res://../out.zip``) is anchored at the project and returned, not refused:
+    the engine stays the last word on a destination it will not write.
+    """
+    if project is None or not output_path.startswith(RES_PREFIX):
+        return None
+    remainder = canonical_res_path(output_path)[len(RES_PREFIX) :]
+    return project / remainder if remainder else None
 
 
 def _artifact_to_exclude(project: Path, output_path: str) -> Path | None:
@@ -712,10 +745,11 @@ def _artifact_to_exclude(project: Path, output_path: str) -> Path | None:
     Export output-path POLICY, so it belongs to the group that owns the
     destination rather than to the shared inventory, which takes a ``Path`` and
     knows only how to keep it out (#985; PR #989 external review). A ``res://``
-    destination is relative to the project; another virtual scheme cannot name an
-    artifact in this tree; a relative filesystem path resolves against the
-    project and an absolute one is taken as given, since a destination outside
-    the project can still be visible through a directory link inside it.
+    destination resolves through :func:`_res_output_location`, the group's one
+    reading of that scheme (#997); another virtual scheme cannot name an artifact
+    in this tree; a relative filesystem path resolves against the project and an
+    absolute one is taken as given, since a destination outside the project can
+    still be visible through a directory link inside it.
 
     What the inventory then does with the answer is its own rule: it excludes the
     file by its PARENT's filesystem identity and this name, not by comparing two
@@ -723,9 +757,9 @@ def _artifact_to_exclude(project: Path, output_path: str) -> Path | None:
     reaches it by — and an ``.app`` subtree is excluded without hiding the files
     beside it.
     """
-    if output_path.startswith(_RES_SCHEME):
-        rest = output_path[len(_RES_SCHEME) :].lstrip("/")
-        return project / rest if rest else None
+    res_location = _res_output_location(project, output_path)
+    if res_location is not None:
+        return res_location
     if not output_path or "://" in output_path:
         return None
     path = Path(output_path)
@@ -893,12 +927,34 @@ def _resolve_configured_export_path(path: str, project: Optional[Path]) -> str:
     return str(base / configured)
 
 
-def _ensure_output_parent_dirs(output_path: str) -> list[str] | Failure:
-    """Create the export destination's missing filesystem parent dirs (#402)."""
-    if "://" in output_path:
-        return []
+def _ensure_output_parent_dirs(
+    project: Optional[Path], output_path: str
+) -> list[str] | Failure:
+    """Create the export destination's missing filesystem parent dirs (#402).
 
-    parent = Path(output_path).parent
+    A ``res://`` destination is created like any other (#997): it is the natural
+    Godot spelling for a destination inside the project, the engine refuses an
+    export whose output directory does not exist, and the catalog promises the
+    missing parents are made and reported in ``created_dirs``. It reaches the
+    creation below through :func:`_res_output_location`, the group's one reading
+    of that scheme, so the directories are made where the engine will write —
+    down the SAME loop, in the same order, reported as the same absolute
+    filesystem strings. A destination whose canonical form leaves the project
+    (``res://../out.zip``) is created where the caller pointed and is not
+    refused here; the engine remains the last word.
+
+    The other virtual schemes still resolve to nothing: ``user://`` is the
+    engine's data directory, not a place this command may create, and ``uid://``
+    has no directory structure. A ``project`` that is not resolved yet leaves a
+    ``res://`` address unresolvable too, which is the same answer.
+    """
+    target = _res_output_location(project, output_path)
+    if target is None:
+        if "://" in output_path:
+            return []
+        target = Path(output_path)
+
+    parent = target.parent
     if str(parent) in {"", "."}:
         return []
     if parent.exists():
@@ -1016,7 +1072,7 @@ def run_export_operation(
             got.templates_root,
             got.templates_root_host,
         )
-    created_dirs = _ensure_output_parent_dirs(output_path)
+    created_dirs = _ensure_output_parent_dirs(project, output_path)
     if isinstance(created_dirs, Failure):
         return created_dirs
 

@@ -339,6 +339,80 @@ def test_configured_export_path_parent_dirs_are_created_and_reported(tmp_path):
     assert export_runner.calls == [("Linux/X11", "release", str(expected))]
 
 
+class _DirCheckingExportRunner(FakeExportRunner):
+    """A native-export fake that records whether a directory existed when it ran.
+
+    The preflight's whole point is that it runs BEFORE the engine does, so the
+    only honest proof is taken from inside the export itself (#997).
+    """
+
+    def __init__(self, directory: Path) -> None:
+        super().__init__(RunResult(stdout="", stderr="", exit_code=0))
+        self.directory = directory
+        self.dir_existed_at_call: bool | None = None
+
+    def run(self, preset: str, mode: str, output_path: str) -> RunResult:
+        self.dir_existed_at_call = self.directory.is_dir()
+        return super().run(preset, mode, output_path)
+
+
+def test_res_output_parent_dirs_are_created_and_reported(tmp_path):
+    # issue #997: `res://` is the natural Godot spelling for a destination inside
+    # the project, and the engine refuses an export whose output directory does
+    # not exist ("export path does not exist", editor_export_platform.h). The
+    # preflight used to drop every `://` address, so that refusal came back as an
+    # opaque export_failed while the catalog promised the missing parents are
+    # created and reported. The destination now resolves through the path
+    # authority's canonical `res://` reading, down the SAME creation loop as a
+    # filesystem destination: same order, same absolute strings.
+    project = tmp_path / "project"
+    project.mkdir()
+    get_runner = _get_runner({**GET_RESULT, "export_path": ""})
+    export_runner = _DirCheckingExportRunner(project / "build" / "nested")
+
+    outcome = _run(
+        get_runner=get_runner,
+        export_runner=export_runner,
+        output_override="res://build/nested/game.x86_64",
+        project=project,
+    )
+
+    assert isinstance(outcome, ExportRunResult), outcome
+    assert outcome.created_dirs == [
+        str(project / "build"),
+        str(project / "build" / "nested"),
+    ]
+    assert export_runner.dir_existed_at_call is True
+    # Only the DIRECTORY is resolved: the engine is handed — and the result
+    # publishes — the caller's own spelling (#403).
+    assert outcome.output_path == "res://build/nested/game.x86_64"
+    assert export_runner.calls == [
+        ("Linux/X11", "release", "res://build/nested/game.x86_64")
+    ]
+
+
+def test_a_non_res_virtual_output_creates_nothing(tmp_path):
+    # The counterpart boundary (#997): `res://` is the one scheme that names a
+    # place in this project, so `user://` — the engine's own data directory — is
+    # still resolved to nothing and creates nothing, as every `://` address did
+    # before this slice.
+    project = tmp_path / "project"
+    project.mkdir()
+    get_runner = _get_runner({**GET_RESULT, "export_path": ""})
+    export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+
+    outcome = _run(
+        get_runner=get_runner,
+        export_runner=export_runner,
+        output_override="user://build/game.x86_64",
+        project=project,
+    )
+
+    assert isinstance(outcome, ExportRunResult), outcome
+    assert outcome.created_dirs == []
+    assert not (project / "build").exists()
+
+
 def test_configured_export_path_keeps_literal_tilde_project_relative(tmp_path):
     # A preset export_path is Godot configuration, not a CLI path: "~" remains a
     # literal project-relative path component instead of expanding to $HOME.
