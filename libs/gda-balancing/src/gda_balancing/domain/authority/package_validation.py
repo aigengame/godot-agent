@@ -1030,7 +1030,7 @@ def _package_semantic_closure_is_closed(
         expected = content_identity(
             semantic_projection["domain"], cast(JsonValue, runtime_closure)
         )
-    except (TypeError, ValueError):
+    except (KeyError, TypeError, ValueError):
         return False
     return package.get("semantic_identity") == expected
 

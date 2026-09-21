@@ -2,6 +2,7 @@
 
 # ruff: noqa: F403, F405
 import schema2_bootstrap_conformance_support as bootstrap_support
+from gda_balancing.domain.authority.rir_projection import project_rir_schema
 from schema2_bootstrap_conformance_support import *
 from schema2_bootstrap_production_support import *
 from test_trace_protocol_structure import _authored, _graph
@@ -195,6 +196,20 @@ def test_two_consumers_follow_require_refusal_reference(
         if node["id"] == "require"
     )
     require["semantics"]["refusal_reference"][member] = replacement
+    language = authority["language_bundle"]["language"]
+    rir_schema = next(
+        row
+        for row in language["artifact_wire_schemas"]
+        if row.get("protocol_role") == "rir-semantic-payload"
+    )
+    rir_schema.pop("schema")
+    rir_contract = next(
+        row
+        for row in language["artifact_contracts"]
+        if row["schema_kind"] == rir_schema["artifact_kind"]
+    )
+    rir_contract.pop("semantic_identity_projection")
+    project_rir_schema(kernel, language)
     _reidentify(kernel, authority["language_bundle"])
     monkeypatch.setattr(
         production_bootstrap, "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]

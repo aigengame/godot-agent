@@ -1,7 +1,7 @@
 {
   "id": "example.progression-periodic-effect.snapshot",
   "model": {
-    "rir_semantic_identity": "sha256:023dfc320e0f333153c428b5adf11c63e3df981bc291939338ba99ab7f8f2fb1"
+    "rir_semantic_identity": "sha256:6fae4083f541c483a6fdf9c2c66758c7e01837958c1698b8a3d626f7cde0408f"
   },
   "seed": {
     "algorithm": "splitmix64-v1",

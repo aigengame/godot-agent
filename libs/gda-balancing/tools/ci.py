@@ -35,64 +35,48 @@ def _module_test_selectors(filename: str) -> tuple[str, ...]:
     return tuple(f"{filename}::{name}" for name in names)
 
 
+def _chunked_test_shards(
+    prefix: str, filenames: tuple[str, ...], chunk_size: int
+) -> dict[str, tuple[str, ...]]:
+    """Bound slow shards while keeping each parameterized test together."""
+    selectors = tuple(
+        sorted(
+            selector
+            for filename in filenames
+            for selector in _module_test_selectors(filename)
+        )
+    )
+    return {
+        f"{prefix}-{index + 1:02d}": selectors[start : start + chunk_size]
+        for index, start in enumerate(range(0, len(selectors), chunk_size))
+    }
+
+
 _EXPERIMENT_TESTS: Final = _module_test_selectors("test_schema2_experiment_cli.py")
 
-SHARDS: Final[dict[str, tuple[str, ...]]] = {
-    "fast": (
-        "test_ci_policy.py",
-        "test_current_namespace_resolution.py",
-        "test_emit.py",
-        "test_envelope_schema.py",
-        "test_execution_dependency_closure.py",
-        "test_execution_provenance.py",
-        "test_execution_resource_applicability.py",
-        "test_execution_service_language.py",
-        "test_experiment_ingress_reason_mapping.py",
-        "test_isolation.py",
-        "test_layer_dependencies.py",
-        "test_program_reachability.py",
-        "test_replay_publication_identity.py",
-        "test_schema2_playtest.py",
-        "test_schema2_authority_lifecycle.py",
-        "test_schema2_bootstrap_authority.py",
-        "test_schema2_bootstrap_resources.py",
-        "test_schema2_canonical.py",
-        "test_schema2_comparison.py",
-        "test_schema2_publication_contracts.py",
-        "test_schema_command.py",
-        "test_selected_execution_contracts.py",
-        "test_version_command.py",
-    ),
-    "authority": (
-        "test_execution_law_projection.py",
-        "test_schema2_authority_cli.py",
-    ),
-    "language": (
-        "test_bounded_fold_admission.py",
-        "test_formula_notation_owner.py",
-        "test_formula_wire_authority.py",
-        "test_formula_resolution_contract.py",
-        "test_schema2_bootstrap_language.py",
-        "test_schema2_evidence_verify.py",
+_LANGUAGE_SHARDS: Final = {
+    "language-01": ("test_schema2_bootstrap_language.py",),
+    "language-02": (
         "test_schema2_formula_cli.py",
+        "test_formula_wire_authority.py",
+    ),
+    "language-03": (
+        "test_bounded_fold_admission.py",
+        "test_schema2_evidence_verify.py",
+    ),
+    "language-04": (
+        "test_formula_notation_owner.py",
+        "test_formula_resolution_contract.py",
         "test_selected_runtime_reason_decoding.py",
         "test_selected_structured_reason_mapping.py",
         "test_structured_constructor_parameters.py",
         "test_structured_values.py",
     ),
-    "model": (
-        "test_bounded_fold_compiler.py",
-        "test_operation_call_domains.py",
-        "test_schema2_model_cli.py",
-        "test_schema2_model_lowerer_conformance.py",
-    ),
-    "model-admission": (
-        "test_admitted_rir.py",
-        "test_model_preparation.py",
-    ),
-    "experiment": _EXPERIMENT_TESTS[::2],
-    "experiment-continuation": _EXPERIMENT_TESTS[1::2],
-    "extension": (
+}
+
+_EXTENSION_SHARDS: Final = _chunked_test_shards(
+    "extension",
+    (
         "test_artifact_projection_addresses.py",
         "test_artifact_protocol_roles.py",
         "test_authority_identity_renaming.py",
@@ -145,6 +129,53 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_trace_protocol_structure.py",
         "test_runtime_evidence_protocol_structure.py",
     ),
+    17,
+)
+
+SHARDS: Final[dict[str, tuple[str, ...]]] = {
+    "fast": (
+        "test_ci_policy.py",
+        "test_current_namespace_resolution.py",
+        "test_emit.py",
+        "test_envelope_schema.py",
+        "test_execution_dependency_closure.py",
+        "test_execution_provenance.py",
+        "test_execution_resource_applicability.py",
+        "test_execution_service_language.py",
+        "test_experiment_ingress_reason_mapping.py",
+        "test_isolation.py",
+        "test_layer_dependencies.py",
+        "test_program_reachability.py",
+        "test_replay_publication_identity.py",
+        "test_schema2_playtest.py",
+        "test_schema2_authority_lifecycle.py",
+        "test_schema2_bootstrap_authority.py",
+        "test_schema2_bootstrap_resources.py",
+        "test_schema2_canonical.py",
+        "test_schema2_comparison.py",
+        "test_schema2_publication_contracts.py",
+        "test_schema_command.py",
+        "test_selected_execution_contracts.py",
+        "test_version_command.py",
+    ),
+    "authority": (
+        "test_execution_law_projection.py",
+        "test_schema2_authority_cli.py",
+    ),
+    **_LANGUAGE_SHARDS,
+    "model": (
+        "test_bounded_fold_compiler.py",
+        "test_operation_call_domains.py",
+        "test_schema2_model_cli.py",
+        "test_schema2_model_lowerer_conformance.py",
+    ),
+    "model-admission": (
+        "test_admitted_rir.py",
+        "test_model_preparation.py",
+    ),
+    "experiment": _EXPERIMENT_TESTS[::2],
+    "experiment-continuation": _EXPERIMENT_TESTS[1::2],
+    **_EXTENSION_SHARDS,
     "bounded-fold": (
         "test_bounded_fold_formula.py",
         "test_bounded_fold_independent.py",

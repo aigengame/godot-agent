@@ -1479,28 +1479,6 @@ def test_package_dependencies_are_closed_namespace_references(run_cli):
             assert isinstance(dependency, str)
             assert dependency in coordinates
 
-    schema_package = next(
-        release
-        for release in authority["package_releases"]
-        if release["id"] == "standard.schema"
-    )
-    wire_definitions = next(
-        entry["definitions"]
-        for entry in schema_package["semantic_closure"]
-        if entry["authority_path"] == "language.artifact_wire_schemas"
-    )
-    lock_schema = next(
-        item["schema"]
-        for item in wire_definitions
-        if item["artifact_kind"] == "package-lock"
-    )
-    edge_schema = lock_schema["properties"]["dependency_edges"]["items"]
-    assert set(edge_schema["required"]) == {
-        "from_package",
-        "kind",
-        "to_package",
-    }
-
     quantity = next(
         release
         for release in authority["package_releases"]
@@ -1765,6 +1743,12 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
         == authority["language_bundle"]["content_identity"]
     )
     schemas = {item["artifact_kind"]: item["schema"] for item in projection["schemas"]}
+    edge_schema = schemas["package-lock"]["properties"]["dependency_edges"]["items"]
+    assert set(edge_schema["required"]) == {
+        "from_package",
+        "kind",
+        "to_package",
+    }
     assert set(schemas) == {
         "artifact-set-manifest",
         "artifact-set-receipt",

@@ -1,7 +1,7 @@
 {
   "id": "roguelike.reward-build-feedback.baseline",
   "model": {
-    "rir_semantic_identity": "sha256:c3aaae9dec55a77ad4dd914fa198ab1de288199961c5325594b40169b2fdb36e"
+    "rir_semantic_identity": "sha256:f68d8bc77b898e34f18cbee2896e24b57df414c24cff60e060560262228a5388"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1"

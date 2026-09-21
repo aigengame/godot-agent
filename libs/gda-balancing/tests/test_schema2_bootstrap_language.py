@@ -721,7 +721,7 @@ def test_reidentified_deletion_of_every_law_and_rule_is_refused_by_both_consumer
     for index in range(len(ldb_rules)):
         authority = deepcopy(baseline)
         del authority["language_bundle"]["language"]["rules"][index]
-        _refresh_package_closure_and_reidentify(authority["language_bundle"])
+        _reidentify(authority["kernel"], authority["language_bundle"])
         first = _consumer_a(authority["kernel"], authority["language_bundle"])
         second = _consumer_b(authority["kernel"], authority["language_bundle"])
         assert first == second

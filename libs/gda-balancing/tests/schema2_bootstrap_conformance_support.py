@@ -14033,6 +14033,16 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         isinstance(raw_diagnostics, list)
         and early_diagnostic_catalog == early_vector_catalog
     )
+    source_notation_contract = (
+        meta.get("language_definitions", {})
+        .get("wire_schema_protocol_roles", {})
+        .get("source_notation")
+    )
+    source_notation_is_supported = _consumer_b_source_notation_contract_is_supported(
+        source_notation_contract
+    )
+    if not source_notation_is_supported:
+        refuse("kernel.vector_mismatch", "static", "kernel.meta-format.source-notation")
     if not _consumer_b_package_vector_contract_is_closed(package_vector_contract):
         refuse(
             "kernel.vector_mismatch",
@@ -14058,8 +14068,11 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 kernel, package_release_domain or "", package
             ):
                 refuse("kernel.identity_mismatch", "ingress", subject)
-            if not _consumer_b_package_semantic_closure_is_closed(
-                package, package_contract, kernel
+            if (
+                source_notation_is_supported
+                and not _consumer_b_package_semantic_closure_is_closed(
+                    package, package_contract, kernel
+                )
             ):
                 refuse(
                     "kernel.identity_mismatch",
@@ -14093,10 +14106,12 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 )
             ):
                 refuse("kernel.vector_mismatch", "static", f"{subject}.vectors")
-        semantic_projection_mismatch = len(packages) == len(
-            raw_packages
-        ) and not _consumer_b_package_semantic_projections_are_exact(
-            packages, package_contract, ldb, kernel=kernel
+        semantic_projection_mismatch = (
+            source_notation_is_supported
+            and len(packages) == len(raw_packages)
+            and not _consumer_b_package_semantic_projections_are_exact(
+                packages, package_contract, ldb, kernel=kernel
+            )
         )
 
     if diagnostics:
@@ -14164,7 +14179,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             "static",
             "language.definitions.artifact-semantic-projections",
         )
-    if not _consumer_b_assignment_policy_is_total(ldb):
+    if definitions_are_closed and not _consumer_b_assignment_policy_is_total(ldb):
         refuse(
             "kernel.vector_mismatch",
             "static",
@@ -14198,12 +14213,6 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         refuse(
             "kernel.vector_mismatch", "static", "kernel.meta-format.formula-resolution"
         )
-    if not _consumer_b_source_notation_contract_is_supported(
-        meta.get("language_definitions", {})
-        .get("wire_schema_protocol_roles", {})
-        .get("source_notation")
-    ):
-        refuse("kernel.vector_mismatch", "static", "kernel.meta-format.source-notation")
     if not _consumer_b_wire_schema_identity_domains_are_closed(
         ldb, kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"]
     ):

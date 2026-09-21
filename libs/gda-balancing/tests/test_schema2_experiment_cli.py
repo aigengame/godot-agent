@@ -4331,7 +4331,7 @@ def test_periodic_scheduler_refusals_publish_through_the_public_run_command(
     monkeypatch.setattr(
         experiment_run_application_module,
         "check_experiment_inputs",
-        lambda _path, _rir: replace(checked, rir=rir),
+        lambda _path, _rir, *, authority_context=None: replace(checked, rir=rir),
     )
     out = tmp_path / f"periodic-{mutation}-refusal"
 
@@ -8480,7 +8480,7 @@ def _assert_high_damage_event_behavior(
         {"name": "target_health", "value": 100},
     ]
     assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
-    kernel, ldb = mutable_authorities()
+    kernel, _ldb = mutable_authorities()
     rir = _member(build_receipt, "rir-semantic-payload")
     operations = operation_program_module.selected_operation_index(
         rir["selected_semantics"]
@@ -8501,7 +8501,7 @@ def _assert_high_damage_event_behavior(
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
         resolved_initialization_programs=rir["initialization_programs"],
-        language_bundle=ldb,
+        selected_semantics=rir["selected_semantics"],
         include_attempt_evidence=True,
     )
     assert {
@@ -8704,7 +8704,7 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
         resolved_initialization_programs=rir["initialization_programs"],
-        language_bundle=checked.language_bundle,
+        selected_semantics=rir["selected_semantics"],
     )
     assert {
         key: item
@@ -8771,7 +8771,7 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
         resolved_initialization_programs=rir["initialization_programs"],
-        language_bundle=checked.language_bundle,
+        selected_semantics=rir["selected_semantics"],
     )
     assert {
         key: value
@@ -8841,7 +8841,7 @@ def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_c
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
         resolved_initialization_programs=rir["initialization_programs"],
-        language_bundle=checked.language_bundle,
+        selected_semantics=rir["selected_semantics"],
     )
     assert {
         key: value
@@ -8947,7 +8947,7 @@ def test_ordered_writable_alias_write_is_visible_to_later_child_call(
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
         resolved_initialization_programs=rir["initialization_programs"],
-        language_bundle=checked.language_bundle,
+        selected_semantics=rir["selected_semantics"],
     )
     assert {
         key: item

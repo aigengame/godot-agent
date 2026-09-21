@@ -5309,6 +5309,18 @@ def admit_authorities(
     diagnostic_catalog_matches_vectors = _diagnostic_catalog_matches_vectors(
         language_bundle
     )
+    source_notation_contract = (
+        raw_meta_format.get("language_definitions", {})
+        .get("wire_schema_protocol_roles", {})
+        .get("source_notation")
+        if isinstance(raw_meta_format, dict)
+        else None
+    )
+    source_notation_is_supported = _source_notation_contract_is_supported(
+        source_notation_contract
+    )
+    if not source_notation_is_supported:
+        refuse("kernel.vector_mismatch", "static", "kernel.meta-format.source-notation")
     admitted_packages: list[dict[str, Any]] = []
     semantic_projection_mismatch = False
     if not _package_vector_contract_is_closed(package_vector_contract):
@@ -5334,7 +5346,7 @@ def admit_authorities(
                 package_release_domain, package, canonical_encoding
             ):
                 refuse("kernel.identity_mismatch", "ingress", subject)
-            if not _package_semantic_closure_is_closed(
+            if source_notation_is_supported and not _package_semantic_closure_is_closed(
                 package, package_contract, kernel=kernel
             ):
                 refuse(
@@ -5367,10 +5379,12 @@ def admit_authorities(
                 )
             ):
                 refuse("kernel.vector_mismatch", "static", f"{subject}.vectors")
-        semantic_projection_mismatch = len(admitted_packages) == len(
-            packages
-        ) and not _package_semantic_projections_are_exact(
-            admitted_packages, package_contract, language_bundle, kernel=kernel
+        semantic_projection_mismatch = (
+            source_notation_is_supported
+            and len(admitted_packages) == len(packages)
+            and not _package_semantic_projections_are_exact(
+                admitted_packages, package_contract, language_bundle, kernel=kernel
+            )
         )
 
     cap = resources.get("max_diagnostics", 128)
@@ -5497,12 +5511,6 @@ def admit_authorities(
         refuse(
             "kernel.vector_mismatch", "static", "kernel.meta-format.formula-resolution"
         )
-    if not _source_notation_contract_is_supported(
-        meta_format.get("language_definitions", {})
-        .get("wire_schema_protocol_roles", {})
-        .get("source_notation")
-    ):
-        refuse("kernel.vector_mismatch", "static", "kernel.meta-format.source-notation")
     if not _wire_schema_identity_domains_are_closed(
         language_bundle,
         kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"],

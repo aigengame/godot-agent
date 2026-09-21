@@ -160,7 +160,7 @@ def test_public_model_request_prepares_once_and_keeps_artifact_admission(
         "_resolved_call_sites",
     } <= trace.post_specialization_checks
     # Actual roots add instruction/seed charges and remove unrelated Type edges.
-    assert {used for _, used, _ in trace.charges} == {556}
+    assert {used for _, used, _ in trace.charges} == {551}
     assert {
         name: trace.calls["source", name]
         for name in (

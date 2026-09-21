@@ -31,7 +31,7 @@
     }
   ],
   "model": {
-    "rir_semantic_identity": "sha256:9e390d7d02dc016b95fc461f569797424335b8c8eed645bbd3afd9ddd68cae5d"
+    "rir_semantic_identity": "sha256:baaa6fa20ba72a8b66c3fe32cb0ebbe88ebda97415dd125d7b9ce1b7b18830a7"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1"
