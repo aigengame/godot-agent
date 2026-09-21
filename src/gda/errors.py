@@ -711,8 +711,8 @@ def export_output_parent_failure(output_path: str, parent_path: str) -> Failure:
     )
 
 
-def export_path_unset_failure(preset: str) -> Failure:
-    """The ``export_path_unset`` failure for a preset with no effective destination (issue #121, #170).
+def export_path_unset_failure(preset: str, configured: str = "") -> Failure:
+    """The ``export_path_unset`` failure for a preset with no usable destination (issue #121, #170, #1003).
 
     ``export run`` writes the artifact to the effective destination: the
     ``--output`` override if given (#170), else the preset's own configured
@@ -722,7 +722,23 @@ def export_path_unset_failure(preset: str) -> Failure:
     A pre-run classifier decision (the destination is resolved at the CLI from
     ``--output`` / ``export get``'s ``export_path``), kept here beside the other
     export failures so the whole taxonomy reads from one place.
+
+    ``configured`` is the value ``export get`` read, and it selects the remedy
+    rather than a second code: an empty one gets the original sentence, while one
+    carrying a virtual scheme gets a sentence that quotes it and asks for a real
+    filesystem path (#1003). gda resolves no such value against the project or the
+    user data directory, so for this command it names no place to write — the same
+    outcome the empty value has, reported through the same code, category and exit
+    (ADR-0002: reuse the code, discriminate via the message).
     """
+    if configured:
+        return make_failure(
+            "export_path_unset",
+            f'export preset "{preset}" has no usable destination: its configured '
+            f'export_path "{configured}" is not a filesystem path. Pass a '
+            "filesystem path as --output, or set the preset's export_path to one",
+            "",
+        )
     return make_failure(
         "export_path_unset",
         f'export preset "{preset}" has no destination: '
