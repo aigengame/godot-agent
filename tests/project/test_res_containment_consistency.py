@@ -509,7 +509,7 @@ def test_a_project_directory_literally_named_like_a_home_reference_is_served(
     # `Path.expanduser()` leaves a tilde alone inside an absolute path, so only a
     # relative `~<no-such-user>` project reaches the expansion and raised
     # `RuntimeError: Can't determine home directory` (exit 1) at the merge base.
-    # The gate normalizes with the module's total `_expand_user`, which keeps the
+    # The gate normalizes with the module's total `expand_user`, which keeps the
     # unresolvable spelling literal; the issue widened to accept the structured
     # refusal as the pinned behavior, asserted through a command entry point.
     project = tmp_path / "~gda_no_such_user_802"

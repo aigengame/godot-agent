@@ -396,8 +396,8 @@ def project_import_gaps(project: Path, requested: set[str]) -> list[str]:
     live pass — the invalid sidecar's bytes stay untouched). Assets with NO
     sidecar (and the ``.uid`` sidecars the pass may generate) cannot be
     predicted from here — the engine decides those — so the real run's
-    ``created`` list stays the authoritative inventory, and the contract says
-    so.
+    ``created`` list stays the authoritative inventory, complete when that
+    result's ``skipped`` is 0 (#990), and the contract says so.
 
     An asset the engine's scan never reaches is not a gap either (#804): the
     pass skips a nested project's, a ``.gdignore``d and a dot-prefixed

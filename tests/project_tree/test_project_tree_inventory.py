@@ -27,7 +27,7 @@ from gda.project_tree import (
     ProjectTreeInventory,
     ProjectTreeSettlement,
 )
-from tests.support import minimal_project
+from tests.support import minimal_project, unlistable, unreadable
 
 
 def _settle(
@@ -364,26 +364,20 @@ def test_a_file_the_walk_cannot_read_is_skipped_not_failed(tmp_path):
     assert settled.modified == []
 
 
-def _unlistable(directory: Path) -> bool:
-    """Make ``directory`` unlistable, and say whether the platform agreed."""
-    directory.chmod(0o000)
-    try:
-        os.listdir(directory)
-    except OSError:
-        return True
-    directory.chmod(0o755)
-    return False
-
-
-def test_a_directory_the_walk_cannot_list_is_counted_not_ignored(tmp_path):
-    # Rule 4's directory half. `os.walk` swallows a listdir failure by default,
-    # which would drop the whole subtree from the record AND from the one channel
-    # that says the record is incomplete. This directory's project-relative
-    # spelling is counted once, not its unknown contents (PR #981 review).
+def test_a_directory_the_walk_cannot_list_is_counted_once_per_inode(tmp_path):
+    # Rule 4's directory half, and its identity clause (#990). `os.walk` swallows
+    # a listdir failure by default, which would drop the whole subtree from the
+    # record AND from the one channel that says the record is incomplete. It also
+    # reports the failure INSTEAD of yielding the directory, so rule 1 never sees
+    # the failing path: the same inode reached directly and through a directory
+    # link was counted twice for one unreadable subtree. The settlement asks for
+    # the identity itself — a mode-000 directory still answers `stat`, because its
+    # PARENT is listable — so the count is 1 here and was 2 before.
     project = minimal_project(tmp_path)
     locked = project / "locked"
     _write(locked / "secret.tres", "old")
-    if not _unlistable(locked):
+    (project / "alias").symlink_to(locked, target_is_directory=True)
+    if not unlistable(locked):
         pytest.skip("this platform lets the owner list a mode-000 directory")
 
     try:
@@ -403,7 +397,7 @@ def test_a_file_under_a_locked_directory_is_not_announced_as_created(tmp_path):
     project = minimal_project(tmp_path)
     locked = project / "locked"
     _write(locked / "secret.tres", "old")
-    if not _unlistable(locked):
+    if not unlistable(locked):
         pytest.skip("this platform lets the owner list a mode-000 directory")
 
     try:
@@ -519,3 +513,162 @@ def test_a_deleted_file_is_reported_nowhere(tmp_path):
     assert settled.created == []
     assert settled.modified == []
     assert settled.skipped == 0
+
+
+def test_a_spelling_that_vanishes_between_the_captures_does_not_split_one_inode(
+    tmp_path,
+):
+    # The identity is taken WHEN the failure is observed (rule 4). Before this
+    # pin the settlement re-stat'ed the first capture's spellings, so `alias`
+    # removed after the capture became an unidentified spelling beside `locked`'s
+    # inode: one observed inode counted twice.
+    project = minimal_project(tmp_path / "proj")
+    locked = project / "locked"
+    locked.mkdir()
+    (locked / "hidden.txt").write_text("x", encoding="utf-8")
+    (project / "alias").symlink_to(locked, target_is_directory=True)
+    if not unlistable(locked):
+        pytest.skip("this platform lists a mode-000 directory")
+    try:
+        inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
+        (project / "alias").unlink()
+        assert inventory.settle().skipped == 1
+    finally:
+        locked.chmod(0o755)
+
+
+def test_a_spelling_retargeted_to_a_second_unreadable_inode_counts_both(tmp_path):
+    # Rule 4's other half: the identity is taken at EVERY observation, not only
+    # at a spelling's first. Before this pin the helper recorded a spelling once,
+    # so `alias` retargeted after the capture to a second unreadable directory
+    # was never sampled again, and an inode observed failing went uncounted
+    # (external re-review). The second directory is OUTSIDE the project so that
+    # only the retargeted link reaches it.
+    project = minimal_project(tmp_path / "proj")
+    locked = project / "locked"
+    locked.mkdir()
+    (locked / "hidden.txt").write_text("x", encoding="utf-8")
+    other = tmp_path / "other"
+    other.mkdir()
+    alias = project / "alias"
+    alias.symlink_to(locked, target_is_directory=True)
+    try:
+        if not (unlistable(locked) and unlistable(other)):
+            pytest.skip("this platform lists a mode-000 directory")
+        inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
+        alias.unlink()
+        alias.symlink_to(other, target_is_directory=True)
+        assert inventory.settle().skipped == 2
+    finally:
+        locked.chmod(0o755)
+        other.chmod(0o755)
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs only")
+def test_a_file_spelling_retargeted_to_a_second_unaccounted_inode_counts_both(
+    tmp_path,
+):
+    # A directory failure reaches the settlement through `os.walk.onerror`; a
+    # file-shaped failure is YIELDED by the walk and classified here instead.
+    # Both are observations under rule 4. Before this pin the settlement stopped
+    # at spelling coverage, so a file spelling retargeted from inode A to inode B
+    # kept only A in `skipped`.
+    project = minimal_project(tmp_path / "proj")
+    first = project / "pipe-a"
+    second = tmp_path / "pipe-b"
+    os.mkfifo(first)
+    os.mkfifo(second)
+    alias = project / "alias"
+    alias.symlink_to(first)
+
+    inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
+    alias.unlink()
+    alias.symlink_to(second)
+
+    assert inventory.settle().skipped == 2
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs only")
+def test_a_file_spelling_that_gains_an_identity_counts_both_observations(tmp_path):
+    # An unidentified observation is its spelling; a later failure at that same
+    # spelling is the inode it reaches then. Nothing observed proves those are one
+    # entry, so both belong in the count. Before this pin spelling coverage hid the
+    # second observation and reported only the dangling link.
+    project = minimal_project(tmp_path / "proj")
+    alias = project / "alias"
+    alias.symlink_to(tmp_path / "missing")
+    inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
+
+    alias.unlink()
+    target = tmp_path / "pipe"
+    os.mkfifo(target)
+    alias.symlink_to(target)
+
+    assert inventory.settle().skipped == 2
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs only")
+def test_an_entry_beneath_a_directory_that_opens_up_is_observed_not_created(
+    tmp_path,
+):
+    # Coverage decides what may be called created, never what is observed. A
+    # directory the first capture could not list is a prefix: nothing beneath it
+    # is created once it opens up (the file was there all along), but an entry
+    # beneath it this capture cannot read is a failure observed now, counted on
+    # its own identity — as a locked subdirectory beneath it already was through
+    # the walk's error sink, while a FIFO beside it was passed over unobserved.
+    project = minimal_project(tmp_path / "proj")
+    locked = project / "locked"
+    locked.mkdir()
+    (locked / "old.txt").write_text("x", encoding="utf-8")
+    os.mkfifo(locked / "pipe")
+    if not unlistable(locked):
+        pytest.skip("this platform lists a mode-000 directory")
+    try:
+        inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
+        locked.chmod(0o755)
+        settled = inventory.settle()
+    finally:
+        locked.chmod(0o755)
+    assert settled.skipped == 2
+    assert settled.created == []
+
+
+def test_a_covered_file_is_observed_as_the_capture_reads_it(tmp_path):
+    # The second look asks the capture's own question (`_hashed`). With rewrites
+    # on, the capture reads a file outside the cache root in full, so a mode-000
+    # file is a failure it records; a second mode-000 inode put under the same
+    # spelling is then a failure this capture observes too, on that inode. A
+    # `stat` alone would call it accounted for, and the second inode would be
+    # lost.
+    project = minimal_project(tmp_path / "proj")
+    target = project / "data.txt"
+    target.write_text("first", encoding="utf-8")
+    if not unreadable(target):
+        pytest.skip("this platform reads a mode-000 file")
+    inventory = ProjectTreeInventory.capture(project, detect_rewrites=True)
+    replacement = tmp_path / "second"
+    replacement.write_text("second", encoding="utf-8")
+    replacement.chmod(0o000)
+    os.replace(replacement, target)
+    assert inventory.settle().skipped == 2
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs only")
+def test_a_covered_cache_entry_is_observed_without_a_hash(tmp_path):
+    # ...and under the cache root the capture never reads bytes, so a regular
+    # file that answers `stat` is accounted for there whatever its mode: a FIFO
+    # the first capture recorded, replaced by a mode-000 regular file, is one
+    # entry, not two. Hashing it would apply a criterion the capture never
+    # applied to the cache, and spend a read on a disclosure.
+    project = minimal_project(tmp_path / "proj")
+    cache = project / CACHE_ROOT_REL
+    cache.mkdir()
+    pipe = cache / "pipe"
+    os.mkfifo(pipe)
+    inventory = ProjectTreeInventory.capture(project, detect_rewrites=True)
+    pipe.unlink()
+    pipe.write_text("regular", encoding="utf-8")
+    if not unreadable(pipe):
+        pytest.skip("this platform reads a mode-000 file")
+    assert inventory.settle().skipped == 1

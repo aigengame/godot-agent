@@ -25,6 +25,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from gda.project import expand_user
+
 # The private runtime directory the sockets/pidfile live in. Kept short so the
 # absolute socket path stays under the OS ``sun_path`` limit (104 bytes on macOS,
 # 108 on Linux); the long macOS ``$TMPDIR`` is deliberately never used.
@@ -84,7 +86,7 @@ def within_uds_limit(socket_path: Path) -> bool:
 def daemon_paths(project: Path, env: Mapping[str, str] | None = None) -> DaemonPaths:
     """Derive the per-project daemon paths from ``project`` (ADR-0021)."""
     env = os.environ if env is None else env
-    canonical = Path(project).expanduser().resolve()
+    canonical = expand_user(Path(project)).resolve()
     runtime = _runtime_dir(env)
     slug = _project_slug(canonical)
     return DaemonPaths(

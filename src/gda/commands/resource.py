@@ -703,7 +703,8 @@ class ResourceImportResult(BaseModel):
     without a pass — the engine skips failed imports and parse errors, while
     gda conservatively skips unsupported receipt syntax), and accounts
     for everything it touched — ``created`` lists every new file, classified
-    against ``cache_root``. On a dry run nothing runs and nothing is written:
+    against ``cache_root``, and ``skipped`` says how much of the tree the
+    inventory could not see. On a dry run nothing runs and nothing is written:
     ``assets`` carry the ``cached`` / ``missing`` / ``stale`` / ``invalid``
     states, ``engine_pass`` says whether a real run WOULD run the pass,
     ``predicted_source_adjacent`` lists the requested assets' sidecars-to-be,
@@ -711,8 +712,8 @@ class ResourceImportResult(BaseModel):
     re-import (the remaining inventory — engine hash-named cache files under
     ``cache_root``, sidecars for no-sidecar assets, generated ``.uid`` files —
     is the engine's to decide, and the real run's ``created`` is the
-    authoritative list). The mode's field set is validated, not merely
-    described.
+    authoritative list, complete when its ``skipped`` is 0). The mode's field
+    set is validated, not merely described.
     """
 
     dry_run: bool = Field(description="Whether this was a dry run.")
@@ -730,7 +731,19 @@ class ResourceImportResult(BaseModel):
     )
     created: list[ImportCreatedFile] = Field(
         default_factory=list,
-        description="Every file the pass created, classified; empty on a dry run.",
+        description=(
+            "Every file the pass created, classified; the list is complete "
+            "when `skipped` is 0; empty on a dry run."
+        ),
+    )
+    skipped: int = Field(
+        default=0,
+        description=(
+            "What `created` could not account for: entries that are not regular "
+            "files, or could not be read, including a directory whose whole "
+            "subtree is then uncovered. A count only, 0 on a dry run; repair the "
+            "tree and run again for a complete record."
+        ),
     )
     predicted_source_adjacent: list[str] = Field(
         default_factory=list,
@@ -747,7 +760,7 @@ class ResourceImportResult(BaseModel):
             "these. Invalid assets are excluded (the engine skips them), and "
             "assets with no sidecar or generated .uid sidecars cannot be "
             "predicted; the real run's `created` list is the authoritative "
-            "inventory."
+            "inventory, complete when its `skipped` is 0."
         ),
     )
     summary: ResourceImportSummary
@@ -760,6 +773,8 @@ class ResourceImportResult(BaseModel):
         if self.dry_run:
             if self.created:
                 raise ValueError("a dry run creates nothing.")
+            if self.skipped:
+                raise ValueError("a dry run walks nothing, so it skips nothing.")
             if any(
                 asset.status in ("imported", "not_importable", "failed")
                 for asset in self.assets
@@ -1065,6 +1080,7 @@ def run_resource_import_operation(
         )
 
     created: list[ImportCreatedFile] = []
+    skipped = 0
     # What the pass said, kept for the settlement: a failed asset's own lines
     # are read out of it there, per asset (#853). None means no pass ran.
     pass_stderr: "str | None" = None
@@ -1098,14 +1114,19 @@ def run_resource_import_operation(
                 raw.stderr,
             )
         pass_stderr = raw.stderr
-        # The settlement's `skipped` count stays unpublished: this result has no
-        # field for it, and adding one is a contract change #985 does not make.
+        # Both halves of the settlement are published: `created` is the list,
+        # and `skipped` says how much of the tree the inventory could not see —
+        # the one field #990 adds, so an unconditional `created` is verifiable
+        # from the result instead of taken on trust (#985 left the count
+        # computed and discarded).
+        settlement = inventory.settle()
+        skipped = settlement.skipped
         created = [
             ImportCreatedFile(
                 path="res://" + entry.rel,
                 classification=entry.classification,
             )
-            for entry in inventory.settle().created
+            for entry in settlement.created
         ]
     # Settle every evidence state (whether or not a pass ran): a re-read
     # answering cached means the pass imported it; no sidecar after a pass
@@ -1164,6 +1185,7 @@ def run_resource_import_operation(
         engine_pass=needs_pass,
         assets=assets,
         created=created,
+        skipped=skipped,
         summary=_summarize(assets, created),
     )
 
@@ -1219,10 +1241,14 @@ def render_resource_import(outcome: "ResourceImportResult") -> str:
     if outcome.pass_will_also_import:
         lines.append("  the pass will also re-import:")
         lines.extend(f"    {path}" for path in outcome.pass_will_also_import)
-    if outcome.created:
+    if outcome.created or outcome.skipped:
+        # The count rides the created line, and the line is printed for the count
+        # alone: a record that could not read part of the tree must not print as
+        # a complete one (#990, `export run`'s rule for the same fact).
+        unreadable = f", {outcome.skipped} unreadable" if outcome.skipped else ""
         lines.append(
             f"  created: {outcome.summary.created_cache_owned} cache-owned, "
-            f"{outcome.summary.created_source_adjacent} source-adjacent"
+            f"{outcome.summary.created_source_adjacent} source-adjacent{unreadable}"
         )
         lines.extend(
             f"    {f.classification:>15}  {f.path}"
@@ -1292,7 +1318,9 @@ def resource_import(
     syntax — delete the sidecar to retry). It then reports
     every file the pass created, classified against the cache root
     (cache-owned under .godot/ vs source-adjacent, e.g. .import and .uid
-    sidecars). An `invalid` or `failed` asset says why: `reason` names the
+    sidecars) — a list `skipped` qualifies: it counts what the inventory could not
+    read, so `created` is complete when `skipped` is 0. An `invalid` or
+    `failed` asset says why: `reason` names the
     check that decided it (an invalid one survives into the settled `failed`),
     `detail` the offending line or path when there is one, and `engine_output`
     the pass's own stderr lines naming that asset when this request ran a pass
