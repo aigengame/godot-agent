@@ -167,16 +167,19 @@ def test_the_export_destination_resolves_to_the_artifact_kept_out(tmp_path):
 
 
 def test_one_absolute_destination_reaches_every_consumer(tmp_path, monkeypatch):
-    # #1003's invariant, pinned across the four consumers at once: the destination
+    # #1003's invariant, pinned across the four consumers at once: the ONE path
     # gda resolved is what created the parents, what the native export was handed,
     # what the walk kept out, and what the result publishes. A path that differs at
-    # any one of them is a result that cannot locate the artifact, an artifact
-    # reported as a project mutation, or an export written somewhere else.
+    # any one of them is an export written somewhere else, a result that cannot
+    # locate the artifact, or the artifact reported as a mutation of the project.
+    #
+    # The destination is spelled relatively, from a cwd one level above the
+    # project, and lands INSIDE the project — so the walk reaches the artifact and
+    # the exclusion has to be the same path the runner was handed. It is the
+    # `created` list that observes that, not a second call to the resolver.
     project = minimal_project(tmp_path / "game")
-    invoker_cwd = tmp_path / "caller"
-    invoker_cwd.mkdir()
-    monkeypatch.chdir(invoker_cwd)
-    destination = str(invoker_cwd / "dist" / "game.x86_64")
+    monkeypatch.chdir(tmp_path)
+    destination = str(project / "dist" / "game.x86_64")
 
     runner = MutatingExportRunner(lambda: _write(Path(destination), "binary"))
     outcome = run_export_operation(
@@ -184,7 +187,7 @@ def test_one_absolute_destination_reaches_every_consumer(tmp_path, monkeypatch):
         mode=ExportRunMode.RELEASE,
         # The value a caller spelled relatively, normalized once at the model.
         output_override=ExportRunParams(
-            preset="Linux/X11", output="dist/game.x86_64"
+            preset="Linux/X11", output="game/dist/game.x86_64"
         ).output,
         godot="/tmp/Godot",
         project=project,
@@ -194,11 +197,13 @@ def test_one_absolute_destination_reaches_every_consumer(tmp_path, monkeypatch):
 
     assert isinstance(outcome, ExportRunResult), outcome
     handed = runner.calls[0][2]
+    assert Path(handed).is_absolute()
     assert handed == destination
     assert outcome.output_path == handed
     assert outcome.created_dirs == [str(Path(handed).parent)]
-    assert _artifact_to_exclude(project, handed) == Path(handed)
+    assert Path(handed).is_file()
     assert _mutations(outcome).created == []
+    assert _mutations(outcome).skipped == 0
 
 
 def test_an_output_under_a_directory_link_is_excluded_by_identity(tmp_path):
