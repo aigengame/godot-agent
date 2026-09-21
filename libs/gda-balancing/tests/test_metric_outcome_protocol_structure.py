@@ -1,7 +1,6 @@
 """Metric wire derives from fixed owners; complete evidence determines outcomes."""
 
 from copy import deepcopy
-from dataclasses import replace
 import json
 
 import pytest
@@ -31,12 +30,6 @@ from schema2_bootstrap_conformance_support import (
     _encoded,
 )
 from schema2_bootstrap_production_support import _consumer_a
-from schema2_extension_inventory_support import (
-    AuthorityToken,
-    InventoryRefusal,
-    read_extension_inventory,
-    validate_extension_inventory,
-)
 from schema2_runtime_independent_support import (
     reference_admits_runtime_artifacts,
     reference_runtime_artifacts,
@@ -205,44 +198,6 @@ def test_metric_projection_refuses_incomplete_or_duplicate_owners(mutation):
     for projector in (metric_outcome_schema, _consumer_b_metric_outcome_schema):
         with pytest.raises(ValueError):
             projector(kernel, raw, role, "actual.result")
-
-
-def test_metric_inventory_retains_variable_bindings_without_ghost_schema_coverage():
-    kernel, ldb = mutable_authorities()
-    authored = _authored(ldb)
-    _rename(authored)
-    inventory = read_extension_inventory(kernel, authored)
-    validate_extension_inventory(kernel, authored, inventory)
-    for index, role in enumerate(_ROLES):
-        token = AuthorityToken(
-            "language.artifact_wire_schemas", (), f"metric.schema.{index}"
-        )
-        assert token in inventory.tokens - inventory.reserved
-        occurrence = next(
-            o
-            for o in inventory.occurrences
-            if o.token == token and o.use == "declaration"
-        )
-        pointer = occurrence.pointer.removesuffix("/artifact_kind")
-        assert not any(g.pointer == pointer for g in inventory.uncovered)
-        assert not any(
-            o.pointer.startswith(pointer + "/schema/") for o in inventory.occurrences
-        )
-        link = next(
-            o
-            for o in inventory.occurrences
-            if o.token == token and o.pointer.endswith("/schema_kind")
-        )
-        with pytest.raises(InventoryRefusal):
-            validate_extension_inventory(
-                kernel,
-                authored,
-                replace(
-                    inventory,
-                    occurrences=tuple(o for o in inventory.occurrences if o != link),
-                ),
-            )
-    assert inventory.uncovered  # This slice does not close other artifact owners.
 
 
 @pytest.fixture(

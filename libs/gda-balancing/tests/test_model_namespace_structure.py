@@ -296,23 +296,6 @@ def test_runtime_profile_has_no_retired_extension_shape(namespace_pair):
         )
 
 
-def test_namespace_inventory_removes_only_lock_and_capability_schema_rows():
-    from schema2_extension_inventory_support import (
-        read_extension_inventory,
-        validate_extension_inventory,
-    )
-    from test_model_protocol_structure import REMAINING_GAPS
-
-    kernel, ldb = mutable_authorities()
-    graph = _authored(ldb)
-    before = deepcopy(graph)
-    inventory = read_extension_inventory(kernel, graph)
-    validate_extension_inventory(kernel, graph, inventory)
-    assert graph == before
-    assert len(inventory.uncovered) == 2
-    assert {row.pointer for row in inventory.uncovered} == REMAINING_GAPS
-
-
 @pytest.mark.parametrize(
     "model",
     (

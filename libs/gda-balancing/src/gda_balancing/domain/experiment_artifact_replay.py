@@ -78,10 +78,9 @@ def _admit_declared_numeric(
     value: int, numeric: dict[str, Any], declaration: dict[str, Any]
 ) -> int:
     admitted = _admit_numeric(value, numeric)
-    if declaration["domain_kind"] == "closed-interval":
-        domain = cast(dict[str, int], declaration["domain"])
-        if not domain["minimum"] <= admitted <= domain["maximum"]:
-            raise OverflowError("value is outside its declared numeric domain")
+    domain = cast(dict[str, int], declaration["domain"])
+    if not domain["minimum"] <= admitted <= domain["maximum"]:
+        raise OverflowError("value is outside its declared numeric domain")
     return admitted
 
 

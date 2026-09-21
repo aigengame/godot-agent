@@ -112,10 +112,11 @@ def test_metric_admission_preserves_real_observations_and_business_verdict(
     assert validate_experiment_artifact_set(checked, members)
 
 
-def test_metric_admission_preserves_a_scenario_scoped_snapshot_selector(metric_runs):
+def test_terminal_metric_names_are_opaque_labels(metric_runs):
     original, _members = metric_runs["snapshot", True]
     specification = deepcopy(original.value)
     specification["metrics"][0]["observation"]["name"] = "forward:terminal"
+    specification["metrics"][0]["window"]["name"] = "renamed-terminal-window"
     checked = check_experiment_value(
         specification,
         admit_rir(original.rir, authority_context=original.authority_context),
@@ -125,9 +126,15 @@ def test_metric_admission_preserves_a_scenario_scoped_snapshot_selector(metric_r
     outcome = evaluate_experiment(checked)
     assert isinstance(outcome, EvaluationArtifacts), outcome
     members = {name: deepcopy(member.value) for name, member in outcome.members.items()}
-    assert [
-        (row["scenario"], row["value"]) for row in members["metric-dataset"]["samples"]
-    ] == [("forward", 1234)]
+    samples = members["metric-dataset"]["samples"]
+    assert [(row["scenario"], row["value"]) for row in samples] == [
+        ("forward", 1234),
+        ("reverse", 4321),
+    ]
+    assert all(row["window"] == "renamed-terminal-window" for row in samples)
+    assert all(
+        row["provenance"]["observation_name"] == "forward:terminal" for row in samples
+    )
     assert validate_experiment_artifact_set(checked, members)
 
 

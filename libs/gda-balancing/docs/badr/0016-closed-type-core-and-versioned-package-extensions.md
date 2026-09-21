@@ -14,6 +14,18 @@ status: accepted
 > dependency/capability/type closure, deterministic ambiguity/cycle refusal, and independent
 > admission remain binding.
 
+> **Extension-proof scope amendment (2026-09-21, #878):** An extension witness is rooted in its
+> declared selected execution closure and the artifacts/results it actually generates or consumes.
+> #878 is an early priority-window falsifier: it lists and renames only twelve explicitly selected
+> extension-owned Type/Operation coordinates. The complete admitted `selected_semantics` canonical
+> hash/RIR semantic identity and all eight Model artifact content identities bind the remaining
+> selected meaning; negative cases reject mismatch or omission without a hand-authored
+> dependency-category manifest. Fixed builds mutually consume eight Model plus six Runtime
+> artifacts/results. It does not claim the exhaustive bounded bijection or publish the formal
+> Extension Invariance Receipt. #575 retains that bijection, scenario-family and receipt work, while
+> #542–#544 retain authenticated claim activation. The formal Receipt scope still excludes unrelated
+> LDB packages, unselected vector sets or artifact families, and ordinary data strings.
+
 Standard Schema 1.x made attributes, float parameters, formula references, effects, and reserved
 sections the central schema vocabulary. The RPG template review showed that extending those shapes
 field by field would make every game concept compete for a place in the root schema. It would also
@@ -270,10 +282,13 @@ therefore requires a small closed type language and a constrained package extens
   runtime-phase projections, compiler/evaluator build identities, base and extended LDB identities,
   exact added package releases, Model/Experiment/vector identities, mutually produced RIR/results,
   and a complete authority-token rename mapping. A Kernel/LDB-owned traversal law derives a closed
-  **Non-Kernel Authority Token Inventory** from the complete reachable witness artifact graph. It
-  includes every package/capability, type/kind/unit/role, Operation/parameter/result variant,
+  **Non-Kernel Authority Token Inventory** from the declared witness's selected execution closure
+  and the artifacts/results it actually generates or consumes. It includes every selected
+  package/capability, type/kind/unit/role, Operation/parameter/result variant,
   Diagnostic, Signal/Event, effect/resource, profile/policy, Experiment/Metric/selector, vector, and
-  other non-Kernel identity that can affect resolution, dispatch, result decoding, or trace. An
+  other non-Kernel identity in that bounded graph that can affect resolution, dispatch, result
+  decoding, or trace. Unrelated packages, unselected vector sets or artifact families, and ordinary
+  data strings are excluded. An
   independently validated bijection must rename every inventory member consistently; omitted,
   duplicate, reserved-Kernel, or extra mappings refuse.
 
@@ -395,10 +410,10 @@ therefore requires a small closed type language and a constrained package extens
   ordinary Events. The suite may add packages and vectors but must leave the Kernel, constructor
   set, three runtime phases, compiler dispatch, and evaluator dispatch unchanged. Any required core
   edit fails the genre-extension invariant rather than being waived as a special case.
-- Freeze two independent compiler/evaluator build identities, then derive the complete reachable
-  Non-Kernel Authority Token Inventory and consistently rename every member after those builds are
-  fixed. Require both
-  builds to admit, lower, mutually consume, and execute the renamed suite without rebuild or host
+- Freeze two independent compiler/evaluator build identities, then derive the declared witness's
+  selected execution closure and actual generated/consumed artifact graph into a closed Non-Kernel
+  Authority Token Inventory. Consistently rename every member after those builds are fixed. Require
+  both builds to admit, lower, mutually consume, and execute the renamed suite without rebuild or host
   capability changes, and publish one Extension Invariance Receipt binding identical core
   projections plus the inventory and complete bijection. Mutate or omit each token class—including
   Capability, Diagnostic, profile/policy, result variant, Signal, and Event—and require refusal. A

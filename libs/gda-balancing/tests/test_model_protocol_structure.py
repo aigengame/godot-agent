@@ -322,22 +322,6 @@ def test_debug_pointer_forgery_refuses_even_with_resealed_companions(
     assert not reference_admits_model_artifacts(candidate, reference, producer=producer)
 
 
-def test_model_inventory_retires_only_the_five_physical_schema_gaps():
-    from schema2_extension_inventory_support import (
-        read_extension_inventory,
-        validate_extension_inventory,
-    )
-
-    kernel, ldb = mutable_authorities()
-    graph = _authored(ldb)
-    original = _encoded(graph)
-    inventory = read_extension_inventory(kernel, graph)
-    validate_extension_inventory(kernel, graph, inventory)
-    assert _encoded(graph) == original
-    assert len(inventory.uncovered) == 2
-    assert {gap.pointer for gap in inventory.uncovered} == REMAINING_GAPS
-
-
 # Exact original wire digests captured before physical deletion at 609823cab.
 SCHEMA_DIGESTS = {
     "build-receipt": "2e3012452d7958e7c086a6c86649f930a9d2dca7fc2d3a6b51fa48317235bfe5",
@@ -372,7 +356,7 @@ def test_model_protocol_role_binding_is_total(role, mutation):
 
 
 @pytest.mark.parametrize(
-    "rename", [False, True], ids=["original", "schema-kind-and-source-addresses"]
+    "rename", [False, True], ids=["original", "model-artifact-kinds"]
 )
 def test_public_eight_member_build_and_inspect_with_independent_companions(
     tmp_path, rename
@@ -394,8 +378,6 @@ def test_public_eight_member_build_and_inspect_with_independent_companions(
         ModelSourceContext,
     )
     from test_current_namespace_public import _PublicCandidate, _members
-    from test_source_fact_selector_inventory import _scoped_rename
-    from schema2_extension_inventory_support import read_extension_inventory
     from test_trace_protocol_structure import _index
 
     kernel, ldb = mutable_authorities()
@@ -407,24 +389,6 @@ def test_public_eight_member_build_and_inspect_with_independent_companions(
         ).read_text()
     )
     if rename:
-        # The authority positions are closed independently of the still-open
-        # Formula Source inventory. Transport these two actual Source keys
-        # explicitly; this witness does not claim whole-graph bijection.
-        source = authored.pop("source")
-        inventory = read_extension_inventory(kernel, authored)
-        names = {
-            token: {"modules": "source/modules~", "symbols": "source/symbols~"}[
-                token.name
-            ]
-            for token in inventory.tokens
-            if token.role == "source-field" and token.name in {"modules", "symbols"}
-        }
-        assert {token.name for token in names} == {"modules", "symbols"}
-        authored = _scoped_rename(authored, inventory, names)
-        source["source/modules~"] = source.pop("modules")
-        for module in source["source/modules~"]:
-            module["source/symbols~"] = module.pop("symbols")
-        authored["source"] = source
         for i, role in enumerate(MODEL_ROLES):
             definition, contract = _model_rows(authored, role)
             previous_schema, previous_kind = (
@@ -497,8 +461,8 @@ def test_public_eight_member_build_and_inspect_with_independent_companions(
     assert artifacts["model-explanation"]["formula_explanations"]
     if rename:
         assert all(
-            row["source_pointer"].startswith("/source~1modules~0/")
-            for row in debug["entries"]
+            artifacts[role]["artifact_kind"] == f"opaque.model.result.{index}"
+            for index, role in enumerate(MODEL_ROLES)
         )
     # Actual publication index retains the independently derived request binding.
     index = json.loads(

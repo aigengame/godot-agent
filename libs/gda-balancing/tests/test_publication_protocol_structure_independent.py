@@ -1,7 +1,6 @@
 """Independent publication grammar follows the fixed three-part Kernel owner."""
 
 from copy import deepcopy
-from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
@@ -21,12 +20,6 @@ from schema2_bootstrap_conformance_support import (
     _identity,
 )
 from schema2_bootstrap_production_support import _consumer_a
-from schema2_extension_inventory_support import (
-    AuthorityToken,
-    InventoryRefusal,
-    read_extension_inventory,
-    validate_extension_inventory,
-)
 from test_publication_protocol_structure import _BASELINE_SCHEMAS, _rename_publication
 from test_receipt_protocol_structure_independent import _publication_roundtrip
 from test_rir_protocol_structure_independent import _raw_language
@@ -191,43 +184,6 @@ def test_publication_projection_does_not_publish_partial_malformed_law_views(mut
     with pytest.raises((KeyError, ValueError)):
         _consumer_b_project_publication_schema(kernel, language)
     assert _encoded(language) == before
-
-
-@pytest.mark.parametrize("role", ["artifact-set-manifest", "publication-index"])
-def test_publication_inventory_removes_only_generated_schema_occurrences(role):
-    kernel, index = mutable_authorities()
-    graph = _authored(index)
-    inventory = read_extension_inventory(kernel, graph)
-    validate_extension_inventory(kernel, graph, inventory)
-    schema, binding = _consumer_b_publication_bindings(_raw_language(index))[role]
-    token = AuthorityToken(
-        "language.artifact_wire_schemas", (), schema["artifact_kind"]
-    )
-    producer = AuthorityToken(
-        "language.artifact_contracts", (), binding["artifact_kind"]
-    )
-    declaration = next(
-        o for o in inventory.occurrences if o.token == token and o.use == "declaration"
-    )
-    pointer = declaration.pointer.rsplit("/", 1)[0]
-    assert not any(gap.pointer == pointer for gap in inventory.uncovered)
-    assert not any(
-        o.pointer.startswith(pointer + "/schema/") for o in inventory.occurrences
-    )
-    assert {token, producer} <= inventory.tokens - inventory.reserved
-    link = next(
-        o
-        for o in inventory.occurrences
-        if o.token == token and o.pointer.endswith("/schema_kind")
-    )
-    for changed in [None, replace(link, token=producer)]:
-        occurrences = tuple(o for o in inventory.occurrences if o != link)
-        if changed is not None:
-            occurrences += (changed,)
-        with pytest.raises(InventoryRefusal):
-            validate_extension_inventory(
-                kernel, graph, replace(inventory, occurrences=occurrences)
-            )
 
 
 def test_distinct_publication_names_and_opaque_labels_preserve_independent_consumption(

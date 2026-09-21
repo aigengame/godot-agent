@@ -89,11 +89,6 @@ def test_source_entrypoints_coherent_rename_reaches_public_and_independent_compi
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, graph)
         assert result["admitted"], (consumer.__name__, result["diagnostics"])
-    from schema2_extension_inventory_support import _source_format_role
-
-    assert (
-        _source_format_role(kernel, authored) == "language.model_source_schema_versions"
-    )
     index = _index(kernel, graph)
     context = admit_authority_context(kernel, index)
     assert isinstance(context, AdmittedAuthorityContext), context

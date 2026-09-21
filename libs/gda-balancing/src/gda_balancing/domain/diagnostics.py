@@ -117,6 +117,23 @@ def reason_by_id(language_bundle: dict[str, Any], reason_id: str) -> dict[str, A
     return matches[0]
 
 
+def reason_by_signal(
+    language_bundle: dict[str, Any], *, stage: str, signal: str
+) -> dict[str, Any]:
+    """Return the one LDB reason selected by an execution signal."""
+    reasons = cast(list[dict[str, Any]], language_bundle["language"]["reasons"])
+    matches = [
+        reason
+        for reason in reasons
+        if reason.get("stage") == stage and reason.get("signal") == signal
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            f"admitted reason signal is not unique: stage={stage}, signal={signal}"
+        )
+    return matches[0]
+
+
 def source_resolution_profile(language_bundle: dict[str, Any]) -> dict[str, Any]:
     """Select the one admitted default Source Resolution owner."""
     profiles = cast(
@@ -133,6 +150,31 @@ def source_parse_reason(language_bundle: dict[str, Any]) -> dict[str, Any]:
     return reason_by_id(
         language_bundle, source_resolution_profile(language_bundle)["parse_reason"]
     )
+
+
+def experiment_binding_reason(language_bundle: dict[str, Any]) -> dict[str, Any]:
+    """Select the Experiment-to-RIR binding refusal from current authority."""
+    profile = source_resolution_profile(language_bundle)
+    reason = reason_by_id(language_bundle, profile["experiment_binding_reason"])
+    if reason.get("stage") != "resolution":
+        raise ValueError("Experiment binding reason must be a resolution refusal")
+    return reason
+
+
+def experiment_numeric_domain_reason(
+    language_bundle: dict[str, Any],
+) -> dict[str, Any]:
+    """Select the Experiment numeric-domain refusal from current authority."""
+    profile = source_resolution_profile(language_bundle)
+    reason = reason_by_id(language_bundle, profile["experiment_numeric_domain_reason"])
+    predicate = reason.get("predicate")
+    if (
+        reason.get("stage") != "static"
+        or not isinstance(predicate, dict)
+        or predicate.get("operation") != "invalid-interval"
+    ):
+        raise ValueError("Experiment numeric-domain reason must own invalid-interval")
+    return reason
 
 
 def refusal_catalog_for_stages(

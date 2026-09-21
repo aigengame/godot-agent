@@ -1,7 +1,6 @@
 """Experiment input composes existing owners and selects explicit judgments."""
 
 from copy import deepcopy
-from dataclasses import replace
 
 import jsonschema
 import pytest
@@ -19,14 +18,6 @@ from gda_balancing.domain.runtime.execution import (
     evaluate_experiment,
 )
 from gda_balancing.domain.runtime.projections import resolved_runtime_profile
-from schema2_extension_inventory_support import (
-    AuthorityToken,
-    InventoryRefusal,
-    read_extension_inventory,
-    validate_extension_inventory,
-    token_bijection_from_names,
-    validate_token_bijection,
-)
 from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_conformance_support import (
     _consumer_b,
@@ -418,67 +409,6 @@ def test_independent_input_projection_does_not_use_production_oracle(
     )
     assert _consumer_b_experiment_input_schema(kernel) == expected
     assert _consumer_b(kernel, _graph(kernel, deepcopy(authored)))["admitted"]
-
-
-@pytest.fixture(scope="module")
-def judgment_inventory():
-    kernel, language = mutable_authorities()
-    graph = _authored(language)
-    graph["source"] = _source()
-    inventory = read_extension_inventory(kernel, graph)
-    validate_extension_inventory(kernel, graph, inventory)
-    return kernel, graph, inventory
-
-
-def test_metric_label_bijection_preserves_kernel_selector_paths(judgment_inventory):
-    _, _, inventory = judgment_inventory
-    names = {
-        token: f"renamed_{index}"
-        for index, token in enumerate(sorted(inventory.tokens - inventory.reserved))
-    }
-    pairs = token_bijection_from_names(inventory, names)
-    selected = [
-        (source, target)
-        for source, target in pairs
-        if source.role == "experiment-metric-label"
-    ]
-    assert selected
-    assert all(source.owner == target.owner for source, target in selected)
-    with pytest.raises(InventoryRefusal, match="uncovered semantic role"):
-        validate_token_bijection(inventory, pairs)
-
-
-@pytest.mark.parametrize("mutation", ["missing", "owner", "reserved"])
-def test_metric_label_coverage_cannot_be_dropped_or_misowned(
-    judgment_inventory, mutation
-):
-    kernel, graph, inventory = judgment_inventory
-    token = AuthorityToken(
-        "experiment-metric-label", ("observation", "source"), "snapshot"
-    )
-    assert token in inventory.tokens - inventory.reserved
-    if mutation == "missing":
-        candidate = replace(
-            inventory,
-            tokens=inventory.tokens - {token},
-            occurrences=tuple(
-                row for row in inventory.occurrences if row.token != token
-            ),
-        )
-    elif mutation == "owner":
-        wrong = replace(token, owner=("window", "kind"))
-        candidate = replace(
-            inventory,
-            tokens=inventory.tokens - {token} | {wrong},
-            occurrences=tuple(
-                replace(row, token=wrong) if row.token == token else row
-                for row in inventory.occurrences
-            ),
-        )
-    else:
-        candidate = replace(inventory, reserved=inventory.reserved | {token})
-    with pytest.raises(InventoryRefusal):
-        validate_extension_inventory(kernel, deepcopy(graph), candidate)
 
 
 @pytest.mark.parametrize("outcome,order", [("accepted", 1234), ("rejected", 1235)])

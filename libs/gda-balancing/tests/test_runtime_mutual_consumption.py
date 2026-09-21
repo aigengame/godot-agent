@@ -94,7 +94,7 @@ def test_independent_events_use_native_nominal_rir_and_committed_frames(
     assert second["execution_evidence"]["resource_charge"] == 46
 
 
-def test_independent_nominal_support_does_not_default_missing_quantity_bounds(
+def test_independent_runtime_does_not_consume_source_domain_kind(
     independent_fold,
 ):
     kernel, _, original = independent_fold
@@ -103,8 +103,33 @@ def test_independent_nominal_support_does_not_default_missing_quantity_bounds(
         row for row in rir["declarations"] if row["symbol"] == "ordered_value"
     )
     del declaration["domain_kind"]
+    original_specification = _specification(original, [1, 2, 3, 4])
+    candidate_specification = _specification(rir, [1, 2, 3, 4])
+
+    assert _fold_event(
+        kernel,
+        rir,
+        candidate_specification,
+        _fold_frame(rir, candidate_specification),
+    ) == _fold_event(
+        kernel,
+        original,
+        original_specification,
+        _fold_frame(original, original_specification),
+    )
+
+
+def test_independent_nominal_support_does_not_default_missing_quantity_bounds(
+    independent_fold,
+):
+    kernel, _, original = independent_fold
+    rir = deepcopy(original)
+    declaration = next(
+        row for row in rir["declarations"] if row["symbol"] == "ordered_value"
+    )
+    del declaration["domain"]["minimum"]
     specification = _specification(rir, [1, 2, 3, 4])
-    with pytest.raises(KeyError, match="domain_kind"):
+    with pytest.raises(KeyError, match="minimum"):
         _fold_event(kernel, rir, specification, _fold_frame(rir, specification))
 
 

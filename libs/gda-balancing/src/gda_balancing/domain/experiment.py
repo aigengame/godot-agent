@@ -35,7 +35,10 @@ from gda_balancing.domain.diagnostics import (
     DiagnosticLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
+    experiment_binding_reason,
+    experiment_numeric_domain_reason,
     reason_by_id,
+    reason_by_signal,
     source_parse_reason,
     source_resolution_profile,
 )
@@ -65,11 +68,6 @@ from gda_balancing.domain.experiment_judgments import (
     select_metric_judgment,
 )
 
-_EXPERIMENT_CHECK_REFUSAL_REASONS = (
-    "quantity.reason.invalid-domain",
-    "model.reason.resolution-binding-mismatch",
-)
-
 
 def experiment_check_refusal_reasons(
     authority_context: AdmittedAuthorityContext | None = None,
@@ -80,7 +78,13 @@ def experiment_check_refusal_reasons(
         "reasons"
     ]["roots"]
     reasons = context.language_bundle["language"]["reasons"]
-    selected: list[str] = list(_EXPERIMENT_CHECK_REFUSAL_REASONS)
+    selected: list[str] = [
+        cast(
+            str,
+            experiment_numeric_domain_reason(context.language_bundle)["id"],
+        ),
+        cast(str, experiment_binding_reason(context.language_bundle)["id"]),
+    ]
     profile = source_resolution_profile(context.language_bundle)
     lowering = next(
         row
@@ -108,6 +112,49 @@ def experiment_check_refusal_reasons(
             raise ValueError("structured ingress signal has no unique admitted reason")
         selected.append(matches[0]["id"])
     return tuple(selected)
+
+
+def experiment_run_refusal_reasons(
+    authority_context: AdmittedAuthorityContext | None = None,
+) -> tuple[str, ...]:
+    """Select every semantic refusal reachable by Experiment execution."""
+    context = authority_context or packaged_authority_context()
+    language = context.language_bundle["language"]
+    operation_reasons = tuple(
+        sorted(
+            {
+                reason
+                for operation in language["operations"]
+                for reason in operation.get("refusals", [])
+            },
+            key=lambda value: value.encode("utf-8"),
+        )
+    )
+    operation_reason_set = set(operation_reasons)
+    roots = context.kernel["meta_format"]["runtime_projection"]["execution_closure"][
+        "reasons"
+    ]["roots"]
+    execution_root_reasons = tuple(
+        cast(
+            str,
+            reason_by_signal(
+                context.language_bundle,
+                stage=root["stage"],
+                signal=root["signal"],
+            )["id"],
+        )
+        for root in roots
+        if root["when"] == "executable"
+    )
+    return (
+        experiment_check_refusal_reasons(context)
+        + tuple(
+            reason
+            for reason in execution_root_reasons
+            if reason not in operation_reason_set
+        )
+        + operation_reasons
+    )
 
 
 @dataclass(frozen=True)
@@ -511,6 +558,7 @@ def _check_experiment_value(
     """Apply Experiment semantics after transport-specific ingestion."""
     kernel = context.kernel
     language_bundle = context.language_bundle
+    binding_reason = experiment_binding_reason(language_bundle)
     experiment_identity = experiment_input_identity(value, kernel=kernel)
     schema_error = _first_schema_error(value, _experiment_schema(language_bundle))
     if schema_error is not None:
@@ -575,9 +623,7 @@ def _check_experiment_value(
             judgment = select_metric_judgment(metric, language_bundle["language"])
         except ValueError as error:
             return _refusal(
-                reason=reason_by_id(
-                    language_bundle, "model.reason.resolution-binding-mismatch"
-                ),
+                reason=binding_reason,
                 identity=experiment_identity,
                 pointer=f"/metrics/{metric_index}",
                 message=str(error),
@@ -589,9 +635,7 @@ def _check_experiment_value(
         )
     except ValueError as error:
         return _refusal(
-            reason=reason_by_id(
-                language_bundle, "model.reason.resolution-binding-mismatch"
-            ),
+            reason=binding_reason,
             identity=experiment_identity,
             pointer="/acceptance/policy",
             message=str(error),
@@ -635,18 +679,14 @@ def _check_experiment_value(
     required_profile = value["runtime"]["profile"]
     if required_profile not in runtime_profiles:
         return _refusal(
-            reason=reason_by_id(
-                language_bundle, "model.reason.resolution-binding-mismatch"
-            ),
+            reason=binding_reason,
             identity=experiment_identity,
             pointer="/runtime/profile",
             message="Experiment Runtime profile is absent from the selected RIR",
         )
     if not entrypoints:
         return _refusal(
-            reason=reason_by_id(
-                language_bundle, "model.reason.resolution-binding-mismatch"
-            ),
+            reason=binding_reason,
             identity=experiment_identity,
             pointer="/model/rir_semantic_identity",
             message="Experiment Model has no executable Event entrypoints",
@@ -664,9 +704,7 @@ def _check_experiment_value(
                 pointer=f"/scenarios/{scenario_index}",
                 message="Experiment external inputs violate the selected scheduler contract",
             )
-    numeric_domain_reason = reason_by_id(
-        language_bundle, "quantity.reason.invalid-domain"
-    )
+    numeric_domain_reason = experiment_numeric_domain_reason(language_bundle)
     structured_authority = selected_structured_value_index(selected)
     structured_resource_limit = cast(
         int | None, selected["execution_resources"].get("max_rule_match_steps")
@@ -685,9 +723,7 @@ def _check_experiment_value(
             pointer = f"/scenarios/{scenario_index}/event_plan/{event_index}/entrypoint"
             if entrypoint is None:
                 return _refusal(
-                    reason=reason_by_id(
-                        language_bundle, "model.reason.resolution-binding-mismatch"
-                    ),
+                    reason=binding_reason,
                     identity=experiment_identity,
                     pointer=pointer,
                     message="Root Event entrypoint is absent from the selected RIR",
@@ -695,9 +731,7 @@ def _check_experiment_value(
             operation = operations.get(operation_coordinate(entrypoint["operation"]))
             if operation is None or operation["runtime_profile"] != required_profile:
                 return _refusal(
-                    reason=reason_by_id(
-                        language_bundle, "model.reason.resolution-binding-mismatch"
-                    ),
+                    reason=binding_reason,
                     identity=experiment_identity,
                     pointer=pointer,
                     message=(
@@ -714,9 +748,7 @@ def _check_experiment_value(
                 )
             except ValueError:
                 return _refusal(
-                    reason=reason_by_id(
-                        language_bundle, "model.reason.resolution-binding-mismatch"
-                    ),
+                    reason=binding_reason,
                     identity=experiment_identity,
                     pointer=pointer,
                     message="Root Event Operation composition is not closed",
@@ -834,9 +866,7 @@ def _check_experiment_value(
             for reference_index, reference in enumerate(references):
                 if reference["root_event_ref"] not in root_references:
                     return _refusal(
-                        reason=reason_by_id(
-                            language_bundle, "model.reason.resolution-binding-mismatch"
-                        ),
+                        reason=binding_reason,
                         identity=experiment_identity,
                         pointer=(
                             f"{reference_pointer}/{reference_index}/root_event_ref"

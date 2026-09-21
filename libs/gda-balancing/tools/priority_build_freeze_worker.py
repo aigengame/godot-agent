@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any
 
 import gda_balancing
 
+from priority_extension_proof_support import build_priority_case
 from priority_protocol_support import authorities, source, specification
 from schema2_model_companions_independent_support import (
     reference_admits_model_artifacts,
@@ -67,6 +69,128 @@ def _bundle_payload(bundle: Any) -> dict[str, Any]:
     }
 
 
+def _operation_id(value: str | dict[str, Any], reverse: dict[str, str]) -> str:
+    identity = value["id"] if isinstance(value, dict) else value
+    return reverse.get(identity, identity)
+
+
+def _priority_boundary_observation(
+    runtime: dict[str, Any], mapping: dict[str, str]
+) -> list[dict[str, Any]]:
+    """Project the fixed witness's ordered transition and pending-state boundary."""
+    reverse = {renamed: original for original, renamed in mapping.items()}
+    result: list[dict[str, Any]] = []
+    for event in runtime["event-trace"]["events"]:
+        if event["operation"] is None:
+            continue
+        state = {row["name"]: row["value"] for row in event["state_after"]}
+
+        def value(name: str) -> Any:
+            member = state[name]
+            if isinstance(member, dict) and "type" in member and "value" in member:
+                return member["value"]
+            return member
+
+        result.append(
+            {
+                "operation": _operation_id(event["operation"], reverse),
+                "ordering_key": event["ordering_key"],
+                "call_sequence": [
+                    _operation_id(call["operation"], reverse) for call in event["calls"]
+                ],
+                "scheduled": [
+                    {
+                        "operation": _operation_id(schedule["operation"], reverse),
+                        "ordering_key": schedule["ordering_key"],
+                    }
+                    for schedule in event["schedules"]
+                ],
+                "pending_state": [
+                    value("root_id"),
+                    value("next_id"),
+                    value("ids"),
+                    [row["target"] for row in value("counters")],
+                    value("priority"),
+                    value("passes"),
+                    value("window_open"),
+                    value("canceled_ids"),
+                    value("final_power"),
+                    value("status"),
+                ],
+            }
+        )
+    return result
+
+
+def _expected_priority_boundaries(variant: str) -> list[dict[str, Any]]:
+    operations = ["open", "respond"]
+    states: list[list[Any]] = [
+        [1, 1, [], [], 1, 0, 1, [], 0, "pending"],
+        [1, 2, [2], [1], 0, 0, 1, [], 0, "pending"],
+    ]
+    if variant == "variant":
+        operations += ["pass", "pass", "resolve"]
+        states += [
+            [1, 2, [2], [1], 1, 1, 1, [], 0, "pending"],
+            [1, 2, [2], [1], 0, 2, 0, [], 0, "pending"],
+            [1, 2, [2], [1], 0, 2, 0, [1], 0, "canceled"],
+        ]
+    else:
+        operations += ["respond", "pass", "pass", "resolve"]
+        states += [
+            [1, 3, [2, 3], [1, 2], 1, 0, 1, [], 0, "pending"],
+            [1, 3, [2, 3], [1, 2], 0, 1, 1, [], 0, "pending"],
+            [1, 3, [2, 3], [1, 2], 1, 2, 0, [], 0, "pending"],
+            [1, 3, [2, 3], [1, 2], 1, 2, 0, [2], 7, "resolved"],
+        ]
+    final_enqueue = 8 if variant == "variant" else 10
+    enqueue_sequences = [*range(1, final_enqueue, 2), final_enqueue]
+    logical_times = [*range(len(operations) - 1), 7]
+    call_sequences = [
+        ["propose"]
+        if operation == "open"
+        else ["append-counter"]
+        if operation == "respond"
+        else []
+        for operation in operations
+    ]
+    scheduled = [[] for _ in operations]
+    scheduled[-2] = [
+        {
+            "operation": "resolve",
+            "ordering_key": {
+                "logical_time": 7,
+                "phase": "transition",
+                "priority": 0,
+                "enqueue_sequence": final_enqueue,
+            },
+        }
+    ]
+    return [
+        {
+            "operation": operation,
+            "ordering_key": {
+                "logical_time": logical_time,
+                "phase": "transition",
+                "priority": 0,
+                "enqueue_sequence": enqueue_sequence,
+            },
+            "call_sequence": calls,
+            "scheduled": schedules,
+            "pending_state": state,
+        }
+        for operation, logical_time, enqueue_sequence, calls, schedules, state in zip(
+            operations,
+            logical_times,
+            enqueue_sequences,
+            call_sequences,
+            scheduled,
+            states,
+            strict=True,
+        )
+    ]
+
+
 def _language_bundle(value: dict[str, Any]):
     from gda_balancing.domain.authority.graph import LanguageBundleIndex
 
@@ -89,7 +213,7 @@ def _identity() -> dict[str, Any]:
     }
 
 
-def _prepare(inputs: Path, renamed_case: Path | None) -> None:
+def _prepare(inputs: Path) -> None:
     inputs.mkdir(parents=True, exist_ok=False)
     kernel, language, turn = authorities()
     authored = {
@@ -104,28 +228,6 @@ def _prepare(inputs: Path, renamed_case: Path | None) -> None:
             }
         ]
     }
-    if renamed_case is not None:
-        supplied = json.loads(renamed_case.read_text())
-        required = {
-            "authority",
-            "kernel",
-            "language_bundle",
-            "source",
-            "mapping",
-            "experiments",
-        }
-        if (
-            set(supplied) != required
-            or supplied["authority"] != "renamed"
-            or not isinstance(supplied["mapping"], dict)
-            or not supplied["mapping"]
-            or set(supplied["experiments"]) != {"baseline", "variant"}
-        ):
-            raise ValueError(
-                "a renamed case must supply its authored graph, non-empty mapping, "
-                "source, and baseline/variant Experiment templates"
-            )
-        authored["authorities"].append(supplied)
     (inputs / "authored-cases.json").write_bytes(_encoded(authored))
 
 
@@ -206,6 +308,31 @@ def _exercise(
     if observed_b_identity != expected_b_identity:
         raise AssertionError("B build identity changed after the freeze")
     authored_cases = json.loads((inputs / "authored-cases.json").read_text())
+    # The caller seals both installed builds and this independent harness before
+    # entering exercise. Derive the bounded selected-closure case only after
+    # that freeze point.
+    renamed_case, selected_closure_proof = build_priority_case(renamed=True)
+    if (
+        set(renamed_case)
+        != {
+            "authority",
+            "kernel",
+            "language_bundle",
+            "source",
+            "mapping",
+            "experiments",
+        }
+        or renamed_case["authority"] != "renamed"
+        or not isinstance(renamed_case["mapping"], dict)
+        or not renamed_case["mapping"]
+        or set(renamed_case["experiments"]) != {"baseline", "variant"}
+    ):
+        raise AssertionError("bounded renamed priority case did not close")
+    original_case = authored_cases["authorities"][0]
+    if _encoded(original_case["kernel"]) != _encoded(renamed_case["kernel"]):
+        raise AssertionError("bounded rename changed the Kernel")
+    selected_closure_proof["kernel_unchanged"] = True
+    authored_cases["authorities"].append(renamed_case)
     request_cases: list[dict[str, Any]] = []
     independent: dict[tuple[str, str], dict[str, Any]] = {}
     for authority in authored_cases["authorities"]:
@@ -241,6 +368,7 @@ def _exercise(
                 "b_model": b_model,
                 "b_runtime": b_runtime,
                 "specification": planned,
+                "mapping": authority["mapping"],
             }
             request_cases.append(
                 {
@@ -304,9 +432,19 @@ def _exercise(
             row["metric"]: row["value"]
             for row in b_case["b_runtime"]["metric-dataset"]["samples"]
         }
-        expected_metric = 7 if key[1] == "baseline" else 0
-        if samples != {"resolved-power": expected_metric}:
+        target = b_case["specification"]["metrics"][0]["target"]
+        if target["minimum"] != target["maximum"]:
+            raise AssertionError("priority proof metric target is not exact")
+        expected_metric = target["minimum"]
+        expected_metric_id = b_case["specification"]["metrics"][0]["id"]
+        if samples != {expected_metric_id: expected_metric}:
             raise AssertionError(f"unexpected priority result: {samples}")
+        boundary_observation = _priority_boundary_observation(
+            b_case["b_runtime"], b_case["mapping"]
+        )
+        expected_boundaries = _expected_priority_boundaries(key[1])
+        if boundary_observation != expected_boundaries:
+            raise AssertionError(f"priority boundary behavior drifted for {key}")
         if not all(
             (
                 a_case["a_admits_b_model"],
@@ -320,6 +458,7 @@ def _exercise(
             raise AssertionError(f"A/B mutual admission failed for {key}")
         matrix.setdefault(key[0], {})[key[1]] = {
             "metric": expected_metric,
+            "boundaries": boundary_observation,
             "model": {
                 "member_count": len(a_model),
                 "members": sorted(a_model),
@@ -334,7 +473,30 @@ def _exercise(
             },
         }
 
-    renamed_present = "renamed" in matrix
+    for variant in ("baseline", "variant"):
+        if (
+            matrix["original"][variant]["boundaries"]
+            != matrix["renamed"][variant]["boundaries"]
+        ):
+            raise AssertionError(
+                f"renaming changed the priority boundary behavior for {variant}"
+            )
+
+    renamed_mapping = next(
+        (
+            authority["mapping"]
+            for authority in authored_cases["authorities"]
+            if authority["authority"] == "renamed"
+        ),
+        None,
+    )
+    if not isinstance(renamed_mapping, dict):
+        raise AssertionError("renamed case has no serialized mapping")
+    import_origins = []
+    for module in tuple(sys.modules.values()):
+        origin = getattr(module, "__file__", None)
+        if isinstance(origin, str) and Path(origin).exists():
+            import_origins.append(str(Path(origin).resolve()))
     result = {
         "matrix": matrix,
         "a_identity": response["identity"],
@@ -344,20 +506,12 @@ def _exercise(
         "b_harness_origin": str(Path(__file__).resolve()),
         "b_executable": str(Path(sys.executable).resolve()),
         "b_sys_path": list(sys.path),
-        "b_import_origins": sorted(
-            {
-                str(Path(module.__file__).resolve())
-                for module in tuple(sys.modules.values())
-                if getattr(module, "__file__", None) and Path(module.__file__).exists()
-            }
-        ),
-        "renamed_case_hook": {
-            "status": "exercised" if renamed_present else "awaiting-supplied-case",
-            "option": "--renamed-case",
-            "contract": (
-                "authored Kernel/LDB graph projection, non-empty rename mapping, "
-                "renamed Model Source, and baseline/variant Experiment templates"
-            ),
+        "b_import_origins": sorted(set(import_origins)),
+        "selected_closure": {
+            "derived_after_build_freeze": True,
+            "proof": selected_closure_proof,
+            "mapping_member_count": len(renamed_mapping),
+            "mapping_sha256": hashlib.sha256(_encoded(renamed_mapping)).hexdigest(),
         },
     }
     (output / "result.json").write_bytes(_encoded(result))
@@ -369,7 +523,6 @@ if __name__ == "__main__":
     subparsers = parser.add_subparsers(dest="mode", required=True)
     prepare = subparsers.add_parser("prepare")
     prepare.add_argument("inputs", type=Path)
-    prepare.add_argument("--renamed-case", type=Path)
     identify = subparsers.add_parser("identify")
     identify.add_argument("--output", type=Path, required=True)
     exercise = subparsers.add_parser("exercise")
@@ -381,7 +534,7 @@ if __name__ == "__main__":
     exercise.add_argument("--forbidden-source-root", type=Path, required=True)
     args = parser.parse_args()
     if args.mode == "prepare":
-        _prepare(args.inputs, args.renamed_case)
+        _prepare(args.inputs)
     elif args.mode == "identify":
         args.output.write_bytes(_encoded(_identity()))
     else:

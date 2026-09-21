@@ -1,7 +1,6 @@
 """Replay owns its fixed comparison container, independently of Publication."""
 
 from copy import deepcopy
-from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
@@ -26,12 +25,6 @@ from schema2_bootstrap_conformance_support import (
     _encoded,
 )
 from schema2_bootstrap_production_support import _consumer_a
-from schema2_extension_inventory_support import (
-    AuthorityToken,
-    InventoryRefusal,
-    read_extension_inventory,
-    validate_extension_inventory,
-)
 from test_current_namespace_public import _PublicCandidate, _members
 from test_receipt_protocol_structure import _definitions
 from test_rir_protocol_structure_independent import _raw_language
@@ -289,47 +282,6 @@ def _rename_replay(authored):
                 new if value == old else value
                 for value in package["exports"][collection]
             ]
-
-
-def test_replay_schema_gap_closes_without_ghost_fields_or_forged_coverage():
-
-    kernel, ldb = mutable_authorities()
-    authored = _authored(ldb)
-    _rename_replay(authored)
-    inventory = read_extension_inventory(kernel, authored)
-    validate_extension_inventory(kernel, authored, inventory)
-    schema_token = AuthorityToken(
-        "language.artifact_wire_schemas", (), "review.replay.schema"
-    )
-    kind_token = AuthorityToken(
-        "language.artifact_contracts", (), "review.replay.result"
-    )
-    assert {schema_token, kind_token} <= inventory.tokens - inventory.reserved
-    declaration = next(
-        o
-        for o in inventory.occurrences
-        if o.token == schema_token and o.use == "declaration"
-    )
-    pointer = declaration.pointer.removesuffix("/artifact_kind")
-    assert not any(g.pointer == pointer for g in inventory.uncovered)
-    assert not any(
-        o.pointer.startswith(pointer + "/schema/") for o in inventory.occurrences
-    )
-    assert inventory.uncovered
-    link = next(
-        o
-        for o in inventory.occurrences
-        if o.token == schema_token and o.pointer.endswith("/schema_kind")
-    )
-    forged = replace(
-        inventory, occurrences=tuple(o for o in inventory.occurrences if o != link)
-    )
-    with pytest.raises(InventoryRefusal):
-        validate_extension_inventory(kernel, authored, forged)
-    authored_schema, _ = _replay_rows(authored)
-    authored_schema["unclassified"] = "hidden.name"
-    with pytest.raises(InventoryRefusal):
-        read_extension_inventory(kernel, authored)
 
 
 def test_actual_public_authenticated_replay_survives_distinct_schema_and_kind_names(

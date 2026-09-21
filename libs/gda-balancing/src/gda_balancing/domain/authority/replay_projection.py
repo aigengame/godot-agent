@@ -7,8 +7,10 @@ from gda_balancing.domain.authority.contract_projection import (
     _contract_schema,
     artifact_envelope_contract,
 )
-from gda_balancing.domain.authority.package_projection import replay_observation_schemas
 from gda_balancing.domain.authority.metric_projection import metric_outcome_schema
+from gda_balancing.domain.authority.replay_vector_projection import (
+    replay_observation_schemas,
+)
 
 
 def _binding(

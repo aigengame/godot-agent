@@ -123,7 +123,9 @@ def test_final_selected_nodes_and_owned_nested_refusals_are_closed(compiled):
         "diagnostic",
     ],
 )
-def test_reidentified_execution_dependency_tampering_is_refused(compiled, mutation):
+def test_execution_dependency_tampering_is_refused_at_its_owned_boundary(
+    compiled, mutation
+):
     trio = _trio(compiled)
     selected = trio["rir-semantic-payload"]["selected_semantics"]
     if mutation == "omit-law":
@@ -140,6 +142,10 @@ def test_reidentified_execution_dependency_tampering_is_refused(compiled, mutati
         selected["diagnostic_reasons"][0]["package"] = "standard.schema"
     else:
         selected["diagnostics"][0]["definition"]["stage"] = "runtime"
+    if mutation == "alter-charge":
+        with pytest.raises(jsonschema.ValidationError):
+            _rebind(trio)
+        return
     _rebind(trio)
     assert (
         trio["rir-semantic-payload"]["semantic_identity"]
@@ -192,8 +198,8 @@ def test_machine_execution_selectors_fail_closed(mutation):
     assert not _execution_projection_is_closed(contract, meta, bundle, properties)
 
 
-def test_overlapping_closed_node_shapes_require_union_not_exclusive_union(compiled):
-    _, _, _, properties = _contract_inputs()
+def test_execution_node_schema_uses_exact_kernel_node_values(compiled):
+    _, meta, _, properties = _contract_inputs()
     node_schema = properties["execution_laws"]["properties"]["runtime_program"][
         "properties"
     ]["nodes"]["items"]
@@ -204,16 +210,14 @@ def test_overlapping_closed_node_shapes_require_union_not_exclusive_union(compil
         ]["runtime_program"]["nodes"]
         if row["id"] == "constant"
     )
-    matches = [
-        shape
-        for shape in node_schema["anyOf"]
-        if jsonschema.Draft202012Validator(shape).is_valid(constant)
-    ]
-    assert len(matches) > 1
+    assert set(node_schema) == {"enum"}
+    permitted_nodes = node_schema["enum"]
+    authoritative_nodes = meta["runtime_program"]["nodes"]
+    assert len(permitted_nodes) == len(authoritative_nodes)
+    assert {canonical_bytes(row) for row in permitted_nodes} == {
+        canonical_bytes(row) for row in authoritative_nodes
+    }
     assert jsonschema.Draft202012Validator(node_schema).is_valid(constant)
-    assert not jsonschema.Draft202012Validator(
-        {"oneOf": node_schema["anyOf"]}
-    ).is_valid(constant)
     invalid: dict[str, Any] = deepcopy(constant)
     invalid["unowned-law"] = True
     assert not jsonschema.Draft202012Validator(node_schema).is_valid(invalid)
@@ -385,17 +389,17 @@ def test_each_selected_execution_law_is_an_independently_admitted_dependency(
 
 
 @pytest.mark.parametrize("example,node_id", _NODE_WITNESSES)
-def test_each_selected_node_charge_is_an_independently_admitted_dependency(
+def test_each_selected_node_law_is_closed_by_the_kernel_value_contract(
     closure_examples, example, node_id
 ):
-    original = closure_examples[example]
-    mutated = _trio(original)
+    mutated = _trio(closure_examples[example])
     nodes = mutated["rir-semantic-payload"]["selected_semantics"]["execution_laws"][
         "runtime_program"
     ]["nodes"]
     node = next(row for row in nodes if row["id"] == node_id)
     node["resource_charge"]["amount"] += 1
-    _assert_reidentified_meaning_is_refused(original, mutated, ("nodes", node_id))
+    with pytest.raises(jsonschema.ValidationError):
+        _rebind(mutated)
 
 
 @pytest.mark.parametrize("example,reason_id", _REASON_WITNESSES)

@@ -19,7 +19,9 @@ gates, with explicit RIR input and existing RIR semantic identity. The
 implemented contract while full integration and CI acceptance remain pending. Content integrity,
 nominal ownership, actual execution policies, and consistent in-flight inputs remain. The [S3 contract record](docs/refactor/current-language/NAMESPACE-CONTRACT.md)
 maps #872's final deletion witnesses and whole-stage rollback; #879 and the full refactor
-retain their own acceptance.
+retain their own acceptance. #879 requires physical deletion of RIR `domain_kind`, the obsolete
+`maximum` RIR wire-union branch, and every remaining fallback or compatibility binding after
+dependency closure; ignored or deprecated residues do not satisfy that gate.
 
 ## Language
 
@@ -563,19 +565,31 @@ The immutable conformance artifact proving one Core Extension Invariance witness
 same fixed independent compiler/evaluator builds before and after an LDB/package addition. It binds
 identical Kernel, core-constructor, runtime-phase, and implementation-build identities; base/extended
 LDBs; added packages; exact Source/Experiment/vectors; mutually produced artifacts/results; and a
-complete post-build Non-Kernel Authority Token Inventory plus its exhaustive rename bijection.
+complete post-build Non-Kernel Authority Token Inventory rooted in the declared witness's selected
+execution closure plus its exhaustive rename bijection. Unselected packages, unrelated vector sets
+or artifact families, and ordinary data strings are outside that proof unless the witness actually
+selects or consumes them.
 Rebuilds, host capability additions, omitted renames, private helpers, or changed core projections
 make it ineligible. It is independently validated evidence, never semantic authority
 (bADR-0016/0017).
+The exhaustive bounded bijection belongs to the formal #575 receipt gate. #878 is an earlier
+functional falsifier: it lists and renames only twelve explicitly selected extension-owned
+Type/Operation coordinates. The complete admitted `selected_semantics` canonical hash/RIR semantic
+identity and all eight Model artifact content identities bind the remaining selected meaning;
+negative cases reject mismatch or omission. #878 maintains no hand-authored dependency-category
+manifest.
 _Avoid_: unchanged-code assertion, source diff, extension passed flag
 
 **Non-Kernel Authority Token Inventory**:
-The closed, generated traversal of the complete reachable witness artifact graph used by an
-Extension Invariance Receipt. It contains every non-Kernel identity that can affect resolution,
-dispatch, result decoding, or trace, including package/capability, type/kind/unit/role,
-Operation/parameter/result variant, Diagnostic, Signal/Event, effect/resource, profile/policy,
-Experiment/Metric/selector, and vector identities. Its independent rename mapping is an exhaustive
-bijection: an omitted, duplicate, reserved-Kernel, or extra member refuses the witness
+The closed, generated traversal rooted in one declared witness's selected execution closure and the
+artifacts/results actually generated or consumed by that witness. It contains every non-Kernel
+identity in that bounded graph that can affect resolution, dispatch, result decoding, or trace,
+including selected package/capability, type/kind/unit/role, Operation/parameter/result variant,
+Diagnostic, Signal/Event, effect/resource, profile/policy, Experiment/Metric/selector, and vector
+identities. It does not expand to unrelated LDB packages, unselected vector sets or artifact
+families, or ordinary data strings merely because they share the same authority files. Its
+independent rename mapping is an exhaustive bijection over the bounded graph: an omitted,
+duplicate, reserved-Kernel, or extra member refuses the witness
 (bADR-0016/0017).
 _Avoid_: representative token sample, package-name-only rename, implementation symbol list
 

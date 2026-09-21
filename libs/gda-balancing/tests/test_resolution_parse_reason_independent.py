@@ -1,7 +1,6 @@
 """Source parse reasons close as actual Resolution references before byte parsing."""
 
 from copy import deepcopy
-from dataclasses import replace
 import json
 
 import pytest
@@ -20,12 +19,6 @@ from schema2_bootstrap_conformance_support import (
     _encoded,
 )
 from schema2_bootstrap_production_support import _consumer_a
-from schema2_extension_inventory_support import (
-    AuthorityToken,
-    InventoryRefusal,
-    read_extension_inventory,
-    validate_extension_inventory,
-)
 from test_bounded_fold_public import _source
 from test_current_namespace_public import _PublicCandidate, _members
 from test_resolution_parse_reason import _profile, _rename_parse_reason
@@ -103,39 +96,6 @@ def test_resolution_parse_stage_has_one_supported_primitive_owner():
         else:
             changed["parse_reason_stage"] = replacement
         assert not _consumer_b_resolution_contract_is_closed(changed)
-
-
-def test_parse_reason_inventory_uses_declared_reference_in_the_closed_profile():
-    kernel, index = mutable_authorities()
-    graph = _authored(index)
-    inventory = read_extension_inventory(kernel, graph)
-    validate_extension_inventory(kernel, graph, inventory)
-    profile = _profile(graph)
-    token = AuthorityToken("language.reasons", (), profile["parse_reason"])
-    occurrence = next(
-        row
-        for row in inventory.occurrences
-        if row.token == token and row.pointer.endswith("/parse_reason")
-    )
-    assert occurrence.use == "reference"
-    assert occurrence.law.startswith("/admission/laws/")
-    assert token in inventory.tokens - inventory.reserved
-    assert not any(
-        gap.pointer == occurrence.pointer.removesuffix("/parse_reason")
-        for gap in inventory.uncovered
-    )
-    for forged in [
-        None,
-        replace(occurrence, token=replace(token, owner=(profile["id"],))),
-        replace(occurrence, use="declaration"),
-    ]:
-        rows = tuple(row for row in inventory.occurrences if row != occurrence)
-        if forged is not None:
-            rows += (forged,)
-        with pytest.raises(InventoryRefusal):
-            validate_extension_inventory(
-                kernel, graph, replace(inventory, occurrences=rows)
-            )
 
 
 @pytest.mark.parametrize("renamed", [False, True], ids=["original", "renamed-reason"])

@@ -1,16 +1,78 @@
 """Shared authority inputs and owner-preserving mutable test projections."""
 
 from copy import deepcopy
-from typing import Any
+from typing import Any, cast
 
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.authority.graph import LanguageBundleIndex
-from gda_balancing.domain.canonical import canonical_bytes
+from gda_balancing.domain.authority.package_semantics import (
+    package_runtime_semantic_closure,
+)
+from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
+from schema2_bootstrap_conformance_support import (
+    _declared_identity_domain,
+    _encoded,
+    _identity_from_kernel,
+)
 
 
 def mutable_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
     """Return an owned mutable copy of the admitted packaged authorities."""
     return packaged_authority_context().mutable_pair()
+
+
+def reseal_authority_graph(kernel: dict[str, Any], graph: dict[str, Any]) -> None:
+    """Reseal a finite authored test graph after an explicit fixture mutation."""
+    packages = graph["packages"]
+    vectors = graph["vector_sets"]
+    root = graph["ldb_root"]
+    package_ids = [package["id"] for package in packages]
+    if (
+        len(package_ids) != len(set(package_ids))
+        or sorted(package_ids) != sorted(row["package_id"] for row in vectors)
+        or sorted(package_ids)
+        != sorted(row["id"] for row in root["package_descriptors"])
+    ):
+        raise ValueError("package, vector, and root membership do not close")
+
+    def seal(value: dict[str, Any], **selector: str) -> None:
+        domain = _declared_identity_domain(kernel, **selector)
+        identity = _identity_from_kernel(kernel, domain, value) if domain else None
+        if identity is None:
+            raise ValueError("unsupported authored identity contract")
+        value["content_identity"] = identity
+
+    by_package = {row["package_id"]: row for row in vectors}
+    meta = kernel["meta_format"]["package_release"]
+    for package in packages:
+        vector = by_package[package["id"]]
+        seal(vector, collection="language_bundle.package_conformance_vector_sets")
+        package["conformance_vectors"] = {
+            "artifact_kind": vector["artifact_kind"],
+            "byte_size": len(_encoded(vector)),
+            "content_identity": vector["content_identity"],
+        }
+        closure = package_runtime_semantic_closure(package, kernel)
+        package["semantic_identity"] = content_identity(
+            meta["semantic_closure"]["domain"], cast(JsonValue, closure)
+        )
+        seal(package, collection="language_bundle.language.packages")
+    order = kernel["meta_format"]["language_bundle"]["package_descriptor"][
+        "canonical_order"
+    ]
+    packages.sort(key=lambda package: tuple(package[field] for field in order))
+    graph["vector_sets"] = [by_package[package["id"]] for package in packages]
+    root["kernel_identity"] = kernel["content_identity"]
+    root["package_descriptors"] = [
+        {
+            "artifact_kind": package["artifact_kind"],
+            "byte_size": len(_encoded(package)),
+            "content_identity": package["content_identity"],
+            "id": package["id"],
+        }
+        for package in packages
+    ]
+    seal(root, artifact="language-bundle")
 
 
 def refresh_package_semantic_closures(

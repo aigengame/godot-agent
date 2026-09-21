@@ -36,26 +36,6 @@ def _module_test_selectors(filename: str) -> tuple[str, ...]:
 
 
 _EXPERIMENT_TESTS: Final = _module_test_selectors("test_schema2_experiment_cli.py")
-_EXTENSION_INVENTORY_TESTS: Final = _module_test_selectors(
-    "test_extension_inventory.py"
-)
-_ANONYMOUS_VECTOR_TEST: Final = (
-    "test_extension_inventory.py::"
-    "test_anonymous_vector_scope_and_fault_paths_follow_actual_type_law"
-)
-_EXTENSION_INVENTORY_A: Final = tuple(
-    selector
-    for selector in _EXTENSION_INVENTORY_TESTS[::2]
-    if selector != _ANONYMOUS_VECTOR_TEST
-)
-_EXTENSION_INVENTORY_B: Final = (
-    *(
-        selector
-        for selector in _EXTENSION_INVENTORY_TESTS[1::2]
-        if selector != _ANONYMOUS_VECTOR_TEST
-    ),
-    _ANONYMOUS_VECTOR_TEST,
-)
 
 SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "fast": (
@@ -112,8 +92,6 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     ),
     "experiment": _EXPERIMENT_TESTS[::2],
     "experiment-continuation": _EXPERIMENT_TESTS[1::2],
-    "extension-inventory": _EXTENSION_INVENTORY_A,
-    "extension-inventory-continuation": _EXTENSION_INVENTORY_B,
     "extension": (
         "test_artifact_projection_addresses.py",
         "test_artifact_protocol_roles.py",
@@ -121,16 +99,11 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_evidence_candidate_independent.py",
         "test_evidence_claim_identity.py",
         "test_experiment_input_protocol.py",
-        "test_lowering_policy_inventory.py",
-        "test_model_vector_inventory.py",
-        "test_extension_renaming.py",
         "test_formula_inline_resolution.py",
         "test_formula_operation_returns.py",
         "test_formula_operation_returns_independent.py",
         "test_formula_resolution_independent.py",
         "test_metric_outcome_protocol_structure.py",
-        "test_operation_extension_inventory.py",
-        "test_operation_vector_inventory.py",
         "test_operation_root_projection.py",
         "test_package_notation_projection.py",
         "test_priority_protocol_public.py",
@@ -140,7 +113,6 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_publication_protocol_structure_independent.py",
         "test_receipt_protocol_structure.py",
         "test_receipt_protocol_structure_independent.py",
-        "test_replay_inventory.py",
         "test_replay_observation_members.py",
         "test_replay_protocol_structure.py",
         "test_model_protocol_structure.py",
@@ -159,25 +131,20 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_runtime_wire_structure.py",
         "test_source_deep_owners.py",
         "test_source_equality_members.py",
-        "test_source_fact_selector_inventory.py",
         "test_source_fact_transport.py",
         "test_source_fact_transport_independent.py",
         "test_source_model_check_selectors.py",
         "test_source_module_routing.py",
         "test_source_schema_diagnostics.py",
         "test_source_semantic_roles.py",
-        "test_scheduler_rule_inventory.py",
         "test_source_wire_owners.py",
-        "test_template_extension_inventory.py",
         "test_template_model_results.py",
         "test_template_model_results_independent.py",
         "test_template_protocol_roles.py",
         "test_template_wire_structure.py",
-        "test_trace_protocol_inventory.py",
         "test_trace_protocol_structure.py",
         "test_runtime_evidence_protocol_structure.py",
     ),
-    "extension-graph": ("test_full_graph_extension_inventory.py",),
     "bounded-fold": (
         "test_bounded_fold_formula.py",
         "test_bounded_fold_independent.py",

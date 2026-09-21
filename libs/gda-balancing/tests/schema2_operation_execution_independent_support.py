@@ -158,6 +158,8 @@ def reference_execute_event(
     display_names: dict[str | tuple[str, str, str], str]
     if resolved_declarations is not None:
         assert resolved_entrypoint is not None or dispatch is not None
+        assert selected_semantics is not None
+        state_role = selected_semantics["symbol_role_bindings"]["state"]
         declarations = {
             (
                 row["resolved_symbol"]["model"],
@@ -304,7 +306,7 @@ def reference_execute_event(
         state_targets = {
             coordinate
             for coordinate, declaration in declarations.items()
-            if declaration["role"] == "state"
+            if declaration["role"] == state_role
         }
         display_names = {
             coordinate: declaration["resolved_symbol"]["name"]
@@ -329,7 +331,6 @@ def reference_execute_event(
             for coordinate, declaration in declarations.items()
             if coordinate in state_cells
             and declaration.get("value_kind") != "nominal-structured"
-            and declaration["domain_kind"] == "closed-interval"
         }
         if resolved_declarations is not None
         else {}
@@ -477,10 +478,10 @@ def reference_execute_event(
     path_contract = runtime["invocation_contract"]["execution_path"]
 
     def static_segment(value: str) -> str:
-        result = value
-        for raw, encoded in path_contract["segment_encoding"].items():
-            result = result.replace(raw, encoded)
-        return result
+        encoding = path_contract["segment_encoding"]
+        # RFC 6901 escapes the escape marker before the solidus. Canonical JSON
+        # key ordering is not a semantic ordering for this transform.
+        return value.replace("~", encoding["~"]).replace("/", encoding["/"])
 
     def path_text(path: tuple[str, ...]) -> str:
         return path_contract["separator"].join(path)

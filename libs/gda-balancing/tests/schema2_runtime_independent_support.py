@@ -114,7 +114,7 @@ def _reference_experiment_judgments(context, specification):
     return {"metrics": selected, "acceptance": deepcopy(acceptance[0])}
 
 
-def _supported_shape(specification, rir, judgments):
+def _supported_shape(specification, rir, judgments, execution_roles):
     if len(specification["scenarios"]) != 1:
         raise IndependentRuntimeUnsupported("this checkpoint supports one Scenario")
     if rir["initialization_programs"] or rir["formula_bindings"]:
@@ -131,14 +131,19 @@ def _supported_shape(specification, rir, judgments):
         raise IndependentRuntimeUnsupported(
             "ambiguous display names are not implemented"
         )
+    declarations_by_name = {
+        row["resolved_symbol"]["name"]: row for row in rir["declarations"]
+    }
     for metric, selected in zip(
         specification["metrics"], judgments["metrics"], strict=True
     ):
+        observed = declarations_by_name.get(metric["observation"]["member"])
         if not (
             selected["judgment"]["operator"] == "single-terminal-integer"
             and metric["dimensions"] == []
-            and metric["window"]["name"] == "terminal-event"
-            and metric["observation"]["name"] == "terminal"
+            and observed is not None
+            and observed["role"] == execution_roles["state"]
+            and isinstance(observed.get("numeric_policy"), str)
         ):
             raise IndependentRuntimeUnsupported("unsupported Metric projection")
     runtime = rir["selected_semantics"]["execution_laws"]["runtime_program"]
@@ -272,8 +277,11 @@ def reference_runtime_artifacts(
     if specification["model"] != {"rir_semantic_identity": rir["semantic_identity"]}:
         raise ValueError("Experiment selects a different semantic program")
     judgments = _reference_experiment_judgments(context, specification)
-    available, _required = _supported_shape(specification, rir, judgments)
     semantic = rir["selected_semantics"]
+    execution_roles = semantic["symbol_role_bindings"]
+    available, _required = _supported_shape(
+        specification, rir, judgments, execution_roles
+    )
     runtime = semantic["execution_laws"]["runtime_program"]
     scheduler = runtime["scheduler"]
     journal = scheduler["runtime_journal"]
@@ -405,7 +413,11 @@ def reference_runtime_artifacts(
     declarations = {
         _coordinate(row["resolved_symbol"]): row for row in rir["declarations"]
     }
-    state_keys = {key for key, row in declarations.items() if row["role"] == "state"}
+    state_keys = {
+        key
+        for key, row in declarations.items()
+        if row["role"] == execution_roles["state"]
+    }
     initializers = {}
     for entrypoint in rir["entrypoints"]:
         for row in entrypoint["scenario_input_contract"]["initializers"]:
@@ -443,10 +455,9 @@ def reference_runtime_artifacts(
         else:
             if not isinstance(value, int) or isinstance(value, bool):
                 raise ValueError("input quantity is not an integer")
-            if declaration["domain_kind"] == "closed-interval":
-                interval = declaration["domain"]
-                if not interval["minimum"] <= value <= interval["maximum"]:
-                    raise ValueError("input quantity is outside declared domain")
+            interval = declaration["domain"]
+            if not interval["minimum"] <= value <= interval["maximum"]:
+                raise ValueError("input quantity is outside declared domain")
             if (
                 not runtime["numeric"]["minimum"]
                 <= value
@@ -466,7 +477,7 @@ def reference_runtime_artifacts(
         input_sequences[source] = authored["source_sequence"] + 1
         for row in authored["facts"]:
             key = _coordinate(row["target"])
-            if declarations[key]["role"] != "input":
+            if declarations[key]["role"] != execution_roles["input"]:
                 raise ValueError("external input must target an input declaration")
             admit_value(key, row["value"])
     frame = ReferenceEventFrame(initializers, {}, {}, 0, {})
@@ -711,7 +722,7 @@ def reference_runtime_artifacts(
             {
                 key: value
                 for key, value in frame.values.items()
-                if declarations[key]["role"] != "output"
+                if declarations[key]["role"] != execution_roles["output"]
             },
             frame.rng_states,
             frame.rng_indices,
@@ -964,7 +975,10 @@ def reference_admits_runtime_artifacts(context, rir, specification, artifacts):
                 return False
         available = artifacts["evaluator-capability-manifest"]
         _, required = _supported_shape(
-            specification, rir, _reference_experiment_judgments(context, specification)
+            specification,
+            rir,
+            _reference_experiment_judgments(context, specification),
+            rir["selected_semantics"]["symbol_role_bindings"],
         )
         return all(
             set(values) <= set(available[key]) for key, values in required.items()

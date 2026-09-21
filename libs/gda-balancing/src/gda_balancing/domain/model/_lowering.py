@@ -10,8 +10,8 @@ from gda_balancing.domain.authority.source_projection import (
     SourceProjection,
     author_source_native_token,
     derive_default_source_native_bindings,
-    project_source_native_token,
     source_assignment_binding,
+    source_assignment_role,
 )
 
 
@@ -136,17 +136,7 @@ def lowering_inputs(
                 judgment=invocation["judgment"],
                 facts=[fact],
             )
-        declaration = cast(dict[str, JsonValue], fact["fields"])
-        if "domain_kind" in declaration:
-            declaration["domain_kind"] = cast(
-                JsonValue,
-                project_source_native_token(
-                    source_bindings,
-                    "source.symbol.domain_kind.discriminator",
-                    declaration["domain_kind"],
-                ),
-            )
-        declarations.append(declaration)
+        declarations.append(cast(dict[str, JsonValue], fact["fields"]))
     return lock, declarations, lowering, source_rows
 
 
@@ -2817,7 +2807,7 @@ def _value_policy_is_valid(
         ):
             return False
         domain = declaration.get("domain")
-        if declaration.get("domain_kind") == "closed-interval" and (
+        if (
             not isinstance(domain, dict)
             or not isinstance(domain.get("minimum"), int)
             or not isinstance(domain.get("maximum"), int)
@@ -4166,7 +4156,6 @@ def _runtime_projection(
 ) -> dict[str, Any]:
     """Project declarations and actual Operation roots from current owners."""
     profile = cast(dict[str, Any], lowering["runtime_projection"])
-    source_bindings = derive_default_source_native_bindings(kernel, language_bundle)
     packages = _namespace_packages(selection, language_bundle)
     namespace_members = {
         "types": _namespace_type_exports(packages),
@@ -4314,12 +4303,6 @@ def _runtime_projection(
                     if seed.get("missing_target") == "not-applicable":
                         continue
                     raise
-                if seed["declaration_path"] == ["domain_kind"]:
-                    target = project_source_native_token(
-                        source_bindings,
-                        "source.symbol.domain_kind.discriminator",
-                        target,
-                    )
                 if canonical_bytes(target) == canonical_bytes(expected):
                     matches.append(index)
             if not matches:
@@ -4560,6 +4543,25 @@ def _runtime_projection(
         if entries:
             projected_closures.append({"package": package, "definitions": entries})
     projection["package_semantic_closures"] = projected_closures
+    symbol_role_law = cast(
+        dict[str, Any],
+        kernel["meta_format"]["runtime_projection"]["symbol_role_bindings"],
+    )
+    role_bindings: dict[str, str] = {}
+    assignment_policy = cast(dict[str, Any], lowering["assignment_policy"])
+    for binding in cast(list[dict[str, Any]], symbol_role_law["bindings"]):
+        budget.consume()  # One law-selector charge per Kernel-owned binding.
+        role = source_assignment_role(
+            assignment_policy,
+            **cast(dict[str, Any], binding["role_fields"]),
+            **cast(dict[str, Any], binding["mode_fields"]),
+        )
+        role_bindings[cast(str, binding["slot"])] = role
+    if symbol_role_law.get("distinct") is not True or len(
+        set(role_bindings.values())
+    ) != len(role_bindings):
+        raise ValueError("runtime Symbol role bindings are not distinct")
+    projection[cast(str, symbol_role_law["output_member"])] = role_bindings
     return projection
 
 

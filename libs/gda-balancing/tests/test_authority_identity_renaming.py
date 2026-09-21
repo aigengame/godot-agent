@@ -10,7 +10,13 @@ from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     admit_authority_context,
 )
-from gda_balancing.domain.experiment import CheckedExperiment, check_experiment_value
+from gda_balancing.domain.diagnostics import experiment_numeric_domain_reason
+from gda_balancing.domain.experiment import (
+    CheckedExperiment,
+    check_experiment_value,
+    experiment_check_refusal_reasons,
+    experiment_run_refusal_reasons,
+)
 from gda_balancing.domain.experiment_artifacts import validate_experiment_artifact_set
 from gda_balancing.domain.model import AdmittedRir, admit_rir
 from gda_balancing.domain.structured_values import evaluate_structured_value_vector
@@ -41,6 +47,10 @@ _RENAMES = {
             "record-member-mismatch",
             "resource-exhausted",
         )
+    },
+    "execution-reasons": {
+        "runtime.reason.capability-unsupported": "opaque.reason.capability",
+        "evaluation.reason.observation-unavailable": "opaque.reason.observation",
     },
 }
 
@@ -81,6 +91,75 @@ def _candidate(role):
         vectors.update(renamed)
     _seal(language, kernel)
     return kernel, language, _rename(source(entries), names), names
+
+
+def test_experiment_numeric_reason_binding_allows_unrelated_equal_predicate():
+    kernel, language, _model_source, _names = _candidate("original")
+    package = next(
+        row
+        for row in language["language"]["packages"]
+        if row["id"] == "standard.compiler"
+    )
+    closures = {
+        row["authority_path"]: row["definitions"] for row in package["semantic_closure"]
+    }
+    unrelated_diagnostic = "language.unrelated_invalid_interval"
+    unrelated_reason = "model.reason.unrelated-invalid-interval"
+    closures["diagnostics"].append({"code": unrelated_diagnostic, "stage": "static"})
+    closures["language.reasons"].append(
+        {
+            "diagnostic": unrelated_diagnostic,
+            "id": unrelated_reason,
+            "predicate": {"operation": "invalid-interval"},
+            "stage": "static",
+        }
+    )
+    package["exports"]["diagnostics"].append(unrelated_diagnostic)
+    package["exports"]["reasons"].append(unrelated_reason)
+    vector_set = next(
+        row
+        for row in language.package_conformance_vector_sets
+        if row["package_id"] == package["id"]
+    )
+    vectors = [
+        {
+            "diagnostic": unrelated_diagnostic,
+            "id": "model.accept.unrelated-invalid-interval",
+            "input": {"maximum": 1, "minimum": 0},
+            "matched": False,
+            "reason": unrelated_reason,
+            "stage": "static",
+        },
+        {
+            "diagnostic": unrelated_diagnostic,
+            "id": "model.refuse.unrelated-invalid-interval",
+            "input": {"maximum": 0, "minimum": 1},
+            "matched": True,
+            "reason": unrelated_reason,
+            "stage": "static",
+        },
+    ]
+    vector_set["vector_definitions"].extend(vectors)
+    vector_set["vectors"].extend(row["id"] for row in vectors)
+    _seal(language, kernel)
+
+    for consumer in (_consumer_a, _consumer_b):
+        report = consumer(kernel, language)
+        assert report["admitted"], report["diagnostics"]
+    context = admit_authority_context(kernel, language)
+    assert isinstance(context, AdmittedAuthorityContext), context
+    assert (
+        experiment_numeric_domain_reason(context.language_bundle)["id"]
+        == "quantity.reason.invalid-domain"
+    )
+    selected_reasons = experiment_check_refusal_reasons(context)
+    assert "quantity.reason.invalid-domain" in selected_reasons
+    assert unrelated_reason not in selected_reasons
+    run_reasons = experiment_run_refusal_reasons(context)
+    assert set(selected_reasons) < set(run_reasons)
+    assert "runtime.reason.capability-unsupported" in run_reasons
+    assert "evaluation.reason.observation-unavailable" in run_reasons
+    assert unrelated_reason not in run_reasons
 
 
 @pytest.mark.parametrize("role", ["original", *_RENAMES, "all"])

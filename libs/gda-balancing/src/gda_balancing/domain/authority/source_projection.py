@@ -486,7 +486,7 @@ class SourceAssignmentBinding:
     mode: str
 
 
-def source_assignment_binding(
+def _source_assignment_bindings(
     assignment_policy: Mapping[str, Any],
     *,
     initialization_source: str,
@@ -496,10 +496,9 @@ def source_assignment_binding(
     value_member: str | None = None,
     experiment_cardinality: str | None = None,
     event_payload_cardinality: str | None = None,
-    external_fact_cardinality: str | None = None,
+    external_fact_cardinality: str | Sequence[str] | None = None,
     override: bool | None = None,
-) -> SourceAssignmentBinding:
-    """Select one LDB role/mode pair without depending on either native name."""
+) -> tuple[SourceAssignmentBinding, ...]:
     role_fields: dict[str, Any] = {
         "binding_kind": binding_kind,
         "entrypoint_result": entrypoint_result,
@@ -517,26 +516,94 @@ def source_assignment_binding(
         "external_fact_cardinality": external_fact_cardinality,
         "override": override,
     }
-    matches = [
+
+    def field_matches(actual: Any, expected: Any) -> bool:
+        if isinstance(expected, list) and not isinstance(actual, list):
+            return actual in expected
+        return actual == expected
+
+    return tuple(
         SourceAssignmentBinding(cast(str, row["role"]), cast(str, mode["id"]))
         for row in assignment_policy.get("roles", ())
         if isinstance(row, Mapping)
         and isinstance(row.get("role"), str)
         and all(
-            expected is None or row.get(field) == expected
+            expected is None or field_matches(row.get(field), expected)
             for field, expected in role_fields.items()
         )
         for mode in row.get("modes", ())
         if isinstance(mode, Mapping)
         and isinstance(mode.get("id"), str)
         and all(
-            expected is None or mode.get(field) == expected
+            expected is None or field_matches(mode.get(field), expected)
             for field, expected in mode_fields.items()
         )
-    ]
+    )
+
+
+def source_assignment_binding(
+    assignment_policy: Mapping[str, Any],
+    *,
+    initialization_source: str,
+    binding_kind: str | None = None,
+    entrypoint_result: bool | None = None,
+    entrypoint_operand_access: Sequence[str] | None = None,
+    value_member: str | None = None,
+    experiment_cardinality: str | None = None,
+    event_payload_cardinality: str | None = None,
+    external_fact_cardinality: str | Sequence[str] | None = None,
+    override: bool | None = None,
+) -> SourceAssignmentBinding:
+    """Select one LDB role/mode pair without depending on either native name."""
+    matches = _source_assignment_bindings(
+        assignment_policy,
+        initialization_source=initialization_source,
+        binding_kind=binding_kind,
+        entrypoint_result=entrypoint_result,
+        entrypoint_operand_access=entrypoint_operand_access,
+        value_member=value_member,
+        experiment_cardinality=experiment_cardinality,
+        event_payload_cardinality=event_payload_cardinality,
+        external_fact_cardinality=external_fact_cardinality,
+        override=override,
+    )
     if len(matches) != 1:
         raise ValueError("Source assignment behavior has no unique role and mode")
     return matches[0]
+
+
+def source_assignment_role(
+    assignment_policy: Mapping[str, Any],
+    *,
+    initialization_source: str,
+    binding_kind: str | None = None,
+    entrypoint_result: bool | None = None,
+    entrypoint_operand_access: Sequence[str] | None = None,
+    value_member: str | None = None,
+    experiment_cardinality: str | None = None,
+    event_payload_cardinality: str | None = None,
+    external_fact_cardinality: str | Sequence[str] | None = None,
+    override: bool | None = None,
+) -> str:
+    """Select one LDB role while allowing equivalent modes within that role."""
+    roles = {
+        binding.role
+        for binding in _source_assignment_bindings(
+            assignment_policy,
+            initialization_source=initialization_source,
+            binding_kind=binding_kind,
+            entrypoint_result=entrypoint_result,
+            entrypoint_operand_access=entrypoint_operand_access,
+            value_member=value_member,
+            experiment_cardinality=experiment_cardinality,
+            event_payload_cardinality=event_payload_cardinality,
+            external_fact_cardinality=external_fact_cardinality,
+            override=override,
+        )
+    }
+    if len(roles) != 1:
+        raise ValueError("Source assignment behavior has no unique role")
+    return next(iter(roles))
 
 
 def source_assignment_policy(

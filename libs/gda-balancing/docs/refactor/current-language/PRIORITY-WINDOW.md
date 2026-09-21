@@ -6,6 +6,20 @@ Base: shared dev `1596e77ea6807d4b91b8709da52c72eed346b0de`, after #877.
 open implementation work. Functional evidence remains candidate/open; #575 retains
 the complete scenario family and #542–#544 retain their activation conditions.
 
+> **Owner scope correction (2026-09-21):** #878 is bounded to this declared priority witness's
+> selected execution closure and the actual artifacts/results it generates and consumes. Fixed
+> implementations A and B enumerate and rename only twelve explicitly selected extension-owned
+> Type/Operation coordinates and must mutually consume all eight Model artifacts and six Runtime
+> artifacts/results for original and renamed cases. The complete admitted `selected_semantics`
+> canonical hash/RIR semantic identity and all eight Model artifact content identities bind the
+> remaining selected meaning; mismatch/omission cases refuse without a hand-authored
+> dependency-category manifest. Unrelated packages, unselected vector sets or artifact
+> families, and ordinary data strings are excluded. The earlier whole-LDB, all-vector,
+> arbitrary-string and complete-rename checkpoints below are retained as historical defect
+> evidence, but their generic platform obligations are superseded and the machinery is deleted.
+> #575 retains the exhaustive bounded bijection and formal Extension Invariance Receipt; #542–#544
+> retain authenticated claim activation.
+
 ## Contract and first checks
 
 The existing bADR-0014/0016/0017 boundaries remain binding: `game.action` owns pending
@@ -19,13 +33,15 @@ form the initial candidate. Resolution must inspect the actual pending graph in
 reverse order. A counter proposal does not immediately erase its target; cancellation
 occurs prospectively during resolution after the window closes. A valid pass-choice
 variant must change the final result under the same rules. An invalid responder or
-counter target must have a declared rollback outcome. The permanent candidate below
-now executes these boundaries; its complete invariance proof remains open.
+counter target must have a declared rollback outcome. The permanent candidate below now executes
+these boundaries; #878's bounded falsifier and #575's later exhaustive invariance proof remain
+distinct.
 
-The first checks target two independent risks: whether the current value/Operation
-basis can represent that protocol without fabricated state, and whether complete
-renaming exposes host-selected meanings. No Record construction, extra phase or
-callback is assumed to exist. A concrete missing capability reopens the basis before
+The first checks target two independent risks: whether the current value/Operation basis can
+represent that protocol without fabricated state, and whether selected extension Type/Operation
+renaming plus canonical selected-semantics/Model-content mismatch cases expose host-selected
+meanings. No Record construction, extra phase or callback is assumed to exist. A concrete missing
+capability reopens the basis before
 dependent content expands; it must not be hidden by a prescribed trace or a genre
 branch.
 
@@ -46,10 +62,10 @@ This is a prerequisite repair to generic authority consumption, not a new genre
 dispatch rule. Its permanent public regression must distinguish the original defect.
 
 The original dev candidate therefore fails this bounded renaming check. After repair,
-freeze both implementations before deriving the full witness graph, inventory and
-bijection. The same fixed builds must then process original, extended, renamed and
-input-variant cases. Do not describe the original build as invariant, or count this
-single namespace substitution as complete inventory validation.
+freeze both implementations before deriving the priority witness's selected execution
+closure and selected extension Type/Operation rename map. The same fixed builds must then process
+original, extended, renamed and input-variant cases. Do not describe the original build as
+invariant, or count this single namespace substitution as complete #878 validation.
 
 The prerequisite is implemented by reusing the existing unique Source schema selector
 and deleting both package-name filters and the duplicate scan. Four permanent tests
@@ -57,7 +73,8 @@ cover the real Formula and generic Source check/build paths plus missing/duplica
 schema-owner refusal at Authority admission. On the preserved old implementation,
 the Formula rename case fails and the other three pass; after the correction these
 and related Formula/namespace cases pass (17 tests). Kernel/LDB resources are unchanged.
-Final fixed-build and complete inventory acceptance still require the work below.
+Final fixed-build, canonical selected-semantics/eight-Model-content binding and mismatch refusals,
+and 8+6 mutual exchange still require the work below.
 
 ## Scheduled-argument counterexamples
 
@@ -322,14 +339,14 @@ collection contains 2115 tests and 347 package vectors with no omitted or overla
 test coverage. The semantic inventory remains incomplete; those test counts do not
 establish its completeness.
 
-## Rename authoring checkpoint
+## Rename authoring checkpoint (historical; superseded)
 
 The rule/Formula checkpoint at `aaafb35a6` adds rule-variable key and term references,
 judgment selection, Formula notation, slots, slot parameters and fixed-value aliases.
 Source format markers stay bound to the declared wire-format equality. They are
 protocol format parameters, not nominal identifiers or a reserved spelling list.
 
-The conformance-only [rename authoring helper](../../../tests/schema2_extension_renaming_support.py)
+The former conformance-only `tests/schema2_extension_renaming_support.py` helper
 derives and validates its own inventory before accepting a bijection. It applies
 simultaneous edits at original value, key and independently parsed Formula AST
 positions. Key collisions refuse; body and expression must still agree. It uses the
@@ -337,7 +354,7 @@ explicit supplied Kernel to reseal existing package/vector/root envelopes and re
 missing membership. It returns authored inputs only. Fixed consumers must produce new
 artifacts/results; numerical vector expectations are not recalculated.
 
-The [bounded tests](../../../tests/test_extension_renaming.py) cover key swaps,
+The former `tests/test_extension_renaming.py` bounded tests cover key swaps,
 escaped positions, unchanged user text, a missed Formula reference, exact current
 envelopes, missing members and unsupported identity contracts. A real renamed rule
 binding reseals and admits in both authority consumers without changing any vector
@@ -348,7 +365,9 @@ rule-variable swaps and quoted Formula parameter names. The
 [checkpoint record](evidence/priority-window/rename-authoring-checkpoint.json)
 preserves source hashes and the distinct primary/review validation scopes. This is
 bounded authoring evidence: the complete graph still has uncovered roles and the public apply helper
-refuses it. No complete rename, final build freeze or full issue acceptance is claimed.
+refuses it. At this historical checkpoint the then-required complete rename, final build freeze and
+full issue acceptance were not claimed; the owner correction above supersedes that complete-rename
+obligation for #878.
 
 One subsequent coverage check catches a real inventory error: constructor member
 selectors are open addresses, not fixed merely because present definitions use the
@@ -461,6 +480,12 @@ The two-owner specialization fixture selects both Operations through real entryp
 and distinct Formula bindings, compares shared/equal/detached objects with independent
 compilation, and separately checks that an unused copied Operation is absent.
 
+Later deletion of four obsolete Evidence reasons and their four diagnostics reduces
+the same catalog scan from 319 to 311 charges. The final Symbol-role projection adds
+three Kernel-owned law selectors, so the integrated boundary is 314. Its permanent
+test covers 312 through 316 and independently observes both Source compilation and
+artifact re-admission at the exact same boundary.
+
 ## Refusal replay and local collection references
 
 The paired priority run exposes a separate consumer defect: Runtime correctly refuses
@@ -484,8 +509,9 @@ the primary projection/inventory/authoring/CI suite passes 99 tests.
 The [correction record](evidence/priority-window/root-projection-correction.json)
 preserves exact commits, source hashes, scoped reviews and parsed primary results.
 CI collection accounts for 2175 tests and 347 package vectors with no missing,
-overlapping or unassigned tests. Ruff and full Pyright pass. This is collection and
-focused execution evidence; all-shard CI and the final complete rename remain open.
+overlapping or unassigned tests. Ruff and full Pyright pass. This is collection and focused
+execution evidence. At this historical checkpoint all-shard CI and the then-required final complete
+rename remained open; the owner correction above assigns exhaustive bijection to #575.
 
 ## Source address routing and build-freeze evidence
 
@@ -526,8 +552,9 @@ to select the final implementation. The final freeze has not run.
 
 The [integration record](evidence/priority-window/source-address-integration.json)
 preserves scoped results, the incomplete-probe adjudication and the build audit.
-The reader still reports 56 explicit gaps; these corrections do not establish a
-complete inventory or a final #878 pass.
+At this historical checkpoint the reader still reported 56 explicit gaps and the corrections did
+not establish the then-required complete inventory or a final #878 pass. The owner correction above
+supersedes that inventory obligation while retaining the defects and scoped results as evidence.
 
 ## Direct Replay observation members
 
@@ -1222,7 +1249,8 @@ without missing, overlapping or uncovered assignments; it is not full CI executi
 The current inventory has 1,607 tokens, 6,461 occurrences and 34 remaining gaps.
 Exactly the manifest and index Schema gaps close; every remaining gap row is
 unchanged. The 29 other artifact Schema gaps and the five other inventory gaps,
-complete rename proof and final fixed-build #878 acceptance remain open. Rollback
+the then-required complete rename proof and final fixed-build #878 acceptance remained open. This
+is a superseded historical checkpoint; #575 now owns the exhaustive bijection. Rollback
 restores the prior implementation, Kernel, LDB and tests together, without an old
 reader or alternate projection path.
 
@@ -1281,34 +1309,45 @@ CI execution.
 
 Existing reference traversal adds exactly one occurrence: 1,607 tokens and 6,462
 occurrences. All 34 gap rows remain unchanged. The whole Resolution profile,
-Source grammar, Formula DSL and complete #878 proof remain open. bADR-0013's
+Source grammar, Formula DSL and the then-required complete #878 inventory proof remained open. This
+is a superseded historical checkpoint; current #878 acceptance is stated below. bADR-0013's
 compiler-stage decision remains accepted; this binding clarification requires no
 new supersession status. Receipt and Publication records above retain their
 historical scope and measurements.
 
-## Remaining proof and integration
+## Current final gate status
 
-- Complete the semantic-token inventory and resolve remaining demonstrated name
-  coupling before the final build freeze. Artifact declaration IDs and protocol roles
-  must be distinguished by actual authority; an open string cannot be exempted merely
-  because a host recognizes its spelling. The old Type-to-Operation edge is deleted;
-  its counterexample and permanent tests remain evidence for final dependency review.
-  Preserve distinct nominal Type owners and validate the complete rename relation
-  instead of merging their identities.
-- Derive every reachable non-Kernel token and occurrence from the applicable Kernel/LDB,
-  node, constructor and authored-input contracts. An ordinary JSON string walk cannot
-  distinguish an identity from user data. A graph rooted at the complete LDB includes
-  all of its referenced packages and vector sets; selected RIR closure alone does not
-  replace that graph.
-- Independently validate complete coverage and an exhaustive bijection. Missing classes
-  or members, duplicate/extra mappings and renamed reserved Kernel identities refuse.
-  Keep exact renamed artifact identities distinct; inverse-map observations only for
-  the declared equivalence comparison.
-- Reuse independent authority admission, lowering and Event execution. Four independently
-  lowered artifact kinds and a helper that executes one Operation do not by themselves
-  prove complete multi-boundary result exchange. Close that consumer path explicitly.
-- Run the real baseline and input variants, plus bounds, illegal callback and phase cases.
-  Then run required CI and separate Standards/Spec/DDMA reviews before merging into dev.
+The integrated candidate derives baseline and causal-variant authored/generated graphs,
+fixes installed A and independent B before mutation, derives the declared priority
+witness's selected execution closure, and renames the explicitly selected extension-owned Type and
+Operation identities. Only those twelve coordinates are enumerated. The complete admitted
+`selected_semantics` canonical hash/RIR semantic identity and all eight Model artifact content
+identities bind the remaining selected meaning; mismatch/omission cases refuse without a
+hand-authored dependency-category manifest. Original and renamed variants exercise public Model
+check/build and Experiment check/run plus mutual admission of all eight Model artifacts and all six Runtime
+artifacts/results. Permanent public cases retain the input-boundary, nesting, illegal callback and
+illegal phase refusals.
+
+The previous whole-LDB, all-vector and arbitrary-string inventory was an NFR platform:
+each new authority surface created another occurrence, projection, writer and CI obligation
+without changing the witness acceptance boundary. Backtrace review therefore deleted that
+generic mechanism. Unrelated packages, unselected vector sets or artifact families, and
+ordinary data strings are outside #878.
+
+The exact Runtime projection boundary is now 314 charges: the earlier boundary was 319,
+deleting four obsolete Evidence reasons and their four diagnostics reduced it to 311,
+and three Kernel-owned Symbol-role selectors raise the final boundary to 314. The
+permanent boundary test covers 312 through 316 for both Source compilation and imported
+artifact admission.
+
+These are current implementation candidates, not final acceptance evidence. #878 remains open
+until the bounded fixed-build test proves the twelve-coordinate extension Type/Operation rename,
+the complete admitted selected-semantics hash/RIR semantic identity and all eight Model artifact
+content-identity bindings plus mismatch/omission refusals, and actual 8+6 mutual exchange from
+the final tree; required CI and fresh Standards, Spec and DDMA reviews must close without actionable
+findings. #878 does not claim an exhaustive bounded bijection. No formal Extension Invariance
+Receipt or authenticated claim is activated by this functional witness; #575 and #542–#544 retain
+those gates.
 
 Rollback restores the complete base code, authority, authored inputs and evidence in
 an isolated checkout and repeats a public build/run. No fallback, parallel owner or

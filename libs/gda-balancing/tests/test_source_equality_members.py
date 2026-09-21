@@ -23,10 +23,6 @@ from gda_balancing.domain.model._resolution import ModelSourceContext
 from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_conformance_support import _consumer_b
 from schema2_bootstrap_production_support import _consumer_a
-from schema2_extension_inventory_support import (
-    read_extension_inventory,
-    validate_extension_inventory,
-)
 from test_current_namespace_public import _PublicCandidate, _members
 from test_schema2_model_lowerer_conformance import (
     _reference_check_source,
@@ -104,13 +100,6 @@ def test_annotated_symbol_members_reach_public_compilation_and_identical_facts(
         assert canonical_bytes([fields for fields, _ in rows]) == canonical_bytes(
             cast(JsonValue, expected_facts)
         )
-    graph = {**authored, "source": renamed}
-    inventory = read_extension_inventory(kernel, graph)
-    validate_extension_inventory(kernel, graph, inventory)
-    assert any(
-        t.role == "source-field" and t.name == target
-        for t in inventory.tokens - inventory.reserved
-    )
     public = _PublicCandidate(tmp_path, authorities=(kernel, sealed))
     public.write_source(renamed)
     public.cli("model", "check", str(public.source))

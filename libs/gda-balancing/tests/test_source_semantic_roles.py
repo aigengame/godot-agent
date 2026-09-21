@@ -770,7 +770,6 @@ def test_language_owned_operation_call_token_renames_without_kernel_reseal(
 
 
 def test_kernel_owned_operation_call_token_stays_on_the_stable_abi():
-    from schema2_extension_inventory_support import _attached_language
     from schema2_formula_conformance_support import _source_abi_value_and_paths
 
     kernel, language = mutable_authorities()
@@ -822,7 +821,7 @@ def test_kernel_owned_operation_call_token_stays_on_the_stable_abi():
         if node.get("node") == "operation-call"
     )
     operation["node"] = "operation-invocation"
-    language_bundle = _attached_language(kernel, authored)
+    language_bundle = _index(kernel, graph)
     projected = _consumer_b_project_source_role(
         operation, "operation-call", kernel, language_bundle
     ).value

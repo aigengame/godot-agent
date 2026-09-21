@@ -1,7 +1,6 @@
 """Receipt bindings and transport are derived independently from the supplied Kernel."""
 
 from copy import deepcopy
-from dataclasses import replace
 import hashlib
 import json
 
@@ -41,12 +40,6 @@ from schema2_bootstrap_conformance_support import (
     _identity,
 )
 from schema2_bootstrap_production_support import _consumer_a
-from schema2_extension_inventory_support import (
-    AuthorityToken,
-    InventoryRefusal,
-    read_extension_inventory,
-    validate_extension_inventory,
-)
 from test_bounded_fold_public import _source
 from test_current_namespace_public import _PublicCandidate, _members
 from test_receipt_protocol_structure import _rename_receipt
@@ -260,48 +253,6 @@ def test_receipt_binding_hashes_and_transport_relocation_follow_actual_law():
     ]
 
 
-@pytest.mark.parametrize("corruption", ["omitted", "wrong-owner"])
-def test_receipt_inventory_keeps_binding_tokens_without_authored_schema_ghosts(
-    corruption,
-):
-    kernel, ldb = mutable_authorities()
-    graph = _authored(ldb)
-    inventory = read_extension_inventory(kernel, graph)
-    validate_extension_inventory(kernel, graph, inventory)
-    schema, binding = _receipt(_raw_language(ldb))
-    schema_token = AuthorityToken(
-        "language.artifact_wire_schemas", (), schema["artifact_kind"]
-    )
-    producer_token = AuthorityToken(
-        "language.artifact_contracts", (), binding["artifact_kind"]
-    )
-    assert {schema_token, producer_token} <= set(inventory.tokens)
-    occurrence = next(
-        row
-        for row in inventory.occurrences
-        if row.token == schema_token and row.pointer.endswith("/schema_kind")
-    )
-    assert not any(
-        gap.pointer
-        == occurrence.pointer.rsplit("/", 1)[0] + "/identity_excluded_members"
-        for gap in inventory.uncovered
-    )
-    for row in inventory.occurrences:
-        if row.token == producer_token:
-            assert "/schema/" not in row.pointer
-    altered = replace(
-        inventory,
-        occurrences=tuple(row for row in inventory.occurrences if row != occurrence)
-        + (
-            (replace(occurrence, token=replace(schema_token, owner=("wrong-owner",))),)
-            if corruption == "wrong-owner"
-            else ()
-        ),
-    )
-    with pytest.raises(InventoryRefusal):
-        validate_extension_inventory(kernel, graph, altered)
-
-
 @pytest.mark.parametrize("renamed", [False, True], ids=["original", "distinct-kinds"])
 def test_receipt_renamed_public_build_and_labels_are_consumed_independently(
     tmp_path, monkeypatch, renamed
@@ -336,18 +287,6 @@ def _publication_roundtrip(tmp_path, monkeypatch, *, rename):
     )
     if rename is not None:
         assert schema_row["artifact_kind"] != binding["artifact_kind"]
-        inventory = read_extension_inventory(kernel, authored)
-        validate_extension_inventory(kernel, authored, inventory)
-        assert (
-            AuthorityToken(
-                "language.artifact_wire_schemas", (), schema_row["artifact_kind"]
-            )
-            in inventory.tokens - inventory.reserved
-        )
-        assert (
-            AuthorityToken("language.artifact_contracts", (), binding["artifact_kind"])
-            in inventory.tokens - inventory.reserved
-        )
 
     source = _source()
     public = _PublicCandidate(tmp_path / "public", authorities=(kernel, graph))

@@ -19,7 +19,9 @@ binding deletion; the [execution-identity record](refactor/current-language/EXEC
 records the native contract while full integration and CI acceptance remain pending.
 The [S3 contract record](refactor/current-language/NAMESPACE-CONTRACT.md)
 accounts for #872's final deletion witnesses and rollback; #879 and full conformance retain
-their separate acceptance.
+their separate acceptance. #879 requires physical deletion of RIR `domain_kind`, the obsolete
+`maximum` RIR wire-union branch, and every remaining fallback or compatibility binding after
+dependency closure; deprecation or an ignored parallel reader is not closure.
 
 The refactor keeps typed language, compiler and Runtime responsibilities, real execution-policy
 identity, exact content integrity, and consistent in-flight inputs. It does not activate the
@@ -2191,15 +2193,28 @@ Closure publishes an independently validated Extension Invariance Receipt throug
 
 1. Freeze the identities of both independent implementation builds before traversing the witness
    graph.
-2. Traverse the complete reachable graph into a closed Non-Kernel Authority Token Inventory. The
-   inventory covers every non-Kernel identity that can affect resolution, dispatch, result decoding,
-   or trace.
+2. Root traversal in the declared witness's selected execution closure and the artifacts/results it
+   actually generates or consumes, then derive a closed Non-Kernel Authority Token Inventory. The
+   inventory covers every non-Kernel identity in that bounded graph that can affect resolution,
+   dispatch, result decoding, or trace. It excludes unrelated packages, unselected vector sets or
+   artifact families, and ordinary data strings.
 3. Independently validate an exhaustive bijection that renames every inventory member.
 4. Require both implementations to consume each other's artifacts without a rebuild.
 5. Bind the identical core projections and build identities, inventory, rename map, and public
    results into the receipt.
 
 An omitted token class or representative-only rename fails the gate.
+
+Issue #878 is the bounded early falsifier for this gate. It fixes two independent builds, exercises
+the declared priority witness's selected execution closure, renames explicitly selected
+extension-owned Type and Operation identities, and binds the complete admitted `selected_semantics`
+canonical hash/RIR semantic identity plus all eight Model artifact content identities. Only the
+twelve extension Type/Operation coordinates are enumerated; negative cases reject binding mismatch
+or omission without a hand-authored dependency-category manifest. A and B mutually consume the
+actual eight Model artifacts and six Runtime artifacts/results. It does not claim the exhaustive bounded
+bijection or publish or activate the formal Extension Invariance Receipt. Issue #575 retains that
+bijection, the complete scenario-family and receipt work; #542–#544 retain authenticated claim
+activation and trust ownership.
 
 No further disposable architecture prototypes are planned. Gate 1 resolved the bounded semantic-
 authority mechanism risk; additional validation belongs in the permanent conformance and production

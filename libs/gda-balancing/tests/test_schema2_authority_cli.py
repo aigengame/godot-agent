@@ -2053,8 +2053,11 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         ("language.formula_resource_exhausted", "static"),
         ("language.formula_cycle", "static"),
         ("language.formula_notation_mismatch", "static"),
+        ("language.formula_notation_parse_failure", "parse"),
+        ("language.formula_notation_resource_exhausted", "parse"),
         ("language.package_unavailable", "resolution"),
         ("language.resolution_ambiguity", "resolution"),
+        ("language.resolved_authority_mismatch", "resolution"),
     }
     experiment_check = {
         ("language.source_too_large", "ingress"),

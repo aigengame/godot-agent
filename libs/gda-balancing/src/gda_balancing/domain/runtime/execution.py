@@ -279,10 +279,9 @@ def _admit_declared_numeric(
     declaration: dict[str, Any],
 ) -> int:
     admitted = _admit_numeric(value, numeric)
-    if declaration["domain_kind"] == "closed-interval":
-        domain = cast(dict[str, int], declaration["domain"])
-        if not domain["minimum"] <= admitted <= domain["maximum"]:
-            raise OverflowError("value is outside its declared numeric domain")
+    domain = cast(dict[str, int], declaration["domain"])
+    if not domain["minimum"] <= admitted <= domain["maximum"]:
+        raise OverflowError("value is outside its declared numeric domain")
     return admitted
 
 
@@ -994,6 +993,10 @@ def evaluate_prepared_experiment(
         canonical_bytes(cast(JsonValue, row["resolved_symbol"])): row
         for row in checked.rir["declarations"]
     }
+    execution_roles = cast(
+        dict[str, str],
+        checked.rir["selected_semantics"]["symbol_role_bindings"],
+    )
     display_names = _resolved_display_names(declarations)
     call_sites = {
         (
@@ -1191,7 +1194,8 @@ def evaluate_prepared_experiment(
         state: dict[bytes, Any] = {
             identity: actual_values[identity]
             for identity, declaration in declarations.items()
-            if declaration["role"] == "state" and identity in actual_values
+            if declaration["role"] == execution_roles["state"]
+            and identity in actual_values
         }
         initial_values = _resolved_state_rows(state, display_names)
         initial_snapshot = cast(
@@ -2045,7 +2049,7 @@ def evaluate_prepared_experiment(
                         root_arguments[binding["port"]["name"]] = event_actual_values[
                             identity
                         ]
-                        if declaration["role"] == "state":
+                        if declaration["role"] == execution_roles["state"]:
                             root_state_references[binding["port"]["name"]] = identity
                     elif resolved_operand["kind"] == "event-reference":
                         reference_bindings = {
@@ -2654,9 +2658,6 @@ def evaluate_prepared_experiment(
                     if isinstance(value, int):
                         matched.append(value)
             elif metric_operator == "single-terminal-integer":
-                expected_name = observation["name"]
-                if expected_name not in {"terminal", f"{scenario['id']}:terminal"}:
-                    continue
                 value = scenario_terminal_states[scenario["id"]].get(
                     observation["member"]
                 )

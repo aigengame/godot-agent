@@ -565,6 +565,22 @@ def _selected_semantics_schema(kernel, lowering, law, record):
     text = {"type": "string", "minLength": 1}
     selected = {}
     source_items = {}
+    role_bindings = meta["runtime_projection"]["symbol_role_bindings"]
+    binding_slots = [row["slot"] for row in role_bindings["bindings"]]
+    binding_container = law["containers"]["symbol_role_bindings"]
+    expected_binding_container = {
+        "closed": True,
+        "field_types": {slot: {"type": "non-empty-string"} for slot in binding_slots},
+        "optional_members": [],
+        "required_members": binding_slots,
+        "type": "closed-object",
+    }
+    if (
+        role_bindings["output_member"] != "symbol_role_bindings"
+        or binding_container != expected_binding_container
+    ):
+        raise ValueError("RIR Symbol-role binding contract is incomplete")
+    selected[role_bindings["output_member"]] = record("symbol_role_bindings")
     for collection in lowering["runtime_projection"]["collections"]:
         source = collection["source"]
         if source["kind"] != "semantic-closure":

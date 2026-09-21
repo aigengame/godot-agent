@@ -274,20 +274,3 @@ def test_explanation_actual_binding_rename_runs_public_build_and_inspect(
     model_protocol.test_public_eight_member_build_and_inspect_with_independent_companions(
         tmp_path, True
     )
-
-
-def test_explanation_inventory_retires_only_its_physical_schema_gap():
-    from schema2_extension_inventory_support import (
-        read_extension_inventory,
-        validate_extension_inventory,
-    )
-    from test_model_protocol_structure import REMAINING_GAPS
-
-    kernel, ldb = mutable_authorities()
-    graph = _authored(ldb)
-    before = deepcopy(graph)
-    inventory = read_extension_inventory(kernel, graph)
-    validate_extension_inventory(kernel, graph, inventory)
-    assert graph == before
-    assert len(inventory.uncovered) == 2
-    assert {gap.pointer for gap in inventory.uncovered} == REMAINING_GAPS

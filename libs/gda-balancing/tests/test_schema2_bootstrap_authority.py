@@ -20,6 +20,33 @@ def _package_vector_subject(ldb, package_id):
     return f"language-bundle.language.packages.{index}.vectors"
 
 
+def _reidentified_authored_graph(kernel, ldb):
+    """Reseal the authored graph without deriving an admitted language index."""
+    descriptors = {
+        descriptor["id"]: descriptor for descriptor in ldb.root["package_descriptors"]
+    }
+    package_sizes = []
+    for package in ldb.package_releases:
+        size = len(_encoded(package))
+        package_sizes.append(size)
+        descriptor = descriptors[package["id"]]
+        descriptor["byte_size"] = size
+        descriptor["content_identity"] = package["content_identity"]
+    vector_set_sizes = [
+        len(_encoded(vector_set)) for vector_set in ldb.package_conformance_vector_sets
+    ]
+    ldb.root["kernel_identity"] = kernel["content_identity"]
+    ldb.root["content_identity"] = _identity("language-definition-bundle-v2", ldb.root)
+    return LanguageBundleGraph(
+        root=ldb.root,
+        package_releases=ldb.package_releases,
+        package_conformance_vector_sets=ldb.package_conformance_vector_sets,
+        root_byte_size=len(_encoded(ldb.root)),
+        package_byte_sizes=package_sizes,
+        vector_set_byte_sizes=vector_set_sizes,
+    )
+
+
 def test_two_independent_consumers_admit_the_exact_authority_and_inventories():
     authority = _authority_candidate()
     kernel = authority["kernel"]
@@ -922,7 +949,8 @@ def test_two_consumers_accept_a_kernel_owned_boundary_token_change(monkeypatch):
     step = kernel["meta_format"]["runtime_program"]["step"]
     step["boundaries"][0] = "kernel-owned-initial"
     step["boundary_roles"]["initial"] = "kernel-owned-initial"
-    _reidentify(kernel, authority["language_bundle"])
+    kernel["content_identity"] = _identity("schema-major-kernel-v2", kernel)
+    graph = _reidentified_authored_graph(kernel, authority["language_bundle"])
     monkeypatch.setattr(
         production_bootstrap, "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]
     )
@@ -930,8 +958,8 @@ def test_two_consumers_accept_a_kernel_owned_boundary_token_change(monkeypatch):
         bootstrap_support, "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]
     )
 
-    first = _consumer_a(kernel, authority["language_bundle"])
-    second = _consumer_b(kernel, authority["language_bundle"])
+    first = _consumer_a(kernel, graph)
+    second = _consumer_b(kernel, graph)
 
     assert first == second
     assert first["admitted"] is True
@@ -1108,6 +1136,10 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         "projection-missing-path",
         "projection-wrong-result-type",
         "scalar-routing-drift",
+        "experiment-binding-missing",
+        "experiment-binding-wrong-stage",
+        "experiment-numeric-missing",
+        "experiment-numeric-wrong-predicate",
     ),
 )
 def test_two_consumers_refuse_reidentified_authority_paths_without_typed_closure(
@@ -1134,8 +1166,16 @@ def test_two_consumers_refuse_reidentified_authority_paths_without_typed_closure
         seed["target_path"] = (
             ["missing_member"] if mutation == "projection-missing-path" else []
         )
-    else:
+    elif mutation == "scalar-routing-drift":
         profile["modules_member"] = "host_drift"
+    elif mutation == "experiment-binding-missing":
+        profile["experiment_binding_reason"] = "absent.reason"
+    elif mutation == "experiment-binding-wrong-stage":
+        profile["experiment_binding_reason"] = "quantity.reason.invalid-domain"
+    elif mutation == "experiment-numeric-missing":
+        profile["experiment_numeric_domain_reason"] = "absent.reason"
+    else:
+        profile["experiment_numeric_domain_reason"] = "model.reason.name-ambiguity"
     _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -1975,9 +2015,14 @@ def test_old_identity_tamper_and_reidentified_behavior_or_token_mutations_refuse
     for index in range(len(baseline["kernel"]["admission"]["laws"])):
         authority = deepcopy(baseline)
         authority["kernel"]["admission"]["laws"][index]["operation"] += ".renamed"
-        _reidentify(authority["kernel"], authority["language_bundle"])
-        first = _consumer_a(authority["kernel"], authority["language_bundle"])
-        second = _consumer_b(authority["kernel"], authority["language_bundle"])
+        authority["kernel"]["content_identity"] = _identity(
+            "schema-major-kernel-v2", authority["kernel"]
+        )
+        graph = _reidentified_authored_graph(
+            authority["kernel"], authority["language_bundle"]
+        )
+        first = _consumer_a(authority["kernel"], graph)
+        second = _consumer_b(authority["kernel"], graph)
         assert first == second
         assert any(
             code == "kernel.identity_mismatch" for _, code, _ in first["diagnostics"]
@@ -1989,7 +2034,7 @@ def test_old_identity_tamper_and_reidentified_behavior_or_token_mutations_refuse
         rule_id = ldb["language"]["rules"][index]["id"]
         package = next(
             candidate
-            for candidate in ldb["language"]["packages"]
+            for candidate in ldb.package_releases
             if rule_id in candidate["exports"]["language_rules"]
         )
         rules = next(
@@ -2004,9 +2049,9 @@ def test_old_identity_tamper_and_reidentified_behavior_or_token_mutations_refuse
         )
         rule["conclusion"]["fact_kind"] += ".changed"
         _reidentify_package_release(package, kernel=authority["kernel"])
-        _reidentify_graph_root(ldb)
-        first = _consumer_a(authority["kernel"], ldb)
-        second = _consumer_b(authority["kernel"], ldb)
+        graph = _reidentified_authored_graph(authority["kernel"], ldb)
+        first = _consumer_a(authority["kernel"], graph)
+        second = _consumer_b(authority["kernel"], graph)
         assert first == second
         assert any(
             code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"]
@@ -2022,13 +2067,18 @@ def test_old_identity_tamper_and_reidentified_behavior_or_token_mutations_refuse
             collection = collection[part]
         if owner == "kernel":
             collection[0]["id"] += ".renamed"
-            _reidentify(authority["kernel"], authority["language_bundle"])
+            authority["kernel"]["content_identity"] = _identity(
+                "schema-major-kernel-v2", authority["kernel"]
+            )
+            graph = _reidentified_authored_graph(
+                authority["kernel"], authority["language_bundle"]
+            )
         else:
             ldb = authority["language_bundle"]
             rule_id = collection[0]["id"]
             package = next(
                 candidate
-                for candidate in ldb["language"]["packages"]
+                for candidate in ldb.package_releases
                 if rule_id in candidate["exports"]["language_rules"]
             )
             rules = next(
@@ -2047,9 +2097,9 @@ def test_old_identity_tamper_and_reidentified_behavior_or_token_mutations_refuse
             ] = renamed
             rule["id"] = renamed
             _reidentify_package_release(package, kernel=authority["kernel"])
-            _reidentify_graph_root(ldb)
-        first = _consumer_a(authority["kernel"], authority["language_bundle"])
-        second = _consumer_b(authority["kernel"], authority["language_bundle"])
+            graph = _reidentified_authored_graph(authority["kernel"], ldb)
+        first = _consumer_a(authority["kernel"], graph)
+        second = _consumer_b(authority["kernel"], graph)
         assert first == second
         expected_code = (
             "kernel.identity_mismatch"

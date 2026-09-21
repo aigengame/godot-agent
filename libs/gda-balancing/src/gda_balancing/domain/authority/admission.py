@@ -84,7 +84,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:196b61ab919d6e7850696e3db8a1bdb8d6094a88879ead2d113eddc280977479"
+    "sha256:a7ce2d7b3c5f4e98f7151a695b2ee45540593c82085cc8e03763b3d773217dcc"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1959,6 +1959,7 @@ def _runtime_projection_is_closed(
     declaration_fields: dict[str, Any],
     language_definitions: dict[str, Any],
     meta_format: dict[str, Any],
+    assignment_policy: Any = None,
 ) -> bool:
     if (
         not isinstance(profile, dict)
@@ -1986,6 +1987,7 @@ def _runtime_projection_is_closed(
             "path_typing",
             "resource_accounting",
             "execution_closure",
+            "symbol_role_bindings",
         }
         or contract.get("closed") is not True
     ):
@@ -2100,7 +2102,126 @@ def _runtime_projection_is_closed(
                 "limit_path": "resources.max_runtime_projection_steps",
             },
         }
+        or contract.get("symbol_role_bindings")
+        != {
+            "output_member": "symbol_role_bindings",
+            "source": "selected-model-lowering.assignment_policy.roles",
+            "cardinality": "exactly-one-per-binding",
+            "distinct": True,
+            "bindings": [
+                {
+                    "slot": "input",
+                    "role_fields": {
+                        "binding_kind": "operand",
+                        "entrypoint_result": False,
+                        "entrypoint_operand_access": ["read"],
+                    },
+                    "mode_fields": {
+                        "initialization_source": "experiment",
+                        "value_member": "forbidden",
+                        "experiment_cardinality": "required",
+                        "event_payload_cardinality": "optional",
+                        "external_fact_cardinality": ["optional", "required"],
+                        "override": False,
+                    },
+                },
+                {
+                    "slot": "state",
+                    "role_fields": {
+                        "binding_kind": "operand",
+                        "entrypoint_result": False,
+                        "entrypoint_operand_access": [
+                            "read",
+                            "read-write",
+                            "write",
+                        ],
+                    },
+                    "mode_fields": {
+                        "initialization_source": "model",
+                        "value_member": "required",
+                        "experiment_cardinality": "forbidden",
+                        "event_payload_cardinality": "forbidden",
+                        "external_fact_cardinality": "forbidden",
+                        "override": False,
+                    },
+                },
+                {
+                    "slot": "output",
+                    "role_fields": {
+                        "binding_kind": "result",
+                        "entrypoint_result": True,
+                        "entrypoint_operand_access": [],
+                    },
+                    "mode_fields": {
+                        "initialization_source": "execution",
+                        "value_member": "forbidden",
+                        "experiment_cardinality": "forbidden",
+                        "event_payload_cardinality": "forbidden",
+                        "external_fact_cardinality": "forbidden",
+                        "override": False,
+                    },
+                },
+            ],
+        }
     ):
+        return False
+
+    if assignment_policy is None:
+        language = language_bundle.get("language")
+        model_lowerings = (
+            language.get("model_lowerings") if isinstance(language, dict) else None
+        )
+        matching_lowerings = (
+            [
+                lowering
+                for lowering in model_lowerings
+                if isinstance(lowering, dict)
+                and lowering.get("runtime_projection") == profile
+            ]
+            if isinstance(model_lowerings, list)
+            else []
+        )
+        if len(matching_lowerings) != 1:
+            return False
+        assignment_policy = matching_lowerings[0].get("assignment_policy")
+
+    roles = (
+        assignment_policy.get("roles") if isinstance(assignment_policy, dict) else None
+    )
+    if not isinstance(roles, list):
+        return False
+    selected_roles: list[str] = []
+
+    def binding_field_matches(actual: Any, expected: Any) -> bool:
+        if isinstance(expected, list) and not isinstance(actual, list):
+            return actual in expected
+        return actual == expected
+
+    for binding in contract["symbol_role_bindings"]["bindings"]:
+        role_matches: list[str] = []
+        for role in roles:
+            if not isinstance(role, dict) or not all(
+                binding_field_matches(role.get(name), value)
+                for name, value in binding["role_fields"].items()
+            ):
+                continue
+            modes = role.get("modes")
+            if not isinstance(modes, list) or not any(
+                isinstance(mode, dict)
+                and all(
+                    binding_field_matches(mode.get(name), value)
+                    for name, value in binding["mode_fields"].items()
+                )
+                for mode in modes
+            ):
+                continue
+            selected = role.get("role")
+            if isinstance(selected, str) and selected:
+                role_matches.append(selected)
+        if len(role_matches) != 1:
+            return False
+        selected_roles.append(role_matches[0])
+    if len(selected_roles) != len(set(selected_roles)):
         return False
 
     def path_is_closed(path: Any, *, empty: bool = False) -> bool:
@@ -2166,6 +2287,19 @@ def _runtime_projection_is_closed(
     rir_law = meta_format["language_definitions"]["wire_schema_protocol_roles"][
         "rir_structure"
     ]
+    binding_slots = [
+        binding["slot"] for binding in contract["symbol_role_bindings"]["bindings"]
+    ]
+    binding_container = rir_law.get("containers", {}).get("symbol_role_bindings")
+    expected_binding_container = {
+        "closed": True,
+        "field_types": {slot: {"type": "non-empty-string"} for slot in binding_slots},
+        "optional_members": [],
+        "required_members": binding_slots,
+        "type": "closed-object",
+    }
+    if binding_container != expected_binding_container:
+        return False
     output_members = list(rir_law["namespace_outputs"])
     collection_ids: list[str] = []
     authority_paths: set[str] = set()
@@ -2297,17 +2431,32 @@ def _runtime_projection_is_closed(
     selected_properties = (
         selected_schema.get("properties") if isinstance(selected_schema, dict) else None
     )
+    expected_binding_schema = {
+        "type": "object",
+        "properties": {
+            slot: {"type": "string", "minLength": 1} for slot in binding_slots
+        },
+        "required": sorted(binding_slots),
+        "unevaluatedProperties": False,
+    }
     packages = language.get("packages") if isinstance(language, dict) else None
-    if not isinstance(selected_properties, dict) or not _execution_projection_is_closed(
-        contract.get("execution_closure"),
-        meta_format,
-        language_bundle,
-        selected_properties,
+    if (
+        not isinstance(selected_properties, dict)
+        or selected_properties.get(contract["symbol_role_bindings"]["output_member"])
+        != expected_binding_schema
+        or not _execution_projection_is_closed(
+            contract.get("execution_closure"),
+            meta_format,
+            language_bundle,
+            selected_properties,
+        )
     ):
         return False
     if not (
         isinstance(required_outputs, list)
-        and set(output_members) | set(contract["execution_closure"]["output_members"])
+        and set(output_members)
+        | set(contract["execution_closure"]["output_members"])
+        | {contract["symbol_role_bindings"]["output_member"]}
         == set(required_outputs)
         and isinstance(selected_properties, dict)
         and isinstance(packages, list)
@@ -2592,6 +2741,15 @@ def _language_definitions_are_closed(
             )
         )
 
+    def predicate_reference(reference: Any, *, stage: str, operation: str) -> bool:
+        reason = reason_rows.get(reference) if isinstance(reference, str) else None
+        return (
+            isinstance(reason, dict)
+            and reason.get("stage") == stage
+            and isinstance(reason.get("predicate"), dict)
+            and reason["predicate"].get("operation") == operation
+        )
+
     if (
         len(profiles_by_id) != len(profiles)
         or not isinstance(resolution_contract, dict)
@@ -2629,6 +2787,13 @@ def _language_definitions_are_closed(
         if (
             reason_stages.get(profile.get("parse_reason"))
             != resolution_contract["parse_reason_stage"]
+            or reason_stages.get(profile.get("experiment_binding_reason"))
+            != "resolution"
+            or not predicate_reference(
+                profile.get("experiment_numeric_domain_reason"),
+                stage="static",
+                operation="invalid-interval",
+            )
             or not isinstance(chain, list)
             or not _relation_recipes_are_closed(
                 profile,
@@ -2707,6 +2872,7 @@ def _language_definitions_are_closed(
                 fields,
                 cast(dict[str, Any], meta_format["language_definitions"]),
                 meta_format,
+                lowering.get("assignment_policy"),
             ):
                 return False
             for equality in equalities:

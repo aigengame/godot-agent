@@ -28,7 +28,9 @@ from gda_balancing.domain.authority.graph import (
 from gda_balancing.domain.authority.admission import admit_authorities
 from gda_balancing.domain.authority.source_projection import (
     SourceProjection,
+    derive_default_source_native_bindings,
     project_source_value,
+    source_schema_member,
 )
 from gda_balancing.domain.canonical import JsonValue
 from gda_balancing.domain.diagnostics import (
@@ -38,6 +40,7 @@ from gda_balancing.domain.diagnostics import (
 )
 from gda_balancing.domain.model import (
     CheckedModel,
+    admit_rir,
     admit_resolved_model,
     check_model_source,
     check_model_source_value,
@@ -1134,7 +1137,13 @@ def _renamed_reason_authorities(
     for profile in language["resolution_profiles"]:
         if profile["structural_reason"] == reason_id:
             profile["structural_reason"] = renamed_reason
-        for member in ("parse_reason", "source_byte_reason", "resource_reason"):
+        for member in (
+            "parse_reason",
+            "source_byte_reason",
+            "resource_reason",
+            "experiment_binding_reason",
+            "experiment_numeric_domain_reason",
+        ):
             if profile[member] == reason_id:
                 profile[member] = renamed_reason
         for category, reference in profile["formula_resolution"][
@@ -4436,6 +4445,37 @@ def _reference_runtime_projection(
         if values:
             selected_closures.append({"package": package, "definitions": values})
     projection["package_semantic_closures"] = selected_closures
+    role_law = checked.kernel["meta_format"]["runtime_projection"][
+        "symbol_role_bindings"
+    ]
+    role_bindings = {}
+    assignment_policy = lowering["assignment_policy"]
+
+    def binding_field_matches(actual, expected):
+        if isinstance(expected, list) and not isinstance(actual, list):
+            return actual in expected
+        return actual == expected
+
+    for binding in role_law["bindings"]:
+        consume()  # One law-selector charge per Kernel-owned binding.
+        matches = {
+            row["role"]
+            for row in assignment_policy["roles"]
+            if all(
+                binding_field_matches(row.get(member), expected)
+                for member, expected in binding["role_fields"].items()
+            )
+            for mode in row["modes"]
+            if all(
+                binding_field_matches(mode.get(member), expected)
+                for member, expected in binding["mode_fields"].items()
+            )
+        }
+        assert len(matches) == 1
+        role_bindings[binding["slot"]] = next(iter(matches))
+    assert role_law["distinct"] is True
+    assert len(set(role_bindings.values())) == len(role_bindings)
+    projection[role_law["output_member"]] = role_bindings
     return projection
 
 
@@ -5336,6 +5376,65 @@ def test_runtime_projection_budget_drives_both_independent_consumers(
         "language.resource_exhausted",
     )
     assert reference == (("language.resource_exhausted", ""),)
+
+
+def test_runtime_symbol_role_projection_allows_equivalent_modes_within_one_role():
+    source = _source([_symbol("health", "state")])
+    kernel, language_bundle = mutable_authorities()
+    language = language_bundle["language"]
+    assignment_policy = language["model_lowerings"][0]["assignment_policy"]
+    state = next(row for row in assignment_policy["roles"] if row["role"] == "state")
+    model_fixed = next(mode for mode in state["modes"] if mode["id"] == "model-fixed")
+    equivalent_mode = deepcopy(model_fixed)
+    equivalent_mode["id"] = "state-model-fixed-alias"
+    state["modes"].append(equivalent_mode)
+
+    source_schema = next(
+        row["schema"]
+        for row in language["wire_schemas"]
+        if row.get("protocol_role") == "model-source-package"
+    )
+    bindings = derive_default_source_native_bindings(kernel, language_bundle)
+    module_schema = source_schema_member(
+        source_schema, bindings.members["source.root.modules"]
+    )[1]["items"]
+    symbol_schema = source_schema_member(
+        module_schema, bindings.members["source.module.symbols"]
+    )[1]["items"]
+    value_policy_schema = source_schema_member(
+        symbol_schema, bindings.members["source.symbol.value_policy"]
+    )[1]
+    mode_schema = source_schema_member(
+        value_policy_schema, bindings.members["source.value_policy.mode"]
+    )[1]
+    mode_schema["enum"].append(equivalent_mode["id"])
+
+    _reidentify_language_bundle(language_bundle)
+    production_admission = admit_authorities(kernel, language_bundle)
+    independent_admission = _consumer_b(kernel, language_bundle)
+    assert production_admission.admitted, production_admission
+    assert independent_admission["admitted"], independent_admission["diagnostics"]
+
+    context = admit_authority_context(kernel, language_bundle)
+    assert isinstance(context, AdmittedAuthorityContext)
+    checked = check_model_source_value(source, authority_context=context)
+    reference_checked = _reference_check_source(source, kernel, language_bundle)
+    assert isinstance(checked, CheckedModel)
+    assert isinstance(reference_checked, ModelSourceContext)
+
+    production = compile_checked_model(checked)
+    reference = _reference_semantic_artifacts(reference_checked)
+    assert production["rir-semantic-payload"] == reference["rir-semantic-payload"]
+    rir = cast(dict[str, Any], production["rir-semantic-payload"])
+    assert rir["selected_semantics"]["symbol_role_bindings"] == {
+        "input": "input",
+        "state": "state",
+        "output": "output",
+    }
+    assert (
+        admit_rir(rir, authority_context=context).semantic_identity
+        == rir["semantic_identity"]
+    )
 
 
 def test_resolution_law_fields_drive_both_independent_interpreters(tmp_path):

@@ -24,15 +24,17 @@ from gda_balancing.domain.artifact_set import (
     EXPERIMENT_SUCCESS_ARTIFACT_SET,
     EXPERIMENT_VERDICT_ARTIFACT_SET,
 )
-from gda_balancing.domain.experiment import experiment_check_refusal_reasons
+from gda_balancing.domain.experiment import experiment_run_refusal_reasons
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.infrastructure.input_bytes import InputReadError
 from gda_balancing.interfaces.cli.experiment_fixtures import (
     prepare_experiment_args,
     prepare_experiment_verdict_args,
 )
-from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.domain.diagnostics import refusal_catalog_for_reasons
+from gda_balancing.domain.diagnostics import (
+    Schema2RefusalReport,
+    refusal_catalog_for_reasons,
+)
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     AuthorityContextProvider,
@@ -79,37 +81,13 @@ class ExperimentVerdictResult(BaseModel):
     artifact_set: ExperimentRunResult
 
 
-def _operation_refusal_reasons(
-    context: AdmittedAuthorityContext,
-) -> tuple[str, ...]:
-    language = context.language_bundle["language"]
-    return tuple(
-        sorted(
-            {
-                reason
-                for operation in language["operations"]
-                for reason in operation.get("refusals", [])
-            },
-            key=lambda value: value.encode("utf-8"),
-        )
-    )
-
-
-_EXPERIMENT_RUN_NON_OPERATION_REFUSAL_REASONS = (
-    "runtime.reason.capability-unsupported",
-    "evaluation.reason.observation-unavailable",
-)
-
-
 def _experiment_run_refusal_catalog(
     context: AdmittedAuthorityContext | None,
 ) -> tuple[tuple[str, str], ...]:
     """Resolve the run-only catalog after the CLI has selected this surface."""
     context = context or packaged_authority_context()
     return refusal_catalog_for_reasons(
-        experiment_check_refusal_reasons(context)
-        + _EXPERIMENT_RUN_NON_OPERATION_REFUSAL_REASONS
-        + _operation_refusal_reasons(context),
+        experiment_run_refusal_reasons(context),
         context.language_bundle,
     )
 

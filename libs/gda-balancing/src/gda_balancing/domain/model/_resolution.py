@@ -444,28 +444,6 @@ def _reason_matches(
     raise ValueError(f"unknown admitted reason operation: {operation}")
 
 
-def _unique_reason(
-    language_bundle: dict[str, Any],
-    *,
-    stage: str,
-    operation: str,
-    limit_path: str | None = None,
-) -> dict[str, Any]:
-    matches = []
-    for reason in cast(list[dict[str, Any]], _language(language_bundle)["reasons"]):
-        predicate = cast(dict[str, Any], reason["predicate"])
-        if reason["stage"] != stage or predicate["operation"] != operation:
-            continue
-        if limit_path is not None and predicate.get("limit_path") != limit_path:
-            continue
-        matches.append(reason)
-    if len(matches) != 1:
-        raise ValueError(
-            "the admitted Model Source boundary requires one matching diagnostic reason"
-        )
-    return matches[0]
-
-
 def _model_check_paths(
     language: dict[str, Any],
 ) -> Iterable[tuple[dict[str, Any], list[str | None], list[str | None]]]:

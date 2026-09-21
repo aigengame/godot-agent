@@ -2477,7 +2477,7 @@
     "owner_text": "action owns pending proposal/plan and its final outcome; turn owns responder priority, pass/close state and bounded nesting; runtime owns only fixed input/transition/observation order",
     "golden": "`genre.priority-stack-v1`",
     "vectors": "`genre.priority.hidden-phase-refused-v1`; `genre.priority.unbounded-depth-refused-v1`; `genre.priority.host-callback-refused-v1`; `genre.priority.incomplete-rename-refused-v1`; `genre.priority.omitted-token-class-refused-v1`",
-    "observables": "Extension Invariance Receipt binding exact unchanged Kernel/constructor/phase/build identities, a complete reachable-graph-derived Non-Kernel Authority Token Inventory, its exhaustive post-build rename bijection, and mutual artifacts/results; pending stack/order, priority holder, input boundary, pass/counter outcomes, cancellation/replacement ids and final resolved proposal",
+    "observables": "Extension Invariance Receipt binding exact unchanged Kernel/constructor/phase/build identities, a complete selected-execution-closure-derived Non-Kernel Authority Token Inventory, its exhaustive post-build rename bijection, and mutual artifacts/results; pending stack/order, priority holder, input boundary, pass/counter outcomes, cancellation/replacement ids and final resolved proposal",
     "source": "docs/standard-schema-2.0/genre-coverage.md",
     "kind": "genre-row",
     "source_status": "open",

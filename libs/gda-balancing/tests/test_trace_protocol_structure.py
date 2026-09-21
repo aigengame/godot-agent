@@ -24,7 +24,7 @@ from gda_balancing.domain.experiment_artifacts import (
 )
 from gda_balancing.domain.model import AdmittedRir, admit_rir
 from gda_balancing.domain.canonical import content_identity
-from schema2_authority_support import mutable_authorities
+from schema2_authority_support import mutable_authorities, reseal_authority_graph
 from schema2_bootstrap_conformance_support import (
     _consumer_b,
     _consumer_b_trace_schema,
@@ -32,7 +32,6 @@ from schema2_bootstrap_conformance_support import (
     _identity,
 )
 from schema2_bootstrap_production_support import _consumer_a
-from schema2_extension_renaming_support import _reseal_authored_graph
 from test_artifact_protocol_roles import _reseal
 from test_current_namespace_public import (
     _OWNERS,
@@ -55,7 +54,7 @@ def _authored(ldb):
 
 
 def _graph(kernel, authored):
-    _reseal_authored_graph(kernel, authored)
+    reseal_authority_graph(kernel, authored)
     return LanguageBundleGraph(
         root=authored["ldb_root"],
         package_releases=authored["packages"],

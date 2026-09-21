@@ -472,6 +472,7 @@ def _authoritative_event_actual_values(
     events_by_id: dict[str, dict[str, JsonValue]],
 ) -> dict[bytes, Any] | None:
     declarations = _resolved_declarations(checked)
+    state_role = checked.rir["selected_semantics"]["symbol_role_bindings"]["state"]
     display_names = _resolved_display_names(declarations)
     scenario = next(
         (row for row in checked.value["scenarios"] if row["id"] == scenario_id),
@@ -514,7 +515,7 @@ def _authoritative_event_actual_values(
         state_by_name = {cast(str, row["name"]): row["value"] for row in state_before}
         for identity, display_name in display_names.items():
             if (
-                declarations[identity]["role"] == "state"
+                declarations[identity]["role"] == state_role
                 and display_name in state_by_name
             ):
                 actual_values[identity] = state_by_name[display_name]
@@ -565,6 +566,7 @@ def _event_arguments(
     ]
     | None
 ):
+    state_role = checked.rir["selected_semantics"]["symbol_role_bindings"]["state"]
     if actual_values is None:
         actual_values = _authoritative_event_actual_values(
             checked,
@@ -643,7 +645,7 @@ def _event_arguments(
             continue
         target = cast(dict[str, JsonValue], operand["symbol"])
         identity = canonical_bytes(cast(JsonValue, target))
-        if declarations[identity]["role"] == "state":
+        if declarations[identity]["role"] == state_role:
             if identity not in actual_values:
                 return None
             arguments[port] = actual_values[identity]
@@ -1399,11 +1401,12 @@ def _terminal_prefix_evidence(
     separate from the cumulative run charge used by the following Event.
     """
     declarations = _resolved_declarations(checked)
+    state_role = checked.rir["selected_semantics"]["symbol_role_bindings"]["state"]
     names = _resolved_display_names(declarations)
     state_ids = {
         name: identity
         for identity, name in names.items()
-        if declarations[identity]["role"] == "state"
+        if declarations[identity]["role"] == state_role
     }
     scheduler = RuntimeScheduler(_scheduler_contract(checked))
     step = _runtime_contract(checked)["step"]
@@ -2247,8 +2250,6 @@ def _metric_dataset_matches_observations(
                     if fact["name"] == selector["member"] and fact["kind"] == "integer"
                 ]
             elif metric_operators[metric["id"]] == "single-terminal-integer":
-                if selector["name"] not in {"terminal", f"{scenario_id}:terminal"}:
-                    continue
                 values = [
                     row["value"]
                     for row in snapshot["values"]

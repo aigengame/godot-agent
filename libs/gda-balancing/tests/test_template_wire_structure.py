@@ -22,10 +22,6 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_template_schema,
 )
 from schema2_bootstrap_production_support import _consumer_a
-from schema2_extension_inventory_support import (
-    read_extension_inventory,
-    validate_extension_inventory,
-)
 from test_current_namespace_public import _PublicCandidate, _members
 from test_schema2_template_cli import _reidentify_release
 from test_receipt_protocol_structure import _definitions
@@ -68,16 +64,6 @@ def test_template_fixed_containers_have_one_owner_and_exact_wire(role):
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, _graph(kernel, deepcopy(authored)))
         assert result["admitted"], result
-    inventory = read_extension_inventory(kernel, authored)
-    validate_extension_inventory(kernel, authored, inventory)
-    assert not any(
-        gap.pointer.endswith(f"/definitions/{index}")
-        and "/packages/12/semantic_closure/2/" in gap.pointer
-        for gap in inventory.uncovered
-        for index in (0, 1, 2)
-    )
-    # Source, Resolution and unrelated Artifact families stay open.
-    assert len(inventory.uncovered) == 3
 
 
 @pytest.mark.parametrize("role", _SCHEMA_DIGESTS)

@@ -20,6 +20,7 @@ import gda_balancing.domain.model._compilation as model_compilation_module
 import gda_balancing.domain.model._checking as model_checking_module
 import gda_balancing.domain.model._inspection as model_inspection_module
 import gda_balancing.interfaces.cli.model_build as model_build_command_module
+import gda_balancing.interfaces.cli.model_check as model_check_command_module
 import gda_balancing.interfaces.cli.model_inspect as model_inspect_command_module
 import gda_balancing.domain.authority.context as authority_module
 import gda_balancing.domain.authority.admission as bootstrap_module
@@ -74,13 +75,18 @@ _RPG_STAT_COMPOSITION_SOURCE = (
 )
 
 
-def _inject_authority_context(monkeypatch, kernel, language_bundle):
+def _admitted_authority_context(kernel, language_bundle):
     context = authority_module.admit_authority_context(kernel, language_bundle)
     assert isinstance(context, authority_module.AdmittedAuthorityContext)
-    monkeypatch.setattr(
-        model_checking_module, "packaged_authority_context", lambda: context
-    )
     return context
+
+
+def _model_check_registry(context):
+    return (model_check_command_module.model_check_descriptor(lambda: context),)
+
+
+def _model_build_registry(context):
+    return (model_build_command_module.model_build_descriptor(lambda: context),)
 
 
 def test_model_file_descriptors_share_one_injected_authority_per_dispatch(
@@ -2146,7 +2152,6 @@ def test_formula_slot_authority_drift_reaches_the_public_model_check_refusal(
     diagnostic,
     pointer,
     run_cli,
-    monkeypatch,
 ):
     source = (
         Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
@@ -2179,15 +2184,11 @@ def test_formula_slot_authority_drift_reaches_the_public_model_check_refusal(
         "stage": "static",
     }
     _reidentify_language_bundle(language_bundle)
-    drifted = authority_module.admit_authority_context(kernel, language_bundle)
-    assert isinstance(drifted, authority_module.AdmittedAuthorityContext)
-    monkeypatch.setattr(
-        model_checking_module,
-        "packaged_authority_context",
-        lambda: drifted,
-    )
+    drifted = _admitted_authority_context(kernel, language_bundle)
 
-    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+    exit_code, stdout, stderr = run_cli(
+        ["model", "check", str(source)], registry=_model_check_registry(drifted)
+    )
 
     assert (exit_code, stderr) == (2, "")
     row = json.loads(stdout)["error"]["diagnostics"][0]
@@ -3131,7 +3132,7 @@ def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
     "executable", [False, True], ids=["declarations-only", "reachable-operation"]
 )
 def test_model_checks_only_actual_transitive_runtime_dependencies(
-    tmp_path, run_cli, monkeypatch, executable
+    tmp_path, run_cli, executable
 ):
     source = tmp_path / "missing-transitive-dependency.json"
     value = _model_source()
@@ -3186,7 +3187,7 @@ def test_model_checks_only_actual_transitive_runtime_dependencies(
     _reidentify_language_bundle(candidate_ldb)
     # A coherent graph can contain compiler authority outside the selected closure.
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    context = _admitted_authority_context(kernel, candidate_ldb)
     from test_schema2_model_lowerer_conformance import _reference_check_source
 
     independent = _reference_check_source(value, kernel, candidate_ldb)
@@ -3195,13 +3196,17 @@ def test_model_checks_only_actual_transitive_runtime_dependencies(
     else:
         assert not isinstance(independent, tuple), independent
 
-    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+    exit_code, stdout, stderr = run_cli(
+        ["model", "check", str(source)], registry=_model_check_registry(context)
+    )
 
     if not executable:
         # No runtime reference uses compiler's compile.exact-int64 profile.
         # The separate compilation profile remains fully captured in Lock.
         assert (exit_code, stderr) == (0, "")
-        checked = model_checking_module.check_model_source_value(value)
+        checked = model_checking_module.check_model_source_value(
+            value, authority_context=context
+        )
         assert isinstance(checked, model_module.CheckedModel), checked
         artifacts = model_compilation_module.compile_checked_model(checked)
         assert len(artifacts) == 8
@@ -3295,7 +3300,7 @@ def test_model_source_checks_transitive_selected_capability_cardinality(
     )
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    context = _admitted_authority_context(kernel, candidate_ldb)
     source_document = _model_source()
     source_document["package_requirements"].extend(
         [
@@ -3316,7 +3321,9 @@ def test_model_source_checks_transitive_selected_capability_cardinality(
         monkeypatch.setattr(
             model_checking_module, "admit_namespace_selection", refuse_finalization
         )
-    result = model_checking_module.check_model_source(str(source))
+    result = model_checking_module.check_model_source(
+        str(source), authority_context=context
+    )
 
     if provider_count == 1:
         assert isinstance(result, model_module.CheckedModel), result
@@ -3421,7 +3428,7 @@ def test_model_check_reports_all_static_diagnostics_in_canonical_location_order(
 
 
 def test_model_check_applies_the_ldb_diagnostic_cap_and_marks_truncation(
-    tmp_path, run_cli, monkeypatch
+    tmp_path, run_cli
 ):
     source_document = _model_source()
     for symbol in _symbols(source_document)[:3]:
@@ -3433,9 +3440,11 @@ def test_model_check_applies_the_ldb_diagnostic_cap_and_marks_truncation(
     candidate_ldb["resources"]["max_diagnostics"] = 2
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    context = _admitted_authority_context(kernel, candidate_ldb)
 
-    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+    exit_code, stdout, stderr = run_cli(
+        ["model", "check", str(source)], registry=_model_check_registry(context)
+    )
 
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
@@ -4262,7 +4271,7 @@ def test_model_build_rejects_changed_input_for_the_same_store_invocation_key_eve
 
 
 def test_model_build_rejects_invocation_key_reuse_after_exact_authority_changes(
-    tmp_path, run_cli, monkeypatch
+    tmp_path, run_cli
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
@@ -4287,7 +4296,7 @@ def test_model_build_rejects_invocation_key_reuse_after_exact_authority_changes(
     candidate_ldb["resources"]["max_diagnostics"] -= 1
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    context = _admitted_authority_context(kernel, candidate_ldb)
 
     exit_code, stdout, stderr = run_cli(
         [
@@ -4298,7 +4307,8 @@ def test_model_build_rejects_invocation_key_reuse_after_exact_authority_changes(
             str(tmp_path / "second.json"),
             "--invocation-key",
             key,
-        ]
+        ],
+        registry=_model_build_registry(context),
     )
 
     assert (exit_code, stdout) == (3, "")
@@ -5818,7 +5828,7 @@ def test_resolved_model_admission_rejects_reidentified_literal_context_tamper(
     assert admission.diagnostics == ("language.resolved_authority_mismatch",)
 
 
-def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch):
+def test_literal_profile_reidentity_changes_rir_semantics(tmp_path):
     source_value = _model_source()
     source_value["entrypoints"] = [
         {
@@ -5866,9 +5876,11 @@ def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch)
     assert old_id != profile["id"]
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted
-    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    context = _admitted_authority_context(kernel, candidate_ldb)
 
-    changed_checked = model_checking_module.check_model_source(str(source))
+    changed_checked = model_checking_module.check_model_source(
+        str(source), authority_context=context
+    )
     assert isinstance(changed_checked, model_module.CheckedModel)
     changed = model_compilation_module.lower_checked_model(changed_checked)
     changed_rir = cast(dict[str, Any], changed["rir-semantic-payload"])
@@ -6361,6 +6373,8 @@ def test_authority_admission_rejects_an_orphan_assignment_mode():
             "initialization_source": "execution",
             "value_member": "forbidden",
             "experiment_cardinality": "forbidden",
+            "event_payload_cardinality": "forbidden",
+            "external_fact_cardinality": "forbidden",
             "override": False,
         }
     )
@@ -7692,9 +7706,7 @@ def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
     assert original["resolved-model"] != mutated["resolved-model"]
 
 
-def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
-    tmp_path, monkeypatch
-):
+def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(tmp_path):
     kernel, baseline_ldb = mutable_authorities()
     candidate_ldb = deepcopy(baseline_ldb)
     language = candidate_ldb["language"]
@@ -7890,9 +7902,11 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     ]
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
-    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    context = _admitted_authority_context(kernel, candidate_ldb)
 
-    checked = model_checking_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(
+        str(source), authority_context=context
+    )
     assert isinstance(checked, model_module.CheckedModel)
     artifacts = model_compilation_module.lower_checked_model(checked)
 
@@ -7995,7 +8009,7 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
 
 @pytest.mark.parametrize(
     "unused_semantics",
-    ("domain", "runtime-profile", "capability"),
+    ("runtime-profile", "capability"),
 )
 def test_unreachable_package_semantics_do_not_change_rir(
     tmp_path,
@@ -8009,10 +8023,7 @@ def test_unreachable_package_semantics_do_not_change_rir(
     candidate_ldb = deepcopy(checked.language_bundle)
     language = candidate_ldb["language"]
     package = language["packages"][0]
-    if unused_semantics == "domain":
-        language["quantity"]["domains"].append("unused-domain")
-        package["exports"]["domains"].append("unused-domain")
-    elif unused_semantics == "runtime-profile":
+    if unused_semantics == "runtime-profile":
         language["runtime_profiles"].append(
             {
                 "id": "compile.unused",
@@ -8041,9 +8052,7 @@ def test_unreachable_package_semantics_do_not_change_rir(
     assert original["resolved-model"] != mutated["resolved-model"]
 
 
-def test_resolution_step_exhaustion_is_a_typed_static_refusal(
-    tmp_path, run_cli, monkeypatch
-):
+def test_resolution_step_exhaustion_is_a_typed_static_refusal(tmp_path, run_cli):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
     kernel, candidate_ldb = mutable_authorities()
@@ -8062,9 +8071,11 @@ def test_resolution_step_exhaustion_is_a_typed_static_refusal(
     successor["input"]["value"] = 2
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    context = _admitted_authority_context(kernel, candidate_ldb)
 
-    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+    exit_code, stdout, stderr = run_cli(
+        ["model", "check", str(source)], registry=_model_check_registry(context)
+    )
 
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
@@ -8076,7 +8087,7 @@ def test_resolution_step_exhaustion_is_a_typed_static_refusal(
 
 @pytest.mark.parametrize("command", ("check", "build"))
 def test_runtime_projection_step_exhaustion_is_a_typed_static_refusal(
-    tmp_path, run_cli, monkeypatch, command
+    tmp_path, run_cli, command
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
@@ -8096,7 +8107,7 @@ def test_runtime_projection_step_exhaustion_is_a_typed_static_refusal(
     successor["input"]["value"] = 2
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    context = _admitted_authority_context(kernel, candidate_ldb)
 
     output = tmp_path / "published"
     arguments = ["model", command, str(source)]
@@ -8109,7 +8120,12 @@ def test_runtime_projection_step_exhaustion_is_a_typed_static_refusal(
                 "a" * 64,
             ]
         )
-    exit_code, stdout, stderr = run_cli(arguments)
+    registry = (
+        _model_check_registry(context)
+        if command == "check"
+        else _model_build_registry(context)
+    )
+    exit_code, stdout, stderr = run_cli(arguments, registry=registry)
 
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]

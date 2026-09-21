@@ -64,17 +64,11 @@ def test_runtime_authored_container_override_refuses(tmp_path, role, rename):
 
 
 @pytest.mark.parametrize("role", ROLES)
-def test_runtime_wire_is_independent_and_inventory_closes_exactly_two_rows(
-    role, monkeypatch
-):
+def test_runtime_wire_is_independent(role, monkeypatch):
     import hashlib
     from gda_balancing.domain.authority.runtime_projection import runtime_output_schema
     from gda_balancing.domain.canonical import canonical_bytes
     from schema2_bootstrap_conformance_support import _consumer_b_runtime_output_schema
-    from schema2_extension_inventory_support import (
-        read_extension_inventory,
-        validate_extension_inventory,
-    )
 
     kernel, language = mutable_authorities()
     contract = select_protocol_artifact_contract(language, role)
@@ -101,17 +95,6 @@ def test_runtime_wire_is_independent_and_inventory_closes_exactly_two_rows(
     authored = _authored(language)
     result = _consumer_b(kernel, _graph(kernel, authored))
     assert result["admitted"], result
-    inventory = read_extension_inventory(kernel, authored)
-    validate_extension_inventory(kernel, authored, inventory)
-    assert len(inventory.uncovered) == 3
-    assert not any(
-        gap.pointer
-        in {
-            "/packages/12/semantic_closure/2/definitions/24",
-            "/packages/12/semantic_closure/2/definitions/25",
-        }
-        for gap in inventory.uncovered
-    )
 
 
 @pytest.mark.parametrize("role", ROLES)

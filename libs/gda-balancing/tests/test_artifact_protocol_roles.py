@@ -224,7 +224,7 @@ def test_formula_conversion_follows_the_source_schema_role(protocol_public):
 @pytest.mark.parametrize(
     "mutation", ["missing", "duplicate", "unknown", "wrong-category"]
 )
-def test_protocol_role_admission_requires_one_declared_owner(mutation):
+def test_protocol_role_projection_requires_one_declared_owner(mutation):
     kernel, language = mutable_authorities()
     trace = next(
         row
@@ -243,11 +243,8 @@ def test_protocol_role_admission_requires_one_declared_owner(mutation):
             trace["protocol_role"],
             source["protocol_role"],
         )
-    _reidentify_language_bundle(language)
-    assert not isinstance(
-        admit_authority_context(kernel, language), AdmittedAuthorityContext
-    )
-    assert not _consumer_b(kernel, language)["admitted"]
+    with pytest.raises(ValueError, match="missing or ambiguous"):
+        _reidentify_language_bundle(language)
 
 
 def test_role_free_extension_kinds_remain_open():

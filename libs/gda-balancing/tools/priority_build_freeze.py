@@ -151,7 +151,7 @@ def _clean_env(base: dict[str, str]) -> dict[str, str]:
     }
 
 
-def run(proof: Path, uv: str, renamed_case: Path | None = None) -> dict[str, Any]:
+def run(proof: Path, uv: str) -> dict[str, Any]:
     if proof.exists():
         raise FileExistsError(f"proof directory already exists: {proof}")
     proof.mkdir(parents=True)
@@ -245,10 +245,11 @@ def run(proof: Path, uv: str, renamed_case: Path | None = None) -> dict[str, Any
         shutil.copy2(PACKAGE / "tools" / name, harness / name)
     worker = harness / "priority_build_freeze_worker.py"
     driver = harness / "priority_direct_wheel_driver.py"
-    prepare_args = [str(b_python), str(worker), "prepare", str(inputs)]
-    if renamed_case is not None:
-        prepare_args.extend(("--renamed-case", str(renamed_case.resolve())))
-    _command(prepare_args, env=b_env, cwd=output)
+    _command(
+        [str(b_python), str(worker), "prepare", str(inputs)],
+        env=b_env,
+        cwd=output,
+    )
     _command(
         [
             str(a_python),
@@ -433,7 +434,7 @@ def run(proof: Path, uv: str, renamed_case: Path | None = None) -> dict[str, Any
         },
         "single_byte_tamper_refusal": tamper_refusal,
         "matrix": result["matrix"],
-        "renamed_case_hook": result["renamed_case_hook"],
+        "selected_closure": result["selected_closure"],
         "a_invocations": result["a_invocations"],
         "b_import_origin_count": len(result["b_import_origins"]),
     }
@@ -447,11 +448,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--proof-dir", type=Path, required=True)
     parser.add_argument("--uv", default=shutil.which("uv") or "uv")
-    parser.add_argument("--renamed-case", type=Path)
     args = parser.parse_args()
     print(
         json.dumps(
-            run(args.proof_dir.resolve(), args.uv, args.renamed_case),
+            run(args.proof_dir.resolve(), args.uv),
             indent=2,
             sort_keys=True,
         )

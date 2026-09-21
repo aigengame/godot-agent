@@ -333,7 +333,10 @@ def test_rir_rejects_reinserted_operation_vector_references(copy, compiled, cont
     )
     contract = select_artifact_contract(context.language_bundle, "rir-semantic-payload")
     _reidentify(candidate, contract.definition["identity_domain"])
-    assert contract.verify(candidate) is (copy == "closure")
+    # The current RIR wire contract closes both the direct Operation copy and
+    # its semantic-closure mirror. Retired vector references cannot re-enter
+    # through either representation.
+    assert not contract.verify(candidate)
     with pytest.raises(RirAdmissionError):
         admit_rir(candidate, authority_context=context)
 
