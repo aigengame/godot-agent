@@ -60,11 +60,14 @@ export report; they now decide both commands' answer.
    so the family reached the skipped channel by two routes and one of them was
    unbounded. ``Path.stat()`` follows a symlink, so a link to a regular file is
    still inventoried as one.
-4. **An unlistable or unreadable entry is counted in the settlement's
-   ``skipped``, once per filesystem identity whatever spelling reaches it**: an
-   entry that is not a regular file, a vanished or unreadable file, a dangling
-   symlink, or a directory that cannot be listed — whose whole subtree is then
-   outside both lists. ``os.walk`` swallows a listing error by default, which
+4. **An unlistable or unreadable entry a capture tried to read is counted in
+   the settlement's ``skipped``, once per filesystem identity whatever spelling
+   reaches it**: an entry that is not a regular file, a vanished or unreadable
+   file, a dangling symlink, or a directory that cannot be listed — whose whole
+   subtree is then outside both lists. A path the first capture recorded is read
+   again only as far as the settlement's rewrite-candidate rule asks, so a
+   recorded entry that changed kind under the cache root, or under a caller that
+   asked for no rewrites, is not one of them. ``os.walk`` swallows a listing error by default, which
    would drop that subtree from the record AND from the one channel that says the
    record is incomplete. The identity is rule 1's ``(st_dev, st_ino)`` pair,
    taken by a ``stat`` of the failing path at the moment the failure is
@@ -206,16 +209,16 @@ def _file_facts(path: Path, *, digest: bool) -> FileFacts | None:
 
 
 def _hashed(rel: str, *, detect_rewrites: bool) -> bool:
-    """Whether a capture reads this file's bytes, and not only its ``stat``.
+    """Whether a read of this file takes its bytes, and not only its ``stat``.
 
     Only when the caller asked for rewrites, and never under the cache root: the
-    shared classifier decides that, asked of a file that already exists —
-    ``cache_owned`` is "under the cache root", the one thing a capture needs to
-    know about it — which is what keeps the cache-root rule spelled once (#741).
-    One rule for every read the two captures take, so that "could not be read"
-    means the same for a file each time it is asked: the first capture's
-    failure, the settlement's rewrite candidate, and the settlement's second look
-    at a path it may not call ``created``.
+    shared classifier decides that, asked of a file that already exists, which
+    keeps the cache-root rule spelled once (#741). The one rule for every read
+    that asks a file for its BYTES — the first capture's, the settlement's
+    rewrite candidate, and the settlement's second look at a covered path — so
+    that "could not be read" means the same each time a hash is asked for. The
+    settlement's other reads, a new path's and a candidate's first look, are a
+    ``stat`` and ask no hash.
     """
     return detect_rewrites and classify_created_file(rel) != "cache_owned"
 
@@ -413,7 +416,7 @@ class ProjectTreeInventory:
     # created. A file under such a directory existed before the run, so reporting
     # it as created once the directory becomes readable would state a fact the
     # captures never observed (PR #981 review). Observed it still is, like every
-    # path the settlement's walk reaches.
+    # path the first capture could not account for.
     unlistable_dirs: tuple[str, ...]
     # The one consumer-specific gate the module carries, and #985's scope guard
     # names it as the only one allowed: `export run` asks for rewrites and pays
@@ -481,16 +484,25 @@ class ProjectTreeInventory:
         A caller that did not ask for rewrites stops at ``created``: it holds no
         digest to compare, so every pre-existing file is passed over.
 
-        Every path this walk reaches is observed, whatever the first capture
-        made of it: a directory it cannot list reaches ``skipped`` through the
-        walk's error sink, a file it cannot read through the read above, and a
-        spelling the first capture already recorded adds the identity it reaches
-        NOW, since it can have been retargeted in between (rule 4). Coverage — a
-        spelling the first capture could not read, a directory it could not list
-        and everything beneath either spelling that reaches it — decides only
-        what may be called created or modified, never what is observed: a rule
-        that observed directories and files by two different routes let
-        file-shaped entries fall between them (#990's review).
+        What the settlement observes is decided by the first capture's RECORD,
+        and what it may call created or modified by coverage. A path the record
+        does not hold is read: one that was not there with a ``stat``, and it is
+        then created; one the first capture could not account for — a spelling
+        it could not read, or anything beneath a directory it could not list,
+        under EVERY spelling that reaches it — under the capture's own criterion
+        (``_hashed``), and it is never called created. A failure observed now is
+        counted on the identity the path reaches now, since a spelling can have
+        been retargeted in between (rule 4), and a directory the walk cannot
+        list reaches ``skipped`` through the walk's error sink wherever it
+        stands. A path the record holds is accounted for: it is read again only
+        as far as the rewrite-candidate rule asks, so a recorded entry that
+        changed kind under the cache root, or under a caller that asked for no
+        rewrites, is not counted. Coverage never decides what is observed — a
+        rule that observed directories and files by two different routes let
+        file-shaped entries fall between them (#990's review). The second look
+        pays the capture's read, so that "could not be read" means the same
+        both times; its cost is the covered subtree the first capture never paid
+        for, and it is empty unless a run failed to read something.
         """
         created: list[CreatedFile] = []
         modified: list[RewrittenFile] = []
@@ -499,7 +511,9 @@ class ProjectTreeInventory:
             self.project, artifact=self.artifact, on_unreadable_dir=skipped.add
         ):
             if skipped.covers(rel) or _under(rel, self.unlistable_dirs):
-                # Observed on the capture's own criterion, never called created.
+                # Observed on the capture's own criterion — paying its read, on the
+                # covered subtree the first capture never paid for — and never
+                # called created.
                 hashed = _hashed(rel, detect_rewrites=self.detect_rewrites)
                 if _file_facts(path, digest=hashed) is None:
                     skipped.add(rel)
