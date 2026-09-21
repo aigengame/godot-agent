@@ -3071,9 +3071,7 @@ def _assignment_policy_is_total(
             source_schema_member,
         )
 
-        source_index = derive_source_semantic_index(
-            kernel, language_bundle
-        )
+        source_index = derive_source_semantic_index(kernel, language_bundle)
         bindings = derive_source_native_bindings(
             source_index, profiles[0].get("source_native_bindings")
         )
@@ -5296,7 +5294,9 @@ def admit_authorities(
             "static",
             "language.definitions.artifact-semantic-projections",
         )
-    if not _assignment_policy_is_total(kernel, language_bundle):
+    if definitions_are_closed and not _assignment_policy_is_total(
+        kernel, language_bundle
+    ):
         refuse(
             "kernel.vector_mismatch",
             "static",

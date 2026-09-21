@@ -13,6 +13,7 @@ from schema2_bootstrap_production_support import _consumer_a
 from schema2_extension_inventory_support import (
     AuthorityToken,
     InventoryRefusal,
+    _attached_language,
     _source_native_inventory,
     read_extension_inventory,
     source_formula_requests,
@@ -110,6 +111,32 @@ def test_source_native_role_annotations_and_bindings_are_inventory_occurrences(w
     )
 
 
+def test_source_semantic_selectors_reference_their_member_owners(witness):
+    _, _, inventory = witness
+    domain = AuthorityToken("source-semantic-member", ("symbol",), "domain")
+    rows = [
+        row
+        for row in inventory.occurrences
+        if row.token == domain and "/semantic_selector/" in row.pointer
+    ]
+    assert rows
+    assert {row.use for row in rows} == {"reference"}
+
+
+def test_source_relation_recipe_paths_reference_their_member_owners(witness):
+    _, _, inventory = witness
+    modules = AuthorityToken("source-semantic-member", ("source",), "modules")
+    rows = [
+        row
+        for row in inventory.occurrences
+        if row.token == modules
+        and "/relation_recipes/" in row.pointer
+        and "/path/" in row.pointer
+    ]
+    assert rows
+    assert {row.use for row in rows} == {"reference"}
+
+
 def test_source_native_member_discriminator_and_ldb_value_partition_is_exact(witness):
     kernel, graph, inventory = witness
     native = _source_native_inventory(kernel, graph)
@@ -129,23 +156,21 @@ def test_source_native_member_discriminator_and_ldb_value_partition_is_exact(wit
     }
     assert actual == set(native.occurrences)
 
-    member = AuthorityToken(
-        "source-semantic-member", ("operation-call",), "node"
-    )
+    member = AuthorityToken("source-semantic-member", ("operation-call",), "node")
     discriminator = AuthorityToken(
         "source-discriminator", ("symbol-operand", "kind"), "symbol"
     )
     domain = AuthorityToken("language.quantity.domains", (), "closed-interval")
-    assert {
-        row.use for row in inventory.occurrences if row.token == member
-    } == {"declaration", "reference"}
+    assert {row.use for row in inventory.occurrences if row.token == member} == {
+        "declaration",
+        "reference",
+    }
     discriminator_rows = [
         row for row in inventory.occurrences if row.token == discriminator
     ]
     assert any(row.pointer.endswith("/const") for row in discriminator_rows)
     assert any(
-        "/source_native_bindings/" in row.pointer
-        and row.pointer.endswith("/value")
+        "/source_native_bindings/" in row.pointer and row.pointer.endswith("/value")
         for row in discriminator_rows
     )
     assert any(
@@ -156,36 +181,93 @@ def test_source_native_member_discriminator_and_ldb_value_partition_is_exact(wit
     assert {
         row.pointer
         for row in domain_rows
-        if "/source_native_bindings/" in row.pointer
-        and row.pointer.endswith("/value")
+        if "/source_native_bindings/" in row.pointer and row.pointer.endswith("/value")
     }
-    assert len(
-        {
-            row.pointer
-            for row in domain_rows
-            if "/source_native_bindings/" in row.pointer
-            and row.pointer.endswith("/value")
-        }
-    ) == 3
+    assert (
+        len(
+            {
+                row.pointer
+                for row in domain_rows
+                if "/source_native_bindings/" in row.pointer
+                and row.pointer.endswith("/value")
+            }
+        )
+        == 3
+    )
     assert not any(
-        row.token.role == "source-discriminator"
-        and row.token.name == "closed-interval"
+        row.token.role == "source-discriminator" and row.token.name == "closed-interval"
         for row in native.occurrences
     )
 
 
+def test_source_branch_scalar_consts_share_their_ldb_value_owner(witness):
+    kernel, graph, _ = witness
+    native = _source_native_inventory(kernel, graph)
+    expected_schema_counts = {
+        AuthorityToken("language.quantity.representations", (), "Int"): 4,
+        AuthorityToken("language.quantity.kinds", (), "scalar"): 2,
+        AuthorityToken("language.quantity.units", (), "1"): 2,
+        AuthorityToken("language.quantity.numeric_policies", (), "exact-int64"): 2,
+    }
+    for token, count in expected_schema_counts.items():
+        schema_rows = [
+            row
+            for row in native.occurrences
+            if row.token == token and row.pointer.endswith("/const")
+        ]
+        assert len(schema_rows) == count
+
+    unit = AuthorityToken("language.quantity.units", (), "1")
+    assert not any(
+        row.token == unit
+        and "/properties/result/oneOf/1/properties/unit/const" in row.pointer
+        for row in native.occurrences
+    )
+
+    sibling_references = [
+        row
+        for row in native.occurrences
+        if row.token.role == "source-semantic-member"
+        and row.token.name == "domain_kind"
+        and row.pointer.endswith(
+            "/semantic_native_contract/value_location/semantic_member"
+        )
+    ]
+    assert len(sibling_references) == 5
+
+
+def test_nested_operation_domains_share_their_ldb_value_owner(witness):
+    _, _, inventory = witness
+    interval = AuthorityToken("language.quantity.domains", (), "closed-interval")
+    rows = [
+        row
+        for row in inventory.occurrences
+        if row.token == interval and row.pointer.endswith("/domain/kind")
+    ]
+    assert rows
+    assert all("/semantic_closure/" in row.pointer for row in rows)
+
+
 @pytest.mark.parametrize("surface", ["annotation", "binding", "schema", "source"])
-def test_source_native_occurrence_verifier_refuses_each_omitted_surface(witness, surface):
+def test_source_native_occurrence_verifier_refuses_each_omitted_surface(
+    witness, surface
+):
     kernel, graph, inventory = witness
     predicates = {
-        "annotation": lambda row: row.token.role == "source-semantic-role"
-        and row.use == "declaration",
-        "binding": lambda row: row.token.role == "source-semantic-member"
-        and "/source_native_bindings/" in row.pointer,
-        "schema": lambda row: row.token.role == "source-discriminator"
-        and row.pointer.endswith("/const"),
-        "source": lambda row: row.token.role == "source-discriminator"
-        and row.pointer.startswith("/source/"),
+        "annotation": lambda row: (
+            row.token.role == "source-semantic-role" and row.use == "declaration"
+        ),
+        "binding": lambda row: (
+            row.token.role == "source-semantic-member"
+            and "/source_native_bindings/" in row.pointer
+        ),
+        "schema": lambda row: (
+            row.token.role == "source-discriminator" and row.pointer.endswith("/const")
+        ),
+        "source": lambda row: (
+            row.token.role == "source-discriminator"
+            and row.pointer.startswith("/source/")
+        ),
     }
     omitted = next(row for row in inventory.occurrences if predicates[surface](row))
     candidate = replace(
@@ -351,9 +433,12 @@ def test_evidence_label_renaming_transports_owner_without_renaming_protocol_valu
 @pytest.mark.parametrize("mutation", ["class", "member", "role", "owner", "occurrence"])
 def test_independent_coverage_refuses_removed_or_misowned_inventory(witness, mutation):
     kernel, graph, inventory = witness
-    selected = next(
-        token for token in inventory.tokens if token.role == "operation-port"
+    selected_occurrence = next(
+        occurrence
+        for occurrence in inventory.occurrences
+        if occurrence.token.role == "operation-port" and occurrence.use == "declaration"
     )
+    selected = selected_occurrence.token
     if mutation in {"class", "member"}:
         removed = (
             {token for token in inventory.tokens if token.role == selected.role}
@@ -382,14 +467,11 @@ def test_independent_coverage_refuses_removed_or_misowned_inventory(witness, mut
             ),
         )
     else:
-        removed = next(
-            o
-            for o in inventory.occurrences
-            if o.token == selected and o.use == "declaration"
-        )
         candidate = replace(
             inventory,
-            occurrences=tuple(o for o in inventory.occurrences if o != removed),
+            occurrences=tuple(
+                o for o in inventory.occurrences if o != selected_occurrence
+            ),
         )
     with pytest.raises(InventoryRefusal):
         validate_extension_inventory(kernel, graph, candidate)
@@ -1112,7 +1194,10 @@ def test_formula_reference_coverage_refuses_erased_or_misowned_text_occurrences(
 @pytest.mark.parametrize("renamed", [False, True], ids=["original", "renamed"])
 def test_formula_inventory_uses_the_actual_inline_source_selector(renamed):
     from schema2_extension_renaming_support import _reseal_authored_graph
-    from test_formula_inline_resolution import _inline_case, _profile
+    from schema2_formula_conformance_support import (
+        _inline_authored_source_member,
+    )
+    from test_formula_inline_resolution import _inline_case
     from test_trace_protocol_structure import _graph
 
     kernel, authored, source = _inline_case(renamed)
@@ -1127,9 +1212,9 @@ def test_formula_inventory_uses_the_actual_inline_source_selector(renamed):
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, authority_graph)
         assert result["admitted"], (consumer.__name__, result["diagnostics"])
-    selector = _profile(authored)["formula_resolution"]["inline_body_normalizations"][
-        0
-    ]["parameter_member"]
+    selector = _inline_authored_source_member(
+        _attached_language(kernel, graph), kernel=kernel
+    )
 
     inventory = read_extension_inventory(kernel, graph)
     validate_extension_inventory(kernel, graph, inventory)
@@ -1145,10 +1230,11 @@ def test_formula_inventory_uses_the_actual_inline_source_selector(renamed):
     selector_occurrence = next(
         row
         for row in inventory.occurrences
-        if row.pointer.endswith(
-            "/formula_resolution/inline_body_normalizations/0/parameter_member"
-        )
-        and row.token.role == "source-field"
+        if row.token.role == "source-field"
+        and row.token.name == selector
+        and row.use == "reference"
+        and row.location == "key"
+        and row.pointer.endswith("/body/" + selector)
     )
     assert selector_occurrence.token.name == selector
     assert selector_occurrence.token not in inventory.reserved
@@ -1831,11 +1917,18 @@ def test_contract_vector_expected_values_inherit_only_declared_projection_roles(
     witness,
 ):
     kernel, graph, inventory = witness
+    contract_expect_roots = {
+        f"/vector_sets/{set_index}/vector_definitions/{vector_index}/expect"
+        for set_index, vector_set in enumerate(graph["vector_sets"])
+        for vector_index, vector in enumerate(vector_set["vector_definitions"])
+        if vector.get("kind") in {"package-contract", "operation-contract"}
+    }
     projected = [
         occurrence
         for occurrence in inventory.occurrences
-        if occurrence.pointer.startswith("/vector_sets/")
-        and "/expect" in occurrence.pointer
+        if any(
+            occurrence.pointer.startswith(root + "/") for root in contract_expect_roots
+        )
     ]
     for role in ("namespace", "operation-port", "runtime-effect", "operation-notation"):
         occurrence = next(o for o in projected if o.token.role == role)
@@ -1844,7 +1937,9 @@ def test_contract_vector_expected_values_inherit_only_declared_projection_roles(
             inventory,
             occurrences=tuple(o for o in inventory.occurrences if o != occurrence),
         )
-        with pytest.raises(InventoryRefusal, match="projection coverage"):
+        with pytest.raises(
+            InventoryRefusal, match="contract vector projection coverage is incomplete"
+        ):
             validate_extension_inventory(kernel, graph, missing)
     operand = next(
         o
@@ -2147,10 +2242,9 @@ def test_source_key_names_have_no_retired_dot_path_restriction(witness):
     names = {token: f"renamed_{index}" for index, token in enumerate(sources)}
     field = next(token for token in sources if token.role == "source-field")
     names[field] = "valid.dotted/key~"
-    with pytest.raises(InventoryRefusal, match="uncovered semantic role"):
-        validate_token_bijection(
-            inventory, token_bijection_from_names(inventory, names)
-        )
+    pairs = token_bijection_from_names(inventory, names)
+    validate_token_bijection(inventory, pairs)
+    assert dict(pairs)[field].name == "valid.dotted/key~"
     ordinary = next(
         o for o in inventory.occurrences if o.location == "value" and not o.projection
     )
@@ -2174,7 +2268,7 @@ def test_inventory_consumes_the_complete_declared_source_module_mapping(renamed)
         check_model_source_value,
         compile_checked_model,
     )
-    from schema2_bootstrap_conformance_support import _reidentify_package_release
+    from schema2_bootstrap_conformance_support import _bind_package_vector_set
     from schema2_bootstrap_production_support import _reidentify_graph_root
 
     kernel, language = mutable_authorities()
@@ -2193,7 +2287,35 @@ def test_inventory_consumes_the_complete_declared_source_module_mapping(renamed)
                         renamed if name == original else name
                         for name in schema["required"]
                     ]
-        _reidentify_package_release(package, kernel)
+    escaped = renamed.replace("~", "~0").replace("/", "~1")
+    for vector_set in language.package_conformance_vector_sets:
+        for vector in vector_set["vector_definitions"]:
+            fixture = vector.get("source_fixture")
+            if not isinstance(fixture, dict):
+                continue
+            fixture_source = fixture.get("source")
+            if isinstance(fixture_source, dict) and original in fixture_source:
+                fixture_source[renamed] = fixture_source.pop(original)
+            collection_path = fixture.get("collection_path")
+            if isinstance(collection_path, list):
+                fixture["collection_path"] = [
+                    renamed if member == original else member
+                    for member in collection_path
+                ]
+            expect = vector.get("expect")
+            if not isinstance(expect, dict):
+                continue
+            for diagnostic in expect.get("diagnostics", []):
+                pointer = diagnostic.get("pointer")
+                if isinstance(pointer, str) and pointer.startswith("/modules"):
+                    diagnostic["pointer"] = (
+                        "/" + escaped + pointer.removeprefix("/modules")
+                    )
+    vector_sets = {
+        row["package_id"]: row for row in language.package_conformance_vector_sets
+    }
+    for package in language["language"]["packages"]:
+        _bind_package_vector_set(package, vector_sets[package["id"]], kernel=kernel)
     _reidentify_graph_root(language)
     a, b = _consumer_a(kernel, language), _consumer_b(kernel, language)
     assert a["admitted"] and b["admitted"], (a["diagnostics"], b["diagnostics"])
@@ -2241,19 +2363,25 @@ def test_inventory_consumes_the_complete_declared_source_module_mapping(renamed)
     )
     formula_source[renamed] = formula_source.pop(original)
     requests = source_formula_requests(kernel, {**graph, "source": formula_source})
-    assert requests
+    source_requests = {
+        pointer: request
+        for pointer, request in requests.items()
+        if pointer.startswith("/source/")
+    }
+    assert source_requests
     assert all(
         pointer.startswith(
             "/source/" + renamed.replace("~", "~0").replace("/", "~1") + "/"
         )
-        for pointer in requests
+        for pointer in source_requests
     )
     assert all(
-        request["modules"] == formula_source[renamed] for request in requests.values()
+        request["modules"] == formula_source[renamed]
+        for request in source_requests.values()
     )
     assert all(
         request["package_requirements"] == formula_source["package_requirements"]
-        for request in requests.values()
+        for request in source_requests.values()
     )
 
 
@@ -2583,10 +2711,7 @@ def test_value_vector_renaming_retains_two_actual_consumers(witness, family):
         assert result["admitted"], result["diagnostics"]
     rewritten = read_extension_inventory(kernel, candidate)
     validate_extension_inventory(kernel, candidate, rewritten)
-    # This finite rename does not waive the remaining complete-graph obligations.
-    assert rewritten.uncovered
-    with pytest.raises(InventoryRefusal, match="uncovered semantic role"):
-        rewritten.require_complete()
+    rewritten.require_complete()
     for current in (graph, candidate):
         vectors = [
             v
@@ -3020,7 +3145,7 @@ def test_anonymous_vector_scope_and_fault_paths_follow_actual_type_law(witness, 
     _assert_structured_graph_observations(kernel, candidate)
     after = read_extension_inventory(kernel, candidate)
     validate_extension_inventory(kernel, candidate, after)
-    assert after.uncovered  # This slice does not waive unrelated whole-graph gaps.
+    after.require_complete()
     if case == "extra":
         # Undeclared payload strings do not acquire the field's missing-name role.
         assert not any(

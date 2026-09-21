@@ -21,6 +21,7 @@ from schema2_bootstrap_conformance_support import (
 )
 from schema2_extension_inventory_support import (
     AuthorityToken,
+    ExtensionInventory,
     InventoryRefusal,
     _attached_language,
     _child,
@@ -118,6 +119,47 @@ def _rewrite_source_set_projections(
         container[member] = sorted(
             {correspondence.get(token, token).name for token in tokens}
         )
+
+
+def _canonicalize_model_vector_lock_oracles(candidate: dict[str, Any]) -> None:
+    """Restore the declared canonical order of renamed Model lock expectations."""
+    owners: dict[str, dict[str, str]] = {}
+    for collection in ("components", "conversions", "operations"):
+        collection_owners: dict[str, str] = {}
+        for package in candidate["packages"]:
+            for identity in package["exports"][collection]:
+                if identity in collection_owners:
+                    raise InventoryRefusal(
+                        "Model Lock expectation has an ambiguous exported owner"
+                    )
+                collection_owners[identity] = package["id"]
+        owners[collection] = collection_owners
+
+    for vector_set in candidate["vector_sets"]:
+        for vector in vector_set["vector_definitions"]:
+            expect = vector.get("expect")
+            oracle = expect.get("lock_oracle") if isinstance(expect, dict) else None
+            if not isinstance(oracle, dict):
+                continue
+            for member in (
+                "root_requirements",
+                "numeric_profiles",
+                "runtime_profiles",
+                "diagnostics",
+                "diagnostic_reasons",
+                "language_rules",
+            ):
+                oracle[member] = sorted(oracle[member])
+            oracle["packages"].sort(key=lambda row: row["id"])
+            oracle["dependency_edges"].sort(
+                key=lambda row: (row["from_package"], row["to_package"])
+            )
+            oracle["capability_bindings"].sort(key=lambda row: row["capability"])
+            oracle["types"].sort(key=lambda row: (row["package"], row["id"]))
+            for member in ("components", "conversions", "operations"):
+                oracle[member].sort(
+                    key=lambda identity: (owners[member][identity], identity)
+                )
 
 
 def _render_formulas(
@@ -228,6 +270,16 @@ def apply_extension_renaming(
     """
     inventory = read_extension_inventory(kernel, graph)
     validate_extension_inventory(kernel, graph, inventory)
+    return _apply_validated_extension_renaming(kernel, graph, inventory, pairs)
+
+
+def _apply_validated_extension_renaming(
+    kernel: dict[str, Any],
+    graph: Mapping[str, Any],
+    inventory: ExtensionInventory,
+    pairs: Sequence[tuple[AuthorityToken, AuthorityToken]],
+) -> dict[str, Any]:
+    """Apply a rename after the caller independently closed this exact inventory."""
     validate_token_bijection(inventory, pairs)
     correspondence = dict(pairs)
     values: dict[str, str] = {}
@@ -278,6 +330,7 @@ def apply_extension_renaming(
     values.update(_json_pointer_values(graph, json_pointers))
     inputs = {k: v for k, v in graph.items() if k not in {"artifacts", "results"}}
     candidate = _rewrite_positions(inputs, values, keys)
+    _canonicalize_model_vector_lock_oracles(candidate)
     _rewrite_source_set_projections(kernel, graph, candidate, keys, correspondence)
     bodies = {
         _renamed_pointer(pointer, keys): _rewrite_positions(

@@ -20,6 +20,7 @@ from gda_balancing.domain.model import CheckedModel, check_model_source_value
 from schema2_authority_support import mutable_authorities
 from schema2_bootstrap_conformance_support import (
     _consumer_b,
+    _consumer_b_project_source_role,
     _consumer_b_source_roles_are_closed,
 )
 from schema2_bootstrap_production_support import _consumer_a
@@ -581,11 +582,9 @@ def test_source_native_reference_path_is_authoritative():
     authored = _authored(language)
     schema = _source_schema(authored)
     symbol = _source_role_nodes(schema, "symbol")[0]
-    symbol["properties"]["domain"]["semantic_native_contract"][
-        "kernel_contract_paths"
-    ]["value"] = (
-        "kernel.meta_format.fact.field_contracts.quantity-symbol"
-    )
+    symbol["properties"]["domain"]["semantic_native_contract"]["kernel_contract_paths"][
+        "value"
+    ] = "kernel.meta_format.fact.field_contracts.quantity-symbol"
     graph = _graph(kernel, authored)
     index = _index(kernel, graph)
     with pytest.raises(ValueError):
@@ -626,7 +625,9 @@ def test_source_native_compiler_bindings_are_exact_and_closed(defect):
     kernel, language = mutable_authorities()
     authored = _authored(language)
     compiler = next(
-        package for package in authored["packages"] if package["id"] == "standard.compiler"
+        package
+        for package in authored["packages"]
+        if package["id"] == "standard.compiler"
     )
     profiles = next(
         closure["definitions"]
@@ -648,6 +649,43 @@ def test_source_native_compiler_bindings_are_exact_and_closed(defect):
     for consumer in (_consumer_a, _consumer_b):
         result = consumer(kernel, graph)
         assert not result["admitted"], (defect, consumer.__name__, result)
+
+
+def test_branch_local_scalar_native_values_do_not_change_member_abi_shape():
+    kernel, language = mutable_authorities()
+    authored = _authored(language)
+    schema = _source_schema(authored)
+    compiler = next(
+        package
+        for package in authored["packages"]
+        if package["id"] == "standard.compiler"
+    )
+    profiles = next(
+        closure["definitions"]
+        for closure in compiler["semantic_closure"]
+        if closure["authority_path"] == "language.resolution_profiles"
+    )
+    bindings = {
+        row["slot"]: row
+        for row in profiles[0]["source_native_bindings"]
+        if row["kind"] == "member"
+    }
+
+    assert bindings["source.formula_parameter.representation"]["shape"] == "scalar"
+    assert bindings["source.value_contract.representation"]["shape"] == "scalar"
+    assert any(
+        node["properties"]["representation"].get("semantic_native_contract")
+        for node in _source_role_nodes(schema, "formula-parameter")
+    )
+    assert any(
+        node["properties"]["kind"].get("semantic_native_contract")
+        for node in _source_role_nodes(schema, "value-contract")
+    )
+
+    graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, graph)
+        assert result["admitted"], (consumer.__name__, result["diagnostics"])
 
 
 def test_language_owned_interval_token_renames_without_kernel_reseal():
@@ -686,7 +724,9 @@ def test_language_owned_operation_call_token_renames_without_kernel_reseal(
     for operation_call in operation_calls:
         operation_call["properties"]["node"]["const"] = "operation-invocation"
     compiler = next(
-        package for package in authored["packages"] if package["id"] == "standard.compiler"
+        package
+        for package in authored["packages"]
+        if package["id"] == "standard.compiler"
     )
     profiles = next(
         closure["definitions"]
@@ -727,6 +767,73 @@ def test_language_owned_operation_call_token_renames_without_kernel_reseal(
     )
     public.write_source(source)
     public.cli("model", "check", str(public.source))
+
+
+def test_kernel_owned_operation_call_token_stays_on_the_stable_abi():
+    from schema2_extension_inventory_support import _attached_language
+    from schema2_formula_conformance_support import _source_abi_value_and_paths
+
+    kernel, language = mutable_authorities()
+    authored = _authored(language)
+    schema = _source_schema(authored)
+    operation_calls = _source_role_nodes(schema, "operation-call")
+    assert operation_calls
+    for operation_call in operation_calls:
+        node = operation_call["properties"]["node"]
+        node["const"] = "operation-invocation"
+        node["semantic_native_contract"] = {
+            "kernel_reference": "canonical-value",
+            "kernel_contract_paths": {
+                "value": "kernel.meta_format.fact.field_contracts.quantity-symbol.value_policy"
+            },
+        }
+    compiler = next(
+        package
+        for package in authored["packages"]
+        if package["id"] == "standard.compiler"
+    )
+    profiles = next(
+        closure["definitions"]
+        for closure in compiler["semantic_closure"]
+        if closure["authority_path"] == "language.resolution_profiles"
+    )
+    binding = next(
+        row
+        for row in profiles[0]["source_native_bindings"]
+        if row["slot"] == "source.operation_call.discriminator"
+    )
+    binding["value"] = "operation-invocation"
+    graph = _graph(kernel, authored)
+    for consumer in (_consumer_a, _consumer_b):
+        result = consumer(kernel, graph)
+        assert result["admitted"], (consumer.__name__, result["diagnostics"])
+
+    source = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text()
+    )
+    operation = next(
+        node
+        for module in source["modules"]
+        for formula in module.get("formulas", [])
+        for node in formula["body"].get("nodes", [])
+        if node.get("node") == "operation-call"
+    )
+    operation["node"] = "operation-invocation"
+    language_bundle = _attached_language(kernel, authored)
+    projected = _consumer_b_project_source_role(
+        operation, "operation-call", kernel, language_bundle
+    ).value
+    stable, _paths = _source_abi_value_and_paths(
+        projected,
+        language_bundle,
+        "source.operation_call",
+        preserve_native_discriminators=True,
+    )
+
+    assert stable["node"] == "operation-call"
 
 
 def test_language_owned_interval_token_reaches_public_model_and_formula(
@@ -867,7 +974,9 @@ def test_coherent_source_annotation_and_compiler_path_rename_is_admitted(
         module["semantic_role"] = "compilation-unit"
 
     compiler = next(
-        package for package in authored["packages"] if package["id"] == "standard.compiler"
+        package
+        for package in authored["packages"]
+        if package["id"] == "standard.compiler"
     )
     profiles = next(
         closure["definitions"]
@@ -878,9 +987,11 @@ def test_coherent_source_annotation_and_compiler_path_rename_is_admitted(
     def rename_paths(value):
         if isinstance(value, dict):
             for key, child in value.items():
-                if key in {"path", "semantic_selector", "semantic_scope_selector"} and isinstance(
-                    child, list
-                ):
+                if key in {
+                    "path",
+                    "semantic_selector",
+                    "semantic_scope_selector",
+                } and isinstance(child, list):
                     value[key] = [
                         "compilation_units" if part == "modules" else part
                         for part in child

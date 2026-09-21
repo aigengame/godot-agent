@@ -41,9 +41,7 @@ def minimal_release(context: AdmittedAuthorityContext) -> dict[str, JsonValue]:
     ][0]
 
     def one_native_value(member: str) -> JsonValue:
-        values = source_native_contract_values(
-            language_bundle, symbol_schema, member
-        )
+        values = source_native_contract_values(language_bundle, symbol_schema, member)
         if len(values) != 1:
             raise ValueError(
                 f"quantity-minimal requires one Source native {member} value"

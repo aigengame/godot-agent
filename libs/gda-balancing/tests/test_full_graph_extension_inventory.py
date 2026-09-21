@@ -13,6 +13,7 @@ from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     admit_authority_context,
 )
+from gda_balancing.domain.canonical import canonical_bytes
 from gda_balancing.domain.experiment import CheckedExperiment, check_experiment_value
 from gda_balancing.domain.model import (
     AdmittedRir,
@@ -29,12 +30,15 @@ from schema2_extension_inventory_support import (
     InventoryRefusal,
     _artifact_protocol_binding,
     _call_path_segments,
+    _renamed_owner,
     read_extension_inventory,
     token_bijection_from_names,
     validate_extension_inventory,
     validate_token_bijection,
 )
-from schema2_extension_renaming_support import apply_extension_renaming
+from schema2_extension_renaming_support import (
+    _apply_validated_extension_renaming,
+)
 
 
 def _member(kernel, graph, surface, role):
@@ -97,6 +101,7 @@ def priority_build_graph():
 def priority_full_graphs(priority_build_graph):
     kernel, context, admitted, artifacts, authored, baseline = priority_build_graph
     graphs = {}
+    authored_graphs = {}
     for variant in (False, True):
         experiment = specification(artifacts["rir-semantic-payload"], variant)
         checked = check_experiment_value(
@@ -109,19 +114,23 @@ def priority_full_graphs(priority_build_graph):
             name: deepcopy(member.value) for name, member in execution.members.items()
         }
         assert len(results) == 6
-        graph = {
+        authored_graph = {
             **authored,
             "experiment": experiment,
+        }
+        graph = {
+            **authored_graph,
             "artifacts": artifacts,
             "results": results,
         }
+        authored_graphs[variant] = authored_graph
         graphs[variant] = (graph, read_extension_inventory(kernel, graph))
-    return kernel, graphs, baseline
+    return kernel, graphs, baseline, authored_graphs
 
 
 @pytest.fixture(scope="module", params=[False, True], ids=["baseline", "variant"])
 def priority_full_graph(priority_full_graphs, request):
-    kernel, graphs, baseline = priority_full_graphs
+    kernel, graphs, baseline, _ = priority_full_graphs
     graph, inventory = graphs[request.param]
     return kernel, graph, inventory, baseline
 
@@ -725,7 +734,7 @@ def _stable_union_bijection(inventories):
 
 @pytest.fixture(scope="module")
 def priority_full_graph_bijection(priority_full_graphs):
-    _, graphs, _ = priority_full_graphs
+    _, graphs, _, _ = priority_full_graphs
     inventories = tuple(graphs[variant][1] for variant in (False, True))
     return _stable_union_bijection(inventories)
 
@@ -733,7 +742,7 @@ def priority_full_graph_bijection(priority_full_graphs):
 def test_full_authored_graphs_apply_one_exhaustive_injective_union_bijection(
     priority_full_graphs, priority_full_graph_bijection
 ):
-    kernel, graphs, _ = priority_full_graphs
+    kernel, graphs, _, authored_graphs = priority_full_graphs
     union_pairs = priority_full_graph_bijection
     union_map = dict(union_pairs)
     inventories = {variant: graphs[variant][1] for variant in (False, True)}
@@ -765,28 +774,39 @@ def test_full_authored_graphs_apply_one_exhaustive_injective_union_bijection(
             if not occurrence.pointer.startswith(("/artifacts/", "/results/"))
         }
 
-        original_authored = {
-            key: deepcopy(value)
-            for key, value in graph.items()
-            if key not in {"artifacts", "results"}
+        original_authored = authored_graphs[variant]
+        authored_tokens = {
+            occurrence.token
+            for occurrence in inventory.occurrences
+            if not occurrence.pointer.startswith(("/artifacts/", "/results/"))
         }
-        renamed = apply_extension_renaming(kernel, graph, pairs)
+        authored_reserved = inventory.reserved & authored_tokens
+        assert authored_tokens - authored_reserved == renameable
+        renamed = _apply_validated_extension_renaming(kernel, graph, inventory, pairs)
         renamed_inventory = read_extension_inventory(kernel, renamed)
         validate_extension_inventory(kernel, renamed, renamed_inventory)
         renamed_inventory.require_complete()
-        assert renamed_inventory.reserved == inventory.reserved
+        transported_reserved = frozenset(
+            AuthorityToken(
+                token.role,
+                _renamed_owner(token, case_maps[variant])
+                if token.role in {"source-field", "template-field"}
+                else token.owner,
+                token.name,
+            )
+            for token in authored_reserved
+        )
+        assert renamed_inventory.reserved == transported_reserved
         assert renamed_inventory.tokens - renamed_inventory.reserved == set(
             case_maps[variant].values()
         )
         assert renameable.isdisjoint(renamed_inventory.tokens)
 
-        # Inverting through the independently read renamed inventory restores
-        # every authored byte, including deterministic envelopes. Any changed
-        # reserved or non-inventory value would remain changed and fail here.
-        inverse = tuple((target, source) for source, target in pairs)
-        validate_token_bijection(renamed_inventory, inverse)
-        restored = apply_extension_renaming(kernel, renamed, inverse)
-        assert restored == original_authored
+        inverse_pairs = tuple((target, source) for source, target in pairs)
+        restored = _apply_validated_extension_renaming(
+            kernel, renamed, renamed_inventory, inverse_pairs
+        )
+        assert canonical_bytes(restored) == canonical_bytes(original_authored)
 
     assert {token: case_maps[False][token] for token in common} == {
         token: case_maps[True][token] for token in common
@@ -798,7 +818,7 @@ def test_full_authored_graphs_apply_one_exhaustive_injective_union_bijection(
 def test_full_graph_union_bijection_refuses_omitted_or_duplicate_map_member(
     priority_full_graphs, priority_full_graph_bijection, variant, mutation
 ):
-    _, graphs, _ = priority_full_graphs
+    _, graphs, _, _ = priority_full_graphs
     inventory = graphs[variant][1]
     renameable = inventory.tokens - inventory.reserved
     pairs = [pair for pair in priority_full_graph_bijection if pair[0] in renameable]

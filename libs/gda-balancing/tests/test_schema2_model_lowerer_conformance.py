@@ -61,7 +61,10 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_source_fact_transport_is_supported,
     _consumer_b_source_semantic_selector,
 )
-from schema2_formula_conformance_support import normalize_semantic_body
+from schema2_formula_conformance_support import (
+    _source_abi_selector,
+    _source_abi_value_and_paths,
+)
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
@@ -262,9 +265,7 @@ def _production_source_projection(
         for row in language_bundle["language"]["resolution_profiles"]
         if row.get("default") is True
     )
-    bindings = derive_source_native_bindings(
-        index, profile["source_native_bindings"]
-    )
+    bindings = derive_source_native_bindings(index, profile["source_native_bindings"])
     return project_source_value(source, schema, bindings)
 
 
@@ -760,10 +761,19 @@ def _reference_check_source(
         return tuple(dict.fromkeys(diagnostics))
 
     independent_projection = _consumer_b_project_source(source, kernel, language_bundle)
-    canonical_source = independent_projection.value
+    canonical_source, semantic_paths = _source_abi_value_and_paths(
+        independent_projection.value,
+        language_bundle,
+        "source.root",
+        preserve_native_discriminators=True,
+    )
+    authored_paths = {
+        stable: independent_projection.authored_paths[semantic]
+        for stable, semantic in semantic_paths.items()
+    }
     source_projection = SourceProjection(
         value=canonical_source,
-        authored_paths=independent_projection.authored_paths,
+        authored_paths=authored_paths,
         authored_source=source,
     )
 
@@ -773,13 +783,21 @@ def _reference_check_source(
             if isinstance(canonical, str)
             else _reference_pointer(list(canonical))
         )
+        return source_projection.authored_paths.get(pointer, pointer)
+
+    def authored_semantic_pointer(semantic: tuple[object, ...]) -> str:
+        pointer = _reference_pointer(list(semantic))
         return independent_projection.authored_paths.get(pointer, pointer)
 
     diagnostics_by_stage: dict[str, list[tuple[str, str]]] = {}
     for check in language["model_checks"]:
         reason = reasons[check["reason"]]
-        canonical_scope_selector = check.get("semantic_scope_selector", [])
-        canonical_selector = check["semantic_selector"]
+        canonical_scope_selector, scope_slots = _source_abi_selector(
+            check.get("semantic_scope_selector", []), language_bundle
+        )
+        canonical_selector, _selected_slots = _source_abi_selector(
+            check["semantic_selector"], language_bundle, scope_slots
+        )
         canonical_full_selector = [
             *canonical_scope_selector,
             *canonical_selector,
@@ -894,7 +912,9 @@ def _reference_check_source(
         environment: dict[str, tuple[Any, tuple[object, ...] | None]],
     ) -> tuple[Any, tuple[object, ...] | None]:
         if term["root"] == "source":
-            value: Any = canonical_source
+            # Relation recipes are authored in current LDB semantic members;
+            # fixed host traversal uses ``canonical_source`` outside this path.
+            value: Any = independent_projection.value
             pointer: tuple[object, ...] | None = ()
         elif term["root"] == "language":
             value = language
@@ -962,7 +982,7 @@ def _reference_check_source(
                     values[field["name"]] = value
                     if field["pointer"]:
                         assert pointer is not None
-                        pointers[field["name"]] = authored_pointer(pointer)
+                        pointers[field["name"]] = authored_semantic_pointer(pointer)
                 relation_rows.append({"values": values, "pointers": pointers})
             relations[recipe["id"]] = relation_rows
     except BudgetExhausted:
@@ -1698,11 +1718,7 @@ def _reference_formulas_and_bindings(
         }
         for formula_index, source_formula in enumerate(module.get("formulas", [])):
             key = (module_id, source_formula["id"])
-            source_body = normalize_semantic_body(
-                source_formula["body"],
-                checked.language_bundle,
-                kernel=checked.kernel,
-            )
+            source_body = deepcopy(source_formula["body"])
             parameters = [
                 {
                     "id": parameter["id"],

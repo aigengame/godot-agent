@@ -121,9 +121,7 @@ def test_source_native_occurrences_rename_simultaneously_and_round_trip(
     inventory = read_extension_inventory(kernel, graph)
     inventory.require_complete()
     role = AuthorityToken("source-semantic-role", (), "operation-call")
-    member = AuthorityToken(
-        "source-semantic-member", ("operation-call",), "node"
-    )
+    member = AuthorityToken("source-semantic-member", ("operation-call",), "node")
     discriminator = AuthorityToken(
         "source-discriminator", ("operation-call", "node"), "operation-call"
     )
@@ -154,9 +152,7 @@ def test_source_native_occurrences_rename_simultaneously_and_round_trip(
         derived_none: AuthorityToken(
             derived_none.role, derived_none.owner, "derived-none"
         ),
-        output_none: AuthorityToken(
-            output_none.role, output_none.owner, "output-none"
-        ),
+        output_none: AuthorityToken(output_none.role, output_none.owner, "output-none"),
     }
 
     def rewrite(original, mapping, rows):
@@ -166,9 +162,7 @@ def test_source_native_occurrences_rename_simultaneously_and_round_trip(
             if row.token in mapping and row.location == "value"
         }
         candidate = _rewrite_positions(original, values, {})
-        _rewrite_source_set_projections(
-            kernel, original, candidate, {}, mapping
-        )
+        _rewrite_source_set_projections(kernel, original, candidate, {}, mapping)
         return candidate
 
     candidate = rewrite(graph, correspondence, inventory.occurrences)
@@ -180,7 +174,9 @@ def test_source_native_occurrences_rename_simultaneously_and_round_trip(
     assert {"derived-none", "output-none"} <= set(_pointer_value(candidate, pointer))
     for row in inventory.occurrences:
         if row.token in correspondence and row.location == "value":
-            assert _pointer_value(candidate, row.pointer) == correspondence[row.token].name
+            assert (
+                _pointer_value(candidate, row.pointer) == correspondence[row.token].name
+            )
 
     reverse = {target: source for source, target in correspondence.items()}
     reverse_rows = tuple(
@@ -248,7 +244,10 @@ def test_formula_renaming_renders_actual_ast_and_detects_a_missed_reference(
             bodies[pointer] = _rewrite_positions(body, edits, {})
     bodies = {_renamed_pointer(pointer, keys): body for pointer, body in bodies.items()}
     if miss_ast_reference:
-        with pytest.raises(InventoryRefusal, match="does not close independently"):
+        with pytest.raises(
+            InventoryRefusal,
+            match="Formula expression and body do not close.*notation-mismatch",
+        ):
             _render_formulas(kernel, candidate, bodies)
     else:
         _render_formulas(kernel, candidate, bodies)

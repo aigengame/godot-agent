@@ -31,6 +31,7 @@ from schema2_extension_inventory_support import (
     AuthorityToken,
     InventoryRefusal,
     _authority_path_rows,
+    _renamed_owner,
     _template_inventory,
     read_extension_inventory,
     token_bijection_from_names,
@@ -86,7 +87,7 @@ def test_template_profile_and_all_nine_variable_schemas_have_complete_owners(wit
     assert len(schemas) == 9
     assert len(roots) == 10
     assert not any(g.pointer in roots for g in inventory.uncovered)
-    assert inventory.uncovered  # Other protocol families remain explicitly open.
+    assert not inventory.uncovered
     for role in ("template-role", "template-derived", "template-judgment"):
         declared = {
             o.token for o in rows if o.token.role == role and o.use == "declaration"
@@ -178,6 +179,33 @@ def test_template_schema_member_omission_and_false_reservations_refuse(witness):
             validate_extension_inventory(
                 kernel, graph, replace(inventory, reserved=frozenset(reserved))
             )
+
+
+def test_template_reserved_field_names_keep_their_owner_bijection(witness):
+    kernel, graph, inventory = witness
+    schema_ids = {t.owner[1] for t in inventory.tokens if t.role == "template-field"}
+    names = {
+        token: "owner_" + token.name.replace("-", "_")
+        for token in inventory.tokens - inventory.reserved
+        if token.role == "language.artifact_wire_schemas" and token.name in schema_ids
+    }
+    candidate = _scope_rename(graph, inventory, names)
+    renamed_inventory = read_extension_inventory(kernel, candidate)
+    validate_extension_inventory(kernel, candidate, renamed_inventory)
+    correspondence = dict(token_bijection_from_names(inventory, names))
+    expected = {
+        AuthorityToken(
+            token.role,
+            _renamed_owner(token, correspondence),
+            token.name,
+        )
+        for token in inventory.reserved
+        if token.role == "template-field"
+    }
+
+    assert {
+        token for token in renamed_inventory.reserved if token.role == "template-field"
+    } == expected
 
 
 def _renamed_payload(value, schema, owner, names):

@@ -35,9 +35,9 @@ def _object_alternatives(schema: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 def _semantic_annotation_contract(kernel: Mapping[str, Any]) -> Mapping[str, Any]:
     return cast(
         Mapping[str, Any],
-        kernel["meta_format"]["language_definitions"][
-            "wire_schema_protocol_roles"
-        ]["source_notation"]["semantic_annotations"],
+        kernel["meta_format"]["language_definitions"]["wire_schema_protocol_roles"][
+            "source_notation"
+        ]["semantic_annotations"],
     )
 
 
@@ -124,7 +124,12 @@ def _source_schema(
 def _authority_path(
     kernel: Mapping[str, Any], language_bundle: Mapping[str, Any], path: str
 ) -> Any:
-    if not isinstance(path, str) or not path or path.startswith(".") or path.endswith("."):
+    if (
+        not isinstance(path, str)
+        or not path
+        or path.startswith(".")
+        or path.endswith(".")
+    ):
         raise ValueError("semantic native contract path is malformed")
     parts = path.split(".")
     if any(not part for part in parts):
@@ -343,10 +348,15 @@ def _language_reference_is_closed(
     location: Any,
 ) -> bool:
     del kernel
-    if not isinstance(location, Mapping) or not set(location) <= {
-        "keyword",
-        "semantic_member",
-    } or set(location) not in ({"keyword"}, {"keyword", "semantic_member"}):
+    if (
+        not isinstance(location, Mapping)
+        or not set(location)
+        <= {
+            "keyword",
+            "semantic_member",
+        }
+        or set(location) not in ({"keyword"}, {"keyword", "semantic_member"})
+    ):
         return False
     keyword = location.get("keyword")
     if keyword not in {"const", "enum"}:
@@ -394,9 +404,11 @@ def _native_contract_is_closed(
         "language_reference",
         "value_location",
     }
-    if not isinstance(native_contract, Mapping) or not native_contract or not set(
-        native_contract
-    ) <= allowed:
+    if (
+        not isinstance(native_contract, Mapping)
+        or not native_contract
+        or not set(native_contract) <= allowed
+    ):
         return False
     has_kernel_reference = "kernel_reference" in native_contract
     has_kernel_paths = "kernel_contract_paths" in native_contract
@@ -510,11 +522,17 @@ def source_assignment_binding(
         for row in assignment_policy.get("roles", ())
         if isinstance(row, Mapping)
         and isinstance(row.get("role"), str)
-        and all(expected is None or row.get(field) == expected for field, expected in role_fields.items())
+        and all(
+            expected is None or row.get(field) == expected
+            for field, expected in role_fields.items()
+        )
         for mode in row.get("modes", ())
         if isinstance(mode, Mapping)
         and isinstance(mode.get("id"), str)
-        and all(expected is None or mode.get(field) == expected for field, expected in mode_fields.items())
+        and all(
+            expected is None or mode.get(field) == expected
+            for field, expected in mode_fields.items()
+        )
     ]
     if len(matches) != 1:
         raise ValueError("Source assignment behavior has no unique role and mode")
@@ -638,331 +656,320 @@ def _member_abi(
     return result
 
 
-_SOURCE_NATIVE_MEMBER_ABI: Mapping[
-    str, tuple[str, str, tuple[str, ...]]
-] = MappingProxyType(
-    {
-        **_member_abi(
-            "source.root",
-            (
-                "schema_version",
-                "manifest",
-                "package_requirements",
-                "modules",
-                "formula_bindings",
-                "entrypoints",
+_SOURCE_NATIVE_MEMBER_ABI: Mapping[str, tuple[str, str, tuple[str, ...]]] = (
+    MappingProxyType(
+        {
+            **_member_abi(
+                "source.root",
+                (
+                    "schema_version",
+                    "manifest",
+                    "package_requirements",
+                    "modules",
+                    "formula_bindings",
+                    "entrypoints",
+                ),
+                arrays={
+                    "package_requirements": (),
+                    "modules": ("source.module",),
+                    "formula_bindings": ("source.binding",),
+                    "entrypoints": ("source.entrypoint",),
+                },
+                natives=("schema_version",),
+                objects={"manifest": ("source.manifest",)},
             ),
-            arrays={
-                "package_requirements": (),
-                "modules": ("source.module",),
-                "formula_bindings": ("source.binding",),
-                "entrypoints": ("source.entrypoint",),
-            },
-            natives=("schema_version",),
-            objects={"manifest": ("source.manifest",)},
-        ),
-        **_member_abi(
-            "source.manifest",
-            ("id", "entry_module", "template_provenance"),
-            objects={"template_provenance": ("source.template_provenance",)},
-        ),
-        **_member_abi(
-            "source.template_provenance",
-            ("template_id", "template_identity", "starter_identity"),
-        ),
-        **_member_abi(
-            "source.module",
-            ("id", "imports", "symbols", "formulas"),
-            arrays={
-                "imports": ("source.import",),
-                "symbols": ("source.symbol",),
-                "formulas": ("source.formula",),
-            },
-        ),
-        **_member_abi("source.import", ("alias", "package", "symbol")),
-        **_member_abi(
-            "source.symbol",
-            (
-                "symbol",
-                "type",
-                "role",
-                "representation",
-                "kind",
-                "unit",
-                "domain_kind",
-                "domain",
-                "numeric_policy",
-                "value_policy",
+            **_member_abi(
+                "source.manifest",
+                ("id", "entry_module", "template_provenance"),
+                objects={"template_provenance": ("source.template_provenance",)},
             ),
-            natives=(
-                "role",
-                "representation",
-                "kind",
-                "unit",
-                "domain",
-                "numeric_policy",
+            **_member_abi(
+                "source.template_provenance",
+                ("template_id", "template_identity", "starter_identity"),
             ),
-            objects={"value_policy": ("source.value_policy",)},
-        ),
-        **_member_abi(
-            "source.value_policy", ("mode", "value"), natives=("value",)
-        ),
-        **_member_abi(
-            "source.entrypoint",
-            ("id", "operation", "arguments", "result"),
-            arrays={"arguments": ("source.entrypoint_argument",)},
-            objects={"operation": ("source.operation_coordinate",)},
-            unions={
-                "result": ("source.symbol_operand", "source.discard_result")
-            },
-        ),
-        **_member_abi(
-            "source.entrypoint_argument",
-            ("port", "operand"),
-            unions={
-                "operand": (
-                    "source.symbol_operand",
-                    "source.literal",
-                    "source.event_operand",
-                )
-            },
-        ),
-        **_member_abi("source.operation_coordinate", ("package", "id")),
-        **_member_abi("source.formula_coordinate", ("module", "id")),
-        **_member_abi(
-            "source.formula",
-            ("id", "parameters", "result", "body", "expression"),
-            arrays={"parameters": ("source.formula_parameter",)},
-            objects={"result": ("source.value_contract",)},
-            unions={
-                "body": ("source.program", "source.inline_parameter")
-            },
-        ),
-        **_member_abi(
-            "source.formula_parameter",
-            (
-                "id",
-                "kind",
-                "type",
-                "domain_kind",
-                "domain",
-                "numeric_policy",
-                "representation",
-                "unit",
+            **_member_abi(
+                "source.module",
+                ("id", "imports", "symbols", "formulas"),
+                arrays={
+                    "imports": ("source.import",),
+                    "symbols": ("source.symbol",),
+                    "formulas": ("source.formula",),
+                },
             ),
-            natives=("domain",),
-        ),
-        **_member_abi(
-            "source.program",
-            ("nodes", "result"),
-            arrays={
-                "nodes": (
-                    "source.formula_call",
-                    "source.operation_call",
-                    "source.conditional",
-                )
-            },
-            unions={
-                "result": (
-                    "source.parameter_operand",
-                    "source.local_operand",
-                    "source.symbol_operand",
-                    "source.literal",
-                )
-            },
-        ),
-        **_member_abi("source.inline_parameter", ("node", "parameter")),
-        **_member_abi(
-            "source.formula_call",
-            ("id", "node", "formula", "arguments"),
-            arrays={"arguments": ("source.formula_argument",)},
-            objects={"formula": ("source.formula_coordinate",)},
-        ),
-        **_member_abi(
-            "source.formula_argument",
-            ("parameter", "operand"),
-            unions={
-                "operand": (
-                    "source.parameter_operand",
-                    "source.local_operand",
-                    "source.symbol_operand",
-                    "source.literal",
-                )
-            },
-        ),
-        **_member_abi(
-            "source.operation_call",
-            ("id", "node", "operation", "arguments", "result"),
-            arrays={"arguments": ("source.operation_argument",)},
-            objects={"operation": ("source.operation_coordinate",)},
-            unions={
-                "result": (
-                    "source.value_contract",
-                    "source.boolean_value_contract",
-                )
-            },
-        ),
-        **_member_abi(
-            "source.operation_argument",
-            ("port", "operand"),
-            unions={
-                "operand": (
-                    "source.parameter_operand",
-                    "source.local_operand",
-                    "source.symbol_operand",
-                    "source.literal",
-                )
-            },
-        ),
-        **_member_abi(
-            "source.conditional",
-            ("id", "node", "condition", "when_true", "when_false"),
-            unions={
-                name: (
-                    "source.parameter_operand",
-                    "source.local_operand",
-                    "source.symbol_operand",
-                    "source.literal",
-                )
-                for name in ("condition", "when_true", "when_false")
-            },
-        ),
-        **_member_abi("source.parameter_operand", ("kind", "parameter")),
-        **_member_abi("source.local_operand", ("kind", "local")),
-        **_member_abi("source.symbol_operand", ("kind", "module", "symbol")),
-        **_member_abi(
-            "source.literal", ("kind", "value"), natives=("value",)
-        ),
-        **_member_abi("source.event_operand", ("kind", "name")),
-        **_member_abi("source.discard_result", ("kind",)),
-        **_member_abi(
-            "source.binding",
-            ("site", "formula", "arguments"),
-            arrays={"arguments": ("source.binding_argument",)},
-            objects={"formula": ("source.formula_coordinate",)},
-            unions={
-                "site": ("source.derived_site", "source.operation_site")
-            },
-        ),
-        **_member_abi(
-            "source.binding_argument",
-            ("parameter", "operand"),
-            unions={
-                "operand": ("source.slot_parameter", "source.symbol_operand")
-            },
-        ),
-        **_member_abi("source.derived_site", ("kind", "module", "symbol")),
-        **_member_abi(
-            "source.operation_site", ("kind", "operation", "slot"),
-            objects={"operation": ("source.operation_coordinate",)},
-        ),
-        **_member_abi("source.slot_parameter", ("kind", "parameter")),
-        **_member_abi(
-            "source.value_contract",
-            (
-                "type",
-                "representation",
-                "kind",
-                "unit",
-                "domain_kind",
-                "domain",
-                "numeric_policy",
+            **_member_abi("source.import", ("alias", "package", "symbol")),
+            **_member_abi(
+                "source.symbol",
+                (
+                    "symbol",
+                    "type",
+                    "role",
+                    "representation",
+                    "kind",
+                    "unit",
+                    "domain_kind",
+                    "domain",
+                    "numeric_policy",
+                    "value_policy",
+                ),
+                natives=(
+                    "role",
+                    "representation",
+                    "kind",
+                    "unit",
+                    "domain",
+                    "numeric_policy",
+                ),
+                objects={"value_policy": ("source.value_policy",)},
             ),
-            natives=("domain",),
-        ),
-        **_member_abi(
-            "source.boolean_value_contract",
-            ("type", "representation", "kind", "unit", "domain", "numeric_policy"),
-            natives=("domain",),
-        ),
-    }
+            **_member_abi("source.value_policy", ("mode", "value"), natives=("value",)),
+            **_member_abi(
+                "source.entrypoint",
+                ("id", "operation", "arguments", "result"),
+                arrays={"arguments": ("source.entrypoint_argument",)},
+                objects={"operation": ("source.operation_coordinate",)},
+                unions={"result": ("source.symbol_operand", "source.discard_result")},
+            ),
+            **_member_abi(
+                "source.entrypoint_argument",
+                ("port", "operand"),
+                unions={
+                    "operand": (
+                        "source.symbol_operand",
+                        "source.literal",
+                        "source.event_operand",
+                    )
+                },
+            ),
+            **_member_abi("source.operation_coordinate", ("package", "id")),
+            **_member_abi("source.formula_coordinate", ("module", "id")),
+            **_member_abi(
+                "source.formula",
+                ("id", "parameters", "result", "body", "expression"),
+                arrays={"parameters": ("source.formula_parameter",)},
+                objects={"result": ("source.value_contract",)},
+                unions={"body": ("source.program", "source.inline_parameter")},
+            ),
+            **_member_abi(
+                "source.formula_parameter",
+                (
+                    "id",
+                    "kind",
+                    "type",
+                    "domain_kind",
+                    "domain",
+                    "numeric_policy",
+                    "representation",
+                    "unit",
+                ),
+                natives=("domain",),
+            ),
+            **_member_abi(
+                "source.program",
+                ("nodes", "result"),
+                arrays={
+                    "nodes": (
+                        "source.formula_call",
+                        "source.operation_call",
+                        "source.conditional",
+                    )
+                },
+                unions={
+                    "result": (
+                        "source.parameter_operand",
+                        "source.local_operand",
+                        "source.symbol_operand",
+                        "source.literal",
+                    )
+                },
+            ),
+            **_member_abi("source.inline_parameter", ("node", "parameter")),
+            **_member_abi(
+                "source.formula_call",
+                ("id", "node", "formula", "arguments"),
+                arrays={"arguments": ("source.formula_argument",)},
+                objects={"formula": ("source.formula_coordinate",)},
+            ),
+            **_member_abi(
+                "source.formula_argument",
+                ("parameter", "operand"),
+                unions={
+                    "operand": (
+                        "source.parameter_operand",
+                        "source.local_operand",
+                        "source.symbol_operand",
+                        "source.literal",
+                    )
+                },
+            ),
+            **_member_abi(
+                "source.operation_call",
+                ("id", "node", "operation", "arguments", "result"),
+                arrays={"arguments": ("source.operation_argument",)},
+                objects={"operation": ("source.operation_coordinate",)},
+                unions={
+                    "result": (
+                        "source.value_contract",
+                        "source.boolean_value_contract",
+                    )
+                },
+            ),
+            **_member_abi(
+                "source.operation_argument",
+                ("port", "operand"),
+                unions={
+                    "operand": (
+                        "source.parameter_operand",
+                        "source.local_operand",
+                        "source.symbol_operand",
+                        "source.literal",
+                    )
+                },
+            ),
+            **_member_abi(
+                "source.conditional",
+                ("id", "node", "condition", "when_true", "when_false"),
+                unions={
+                    name: (
+                        "source.parameter_operand",
+                        "source.local_operand",
+                        "source.symbol_operand",
+                        "source.literal",
+                    )
+                    for name in ("condition", "when_true", "when_false")
+                },
+            ),
+            **_member_abi("source.parameter_operand", ("kind", "parameter")),
+            **_member_abi("source.local_operand", ("kind", "local")),
+            **_member_abi("source.symbol_operand", ("kind", "module", "symbol")),
+            **_member_abi("source.literal", ("kind", "value"), natives=("value",)),
+            **_member_abi("source.event_operand", ("kind", "name")),
+            **_member_abi("source.discard_result", ("kind",)),
+            **_member_abi(
+                "source.binding",
+                ("site", "formula", "arguments"),
+                arrays={"arguments": ("source.binding_argument",)},
+                objects={"formula": ("source.formula_coordinate",)},
+                unions={"site": ("source.derived_site", "source.operation_site")},
+            ),
+            **_member_abi(
+                "source.binding_argument",
+                ("parameter", "operand"),
+                unions={"operand": ("source.slot_parameter", "source.symbol_operand")},
+            ),
+            **_member_abi("source.derived_site", ("kind", "module", "symbol")),
+            **_member_abi(
+                "source.operation_site",
+                ("kind", "operation", "slot"),
+                objects={"operation": ("source.operation_coordinate",)},
+            ),
+            **_member_abi("source.slot_parameter", ("kind", "parameter")),
+            **_member_abi(
+                "source.value_contract",
+                (
+                    "type",
+                    "representation",
+                    "kind",
+                    "unit",
+                    "domain_kind",
+                    "domain",
+                    "numeric_policy",
+                ),
+                natives=("domain",),
+            ),
+            **_member_abi(
+                "source.boolean_value_contract",
+                ("type", "representation", "kind", "unit", "domain", "numeric_policy"),
+                natives=("domain",),
+            ),
+        }
+    )
 )
 
-_SOURCE_NATIVE_DISCRIMINATOR_ABI: Mapping[
-    str, tuple[str, str, JsonValue]
-] = MappingProxyType(
-    {
-        "source.formula_call.discriminator": (
-            "source.formula_call",
-            "source.formula_call.node",
-            "formula-call",
-        ),
-        "source.operation_call.discriminator": (
-            "source.operation_call",
-            "source.operation_call.node",
-            "operation-call",
-        ),
-        "source.conditional.discriminator": (
-            "source.conditional",
-            "source.conditional.node",
-            "conditional",
-        ),
-        "source.parameter_operand.discriminator": (
-            "source.parameter_operand",
-            "source.parameter_operand.kind",
-            "parameter",
-        ),
-        "source.local_operand.discriminator": (
-            "source.local_operand",
-            "source.local_operand.kind",
-            "local",
-        ),
-        "source.symbol_operand.discriminator": (
-            "source.symbol_operand",
-            "source.symbol_operand.kind",
-            "symbol",
-        ),
-        "source.literal.discriminator": (
-            "source.literal",
-            "source.literal.kind",
-            "literal",
-        ),
-        "source.event_operand.discriminator": (
-            "source.event_operand",
-            "source.event_operand.kind",
-            "event-reference",
-        ),
-        "source.discard_result.discriminator": (
-            "source.discard_result",
-            "source.discard_result.kind",
-            "discard",
-        ),
-        "source.derived_site.discriminator": (
-            "source.derived_site",
-            "source.derived_site.kind",
-            "derived-symbol",
-        ),
-        "source.operation_site.discriminator": (
-            "source.operation_site",
-            "source.operation_site.kind",
-            "operation-slot",
-        ),
-        "source.slot_parameter.discriminator": (
-            "source.slot_parameter",
-            "source.slot_parameter.kind",
-            "slot-parameter",
-        ),
-        "source.inline_parameter.discriminator": (
-            "source.inline_parameter",
-            "source.inline_parameter.node",
-            "parameter",
-        ),
-        "source.formula_parameter.domain_kind.discriminator": (
-            "source.formula_parameter",
-            "source.formula_parameter.domain_kind",
-            "closed-interval",
-        ),
-        "source.symbol.domain_kind.discriminator": (
-            "source.symbol",
-            "source.symbol.domain_kind",
-            "closed-interval",
-        ),
-        "source.value_contract.domain_kind.discriminator": (
-            "source.value_contract",
-            "source.value_contract.domain_kind",
-            "closed-interval",
-        ),
-    }
+_SOURCE_NATIVE_DISCRIMINATOR_ABI: Mapping[str, tuple[str, str, JsonValue]] = (
+    MappingProxyType(
+        {
+            "source.formula_call.discriminator": (
+                "source.formula_call",
+                "source.formula_call.node",
+                "formula-call",
+            ),
+            "source.operation_call.discriminator": (
+                "source.operation_call",
+                "source.operation_call.node",
+                "operation-call",
+            ),
+            "source.conditional.discriminator": (
+                "source.conditional",
+                "source.conditional.node",
+                "conditional",
+            ),
+            "source.parameter_operand.discriminator": (
+                "source.parameter_operand",
+                "source.parameter_operand.kind",
+                "parameter",
+            ),
+            "source.local_operand.discriminator": (
+                "source.local_operand",
+                "source.local_operand.kind",
+                "local",
+            ),
+            "source.symbol_operand.discriminator": (
+                "source.symbol_operand",
+                "source.symbol_operand.kind",
+                "symbol",
+            ),
+            "source.literal.discriminator": (
+                "source.literal",
+                "source.literal.kind",
+                "literal",
+            ),
+            "source.event_operand.discriminator": (
+                "source.event_operand",
+                "source.event_operand.kind",
+                "event-reference",
+            ),
+            "source.discard_result.discriminator": (
+                "source.discard_result",
+                "source.discard_result.kind",
+                "discard",
+            ),
+            "source.derived_site.discriminator": (
+                "source.derived_site",
+                "source.derived_site.kind",
+                "derived-symbol",
+            ),
+            "source.operation_site.discriminator": (
+                "source.operation_site",
+                "source.operation_site.kind",
+                "operation-slot",
+            ),
+            "source.slot_parameter.discriminator": (
+                "source.slot_parameter",
+                "source.slot_parameter.kind",
+                "slot-parameter",
+            ),
+            "source.inline_parameter.discriminator": (
+                "source.inline_parameter",
+                "source.inline_parameter.node",
+                "parameter",
+            ),
+            "source.formula_parameter.domain_kind.discriminator": (
+                "source.formula_parameter",
+                "source.formula_parameter.domain_kind",
+                "closed-interval",
+            ),
+            "source.symbol.domain_kind.discriminator": (
+                "source.symbol",
+                "source.symbol.domain_kind",
+                "closed-interval",
+            ),
+            "source.value_contract.domain_kind.discriminator": (
+                "source.value_contract",
+                "source.value_contract.domain_kind",
+                "closed-interval",
+            ),
+        }
+    )
 )
 
 
@@ -980,10 +987,10 @@ def _source_member_schemas(
 
 
 def _source_member_shape_is_closed(field: Mapping[str, Any], shape: str) -> bool:
+    # ``native`` requires every occurrence to be authority-owned as one opaque
+    # value. Structural members may still contain branch-local native consts.
     if shape == "native":
         return _NATIVE in field
-    if _NATIVE in field:
-        return False
     if shape == "array":
         return field.get("type") == "array"
     if shape == "object":
@@ -1063,6 +1070,17 @@ def derive_source_native_bindings(
         ):
             raise ValueError("Source native member shape is invalid")
         member_tokens[slot] = member
+
+    for owner_slot, owner in role_tokens.items():
+        bound_members = {
+            member_tokens[slot]
+            for slot, (candidate_owner, _shape, _targets) in (
+                _SOURCE_NATIVE_MEMBER_ABI.items()
+            )
+            if candidate_owner == owner_slot
+        }
+        if bound_members != set(index.role_members[owner]):
+            raise ValueError("Source native member bindings do not close their role")
 
     discriminator_values: dict[str, JsonValue] = {}
     for slot, (
@@ -1185,14 +1203,18 @@ def derive_source_semantic_index(
                 inherited_members.get(authored) != member
                 for authored, member in member_map.items()
             ):
-                raise ValueError("Source oneOf branch changes inherited member ownership")
+                raise ValueError(
+                    "Source oneOf branch changes inherited member ownership"
+                )
         if explicit is not None:
             if properties is None or not member_map:
                 raise ValueError("Source role has no semantic members")
             members = frozenset(member_map.values())
             previous = role_members.setdefault(cast(str, explicit), members)
             if previous != members:
-                raise ValueError("Source role occurrences disagree on member completeness")
+                raise ValueError(
+                    "Source role occurrences disagree on member completeness"
+                )
             anchors.setdefault(cast(str, explicit), []).append(node)
         for authored, child in (
             cast(Mapping[str, Mapping[str, Any]], properties).items()
@@ -1272,7 +1294,9 @@ def source_schema_member(
 ) -> tuple[str, Mapping[str, Any]]:
     matches = [
         (name, child)
-        for name, child in cast(Mapping[str, Mapping[str, Any]], schema["properties"]).items()
+        for name, child in cast(
+            Mapping[str, Mapping[str, Any]], schema["properties"]
+        ).items()
         if child.get(_MEMBER) == member
     ]
     if len(matches) != 1:
@@ -1402,7 +1426,9 @@ def semantic_source_schema(schema: Mapping[str, Any]) -> dict[str, Any]:
                 )
             result["properties"] = projected
             required = node.get("required")
-            if isinstance(required, Sequence) and not isinstance(required, (str, bytes)):
+            if isinstance(required, Sequence) and not isinstance(
+                required, (str, bytes)
+            ):
                 result["required"] = [names[name] for name in required]
         items = node.get("items")
         if isinstance(items, Mapping):
@@ -1432,7 +1458,9 @@ def _native_abi_source_schema(
         )
     }
 
-    def walk(node: Mapping[str, Any], inherited_role: str | None = None) -> dict[str, Any]:
+    def walk(
+        node: Mapping[str, Any], inherited_role: str | None = None
+    ) -> dict[str, Any]:
         result = deepcopy(dict(node))
         role = node.get(_ROLE)
         effective_role = role if isinstance(role, str) else inherited_role
@@ -1453,9 +1481,7 @@ def _native_abi_source_schema(
                 internal_member = member_slot.rsplit(".", 1)[1]
                 names[authored] = internal_member
                 projected_child = (
-                    deepcopy(dict(child))
-                    if _NATIVE in child
-                    else walk(child)
+                    deepcopy(dict(child)) if _NATIVE in child else walk(child)
                 )
                 discriminator = discriminator_slots.get((owner_slot, member_slot))
                 if discriminator is not None:
@@ -1635,7 +1661,9 @@ def _map_source_value(
                         mapped = deepcopy(language_value)
                     else:
                         if mapped != language_value:
-                            raise ValueError("Source discriminator binding is incoherent")
+                            raise ValueError(
+                                "Source discriminator binding is incoherent"
+                            )
                         mapped = deepcopy(internal_value)
                 result[authored if write_authored else internal_member] = mapped
             return result
@@ -1655,9 +1683,7 @@ def project_source_value(
     schema: Mapping[str, Any],
     bindings: SourceNativeBindingIndex,
 ) -> SourceProjection:
-    value, addresses = _map_source_value(
-        source, schema, bindings, write_authored=False
-    )
+    value, addresses = _map_source_value(source, schema, bindings, write_authored=False)
     return SourceProjection(value, addresses, source)
 
 

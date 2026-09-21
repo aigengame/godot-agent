@@ -451,7 +451,12 @@ def test_selector_segments_and_endpoints_cannot_escape_their_declared_owners(
 
     with pytest.raises(
         InventoryRefusal,
-        match="Source semantic roles do not close|Source schema-address judgement",
+        match=(
+            "Source semantic roles do not close|"
+            "Source schema-address judgement|"
+            "Source semantic selector has no unique member owner|"
+            "Source native role bindings do not close"
+        ),
     ):
         read_extension_inventory(kernel, graph)
 
@@ -576,7 +581,10 @@ def test_branch_only_source_member_cannot_escape_initial_fact_ownership(witness)
     _assert_authority_refusal(kernel, candidate)
     with pytest.raises(
         InventoryRefusal,
-        match="Source semantic roles do not close",
+        match=(
+            "Source semantic roles do not close|"
+            "Source does not match its admitted closed wire schema or semantic roles"
+        ),
     ):
         read_extension_inventory(kernel, candidate)
     assert canonical_bytes(candidate) == before

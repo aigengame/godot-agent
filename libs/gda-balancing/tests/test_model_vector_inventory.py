@@ -27,7 +27,10 @@ from schema2_extension_inventory_support import (
     validate_extension_inventory,
 )
 from schema2_extension_renaming_support import _rewrite_positions
-from schema2_model_vector_inventory_support import model_vector_inventory
+from schema2_model_vector_inventory_support import (
+    _MODEL_VECTOR_INVENTORY_CACHE,
+    model_vector_inventory,
+)
 from test_current_namespace_public import _PublicCandidate, _members
 from test_schema2_model_lowerer_conformance import (
     ModelSourceContext,
@@ -125,6 +128,49 @@ def test_model_vector_inventory_closes_all_real_sources_and_lock_oracle_referenc
             for row in rows
         )
     assert reserved <= inventory.reserved
+
+
+def test_model_vector_inventory_cache_keeps_envelope_refusals_order_independent(
+    witness,
+):
+    kernel, graph, _ = witness
+    model_vector_inventory(kernel, graph)
+
+    malformed_owner = deepcopy(graph)
+    malformed_owner["vector_sets"][0]["vectors"][0] = "missing-vector"
+    with pytest.raises(InventoryRefusal, match="owner list does not close"):
+        model_vector_inventory(kernel, malformed_owner)
+
+    malformed_descriptors = deepcopy(graph)
+    malformed_descriptors["ldb_root"]["package_descriptors"][0]["id"] = (
+        "missing.package"
+    )
+    with pytest.raises(InventoryRefusal, match="descriptor graph"):
+        model_vector_inventory(kernel, malformed_descriptors)
+
+    malformed_identity = deepcopy(graph)
+    malformed_identity["ldb_root"]["content_identity"] = {"bad": True}
+    with pytest.raises(InventoryRefusal, match="Kernel member contracts"):
+        model_vector_inventory(kernel, malformed_identity)
+
+    malformed_surfaces = {**graph, "unexpected_surface": {"bad": True}}
+    with pytest.raises(
+        InventoryRefusal, match="unknown or missing witness graph surface"
+    ):
+        model_vector_inventory(kernel, malformed_surfaces)
+
+
+def test_model_vector_inventory_ignores_the_unrelated_primary_source_on_cache_miss(
+    witness,
+):
+    kernel, graph, _ = witness
+    expected = model_vector_inventory(kernel, graph)
+    unrelated_source = {**graph, "source": {"bad": True}}
+
+    _MODEL_VECTOR_INVENTORY_CACHE.clear()
+    actual = model_vector_inventory(kernel, unrelated_source)
+
+    assert actual == expected
 
 
 @pytest.mark.parametrize(

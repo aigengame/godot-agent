@@ -1,6 +1,8 @@
 """Bound Model-vector observations through the existing independent consumers."""
 
+from collections import OrderedDict
 from collections.abc import Mapping
+from copy import deepcopy
 from typing import Any
 
 import jsonschema
@@ -8,7 +10,6 @@ from gda_balancing.domain.authority.source_projection import SourceProjection
 
 from schema2_bootstrap_conformance_support import (
     _consumer_b_model_program_vector_is_closed,
-    _consumer_b_project_source,
 )
 from schema2_extension_inventory_support import (
     AuthorityToken,
@@ -19,9 +20,15 @@ from schema2_extension_inventory_support import (
     _child,
     _formula_projections,
     _json_pointer_segments,
+    _invalid_source_paths,
+    _inventory_dependency_key,
+    _package_semantic_dependencies,
     _protocol_schema,
+    _repair_invalid_source,
     _source_address_links,
+    _source_projection,
     _template_inventory,
+    _validate_ldb_root_contract,
 )
 from test_schema2_model_lowerer_conformance import (
     ModelSourceContext,
@@ -33,6 +40,50 @@ from test_schema2_model_lowerer_conformance import (
 )
 
 _LAW = "/meta_format/model_program_vector"
+_MODEL_VECTOR_INVENTORY_CACHE: OrderedDict[
+    bytes,
+    tuple[
+        frozenset[TokenOccurrence],
+        frozenset[str],
+        dict[str, Any],
+        frozenset[AuthorityToken],
+    ],
+] = OrderedDict()
+_MODEL_VECTOR_INVENTORY_CACHE_LIMIT = 16
+
+
+def _model_vector_dependencies(graph: Mapping[str, Any]) -> dict[str, Any]:
+    """Return exactly the authored surfaces consumed by Model vector inventory."""
+    vector_membership = []
+    model_vectors = []
+    for set_index, vector_set in enumerate(graph.get("vector_sets", [])):
+        definitions = vector_set["vector_definitions"]
+        vector_membership.append(
+            {
+                "package_id": vector_set["package_id"],
+                "ids": [vector["id"] for vector in definitions],
+                "vectors": vector_set["vectors"],
+            }
+        )
+        model_vectors.extend(
+            {
+                "set_index": set_index,
+                "vector_index": vector_index,
+                "definition": vector,
+            }
+            for vector_index, vector in enumerate(definitions)
+            if "source_fixture" in vector
+        )
+    root = {
+        key: value
+        for key, value in graph.get("ldb_root", {}).items()
+        if key != "content_identity"
+    }
+    return {
+        "root": root,
+        "vector_membership": vector_membership,
+        "model_vectors": model_vectors,
+    }
 
 
 def _base_reader(kernel, graph):
@@ -40,7 +91,7 @@ def _base_reader(kernel, graph):
     reader.index()
     reader.operation_operand_projection()
     _, fixed, reader.template_roots, reader.template_schemas = _template_inventory(
-        kernel, graph
+        kernel, graph, reader.source_native
     )
     reader.reserved.update(fixed)
     reader.packages()
@@ -64,19 +115,40 @@ class _SourceRoles(_Reader):
         schema = _protocol_schema(self.kernel, self.graph, "model-source-package")[
             "schema"
         ]
-        self.invalid_paths = {
-            "/source" + "".join(_child("", part) for part in error.absolute_path)
-            for error in jsonschema.Draft202012Validator(schema).iter_errors(source)
-        }
-        if self.invalid_paths and not refused:
-            raise InventoryRefusal("admitted Model vector has invalid Source grammar")
-        self.source_projection = (
-            None
-            if self.invalid_paths
-            else _consumer_b_project_source(
-                source, self.kernel, _attached_language(self.kernel, self.graph)
-            )
+        validation_errors = list(
+            jsonschema.Draft202012Validator(schema).iter_errors(source)
         )
+        invalid_authored_paths = _invalid_source_paths(
+            validation_errors, root="/source"
+        )
+        if invalid_authored_paths and not refused:
+            raise InventoryRefusal("admitted Model vector has invalid Source grammar")
+        projection_graph = (
+            {
+                **self.graph,
+                "source": _repair_invalid_source(source, schema, validation_errors),
+            }
+            if validation_errors
+            else self.graph
+        )
+        self.source_projection = _source_projection(self.kernel, projection_graph)
+        if self.source_projection is None:
+            raise InventoryRefusal("negative Model Source projection is unavailable")
+        authored_to_stable = {
+            "/source" + authored: "/source" + stable
+            for stable, authored in self.source_projection.authored_paths.items()
+        }
+
+        def stable_pointer(authored: str) -> str:
+            for prefix in sorted(authored_to_stable, key=len, reverse=True):
+                if authored == prefix or authored.startswith(prefix + "/"):
+                    return authored_to_stable[prefix] + authored.removeprefix(prefix)
+            return authored
+
+        self.invalid_authored_paths = invalid_authored_paths
+        self.invalid_paths = {
+            stable_pointer(pointer) for pointer in invalid_authored_paths
+        }
         self.formula_projections = projections
 
     def source_alias(self, name, aliases, scope, pointer):
@@ -107,15 +179,25 @@ class _SourceRoles(_Reader):
             return  # This malformed grammar has no interpreted body or AST.
         super().formula_body(body, pointer, *args, **kwargs)
 
+    def record_occurrence(self, occurrence):
+        if occurrence.location != "key" and any(
+            occurrence.pointer == invalid
+            or occurrence.pointer.startswith(invalid + "/")
+            for invalid in self.invalid_authored_paths
+        ):
+            return
+        super().record_occurrence(occurrence)
 
-def model_vector_inventory(
-    kernel: Mapping[str, Any],
-    graph: Mapping[str, Any],
-    *,
-    include_source_fields: bool = True,
+
+def _model_vector_inventory_uncached(
+    kernel: Mapping[str, Any], graph: Mapping[str, Any]
 ):
-    base = _base_reader(kernel, graph)
-    parsed = _formula_projections(kernel, graph)
+    # Model vectors are authored in ``vector_sets``. The caller's primary
+    # Source is a separate inventory surface and cannot change their fixtures,
+    # first-fault observations, or projections.
+    vector_graph = {key: value for key, value in graph.items() if key != "source"}
+    base = _base_reader(kernel, vector_graph)
+    parsed = _formula_projections(kernel, vector_graph)
     ldb = {**graph["ldb_root"], **_attached_language(kernel, graph)}
     ldb["diagnostics"] = [
         row
@@ -169,7 +251,9 @@ def model_vector_inventory(
                 ]
                 if diagnostics != expected["diagnostics"]:
                     raise InventoryRefusal(
-                        "Model vector first-fault observation differs"
+                        "Model vector first-fault observation differs: "
+                        + vector["id"]
+                        + f"; observed={diagnostics!r}; expected={expected['diagnostics']!r}"
                     )
             visitor = _SourceRoles(
                 base,
@@ -188,21 +272,13 @@ def model_vector_inventory(
                 raise InventoryRefusal(
                     "Model Source has an unclassified interpreted role"
                 )
-            if include_source_fields:
-                for (
-                    token,
-                    pointer,
-                    use,
-                    location,
-                    projection,
-                    law,
-                ) in _source_address_links(kernel, visitor.graph):
-                    if pointer.startswith("/source/"):
-                        visitor.occurrences.add(
-                            TokenOccurrence(
-                                token, pointer, use, law, location, projection
-                            )
-                        )
+            for token, pointer, use, location, projection, law in _source_address_links(
+                kernel, visitor.graph
+            ):
+                if pointer.startswith("/source/"):
+                    visitor.record_occurrence(
+                        TokenOccurrence(token, pointer, use, law, location, projection)
+                    )
             declared = (
                 base.tokens
                 | base.reserved
@@ -254,7 +330,7 @@ def model_vector_inventory(
                 emit(token, pointer, use, row.location, row.projection)
                 if row.token in visitor.reserved:
                     reserved.add(token)
-            if collection_pointer and include_source_fields:
+            if collection_pointer:
                 # The generator selects actual Source fields; generated indices
                 # and the overwritten template name are recipe data.
                 keys = {
@@ -332,7 +408,8 @@ def model_vector_inventory(
             lock = _reference_package_lock(context)
             if _lock_oracle(lock) != expected["lock_oracle"]:
                 raise InventoryRefusal(
-                    "Model Lock oracle disagrees with its selected package owners"
+                    "Model Lock oracle disagrees with its selected package owners: "
+                    + vector["id"]
                 )
             lp = ep + "/lock_oracle"
             reference(
@@ -394,3 +471,46 @@ def model_vector_inventory(
                     reference(role, name, f"{lp}/{collection}/{i}")
     reserved.update(row.token for row in rows if row.token in base.reserved)
     return rows, roots, projections, reserved
+
+
+def model_vector_inventory(
+    kernel: Mapping[str, Any],
+    graph: Mapping[str, Any],
+    *,
+    include_source_fields: bool = True,
+):
+    if "ldb_root" in graph:
+        _validate_ldb_root_contract(kernel, graph["ldb_root"])
+    key = _inventory_dependency_key(
+        kernel=kernel,
+        packages=_package_semantic_dependencies(graph["packages"]),
+        model_vector_dependencies=_model_vector_dependencies(graph),
+        surfaces=sorted(set(graph) - {"source"}),
+    )
+    cached = _MODEL_VECTOR_INVENTORY_CACHE.get(key)
+    if cached is None:
+        rows, roots, projections, reserved = _model_vector_inventory_uncached(
+            kernel, graph
+        )
+        cached = (
+            frozenset(rows),
+            frozenset(roots),
+            deepcopy(projections),
+            frozenset(reserved),
+        )
+        _MODEL_VECTOR_INVENTORY_CACHE[key] = cached
+        _MODEL_VECTOR_INVENTORY_CACHE.move_to_end(key)
+        while len(_MODEL_VECTOR_INVENTORY_CACHE) > _MODEL_VECTOR_INVENTORY_CACHE_LIMIT:
+            _MODEL_VECTOR_INVENTORY_CACHE.popitem(last=False)
+    else:
+        _MODEL_VECTOR_INVENTORY_CACHE.move_to_end(key)
+    rows, roots, projections, reserved = cached
+    selected_rows = {
+        row for row in rows if include_source_fields or row.token.role != "source-field"
+    }
+    selected_reserved = {
+        token
+        for token in reserved
+        if include_source_fields or token.role != "source-field"
+    }
+    return selected_rows, set(roots), deepcopy(projections), selected_reserved

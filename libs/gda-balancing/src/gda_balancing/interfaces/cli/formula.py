@@ -105,15 +105,15 @@ def _formula_conversion_result_schema(
     context = context or packaged_authority_context()
     source_schema = context.source_semantic_index.schema
     members = context.source_native_binding_index.members
-    module_schema = source_schema_member(
-        source_schema, members["source.root.modules"]
-    )[1]["items"]
+    module_schema = source_schema_member(source_schema, members["source.root.modules"])[
+        1
+    ]["items"]
     formula_schema = source_schema_member(
         module_schema, members["source.module.formulas"]
     )[1]["items"]
-    body_schema = source_schema_member(
-        formula_schema, members["source.formula.body"]
-    )[1]
+    body_schema = source_schema_member(formula_schema, members["source.formula.body"])[
+        1
+    ]
     return {
         "type": "object",
         "properties": {
@@ -137,9 +137,9 @@ def _formula_schemas(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     source_schema = context.source_semantic_index.schema
     members = context.source_native_binding_index.members
-    module_schema = source_schema_member(
-        source_schema, members["source.root.modules"]
-    )[1]["items"]
+    module_schema = source_schema_member(source_schema, members["source.root.modules"])[
+        1
+    ]["items"]
     formula_schema = source_schema_member(
         module_schema, members["source.module.formulas"]
     )[1]["items"]
@@ -156,16 +156,15 @@ def _formula_fixture(
     aliases = [
         row["alias"]
         for row in profile["formula_resolution"]["fixed_value_type_aliases"]
-        if row.get("contract") == "kernel-boolean"
-        and isinstance(row.get("alias"), str)
+        if row.get("contract") == "kernel-boolean" and isinstance(row.get("alias"), str)
     ]
     if len(aliases) != 1:
         raise ValueError("Formula fixtures require one Kernel Boolean Source alias")
     fixed = deepcopy(
         dict(
-            context.kernel["meta_format"]["runtime_program"][
-                "fixed_value_contracts"
-            ]["kernel-boolean"]
+            context.kernel["meta_format"]["runtime_program"]["fixed_value_contracts"][
+                "kernel-boolean"
+            ]
         )
     )
     fixed.pop("type")
@@ -202,9 +201,7 @@ def _formula_fixture(
         formula["body"] = {"node": "parameter", "parameter": "value"}
     module_schema, formula_schema = _formula_schemas(context)
     bindings = context.source_native_binding_index
-    module = author_source_value(
-        {"id": "main", "imports": []}, module_schema, bindings
-    )
+    module = author_source_value({"id": "main", "imports": []}, module_schema, bindings)
     authored_formula = author_source_value(formula, formula_schema, bindings)
     _, version_schema = source_schema_member(
         context.source_semantic_index.schema,
@@ -272,9 +269,7 @@ def formula_parse_descriptor(
         output_model=FormulaConversionResult,
         handler=_formula_handler(parse_formula, authority_context_provider),
         fixtures=ConformanceFixtures(
-            prepare_args=_formula_fixture_args(
-                authority_context_provider, parsing=True
-            )
+            prepare_args=_formula_fixture_args(authority_context_provider, parsing=True)
         ),
         positional_field="source",
         schema_major=2,

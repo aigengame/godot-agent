@@ -292,9 +292,9 @@ def _authored_formula_schemas(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     schema = authority_context.source_semantic_index.schema
     members = authority_context.source_native_binding_index.members
-    module_schema = source_schema_member(
-        schema, members["source.root.modules"]
-    )[1]["items"]
+    module_schema = source_schema_member(schema, members["source.root.modules"])[1][
+        "items"
+    ]
     formula_schema = source_schema_member(
         module_schema, members["source.module.formulas"]
     )[1]["items"]

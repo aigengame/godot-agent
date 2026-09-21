@@ -15,6 +15,7 @@ import jsonschema
 
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 from schema2_bootstrap_conformance_support import (
+    _CONSUMER_B_SOURCE_DISCRIMINATOR_ABI,
     _consumer_b_inline_parameter_operand,
     _consumer_b_project_source_role,
     _consumer_b_value_matches,
@@ -99,9 +100,239 @@ def _source_role_token(language_bundle: dict[str, Any], slot: str) -> str:
 
 
 def _source_member_token(language_bundle: dict[str, Any], slot: str) -> str:
-    return cast(
-        str, _source_native_binding(language_bundle, slot, "member")["member"]
-    )
+    return cast(str, _source_native_binding(language_bundle, slot, "member")["member"])
+
+
+def _source_abi_value_and_paths(
+    value: dict[str, Any],
+    language_bundle: dict[str, Any],
+    owner_slot: str,
+    *,
+    preserve_native_discriminators: bool = False,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Map projected Source members and paths to fixed host ABI slots."""
+
+    def child_pointer(pointer: str, member: str | int) -> str:
+        encoded = str(member).replace("~", "~0").replace("/", "~1")
+        return f"{pointer}/{encoded}"
+
+    native_members: set[tuple[str, str]] = set()
+
+    def collect_native_members(node: Any, inherited_role: str | None = None) -> None:
+        if not isinstance(node, dict):
+            return
+        role = node.get("semantic_role", inherited_role)
+        properties = node.get("properties")
+        if isinstance(properties, dict):
+            if isinstance(role, str):
+                for field in properties.values():
+                    if not isinstance(field, dict):
+                        continue
+                    member = field.get("semantic_member")
+                    contract = field.get("semantic_native_contract")
+                    if (
+                        not isinstance(member, str)
+                        or not isinstance(contract, dict)
+                        or not isinstance(contract.get("language_reference"), str)
+                    ):
+                        continue
+                    value_location = contract.get("value_location")
+                    selected_member = (
+                        value_location.get("semantic_member", member)
+                        if isinstance(value_location, dict)
+                        else member
+                    )
+                    if isinstance(selected_member, str):
+                        native_members.add((role, selected_member))
+            for field in properties.values():
+                collect_native_members(field)
+        collect_native_members(node.get("items"))
+        for branch in node.get("oneOf", []):
+            collect_native_members(
+                branch,
+                role if isinstance(properties, dict) else inherited_role,
+            )
+
+    collect_native_members(_source_schema(language_bundle))
+
+    def native_value(
+        child: Any, semantic_pointer: str, stable_pointer: str
+    ) -> tuple[Any, dict[str, str]]:
+        paths = {stable_pointer: semantic_pointer}
+        if isinstance(child, dict):
+            result = {}
+            for member, nested in child.items():
+                mapped, nested_paths = native_value(
+                    nested,
+                    child_pointer(semantic_pointer, member),
+                    child_pointer(stable_pointer, member),
+                )
+                result[member] = mapped
+                paths.update(nested_paths)
+            return result, paths
+        if isinstance(child, list):
+            result = []
+            for index, nested in enumerate(child):
+                mapped, nested_paths = native_value(
+                    nested,
+                    child_pointer(semantic_pointer, index),
+                    child_pointer(stable_pointer, index),
+                )
+                result.append(mapped)
+                paths.update(nested_paths)
+            return result, paths
+        return deepcopy(child), paths
+
+    def target_value(
+        child: Any,
+        targets: list[str],
+        semantic_pointer: str,
+        stable_pointer: str,
+    ) -> tuple[Any, dict[str, str]]:
+        if not isinstance(child, dict):
+            raise ValueError("independent Source ABI target is malformed")
+        if len(targets) == 1:
+            return walk(
+                child,
+                targets[0],
+                semantic_pointer,
+                stable_pointer,
+            )
+        candidates: list[tuple[dict[str, Any], dict[str, str]]] = []
+        for target in targets:
+            try:
+                candidates.append(walk(child, target, semantic_pointer, stable_pointer))
+            except ValueError:
+                continue
+        identities = {
+            (
+                canonical_bytes(cast(JsonValue, candidate)),
+                tuple(sorted(paths.items())),
+            )
+            for candidate, paths in candidates
+        }
+        if not candidates or len(identities) != 1:
+            raise ValueError("independent Source ABI target is ambiguous")
+        return candidates[0]
+
+    def walk(
+        current: dict[str, Any],
+        current_owner_slot: str,
+        semantic_pointer: str,
+        stable_pointer: str,
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        rows = [
+            row
+            for row in _resolution_profile(language_bundle)["source_native_bindings"]
+            if row.get("kind") == "member"
+            and row.get("owner_slot") == current_owner_slot
+        ]
+        by_member = {row["member"]: row for row in rows}
+        if len(by_member) != len(rows) or not set(current) <= set(by_member):
+            raise ValueError(
+                f"independent Source ABI member is unavailable for {current_owner_slot}"
+            )
+
+        result: dict[str, Any] = {}
+        paths = {stable_pointer: semantic_pointer}
+        for member, child in current.items():
+            row = by_member[member]
+            slot = cast(str, row["slot"])
+            stable_member = slot.rsplit(".", 1)[1]
+            targets = cast(list[str], row["target_slots"])
+            shape = row["shape"]
+            semantic_child = child_pointer(semantic_pointer, member)
+            stable_child = child_pointer(stable_pointer, stable_member)
+            if targets and shape == "array":
+                if not isinstance(child, list):
+                    raise ValueError("independent Source ABI array is malformed")
+                mapped = []
+                child_paths = {stable_child: semantic_child}
+                for index, item in enumerate(child):
+                    nested, nested_paths = target_value(
+                        item,
+                        targets,
+                        child_pointer(semantic_child, index),
+                        child_pointer(stable_child, index),
+                    )
+                    mapped.append(nested)
+                    child_paths.update(nested_paths)
+            elif targets:
+                mapped, child_paths = target_value(
+                    child, targets, semantic_child, stable_child
+                )
+            else:
+                mapped, child_paths = native_value(child, semantic_child, stable_child)
+            discriminator = next(
+                (
+                    (discriminator_slot, internal_value)
+                    for discriminator_slot, (
+                        discriminator_owner,
+                        discriminator_member,
+                        internal_value,
+                    ) in _CONSUMER_B_SOURCE_DISCRIMINATOR_ABI.items()
+                    if discriminator_owner == current_owner_slot
+                    and discriminator_member == slot
+                ),
+                None,
+            )
+            if discriminator is not None:
+                discriminator_slot, internal_value = discriminator
+                binding = _source_native_binding(
+                    language_bundle, discriminator_slot, "discriminator"
+                )
+                if mapped != binding.get("value"):
+                    raise ValueError("independent Source discriminator is incoherent")
+                role = _source_role_token(language_bundle, current_owner_slot)
+                member_token = cast(str, row["member"])
+                if not (
+                    preserve_native_discriminators
+                    and (role, member_token) in native_members
+                ):
+                    mapped = deepcopy(internal_value)
+            result[stable_member] = mapped
+            paths.update(child_paths)
+        return result, paths
+
+    return walk(value, owner_slot, "", "")
+
+
+def _source_abi_value(
+    value: dict[str, Any], language_bundle: dict[str, Any], owner_slot: str
+) -> dict[str, Any]:
+    """Independently map projected Source members to fixed host ABI slots."""
+    result, _paths = _source_abi_value_and_paths(value, language_bundle, owner_slot)
+    return result
+
+
+def _source_abi_selector(
+    selector: list[str],
+    language_bundle: dict[str, Any],
+    owner_slots: tuple[str, ...] = ("source.root",),
+) -> tuple[list[str], tuple[str, ...]]:
+    """Map an LDB Source selector to stable host ABI member names."""
+    rows = _resolution_profile(language_bundle)["source_native_bindings"]
+    current_owners = set(owner_slots)
+    result: list[str] = []
+    for segment in selector:
+        if segment == "*":
+            result.append(segment)
+            continue
+        matches = [
+            row
+            for row in rows
+            if row.get("kind") == "member"
+            and row.get("owner_slot") in current_owners
+            and row.get("member") == segment
+        ]
+        stable_members = {cast(str, row["slot"]).rsplit(".", 1)[1] for row in matches}
+        if len(stable_members) != 1:
+            raise ValueError("independent Source ABI selector is ambiguous")
+        result.append(next(iter(stable_members)))
+        current_owners = {
+            target for row in matches for target in cast(list[str], row["target_slots"])
+        }
+    return result, tuple(sorted(current_owners))
 
 
 def _inline_source_parameter(
@@ -112,7 +343,11 @@ def _inline_source_parameter(
         language_bundle, "source.inline_parameter.discriminator", "discriminator"
     )
     member = _source_member_token(language_bundle, "source.inline_parameter.parameter")
-    if discriminator["value"] != kind:
+    if discriminator.get(
+        "owner_slot"
+    ) != "source.inline_parameter" or discriminator.get(
+        "member"
+    ) != _source_member_token(language_bundle, "source.inline_parameter.node"):
         raise ValueError("independent inline Formula role is ambiguous")
     return kind, reference, member
 
@@ -163,12 +398,16 @@ def normalize_source_body(
         ).value
     except ValueError:
         try:
-            return _consumer_b_project_source_role(
-                body,
-                _source_role_token(language_bundle, "source.program"),
-                kernel,
+            return _source_abi_value(
+                _consumer_b_project_source_role(
+                    body,
+                    _source_role_token(language_bundle, "source.program"),
+                    kernel,
+                    language_bundle,
+                ).value,
                 language_bundle,
-            ).value
+                "source.program",
+            )
         except ValueError as program_error:
             raise ValueError(
                 "independent inline Formula body is malformed"
@@ -185,19 +424,24 @@ def normalize_semantic_body(
     body: dict[str, Any], language_bundle: dict[str, Any], *, kernel: dict[str, Any]
 ) -> dict[str, Any]:
     """Independently lower a body already projected to Source semantic members."""
-    kind, reference, source_member = _inline_source_parameter(kernel, language_bundle)
-    if body.get("node") == kind:
-        if set(body) != {"node", source_member} or not isinstance(
-            body.get(source_member), str
-        ):
-            raise ValueError("independent inline Formula body is malformed")
-        return {
-            "nodes": [],
-            "result": {"kind": kind, reference: body[source_member]},
-        }
-    if isinstance(body.get("nodes"), list) and isinstance(body.get("result"), dict):
-        return deepcopy(body)
-    raise ValueError("independent Formula program body is malformed")
+    kind, reference, _source_member = _inline_source_parameter(kernel, language_bundle)
+    try:
+        projected = _source_abi_value(body, language_bundle, "source.inline_parameter")
+    except ValueError:
+        try:
+            return _source_abi_value(body, language_bundle, "source.program")
+        except ValueError as program_error:
+            raise ValueError(
+                "independent Formula program body is malformed"
+            ) from program_error
+    if set(projected) != {"node", reference} or not isinstance(
+        projected.get(reference), str
+    ):
+        raise ValueError("independent inline Formula body is malformed")
+    return {
+        "nodes": [],
+        "result": {"kind": kind, reference: projected[reference]},
+    }
 
 
 def _validate_context(
@@ -205,10 +449,11 @@ def _validate_context(
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     language = language_bundle["language"]
     source_schema = _source_schema(language_bundle)
+    version_member = _source_member_token(language_bundle, "source.root.schema_version")
     version_fields = [
         child
         for child in source_schema["properties"].values()
-        if child.get("semantic_member") == "schema_version"
+        if child.get("semantic_member") == version_member
     ]
     if len(version_fields) != 1:
         raise ValueError("independent Source version role is ambiguous")
@@ -240,29 +485,36 @@ def _validate_context(
     module_members = {
         row["member"]
         for row in _resolution_profile(language_bundle)["source_native_bindings"]
-        if row.get("kind") == "member"
-        and row.get("owner_slot") == "source.module"
+        if row.get("kind") == "member" and row.get("owner_slot") == "source.module"
     }
     projected_modules = [
-        _consumer_b_project_source_role(
-            module,
-            module_role,
-            kernel,
+        _source_abi_value(
+            _consumer_b_project_source_role(
+                module,
+                module_role,
+                kernel,
+                language_bundle,
+                omitted_members=module_members,
+            ).value,
             language_bundle,
-            omitted_members=module_members,
-        ).value
+            "source.module",
+        )
         for module in modules
         if isinstance(module, dict)
     ]
     if len(projected_modules) != len(modules):
         raise ValueError("independent Formula module closure is malformed")
-    projected_current = _consumer_b_project_source_role(
-        current_module,
-        module_role,
-        kernel,
+    projected_current = _source_abi_value(
+        _consumer_b_project_source_role(
+            current_module,
+            module_role,
+            kernel,
+            language_bundle,
+            omitted_members=module_members,
+        ).value,
         language_bundle,
-        omitted_members=module_members,
-    ).value
+        "source.module",
+    )
     formula = request.get("formula")
     if not isinstance(formula, dict):
         raise ValueError("independent Formula declaration is malformed")
@@ -270,14 +522,18 @@ def _validate_context(
     formula_expression = _source_member_token(
         language_bundle, "source.formula.expression"
     )
-    projected_formula = _consumer_b_project_source_role(
-        formula,
-        _source_role_token(language_bundle, "source.formula"),
-        kernel,
+    projected_formula = _source_abi_value(
+        _consumer_b_project_source_role(
+            formula,
+            _source_role_token(language_bundle, "source.formula"),
+            kernel,
+            language_bundle,
+            omitted_members={formula_body, formula_expression},
+        ).value,
         language_bundle,
-        omitted_members={formula_body, formula_expression},
-    ).value
-    if not {formula_body, formula_expression} & set(projected_formula):
+        "source.formula",
+    )
+    if not {"body", "expression"} & set(projected_formula):
         raise ValueError("independent Formula has no Source representation")
     modules_by_id: dict[str, dict[str, Any]] = {}
     for module in projected_modules:
@@ -1576,29 +1832,34 @@ def pair_refusal(
             language_bundle, "source.formula.expression"
         )
         body = cast(dict[str, Any], formula[body_token])
+        normalized_body = normalize_semantic_body(body, language_bundle, kernel=kernel)
         expression = cast(str, formula[expression_token])
         member = authored_member(projection, body_token)
-        rendered = render_semantic_body(body, request, language_bundle, kernel=kernel)
+        rendered = render_semantic_body(
+            normalized_body, request, language_bundle, kernel=kernel
+        )
         member = authored_member(projection, expression_token)
         if rendered != expression:
             return "notation-mismatch", member
         parsed = parse_canonical(expression, request, language_bundle, kernel=kernel)
-        try:
+        if isinstance(parsed.get("nodes"), list) and isinstance(
+            parsed.get("result"), dict
+        ):
+            normalized_parsed = deepcopy(parsed)
+        else:
             parsed_semantic = _consumer_b_project_source_role(
                 parsed,
                 _source_role_token(language_bundle, "source.inline_parameter"),
                 kernel,
                 language_bundle,
             ).value
-        except ValueError:
-            parsed_semantic = _consumer_b_project_source_role(
-                parsed,
-                _source_role_token(language_bundle, "source.program"),
-                kernel,
+            normalized_parsed = normalize_semantic_body(
+                cast(dict[str, Any], parsed_semantic),
                 language_bundle,
-            ).value
-        if canonical_bytes(cast(JsonValue, parsed_semantic)) != canonical_bytes(
-            cast(JsonValue, body)
+                kernel=kernel,
+            )
+        if canonical_bytes(cast(JsonValue, normalized_parsed)) != canonical_bytes(
+            cast(JsonValue, normalized_body)
         ):
             return "notation-mismatch", member
     except FormulaReferenceFailure as error:

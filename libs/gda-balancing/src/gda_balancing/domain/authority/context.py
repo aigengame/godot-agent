@@ -333,7 +333,9 @@ class AdmittedAuthorityContext:
             if profile.get("default") is True
         ]
         if len(profiles) != 1:
-            raise ValueError("admitted context has no unique default resolution profile")
+            raise ValueError(
+                "admitted context has no unique default resolution profile"
+            )
         source_native_binding_index = derive_source_native_bindings(
             source_semantic_index, profiles[0]["source_native_bindings"]
         )

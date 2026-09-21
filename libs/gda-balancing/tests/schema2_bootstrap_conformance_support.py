@@ -2848,9 +2848,7 @@ _CONSUMER_B_SOURCE_MEMBER_ABI = {
         ("id", "node", "operation", "arguments", "result"),
         arrays={"arguments": ("source.operation_argument",)},
         objects={"operation": ("source.operation_coordinate",)},
-        unions={
-            "result": ("source.value_contract", "source.boolean_value_contract")
-        },
+        unions={"result": ("source.value_contract", "source.boolean_value_contract")},
     ),
     **_consumer_b_member_abi(
         "source.operation_argument",
@@ -2879,12 +2877,8 @@ _CONSUMER_B_SOURCE_MEMBER_ABI = {
     ),
     **_consumer_b_member_abi("source.parameter_operand", ("kind", "parameter")),
     **_consumer_b_member_abi("source.local_operand", ("kind", "local")),
-    **_consumer_b_member_abi(
-        "source.symbol_operand", ("kind", "module", "symbol")
-    ),
-    **_consumer_b_member_abi(
-        "source.literal", ("kind", "value"), natives=("value",)
-    ),
+    **_consumer_b_member_abi("source.symbol_operand", ("kind", "module", "symbol")),
+    **_consumer_b_member_abi("source.literal", ("kind", "value"), natives=("value",)),
     **_consumer_b_member_abi("source.event_operand", ("kind", "name")),
     **_consumer_b_member_abi("source.discard_result", ("kind",)),
     **_consumer_b_member_abi(
@@ -2899,9 +2893,7 @@ _CONSUMER_B_SOURCE_MEMBER_ABI = {
         ("parameter", "operand"),
         unions={"operand": ("source.slot_parameter", "source.symbol_operand")},
     ),
-    **_consumer_b_member_abi(
-        "source.derived_site", ("kind", "module", "symbol")
-    ),
+    **_consumer_b_member_abi("source.derived_site", ("kind", "module", "symbol")),
     **_consumer_b_member_abi(
         "source.operation_site",
         ("kind", "operation", "slot"),
@@ -3369,7 +3361,9 @@ def _consumer_b_authority_path(
             elif isinstance(value, list):
                 for row in value:
                     if not isinstance(row, Mapping) or part not in row:
-                        raise ValueError("independent native authority path is dangling")
+                        raise ValueError(
+                            "independent native authority path is dangling"
+                        )
                     selected.append(row[part])
             else:
                 raise ValueError("independent native authority path is dangling")
@@ -3515,9 +3509,7 @@ def _consumer_b_native_annotation_is_closed(
                 or resolved["typed_envelope_profile"]
                 != meta["literal_typing"]["typed_envelope_profile"]
                 or resolved["boolean_contract"]
-                != meta["runtime_program"]["fixed_value_contracts"][
-                    "kernel-boolean"
-                ]
+                != meta["runtime_program"]["fixed_value_contracts"]["kernel-boolean"]
             ):
                 return False
             law = "typed-literal"
@@ -3547,9 +3539,7 @@ def _consumer_b_native_annotation_is_closed(
         observed = selected[keyword] if keyword == "enum" else [selected[keyword]]
         if not isinstance(observed, list) or not observed:
             return False
-        target = _consumer_b_authority_path(
-            meta, ldb, language_ref
-        )
+        target = _consumer_b_authority_path(meta, ldb, language_ref)
         targets = target if isinstance(target, list) else [target]
         if _consumer_b_canonical_set(observed) != _consumer_b_canonical_set(targets):
             return False
@@ -3585,14 +3575,16 @@ def _consumer_b_source_roles_are_closed(
                 _SOURCE_NATIVE_KEY,
             }:
                 return False
-            return all(
-                reject_native_annotations(child)
-                for child in value.get("properties", {}).values()
-            ) and (
-                "items" not in value or reject_native_annotations(value["items"])
-            ) and all(
-                reject_native_annotations(branch)
-                for branch in value.get("oneOf", [])
+            return (
+                all(
+                    reject_native_annotations(child)
+                    for child in value.get("properties", {}).values()
+                )
+                and ("items" not in value or reject_native_annotations(value["items"]))
+                and all(
+                    reject_native_annotations(branch)
+                    for branch in value.get("oneOf", [])
+                )
             )
 
         def visit(
@@ -3625,11 +3617,7 @@ def _consumer_b_source_roles_are_closed(
                         if isinstance(child, dict)
                         else None
                     )
-                    if (
-                        not isinstance(member, str)
-                        or not member
-                        or member in siblings
-                    ):
+                    if not isinstance(member, str) or not member or member in siblings:
                         return False
                     mapping[authored] = member
                     siblings[member] = (
@@ -3651,9 +3639,14 @@ def _consumer_b_source_roles_are_closed(
                     return False
                 role_members[explicit] = members
                 anchors.setdefault(explicit, []).append(value)
-            for authored, child in properties.items() if isinstance(properties, dict) else ():
+            for authored, child in (
+                properties.items() if isinstance(properties, dict) else ()
+            ):
                 selected = child
-                if inherited_properties is not None and authored in inherited_properties:
+                if (
+                    inherited_properties is not None
+                    and authored in inherited_properties
+                ):
                     selected = {**inherited_properties[authored], **child}
                 if _SOURCE_NATIVE_KEY in selected:
                     if not _consumer_b_native_annotation_is_closed(
@@ -3779,11 +3772,11 @@ def _consumer_b_source_roles_are_closed(
                 ]
                 if not fields:
                     return False
+                # Native shape owns the whole value; structural shapes may
+                # still contain branch-local authority-owned consts or enums.
                 if expected_shape == "native":
                     if any(_SOURCE_NATIVE_KEY not in field for field in fields):
                         return False
-                elif any(_SOURCE_NATIVE_KEY in field for field in fields):
-                    return False
                 elif expected_shape == "array" and any(
                     field.get("type") != "array" for field in fields
                 ):
@@ -3799,8 +3792,7 @@ def _consumer_b_source_roles_are_closed(
                 ):
                     return False
                 elif expected_shape == "scalar" and any(
-                    field.get("type") == "array" or "oneOf" in field
-                    for field in fields
+                    field.get("type") == "array" or "oneOf" in field for field in fields
                 ):
                     return False
                 observed = (
@@ -3818,6 +3810,16 @@ def _consumer_b_source_roles_are_closed(
                 if observed != expected_targets:
                     return False
                 member_tokens[slot] = member
+            for owner_slot, owner in role_tokens.items():
+                bound_members = {
+                    member_tokens[slot]
+                    for slot, (candidate_owner, _shape, _targets) in (
+                        _CONSUMER_B_SOURCE_MEMBER_ABI.items()
+                    )
+                    if candidate_owner == owner_slot
+                }
+                if bound_members != set(role_members[owner]):
+                    return False
             for slot, (
                 owner_slot,
                 member_slot,
@@ -3827,8 +3829,7 @@ def _consumer_b_source_roles_are_closed(
                 owner = role_tokens[owner_slot]
                 member = member_tokens[member_slot]
                 if (
-                    set(binding)
-                    != {"kind", "slot", "owner_slot", "member", "value"}
+                    set(binding) != {"kind", "slot", "owner_slot", "member", "value"}
                     or binding.get("kind") != "discriminator"
                     or binding.get("owner_slot") != owner_slot
                     or binding.get("member") != member
@@ -3865,7 +3866,17 @@ def _consumer_b_effective_source_schema(
     result = {key: child for key, child in schema.items() if key != "oneOf"}
     for key, child in branch.items():
         if key == "properties":
-            result[key] = {**result.get(key, {}), **child}
+            inherited = result.get(key, {})
+            result[key] = {
+                name: (
+                    {**inherited[name], **field}
+                    if name in inherited
+                    and isinstance(inherited[name], dict)
+                    and isinstance(field, dict)
+                    else field
+                )
+                for name, field in {**inherited, **child}.items()
+            }
         elif key == "required":
             result[key] = list(dict.fromkeys([*result.get(key, []), *child]))
         else:
@@ -6141,8 +6152,10 @@ def _consumer_b_rir_schema(
                         for value in child_properties.values()
                         if isinstance(value, dict)
                     ]
-                    if isinstance(member, str) and keys and all(
-                        isinstance(key, str) and key for key in keys
+                    if (
+                        isinstance(member, str)
+                        and keys
+                        and all(isinstance(key, str) and key for key in keys)
                     ):
                         matches.append((member, cast(list[str], keys)))
             for child in candidate.get("properties", {}).values():
@@ -7311,9 +7324,7 @@ def _consumer_b_semantic_source_schema(
                 member = child[_SOURCE_MEMBER_KEY]
                 names[authored] = member
                 properties[member] = (
-                    deepcopy(child)
-                    if _SOURCE_NATIVE_KEY in child
-                    else project(child)
+                    deepcopy(child) if _SOURCE_NATIVE_KEY in child else project(child)
                 )
             result["properties"] = properties
             if "required" in node:

@@ -6,14 +6,23 @@ An incomplete inventory is useful evidence, but cannot authorize a rename.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
+from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any
+from hashlib import sha256
+from typing import Any, cast
+import json
 import re
 
 import jsonschema
 
+from gda_balancing.domain.canonical import JsonValue, canonical_bytes
+
 from schema2_bootstrap_conformance_support import (
+    _CONSUMER_B_SOURCE_DISCRIMINATOR_ABI,
     _consumer_b_canonical_equal,
     _consumer_b_definition_is_closed,
     _consumer_b_contract_path,
@@ -54,6 +63,72 @@ from schema2_bootstrap_conformance_support import (
 from schema2_value_program_reference_support import (
     reference_evaluate_value_program_vector,
 )
+
+
+_ATTACHED_LANGUAGE_CACHE: ContextVar[dict[tuple[int, int], dict[str, Any]] | None] = (
+    ContextVar("extension_inventory_attached_language_cache", default=None)
+)
+_ATTACHED_LANGUAGE_CONTENT_CACHE: OrderedDict[bytes, bytes] = OrderedDict()
+_FORMULA_PROJECTION_CACHE: OrderedDict[bytes, dict[str, Any]] = OrderedDict()
+_CONTENT_CACHE_LIMIT = 8
+_FORMULA_PROJECTION_CACHE_LIMIT = 16
+
+
+def _inventory_dependency_key(**dependencies: Any) -> bytes:
+    return sha256(canonical_bytes(cast(JsonValue, dependencies))).digest()
+
+
+def _package_semantic_dependencies(packages: Any) -> list[dict[str, Any]]:
+    """Exclude derived release/vector seals from semantic-consumer cache keys."""
+    return [
+        {
+            key: value
+            for key, value in package.items()
+            if key not in {"content_identity", "conformance_vectors"}
+        }
+        for package in packages
+    ]
+
+
+def _validate_ldb_root_contract(kernel: Mapping[str, Any], root: Any) -> None:
+    """Apply the exact Kernel root-envelope checks before semantic caching."""
+    root_contract = kernel["meta_format"]["language_bundle"]
+    if not _consumer_b_definition_is_closed(
+        root,
+        {
+            "required_members": root_contract["required_members"],
+            "field_types": root_contract["member_types"],
+        },
+        {},
+    ) or not _consumer_b_definition_is_closed(
+        root["resources"] if isinstance(root, dict) else None,
+        root_contract["resources"],
+        {},
+    ):
+        raise InventoryRefusal("LDB root does not close its Kernel member contracts")
+    if root["kernel_identity"] != kernel["content_identity"]:
+        raise InventoryRefusal("LDB root does not bind the supplied Kernel")
+
+
+def _remember(cache: OrderedDict, key: bytes, value: Any) -> None:
+    cache[key] = value
+    cache.move_to_end(key)
+    while len(cache) > _CONTENT_CACHE_LIMIT:
+        cache.popitem(last=False)
+
+
+@contextmanager
+def _attached_language_scope():
+    """Share one derived language view within a reader or verifier pass."""
+    current = _ATTACHED_LANGUAGE_CACHE.get()
+    if current is not None:
+        yield
+        return
+    token = _ATTACHED_LANGUAGE_CACHE.set({})
+    try:
+        yield
+    finally:
+        _ATTACHED_LANGUAGE_CACHE.reset(token)
 
 
 class InventoryRefusal(ValueError):
@@ -193,6 +268,21 @@ def _occurrence_value(
 def _attached_language(
     kernel: Mapping[str, Any], graph: Mapping[str, Any]
 ) -> dict[str, Any]:
+    def materialize(encoded: bytes) -> dict[str, Any]:
+        return cast(dict[str, Any], json.loads(encoded))
+
+    cache = _ATTACHED_LANGUAGE_CACHE.get()
+    key = (id(kernel), id(graph["packages"]))
+    if cache is not None and key in cache:
+        return dict(cache[key])
+    content_key = _inventory_dependency_key(kernel=kernel, packages=graph["packages"])
+    encoded = _ATTACHED_LANGUAGE_CONTENT_CACHE.get(content_key)
+    if encoded is not None:
+        _ATTACHED_LANGUAGE_CONTENT_CACHE.move_to_end(content_key)
+        attached = materialize(encoded)
+        if cache is not None:
+            cache[key] = attached
+        return dict(attached)
     language: dict[str, Any] = {"packages": graph["packages"]}
     for projection in kernel["meta_format"]["package_release"]["semantic_closure"][
         "projections"
@@ -227,7 +317,12 @@ def _attached_language(
         _consumer_b_project_rir_schema(dict(kernel), language)
     except (KeyError, TypeError, ValueError, IndexError) as error:
         raise InventoryRefusal("wire protocol structure does not close") from error
-    return {"language": language}
+    attached = {"language": language}
+    encoded = canonical_bytes(cast(JsonValue, attached))
+    _remember(_ATTACHED_LANGUAGE_CONTENT_CACHE, content_key, encoded)
+    if cache is not None:
+        cache[key] = attached
+    return dict(attached)
 
 
 def _source_profile(
@@ -249,9 +344,24 @@ def _source_projection(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
     if not graph.get("source"):
         return None
     try:
-        return _consumer_b_project_source(
+        projection = _consumer_b_project_source(
             graph["source"], kernel, _attached_language(kernel, graph)
         )
+        from schema2_formula_conformance_support import (
+            _source_abi_value_and_paths,
+        )
+
+        value, semantic_paths = _source_abi_value_and_paths(
+            projection.value,
+            _attached_language(kernel, graph),
+            "source.root",
+            preserve_native_discriminators=True,
+        )
+        authored_paths = {
+            stable: projection.authored_paths[semantic]
+            for stable, semantic in semantic_paths.items()
+        }
+        return type(projection)(value, authored_paths, projection.authored_source)
     except (KeyError, TypeError, ValueError, jsonschema.ValidationError) as error:
         raise InventoryRefusal(
             "Source does not match its admitted closed wire schema or semantic roles"
@@ -274,6 +384,111 @@ def _source_value_at(source: Any, pointer: str) -> Any:
     return source
 
 
+def _minimal_schema_value(schema: Mapping[str, Any]) -> Any:
+    if "const" in schema:
+        return deepcopy(schema["const"])
+    enum = schema.get("enum")
+    if isinstance(enum, list) and enum:
+        return deepcopy(enum[0])
+    branches = schema.get("oneOf")
+    if isinstance(branches, list):
+        for branch in reversed(branches):
+            if not isinstance(branch, Mapping):
+                continue
+            candidate = _minimal_schema_value(branch)
+            if jsonschema.Draft202012Validator(branch).is_valid(candidate):
+                return candidate
+        raise InventoryRefusal("negative Model Source repair has no valid branch")
+    kind = schema.get("type")
+    if kind == "object":
+        properties = schema.get("properties", {})
+        required = schema.get("required", [])
+        if not isinstance(properties, Mapping) or not isinstance(required, list):
+            raise InventoryRefusal("negative Model Source object repair is malformed")
+        return {
+            member: _minimal_schema_value(properties[member]) for member in required
+        }
+    if kind == "array":
+        count = schema.get("minItems", 0)
+        items = schema.get("items")
+        if not isinstance(count, int) or not isinstance(items, Mapping):
+            raise InventoryRefusal("negative Model Source array repair is malformed")
+        return [_minimal_schema_value(items) for _ in range(count)]
+    if kind == "string":
+        return "repair"
+    if kind in {"integer", "number"}:
+        return schema.get("minimum", 0)
+    if kind == "boolean":
+        return False
+    if kind == "null":
+        return None
+    raise InventoryRefusal("negative Model Source repair is unsupported")
+
+
+def _invalid_source_paths(
+    errors: Sequence[jsonschema.ValidationError], *, root: str
+) -> set[str]:
+    paths: set[str] = set()
+    for error in errors:
+        path = root + "".join(_child("", part) for part in error.absolute_path)
+        if error.validator != "unevaluatedProperties":
+            paths.add(path)
+            continue
+        error_schema = error.schema
+        properties = (
+            error_schema.get("properties")
+            if isinstance(error_schema, Mapping)
+            else None
+        )
+        if not isinstance(error.instance, dict) or not isinstance(properties, Mapping):
+            raise InventoryRefusal(
+                "negative Model Source extra-member evidence is malformed"
+            )
+        paths.update(
+            _child(path, member) for member in set(error.instance) - set(properties)
+        )
+    return paths
+
+
+def _repair_invalid_source(
+    source: Mapping[str, Any],
+    schema: Mapping[str, Any],
+    errors: Sequence[jsonschema.ValidationError],
+) -> dict[str, Any]:
+    repaired = deepcopy(dict(source))
+
+    def parent_at(path: Sequence[str | int]) -> tuple[Any, str | int]:
+        if not path:
+            raise InventoryRefusal("negative Model Source root cannot be repaired")
+        value: Any = repaired
+        for part in path[:-1]:
+            value = value[part]
+        return value, path[-1]
+
+    for error in errors:
+        path = list(error.absolute_path)
+        error_schema = error.schema
+        if not isinstance(error_schema, Mapping):
+            raise InventoryRefusal("negative Model Source repair Schema is malformed")
+        if error.validator == "unevaluatedProperties":
+            value: Any = repaired
+            for part in path:
+                value = value[part]
+            properties = error_schema.get("properties")
+            if not isinstance(value, dict) or not isinstance(properties, Mapping):
+                raise InventoryRefusal(
+                    "negative Model Source extra-member repair is malformed"
+                )
+            for member in set(value) - set(properties):
+                value.pop(member)
+            continue
+        parent, member = parent_at(path)
+        parent[member] = _minimal_schema_value(error_schema)
+    if not jsonschema.Draft202012Validator(schema).is_valid(repaired):
+        raise InventoryRefusal("negative Model Source repair does not close")
+    return repaired
+
+
 def _formula_policy_rows(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
     return [
         (profile["formula_resolution"], pointer + "/formula_resolution", profile["id"])
@@ -289,31 +504,48 @@ def _source_formula_requests_at(
     graph: Mapping[str, Any],
     source: Mapping[str, Any],
     root: str,
+    members: Mapping[str, str],
+    *,
+    request_source: Mapping[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Resolve Formula requests from one Source's semantic projection."""
     projection = _consumer_b_project_source(
         dict(source), kernel, _attached_language(kernel, graph)
     )
     projected_source = projection.value
-    requests = {}
-    modules = _source_value_at(
-        projection.authored_source, projection.authored_paths["/modules"]
+    modules_member = members["source.root.modules"]
+    formulas_member = members["source.module.formulas"]
+    expression_member = members["source.formula.expression"]
+    schema_version_member = members["source.root.schema_version"]
+    requirements_member = members["source.root.package_requirements"]
+    modules_path = _child("", modules_member)
+    authored_source = (
+        projection.authored_source if request_source is None else request_source
     )
-    for mi, module in enumerate(projected_source["modules"]):
-        mp = f"/modules/{mi}"
-        for fi, formula in enumerate(module.get("formulas", [])):
-            if "expression" not in formula:
+    requests = {}
+    modules = _source_value_at(authored_source, projection.authored_paths[modules_path])
+    for mi, module in enumerate(projected_source[modules_member]):
+        mp = _child(modules_path, mi)
+        for fi, formula in enumerate(module.get(formulas_member, [])):
+            if expression_member not in formula:
                 continue
-            fp = f"{mp}/formulas/{fi}"
-            requests[root + projection.authored_paths[fp + "/expression"]] = {
-                "schema_version": projected_source["schema_version"],
-                "package_requirements": projected_source["package_requirements"],
+            fp = _child(_child(mp, formulas_member), fi)
+            expression_path = _child(fp, expression_member)
+            requests[root + projection.authored_paths[expression_path]] = {
+                "schema_version": _source_value_at(
+                    authored_source,
+                    projection.authored_paths[_child("", schema_version_member)],
+                ),
+                "package_requirements": _source_value_at(
+                    authored_source,
+                    projection.authored_paths[_child("", requirements_member)],
+                ),
                 "module": _source_value_at(
-                    projection.authored_source, projection.authored_paths[mp]
+                    authored_source, projection.authored_paths[mp]
                 ),
                 "modules": modules,
                 "formula": _source_value_at(
-                    projection.authored_source, projection.authored_paths[fp]
+                    authored_source, projection.authored_paths[fp]
                 ),
             }
     return requests
@@ -323,53 +555,119 @@ def source_formula_requests(
     kernel: Mapping[str, Any], graph: Mapping[str, Any]
 ) -> dict[str, dict[str, Any]]:
     requests: dict[str, dict[str, Any]] = {}
+    members = _source_native_inventory(kernel, graph).members
+    source_schema = _protocol_schema(kernel, graph, "model-source-package")["schema"]
+    source_validator = jsonschema.Draft202012Validator(source_schema)
     source = graph.get("source")
     if isinstance(source, Mapping):
-        requests.update(_source_formula_requests_at(kernel, graph, source, "/source"))
+        requests.update(
+            _source_formula_requests_at(kernel, graph, source, "/source", members)
+        )
     for vi, vector_set in enumerate(graph.get("vector_sets", [])):
         for di, vector in enumerate(vector_set["vector_definitions"]):
             fixture = vector.get("source_fixture")
             expected = vector.get("expect")
             if (
                 not isinstance(expected, Mapping)
-                or expected.get("outcome") != "admitted"
+                or expected.get("outcome") not in {"admitted", "refused"}
                 or not isinstance(fixture, Mapping)
                 or fixture.get("mode") != "literal"
                 or not isinstance(fixture.get("source"), Mapping)
             ):
                 continue
             root = f"/vector_sets/{vi}/vector_definitions/{di}/source_fixture/source"
-            requests.update(
-                _source_formula_requests_at(kernel, graph, fixture["source"], root)
+            fixture_source = fixture["source"]
+            validation_errors = list(source_validator.iter_errors(fixture_source))
+            if validation_errors and expected["outcome"] != "refused":
+                raise InventoryRefusal(
+                    "admitted Model vector has invalid Source grammar"
+                )
+            projection_source = (
+                _repair_invalid_source(fixture_source, source_schema, validation_errors)
+                if validation_errors
+                else fixture_source
             )
+            try:
+                requests.update(
+                    _source_formula_requests_at(
+                        kernel,
+                        graph,
+                        projection_source,
+                        root,
+                        members,
+                        request_source=fixture_source,
+                    )
+                )
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+                jsonschema.ValidationError,
+            ) as error:
+                if expected["outcome"] == "refused":
+                    continue
+                raise InventoryRefusal(
+                    "admitted Model vector has no Source Formula projection"
+                ) from error
     return requests
 
 
-def _formula_projections(
+def _formula_projections_uncached(
     kernel: Mapping[str, Any],
     graph: Mapping[str, Any],
 ) -> dict[str, Any]:
     from schema2_formula_conformance_support import (
+        _source_member_token,
+        _source_role_token,
+        normalize_semantic_body,
+        pair_refusal,
         parse_canonical,
         render_body,
         render_semantic_body,
     )
 
     language = _attached_language(kernel, graph)
+    formula_role = _source_role_token(language, "source.formula")
+    body_member = _source_member_token(language, "source.formula.body")
+    expression_member = _source_member_token(language, "source.formula.expression")
     projections = {}
     for pointer, request in source_formula_requests(kernel, graph).items():
+        pair_failure = pair_refusal(request, language, kernel=dict(kernel))
+        if pair_failure is not None:
+            if pointer.startswith("/vector_sets/"):
+                vector = _pointer_value(graph, "/".join(pointer.split("/")[:5]))
+                if vector["expect"]["outcome"] == "refused":
+                    continue
+            raise InventoryRefusal(
+                f"Formula expression and body do not close at {pointer}: "
+                f"{pair_failure[0]}"
+            )
         formula = request["formula"]
         projected = _consumer_b_project_source_role(
-            formula, "formula", kernel, language
+            formula, formula_role, kernel, language
         )
-        expression = projected.value["expression"]
+        expression = projected.value[expression_member]
         try:
             parsed = parse_canonical(expression, request, language, kernel=dict(kernel))
+            if isinstance(parsed.get("nodes"), list) and isinstance(
+                parsed.get("result"), dict
+            ):
+                normalized_parsed = parsed
+            else:
+                parsed_semantic = _consumer_b_project_source_role(
+                    parsed,
+                    _source_role_token(language, "source.inline_parameter"),
+                    kernel,
+                    language,
+                ).value
+                normalized_parsed = normalize_semantic_body(
+                    parsed_semantic, language, kernel=dict(kernel)
+                )
             if (
                 render_body(
                     _source_value_at(
                         formula,
-                        projected.authored_paths["/body"],
+                        projected.authored_paths[_child("", body_member)],
                     ),
                     request,
                     language,
@@ -379,21 +677,48 @@ def _formula_projections(
             ):
                 raise InventoryRefusal("Formula body and expression disagree")
             if (
-                render_semantic_body(parsed, request, language, kernel=dict(kernel))
+                render_semantic_body(
+                    normalized_parsed, request, language, kernel=dict(kernel)
+                )
                 != expression
             ):
                 raise InventoryRefusal("Formula expression is not canonical")
         except (KeyError, TypeError, ValueError) as error:
-            if pointer.startswith("/vector_sets/"):
-                vector = _pointer_value(graph, "/".join(pointer.split("/")[:5]))
-                if vector["expect"]["outcome"] == "refused":
-                    # No AST is published when this negative input cannot be
-                    # parsed and rendered. Model coverage verifies its first fault.
-                    continue
             raise InventoryRefusal(
                 "Formula expression does not close independently"
             ) from error
-        projections[pointer] = parsed
+        projections[pointer] = normalized_parsed
+    return projections
+
+
+def _formula_projections(
+    kernel: Mapping[str, Any], graph: Mapping[str, Any]
+) -> dict[str, Any]:
+    source_fixture_vectors = [
+        {
+            "set_index": set_index,
+            "vector_index": vector_index,
+            "definition": vector,
+        }
+        for set_index, vector_set in enumerate(graph.get("vector_sets", []))
+        for vector_index, vector in enumerate(vector_set["vector_definitions"])
+        if "source_fixture" in vector
+    ]
+    key = _inventory_dependency_key(
+        kernel=kernel,
+        packages=_package_semantic_dependencies(graph["packages"]),
+        source_fixture_vectors=source_fixture_vectors,
+        source=graph.get("source"),
+    )
+    cached = _FORMULA_PROJECTION_CACHE.get(key)
+    if cached is not None:
+        _FORMULA_PROJECTION_CACHE.move_to_end(key)
+        return deepcopy(cached)
+    projections = _formula_projections_uncached(kernel, graph)
+    _FORMULA_PROJECTION_CACHE[key] = deepcopy(projections)
+    _FORMULA_PROJECTION_CACHE.move_to_end(key)
+    while len(_FORMULA_PROJECTION_CACHE) > _FORMULA_PROJECTION_CACHE_LIMIT:
+        _FORMULA_PROJECTION_CACHE.popitem(last=False)
     return projections
 
 
@@ -989,9 +1314,7 @@ def _source_native_inventory(
                     annotation_law,
                 )
             )
-            for role_schema, role_schema_path in same_role_schemas(
-                value, schema_path
-            ):
+            for role_schema, role_schema_path in same_role_schemas(value, schema_path):
                 properties = role_schema.get("properties")
                 if not isinstance(properties, Mapping):
                     continue
@@ -1110,6 +1433,124 @@ def _source_native_inventory(
     if root_role is None or source.get(role_key) != root_role:
         raise InventoryRefusal("Source root native binding does not close")
 
+    selector_law = "/meta_format/language_definitions/collections/model_checks"
+    member_bindings = [row for row in bindings if row.get("kind") == "member"]
+    for _, check, check_pointer in _authority_path_rows(
+        kernel, graph, "language_bundle.language.model_checks"
+    ):
+        owner_slots = {"source.root"}
+        for selector_name in ("semantic_scope_selector", "semantic_selector"):
+            selector = check.get(selector_name, [])
+            if not isinstance(selector, Sequence) or isinstance(selector, (str, bytes)):
+                raise InventoryRefusal("Source semantic selector is malformed")
+            for index, segment in enumerate(selector):
+                if segment == "*":
+                    continue
+                matches = [
+                    row
+                    for row in member_bindings
+                    if row.get("owner_slot") in owner_slots
+                    and row.get("member") == segment
+                ]
+                if len(matches) != 1:
+                    raise InventoryRefusal(
+                        "Source semantic selector has no unique member owner"
+                    )
+                binding = matches[0]
+                owner_slot = binding["owner_slot"]
+                role = roles.get(owner_slot)
+                targets = binding.get("target_slots")
+                if (
+                    role is None
+                    or not isinstance(segment, str)
+                    or not isinstance(targets, Sequence)
+                    or isinstance(targets, (str, bytes))
+                ):
+                    raise InventoryRefusal("Source semantic selector is malformed")
+                occurrences.add(
+                    TokenOccurrence(
+                        AuthorityToken("source-semantic-member", (role,), segment),
+                        f"{check_pointer}/{selector_name}/{index}",
+                        "reference",
+                        selector_law,
+                    )
+                )
+                owner_slots = set(targets)
+
+    relation_addresses: dict[tuple[str | int, ...], tuple[str | int, ...]] = {}
+    if not _consumer_b_relation_paths_are_typed(
+        dict(selected_profile),
+        _attached_language(kernel, graph),
+        kernel["meta_format"]["package_release"],
+        kernel["meta_format"],
+        schema_addresses=relation_addresses,
+    ):
+        raise InventoryRefusal("Source relation recipe paths do not close")
+
+    def semantic_member_at(
+        address: tuple[str | int, ...],
+    ) -> tuple[str, str]:
+        node: Any = source
+        role = node.get(role_key) if isinstance(node, Mapping) else None
+        index = 0
+        while index < len(address):
+            step = address[index]
+            if step == "properties" and index + 1 < len(address):
+                authored = address[index + 1]
+                if (
+                    not isinstance(authored, str)
+                    or not isinstance(node, Mapping)
+                    or not isinstance(node.get("properties"), Mapping)
+                    or authored not in node["properties"]
+                ):
+                    raise InventoryRefusal(
+                        "Source relation recipe address is malformed"
+                    )
+                child = node["properties"][authored]
+                if not isinstance(child, Mapping):
+                    raise InventoryRefusal("Source relation recipe member is malformed")
+                member = child.get(member_key)
+                if index + 2 == len(address):
+                    if not isinstance(role, str) or not isinstance(member, str):
+                        raise InventoryRefusal(
+                            "Source relation recipe member has no semantic owner"
+                        )
+                    return role, member
+                node = child
+                explicit = node.get(role_key)
+                if isinstance(explicit, str):
+                    role = explicit
+                index += 2
+                continue
+            if step == "items" and isinstance(node, Mapping):
+                node = node.get("items")
+                if not isinstance(node, Mapping):
+                    raise InventoryRefusal("Source relation recipe array is malformed")
+                explicit = node.get(role_key)
+                if isinstance(explicit, str):
+                    role = explicit
+                index += 1
+                continue
+            raise InventoryRefusal("Source relation recipe address is malformed")
+        raise InventoryRefusal("Source relation recipe address is empty")
+
+    for term_path, schema_address in relation_addresses.items():
+        role, member = semantic_member_at(schema_address)
+        pointer = profile_pointer
+        for segment in term_path:
+            pointer = _child(pointer, segment)
+        occurrences.add(
+            TokenOccurrence(
+                AuthorityToken("source-semantic-member", (role,), member),
+                pointer,
+                "reference",
+                (
+                    "/meta_format/language_definitions/collections/"
+                    "resolution_profiles/field_types/relation_recipes"
+                ),
+            )
+        )
+
     source_instances: list[tuple[Mapping[str, Any], str]] = []
     authored_source = graph.get("source")
     if isinstance(authored_source, Mapping):
@@ -1181,7 +1622,9 @@ def _source_native_inventory(
         owner_slot = row.get("owner_slot")
         member = row.get("member")
         value = row.get("value")
-        if not all(isinstance(item, str) and item for item in (owner_slot, member, value)):
+        if not all(
+            isinstance(item, str) and item for item in (owner_slot, member, value)
+        ):
             raise InventoryRefusal("Source discriminator binding is malformed")
         role = roles.get(owner_slot)
         if role is None or (role, member) not in member_paths:
@@ -1199,7 +1642,9 @@ def _source_native_inventory(
         discriminator = native_discriminator or AuthorityToken(
             "source-discriminator", (role, member), value
         )
-        value_law = native_law if native_discriminator is not None else discriminator_law
+        value_law = (
+            native_law if native_discriminator is not None else discriminator_law
+        )
         occurrences.add(
             TokenOccurrence(
                 discriminator,
@@ -1240,7 +1685,7 @@ def _source_native_inventory(
 
     native_specs: set[tuple[str, str, str, str, str | None]] = set()
     for (role, member), schemas in member_schemas.items():
-        for child, _, _ in schemas:
+        for child, _, child_schema_path in schemas:
             contract = child.get(native_contract_key)
             reference = (
                 contract.get("language_reference")
@@ -1267,6 +1712,26 @@ def _source_native_inventory(
                 or (sibling is not None and not isinstance(sibling, str))
             ):
                 raise InventoryRefusal("Source native value contract is malformed")
+            if sibling is not None:
+                if (role, sibling) not in member_paths:
+                    raise InventoryRefusal(
+                        "Source native value contract has no sibling member owner"
+                    )
+                occurrences.add(
+                    TokenOccurrence(
+                        AuthorityToken("source-semantic-member", (role,), sibling),
+                        schema_position(
+                            (
+                                *child_schema_path,
+                                native_contract_key,
+                                "value_location",
+                                "semantic_member",
+                            )
+                        ),
+                        "reference",
+                        native_law,
+                    )
+                )
             native_specs.add((role, member, reference, keyword, sibling))
 
     for role, member, reference, keyword, sibling in sorted(native_specs):
@@ -1302,7 +1767,9 @@ def _source_native_inventory(
             for value_index, value in enumerate(values):
                 token = declared.get(value)
                 if token is None:
-                    raise InventoryRefusal("Source native Schema value has no LDB owner")
+                    raise InventoryRefusal(
+                        "Source native Schema value has no LDB owner"
+                    )
                 suffix: tuple[str | int, ...] = (keyword,)
                 if keyword == "enum":
                     suffix = (*suffix, value_index)
@@ -1325,9 +1792,7 @@ def _source_native_inventory(
                     token = declared.get(value)
                     if token is not None:
                         occurrences.add(
-                            TokenOccurrence(
-                                token, pointer, "reference", native_law
-                            )
+                            TokenOccurrence(token, pointer, "reference", native_law)
                         )
 
     set_projections: dict[str, frozenset[AuthorityToken]] = {}
@@ -1343,7 +1808,9 @@ def _source_native_inventory(
         if row["id"] == selected_profile["model_lowering"]
     ]
     if len(lowerings) != 1:
-        raise InventoryRefusal("Source assignment mode projection has no lowering owner")
+        raise InventoryRefusal(
+            "Source assignment mode projection has no lowering owner"
+        )
     lowering, _ = lowerings[0]
     policy = lowering["assignment_policy"]
     assignment_modes = frozenset(
@@ -1376,7 +1843,9 @@ def _source_native_inventory(
         )
         previous = scalar_positions.setdefault(position, occurrence.token)
         if previous != occurrence.token:
-            raise InventoryRefusal("Source native scalar occurrence has multiple owners")
+            raise InventoryRefusal(
+                "Source native scalar occurrence has multiple owners"
+            )
     return _SourceNativeInventory(
         roles=roles,
         members=members,
@@ -1390,13 +1859,15 @@ def _source_native_inventory(
     )
 
 
-def _source_format_role(kernel: Mapping[str, Any], graph: Mapping[str, Any]) -> str:
+def _source_format_role(
+    kernel: Mapping[str, Any],
+    graph: Mapping[str, Any],
+    native: _SourceNativeInventory | None = None,
+) -> str:
     """Keep Source protocol format parameters distinct from nominal identities."""
     language = _attached_language(kernel, graph)
-    if not _consumer_b_source_roles_are_closed(language, kernel["meta_format"]):
-        raise InventoryRefusal("Source semantic roles do not close")
     source = _protocol_schema(kernel, graph, "model-source-package")["schema"]
-    native = _source_native_inventory(kernel, graph)
+    native = native or _source_native_inventory(kernel, graph)
     role = native.roles.get("source.root")
     member = native.members.get("source.root.schema_version")
     if role is None or member is None:
@@ -1436,6 +1907,8 @@ def _source_format_role(kernel: Mapping[str, Any], graph: Mapping[str, Any]) -> 
         )
     if source.get(annotation_keys["role"]) != role:
         raise InventoryRefusal("Source format parameter has no root Schema owner")
+    if not _consumer_b_source_roles_are_closed(language, kernel["meta_format"]):
+        raise InventoryRefusal("Source semantic roles do not close")
     return reference
 
 
@@ -3797,7 +4270,11 @@ def _template_exhaustion_declaration(kernel, graph):
     )
 
 
-def _template_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
+def _template_inventory(
+    kernel: Mapping[str, Any],
+    graph: Mapping[str, Any],
+    native: _SourceNativeInventory | None = None,
+):
     """Close the existing Template program and its variable member Schema owners.
 
     Selectors traverse instance types, never strings found elsewhere in the graph.
@@ -3806,7 +4283,7 @@ def _template_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
     """
     meta = kernel["meta_format"]
     law = "/meta_format/template_admission"
-    language = _attached_language(kernel, graph)
+    language = dict(_attached_language(kernel, graph))
     language.update({key: value for key, value in graph["ldb_root"].items()})
     language["diagnostics"] = [
         row
@@ -4205,7 +4682,7 @@ def _template_inventory(kernel: Mapping[str, Any], graph: Mapping[str, Any]):
     ]
     if len(initial_fields) != len(initial_kinds):
         raise InventoryRefusal("Template Source Fact result kinds do not close")
-    source_native = _source_native_inventory(kernel, graph, source_profile)
+    source_native = native or _source_native_inventory(kernel, graph, source_profile)
 
     def origin(result):
         kind = result["origin"]
@@ -4642,7 +5119,9 @@ class _Reader:
         self.graph = graph
         self.meta = kernel["meta_format"]
         self.source_projection = _source_projection(kernel, graph)
-        self.source_format_role = _source_format_role(kernel, graph)
+        self.source_native = _source_native_inventory(kernel, graph)
+        self.source_format_role = _source_format_role(kernel, graph, self.source_native)
+        self.native_seed_members = self._native_seed_members()
         self.projections = self.meta["package_release"]["semantic_closure"][
             "projections"
         ]
@@ -4846,21 +5325,7 @@ class _Reader:
         if "ldb_root" in self.graph:
             root = self.graph["ldb_root"]
             root_contract = self.meta["language_bundle"]
-            if not _consumer_b_definition_is_closed(
-                root,
-                {
-                    "required_members": root_contract["required_members"],
-                    "field_types": root_contract["member_types"],
-                },
-                {},
-            ) or not _consumer_b_definition_is_closed(
-                root["resources"], root_contract["resources"], {}
-            ):
-                raise InventoryRefusal(
-                    "LDB root does not close its Kernel member contracts"
-                )
-            if root["kernel_identity"] != self.kernel["content_identity"]:
-                raise InventoryRefusal("LDB root does not bind the supplied Kernel")
+            _validate_ldb_root_contract(self.kernel, root)
             descriptors = root["package_descriptors"]
             if not all(
                 _consumer_b_definition_is_closed(
@@ -4977,6 +5442,91 @@ class _Reader:
     def structured_definition(self, definition, pointer, owner) -> None:
         self.typed_links(_type_links(definition, pointer, self.constructors, owner))
 
+    def _native_seed_members(self) -> dict[tuple[str, str], frozenset[str]]:
+        annotation_keys = self.meta["language_definitions"][
+            "wire_schema_protocol_roles"
+        ]["source_notation"]["semantic_annotations"]["keys"]
+        native_key = annotation_keys["native_contract"]
+        result: dict[tuple[str, str], set[str]] = {}
+        for (
+            source_role,
+            source_member,
+        ), schemas in self.source_native.member_schemas.items():
+            owner_slots = {
+                slot
+                for slot, bound_role in self.source_native.roles.items()
+                if bound_role == source_role
+            }
+            stable_members = {
+                slot.rsplit(".", 1)[1]
+                for slot, bound_member in self.source_native.members.items()
+                if bound_member == source_member
+                and slot.rsplit(".", 1)[0] in owner_slots
+            }
+            for schema, _ in schemas:
+                contract = schema.get(native_key)
+                if not isinstance(contract, Mapping):
+                    continue
+                location = contract.get("value_location")
+                paths = contract.get("kernel_contract_paths")
+                role = contract.get("language_reference")
+                semantic_member = (
+                    location.get("semantic_member")
+                    if isinstance(location, Mapping)
+                    else None
+                )
+                if (
+                    isinstance(role, str)
+                    and isinstance(semantic_member, str)
+                    and isinstance(paths, Mapping)
+                    and isinstance(paths.get("value"), str)
+                ):
+                    semantic_slots = {
+                        slot.rsplit(".", 1)[1]
+                        for slot, bound_member in self.source_native.members.items()
+                        if bound_member == semantic_member
+                        and slot.rsplit(".", 1)[0] in owner_slots
+                    }
+                    for semantic_slot in semantic_slots:
+                        result.setdefault((role, semantic_slot), set()).update(
+                            stable_members
+                        )
+        return {key: frozenset(value) for key, value in result.items()}
+
+    def nested_native_seed(
+        self,
+        value: Mapping[str, Any],
+        pointer: str,
+        semantic_member: str,
+        role: str,
+        law: str,
+    ) -> None:
+        """Find a nested value declared by a Source native sibling contract."""
+        candidates: set[tuple[AuthorityToken, str]] = set()
+
+        def declared_leaves(candidate: Any, candidate_pointer: str) -> None:
+            if isinstance(candidate, Mapping):
+                for member, child in candidate.items():
+                    declared_leaves(child, _child(candidate_pointer, member))
+                return
+            if isinstance(candidate, list):
+                for index, child in enumerate(candidate):
+                    declared_leaves(child, _child(candidate_pointer, index))
+                return
+            if isinstance(candidate, str):
+                token = self.declared(role, "", candidate)
+                if token in self.tokens:
+                    candidates.add((token, candidate_pointer))
+
+        for stable_member in self.native_seed_members.get((role, semantic_member), ()):
+            if stable_member in value:
+                declared_leaves(value[stable_member], _child(pointer, stable_member))
+
+        if len(candidates) > 1:
+            raise InventoryRefusal("nested Source native seed is ambiguous")
+        for token, candidate_pointer in candidates:
+            self.occurrence(token, candidate_pointer, "reference", law)
+
     def value_contract(self, value: dict[str, Any], pointer: str) -> None:
         if "type" in value:
             self.type_reference(value["type"], pointer + "/type")
@@ -4989,7 +5539,7 @@ class _Reader:
             return
         for seed, law, collection in self.seeds:
             path = seed["declaration_path"]
-            if len(path) != 1 or path[0] not in value:
+            if len(path) != 1:
                 continue
             source = collection["source"]
             if source["kind"] != "semantic-closure":
@@ -5003,6 +5553,9 @@ class _Reader:
             )
             if seed["target_path"] != target:
                 continue  # This join selects on a value contract, not on an identity.
+            if path[0] not in value:
+                self.nested_native_seed(value, pointer, path[0], role, law)
+                continue
             self.reference(role, value[path[0]], _child(pointer, path[0]), law)
 
     def typed_literal(self, value: Any, pointer: str) -> None:
@@ -8087,11 +8640,20 @@ class _Reader:
             if alias is None:
                 raise InventoryRefusal("unknown Formula result Type alias")
             emit(alias, path + "/type")
+            fixed_discriminator_members = {
+                member_slot.rsplit(".", 1)[1]
+                for owner_slot, member_slot, _internal_value in (
+                    _CONSUMER_B_SOURCE_DISCRIMINATOR_ABI.values()
+                )
+                if owner_slot == "source.value_contract"
+            }
             # These are identity joins declared by the selected runtime projection,
             # not another Formula type inference algorithm.
             for seed, _, collection in self.seeds:
                 member_path = seed["declaration_path"]
                 if len(member_path) != 1 or member_path[0] not in value:
+                    continue
+                if member_path[0] in fixed_discriminator_members:
                     continue
                 source = collection["source"]
                 if source["kind"] != "semantic-closure":
@@ -8338,7 +8900,7 @@ class _Reader:
     def finish(self) -> ExtensionInventory:
         self.index()
         template_rows, template_reserved, self.template_roots, self.template_schemas = (
-            _template_inventory(self.kernel, self.graph)
+            _template_inventory(self.kernel, self.graph, self.source_native)
         )
         self.reserved.update(template_reserved)
         for occurrence in template_rows:
@@ -8378,9 +8940,7 @@ class _Reader:
             self.occurrence(token, pointer, use, law)
             if token.role.startswith("kernel."):
                 self.reserved.add(token)
-        for occurrence in _source_native_inventory(
-            self.kernel, self.graph
-        ).occurrences:
+        for occurrence in self.source_native.occurrences:
             self.record_occurrence(occurrence)
         for token, pointer, use, location, projection, law in _source_address_links(
             self.kernel, self.graph
@@ -8485,11 +9045,21 @@ class _Reader:
 def read_extension_inventory(
     kernel: Mapping[str, Any], graph: Mapping[str, Any]
 ) -> ExtensionInventory:
-    return _Reader(kernel, graph).finish()
+    with _attached_language_scope():
+        return _Reader(kernel, graph).finish()
 
 
 def validate_inventory_occurrences(
-    kernel: Mapping[str, Any], graph: Mapping[str, Any], inventory: ExtensionInventory
+    kernel: Mapping[str, Any],
+    graph: Mapping[str, Any],
+    inventory: ExtensionInventory,
+    model_inventory: tuple[
+        set[TokenOccurrence],
+        set[str],
+        dict[str, Any],
+        set[AuthorityToken],
+    ]
+    | None = None,
 ) -> None:
     """Independently check exact bytes and uniqueness of a supplied occurrence set."""
     projections = _formula_projections(kernel, graph)
@@ -8533,8 +9103,10 @@ def validate_inventory_occurrences(
     )
     from schema2_model_vector_inventory_support import model_vector_inventory
 
-    model_rows, _, _, _ = model_vector_inventory(
-        kernel, graph, include_source_fields=False
+    model_rows, _, _, _ = model_inventory or model_vector_inventory(
+        kernel,
+        graph,
+        include_source_fields=False,
     )
     expected_free.update(
         (
@@ -9441,6 +10013,13 @@ def validate_extension_inventory(
     explicit unfinished obligation until the corresponding consuming-law pass
     is implemented; require_complete still refuses that inventory.
     """
+    with _attached_language_scope():
+        _validate_extension_inventory(kernel, graph, inventory)
+
+
+def _validate_extension_inventory(
+    kernel: Mapping[str, Any], graph: Mapping[str, Any], inventory: ExtensionInventory
+) -> None:
     native = _source_native_inventory(kernel, graph)
     native_positions = {
         (row.pointer, row.location, row.projection) for row in native.occurrences
@@ -9448,13 +10027,7 @@ def validate_extension_inventory(
     native_actual = {
         row
         for row in inventory.occurrences
-        if row.token.role
-        in {
-            "source-semantic-role",
-            "source-semantic-member",
-            "source-discriminator",
-        }
-        or (row.pointer, row.location, row.projection) in native_positions
+        if (row.pointer, row.location, row.projection) in native_positions
     }
     if native_actual != set(native.occurrences):
         raise InventoryRefusal(
@@ -9462,7 +10035,14 @@ def validate_extension_inventory(
         )
     _verify_execution_artifact_graph(kernel, graph)
     source_projection = _source_projection(kernel, graph)
-    validate_inventory_occurrences(kernel, graph, inventory)
+    from schema2_model_vector_inventory_support import model_vector_inventory
+
+    model_inventory = model_vector_inventory(
+        kernel,
+        graph,
+        include_source_fields=False,
+    )
+    validate_inventory_occurrences(kernel, graph, inventory, model_inventory)
     from schema2_source_inventory_reverse_support import validate_source_inventory
 
     validate_source_inventory(kernel, graph, inventory)
@@ -9566,7 +10146,7 @@ def validate_extension_inventory(
             "lowering nominal and Kernel token partition is incorrect"
         )
     template_expected, template_reserved, template_roots, template_schemas = (
-        _template_inventory(kernel, graph)
+        _template_inventory(kernel, graph, native)
     )
     template_actual = {
         row
@@ -9634,20 +10214,24 @@ def validate_extension_inventory(
         raise InventoryRefusal(
             "Replay observation reference coverage is incomplete or misowned"
         )
-    address_expected = {
-        (token, pointer, use, location, projection)
-        for token, pointer, use, location, projection, _ in _source_address_links(
-            kernel, graph
+    model_expected, model_roots, _, model_reserved = model_inventory
+    native_model_expected = {
+        row
+        for row in native.occurrences
+        if row.token.role != "source-field"
+        if any(
+            row.pointer.startswith(root + "/") and row.pointer != root + "/id"
+            for root in model_roots
         )
     }
-    source_fields = {row[0] for row in address_expected}
-    if inventory.reserved & source_fields:
-        raise InventoryRefusal("Source annotated field ownership is misclassified")
-    from schema2_model_vector_inventory_support import model_vector_inventory
-
-    model_expected, model_roots, _, model_reserved = model_vector_inventory(
-        kernel, graph, include_source_fields=False
-    )
+    native_model_positions = {
+        (row.pointer, row.location, row.projection) for row in native_model_expected
+    }
+    model_expected = {
+        row
+        for row in model_expected
+        if (row.pointer, row.location, row.projection) not in native_model_positions
+    } | native_model_expected
     model_actual = {
         row
         for row in inventory.occurrences
@@ -9749,54 +10333,6 @@ def validate_extension_inventory(
         for row in vector_actual
     ):
         raise InventoryRefusal("value vector occurrence has the wrong role or owner")
-    address_actual = {
-        (o.token, o.pointer, o.use, o.location, o.projection)
-        for o in inventory.occurrences
-    }
-    if not address_expected <= address_actual:
-        raise InventoryRefusal(
-            "Source field address coverage is incomplete or misowned"
-        )
-    profile_roots = {
-        pointer
-        for _, _, pointer in _authority_path_rows(
-            kernel, graph, "language_bundle.language.resolution_profiles"
-        )
-    }
-    profile_expected = {
-        row
-        for row in address_expected
-        if any(
-            row[1] == root or row[1].startswith(root + "/") for root in profile_roots
-        )
-    }
-    profile_actual = {
-        row
-        for row in address_actual
-        if row[0].role == "source-field"
-        and any(
-            row[1] == root or row[1].startswith(root + "/") for root in profile_roots
-        )
-    }
-    if profile_actual != profile_expected:
-        raise InventoryRefusal(
-            "Source field address occurrence is extra, incomplete, or misowned"
-        )
-    address_positions = {row[1:] for row in address_expected}
-    if any(
-        row[1:] in address_positions and row not in address_expected
-        for row in address_actual
-    ):
-        raise InventoryRefusal("Source field address occurrence has a wrong owner")
-    if any(
-        row[3] == "member-path"
-        and row not in address_expected
-        and not row[1].startswith(("/artifacts/", "/results/"))
-        for row in address_actual
-    ):
-        raise InventoryRefusal(
-            "member-path occurrence has no declared address projection"
-        )
     source_format_role = _source_format_role(kernel, graph)
     _verify_formula_coverage(kernel, graph, inventory)
     rule_required = set()
@@ -10494,9 +11030,7 @@ def _renamed_owner(
     if token.role == "source-semantic-role":
         return ()
     if token.role == "source-semantic-member":
-        return (
-            name(AuthorityToken("source-semantic-role", (), token.owner[0])),
-        )
+        return (name(AuthorityToken("source-semantic-role", (), token.owner[0])),)
     if token.role == "source-discriminator":
         role = name(AuthorityToken("source-semantic-role", (), token.owner[0]))
         member = name(
