@@ -404,14 +404,16 @@ def test_res_output_parent_dirs_are_created_and_reported(
 
 
 def test_a_res_output_that_leaves_the_project_is_created_where_it_points(tmp_path):
-    # #997, the decision this slice makes reachable (PR #999 review). A `res://`
-    # spelling that still climbs above the namespace root after canonicalization
-    # is anchored at the project and NOT refused: gda makes its parent, and the
-    # engine then writes the artifact outside the resolved project. At base the
-    # missing parent stopped that export. The filesystem branch has always
-    # created parents wherever an absolute `--output` pointed, so this is the
-    # same answer, not a new one — and it is pinned here because nothing else
-    # says which way the decision went.
+    # #997, the decision this slice makes easier to reach (PR #999 review). A
+    # `res://` spelling that still climbs above the namespace root after
+    # canonicalization is anchored at the project and NOT refused: gda makes its
+    # missing parents, and the engine then writes the artifact outside the
+    # resolved project. That is not new — measured at base, with the directory
+    # already present, the artifact landed outside the project on both the
+    # `--output` and the configured-`export_path` channel, and an absolute
+    # `--output` outside the project does the same today. What this slice
+    # removed is the missing directory, not a gate. Pinned here because nothing
+    # else says which way the decision went.
     project = tmp_path / "project"
     project.mkdir()
     get_runner = _get_runner({**GET_RESULT, "export_path": ""})

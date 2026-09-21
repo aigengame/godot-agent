@@ -699,11 +699,13 @@ def parse_export_warnings(stderr: str) -> list[str]:
 # the walk as the one thing to keep out), and the shape of the published report.
 
 
-# `res://` is the one virtual scheme that names a path INSIDE the project
-# (ADR-0006). Both `--output res://out.pck` and a preset `export_path` may spell
-# the destination this way, and the engine resolves it against the project root
-# — so the export has to resolve it the same way before it can keep the artifact
-# out of the walk (#981 round 3) or create the destination's parents (#997).
+# `res://` is the one virtual scheme that addresses the project's own namespace
+# (ADR-0006); whether a spelling stays INSIDE that namespace is not asked here —
+# see the escape paragraph below. Both `--output res://out.pck` and a preset
+# `export_path` may spell the destination this way, and the engine anchors it at
+# the project root — so the export has to anchor it the same way before it can
+# keep the artifact out of the walk (#981 round 3) or create the destination's
+# parents (#997).
 
 
 def _absolute_project(project: Path) -> Path:
@@ -711,11 +713,12 @@ def _absolute_project(project: Path) -> Path:
 
     ADR-0006's project resolution expands ``~`` and finds the marker; it does not
     absolutize, so ``--project game`` and ``GDA_PROJECT=game`` reach a command as
-    the relative paths the caller typed. Both of this command's destination
-    channels anchor them HERE — the preset's configured ``export_path`` (#403)
-    and a ``res://`` ``--output`` (#997) — so one relative ``--project`` cannot
-    give ``created_dirs`` two shapes depending on which channel named the
-    destination.
+    the relative paths the caller typed. Both places that need the project
+    anchored read this one function — the preset's configured ``export_path``
+    (#403) and a ``res://`` destination (#997) — so one relative ``--project``
+    cannot give ``created_dirs`` two shapes. (A relative filesystem ``--output``
+    is anchored earlier and elsewhere, at the CLI, against the INVOKER's cwd:
+    :func:`normalize_export_output_path`, ADR-0006's export carve-out.)
     """
     return project if project.is_absolute() else Path.cwd() / project
 
@@ -726,12 +729,14 @@ def _res_output_location(project: Optional[Path], output_path: str) -> Path | No
     The ONE place this group turns a ``res://`` output into a filesystem
     location, read by both callers that need it — the parent creation before the
     native export and the artifact the mutation report keeps out. Each answered
-    the question on its own, and each broke where the engine folds a spelling:
-    the exclusion joined the RAW remainder, so ``res://build\\game.x86_64`` was
-    kept out as ``build\\game.x86_64`` while the engine wrote
-    ``build/game.x86_64`` and the artifact came back in ``created``; the parent
-    creation dropped every ``://`` address, so a missing ``build/`` failed inside
-    the engine instead of being created as the catalog promises.
+    the question on its own, and each broke differently. The exclusion broke
+    where the engine FOLDS a spelling: it joined the RAW remainder, so
+    ``res://build\\game.x86_64`` was kept out as ``build\\game.x86_64`` while the
+    engine wrote ``build/game.x86_64`` and the artifact came back in ``created``.
+    The parent creation broke for EVERY ``res://`` destination with a missing
+    parent, folded or not, because it dropped every ``://`` address: a missing
+    ``build/`` failed inside the engine instead of being created as the catalog
+    promises.
 
     The spelling is canonicalized by :func:`gda.project.canonical_res_path`, the
     path authority's ``res://`` primitive (ADR-0006), whose docstring audits step
@@ -744,15 +749,20 @@ def _res_output_location(project: Optional[Path], output_path: str) -> Path | No
     project root, which is a directory rather than a file the export writes, and
     which is already there; any other scheme — ``user://``, ``uid://``, a
     caller's own ``foo://`` — is not the project's namespace at all, so this
-    command creates nothing for it. A canonical remainder that still climbs
-    above the root (``res://../out.zip``) is anchored at the project and
-    returned, not refused.
-    That destination is now reachable: gda makes its parent, and the engine then
-    writes the artifact OUTSIDE the resolved project, where before the missing
-    parent stopped the export. It is the same answer an absolute ``--output``
-    outside the project has always had — ADR-0006 carves ``--output`` out as a
-    filesystem destination — and the engine remains the last word on a
-    destination it refuses.
+    command creates nothing for it.
+
+    A canonical remainder that still climbs above the root
+    (``res://../out.zip``) is anchored at the project and returned, not refused.
+    gda has never contained an export destination and #997 opened no route:
+    measured at base with the directory already present, the artifact landed
+    OUTSIDE the project on BOTH destinations that reach this function — a
+    ``res://`` ``--output`` and a preset ``export_path`` spelled the same way,
+    which the preflight passes through verbatim — and an absolute ``--output``
+    outside the project does the same at base and at head. What changed is that
+    a MISSING parent is now made, so that obstacle is gone. The decision is
+    ADR-0006's own: its #697/#763 amendment scopes containment to ``script
+    validate``, ``script run`` and ``resource import``, and says "Other
+    path-taking commands do not ask it."
     """
     if project is None or not output_path.startswith(RES_PREFIX):
         return None
@@ -962,8 +972,19 @@ def _ensure_output_parent_dirs(
     directories are made where the engine will write — down the SAME loop, in
     the same order, reported as the same absolute filesystem strings, which is
     why the project is anchored before the join. A destination whose canonical
-    form leaves the project (``res://../out.zip``) is created where the caller
-    pointed and is not refused here; the engine remains the last word.
+    form leaves the project (``res://../out.zip``) has its missing parents made
+    where the caller pointed and is not refused here; the engine remains the
+    last word.
+
+    One divergence is left, and it is the engine's to decide: this function
+    reads the parent of the CANONICAL location, while the engine reads the RAW
+    spelling (``DirAccess::exists(p_path.get_base_dir())``,
+    ``editor/export/editor_export_platform_pc.cpp:156``, and
+    ``String::get_base_dir`` does not simplify). The two disagree where a
+    spelling walks through a directory the collapse removes, so
+    ``res://build/../game.x86_64`` and ``res://build/`` with no ``build/`` make
+    nothing here and still come back as the opaque ``export_failed`` #997 set
+    out to remove (measured on Godot 4.6.3).
 
     The other virtual schemes still resolve to nothing: ``user://`` is the
     engine's data directory, not a place this command may create, and ``uid://``
