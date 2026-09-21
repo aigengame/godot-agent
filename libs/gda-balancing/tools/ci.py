@@ -105,6 +105,8 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_external_input_observation_refusal.py",
         "test_formula_interval_inference.py",
         "test_formula_runtime_seam.py",
+        "test_priority_fixed_build.py",
+        "test_priority_protocol_public.py",
         "test_public_execution_identity.py",
         "test_public_formula_runtime_seam.py",
         "test_schema2_bootstrap_composition.py",
