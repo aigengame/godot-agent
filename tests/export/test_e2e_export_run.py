@@ -236,6 +236,69 @@ def test_export_run_creates_a_res_output_parent_and_keeps_the_artifact_out(
 
 
 @pytest.mark.e2e
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="directory links need a POSIX symlink here"
+)
+def test_export_run_sends_a_dotdot_through_a_link_where_it_collapses(
+    godot_project, tmp_path
+):
+    # #997 (amended) ACCEPTANCE, live — the shape an external review of PR #999
+    # measured on this engine. `pivot -> outside/deep` makes `res://pivot/..`
+    # two different places: `<project>` if the `..` is collapsed in the address,
+    # `outside/` if the OS walks the link. gda collapsed it for the preflight and
+    # the report while the ENGINE received the raw spelling and walked it, so the
+    # export wrote `outside/game.x86_64` while gda kept `<project>/game.x86_64`
+    # out — and the walk, following `visible -> outside`, reported the artifact
+    # as `res://visible/game.x86_64` created.
+    #
+    # The engine is handed the resolved location now, so one file answers to the
+    # preflight, the native run and the report. `--mode pack` needs no export
+    # templates, so this runs on a template-less machine, the policy the pack
+    # tests below follow.
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    # all_resources needs at least one exportable file (see the tests above).
+    (godot_project / "main.gd").write_text(
+        "extends Node\n\nfunc _ready() -> void:\n\tpass\n", encoding="utf-8"
+    )
+    outside = tmp_path / "outside"
+    (outside / "deep").mkdir(parents=True)
+    (godot_project / "pivot").symlink_to(outside / "deep", target_is_directory=True)
+    (godot_project / "visible").symlink_to(outside, target_is_directory=True)
+    output = "res://pivot/../packed.pck"
+    gda = Gda(godot_project)
+
+    run = gda(
+        "export",
+        "run",
+        "--preset",
+        "Linux/X11",
+        "--mode",
+        "pack",
+        "--output",
+        output,
+        "--json",
+    )
+
+    assert run.returncode == 0, run.stdout + run.stderr
+    data = json.loads(run.stdout)
+    # The artifact is where the ADDRESS collapses to, not where the link leads.
+    assert (godot_project / "packed.pck").is_file(), sorted(
+        str(p) for p in godot_project.iterdir()
+    )
+    assert not (outside / "packed.pck").exists()
+    assert not (outside / "deep" / "packed.pck").exists()
+    # And the report keeps it out, under either spelling the walk can reach it by.
+    created = [entry["path"] for entry in data["project_tree_mutations"]["created"]]
+    assert "res://packed.pck" not in created, created
+    assert "res://visible/packed.pck" not in created, created
+    # The result still publishes what the caller typed (#403).
+    assert data["output_path"] == output
+    assert data["created_dirs"] == []
+
+
+@pytest.mark.e2e
 def test_export_run_under_a_redirect_names_both_template_directories(
     godot_project, tmp_path
 ):

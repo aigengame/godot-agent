@@ -91,6 +91,54 @@ class MutatingExportRunner:
         return self.result
 
 
+class EngineLikeExportRunner:
+    """A native export that resolves its destination the way the ENGINE does.
+
+    The other fake in this file writes wherever its closure says; this one
+    writes where the PATH IT IS HANDED leads, which is the whole subject of
+    #997's amendment. Two engine behaviours are reproduced, because the three
+    parties have to agree with both:
+
+    * a raw ``res://`` address is joined to the project and the OS then walks
+      the result, so a ``..`` that steps through a directory link reaches a
+      different file from the one a lexical collapse names;
+    * an export whose destination directory does not exist is refused, not
+      prepared (``editor_export_platform_pc.cpp``), so a preflight that
+      prepared the wrong directory is visible here as a failed export.
+    """
+
+    def __init__(self, project: Path) -> None:
+        self.project = project
+        self.calls: list[tuple[str, str, str]] = []
+
+    def run(self, preset: str, mode: str, output_path: str) -> RunResult:
+        self.calls.append((preset, mode, output_path))
+        target = Path(output_path)
+        if output_path.startswith("res://"):
+            target = self.project / output_path[len("res://") :]
+        if not target.parent.is_dir():
+            return RunResult(
+                stdout="", stderr="The given export path doesn't exist.", exit_code=1
+            )
+        target.write_text("binary", encoding="utf-8")
+        return RunResult(stdout="", stderr="", exit_code=0)
+
+
+def _export_through(
+    project: Path, runner: EngineLikeExportRunner, output_override: str
+) -> "ExportRunResult | Failure":
+    """Run the real recipe with a runner that writes where it is SENT."""
+    return run_export_operation(
+        preset="Linux/X11",
+        mode=ExportRunMode.RELEASE,
+        output_override=output_override,
+        godot="/tmp/Godot",
+        project=project,
+        make_runner=lambda binary, project=None: _get_runner(),
+        make_export_runner=lambda binary, project=None: runner,
+    )
+
+
 def _export(
     project: Path,
     mutate: Callable[[], object] = lambda: None,
@@ -164,10 +212,12 @@ def test_the_export_destination_resolves_to_the_artifact_kept_out(tmp_path):
     )
     assert _artifact_to_exclude(project, "res://") is None
     assert _artifact_to_exclude(project, "user://out.pck") is None
-    # #997: the reading is the path authority's canonical one, so the spellings
-    # the engine folds before it writes name the file it really writes — `\` is
-    # a separator, `.` and `//` collapse, and `..` resolves. A spelling that
-    # collapses to the project root names a directory, so it names no artifact.
+    # #997: the reading is `gda.project.res_location`'s — the canonical address
+    # under the absolute project — so `\` is a separator, `.` and `//` collapse,
+    # and `..` is COLLAPSED lexically rather than walked (that boundary is the
+    # authority's docstring, and the engine is handed this same location so it
+    # does not walk it either). A spelling that collapses to the project root
+    # names a directory, so it names no artifact.
     assert (
         _artifact_to_exclude(project, "res://build\\game.x86_64")
         == project / "build" / "game.x86_64"
@@ -236,6 +286,57 @@ def test_a_folded_res_output_is_excluded_where_the_engine_writes_it(tmp_path, sp
     assert outcome.created_dirs == []  # `build/` was already there
     assert _mutations(outcome).created == []
     assert _mutations(outcome).skipped == 0
+
+
+def test_a_dotdot_through_a_directory_link_lands_where_the_address_collapses(
+    tmp_path,
+):
+    # #997 (amended) — the shape an external review of PR #999 measured on Godot
+    # 4.6.3. With `pivot -> outside/deep`, `res://pivot/../game.x86_64` is
+    # `res://game.x86_64` lexically, but an OS that walks `pivot/..` physically
+    # reaches `outside/`. gda collapsed it here while the ENGINE got the raw
+    # spelling, so the export wrote `outside/game.x86_64` while gda kept out
+    # `<project>/game.x86_64` — and the walk, following `visible -> outside`,
+    # reported the artifact as `res://visible/game.x86_64` created.
+    #
+    # The engine is handed the resolved location now, so one file answers to all
+    # three parties. `gda.project.res_location`'s docstring states the rule and
+    # this boundary: lexical wins, and the link is not walked.
+    project = minimal_project(tmp_path / "project")
+    outside = tmp_path / "outside"
+    (outside / "deep").mkdir(parents=True)
+    (project / "pivot").symlink_to(outside / "deep", target_is_directory=True)
+    (project / "visible").symlink_to(outside, target_is_directory=True)
+    runner = EngineLikeExportRunner(project)
+
+    outcome = _export_through(project, runner, "res://pivot/../game.x86_64")
+
+    assert isinstance(outcome, ExportRunResult), outcome
+    assert runner.calls == [("Linux/X11", "release", str(project / "game.x86_64"))]
+    assert (project / "game.x86_64").is_file()
+    assert not (outside / "game.x86_64").exists()
+    assert _mutations(outcome).created == []
+    assert outcome.output_path == "res://pivot/../game.x86_64"  # the spelling, #403
+
+
+def test_a_dotdot_output_exports_where_it_collapses_to(tmp_path):
+    # #997 (amended): `res://build/../game.x86_64` with no `build/` used to die
+    # inside the engine as an opaque export_failed — gda saw the canonical
+    # parent (the project, which exists) and made nothing, while the engine read
+    # the raw spelling and looked for `build/`. The engine is handed
+    # `<project>/game.x86_64` now, so the export runs, nothing is created for
+    # it, and the artifact is kept out of the report.
+    project = minimal_project(tmp_path / "project")
+    runner = EngineLikeExportRunner(project)
+
+    outcome = _export_through(project, runner, "res://build/../game.x86_64")
+
+    assert isinstance(outcome, ExportRunResult), outcome
+    assert runner.calls == [("Linux/X11", "release", str(project / "game.x86_64"))]
+    assert outcome.created_dirs == []
+    assert not (project / "build").exists()
+    assert (project / "game.x86_64").is_file()
+    assert _mutations(outcome).created == []
 
 
 @pytest.mark.parametrize("use_res_path", [True, False])

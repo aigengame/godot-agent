@@ -23,6 +23,7 @@ from gda.project import (
     target_location,
     project_anchored,
     res_escape_remainder,
+    res_location,
     resolve_project_dir,
 )
 
@@ -411,6 +412,49 @@ def test_canonical_res_path_collapses_lexically(spelling, canonical):
     # Idempotent: canonicalizing a canonical address changes nothing, which is what
     # lets every consumer apply it without coordinating.
     assert canonical_res_path(canonical) == canonical
+
+
+def test_res_location_is_the_canonical_address_under_the_absolute_project(tmp_path):
+    # #997: the one owner of "where does this `res://` address land". The
+    # address is canonicalized (so `\` is a separator and `.`/`//`/`..`
+    # collapse) and joined to the ABSOLUTE project, so a relative `--project`
+    # cannot give the answer two shapes; the bare scheme is the project
+    # directory itself.
+    project = tmp_path / "game"
+    project.mkdir()
+
+    assert res_location("res://a/b.zip", project) == project / "a" / "b.zip"
+    assert res_location("res://build\\game.x86_64", project) == (
+        project / "build" / "game.x86_64"
+    )
+    assert res_location("res://./a//b.zip", project) == project / "a" / "b.zip"
+    assert res_location("res://", project) == project
+    assert res_location("res://a/..", project) == project
+
+
+def test_res_location_collapses_a_dotdot_instead_of_walking_the_link(
+    tmp_path, monkeypatch
+):
+    # The BOUNDARY, and the reason it is stated where the rule is (#997, external
+    # review of PR #999). With `pivot -> outside/deep`, an OS that walked
+    # `pivot/..` reaches `outside/`; this rule collapses the address instead, so
+    # `res://pivot/../x` is `<project>/x`. The engine is handed THIS location by
+    # its one caller that runs an export, which is what keeps the two readings
+    # from naming two files.
+    project = tmp_path / "game"
+    project.mkdir()
+    outside = tmp_path / "outside"
+    (outside / "deep").mkdir(parents=True)
+    (project / "pivot").symlink_to(outside / "deep", target_is_directory=True)
+
+    located = res_location("res://pivot/../x.zip", project)
+
+    assert located == project / "x.zip"
+    assert located.parent.resolve() != (project / "pivot").resolve().parent
+
+    # And the project is anchored at the invoker's cwd when it arrives relative.
+    monkeypatch.chdir(tmp_path)
+    assert res_location("res://x.zip", Path("game")) == project / "x.zip"
 
 
 @pytest.mark.parametrize(

@@ -238,6 +238,41 @@ def canonical_res_path(path: str) -> str:
     return RES_PREFIX + collapsed
 
 
+def res_location(path: str, project: Path) -> Path:
+    """The place on disk a ``res://`` address names, under ``project`` (#997).
+
+    ONE owner for "where does this ``res://`` address land", so the parties that
+    must agree about one file cannot each answer for themselves. It is the
+    canonical address (:func:`canonical_res_path` — the engine's own
+    ``String::simplify_path`` semantics for a ``res://`` spelling) joined to the
+    absolute project directory (:func:`project_absolute`, which anchors a
+    relative ``--project`` at the invoker's cwd and expands ``~`` totally). A
+    bare ``res://``, and any spelling that collapses to it, is the project
+    directory itself.
+
+    **The boundary: the reading is LEXICAL.** The ``..`` segments are collapsed
+    in the address, not walked on the filesystem, so a spelling whose ``..``
+    would step through a DIRECTORY LINK lands where the address canonicalizes
+    to, not where the link leads: with ``pivot -> outside/deep``,
+    ``res://pivot/../x`` is ``<project>/x``, while an OS that resolved
+    ``pivot/..`` physically would reach ``outside/x``. Lexical is the engine's
+    own reading of a ``res://`` address, and it is total — it needs no
+    filesystem, so it answers for a destination that does not exist yet, which
+    is what an export destination is. A caller that needs the two readings
+    reconciled must therefore hand this location on rather than re-spell the
+    address: ``export run`` passes it to the native export, so what the engine
+    writes, what the parent creation prepares and what the mutation report keeps
+    out are the same file by construction (#997; external review of PR #999
+    measured the two coming apart).
+
+    It makes no containment statement. A canonical remainder that still climbs
+    above the namespace root is joined like any other, and
+    :func:`res_escape_remainder` is the separate question a caller asks when the
+    answer matters to it.
+    """
+    return project_absolute(project) / canonical_res_path(path)[len(RES_PREFIX) :]
+
+
 def res_escape_remainder(path: str) -> str | None:
     """The canonical remainder of a ``res://`` address when it escapes upward, else ``None`` (#762).
 
@@ -383,7 +418,7 @@ def _anchored_target(path: str, project: Path | None) -> Path:
     if project is None:
         return expand_user(Path(path))
     if path.startswith(RES_PREFIX):
-        return expand_user(project) / canonical_res_path(path)[len(RES_PREFIX) :]
+        return res_location(path, project)
     return project_anchored(path, project)
 
 

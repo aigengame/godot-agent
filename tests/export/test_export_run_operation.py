@@ -395,25 +395,27 @@ def test_res_output_parent_dirs_are_created_and_reported(
         str(project / "build" / "nested"),
     ]
     assert export_runner.dir_existed_at_call is True
-    # Only the DIRECTORY is resolved: the engine is handed — and the result
-    # publishes — the caller's own spelling (#403).
-    assert outcome.output_path == "res://build/nested/game.x86_64"
+    # The ENGINE is handed the resolved location, not the spelling: one
+    # destination for the preflight, the native run and the report (#997, PR
+    # #999 external review). The RESULT still publishes what the caller typed
+    # (#403).
     assert export_runner.calls == [
-        ("Linux/X11", "release", "res://build/nested/game.x86_64")
+        ("Linux/X11", "release", str(project / "build" / "nested" / "game.x86_64"))
     ]
+    assert outcome.output_path == "res://build/nested/game.x86_64"
 
 
-def test_a_res_output_that_leaves_the_project_is_created_where_it_points(tmp_path):
-    # #997, the decision this slice makes easier to reach (PR #999 review). A
-    # `res://` spelling that still climbs above the namespace root after
-    # canonicalization is anchored at the project and NOT refused: gda makes its
-    # missing parents, and the engine then writes the artifact outside the
-    # resolved project. That is not new — measured at base, with the directory
-    # already present, the artifact landed outside the project on both the
-    # `--output` and the configured-`export_path` channel, and an absolute
-    # `--output` outside the project does the same today. What this slice
-    # removed is the missing directory, not a gate. Pinned here because nothing
-    # else says which way the decision went.
+def test_a_res_output_that_leaves_the_project_gets_no_directories(tmp_path):
+    # #997 (amended): gda makes directories in the project it was given and none
+    # outside it. A `res://` spelling that still climbs above the namespace root
+    # after canonicalization gets nothing made for it, and the engine's own
+    # check stands, exactly as before this issue — written when the parent is
+    # already there, `export_failed` when it is not. That is not a refusal (no
+    # code, no envelope) and not a containment rule: an absolute `--output`
+    # outside the project still has its parents made, as it always has.
+    #
+    # The engine is still handed the resolved location, because the three
+    # parties must name one file whether or not gda prepares anything for it.
     project = tmp_path / "project"
     project.mkdir()
     get_runner = _get_runner({**GET_RESULT, "export_path": ""})
@@ -427,9 +429,13 @@ def test_a_res_output_that_leaves_the_project_is_created_where_it_points(tmp_pat
     )
 
     assert isinstance(outcome, ExportRunResult), outcome
-    assert outcome.created_dirs == [str(project / ".." / "out")]
-    assert (tmp_path / "out").is_dir()  # OUTSIDE the project, on disk
+    assert outcome.created_dirs == []
+    assert not (tmp_path / "out").exists()  # nothing made outside the project
     assert not (project / "out").exists()
+    assert export_runner.calls == [
+        ("Linux/X11", "release", str(project / ".." / "out" / "game.x86_64"))
+    ]
+    assert outcome.output_path == "res://../out/game.x86_64"
 
 
 def test_a_non_res_virtual_output_creates_nothing(tmp_path):
