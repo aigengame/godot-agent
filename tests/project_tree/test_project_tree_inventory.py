@@ -562,3 +562,46 @@ def test_a_spelling_retargeted_to_a_second_unreadable_inode_counts_both(tmp_path
     finally:
         locked.chmod(0o755)
         other.chmod(0o755)
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs only")
+def test_a_file_spelling_retargeted_to_a_second_unaccounted_inode_counts_both(
+    tmp_path,
+):
+    # A directory failure reaches the settlement through `os.walk.onerror`; a
+    # file-shaped failure is YIELDED by the walk and classified here instead.
+    # Both are observations under rule 4. Before this pin the settlement stopped
+    # at spelling coverage, so a file spelling retargeted from inode A to inode B
+    # kept only A in `skipped`.
+    project = minimal_project(tmp_path / "proj")
+    first = project / "pipe-a"
+    second = tmp_path / "pipe-b"
+    os.mkfifo(first)
+    os.mkfifo(second)
+    alias = project / "alias"
+    alias.symlink_to(first)
+
+    inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
+    alias.unlink()
+    alias.symlink_to(second)
+
+    assert inventory.settle().skipped == 2
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs only")
+def test_a_file_spelling_that_gains_an_identity_counts_both_observations(tmp_path):
+    # An unidentified observation is its spelling; a later failure at that same
+    # spelling is the inode it reaches then. Nothing observed proves those are one
+    # entry, so both belong in the count. Before this pin spelling coverage hid the
+    # second observation and reported only the dangling link.
+    project = minimal_project(tmp_path / "proj")
+    alias = project / "alias"
+    alias.symlink_to(tmp_path / "missing")
+    inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
+
+    alias.unlink()
+    target = tmp_path / "pipe"
+    os.mkfifo(target)
+    alias.symlink_to(target)
+
+    assert inventory.settle().skipped == 2

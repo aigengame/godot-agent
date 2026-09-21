@@ -452,15 +452,16 @@ class ProjectTreeInventory:
         """Walk the tree again and report what the run changed (#839).
 
         The rules, in the order the loop asks them: a path the first capture
-        could not read is accounted for as skipped and nothing more (calling it
-        created would be a guess); a path that was not there is ``created`` and
-        carries the shared classifier's verdict; a pre-existing cache file is
-        passed over, because the cache is reported as one unit; and a
-        pre-existing file elsewhere is a CANDIDATE only when its size or mtime
-        moved, and enters ``modified`` only when its digest then differs. The
-        candidate rule is what bounds the cost — the import pass touches far more
-        files than it rewrites — and it is also this settlement's one blind spot:
-        a rewrite that preserves both the size and the timestamp is not seen.
+        could not read is observed again for a current failure identity, then
+        accounted for as skipped and nothing more (calling it created would be a
+        guess); a path that was not there is ``created`` and carries the shared
+        classifier's verdict; a pre-existing cache file is passed over, because
+        the cache is reported as one unit; and a pre-existing file elsewhere is a
+        CANDIDATE only when its size or mtime moved, and enters ``modified`` only
+        when its digest then differs. The candidate rule is what bounds the cost —
+        the import pass touches far more files than it rewrites — and it is also
+        this settlement's one blind spot: a rewrite that preserves both the size
+        and the timestamp is not seen.
 
         A caller that did not ask for rewrites stops at ``created``: it holds no
         digest to compare, so every pre-existing file is passed over.
@@ -476,7 +477,15 @@ class ProjectTreeInventory:
         for rel, path in _walk_project_files(
             self.project, artifact=self.artifact, on_unreadable_dir=skipped.add
         ):
-            if skipped.covers(rel) or _under(rel, self.unlistable_dirs):
+            if skipped.covers(rel):
+                # Coverage suppresses a false `created`; it must not suppress the
+                # second capture's failure observation. Directory failures reach
+                # `add` through `onerror`, while file-shaped entries are yielded,
+                # so classify this one before preserving the first answer.
+                if _file_facts(path, digest=self.detect_rewrites) is None:
+                    skipped.add(rel)
+                continue
+            if _under(rel, self.unlistable_dirs):
                 continue
             before = self.files.get(rel)
             if before is None:
