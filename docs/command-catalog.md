@@ -1332,11 +1332,10 @@ is refused by the input model before any engine process, and a preset
 `--output` resolves against the invoker's current working directory, while a
 preset `export_path` keeps Godot's project-relative convention (including a
 literal `~` path component; no shell-style home expansion). The JSON
-`output_path` is the
-resolved absolute artifact path. Missing output parent directories are created
-before the native export and reported in `created_dirs`, outermost to innermost;
-an uncreatable parent is reported as `export_output_parent_failed` before Godot
-runs.
+`output_path` is the resolved absolute artifact path. Missing output parent
+directories are created before the native export and reported in
+`created_dirs`, outermost to innermost; an uncreatable parent is reported as
+`export_output_parent_failed` before Godot runs.
 
 `gda export run` also reports what the export did to the project tree
 (`project_tree_mutations`, #839). The native export runs the editor import pass, so
