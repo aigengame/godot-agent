@@ -188,20 +188,26 @@ def test_authority_refuses_unclosed_formula_wire_fields(mutation):
         ), outcome
 
 
-@pytest.mark.parametrize("mutation", ("missing", "unknown-role", "partial-members"))
+@pytest.mark.parametrize(
+    "mutation",
+    ("missing", "unknown-role", "partial-members", "non-object-definitions"),
+)
 def test_authority_refuses_an_unsupported_kernel_source_notation_contract(
     mutation, monkeypatch
 ):
     kernel, language = mutable_authorities()
-    protocols = kernel["meta_format"]["language_definitions"][
-        "wire_schema_protocol_roles"
-    ]
-    if mutation == "missing":
-        protocols.pop("source_notation")
-    elif mutation == "unknown-role":
-        protocols["source_notation"]["role"] = "unknown-source"
+    if mutation == "non-object-definitions":
+        kernel["meta_format"]["language_definitions"] = None
     else:
-        protocols["source_notation"]["required_members"] = ["formula_grammar"]
+        protocols = kernel["meta_format"]["language_definitions"][
+            "wire_schema_protocol_roles"
+        ]
+        if mutation == "missing":
+            protocols.pop("source_notation")
+        elif mutation == "unknown-role":
+            protocols["source_notation"]["role"] = "unknown-source"
+        else:
+            protocols["source_notation"]["required_members"] = ["formula_grammar"]
     _reidentify(kernel, language)
     for consumer in (_consumer_a, _consumer_b):
         outcome = consumer(kernel, language)

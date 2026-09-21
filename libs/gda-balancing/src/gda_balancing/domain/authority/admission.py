@@ -5309,11 +5309,19 @@ def admit_authorities(
     diagnostic_catalog_matches_vectors = _diagnostic_catalog_matches_vectors(
         language_bundle
     )
-    source_notation_contract = (
-        raw_meta_format.get("language_definitions", {})
-        .get("wire_schema_protocol_roles", {})
-        .get("source_notation")
+    raw_language_definitions = (
+        raw_meta_format.get("language_definitions")
         if isinstance(raw_meta_format, dict)
+        else None
+    )
+    raw_protocol_roles = (
+        raw_language_definitions.get("wire_schema_protocol_roles")
+        if isinstance(raw_language_definitions, dict)
+        else None
+    )
+    source_notation_contract = (
+        raw_protocol_roles.get("source_notation")
+        if isinstance(raw_protocol_roles, dict)
         else None
     )
     source_notation_is_supported = _source_notation_contract_is_supported(

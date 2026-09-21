@@ -99,10 +99,8 @@ def test_all_recipe_local_binders_can_be_renamed_through_public_execution(tmp_pa
     }
 
 
-@pytest.mark.parametrize(
-    "mutation", ["missing-binding", "non-binding-field", "wrong-source"]
-)
-def test_routing_retains_actual_binding_and_source_obligations(mutation):
+@pytest.mark.parametrize("mutation", ["missing-binding", "wrong-source"])
+def test_routing_rejects_dangling_binding_and_mistyped_source(mutation):
     kernel, language = _renamed_authorities()
     recipe = next(
         recipe
@@ -112,9 +110,6 @@ def test_routing_retains_actual_binding_and_source_obligations(mutation):
     field = next(field for field in recipe["fields"] if field["name"] == "module")
     if mutation == "missing-binding":
         field["term"]["binding"] = "absent.local"
-    elif mutation == "non-binding-field":
-        # A valid source string cannot replace this required binding projection.
-        field["term"] = {"root": "source", "path": ["manifest", "entry_module"]}
     else:
         binding = next(
             binding

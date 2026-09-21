@@ -186,19 +186,21 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_bounded_fold_runtime.py",
         "test_bounded_fold_terminal_audit.py",
     ),
-    "composition": (
+    "composition-01": (
         "test_current_namespace_public.py",
         "test_current_package_composition.py",
         "test_external_input_observation_refusal.py",
         "test_formula_interval_inference.py",
         "test_formula_runtime_seam.py",
+    ),
+    "composition-02": (
         "test_metric_artifact_consistency.py",
         "test_public_execution_identity.py",
         "test_public_formula_runtime_seam.py",
         "test_scheduled_argument_capture.py",
         "test_scheduled_structured_values.py",
-        "test_schema2_bootstrap_composition.py",
     ),
+    "composition-03": ("test_schema2_bootstrap_composition.py",),
     "interfaces": (
         "test_cli_conformance.py",
         "test_http_service.py",

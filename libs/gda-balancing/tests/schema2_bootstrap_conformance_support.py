@@ -14033,10 +14033,16 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         isinstance(raw_diagnostics, list)
         and early_diagnostic_catalog == early_vector_catalog
     )
+    raw_language_definitions = meta.get("language_definitions")
+    raw_protocol_roles = (
+        raw_language_definitions.get("wire_schema_protocol_roles")
+        if isinstance(raw_language_definitions, dict)
+        else None
+    )
     source_notation_contract = (
-        meta.get("language_definitions", {})
-        .get("wire_schema_protocol_roles", {})
-        .get("source_notation")
+        raw_protocol_roles.get("source_notation")
+        if isinstance(raw_protocol_roles, dict)
+        else None
     )
     source_notation_is_supported = _consumer_b_source_notation_contract_is_supported(
         source_notation_contract

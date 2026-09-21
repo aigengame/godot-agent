@@ -244,7 +244,6 @@ def test_template_instantiation_updates_the_annotation_owned_manifest_identity()
         TemplateInstantiationPlan,
         prepare_template_instantiation,
     )
-    from test_schema2_template_cli import _reidentify_release
 
     kernel, language = mutable_authorities()
     authored = _authored(language)
@@ -270,13 +269,12 @@ def test_template_instantiation_updates_the_annotation_owned_manifest_identity()
         for member in release["members"]
         if member["member_kind"] == "model-source-package"
     )
-    source["opaque_header"] = source.pop("manifest")
-    source["opaque_header"]["opaque_id"] = source["opaque_header"].pop("id")
     starter_identity = content_identity(profile["source_identity_domain"], source)
-    for member in release["members"]:
-        if member["member_kind"] in {"experiment-template", "golden-scenario"}:
-            member["payload"]["model_source_identity"] = starter_identity
-    release = _reidentify_release(release)
+    assert {
+        member["payload"]["model_source_identity"]
+        for member in release["members"]
+        if member["member_kind"] in {"experiment-template", "golden-scenario"}
+    } == {starter_identity}
     plan = prepare_template_instantiation(
         release["id"], "example.renamed-manifest", lambda _: release, lambda: context
     )

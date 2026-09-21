@@ -65,8 +65,10 @@ from schema2_bootstrap_conformance_support import (
     _consumer_b_source_semantic_selector,
 )
 from schema2_formula_conformance_support import (
+    _inline_source_parameter,
     _source_abi_selector,
     _source_abi_value_and_paths,
+    normalize_semantic_body,
 )
 
 
@@ -1727,7 +1729,22 @@ def _reference_formulas_and_bindings(
         }
         for formula_index, source_formula in enumerate(module.get("formulas", [])):
             key = (module_id, source_formula["id"])
-            source_body = deepcopy(source_formula["body"])
+            source_body = normalize_semantic_body(
+                deepcopy(source_formula["body"]),
+                checked.language_bundle,
+                kernel=checked.kernel,
+            )
+            inline_kind, inline_reference, _inline_member = _inline_source_parameter(
+                checked.kernel, checked.language_bundle
+            )
+            if source_body.get("node") == inline_kind:
+                source_body = {
+                    "nodes": [],
+                    "result": {
+                        "kind": inline_kind,
+                        inline_reference: source_body[inline_reference],
+                    },
+                }
             parameters = [
                 {
                     "id": parameter["id"],

@@ -423,8 +423,8 @@ def normalize_source_body(
 def normalize_semantic_body(
     body: dict[str, Any], language_bundle: dict[str, Any], *, kernel: dict[str, Any]
 ) -> dict[str, Any]:
-    """Independently lower a body already projected to Source semantic members."""
-    kind, reference, _source_member = _inline_source_parameter(kernel, language_bundle)
+    """Map a projected body to the fixed ABI while preserving its union variant."""
+    _kind, reference, _source_member = _inline_source_parameter(kernel, language_bundle)
     try:
         projected = _source_abi_value(body, language_bundle, "source.inline_parameter")
     except ValueError:
@@ -438,10 +438,7 @@ def normalize_semantic_body(
         projected.get(reference), str
     ):
         raise ValueError("independent inline Formula body is malformed")
-    return {
-        "nodes": [],
-        "result": {"kind": kind, reference: projected[reference]},
-    }
+    return projected
 
 
 def _validate_context(
@@ -1578,17 +1575,22 @@ def parse_canonical(
                     "independent Operation port contract is incompatible",
                 )
             typed_operands.append((operand, contract))
-        result = _infer_result(
-            operation,
-            ports,
-            [contract for _operand, contract in typed_operands],
-            _source_contract(formula["result"]),
-            policy,
-            _boolean_formula_contract(kernel),
-            operations=operations,
-            kernel=kernel,
-            imports=imports,
-        )
+        try:
+            result = _infer_result(
+                operation,
+                ports,
+                [contract for _operand, contract in typed_operands],
+                _source_contract(formula["result"]),
+                policy,
+                _boolean_formula_contract(kernel),
+                operations=operations,
+                kernel=kernel,
+                imports=imports,
+            )
+        except FormulaReferenceFailure:
+            raise
+        except ValueError as error:
+            raise FormulaReferenceFailure("type-mismatch", str(error)) from error
         return (
             {
                 "id": local,

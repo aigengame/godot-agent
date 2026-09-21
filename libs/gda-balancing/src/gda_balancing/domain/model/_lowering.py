@@ -10,6 +10,7 @@ from gda_balancing.domain.authority.source_projection import (
     SourceProjection,
     author_source_native_token,
     derive_default_source_native_bindings,
+    project_source_native_token,
     source_assignment_binding,
     source_assignment_role,
 )
@@ -136,7 +137,17 @@ def lowering_inputs(
                 judgment=invocation["judgment"],
                 facts=[fact],
             )
-        declarations.append(cast(dict[str, JsonValue], fact["fields"]))
+        declaration = cast(dict[str, JsonValue], fact["fields"])
+        if "domain_kind" in declaration:
+            declaration["domain_kind"] = cast(
+                JsonValue,
+                project_source_native_token(
+                    source_bindings,
+                    "source.symbol.domain_kind.discriminator",
+                    declaration["domain_kind"],
+                ),
+            )
+        declarations.append(declaration)
     return lock, declarations, lowering, source_rows
 
 
@@ -4156,6 +4167,7 @@ def _runtime_projection(
 ) -> dict[str, Any]:
     """Project declarations and actual Operation roots from current owners."""
     profile = cast(dict[str, Any], lowering["runtime_projection"])
+    source_bindings = derive_default_source_native_bindings(kernel, language_bundle)
     packages = _namespace_packages(selection, language_bundle)
     namespace_members = {
         "types": _namespace_type_exports(packages),
@@ -4303,6 +4315,12 @@ def _runtime_projection(
                     if seed.get("missing_target") == "not-applicable":
                         continue
                     raise
+                if seed["declaration_path"] == ["domain_kind"]:
+                    target = project_source_native_token(
+                        source_bindings,
+                        "source.symbol.domain_kind.discriminator",
+                        target,
+                    )
                 if canonical_bytes(target) == canonical_bytes(expected):
                     matches.append(index)
             if not matches:

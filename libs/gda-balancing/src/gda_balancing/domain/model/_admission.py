@@ -1,5 +1,6 @@
 """Admission of resolved Model artifacts against their exact authority."""
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -17,6 +18,10 @@ from gda_balancing.domain.authority.context import (
 from gda_balancing.domain.authority.graph import (
     NamespaceSelection,
     resolve_current_namespaces,
+)
+from gda_balancing.domain.authority.source_projection import (
+    author_source_native_token,
+    derive_default_source_native_bindings,
 )
 from gda_balancing.domain.canonical import (
     JsonValue,
@@ -1822,6 +1827,7 @@ def _rir_semantics_are_admitted(
     kernel = context.kernel
     ldb = context.language_bundle
     lowering = _model_lowering(ldb)
+    source_bindings = derive_default_source_native_bindings(kernel, ldb)
     declarations = rir.get("declarations")
     if not isinstance(declarations, list):
         return False
@@ -1906,7 +1912,16 @@ def _rir_semantics_are_admitted(
         ]
         if not isinstance(item, dict):
             return False
-        if not _fact_is_admitted({"kind": terminal_kind, "fields": item}, kernel, ldb):
+        admitted_item = deepcopy(item)
+        if "domain_kind" in admitted_item:
+            admitted_item["domain_kind"] = author_source_native_token(
+                source_bindings,
+                "source.symbol.domain_kind.discriminator",
+                admitted_item["domain_kind"],
+            )
+        if not _fact_is_admitted(
+            {"kind": terminal_kind, "fields": admitted_item}, kernel, ldb
+        ):
             return False
         resolved_symbol = cast(dict[str, str], item["resolved_symbol"])
         resolved_keys.append(

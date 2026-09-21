@@ -81,7 +81,9 @@ def test_shards_pairwise_partition_every_balancing_test_file():
         "experiment-continuation",
         *(f"extension-{index:02d}" for index in range(1, 20)),
         "bounded-fold",
-        "composition",
+        "composition-01",
+        "composition-02",
+        "composition-03",
         "interfaces",
         "fixed-build",
     )
