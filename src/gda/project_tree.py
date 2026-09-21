@@ -205,6 +205,21 @@ def _file_facts(path: Path, *, digest: bool) -> FileFacts | None:
     return FileFacts(size=st.st_size, mtime_ns=st.st_mtime_ns, digest=content)
 
 
+def _hashed(rel: str, *, detect_rewrites: bool) -> bool:
+    """Whether a capture reads this file's bytes, and not only its ``stat``.
+
+    Only when the caller asked for rewrites, and never under the cache root: the
+    shared classifier decides that, asked of a file that already exists —
+    ``cache_owned`` is "under the cache root", the one thing a capture needs to
+    know about it — which is what keeps the cache-root rule spelled once (#741).
+    One rule for every read the two captures take, so that "could not be read"
+    means the same for a file each time it is asked: the first capture's
+    failure, the settlement's rewrite candidate, and the settlement's second look
+    at a path it may not call ``created``.
+    """
+    return detect_rewrites and classify_created_file(rel) != "cache_owned"
+
+
 def _under(rel: str, prefixes: tuple[str, ...]) -> bool:
     """Whether ``rel`` is one of ``prefixes`` or sits under one.
 
@@ -394,10 +409,11 @@ class ProjectTreeInventory:
     # through a retargeted spelling is its own entry.
     unreadable: dict[str, tuple[int, int] | None]
     # The directories the first capture could not list, kept apart from the rest
-    # because they are PREFIXES: the settlement must pass over everything beneath
-    # one. A file under such a directory existed before the run, so reporting it
-    # as created once the directory becomes readable would state a fact the
-    # captures never observed (PR #981 review).
+    # because they are PREFIXES: the settlement may call nothing beneath one
+    # created. A file under such a directory existed before the run, so reporting
+    # it as created once the directory becomes readable would state a fact the
+    # captures never observed (PR #981 review). Observed it still is, like every
+    # path the settlement's walk reaches.
     unlistable_dirs: tuple[str, ...]
     # The one consumer-specific gate the module carries, and #985's scope guard
     # names it as the only one allowed: `export run` asks for rewrites and pays
@@ -426,14 +442,10 @@ class ProjectTreeInventory:
         for rel, path in _walk_project_files(
             project, artifact=artifact, on_unreadable_dir=unlistable_dir
         ):
-            # The shared classifier decides what to hash, asked of a file that
-            # already exists: `cache_owned` is "under the cache root", the one
-            # thing this capture needs to know about it. Asking it here is what
-            # keeps the cache-root rule spelled once (#741) — neither command
-            # states a rule of its own, here or in the settlement below.
+            # Whether to hash is `_hashed`'s one rule — neither command states a
+            # rule of its own, here or in the settlement below.
             facts = _file_facts(
-                path,
-                digest=detect_rewrites and classify_created_file(rel) != "cache_owned",
+                path, digest=_hashed(rel, detect_rewrites=detect_rewrites)
             )
             if facts is None:
                 skipped.add(rel)
@@ -452,9 +464,12 @@ class ProjectTreeInventory:
         """Walk the tree again and report what the run changed (#839).
 
         The rules, in the order the loop asks them: a path the first capture
-        could not read is observed again for a current failure identity, then
-        accounted for as skipped and nothing more (calling it created would be a
-        guess); a path that was not there is ``created`` and carries the shared
+        could not read, or one beneath a directory it could not list, is
+        OBSERVED but never called created — the first capture never read it, so
+        calling it created would state a fact the captures never observed — and
+        when this capture cannot read it either, on the capture's own criterion
+        (``_hashed``), that failure is counted on the identity the path reaches
+        now; a path that was not there is ``created`` and carries the shared
         classifier's verdict; a pre-existing cache file is passed over, because
         the cache is reported as one unit; and a pre-existing file elsewhere is a
         CANDIDATE only when its size or mtime moved, and enters ``modified`` only
@@ -466,10 +481,16 @@ class ProjectTreeInventory:
         A caller that did not ask for rewrites stops at ``created``: it holds no
         digest to compare, so every pre-existing file is passed over.
 
-        A directory neither walk could list is counted once per filesystem
-        identity, and everything beneath EITHER spelling that reaches it is
-        passed over: the first capture never read those files, so the settlement
-        can state nothing about them either way.
+        Every path this walk reaches is observed, whatever the first capture
+        made of it: a directory it cannot list reaches ``skipped`` through the
+        walk's error sink, a file it cannot read through the read above, and a
+        spelling the first capture already recorded adds the identity it reaches
+        NOW, since it can have been retargeted in between (rule 4). Coverage — a
+        spelling the first capture could not read, a directory it could not list
+        and everything beneath either spelling that reaches it — decides only
+        what may be called created or modified, never what is observed: a rule
+        that observed directories and files by two different routes let
+        file-shaped entries fall between them (#990's review).
         """
         created: list[CreatedFile] = []
         modified: list[RewrittenFile] = []
@@ -477,15 +498,11 @@ class ProjectTreeInventory:
         for rel, path in _walk_project_files(
             self.project, artifact=self.artifact, on_unreadable_dir=skipped.add
         ):
-            if skipped.covers(rel):
-                # Coverage suppresses a false `created`; it must not suppress the
-                # second capture's failure observation. Directory failures reach
-                # `add` through `onerror`, while file-shaped entries are yielded,
-                # so classify this one before preserving the first answer.
-                if _file_facts(path, digest=self.detect_rewrites) is None:
+            if skipped.covers(rel) or _under(rel, self.unlistable_dirs):
+                # Observed on the capture's own criterion, never called created.
+                hashed = _hashed(rel, detect_rewrites=self.detect_rewrites)
+                if _file_facts(path, digest=hashed) is None:
                     skipped.add(rel)
-                continue
-            if _under(rel, self.unlistable_dirs):
                 continue
             before = self.files.get(rel)
             if before is None:
@@ -501,9 +518,7 @@ class ProjectTreeInventory:
                     )
                 )
                 continue
-            if not self.detect_rewrites:
-                continue
-            if classify_created_file(rel) == "cache_owned":
+            if not _hashed(rel, detect_rewrites=self.detect_rewrites):
                 continue
             after = _file_facts(path, digest=False)
             if after is None:

@@ -27,7 +27,7 @@ from gda.project_tree import (
     ProjectTreeInventory,
     ProjectTreeSettlement,
 )
-from tests.support import minimal_project, unlistable
+from tests.support import minimal_project, unlistable, unreadable
 
 
 def _settle(
@@ -605,3 +605,70 @@ def test_a_file_spelling_that_gains_an_identity_counts_both_observations(tmp_pat
     alias.symlink_to(target)
 
     assert inventory.settle().skipped == 2
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs only")
+def test_an_entry_beneath_a_directory_that_opens_up_is_observed_not_created(
+    tmp_path,
+):
+    # Coverage decides what may be called created, never what is observed. A
+    # directory the first capture could not list is a prefix: nothing beneath it
+    # is created once it opens up (the file was there all along), but an entry
+    # beneath it this capture cannot read is a failure observed now, counted on
+    # its own identity — as a locked subdirectory beneath it already was through
+    # the walk's error sink, while a FIFO beside it was passed over unobserved.
+    project = minimal_project(tmp_path / "proj")
+    locked = project / "locked"
+    locked.mkdir()
+    (locked / "old.txt").write_text("x", encoding="utf-8")
+    os.mkfifo(locked / "pipe")
+    if not unlistable(locked):
+        pytest.skip("this platform lists a mode-000 directory")
+    try:
+        inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
+        locked.chmod(0o755)
+        settled = inventory.settle()
+    finally:
+        locked.chmod(0o755)
+    assert settled.skipped == 2
+    assert settled.created == []
+
+
+def test_a_covered_file_is_observed_as_the_capture_reads_it(tmp_path):
+    # The second look asks the capture's own question (`_hashed`). With rewrites
+    # on, the capture reads a file outside the cache root in full, so a mode-000
+    # file is a failure it records; a second mode-000 inode put under the same
+    # spelling is then a failure this capture observes too, on that inode. A
+    # `stat` alone would call it accounted for, and the second inode would be
+    # lost.
+    project = minimal_project(tmp_path / "proj")
+    target = project / "data.txt"
+    target.write_text("first", encoding="utf-8")
+    if not unreadable(target):
+        pytest.skip("this platform reads a mode-000 file")
+    inventory = ProjectTreeInventory.capture(project, detect_rewrites=True)
+    replacement = tmp_path / "second"
+    replacement.write_text("second", encoding="utf-8")
+    replacement.chmod(0o000)
+    os.replace(replacement, target)
+    assert inventory.settle().skipped == 2
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs only")
+def test_a_covered_cache_entry_is_observed_without_a_hash(tmp_path):
+    # ...and under the cache root the capture never reads bytes, so a regular
+    # file that answers `stat` is accounted for there whatever its mode: a FIFO
+    # the first capture recorded, replaced by a mode-000 regular file, is one
+    # entry, not two. Hashing it would apply a criterion the capture never
+    # applied to the cache, and spend a read on a disclosure.
+    project = minimal_project(tmp_path / "proj")
+    cache = project / CACHE_ROOT_REL
+    cache.mkdir()
+    pipe = cache / "pipe"
+    os.mkfifo(pipe)
+    inventory = ProjectTreeInventory.capture(project, detect_rewrites=True)
+    pipe.unlink()
+    pipe.write_text("regular", encoding="utf-8")
+    if not unreadable(pipe):
+        pytest.skip("this platform reads a mode-000 file")
+    assert inventory.settle().skipped == 1

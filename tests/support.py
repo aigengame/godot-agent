@@ -324,6 +324,22 @@ def unlistable(directory: Path) -> bool:
     return False
 
 
+def unreadable(file: Path) -> bool:
+    """Make ``file`` unreadable, and say whether the platform agreed.
+
+    The file half of :func:`unlistable`, with the same guard: root reads a
+    mode-000 file, so a suite running as root skips instead of reading RED.
+    """
+    file.chmod(0o000)
+    try:
+        with file.open("rb"):
+            pass
+    except OSError:
+        return True
+    file.chmod(0o644)
+    return False
+
+
 class FakeRunner:
     """A fakeable GodotRunner that records its calls and returns a canned result."""
 
