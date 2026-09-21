@@ -23,6 +23,8 @@ Documentation delivery completes only [#866](https://github.com/aigengame/godot-
 
 **Mandatory deletion:** [#874](https://github.com/aigengame/godot-agent/issues/874) closes actual execution dependencies. [#875](https://github.com/aigengame/godot-agent/issues/875) must then remove obsolete whole-LDB/Build-receipt/provenance bindings, fields, validators, branches and fallbacks. [#879](https://github.com/aigengame/godot-agent/issues/879) and the parent cannot close on dependency closure or partial removal. Real content integrity, nominal ownership, selected semantics and active-session consistency remain required.
 
+**Bounded S6b:** [#878](https://github.com/aigengame/godot-agent/issues/878) owns one finite priority witness and its exact A/B artifact exchange. It must delete, rather than retain, any whole-LDB inventory, arbitrary rewrite engine, generic registry, compatibility/fallback layer or unrelated evidence platform created while pursuing the witness. [#575](https://github.com/aigengame/godot-agent/issues/575) continues to own the complete scenario family and formal extension claim. [#879](https://github.com/aigengame/godot-agent/issues/879) still requires physical deletion of residual obsolete identity bindings after dependency closure; passing #878 cannot waive that exit criterion.
+
 ## Existing work and dated amendments
 
 The following existing issues received a scoped supersession notice. Their original requirements and historical evidence remain readable, and their state, labels, milestone and title are preserved. The new notice controls only the identified outdated clauses.

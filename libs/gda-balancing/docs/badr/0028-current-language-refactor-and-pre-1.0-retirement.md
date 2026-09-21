@@ -132,6 +132,18 @@ Kernel instruction charges remain explicit, and current source pairs and identit
 must be refreshed consistently. The record preserves the negative evidence and
 required validation; this amendment does not claim that #876 is complete.
 
+The [S6b priority record](../refactor/current-language/PRIORITY-WINDOW.md) narrows
+#878 to one non-RPG priority witness. Its selected-dependency binding is derived
+from complete admitted `selected_semantics`, RIR identity and the eight produced
+Model identities; only four extension Type and eight extension Operation
+coordinates are explicitly renamed. Fixed A/B implementations must mutually
+admit eight Model and six Runtime members for original and renamed authorities.
+Whole-LDB inventories, arbitrary string rewriting, generic registries and
+compatibility fallbacks are outside this decision and must be deleted rather
+than promoted as infrastructure. This functional candidate does not close #575
+or activate an Extension Invariance claim. It also does not weaken #879's
+mandatory physical deletion of obsolete execution bindings.
+
 The project owner states that gda-balancing has not had a formal product release: existing
 release records, including the `gda-balancing-v0.1.0` tag, changelog and distribution version,
 are internal revisions. Their existence does not establish formal release or language compatibility.
