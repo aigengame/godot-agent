@@ -36,18 +36,21 @@ pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"
 
 # The engine-free launch tests below end at the fake listener's first `accept()`,
 # which raises at once, so their deadline only has to outlive the pre-spawn work:
-# `launch_session` checks it twice before `Popen` and returns without spawning
-# once it has passed. A 100 ms budget was spent before the spawn on a loaded
-# four-worker CI runner, and the test died on the missing argv instead of on what
-# it asserts (#996). A long budget costs nothing here, because nothing waits on
-# it.
+# `launch_session` checks it at entry and again after that work, and returns
+# without spawning once it has passed. A 100 ms budget was spent before the spawn
+# on a loaded four-worker CI runner, and the test died on the missing argv
+# instead of on what it asserts (#996). A long budget costs nothing here because
+# nothing waits on it — given `no_engine_teardown`, since `_terminate` otherwise
+# polls the fake child up to this deadline on the accept-timeout path. It is not
+# for a test whose deadline bounds a real socket read (the scene-verification
+# tests below keep their own).
 LAUNCH_DEADLINE_S = 30.0
 
 
-def _captured_argv(captured: dict) -> list[str]:
+def _captured_argv(captured: dict[str, list[str]]) -> list[str]:
     assert "argv" in captured, (
-        "launch_session returned before Popen: the readiness deadline expired "
-        "during the pre-spawn work (#996)"
+        "launch_session returned before Popen: the readiness deadline had "
+        "expired at its entry check or after the pre-spawn work (#996)"
     )
     return captured["argv"]
 
