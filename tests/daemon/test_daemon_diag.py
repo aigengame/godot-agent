@@ -34,6 +34,24 @@ from tests.support import (
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
 
+# The engine-free launch tests below end at the fake listener's first `accept()`,
+# which raises at once, so their deadline only has to outlive the pre-spawn work:
+# `launch_session` checks it twice before `Popen` and returns without spawning
+# once it has passed. A 100 ms budget was spent before the spawn on a loaded
+# four-worker CI runner, and the test died on the missing argv instead of on what
+# it asserts (#996). A long budget costs nothing here, because nothing waits on
+# it.
+LAUNCH_DEADLINE_S = 30.0
+
+
+def _captured_argv(captured: dict) -> list[str]:
+    assert "argv" in captured, (
+        "launch_session returned before Popen: the readiness deadline expired "
+        "during the pre-spawn work (#996)"
+    )
+    return captured["argv"]
+
+
 # --- Slice 1: launch carries --log-file and the session remembers the path ---
 
 
@@ -71,10 +89,10 @@ def test_launch_session_passes_log_file_arg_and_remembers_path(monkeypatch, tmp_
         tmp_path / "h.sock",
         "tok",
         log_file=log_file,
-        deadline=time.monotonic() + 0.1,
+        deadline=time.monotonic() + LAUNCH_DEADLINE_S,
     )
 
-    argv = captured["argv"]
+    argv = _captured_argv(captured)
     assert "--log-file" in argv
     assert str(log_file) in argv
     # --log-file precedes the `--` payload separator (it is an engine flag).
@@ -120,10 +138,10 @@ def _capture_launch_argv(monkeypatch, project, **launch_kw):
         cast(socket.socket, _NoAcceptListener()),
         project / "h.sock",
         "tok",
-        deadline=time.monotonic() + 0.1,
+        deadline=time.monotonic() + LAUNCH_DEADLINE_S,
         **launch_kw,
     )
-    return captured["argv"]
+    return _captured_argv(captured)
 
 
 def test_launch_session_inserts_scene_before_path_when_set(monkeypatch, tmp_path):
@@ -318,7 +336,7 @@ def test_failed_launch_records_signal_death_when_child_already_died(
         cast(socket.socket, _NoAcceptListener()),
         tmp_path / "h.sock",
         "tok",
-        deadline=time.monotonic() + 0.1,
+        deadline=time.monotonic() + LAUNCH_DEADLINE_S,
         diagnostics=diagnostics,
     )
 
@@ -344,7 +362,7 @@ def test_failed_launch_records_harness_hung_when_child_still_alive(
         cast(socket.socket, _NoAcceptListener()),
         tmp_path / "h.sock",
         "tok",
-        deadline=time.monotonic() + 0.1,
+        deadline=time.monotonic() + LAUNCH_DEADLINE_S,
         diagnostics=diagnostics,
     )
 
