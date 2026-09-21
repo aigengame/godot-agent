@@ -673,7 +673,7 @@ def test_export_run_schema_emits_contract_without_engine(monkeypatch):
     )
     assert "output_path" in schema["output"]["properties"]
     assert (
-        "resolved absolute path"
+        "as the caller named it"
         in schema["output"]["properties"]["output_path"]["description"]
     )
     assert "created_dirs" in schema["output"]["properties"]

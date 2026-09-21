@@ -1328,8 +1328,11 @@ trust axis, per the issue's triage decision).
 against the invoker's current working directory, while a preset `export_path`
 keeps Godot's project-relative convention (including a literal `~` path
 component; no shell-style home expansion). The JSON `output_path` is the
-resolved absolute artifact path. Missing output parent directories are created
-before the native export and reported in `created_dirs`, outermost to innermost;
+destination as the caller named it: a filesystem `--output` made absolute
+against the invoker's cwd, a `res://` or `user://` address as given, or the
+configured `export_path` resolved against the project. Missing output parent
+directories are created before the native export and reported in
+`created_dirs`, outermost to innermost;
 an uncreatable parent is reported as `export_output_parent_failed` before Godot
 runs.
 
@@ -1392,8 +1395,9 @@ behavior is claimed until it is probed.
 The command is **projectless**: its descriptor sets `inherits_project=False`, it
 declares no `--project`, and neither `$GDA_PROJECT` nor the current directory is
 read as project context — so a relative `<artifact>` resolves against the
-invocation cwd and the absolute `output_path` from `export run` passes straight
-through.
+invocation cwd and a filesystem `output_path` from `export run` passes straight
+through (a `res://` one names the artifact only inside its project; give
+`smoke` the file's path).
 
 `--arg VALUE` (repeatable) hands values to the game in order after Godot's `--`
 separator, where it reads them with `OS.get_cmdline_user_args()`.

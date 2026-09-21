@@ -537,10 +537,11 @@ class ExportRunResult(BaseModel):
 
     Echoes the addressed preset's ``preset`` name and target ``platform`` (read
     from ``export_presets.cfg``), the ``mode`` that was run (the selected flavor,
-    ``release`` by default; #170), and the resolved absolute ``output_path`` the
-    artifact was written to — the effective destination, i.e. the ``--output``
-    override when given, else the preset's configured ``export_path`` resolved
-    against the project directory (#403). ``created_dirs`` lists output parent
+    ``release`` by default; #170), and ``output_path``, the destination as the
+    caller named it — a filesystem ``--output`` made absolute against the
+    invoker's cwd, a ``res://`` or ``user://`` address as given, else the
+    preset's configured ``export_path`` resolved against the project directory
+    (#403). ``created_dirs`` lists output parent
     directories created before the native export, from outermost to innermost
     (#402).
     ``warnings`` carries the engine's non-fatal export warnings (e.g. a missing
@@ -562,7 +563,12 @@ class ExportRunResult(BaseModel):
     )
     mode: ExportRunMode = Field(description="The export flavor that was run.")
     output_path: str = Field(
-        description="The resolved absolute path the export artifact was written to."
+        description=(
+            "The destination as the caller named it: a filesystem `--output` made "
+            "absolute against the invoker's cwd, a `res://` or `user://` address "
+            "as given, or the preset's configured `export_path` resolved against "
+            "the project."
+        )
     )
     created_dirs: list[str] = Field(
         description=(
