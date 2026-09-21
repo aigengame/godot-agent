@@ -585,10 +585,11 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCodeSource.CLASSIFIER,
         # Both producing conditions, not just the configured one (#701): the
         # destination is `--output` if given, else the preset's `export_path`, so
-        # the failure needs BOTH to be absent — a reader told only about
-        # `export_path` would not know the override exists.
-        "An export run has no destination — neither a `--output` override nor a "
-        "configured `export_path`.",
+        # the failure needs the override to be absent AND the configured value to
+        # be unusable — empty, or not a filesystem path (#1003) — a reader told
+        # only about `export_path` would not know the override exists.
+        "An export run has no usable destination — no `--output` override, and a "
+        "configured `export_path` that is empty or is not a filesystem path.",
     ),
     ErrorCodeSpec(
         "export_templates_missing",
