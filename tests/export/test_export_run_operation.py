@@ -249,6 +249,33 @@ def test_export_path_unset_when_no_override_and_empty_configured_path():
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "export_path_unset"
     assert "Linux/X11" in outcome.error.message
+    # An EMPTY configured path keeps the original sentence (#1003 changed the
+    # remedy only for a value that is there and cannot be written to).
+    assert outcome.error.message.endswith(
+        "has no destination: pass --output or set the preset's export_path"
+    )
+    assert export_runner.calls == []
+
+
+@pytest.mark.parametrize(
+    "configured", ["res://build/game.x86_64", "user://game.pck", "foo://game"]
+)
+def test_export_path_unset_when_the_configured_path_carries_a_scheme(configured):
+    # #1003: a configured export_path gda cannot write to is the SAME preflight
+    # decision as an empty one — one site, one code, one category, one exit — and
+    # gda resolves nothing: it quotes the configured value and asks for a real
+    # filesystem path, as --output or in the preset.
+    get_runner = _get_runner({**GET_RESULT, "export_path": configured})
+    export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+
+    outcome = _run(get_runner=get_runner, export_runner=export_runner)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "export_path_unset"
+    assert outcome.error.category == "operation"
+    assert configured in outcome.error.message
+    assert "is not a filesystem path" in outcome.error.message
+    assert "--output" in outcome.error.message
     assert export_runner.calls == []
 
 

@@ -122,8 +122,9 @@ def test_export_run_unset_path_yields_export_path_unset(godot_project):
 def test_export_run_writes_to_configured_export_path(godot_project):
     # PRIMARY acceptance behavior (#121): `gda export run --preset NAME` (no
     # --output) exports to the preset's CONFIGURED export_path. The preset writes
-    # to res://build/game.x86_64, so the artifact lands at <project>/build/... and
-    # the reported output_path is the resolved absolute artifact path.
+    # to the project-relative build/game.x86_64, so the artifact lands at
+    # <project>/build/... and the reported output_path is the resolved absolute
+    # artifact path.
     #
     # The configured parent directory is created first (a real export writes the
     # binary there). When templates are absent the real export cannot complete —
@@ -681,11 +682,13 @@ def test_export_run_reports_what_the_native_export_did_to_the_project(godot_proj
         entry["classification"] == "cache_owned" for entry in rewrote["created"]
     ), rewrote["created"]
 
-    # (4) THE ARTIFACT ADDRESSED AS `res://`. The engine resolves that spelling
-    # against the project root, so the pack lands in the tree both walks cover.
-    # gda has to resolve it the same way or the artifact reads as a mutation of
-    # the project — which it did, on a real pack export (PR #981 review round 3).
-    virtual = gda.json(
+    # (4) THE ARTIFACT INSIDE THE PROJECT. A destination under the project root
+    # lands in the tree both walks cover, so gda has to keep it out or the
+    # artifact reads as a mutation of the project — which it did, on a real pack
+    # export (PR #981 review round 3). The `res://` spelling that once addressed
+    # this destination is refused before the export now (#1003); the destination
+    # itself is unchanged, and so is the rule it exercises.
+    inside = gda.json(
         "export",
         "run",
         "--preset",
@@ -693,12 +696,12 @@ def test_export_run_reports_what_the_native_export_did_to_the_project(godot_proj
         "--mode",
         "pack",
         "--output",
-        "res://out.pck",
+        str(godot_project / "out.pck"),
     )["project_tree_mutations"]
 
     assert (godot_project / "out.pck").is_file()
-    assert "res://out.pck" not in {entry["path"] for entry in virtual["created"]}
-    assert virtual["skipped"] == 0
+    assert "res://out.pck" not in {entry["path"] for entry in inside["created"]}
+    assert inside["skipped"] == 0
 
 
 @pytest.mark.e2e
@@ -760,7 +763,9 @@ def test_export_run_reports_the_mutations_under_a_linked_directory(
     assert rewrote["skipped"] == 0
 
     # The output can itself be placed through the linked directory. The tree
-    # walk follows that link, so it must still exclude the export's own pack.
+    # walk follows that link, so it must still exclude the export's own pack —
+    # the filesystem ALIAS case: the destination names the artifact through the
+    # link, and the walk reaches it through the link's target.
     linked_output = gda.json(
         "export",
         "run",
@@ -769,7 +774,7 @@ def test_export_run_reports_the_mutations_under_a_linked_directory(
         "--mode",
         "pack",
         "--output",
-        "res://assets/out.pck",
+        str(godot_project / "assets" / "out.pck"),
     )["project_tree_mutations"]
 
     assert (shared / "out.pck").is_file()

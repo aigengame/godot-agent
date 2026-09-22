@@ -9,6 +9,14 @@ status: accepted
 > via `--script`, so it emits no ADR-0002 sentinel, yet — unlike mechanism ②'s `export run` — `gda`
 > does **not** know the script's semantics, so it passes the script's `{exit_status, stdout, stderr}`
 > through verbatim and classifies only launch/crash. See ADR-0031.
+>
+> **Outcome (2026-09-21, #1003):** the structured preflight's destination check is wider
+> than "no effective destination". `--output` takes a filesystem path only, refused at the
+> params model before any engine process; with no override, a configured `export_path`
+> that is empty OR that is not a filesystem path (a `res://`, `user://` or other `://`
+> spelling, which gda does not resolve) is the same `export_path_unset` failure, decided at
+> the one preflight site after `export-get` has read the preset and before the native
+> export. The code's registered meaning (ADR-0002) says so; no code was added.
 
 ADR-0001 serves [headless operations](../../CONTEXT.md) by spawning one-shot
 `godot --headless` processes. ADR-0002 then fixes *how* such a process reports its

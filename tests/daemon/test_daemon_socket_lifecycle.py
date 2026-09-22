@@ -50,7 +50,13 @@ from gda.daemon.session import (
 from gda.errors import Failure
 from gda.live_runner import DaemonRunner
 from gda.parser import build_result, parse_result
-from tests.support import FakeProc, runnable_project, no_engine_teardown
+from tests.support import (
+    LAUNCH_DEADLINE_S,
+    FakeProc,
+    NoAcceptListener,
+    no_engine_teardown,
+    runnable_project,
+)
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
@@ -789,24 +795,19 @@ def test_launch_session_places_the_identity_on_the_harness_tail(
     monkeypatch.setattr(subprocess, "Popen", _record_spawn)
     no_engine_teardown(monkeypatch)
     paths = daemon_paths(runnable_project(tmp_path))
-    paths.runtime_dir.mkdir(parents=True, exist_ok=True)
-    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    listener.bind(str(paths.harness_socket))
-    listener.listen()
 
-    try:
-        outcome = launch_session(
-            paths.project,
-            "godot",
-            listener,
-            paths.harness_socket,
-            "expected-token",
-            deadline=time.monotonic() + 0.2,  # no harness will connect: bounded
-            scene="res://main.tscn",
-            session_id="a1b2c3d4e5f60718",
-        )
-    finally:
-        listener.close()
+    # Only the spawn matters here, so no harness socket is bound: the listener
+    # refuses at once and the deadline only outlives the pre-spawn work (#996).
+    outcome = launch_session(
+        paths.project,
+        "godot",
+        cast(socket.socket, NoAcceptListener()),
+        paths.harness_socket,
+        "expected-token",
+        deadline=time.monotonic() + LAUNCH_DEADLINE_S,
+        scene="res://main.tscn",
+        session_id="a1b2c3d4e5f60718",
+    )
 
     assert outcome is None  # nothing connected — only the spawn matters here
     assert len(spawned) == 1

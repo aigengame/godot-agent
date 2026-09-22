@@ -336,7 +336,7 @@ operation, and parse codes the CLI assigns).
 | `invalid_resource_type` | `operation` | `operation` | `4` | A requested resource type cannot be instantiated as a `Resource`. |
 | `export_presets_not_found` | `operation` | `operation` | `4` | The project has no export_presets.cfg, so it defines no export presets. |
 | `export_preset_not_found` | `operation` | `operation` | `4` | No export preset with the requested name exists in export_presets.cfg. |
-| `export_path_unset` | `operation` | `classifier` | `4` | An export run has no destination — neither a `--output` override nor a configured `export_path` (#170). |
+| `export_path_unset` | `operation` | `classifier` | `4` | An export run has no usable destination — no `--output` override, and a configured `export_path` that is empty or is not a filesystem path (#170, #1003). |
 | `export_templates_missing` | `operation` | `classifier` | `4` | A release/debug export needs the export templates for the running engine version, which are not installed; `pack` needs no platform templates and is exempt (#170). |
 | `export_output_parent_failed` | `operation` | `classifier` | `4` | An export run could not create the output parent directory before native export (#402). |
 | `stdout_spill_failed` | `operation` | `classifier` | `4` | A completed run's stdout exceeded the cap but the complete-stream spill file could not be written, so the bounded result cannot be delivered; `script run` and `export smoke` both report it (#665, ADR-0042). |
