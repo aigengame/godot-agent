@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.19.0](https://github.com/aigengame/godot-agent/compare/v0.18.0...v0.19.0) (2026-09-22)
+
+
+### Features
+
+* **gda:** dogfooding II W5 — export smoke and one project tree inventory ([27c04d7](https://github.com/aigengame/godot-agent/commit/27c04d76969b06733e80c4d27895aa7fd982d66f))
+* **gda:** dogfooding II W6 — literal ~user paths and resource import's skipped count ([63b4f96](https://github.com/aigengame/godot-agent/commit/63b4f96cc9b1fc236fa2d6f3bfa6a46de1a5fd19))
+* **gda:** export smoke runs a caller-selected export artifact headlessly and reports its completed process evidence ([#979](https://github.com/aigengame/godot-agent/issues/979)) ([d715d50](https://github.com/aigengame/godot-agent/commit/d715d50f9ec38bcd26725b94815ca1722188959f))
+* **gda:** resource import reports the entries its inventory could not see, and one unlistable inode counts once ([#990](https://github.com/aigengame/godot-agent/issues/990)) ([d272762](https://github.com/aigengame/godot-agent/commit/d272762058bc1a36d52ab68cab2db88267dfe63c))
+
+
+### Bug Fixes
+
+* **gda:** dogfooding II W7 — a filesystem-only export destination and launch tests that cannot expire before the spawn ([761828f](https://github.com/aigengame/godot-agent/commit/761828f669db9e1bd315198e1933f96a570a0478))
+* **gda:** export run takes a filesystem destination only and publishes its absolute artifact path ([#1003](https://github.com/aigengame/godot-agent/issues/1003)) ([91f350f](https://github.com/aigengame/godot-agent/commit/91f350fb6a7384051e59382504a9e48b0c13462b))
+* **gda:** path options take an unresolvable ~user as a literal name, not a traceback ([#988](https://github.com/aigengame/godot-agent/issues/988)) ([a5e21bf](https://github.com/aigengame/godot-agent/commit/a5e21bf553f106452419dee5d2da8eefd0c4e3dd))
+
 ## [0.18.0](https://github.com/aigengame/godot-agent/compare/v0.17.0...v0.18.0) (2026-09-16)
 
 
