@@ -27,7 +27,6 @@ from gda.commands.export import (  # the single fully-bound descriptor (ADR-0023
     DEFAULT_SMOKE_TIMEOUT_SECONDS,
     EXPORT_SMOKE_COMMAND,
     SMOKE_TIMEOUT_LABEL,
-    ExportRunParams,
     ExportSmokeParams,
     ExportSmokeResult,
     _is_runnable_file,
@@ -407,11 +406,12 @@ def test_a_relative_artifact_resolves_against_the_invocation_cwd(tmp_path, monke
 def test_an_artifact_whose_name_contains_a_scheme_separator_is_still_a_file(
     tmp_path, monkeypatch
 ):
-    # `export run --output` keeps a `://` string verbatim, because a preset path
-    # may be virtual. The smoke has no project to resolve one against, so reusing
-    # that normalizer let a REAL file under a directory named `foo:` keep its
-    # relative spelling in both addresses (external review, PR #987). Here there
-    # is no exception left to apply: `://` or not, it is a filesystem path.
+    # The smoke has no project to resolve a virtual address against, so reusing
+    # `export run --output`'s old pass-through let a REAL file under a directory
+    # named `foo:` keep its relative spelling in both addresses (external review,
+    # PR #987). Here there is no exception to apply: `://` or not, it is a
+    # filesystem path. `--output` has no pass-through either now, but it answers
+    # the opposite way — it REFUSES such a value (#1003).
     (tmp_path / "foo:").mkdir()
     artifact = runnable_file(tmp_path / "foo:" / "game")
     monkeypatch.chdir(tmp_path)
@@ -446,14 +446,6 @@ def test_an_unexpandable_home_prefix_is_a_typed_refusal(tmp_path, monkeypatch):
 
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "export_artifact_not_found"
-
-
-def test_the_export_output_field_keeps_its_virtual_path_convention(tmp_path):
-    # The other half of the same change: removing the exception for the SMOKE
-    # leaves `export run --output`'s own field exactly as it was (#403).
-    assert ExportRunParams(preset="p", output="res://build/game").output == (
-        "res://build/game"
-    )
 
 
 def test_a_refusal_for_a_relative_artifact_names_the_absolute_path(

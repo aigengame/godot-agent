@@ -1324,14 +1324,18 @@ trust axis, per the issue's triage decision).
 | `gda export smoke` | Run an exported artifact headless and report its completed process |
 
 `gda export run` resolves its effective destination before the native export:
-`--output` wins over the preset's `export_path`; a relative `--output` resolves
-against the invoker's current working directory, while a preset `export_path`
-keeps Godot's project-relative convention (including a literal `~` path
-component; no shell-style home expansion). The JSON `output_path` is the
-resolved absolute artifact path. Missing output parent directories are created
-before the native export and reported in `created_dirs`, outermost to innermost;
-an uncreatable parent is reported as `export_output_parent_failed` before Godot
-runs.
+`--output` wins over the preset's `export_path`, and both are filesystem paths
+only — a `--output` carrying a virtual scheme (`res://`, `user://`, any `://`)
+is refused by the input model before any engine process, and a preset
+`export_path` carrying one is the `export_path_unset` failure, decided after
+`export get` has read the preset and before the native export. A relative
+`--output` resolves against the invoker's current working directory, while a
+preset `export_path` keeps Godot's project-relative convention (including a
+literal `~` path component; no shell-style home expansion). The JSON
+`output_path` is the resolved absolute artifact path. Missing output parent
+directories are created before the native export and reported in
+`created_dirs`, outermost to innermost; an uncreatable parent is reported as
+`export_output_parent_failed` before Godot runs.
 
 `gda export run` also reports what the export did to the project tree
 (`project_tree_mutations`, #839). The native export runs the editor import pass, so

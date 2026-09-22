@@ -127,36 +127,49 @@ def _absolute_filesystem_path(path: str) -> str:
 
 
 def normalize_export_output_path(path: str) -> str:
-    """Normalize an ``export run --output`` artifact path (#403).
+    """Normalize an ``export run --output`` artifact path (#403, #1003).
 
     Export runs the native Godot export with cwd set to the project directory.
     A relative ``--output`` must therefore be made absolute against the invoker's
     cwd before the runner sees it, or Godot writes into the project tree while
-    the result echoes an unlocatable relative string. Virtual paths keep the
-    shared path convention and pass through unchanged.
+    the result echoes an unlocatable relative string.
+
+    A filesystem path is the ONLY destination this option takes. A value carrying
+    a virtual scheme used to pass through untouched: the engine resolved it, and
+    the result then published the caller's spelling — an address no consumer can
+    open and no ``export smoke`` can run, which is the very defect #403 fixed for
+    every other spelling. It is REFUSED here, at the model boundary (ADR-0015), so
+    both input channels refuse alike and before any engine process starts: a Click
+    usage error on argv, ``invalid_params`` on ``--params-json``. Nothing is
+    resolved, mapped or special-cased for one scheme — ``res://`` is not resolved
+    against the project, ``user://`` is not read through `User-data placement`, and
+    the refusal names only the value it was given (#1003).
     """
     if "://" in path:
-        return path
+        raise ValueError(f'--output requires a filesystem path; "{path}" is not one.')
     return _absolute_filesystem_path(path)
 
 
 def normalize_smoke_artifact_path(path: str) -> str:
     """Normalize an ``export smoke`` artifact path (ADR-0042).
 
-    The SAME absolutization ``--output`` gets, without the virtual-path branch,
-    because this command has nowhere to resolve a virtual path FROM: it is
-    projectless by decision, so ``res://`` and the rest name nothing here. Reusing
-    ``export run``'s normalizer gave the smoke that branch by inheritance, and a
-    real POSIX file addressed as ``foo://game`` then kept its relative spelling
-    all the way into ``artifact`` and ``executable`` — contradicting #979's and
-    CONTEXT's unconditional "a relative artifact path resolves against the
-    invocation cwd" (external review, PR #987).
+    The SAME absolutization ``--output`` gets, and this command's own answer to a
+    ``://`` string: it is a filesystem path. There is nothing to resolve a virtual
+    path FROM here — the command is projectless by decision, so ``res://`` and the
+    rest name nothing — and a real POSIX file under a directory named ``foo:``
+    addressed as ``foo://game`` is a file like any other. Reusing ``export run``'s
+    normalizer once gave the smoke that command's pass-through by inheritance, and
+    such a file then kept its relative spelling all the way into ``artifact`` and
+    ``executable`` — contradicting #979's and CONTEXT's unconditional "a relative
+    artifact path resolves against the invocation cwd" (external review, PR #987).
 
-    The remedy is the deletion of that inherited exception for this command, not a
+    The remedy was the deletion of that inherited exception for this command, not a
     second rule laid over it: one shared half above, two annotations, and the
-    smoke's own one has no exception to apply. A ``://`` string is simply a
-    filesystem path here, and an artifact that does not exist under that name is
-    the ordinary ``export_artifact_not_found``.
+    smoke's own one has no exception to apply. An artifact that does not exist
+    under that name is the ordinary ``export_artifact_not_found``. ``--output`` now
+    has no pass-through either, for its own reason (#1003) — it REFUSES such a
+    value, because a destination it must write is a different question from an
+    artifact path it only has to open.
 
     The shared half above is total for an unresolvable ``~user``. The guard this
     wrapper carried alone (#979) lives there now, so ``--output`` gets the same one
@@ -355,10 +368,11 @@ class ExportRunParams(BaseModel):
     ``preset`` addresses the export preset by its display name (as ``export
     list`` reports it); an unknown name is the ``export_preset_not_found``
     failure. ``mode`` selects the export flavor (``release`` default; #170).
-    ``output`` overrides the preset's *configured* ``export_path`` (#170); when
-    omitted the export targets the configured path (an empty configured path with
-    no override is the ``export_path_unset`` failure). The project is process
-    context (``--project``, ADR-0006).
+    ``output`` overrides the preset's *configured* ``export_path`` (#170) and takes
+    a filesystem path only (#1003); when omitted the export targets the configured
+    path (a configured path that is empty, or that carries a virtual scheme, is the
+    ``export_path_unset`` failure). The project is process context (``--project``,
+    ADR-0006).
     """
 
     preset: str = Field(
@@ -371,9 +385,9 @@ class ExportRunParams(BaseModel):
     output: ExportOutputPath | None = Field(
         default=None,
         description=(
-            "Override the preset's configured export_path; a relative filesystem "
-            "path is resolved against the invoker's current working directory "
-            "before export."
+            "Override the preset's configured export_path with a filesystem path "
+            "only; a relative one is resolved against the invoker's current "
+            "working directory before export."
         ),
     )
 
@@ -699,23 +713,16 @@ def parse_export_warnings(stderr: str) -> list[str]:
 # the walk as the one thing to keep out), and the shape of the published report.
 
 
-# The one virtual scheme that names a path INSIDE the project (ADR-0006). Both
-# `--output res://out.pck` and a preset `export_path` may spell the destination
-# this way, and the engine resolves it against the project root — so the report
-# has to resolve it the same way before the walk can keep it out (#981 round 3).
-_RES_SCHEME = "res://"
-
-
 def _artifact_to_exclude(project: Path, output_path: str) -> Path | None:
     """The artifact THIS export writes, resolved as the engine resolves it (#839).
 
     Export output-path POLICY, so it belongs to the group that owns the
     destination rather than to the shared inventory, which takes a ``Path`` and
-    knows only how to keep it out (#985; PR #989 external review). A ``res://``
-    destination is relative to the project; another virtual scheme cannot name an
-    artifact in this tree; a relative filesystem path resolves against the
-    project and an absolute one is taken as given, since a destination outside
-    the project can still be visible through a directory link inside it.
+    knows only how to keep it out (#985; PR #989 external review). The destination
+    is a filesystem path by the time it reaches here (#1003): a relative one
+    resolves against the project, whose directory the native export runs in, and
+    an absolute one is taken as given, since a destination outside the project can
+    still be visible through a directory link inside it.
 
     What the inventory then does with the answer is its own rule: it excludes the
     file by its PARENT's filesystem identity and this name, not by comparing two
@@ -723,10 +730,7 @@ def _artifact_to_exclude(project: Path, output_path: str) -> Path | None:
     reaches it by — and an ``.app`` subtree is excluded without hiding the files
     beside it.
     """
-    if output_path.startswith(_RES_SCHEME):
-        rest = output_path[len(_RES_SCHEME) :].lstrip("/")
-        return project / rest if rest else None
-    if not output_path or "://" in output_path:
+    if not output_path:
         return None
     path = Path(output_path)
     return path if path.is_absolute() else project / path
@@ -881,7 +885,14 @@ EXPORT_GET_COMMAND: HeadlessCommand[ExportGetResult] = HeadlessCommand(
 
 
 def _resolve_configured_export_path(path: str, project: Optional[Path]) -> str:
-    """Resolve a preset export_path to the absolute artifact path (#403)."""
+    """Resolve a preset export_path to the absolute artifact path (#403).
+
+    A configured value this cannot make absolute comes back as it was written —
+    an empty path, and a path carrying a virtual scheme, which is NOT resolved
+    against the project (#1003). The preflight below refuses both and quotes what
+    it read, so the destination keeps one decision site and this function keeps
+    one job.
+    """
     if not path or "://" in path:
         return path
     configured = Path(path)
@@ -894,10 +905,11 @@ def _resolve_configured_export_path(path: str, project: Optional[Path]) -> str:
 
 
 def _ensure_output_parent_dirs(output_path: str) -> list[str] | Failure:
-    """Create the export destination's missing filesystem parent dirs (#402)."""
-    if "://" in output_path:
-        return []
+    """Create the export destination's missing filesystem parent dirs (#402).
 
+    Every destination that reaches here is a filesystem path (#1003), so there is
+    no spelling to step over first.
+    """
     parent = Path(output_path).parent
     if str(parent) in {"", "."}:
         return []
@@ -965,10 +977,10 @@ def run_export_operation(
     if isinstance(got, Failure):
         return got
 
-    # Resolve the effective destination: --output (already CLI-normalized and
-    # invoker-cwd absolute for relative filesystem paths, #403) wins over the
-    # preset's configured export_path (#170). A configured relative export_path
-    # keeps Godot's project-relative convention, but we pass/report the absolute
+    # Resolve the effective destination: --output (already CLI-normalized,
+    # filesystem-only and invoker-cwd absolute, #403/#1003) wins over the preset's
+    # configured export_path (#170). A configured relative export_path keeps
+    # Godot's project-relative convention, but we pass/report the absolute
     # artifact path so the result is self-describing for consumers.
     output_path = (
         output_override
@@ -980,12 +992,15 @@ def run_export_operation(
     # two fail-fast checks are decided from export get's structured fields rather
     # than from the engine's stderr (which ADR-0002 forbids parsing for codes):
     #
-    #  - There must be a destination, for EVERY mode. --output supplies one
-    #    directly (#170); only when no override is given AND the configured
-    #    export_path is empty is there nowhere to write — export_path_unset.
-    #    Checked first because it is a config/argument error independent of the
-    #    engine's template state, so it stays deterministic whether or not
-    #    templates happen to be installed.
+    #  - There must be a WRITABLE-SHAPED destination, for EVERY mode. --output
+    #    supplies one directly (#170) and is a filesystem path by construction
+    #    (#1003). Without an override the configured export_path has to supply it,
+    #    and two configured values cannot: an empty one names nowhere, and one
+    #    carrying a virtual scheme names no file this process can write — gda
+    #    resolves neither, so both are export_path_unset, decided HERE, at one
+    #    site, and the message quotes what was configured. Checked first because it
+    #    is a config/argument error independent of the engine's template state, so
+    #    it stays deterministic whether or not templates happen to be installed.
     #  - Templates for the running engine version must be installed — but ONLY
     #    for release/debug, never for pack (#170). release/debug produce a full
     #    platform binary and need the matching platform export templates; pack
@@ -1003,8 +1018,8 @@ def run_export_operation(
     #    parent directories before the native export so a missing directory never
     #    falls through to locale/version-dependent engine prose (#402). An
     #    uncreatable parent is a structured export_output_parent_failed.
-    if not output_path:
-        return export_path_unset_failure(got.name)
+    if not output_path or "://" in output_path:
+        return export_path_unset_failure(got.name, output_path)
     if mode is not ExportRunMode.PACK and not got.templates_installed:
         # Both directories ride the failure (#840): the one the engine checked, and
         # — when a --user-data-root redirect hid installed templates — the host's,
@@ -1723,16 +1738,17 @@ def run_export(
         "--mode",
         help="The export flavor to run (release/debug/pack); default release.",
     ),
-    # --output (#170/#403): override the preset's configured export_path. A
-    # filesystem path is normalized ONCE at the params-model layer: ~ expands and
-    # relative paths resolve against the invoker's cwd before the native export
-    # runner changes cwd to the project.
+    # --output (#170/#403/#1003): override the preset's configured export_path.
+    # The value is normalized ONCE at the params-model layer: a virtual scheme is
+    # refused there, ~ expands, and a relative path resolves against the invoker's
+    # cwd before the native export runner changes cwd to the project.
     output: Optional[str] = typer.Option(
         None,
         "--output",
         help=(
-            "Override the preset's configured export_path; relative filesystem "
-            "paths resolve against the invoker's current working directory."
+            "Override the preset's configured export_path with a filesystem path "
+            "only; a relative one resolves against the invoker's current working "
+            "directory."
         ),
     ),
     json_output: bool = json_option(),
@@ -1795,11 +1811,16 @@ def run_export(
     """
     # Build the params model from the argv options (the single source of truth,
     # ADR-0015): ExportRunParams.output is an ExportOutputPath, so argv and
-    # --params-json normalize identically. Dispatch through the descriptor's
-    # recipe (ADR-0023), exactly like every other recipe command.
+    # --params-json normalize — and refuse — identically. The model refusal is
+    # translated to the Click usage error by the shared argv rule (#1003; the
+    # direct construction this replaced would have escaped as a traceback at exit
+    # 1, the invariant #988 restored). Dispatch through the descriptor's recipe
+    # (ADR-0023), exactly like every other recipe command.
     dispatch_recipe(
         EXPORT_RUN_COMMAND,
-        ExportRunParams(preset=preset, mode=mode, output=output),
+        params_or_bad_parameter(
+            ExportRunParams, preset=preset, mode=mode, output=output
+        ),
         json_output=json_output,
         godot=godot,
         project=project,

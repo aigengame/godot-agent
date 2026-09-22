@@ -28,6 +28,7 @@ Typer → resolve → preflight → export → classify → JSON pipeline runs e
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
@@ -36,11 +37,13 @@ from gda.runner import RunResult
 from tests.support import (
     ENGINE_BANNER,
     FakeExportRunner,
+    assert_no_pydantic_dump,
     inject_runner,
     invoke_cli,
     minimal_project,
     plain_text,
     sentinel,
+    usage_error_text,
 )
 
 GET_RESULT = {
@@ -377,6 +380,106 @@ def test_export_run_output_expands_leading_tilde(monkeypatch, tmp_path):
     assert export_runner.calls == [("Linux/X11", "release", expanded)]
 
 
+@pytest.mark.parametrize(
+    "destination",
+    ["res://build/game.x86_64", "user://game.pck", "uid://bxxxx", "foo://game"],
+)
+def test_a_virtual_output_is_refused_on_argv(monkeypatch, tmp_path, destination):
+    # #1003: `--output` takes a filesystem path only. Every `://` spelling is
+    # refused by the params model (ADR-0015), so the argv channel answers with its
+    # existing Click usage error at exit 2 — the same channel every other model
+    # refusal reaches there — and neither engine seam is touched. No scheme is
+    # named, resolved or special-cased: the message quotes the value it was given.
+    minimal_project(tmp_path)
+    get_runner, export_runner = _inject(monkeypatch)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--output",
+            destination,
+            "--project",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    message = usage_error_text(result)
+    assert "--output requires a filesystem path" in message
+    assert destination in message
+    assert_no_pydantic_dump(message)
+    assert get_runner.calls == []
+    assert export_runner.calls == []
+
+
+def test_a_virtual_output_is_refused_through_params_json(monkeypatch, tmp_path):
+    # The same model, the other input channel: `--params-json` surfaces the
+    # identical refusal as the structured `invalid_params` envelope (exit 4), so an
+    # agent branches on the code rather than on the argv channel's panel text.
+    minimal_project(tmp_path)
+    get_runner, export_runner = _inject(monkeypatch)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "export",
+            "run",
+            "--params-json",
+            '{"preset": "Linux/X11", "output": "res://build/game.x86_64"}',
+            "--project",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 4, result.stdout + result.stderr
+    error = _error(result)
+    assert error["code"] == "invalid_params"
+    assert "--output requires a filesystem path" in error["message"]
+    assert "res://build/game.x86_64" in error["message"]
+    assert_no_pydantic_dump(error["message"])
+    assert get_runner.calls == []
+    assert export_runner.calls == []
+
+
+def test_a_virtual_configured_export_path_is_refused_before_the_export(
+    monkeypatch, tmp_path
+):
+    # #1003, the preset half: with no `--output`, a configured export_path that
+    # carries a virtual scheme is not resolved and not handed to the engine. It is
+    # the EXISTING export_path_unset preflight — no new code — whose message now
+    # quotes the configured value and names the remedy.
+    minimal_project(tmp_path)
+    get = {**GET_RESULT, "export_path": "res://build/game.x86_64"}
+    _, export_runner = _inject(monkeypatch, get=get)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--project",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 4, result.stdout + result.stderr
+    error = _error(result)
+    assert error["code"] == "export_path_unset"
+    assert error["category"] == "operation"
+    assert "res://build/game.x86_64" in error["message"]
+    assert "--output" in error["message"]
+    # Refused in the preflight: the native export was never spawned.
+    assert export_runner.calls == []
+
+
 def test_export_run_output_overrides_unset_configured_path(monkeypatch, tmp_path):
     # --output supplies a destination even when the preset's configured export_path
     # is empty: the export_path_unset preflight no longer fires (there IS a place to
@@ -667,10 +770,10 @@ def test_export_run_schema_emits_contract_without_engine(monkeypatch):
     assert "preset" in schema["input"]["properties"]
     assert "mode" in schema["input"]["properties"]
     assert "output" in schema["input"]["properties"]
-    assert (
-        "invoker's current working directory"
-        in schema["input"]["properties"]["output"]["description"]
-    )
+    described = schema["input"]["properties"]["output"]["description"]
+    assert "invoker's current working directory" in described
+    # #1003: the published input contract states the filesystem-only boundary.
+    assert "filesystem path only" in described
     assert "output_path" in schema["output"]["properties"]
     assert (
         "resolved absolute path"
@@ -688,6 +791,9 @@ def test_export_run_help_documents_output_resolution():
     normalized = " ".join(help_text.split())
     assert "--output" in help_text
     assert "invoker's current working directory" in normalized
+    # #1003: and the page an agent reads before it picks a value says that the
+    # override takes a filesystem path only.
+    assert "filesystem path only" in normalized
 
 
 def test_export_run_help_states_that_templates_follow_the_redirected_root(monkeypatch):

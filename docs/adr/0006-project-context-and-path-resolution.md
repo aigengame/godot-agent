@@ -257,6 +257,29 @@ is a literal path component, not shell-style home expansion.
 > so the same engine rule had to be stated a second time there
 > (`_engine_skips_directory_of`) rather than inherited from the walk.
 
+> **Outcome (2026-09-21, #1003):** the virtual-path **pass-through** rule above does not
+> apply to an `export run` DESTINATION. It was written for a path the engine resolves and
+> reads; an export destination is a path this process writes and then publishes, and #403
+> already requires the published `output_path` to be the absolute on-disk artifact. A
+> passed-through `res://` or `user://` value satisfied neither half — the engine resolved
+> it while the result echoed the caller's spelling, so no consumer could open it and
+> `export smoke` could not run it.
+>
+> `export run --output` therefore takes a **filesystem path only**: a value carrying a
+> virtual scheme is refused at the params model, before any engine process. The rule
+> covers the EFFECTIVE destination, not only the option: with no `--output`, a configured
+> preset `export_path` carrying a scheme is the `export_path_unset` failure in the
+> structured preflight. gda resolves no such value — not `res://` against the project, not
+> `user://` through `User-data placement` — and this scopes one command's destination, not
+> the general rule: every other path-taking command keeps the pass-through above, and
+> `export smoke` keeps reading its artifact argument as a plain filesystem path (ADR-0042,
+> PR #987), which it always was.
+>
+> The `--output` carve-out in the Decision stands unchanged in its own half: the native
+> export runs with the project as its cwd, so a relative `--output` is resolved against the
+> invoker's cwd, and a preset `export_path` keeps Godot's project-relative convention with
+> a literal `~`.
+
 ## Considered options
 
 - **`--project` flag, projectless fallback** (chosen) — explicit and

@@ -171,6 +171,9 @@ def exported_app(tmp_path_factory):
         )
     exported = gda.json("export", "run", "--preset", "macOS", timeout=300.0)
     artifact = Path(exported["output_path"])
+    # #1003/#403: the value fed to `export smoke` below is the ABSOLUTE artifact
+    # path, so the handoff needs no resolution step of its own.
+    assert artifact.is_absolute(), f"export run reported {artifact}"
     assert artifact.is_dir(), f"no .app bundle at {artifact}"
     yield artifact
     shutil.rmtree(project, ignore_errors=True)
