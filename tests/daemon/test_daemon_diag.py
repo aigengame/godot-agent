@@ -26,12 +26,22 @@ from gda.daemon.session import EngineSession, SceneMismatch, launch_session
 from gda.parser import parse_result
 from tests.support import (
     FakeProc,
-    runnable_project,
+    LAUNCH_DEADLINE_S,
+    NoAcceptListener,
     no_engine_teardown,
+    runnable_project,
     server_with_session,
 )
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
+
+
+def _captured_argv(captured: dict[str, list[str]]) -> list[str]:
+    assert "argv" in captured, (
+        "launch_session returned before Popen: the readiness deadline had "
+        "expired at its entry check or after the pre-spawn work (#996)"
+    )
+    return captured["argv"]
 
 
 # --- Slice 1: launch carries --log-file and the session remembers the path ---
@@ -54,27 +64,17 @@ def test_launch_session_passes_log_file_arg_and_remembers_path(monkeypatch, tmp_
     # _terminate kills the (fake) proc on the accept-timeout path; no-op it.
     no_engine_teardown(monkeypatch)
 
-    class _NoAcceptListener:
-        """A harness listener whose accept() times out at once: launch returns
-        None, but the argv was already captured at Popen time (what we assert)."""
-
-        def settimeout(self, _):
-            pass
-
-        def accept(self):
-            raise TimeoutError
-
     launch_session(
         project,
         "godot",
-        cast(socket.socket, _NoAcceptListener()),
+        cast(socket.socket, NoAcceptListener()),
         tmp_path / "h.sock",
         "tok",
         log_file=log_file,
-        deadline=time.monotonic() + 0.1,
+        deadline=time.monotonic() + LAUNCH_DEADLINE_S,
     )
 
-    argv = captured["argv"]
+    argv = _captured_argv(captured)
     assert "--log-file" in argv
     assert str(log_file) in argv
     # --log-file precedes the `--` payload separator (it is an engine flag).
@@ -107,23 +107,16 @@ def _capture_launch_argv(monkeypatch, project, **launch_kw):
     monkeypatch.setattr(subprocess, "Popen", _ImmediatePopen)
     no_engine_teardown(monkeypatch)
 
-    class _NoAcceptListener:
-        def settimeout(self, _):
-            pass
-
-        def accept(self):
-            raise TimeoutError
-
     launch_session(
         project,
         "godot",
-        cast(socket.socket, _NoAcceptListener()),
+        cast(socket.socket, NoAcceptListener()),
         project / "h.sock",
         "tok",
-        deadline=time.monotonic() + 0.1,
+        deadline=time.monotonic() + LAUNCH_DEADLINE_S,
         **launch_kw,
     )
-    return captured["argv"]
+    return _captured_argv(captured)
 
 
 def test_launch_session_inserts_scene_before_path_when_set(monkeypatch, tmp_path):
@@ -271,6 +264,7 @@ def test_launch_returns_none_on_bad_token(monkeypatch, tmp_path):
     no_engine_teardown(monkeypatch)
     daemon_end, harness_end = socket.socketpair()
     write_frame(harness_end, b"WRONG")
+    diagnostics: list[str] = []
     try:
         outcome = launch_session(
             tmp_path,
@@ -280,26 +274,20 @@ def test_launch_returns_none_on_bad_token(monkeypatch, tmp_path):
             "tok",
             deadline=time.monotonic() + 1.0,
             scene="res://B.tscn",
+            diagnostics=diagnostics,
         )
     finally:
         harness_end.close()
     assert outcome is None
+    # The reason is asserted too: a launch whose deadline expired before the
+    # spawn also returns None, and this test must not pass on that (#996).
+    assert diagnostics and "invalid auth token" in diagnostics[0], diagnostics
 
 
 # --- #345: a failed launch records a best-effort diagnostic in the sink ---------
 # The child is spawned with stderr=DEVNULL, so launch_session polls the child at the
 # failure boundary: a child that already died names its signal (a windowed-no-display
 # abort is SIGABRT); a child still alive is the harness-never-connected case.
-
-
-class _NoAcceptListener:
-    """A harness listener whose accept() times out at once (no harness connects)."""
-
-    def settimeout(self, _):
-        pass
-
-    def accept(self):
-        raise TimeoutError
 
 
 def test_failed_launch_records_signal_death_when_child_already_died(
@@ -315,10 +303,10 @@ def test_failed_launch_records_signal_death_when_child_already_died(
     outcome = launch_session(
         project,
         "godot",
-        cast(socket.socket, _NoAcceptListener()),
+        cast(socket.socket, NoAcceptListener()),
         tmp_path / "h.sock",
         "tok",
-        deadline=time.monotonic() + 0.1,
+        deadline=time.monotonic() + LAUNCH_DEADLINE_S,
         diagnostics=diagnostics,
     )
 
@@ -341,10 +329,10 @@ def test_failed_launch_records_harness_hung_when_child_still_alive(
     outcome = launch_session(
         project,
         "godot",
-        cast(socket.socket, _NoAcceptListener()),
+        cast(socket.socket, NoAcceptListener()),
         tmp_path / "h.sock",
         "tok",
-        deadline=time.monotonic() + 0.1,
+        deadline=time.monotonic() + LAUNCH_DEADLINE_S,
         diagnostics=diagnostics,
     )
 
@@ -370,7 +358,7 @@ def test_failed_launch_diagnostics_excludes_stale_session_log(
     # pre-logger by SIGABRT and writes nothing, and no harness connects -> None.
     monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: FakeProc(-6))
     no_engine_teardown(monkeypatch)
-    server._harness_listener = cast(socket.socket, _NoAcceptListener())
+    server._harness_listener = cast(socket.socket, NoAcceptListener())
 
     reply = server._handle({"op": "game-tree", "params": {}})
     assert reply is not None

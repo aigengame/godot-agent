@@ -405,6 +405,32 @@ def inject_runner(monkeypatch, result: RunResult) -> FakeRunner:
     return fake
 
 
+# The engine-free launch tests end at a listener whose `accept()` raises at
+# once, so their deadline only has to outlive `launch_session`'s pre-spawn work:
+# it checks the deadline at entry and again after that work, and returns without
+# spawning once it has passed. A 100 ms budget was spent before the spawn on a
+# loaded four-worker CI runner, and the test died on the missing argv instead of
+# on what it asserts (#996). A long budget costs nothing here given
+# `no_engine_teardown` — without it `_terminate` polls the fake child up to the
+# deadline on the accept-timeout path — and it is not for a test whose deadline
+# bounds a real socket read.
+LAUNCH_DEADLINE_S = 30.0
+
+
+class NoAcceptListener:
+    """A harness listener whose ``accept()`` times out at once: no harness connects.
+
+    For a test that asserts what the launch SPAWNED, not what connected: the
+    argv is captured at ``Popen`` time, and the launch then returns ``None``.
+    """
+
+    def settimeout(self, _: float | None) -> None:
+        pass
+
+    def accept(self) -> object:
+        raise TimeoutError
+
+
 def no_engine_teardown(monkeypatch) -> None:
     """No-op the engine teardown for a test whose session process is a stand-in (#725).
 
