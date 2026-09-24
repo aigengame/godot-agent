@@ -34,7 +34,6 @@ import typer
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.commands.meta import read_skill_text
 from gda.headless import adopt_group_json
 from tests.support import (
     SCENE_GET_RESULT,
@@ -299,28 +298,6 @@ def test_the_json_adoption_reaches_a_nested_sub_group():
 
     assert rendered.exit_code == 0, rendered.stdout
     assert "--json" in plain_text(rendered.stdout)
-
-
-# --- the shipped guidance states the same contract ----------------------------
-
-
-def test_skill_documents_the_json_placement_contract():
-    # The Skill is the guidance an agent actually reads, so the placement rule has
-    # to ship WITH the behavior, not only in a PR description. Token-level checks:
-    # the three equivalent spellings are named, and so are the two that still exit 2
-    # (either flavour of "the flag, but no command"). Prose is free to be reworded;
-    # these tokens are the contract.
-    text = read_skill_text()
-
-    assert "`gda --json <group> <command>`" in text
-    assert "`gda <group> --json <command>`" in text
-    assert "`gda <group> <command> --json`" in text
-    assert "`gda schema --json`" in text
-    assert "`gda --json --help`" in text
-    # …and the two rejected spellings, with their exit code.
-    assert "`gda <group> --json`" in text
-    assert "a bare `gda --json` with no command" in text
-    assert "exit `2`" in text
 
 
 # --- the root flag now carries a payload of its own (#659) --------------------

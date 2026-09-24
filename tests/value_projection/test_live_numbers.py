@@ -449,27 +449,3 @@ def test_the_game_group_still_names_the_shared_integer_bound():
     from gda.commands import game
 
     assert game.MAX_EXACT_JSON_INT is MAX_EXACT_JSON_INT
-
-
-# --- The RESULT direction's published sentences -------------------------------
-#
-# WHICH sentence a field must publish is decided by the value's WRITER, and both
-# the decision and its coverage live in `tests/live/test_live_contract_guards.py`: it
-# walks every LIVE result model, establishes each float-bearing field's writer
-# (measured, where a recipe assembles the result), and checks the machine schema
-# and the rendered help of exactly that derived set. What remains here is the
-# surface no model walk can reach.
-
-
-def test_the_result_precision_guarantee_reaches_the_bundled_skill():
-    # The Skill is the third agent-facing channel (ADR-0024) and states the
-    # contract once for the whole live surface rather than per command, so it is
-    # pinned by its load-bearing tokens rather than by the constant. Both writers
-    # are pinned: the Skill claiming full precision without naming whose negative
-    # zero is lost is exactly the #770 round-4 defect, one surface further out.
-    from gda.commands.meta import read_skill_text
-
-    skill = read_skill_text()
-    assert "full binary64 precision" in skill
-    assert "a negative zero it wrote reads back as `0.0`" in skill
-    assert "A number gda produces CLI-side meets no Godot writer" in skill
