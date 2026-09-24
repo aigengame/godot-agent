@@ -51,7 +51,7 @@ def _envelope(result) -> dict:
     ],
 )
 def test_an_unknown_group_command_is_a_structured_refusal(args):
-    # Both `--json` spellings the Skill teaches reach the refusal. The root one is
+    # Both accepted `--json` spellings reach the refusal. The root one is
     # the parsed option (#671); the trailing one is unparseable at this point — the
     # command it would have belonged to does not exist — so the literal token in the
     # argv is what says "answer me in JSON".

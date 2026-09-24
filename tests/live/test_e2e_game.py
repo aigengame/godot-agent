@@ -1065,8 +1065,8 @@ def _paths(doc):
 def test_game_find_locates_nodes_by_selector_and_counts_what_it_left_unsearched(
     tmp_path, daemon_runtime_dir
 ):
-    # #855 AC1/AC2/AC4 against a real engine session, plus the default root the
-    # help and the skill state: the running CURRENT SCENE, whose siblings (the
+    # #855 AC1/AC2/AC4 against a real Engine session, plus the default root in
+    # command help: the running CURRENT SCENE, whose siblings (the
     # autoloads) take `--root /root`.
     _write_find_project(tmp_path)
 

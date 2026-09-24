@@ -87,8 +87,23 @@ def test_skill_documents_game_set_verified_signal():
 def test_skill_documents_script_validate_valid_verdict():
     # #463: `script validate` reports a compile failure as a success-shaped
     # result, so the agent-facing Skill must teach agents to inspect `valid`.
-    assert "`script validate`" in BUNDLED
-    assert "`valid`; `false` is not a pass" in BUNDLED
+    row = next(
+        line
+        for line in BUNDLED.splitlines()
+        if line.startswith("| `scene validate`, `script validate` |")
+    )
+    assert "`valid`; `false` is not a pass" in row
+
+
+def test_skill_keeps_live_readiness_and_restart_guidance():
+    # A serving session can have startup errors; a repeated daemon start does
+    # not reload the harness code in an existing game.
+    live = " ".join(BUNDLED.split("## Live workflow", 1)[1].split())
+    assert "gda daemon wait-ready" in live
+    assert "`clean_start` and `startup_diagnostics`" in live
+    assert "null `clean_start`" in live
+    assert "After updating gda, stop and start the daemon" in live
+    assert "does not reload" in live
 
 
 def test_skill_description_is_within_the_skill_frontmatter_limit():

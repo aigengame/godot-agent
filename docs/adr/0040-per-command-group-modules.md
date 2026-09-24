@@ -136,6 +136,11 @@ src/gda/
 
 ## Consequences
 
+> **Outcome (2026-09-24, #1010):** The bundled skill is now a workflow guide,
+> not a command table. Agents use the installed CLI help and schema for the
+> full command surface. The table-sync gate was retired; focused tests still
+> cover decision-critical guidance.
+
 - Adding a command touches its group module, the SKILL.md command table (CI-gated
   by `tests/meta/test_skill_surface_sync.py`), and its test file — plus
   `ops/operations.gd` for a sentinel op (out of scope here). The five-file change

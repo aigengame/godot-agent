@@ -1,13 +1,13 @@
 ---
 name: gda
-description: Use the gda CLI to build, inspect, validate, and export Godot projects without opening the editor, or to inspect and control a running game through the gda daemon. Use for Godot automation and game-development tasks that need structured results.
+description: Use the gda CLI to build, inspect, validate, and export Godot projects without opening the editor, or to inspect and control a running game through gda-daemon. Use when an agent builds or modifies a Godot game, or the user asks for gda or Godot automation.
 ---
 
 # gda
 
 `gda` is an agent-facing CLI for Godot. Use headless operations to create and
 inspect scenes, nodes, scripts, resources, shaders, themes, and project settings;
-validate or run scripts and scenes; and export builds. Use live operations to
+validate or run scripts and scenes; and export artifacts. Use live operations to
 inspect a running game, inject input, capture the viewport, and read diagnostics
 or performance data. Headless operations support Godot 4.4+ on all platforms.
 Live operations use `gda-daemon` with Godot 4.6+ on macOS or Linux.
@@ -82,7 +82,7 @@ directory is not writable, give that invocation a writable data root:
 gda --user-data-root /writable/gda-data script run res://tests/all.gd --project game --json
 ```
 
-This moves both the log and `user://`. Inspect the returned data path or
+This moves both the log and `user://`. Inspect `engine_data_path` or
 `log_file` before treating a failed save as a game defect. Scope the
 redirect to the calls that need it: Godot also finds export templates under
 its application-data directory, so a redirected export can hide templates
@@ -90,8 +90,12 @@ installed on the host.
 
 ## Live workflow
 
+A live run needs a main scene. Set `application/run/main_scene` or pass a
+valid `--scene res://...` to `daemon start`. An explicit `res://` scene
+also bypasses an unresolved `uid://` main scene.
+
 1. Start the daemon with `gda daemon start --project game --json`. This can
-   install the project harness and update `project.godot`; inspect the change.
+   install the gda harness and update `project.godot`; inspect the change.
    The Engine session starts when a live operation needs it.
 2. Run `gda daemon wait-ready --project game --json` before read-only
    diagnostics. Inspect `clean_start` and `startup_diagnostics`. A serving
@@ -106,6 +110,10 @@ installed on the host.
    `--windowed` if you need `screen capture`; a rendered capture requires
    an available desktop session. Stop with `gda daemon stop`.
 
+For a windowed launch, `live_windowed_unavailable` means skip rendered
+checks in this environment. `live_windowed_permission_denied` means retry
+outside the restriction before deciding whether the host can render.
+
 After updating gda, stop and start the daemon before using live commands.
 Repeating `daemon start` updates the installed harness but does not reload
 the code in the running game.
@@ -113,11 +121,12 @@ the code in the running game.
 A `live_timeout` discards the Engine session. The next live operation starts
 a new game, so do not assume that earlier runtime changes still exist.
 
-Input has two routes. The default `input action` changes the polled
-`action_state`; it does not send an event to `_input`,
-`_unhandled_input`, or `_gui_input`. A key or mouse command sends a
-`viewport_event`. Use `input action --as-event` only when an event handler
-must receive that action rather than the mapped key:
+Input has two injection routes, reported as `injection_route`. The default
+`input action` uses `action_state` to change the polled action state; it
+does not send an event to `_input`, `_unhandled_input`, or `_gui_input`.
+A key or mouse command uses `viewport_event` to send an event through the
+viewport. Use `input action --as-event` only when an event handler must
+receive that action rather than the mapped key:
 
 | Injection | `Input.is_action_pressed` | `_input` / `_unhandled_input` | `_gui_input` |
 | --- | --- | --- | --- |

@@ -11,8 +11,8 @@ Python's ``json``, the harness reads it with Godot's ``JSON.parse_string``, and 
 reply comes back as the ADR-0002 sentinel string the harness built with Godot's
 ``JSON.stringify``. Python's serializer and parser are exact for every binary64
 value; Godot's two are not, and they fail DIFFERENTLY in each direction. This
-module is the one authority on what that costs, so the guard, the help prose, the
-schema description and the Skill all read one decision instead of four.
+module is the one authority on what that costs; the guards, command help, and
+schema descriptions publish its precise value limits.
 
 The behaviour below is recorded in ``tests/live_number_corpus.py``, a real-engine
 differential corpus (Godot 4.6.3.stable.official.7d41c59c4) measured in BOTH
