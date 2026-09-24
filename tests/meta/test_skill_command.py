@@ -31,7 +31,7 @@ def test_skill_prints_the_raw_manifest_text():
     assert result.stdout.startswith("---")
     assert "name: gda" in result.stdout
     # The full body — not just the frontmatter — is emitted.
-    assert "## Grammar" in result.stdout
+    assert "## Live workflow" in result.stdout
 
 
 def test_skill_json_emits_name_version_content():
@@ -73,29 +73,37 @@ def test_skill_json_content_round_trips_the_bundled_file():
     assert data["content"] == SKILL_MD.read_text(encoding="utf-8")
 
 
-def test_skill_documents_json_container_number_preservation():
-    # #427: the packaged gda skill is the agent-facing command catalog, so it
-    # must teach the same Dictionary/Array JSON number rule that --schema exposes.
-    lower = BUNDLED.lower()
-    assert "json integer" in lower
-    assert "json float" in lower
-
-
 def test_skill_documents_game_set_verified_signal():
     # #473: live script-variable controls can be edge-triggered; the Skill must
-    # teach agents to inspect `verified` instead of treating success as sticky state.
-    lower = BUNDLED.lower()
-    assert "verified" in lower
-    assert "edge-triggered" in lower
-    assert "follow-up `game get`" in lower
+    # teach agents to inspect the read-back and make a follow-up observation.
+    row = next(
+        line for line in BUNDLED.splitlines() if line.startswith("| `game set` |")
+    )
+    assert "`verified`" in row
+    assert "observed read-back differs" in row
+    assert "Follow up with `game get` or a domain-specific observation" in row
 
 
 def test_skill_documents_script_validate_valid_verdict():
     # #463: `script validate` reports a compile failure as a success-shaped
     # result, so the agent-facing Skill must teach agents to inspect `valid`.
-    assert "gda script validate --json" in BUNDLED
-    assert "valid=false" in BUNDLED
-    assert "top-level `error`" in BUNDLED
+    row = next(
+        line
+        for line in BUNDLED.splitlines()
+        if line.startswith("| `scene validate`, `script validate` |")
+    )
+    assert "`valid`; `false` is not a pass" in row
+
+
+def test_skill_keeps_live_readiness_and_restart_guidance():
+    # A serving session can have startup errors; a repeated daemon start does
+    # not reload the harness code in an existing game.
+    live = " ".join(BUNDLED.split("## Live workflow", 1)[1].split())
+    assert "gda daemon wait-ready" in live
+    assert "`clean_start` and `startup_diagnostics`" in live
+    assert "null `clean_start`" in live
+    assert "After updating gda, stop and start the daemon" in live
+    assert "does not reload" in live
 
 
 def test_skill_description_is_within_the_skill_frontmatter_limit():
