@@ -213,8 +213,7 @@ class EngineSession:
             # `set_suspend`/`is_suspended` are bound to neither GDScript nor
             # ClassDB, and the engine's only callers are the remote debugger's
             # `scene:suspend_changed` and next-frame messages (the editor Game
-            # view's Suspend/step buttons). See the "paused vs suspended" note in
-            # the skill for the engine mechanism. The CLI-side backstop in
+            # view's Suspend/step buttons). The CLI-side backstop in
             # `live_runner` keeps its bare sentence: it is reached only when the
             # DAEMON stops answering, which these causes do not produce.
             return error_reply(
