@@ -75,11 +75,13 @@ def test_skill_json_content_round_trips_the_bundled_file():
 
 def test_skill_documents_game_set_verified_signal():
     # #473: live script-variable controls can be edge-triggered; the Skill must
-    # teach agents to inspect `verified` instead of treating success as sticky state.
-    lower = BUNDLED.lower()
-    assert "verified" in lower
-    assert "observed read-back differs" in lower
-    assert "game get" in lower
+    # teach agents to inspect the read-back and make a follow-up observation.
+    row = next(
+        line for line in BUNDLED.splitlines() if line.startswith("| `game set` |")
+    )
+    assert "`verified`" in row
+    assert "observed read-back differs" in row
+    assert "Follow up with `game get` or a domain-specific observation" in row
 
 
 def test_skill_documents_script_validate_valid_verdict():

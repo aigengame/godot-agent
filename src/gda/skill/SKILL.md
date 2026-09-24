@@ -68,7 +68,7 @@ When `scene create` uses a `Control-derived` root, it writes zero anchors
 and zero offsets. A root with no intrinsic minimum size renders as a zero-size
 rect; a root with an intrinsic minimum size renders at that minimum instead,
 not at viewport size. Set `anchor_right` and `anchor_bottom` to `1` with
-`node set`, then confirm the layout with `game rect` in a live session.
+`node set`, then confirm the layout with `game rect` in an Engine session.
 For a `Control` inside a `Container`, change minimum size, size flags, or
 the container layout instead of offsets.
 
@@ -92,7 +92,7 @@ installed on the host.
 
 1. Start the daemon with `gda daemon start --project game --json`. This can
    install the project harness and update `project.godot`; inspect the change.
-   The engine session starts when a live operation needs it.
+   The Engine session starts when a live operation needs it.
 2. Run `gda daemon wait-ready --project game --json` before read-only
    diagnostics. Inspect `clean_start` and `startup_diagnostics`. A serving
    session can still have a scene script that failed to compile. A null
@@ -106,7 +106,11 @@ installed on the host.
    `--windowed` if you need `screen capture`; a rendered capture requires
    an available desktop session. Stop with `gda daemon stop`.
 
-A `live_timeout` discards the engine session. The next live operation starts
+After updating gda, stop and start the daemon before using live commands.
+Repeating `daemon start` updates the installed harness but does not reload
+the code in the running game.
+
+A `live_timeout` discards the Engine session. The next live operation starts
 a new game, so do not assume that earlier runtime changes still exist.
 
 Input has two routes. The default `input action` changes the polled
