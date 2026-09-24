@@ -346,7 +346,7 @@ def find_unrepresentable(value: object, path: str) -> "str | None":
 # put a wire claim on a headless read; authoring a headless twin would be the
 # near-duplicate this module exists to prevent. The headless channel therefore states
 # the same fact once, in prose, on the surfaces that document headless behaviour
-# (``docs/command-catalog.md``, ``CONTEXT.md``, the bundled Skill). Publishing it in
+# (``docs/command-catalog.md`` and ``CONTEXT.md``). Publishing it in
 # ``--schema`` needs the derived discipline the live side has — a walk over the
 # headless float-bearing fields — which is a slice of its own, not a rider on #771.
 
