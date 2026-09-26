@@ -1,16 +1,20 @@
 """The ``res://`` walk contract: one traversal, four collectors (#764).
 
-``operations.gd`` walks the project's ``res://`` tree for four purposes —
-``scene list``, ``script list``, the extension-filtered static-analysis scan,
-and the unfiltered count behind ``project statistics``. The ``DirAccess``
-scaffolding around that walk used to be copied once per purpose, and the copies
-drifted twice: first on the directory-exclusion decision (#712), then on the
+The payload walks the project's ``res://`` tree for four purposes — ``scene
+list``, ``script list``, the extension-filtered static-analysis scan, and the
+unfiltered count behind ``project statistics``. The ``DirAccess`` scaffolding
+around that walk used to be copied once per purpose, and the copies drifted
+twice: first on the directory-exclusion decision (#712), then on the
 file-acceptance test, where the scene walk alone compared the extension
 case-sensitively.
 
 These are the source-level guards for the consolidation. The BEHAVIOUR they
 protect — the case rule and the two surviving file universes — is pinned against
 a real engine in ``test_e2e_project_walk.py``.
+
+The traversal and its predicates live in the project-walk module (ADR-0043 §2);
+a collector lives with its callers, so each guard reads the walk and whatever
+payload file holds the collector it checks (ADR-0043 §6).
 """
 
 import re
@@ -21,6 +25,7 @@ from tests.support import (
     gd_function,
     gd_string_const,
     payload_source,
+    payload_sources,
 )
 
 # The four collectors, each of which must be a single delegation to the traversal.
@@ -35,6 +40,13 @@ COLLECTORS = (
 TRAVERSAL = "_collect_paths"
 LISTING_CALL = "list_dir_begin()"
 
+# The module that holds the traversal and its predicates.
+WALK_MODULE = "lib/project_walk.gd"
+
+# A call or a bare Callable may name its target through the owning module's
+# preload constant (ADR-0043 §5): ``PROJECT_WALK._collect_paths``.
+QUALIFIER = r"(?:[A-Z][A-Z0-9_]*\.)?"
+
 # The section note that documents the two static scans over the one traversal.
 SECTION_HEADER = "# --- project static-analysis reads (issue #116) ---"
 
@@ -43,10 +55,19 @@ SECTION_HEADER = "# --- project static-analysis reads (issue #116) ---"
 HELPER_MENTION = re.compile(r"(?<![A-Za-z0-9_])_[a-z][A-Za-z0-9_]*")
 
 
-def _source() -> str:
-    # The walk and its collectors are in the entry until the project-walk module
-    # exists (ADR-0043 §2); the name below then changes to that module.
-    return payload_source("operations.gd")
+def _walk() -> str:
+    return payload_source(WALK_MODULE)
+
+
+def _holder(name: str) -> str:
+    """The text of the one payload file that declares top-level ``func name``."""
+    holders = [
+        text
+        for text in payload_sources().values()
+        if name in GD_FUNCTION_HEADER.findall(text)
+    ]
+    assert len(holders) == 1, f"expected exactly one payload file to define {name}"
+    return holders[0]
 
 
 def _function_body(source: str, name: str) -> list[str]:
@@ -76,50 +97,50 @@ def test_the_four_res_collectors_share_one_traversal():
     # AC1 (#764): ONE traversal implementation. The DirAccess scaffolding exists
     # exactly once in the payload, inside the shared walker; each collector is a
     # single delegation to it and differs only in the acceptance test it passes.
-    source = _source()
-
-    copies = source.count(LISTING_CALL)
+    copies = sum(text.count(LISTING_CALL) for text in payload_sources().values())
     assert copies == 1, (
         f"the res:// listing scaffolding must live only in {TRAVERSAL}; "
         f"found {copies} copies of {LISTING_CALL}"
     )
-    assert LISTING_CALL in "\n".join(_function_body(source, TRAVERSAL)), (
+    assert LISTING_CALL in "\n".join(_function_body(_walk(), TRAVERSAL)), (
         f"{TRAVERSAL} must be the function that holds the listing scaffolding"
     )
 
     accepts: dict[str, str] = {}
     for name in COLLECTORS:
-        body = _function_body(source, name)
+        body = _function_body(_holder(name), name)
         assert len(body) == 1, f"{name} must be one delegating line, got {body}"
         call = re.fullmatch(
-            rf"{TRAVERSAL}\(\w+, (?P<accept>_[A-Za-z0-9_]+), \w+\)", body[0]
+            rf"{QUALIFIER}{TRAVERSAL}\(\w+, {QUALIFIER}(?P<accept>_[A-Za-z0-9_]+), \w+\)",
+            body[0],
         )
         assert call, f"{name} must delegate to {TRAVERSAL}, got {body[0]!r}"
         accepts[name] = call.group("accept")
 
     # The acceptance test is the one thing they vary — four distinct predicates,
-    # each a function this file defines.
+    # each a function the payload defines.
     assert len(set(accepts.values())) == len(COLLECTORS), (
         f"each collector must pass its own acceptance test, got {accepts}"
     )
     for name, accept in accepts.items():
-        assert gd_function(source, accept), f"{name} passes undefined {accept}"
+        assert gd_function(_holder(accept), accept), f"{name} passes undefined {accept}"
 
 
 def test_the_static_analysis_note_names_only_helpers_that_exist():
     # AC5 (#764): the section note used to claim a SINGLE static project scan
-    # performed by a helper named `_scan_project` — a function this file has
+    # performed by a helper named `_scan_project` — a function the payload has
     # never defined. It now describes the two scans and the traversal they share,
     # and every gda helper it names must be a function that actually exists, so
     # the correction cannot rot back into a phantom.
-    source = _source()
-    defined = set(GD_FUNCTION_HEADER.findall(source))
+    sources = payload_sources()
+    defined = {
+        name for text in sources.values() for name in GD_FUNCTION_HEADER.findall(text)
+    }
 
-    assert "_scan_project" not in source, (
-        "operations.gd names _scan_project, which no function defines"
-    )
+    phantoms = sorted(name for name, text in sources.items() if "_scan_project" in text)
+    assert not phantoms, f"{phantoms} name _scan_project, which no function defines"
 
-    note = _comment_block(source, SECTION_HEADER)
+    note = _comment_block(payload_source(), SECTION_HEADER)
     mentioned = {token for line in note for token in HELPER_MENTION.findall(line)}
     assert mentioned, "the section note must name the helpers it describes"
     undefined = sorted(mentioned - defined)
@@ -155,6 +176,23 @@ def _enclosing_function(source: str, line_index: int) -> str | None:
     return None
 
 
+def _users_of(names: tuple[str, ...]) -> set[str]:
+    """The functions, across the whole payload, whose code names one of ``names``."""
+    users = set()
+    for text in payload_sources().values():
+        for index, line in enumerate(text.splitlines()):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            for name in names:
+                if name not in stripped or stripped.startswith(f"const {name}"):
+                    continue  # a comment, or the value's own declaration
+                enclosing = _enclosing_function(text, index)
+                assert enclosing is not None, f"{name} used outside any function"
+                users.add(enclosing)
+    return users
+
+
 def test_the_symlink_policy_is_asked_on_both_branches_of_the_traversal():
     # AC2 (#760): the aliasing rule has TWO touch points. `_should_descend` gates
     # DIRECTORY descent only, so a symlinked FILE — `res://alias.gd` pointing at a
@@ -162,7 +200,7 @@ def test_the_symlink_policy_is_asked_on_both_branches_of_the_traversal():
     # passing it, and re-admits by itself the content the descent rule keeps out.
     # The traversal must therefore ask both, and this is the guard against a later
     # change fixing only the half that is easy to see.
-    source = _source()
+    source = _walk()
     traversal = "\n".join(_function_body(source, TRAVERSAL))
 
     for predicate in (DESCEND_PREDICATE, COLLECT_PREDICATE):
@@ -179,7 +217,7 @@ def test_the_engine_cache_exclusion_has_one_owner():
     # the question to `_is_in_engine_cache`, and nothing else compares against the
     # cache path. A second comparison site is how the four collectors drifted the
     # first time.
-    source = _source()
+    source = _walk()
 
     for predicate in (DESCEND_PREDICATE, COLLECT_PREDICATE):
         body = "\n".join(_function_body(source, predicate))
@@ -187,17 +225,7 @@ def test_the_engine_cache_exclusion_has_one_owner():
             f"{predicate} must ask {CACHE_OWNER} rather than test the cache itself"
         )
 
-    users = set()
-    for index, line in enumerate(source.splitlines()):
-        stripped = line.strip()
-        if stripped.startswith("#") or CACHE_CONSTANT not in stripped:
-            continue
-        if stripped.startswith(f"const {CACHE_CONSTANT}"):
-            continue  # the value's own declaration
-        enclosing = _enclosing_function(source, index)
-        assert enclosing is not None, f"{CACHE_CONSTANT} used outside any function"
-        users.add(enclosing)
-
+    users = _users_of((CACHE_CONSTANT,))
     assert users == {DESCEND_PREDICATE, CACHE_OWNER}, (
         f"{CACHE_CONSTANT} must be compared only in {DESCEND_PREDICATE}'s lexical "
         f"fast path and in {CACHE_OWNER}; found it in {sorted(users)}"
@@ -215,27 +243,20 @@ def test_the_engine_skip_markers_are_asked_only_by_the_descent_predicate():
     # shape the cache exclusion has: the constants exist, `_should_descend` probes
     # both, and no other function names them — a second site is exactly how the
     # four collectors drifted apart in #712.
-    source = _source()
-    descend = "\n".join(_function_body(source, DESCEND_PREDICATE))
+    descend = "\n".join(_function_body(_walk(), DESCEND_PREDICATE))
 
     for marker in SKIP_MARKER_CONSTANTS:
-        assert f"const {marker} :=" in source, f"{marker} must be declared once"
+        declarations = sum(
+            text.count(f"const {marker} :=") for text in payload_sources().values()
+        )
+        assert declarations == 1, (
+            f"{marker} must be declared once, found {declarations}"
+        )
         assert f"FileAccess.file_exists(child.path_join({marker}))" in descend, (
             f"{DESCEND_PREDICATE} must probe {marker} on the child directory"
         )
 
-    users = set()
-    for index, line in enumerate(source.splitlines()):
-        stripped = line.strip()
-        if stripped.startswith("#"):
-            continue
-        for marker in SKIP_MARKER_CONSTANTS:
-            if marker not in stripped or stripped.startswith(f"const {marker}"):
-                continue
-            enclosing = _enclosing_function(source, index)
-            assert enclosing is not None, f"{marker} used outside any function"
-            users.add(enclosing)
-
+    users = _users_of(SKIP_MARKER_CONSTANTS)
     assert users == {DESCEND_PREDICATE}, (
         f"the engine skip markers must be asked only in {DESCEND_PREDICATE}; "
         f"found them in {sorted(users)}"
@@ -260,7 +281,7 @@ def test_the_two_spellings_of_the_skip_markers_agree():
     # against a dot-prefix reading in Python. Those divergences are stated in
     # `_engine_skips_directory_of`'s docstring; the marker names are the one thing
     # that must be identical.
-    source = _source()
+    source = _walk()
 
     engine_side = {
         name: gd_string_const(source, name) for name in SKIP_MARKER_CONSTANTS
@@ -271,5 +292,5 @@ def test_the_two_spellings_of_the_skip_markers_agree():
 
     assert engine_side == python_side, (
         f"the skip markers must read the same on both sides of the seam; "
-        f"operations.gd says {engine_side}, import_evidence.py says {python_side}"
+        f"{WALK_MODULE} says {engine_side}, import_evidence.py says {python_side}"
     )

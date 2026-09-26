@@ -22,9 +22,14 @@ from tests.support import gd_function, payload_source
 ROOT = Path(__file__).resolve().parents[2]
 GDA_HARNESS_GD = ROOT / "src" / "gda" / "harness" / "gda_harness.gd"
 
-# The mirrored block is in the entry until the shared value module exists
-# (ADR-0043 §7); the name below then changes to that module.
-MIRRORED_PAYLOAD_FILE = "operations.gd"
+# The mirrored block is the shared value module, a static module: the guard reads
+# it and ignores the `static` keyword the module adds (ADR-0043 §7). The
+# Control-position policy and the reply writer are still in the entry.
+MIRRORED_PAYLOAD_FILE = "lib/value.gd"
+ENTRY_FILE = "operations.gd"
+
+# The keyword a static module adds to each of its functions and variables.
+STATIC_KEYWORD = re.compile(r"^static ")
 
 # The block both files delimit with these matching marker comments.
 BLOCK = re.compile(
@@ -40,7 +45,7 @@ CONTROL_POSITION_POLICY_HELPERS = (
 
 
 def _payload_text() -> str:
-    return payload_source(MIRRORED_PAYLOAD_FILE)
+    return payload_source(ENTRY_FILE)
 
 
 def _harness_text() -> str:
@@ -48,17 +53,22 @@ def _harness_text() -> str:
 
 
 def _shared_block(text: str, label: str) -> str:
-    """The marker-delimited shared block, with each line's leading tabs stripped.
+    """The marker-delimited shared block, with each line's leading tabs and
+    ``static`` keyword stripped.
 
     Leading tabs are normalized so an accidental re-indent of one copy is not
-    flagged as content drift — only the helper LOGIC must match.
+    flagged as content drift — only the helper LOGIC must match. The keyword is
+    dropped because the value module declares every function ``static`` while
+    the harness copy, an autoload's methods, does not.
     """
     matches = BLOCK.findall(text)
     assert len(matches) == 1, (
         f"expected exactly one shared-coercion block in {label}, found {len(matches)}"
     )
     body = matches[0]
-    return "\n".join(line.lstrip("\t") for line in body.splitlines())
+    return "\n".join(
+        STATIC_KEYWORD.sub("", line.lstrip("\t")) for line in body.splitlines()
+    )
 
 
 def _top_level_function(text: str, name: str) -> str:
@@ -72,10 +82,14 @@ def _control_position_policy(text: str) -> str:
 
 
 def test_shared_coercion_block_is_byte_identical_across_the_two_gd_files():
-    operations_block = _shared_block(_payload_text(), MIRRORED_PAYLOAD_FILE)
+    operations_block = _shared_block(
+        payload_source(MIRRORED_PAYLOAD_FILE), MIRRORED_PAYLOAD_FILE
+    )
     harness_block = _shared_block(_harness_text(), GDA_HARNESS_GD.name)
 
-    assert operations_block, "the operations.gd shared block must be non-empty"
+    assert operations_block, (
+        f"the {MIRRORED_PAYLOAD_FILE} shared block must be non-empty"
+    )
     assert operations_block == harness_block
 
 

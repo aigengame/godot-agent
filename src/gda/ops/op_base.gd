@@ -94,27 +94,3 @@ func _begin_pending(tick: Callable, frames: int) -> void:
 # project dir) does not have it. scene-list needs a real res:// tree to walk.
 func _has_project() -> bool:
 	return DirAccess.dir_exists_absolute("res://") and FileAccess.file_exists("res://project.godot")
-
-
-# --- transitional forwards (#1015, step 1) -----------------------------------
-# The four shared helpers below still live in the entry until their concept
-# modules exist: `_string_param` moves to the shared value module, the other
-# three to the file write. Each forward is deleted in the step that moves its
-# helper, and the group's call is then qualified with that module's preload
-# constant. Meanwhile they keep the moved bodies verbatim: a `var x :=
-# _frame.helper()` in a group would not compile, because a call through the
-# untyped frame has no set type.
-func _string_param(params: Dictionary, key: String) -> String:
-	return _frame._string_param(params, key)
-
-
-func _ensure_parent_dirs(path: String) -> Variant:
-	return _frame._ensure_parent_dirs(path)
-
-
-func _atomic_save_resource(res: Resource, path: String) -> int:
-	return _frame._atomic_save_resource(res, path)
-
-
-func _save_failure_message(noun: String, path: String, save_err: Error) -> String:
-	return _frame._save_failure_message(noun, path, save_err)
