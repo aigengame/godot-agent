@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # The headless operations payload splits into an entry, command-group files, and concept modules

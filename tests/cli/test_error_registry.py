@@ -28,6 +28,7 @@ from gda.runner import (
     RunResult,
     UserDataReport,
 )
+from tests.support import gd_function, payload_source, payload_sources
 
 # The live execution channel's failure codes (ADR-0017 / ADR-0021). Registered
 # here as the first Phase-2 slice's error contract; emitted by the daemon IPC
@@ -66,7 +67,6 @@ LIVE_ERROR_CODES = (
 
 ROOT = Path(__file__).resolve().parents[2]
 ADR_0002 = ROOT / "docs" / "adr" / "0002-headless-structured-output-contract.md"
-OPERATIONS_GD = ROOT / "src" / "gda" / "ops" / "operations.gd"
 GDA_HARNESS_GD = ROOT / "src" / "gda" / "harness" / "gda_harness.gd"
 
 ADR_REGISTRY_ROW = re.compile(
@@ -77,6 +77,10 @@ GDSCRIPT_OPERATION_CODE = re.compile(
 )
 GDSCRIPT_HARNESS_LIVE_CODE = re.compile(
     r'^const LIVE_ERROR_[A-Z_]+ := "([a-z_]+)"$', re.MULTILINE
+)
+# A whole declaration line, for the transitional entry-copy pin below.
+GDSCRIPT_OPERATION_CODE_LINE = re.compile(
+    r'^const OP_ERROR_[A-Z_]+ := "[a-z_]+"$', re.MULTILINE
 )
 BARE_FAIL_CODE = re.compile(r'_fail\(\s*"[a-z_]+"')
 
@@ -528,8 +532,11 @@ def test_a_bare_phase_label_is_compared_not_stripped():
 
 
 def test_gdscript_operation_error_codes_mirror_python_operation_subset():
-    gdscript = OPERATIONS_GD.read_text(encoding="utf-8")
+    # The op base declares the operation-source rows once (ADR-0043 §5); every
+    # group file and instance concept module inherits them.
+    gdscript = payload_source("op_base.gd")
     mirrored_codes = set(GDSCRIPT_OPERATION_CODE.findall(gdscript))
+    assert mirrored_codes, "op_base.gd declares no OP_ERROR_* code"
 
     python_operation_codes = {
         spec.code for spec in ERROR_CODES if spec.source is ErrorCodeSource.OPERATION
@@ -540,9 +547,28 @@ def test_gdscript_operation_error_codes_mirror_python_operation_subset():
 
 
 def test_gdscript_fail_calls_do_not_use_literal_error_codes():
-    gdscript = OPERATIONS_GD.read_text(encoding="utf-8")
+    # Every payload file, not only the entry: a guard that read one file would
+    # pass on a `_fail("literal")` in code that moved away from it (ADR-0043 §6).
+    for name, gdscript in payload_sources().items():
+        assert not BARE_FAIL_CODE.search(gdscript), f"literal error code in {name}"
 
-    assert not BARE_FAIL_CODE.search(gdscript)
+
+def test_the_entry_copies_of_the_op_seam_match_the_op_base_until_they_go():
+    # Transitional (#1015): while operation bodies are still in the entry, the
+    # entry keeps its own OP_ERROR_* block and `_has_project`, because a
+    # SceneTree cannot inherit them from the op base and qualifying every use
+    # only to unqualify it again as the bodies move would hide the moves. The
+    # op base is the declaration; the entry's copies must declare the same
+    # OP_ERROR_* lines in the same order and the same `_has_project` function, so
+    # the two cannot drift apart. The last step of #1015 deletes the entry's copies
+    # and this test with them.
+    entry = payload_source()
+    op_base = payload_source("op_base.gd")
+
+    entry_codes = GDSCRIPT_OPERATION_CODE_LINE.findall(entry)
+    assert entry_codes, "the entry no longer declares OP_ERROR_*: delete this test"
+    assert entry_codes == GDSCRIPT_OPERATION_CODE_LINE.findall(op_base)
+    assert gd_function(entry, "_has_project") == gd_function(op_base, "_has_project")
 
 
 def test_live_failures_are_registered_classifier_live_codes():
