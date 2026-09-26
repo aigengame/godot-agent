@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field, model_validator
 from gda import dispatch
 from gda.commands.input import InputSequenceEvent
 from gda.dispatch import dispatch_recipe, params_or_bad_parameter
-from gda.errors import Failure, classify_live, make_failure
+from gda.errors import Failure, classify_live, reply_correlation_failure
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -994,7 +994,7 @@ def run_screen_capture_operation(
         )
     )
     if correlation is not None:
-        return make_failure("contract_violation", correlation, result.stdout)
+        return reply_correlation_failure(correlation)
     output = Path(params.output)
     written, digest = _write_png(reply.png_base64, output)
     return ScreenCaptureResult(
@@ -1042,16 +1042,14 @@ def run_screen_frames_operation(
         params.settle_frames, reply.settle_frames, "the first frame"
     )
     if settle_error is not None:
-        return make_failure("contract_violation", settle_error, result.stdout)
+        return reply_correlation_failure(settle_error)
     if reply.count != params.frames:
         # #748 re-review (ARC-748-F007): the operation has no partial-success
         # semantics — a self-consistent reply for a DIFFERENT frame budget is
         # contract drift, refused before any file is written.
-        return make_failure(
-            "contract_violation",
+        return reply_correlation_failure(
             f"the harness reply carries {reply.count} frames for a request "
-            f"of {params.frames}",
-            result.stdout,
+            f"of {params.frames}"
         )
     output_dir = Path(params.output_dir)
     written: list[ScreenFrame] = []

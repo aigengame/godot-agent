@@ -701,6 +701,24 @@ def classify_live(
     return classify_run(result, binary, output_model)
 
 
+def reply_correlation_failure(message: str) -> Failure:
+    """The ``contract_violation`` for a live reply that does not answer its request.
+
+    The request↔reply correlation refusal of the ``screen``, ``perf`` and ``input``
+    recipes (#1013): the harness replied with success, but the reply disagrees with
+    what was asked (a settle echo, a frame or event count). ``message`` names the
+    disagreement.
+
+    ``diagnostics`` is ``""`` and no ``child_stderr`` is attached. The refusal
+    follows a SUCCESSFUL reply, whose stderr the live exchange (or
+    :meth:`gda.headless.HeadlessCommand.execute`) has already teed under ADR-0002's
+    #803 rule, so carrying it again would print it twice. The reply's stdout is not
+    diagnostics either: it is the result payload, and a ``screen`` reply holds a
+    base64 image.
+    """
+    return make_failure("contract_violation", message, "")
+
+
 def export_output_parent_failure(output_path: str, parent_path: str) -> Failure:
     """The classifier-source failure for an uncreatable export output parent (#402)."""
     return make_failure(

@@ -47,6 +47,7 @@ from gda.errors import (
     Failure,
     classify_live,
     make_failure,
+    reply_correlation_failure,
     validation_error_message,
 )
 from gda.execution import ExecutionKind
@@ -1025,19 +1026,15 @@ def run_perf_monitors_operation(
     # have sampled the asked-for window over the asked-for selection. Only the
     # recipe holds the params, so this check cannot live on the reply model.
     if reply.frames != params.frames:
-        return make_failure(
-            "contract_violation",
+        return reply_correlation_failure(
             f"the harness sampled {reply.frames} frames for a "
-            f"{params.frames}-frame request.",
-            "",
+            f"{params.frames}-frame request."
         )
     expected = [str(name) for name in params.monitors] or list(PERF_MONITOR_NAMES)
     if reply.monitors != expected:
-        return make_failure(
-            "contract_violation",
+        return reply_correlation_failure(
             f"the harness sampled monitors {reply.monitors} for a request "
-            f"selecting {expected}.",
-            "",
+            f"selecting {expected}."
         )
     # One aggregation over the reply's columns — the shape the values are already
     # stored in, so the statistics never need the per-frame rows built (#846).
