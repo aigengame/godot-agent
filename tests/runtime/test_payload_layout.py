@@ -3,10 +3,11 @@
 The payload under ``src/gda/ops`` is an entry (``operations.gd``), the op base
 (``op_base.gd``), one file per command group (``groups/``) and the concept
 modules (``lib/``). A group depends on the op base and on concept modules, never
-on another group; a concept module never depends on a group or on the entry; and
-the concept modules form no cycle. The engine loads a cycle (ADR-0043 probe 7),
-so the rules hold only through this test: it reads the ``preload("…")`` and
-``extends "…"`` targets of every payload file and fails on each forbidden edge.
+on another group or on the entry; a concept module never depends on a group or
+on the entry; and the concept modules form no cycle. The engine loads a cycle
+(ADR-0043 probe 7) and a group that preloads the entry, so the rules hold only
+through this test: it reads the ``preload("…")`` and ``extends "…"`` targets of
+every payload file and fails on each forbidden edge.
 """
 
 import re
@@ -14,8 +15,8 @@ from pathlib import Path
 
 from tests.support import PAYLOAD_DIR, payload_files
 
-PRELOAD = re.compile(r'preload\("([^"]+)"\)')
-EXTENDS = re.compile(r'^extends "([^"]+)"$')
+PRELOAD = re.compile(r"""preload\(\s*["']([^"']+)["']\s*\)""")
+EXTENDS = re.compile(r"""^extends\s+["']([^"']+)["']\s*(?:#.*)?$""")
 
 ENTRY = "entry"
 SEAM = "seam"
@@ -73,14 +74,16 @@ def test_every_payload_file_is_in_a_tier_of_the_module_map():
         assert _tier(path) in {ENTRY, SEAM, GROUP, CONCEPT}
 
 
-def test_no_group_depends_on_another_group():
+def test_no_group_depends_on_another_group_or_the_entry():
     for source, targets in _edges().items():
         if _tier(source) != GROUP:
             continue
         forbidden = sorted(
-            _name(target) for target in targets if _tier(target) == GROUP
+            _name(target) for target in targets if _tier(target) in {GROUP, ENTRY}
         )
-        assert not forbidden, f"{_name(source)} depends on a group: {forbidden}"
+        assert not forbidden, (
+            f"{_name(source)} depends on a group or the entry: {forbidden}"
+        )
 
 
 def test_no_concept_module_depends_on_a_group_or_the_entry():

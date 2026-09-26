@@ -6,8 +6,10 @@ extends RefCounted
 # extends this base. It forwards _fail, _succeed, _diag and _begin_pending to
 # the frame — the entry, operations.gd, which alone prints the sentinel result
 # and sets the exit code — it holds the project guard, and it declares the
-# operation-source error codes once, so a moved operation body keeps its
-# `_fail(OP_ERROR_…)` lines unchanged.
+# operation-source error codes, so a moved operation body keeps its
+# `_fail(OP_ERROR_…)` lines unchanged. Until the last step of #1015 the entry
+# keeps a copy of the codes and of the project guard; a test pins the copy to
+# this file (tests/cli/test_error_registry.py).
 
 
 const OP_ERROR_USAGE := "usage_error"

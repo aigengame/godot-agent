@@ -38,6 +38,9 @@ const RESULT_END := "<<<GDA:END>>>"
 # which reads it only off a clean exit that carried no result.
 const PREFLIGHT_READY_EVIDENCE := "<<<GDA:PREFLIGHT-READY>>>"
 
+# Transitional copy (#1015): op_base.gd declares these codes. A test pins this
+# copy to it (tests/cli/test_error_registry.py) until the last step of #1015
+# deletes the copy.
 const OP_ERROR_USAGE := "usage_error"
 const OP_ERROR_UNKNOWN_OPERATION := "unknown_operation"
 const OP_ERROR_INVALID_PARAMS := "invalid_params"

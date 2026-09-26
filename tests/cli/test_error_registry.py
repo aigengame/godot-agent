@@ -558,8 +558,9 @@ def test_the_entry_copies_of_the_op_seam_match_the_op_base_until_they_go():
     # entry keeps its own OP_ERROR_* block and `_has_project`, because a
     # SceneTree cannot inherit them from the op base and qualifying every use
     # only to unqualify it again as the bodies move would hide the moves. The
-    # op base is the declaration; the entry's copies must stay byte-equal so the
-    # two cannot drift apart. The last step of #1015 deletes the entry's copies
+    # op base is the declaration; the entry's copies must declare the same
+    # OP_ERROR_* lines in the same order and the same `_has_project` function, so
+    # the two cannot drift apart. The last step of #1015 deletes the entry's copies
     # and this test with them.
     entry = payload_source()
     op_base = payload_source("op_base.gd")

@@ -87,9 +87,9 @@ def test_gda_info_refuses_a_project_that_is_not_one(tmp_path):
 def test_gda_info_compiles_every_payload_file():
     # ADR-0043 §6: the entry preloads every group file, so `info` compiles the
     # whole payload, and the engine prints a load error on stderr on every run
-    # (probe 3). The assertion is on stderr, not on the exit status: a wrong call
-    # to an inherited op-base function in a group file fails only that group's
-    # operations, and `info` still answers. A payload file that does not compile
+    # (probe 3). The exit status alone cannot catch it: a wrong call to an
+    # inherited op-base function in a group file fails only that group's
+    # operations, and `info` still exits 0. The stderr check is the gate. A payload file that does not compile
     # is a gda defect that must not reach a release; this is the gate.
     result = SubprocessGodotRunner(GODOT).run("info", {})
 
