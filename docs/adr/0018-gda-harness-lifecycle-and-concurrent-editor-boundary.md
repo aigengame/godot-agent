@@ -39,6 +39,14 @@ so two instances can touch the project at once.
 > grows, the treatment to revisit is per-module fragments + an automatic summary
 > (the same direction RULES.md flags for central registries), under its own ADR.
 
+> **Outcome (2026-09-26, #1016) — ADR-0043 (proposed) reopens the #220 premise.** A
+> Godot 4.6.3 probe showed that an absolute-path `--script` payload loads a relative
+> `preload()`, both projectless and under `--path`. Thus one module can reach both
+> runtime contexts. ADR-0043 §7 decides that the harness preloads the Value projection
+> module of the headless payload, and that the installer copies that module beside the
+> harness. #1016 deletes the mirrored block and its drift test. The other half of the
+> premise, that the installer copies one file, changes with it.
+
 > **Outcome (2026-06-22, #225 / PR #247) — the harness lifecycle is complete:
 > version self-sync and paired uninstall.** Point 1's "self-syncs the harness to the
 > running `gda` version" is realized: `_materialize` prepends a `# gda-harness-version:
