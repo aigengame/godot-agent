@@ -704,6 +704,26 @@ def emit_result(
         typer.echo(render(result))
 
 
+def forward_child_stderr(result: RunResult, outcome: M | Failure) -> M | Failure:
+    """Forward a classified run's stderr under ADR-0002's #803 rule, and return it.
+
+    The producer half of the child-stderr rule, in ONE place for the two producers
+    that classify a run and hand the outcome on: :meth:`HeadlessCommand.execute` and
+    the live exchange (:func:`gda.dispatch.run_live_exchange`, #1013). The rule is
+    recorded in ADR-0002's #803 outcome note.
+
+    A failure CARRIES the stderr on ``child_stderr`` and this prints nothing:
+    whether printing it would repeat the bytes ``diagnostics`` is about to carry
+    depends on the caller's channel, which only :func:`emit_failure` knows (#798
+    review). A success has no diagnostics to duplicate, so its stderr is teed now.
+    """
+    if isinstance(outcome, Failure):
+        outcome.child_stderr = result.stderr
+    elif result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
+    return outcome
+
+
 @dataclass(frozen=True)
 class HeadlessCommand(Generic[M]):
     """A deep module for one Phase-1 headless operation.
@@ -823,17 +843,9 @@ class HeadlessCommand(Generic[M]):
         else:
             outcome = classify_run(result, binary, self.output_model)
 
-        # The child's stderr is teed AFTER classification, because on a failure it
-        # rides the ``Failure`` to the emission point instead: whether printing it
-        # here would repeat the bytes ``diagnostics`` is about to carry depends on
-        # the caller's channel, which this method does not know (#798 review). A
-        # success has no diagnostics to duplicate, so its tee stays immediate.
-        if isinstance(outcome, Failure):
-            outcome.child_stderr = result.stderr
-            return outcome
-        if result.stderr:
-            print(result.stderr, end="", file=sys.stderr)
-        return outcome
+        # The child's stderr is forwarded AFTER classification, because on a
+        # failure it rides the ``Failure`` to the emission point instead.
+        return forward_child_stderr(result, outcome)
 
     def run(
         self,

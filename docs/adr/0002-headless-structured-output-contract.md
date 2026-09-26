@@ -430,6 +430,24 @@ operation, and parse codes the CLI assigns).
 > all. Its bound IS its answer, recorded in the 2026-08-19 (#664) scope note above —
 > read that note rather than re-deriving the difference by diffing the two commands.
 
+> **Outcome (2026-09-26, #1013) — the live exchange is a child-stderr producer.**
+> The #803 note above names two producers. `screen capture`, `screen frames` and both
+> modes of `perf monitors` build their own live request, so they do not answer
+> through `HeadlessCommand.execute`, and their hand-built copies of the live pipeline
+> did not follow the rule: a daemon `error_reply` with diagnostics reached
+> `diagnostics`, but under `--json` it did not reach gda's stderr, and a success did
+> not tee. They now run the live exchange (`gda.dispatch.run_live_exchange`), which
+> is a third producer. The exchange and `execute` share one implementation of the
+> producer half, `gda.headless.forward_child_stderr`, so the rule has one copy for
+> both. The `scene preflight` recipe keeps its own attach and tee.
+>
+> A request↔reply correlation refusal — a `contract_violation` that a `screen`,
+> `perf` or `input` recipe returns after a successful reply — is built by
+> `gda.errors.reply_correlation_failure`. It carries `diagnostics: ""` and no
+> `child_stderr`: the reply's stderr was already forwarded as a success, and the
+> reply's stdout is the result payload, not diagnostics. Before #1013 the three
+> `screen` refusals carried that stdout, which holds base64 PNG data.
+
 ## Considered options
 
 - **Sentinel-delimited JSON on stdout** (chosen) — simplest, streamable, and the

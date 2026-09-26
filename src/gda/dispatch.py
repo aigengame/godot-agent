@@ -18,6 +18,7 @@ from pydantic import BaseModel, ValidationError
 
 from gda.errors import (
     Failure,
+    classify_live,
     invalid_project_failure,
     validation_error_message,
 )
@@ -28,6 +29,7 @@ from gda.headless import (
     M,
     emit_failure,
     emit_result,
+    forward_child_stderr,
     make_subprocess_runner,
     register_params_json_dispatch,
 )
@@ -97,6 +99,34 @@ def make_live_runner(binary: Optional[Path], project: Optional[Path]) -> GodotRu
     engine session.
     """
     return make_daemon_runner(project)
+
+
+def run_live_exchange(
+    operation: str,
+    wire_params: dict[str, Any],
+    reply_model: type[M],
+    *,
+    project: Optional[Path],
+) -> M | Failure:
+    """Send ONE live request to the daemon and return its classified reply.
+
+    The live exchange of a recipe that builds its own request (#1013). The
+    ``screen`` and ``perf monitors`` recipes send wire params that are not their
+    descriptor's ``params.model_dump()``, classify against an intermediate reply
+    model, and (``perf monitors --frames``) name a wire op that is not the
+    descriptor's, so they cannot run through
+    :meth:`~gda.headless.HeadlessCommand.execute`. The exchange gives them the
+    same pipeline: the :func:`make_live_runner` seam, referenced here at call
+    time so a test monkeypatch on ``gda.dispatch.make_live_runner`` still binds;
+    :func:`~gda.errors.classify_live` against ``reply_model``; and
+    :func:`~gda.headless.forward_child_stderr`, the one implementation of
+    ADR-0002's #803 rule that ``execute`` also calls.
+
+    A request/reply correlation check stays with the recipe, which alone knows the
+    request; its refusal is :func:`~gda.errors.reply_correlation_failure`.
+    """
+    result = make_live_runner(None, project).run(operation, wire_params)
+    return forward_child_stderr(result, classify_live(result, None, reply_model))
 
 
 def _emit(

@@ -4,12 +4,12 @@ One vertical slice per `Command group` (ADR-0040): this module owns the group's
 params/result models, its human renderers, its ``HeadlessCommand`` descriptors
 (ADR-0023) and its Typer command bodies, and mounts them on the root app through
 :func:`register`. It imports the shared machinery downward — the dispatch tail
-(``gda.dispatch``), the descriptor machinery (``gda.headless``, which defaults a
-LIVE descriptor's classifier to the shared ``classify_live``), the
-cross-command contract core (``gda.models``, which keeps the multi-group
-``MAX_WINDOW_FRAMES`` ceiling and the runtime-node-address description) and the
-shared render helper (``gda.render``) — and is imported by nothing but the
-composition root (``gda.cli``).
+and the live exchange (``gda.dispatch``), the descriptor machinery
+(``gda.headless``, which defaults a LIVE descriptor's classifier to the shared
+``classify_live``), the cross-command contract core (``gda.models``, which keeps
+the multi-group ``MAX_WINDOW_FRAMES`` ceiling and the runtime-node-address
+description) and the shared render helper (``gda.render``) — and is imported by
+nothing but the composition root (``gda.cli``).
 
 Both commands are LIVE (``kind = LIVE``), served through ``gda-daemon`` against
 the engine session it holds. ``perf monitors`` has two modes on one surface
@@ -29,7 +29,7 @@ import json
 import math
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any, Callable, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 import typer
 from pydantic import (
@@ -45,7 +45,6 @@ from gda import dispatch
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import (
     Failure,
-    classify_live,
     make_failure,
     reply_correlation_failure,
     validation_error_message,
@@ -59,7 +58,6 @@ from gda.headless import (
     project_option,
 )
 from gda.live_numbers import LIVE_DERIVED_PRECISION, LIVE_ENGINE_PRECISION
-from gda.live_runner import make_daemon_runner
 from gda.models import (
     MAX_WINDOW_FRAMES,
     RUNTIME_NODE_DESC,
@@ -67,7 +65,6 @@ from gda.models import (
     NormalizedPath,
 )
 from gda.render import format_value
-from gda.runner import GodotRunner
 
 
 class PerfMonitor(BaseModel):
@@ -765,11 +762,6 @@ class PerfMonitorsResult(BaseModel):
 # the one harness op a recipe reaches beside its descriptor's own.
 PERF_SAMPLE_OP = "perf-sample"
 
-# The LIVE runner factory seam, the same shape ``gda.dispatch.make_live_runner``
-# has (the ``screen`` pattern), so a test's ``inject_live_runner`` binds without
-# a second injection point; ``binary`` is unused on the live channel.
-LiveRunnerFactory = Callable[[Optional[Path], Optional[Path]], GodotRunner]
-
 
 class _SnapshotReply(BaseModel):
     """The wire shape ``perf-monitors`` returns: the original one-frame snapshot.
@@ -829,11 +821,6 @@ class _SampleReply(BaseModel):
                 f"every monitor's column carries one value per frame; {short} did not."
             )
         return self
-
-
-def _default_runner(binary: Optional[Path], project: Optional[Path]) -> GodotRunner:
-    """Build the LIVE runner for ``project`` — the daemon-channel runner factory."""
-    return make_daemon_runner(project)
 
 
 def _nearest_rank(ordered: list[float], percentile: float) -> float:
@@ -976,8 +963,6 @@ def _evaluate_budgets(
 def run_perf_monitors_operation(
     project: Optional[Path],
     params: PerfMonitorsParams,
-    *,
-    make_runner: Optional[LiveRunnerFactory] = None,
 ) -> "PerfMonitorsResult | Failure":
     """Snapshot the monitors, or sample them over a window with statistics (#223, #662).
 
@@ -987,12 +972,13 @@ def run_perf_monitors_operation(
     the ``perf-sample`` window op, CORRELATE the reply with the request (a
     self-consistent reply for a different request is still a
     ``contract_violation``), then compute the statistics from the raw samples
-    and evaluate the budget against them.
+    and evaluate the budget against them. Both ops run through the live
+    exchange (:func:`gda.dispatch.run_live_exchange`).
     """
-    runner = (make_runner or _default_runner)(None, project)
     if params.frames is None:
-        result = runner.run("perf-monitors", {})
-        snapshot = classify_live(result, None, _SnapshotReply)
+        snapshot = dispatch.run_live_exchange(
+            PERF_MONITORS_COMMAND.operation, {}, _SnapshotReply, project=project
+        )
         if isinstance(snapshot, Failure):
             return snapshot
         return PerfMonitorsResult(
@@ -1016,10 +1002,12 @@ def run_perf_monitors_operation(
                 f"{outside}; add them to --monitor or drop them from the budget.",
                 "",
             )
-    result = runner.run(
-        PERF_SAMPLE_OP, {"frames": params.frames, "monitors": params.monitors}
+    reply = dispatch.run_live_exchange(
+        PERF_SAMPLE_OP,
+        {"frames": params.frames, "monitors": params.monitors},
+        _SampleReply,
+        project=project,
     )
-    reply = classify_live(result, None, _SampleReply)
     if isinstance(reply, Failure):
         return reply
     # Correlate the (self-consistent) reply with THIS request: the harness must
@@ -1072,9 +1060,7 @@ def run_perf_monitors_operation(
 
 
 def _perf_monitors_recipe(params, *, project, godot):
-    return run_perf_monitors_operation(
-        project, params, make_runner=dispatch.make_live_runner
-    )
+    return run_perf_monitors_operation(project, params)
 
 
 def render_perf_monitors(outcome: "PerfMonitorsResult") -> str:
@@ -1143,8 +1129,10 @@ def render_perf_monitor(timeline: "PerfMonitorResult") -> str:
 # ADR-0023): one command carries both modes (#662's triage decision — no third
 # command), and the window mode's statistics and budget verdicts are computed
 # CLI-side, so the public result is assembled here rather than relayed
-# verbatim. The recipe still runs the sentinel ops (`perf-monitors` /
-# `perf-sample`), like `script validate` does. `kind = LIVE` stays a
+# verbatim. The recipe sends its two live ops (`perf-monitors`, the
+# descriptor's own, and `perf-sample`) through the shared live exchange
+# (`gda.dispatch.run_live_exchange`, #1013), whose runner seam is referenced at
+# call time, so a test's `inject_live_runner` still binds. `kind = LIVE` stays a
 # descriptor fact so "kind":"live" appears in --schema.
 PERF_MONITORS_COMMAND: HeadlessCommand[PerfMonitorsResult] = HeadlessCommand(
     operation="perf-monitors",

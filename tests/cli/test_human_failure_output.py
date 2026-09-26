@@ -25,6 +25,7 @@ import typer
 from typer.testing import CliRunner
 
 from gda.cli import app
+from gda.daemon.protocol import error_reply
 from gda.error_codes import ERROR_CODES
 from gda.errors import make_failure
 from gda.exit_codes import EXIT_LIVE, EXIT_OPERATION
@@ -41,10 +42,17 @@ from gda.render import render_failure
 from gda.runner import LaunchFailure, RunResult, TimeoutBound
 from gda.script_errors import ScriptError, ScriptErrorKind
 from tests.support import (
+    GAME_TREE_RESULT,
+    PERF_MONITORS_RESULT,
+    PERF_SAMPLE_REPLY,
+    PNG_1X1_B64,
     error_sentinel,
+    inject_live_runner,
     inject_runner,
     invoke_cli,
     minimal_project,
+    screen_capture_reply,
+    screen_frames_reply,
     sentinel,
 )
 
@@ -748,3 +756,139 @@ def test_a_preflight_verdict_still_forwards_the_engines_stderr(
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert result.stderr == _PREFLIGHT_STDERR
+
+
+# --- the live exchange (#1013) ---------------------------------------------------
+#
+# `screen capture`, `screen frames` and both modes of `perf monitors` build their
+# own live request, so they do not answer through `HeadlessCommand.execute`. Their
+# hand-built copies of that pipeline attached no `child_stderr`: a daemon
+# `error_reply` with diagnostics reached `diagnostics` (the envelope was right),
+# but under `--json` never reached gda's stderr, while `game tree --json` wrote it
+# there. They now run the shared live exchange, which forwards the relayed stderr
+# through the same implementation `execute` uses. `game tree` is the reference row:
+# it answers through `execute`, so every row must behave exactly as it does.
+
+_RELAYED_STDERR = "gda-daemon: the engine session ended\nsignal 11 in the renderer\n"
+
+
+def _live_argv(tmp_path, command: str) -> list[str]:
+    project = str(minimal_project(tmp_path))
+    return {
+        "game tree": ["game", "tree", "--project", project],
+        "screen capture": [
+            "screen",
+            "capture",
+            "--output",
+            str(tmp_path / "shot.png"),
+            "--project",
+            project,
+        ],
+        "screen frames": [
+            "screen",
+            "frames",
+            "--frames",
+            "2",
+            "--output-dir",
+            str(tmp_path / "frames"),
+            "--project",
+            project,
+        ],
+        "perf monitors": ["perf", "monitors", "--project", project],
+        "perf monitors --frames": [
+            "perf",
+            "monitors",
+            "--frames",
+            "5",
+            "--monitor",
+            "fps",
+            "--monitor",
+            "draw_calls",
+            "--project",
+            project,
+        ],
+    }[command]
+
+
+# One success payload per row, each one the recipe accepts for its argv above.
+_LIVE_SUCCESS = {
+    "game tree": GAME_TREE_RESULT,
+    "screen capture": screen_capture_reply(PNG_1X1_B64, width=1, height=1),
+    "screen frames": screen_frames_reply([PNG_1X1_B64, PNG_1X1_B64]),
+    "perf monitors": PERF_MONITORS_RESULT,
+    "perf monitors --frames": PERF_SAMPLE_REPLY,
+}
+
+_LIVE_COMMANDS = pytest.mark.parametrize("command", list(_LIVE_SUCCESS))
+
+
+def _live_failure(monkeypatch, tmp_path, command: str, *extra: str):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            **error_reply(
+                "engine_disconnected",
+                "the engine session ended",
+                diagnostics=_RELAYED_STDERR,
+            )
+        ),
+    )
+    return CliRunner().invoke(app, [*_live_argv(tmp_path, command), *extra])
+
+
+@_LIVE_COMMANDS
+def test_a_live_failure_under_json_forwards_the_relayed_stderr(
+    monkeypatch, tmp_path, command
+):
+    # The red proof (#1013), on all four recipe paths. The envelope itself did not
+    # change: `classify_live` already put the relayed stderr into `diagnostics`.
+    # What was missing is the attach, and under `--json` the attach is the only
+    # thing that puts the stream on stderr.
+    result = _live_failure(monkeypatch, tmp_path, command, "--json")
+
+    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
+    assert json.loads(result.stdout) == {
+        "error": {
+            "category": "live",
+            "code": "engine_disconnected",
+            "message": "the engine session ended",
+            "diagnostics": _RELAYED_STDERR,
+        }
+    }
+    assert result.stderr == _RELAYED_STDERR
+
+
+@_LIVE_COMMANDS
+def test_a_live_failure_says_the_relayed_stderr_once_to_a_human(
+    monkeypatch, tmp_path, command
+):
+    # The human channel is byte-identical before and after the fix: `diagnostics`
+    # IS the relayed stderr, so the emission point suppresses the tee and the
+    # rendered lines are the only copy.
+    result = _live_failure(monkeypatch, tmp_path, command)
+
+    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
+    assert result.stdout.startswith("error: engine_disconnected (live)\n")
+    assert result.stderr == ""
+    both = result.stdout + result.stderr
+    assert both.count("signal 11 in the renderer") == 1
+
+
+@_LIVE_COMMANDS
+def test_a_live_success_tees_its_relayed_stderr(monkeypatch, tmp_path, command):
+    # The success half of the rule (#803). The daemon relays no stderr on a success
+    # today, so this is injected at the runner seam: it pins that the four recipe
+    # paths reach the shared forwarding, as `game tree` does.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(_LIVE_SUCCESS[command]),
+            stderr=_RELAYED_STDERR,
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(app, [*_live_argv(tmp_path, command), "--json"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert result.stderr == _RELAYED_STDERR
