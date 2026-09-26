@@ -42,7 +42,7 @@ from pydantic import (
 )
 
 from gda import dispatch
-from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
+from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.errors import (
     Failure,
     make_failure,
@@ -1263,7 +1263,7 @@ def perf_monitors(
         summary=summary,
         budget=budget,
     )
-    dispatch_recipe(
+    dispatch_command(
         PERF_MONITORS_COMMAND,
         params,
         json_output=json_output,
@@ -1329,7 +1329,7 @@ def perf_monitor(
         raise typer.BadParameter("--property and --signal are mutually exclusive.")
     if property is None and signal is None:
         raise typer.BadParameter("perf monitor needs --property or --signal.")
-    dispatch_domain(
+    dispatch_command(
         PERF_MONITOR_COMMAND,
         PerfMonitorParams(node=node, property=property, signal=signal, frames=frames),
         json_output=json_output,

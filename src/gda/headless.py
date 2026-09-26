@@ -628,7 +628,7 @@ def emit_failure(failure: Failure, *, json_output: bool) -> NoReturn:
     human lines of :func:`gda.render.render_failure`. Either way it selects the
     process exit code, which is the same on both channels. Shared by the
     sentinel-pipeline commands (via :meth:`HeadlessCommand.run`), the native-export
-    command (``export run``), the CLI dispatch tails, and the near-miss refusal
+    command (``export run``), the CLI dispatch entry, and the near-miss refusal
     (``gda.hints``).
 
     ``json_output`` is REQUIRED and keyword-only: until #685 this function had no
@@ -695,7 +695,7 @@ def emit_result(
     pass their descriptor's renderer so every command renders success identically.
 
     ``render`` is always present: it is a required descriptor field (ADR-0023), and
-    both ``emit`` and the recipe dispatch pass ``cmd.render``.
+    both ``emit`` and the dispatch entry's recipe arm pass ``cmd.render``.
     """
     if json_output:
         typer.echo(result.model_dump_json())
@@ -775,8 +775,8 @@ class HeadlessCommand(Generic[M]):
     # ``skill``/``version``/``help`` declare none, so a passed ``--project`` is
     # the usual unknown-option refusal there. Project-using commands leave this
     # ``True`` and receive the fully resolved project (or a structured
-    # ``project_not_found``). Read by every dispatch tail
-    # (``gda.dispatch._project_context``), so it applies to the sentinel channel
+    # ``project_not_found``). Read only by ``gda.dispatch._project_context``,
+    # which the one dispatch entry calls, so it applies to the sentinel channel
     # as much as to a recipe.
     inherits_project: bool = True
 

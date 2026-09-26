@@ -34,7 +34,7 @@ from typing import Optional
 import typer
 from pydantic import BaseModel, Field, model_validator
 
-from gda.dispatch import dispatch_meta, dispatch_recipe, params_or_bad_parameter
+from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.errors import (
     MIN_GODOT_VERSION,
     Failure,
@@ -385,16 +385,17 @@ def _skill_recipe(params, *, project, godot):
 # `gda skill` is a pure emitter meta command (ADR-0024): it reads the in-package
 # SKILL.md and emits or installs it, spawning no Godot — so, like `export run` and
 # the daemon lifecycle, it carries a `recipe` on its descriptor and dispatches
-# through it (`dispatch_recipe`) rather than the sentinel pipeline. It stays
-# HEADLESS `kind` (the default) and meta (no --project), a sibling of info/schema.
+# through it (the recipe arm of `dispatch_command`) rather than the sentinel
+# pipeline. It stays HEADLESS `kind` (the default) and meta (no --project), a
+# sibling of info/schema.
 SKILL_COMMAND: HeadlessCommand[SkillResult] = HeadlessCommand(
     operation="skill",
     input_model=SkillParams,
     output_model=SkillResult,
     render=render_skill,
     recipe=_skill_recipe,
-    # A pure meta emitter (ADR-0024): no --project, resolves none — so the recipe
-    # dispatcher must not resolve a project for it (an inherited invalid $GDA_PROJECT
+    # A pure meta emitter (ADR-0024): no --project, resolves none — so the dispatch
+    # entry must not resolve a project for it (an inherited invalid $GDA_PROJECT
     # must not make `gda skill` fail, #357).
     inherits_project=False,
 )
@@ -470,7 +471,7 @@ def register(root: typer.Typer) -> None:
         which is also what an inherited `$GDA_PROJECT` gets you: this command never
         acquires a project it was not explicitly given.
         """
-        dispatch_meta(
+        dispatch_command(
             INFO_COMMAND,
             InfoParams(),
             json_output=json_output,
@@ -534,7 +535,7 @@ def register(root: typer.Typer) -> None:
             raise typer.BadParameter(
                 "`--install` requires `--dir` or `--provider` (where to write the SKILL.md)"
             )
-        dispatch_recipe(
+        dispatch_command(
             SKILL_COMMAND,
             params_or_bad_parameter(
                 SkillParams,
@@ -590,7 +591,7 @@ def register(root: typer.Typer) -> None:
         long session and keep the output: it is what ties later results to the code
         that produced them. For the ENGINE's version, run `gda info`.
         """
-        dispatch_recipe(
+        dispatch_command(
             VERSION_COMMAND,
             VersionParams(),
             json_output=json_output,
@@ -618,7 +619,7 @@ def register(root: typer.Typer) -> None:
         here too, while the `--help` FLAG stays text-only. A path that names no
         command is refused exactly as the parser refuses it, curated hint included.
         """
-        dispatch_recipe(
+        dispatch_command(
             help_command,
             HelpParams(command=list(command or [])),
             json_output=json_output,

@@ -25,7 +25,7 @@ import typer
 from pydantic import BaseModel, Field
 
 from gda.commands.diag import SourceFrame, diag_limit_option, DIAG_LIMIT_DESC
-from gda.dispatch import dispatch_domain, params_or_bad_parameter
+from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.execution import ExecutionKind
 from gda.live_numbers import LIVE_ENGINE_PRECISION
 from gda.headless import (
@@ -276,7 +276,7 @@ def logger_tail(
     writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
     value.
     """
-    dispatch_domain(
+    dispatch_command(
         LOGGER_TAIL_COMMAND,
         params_or_bad_parameter(LoggerTailParams, level=level, limit=limit, raw=raw),
         json_output=json_output,

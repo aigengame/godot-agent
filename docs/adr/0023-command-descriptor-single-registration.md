@@ -167,3 +167,15 @@ no renderer is orphaned. The "command wired without a renderer" failure
 > per-group module split, and ADR-0043 (proposed) decides the structure of the
 > GDScript dispatch in `operations.gd`. The cross-language `operation`-name contract
 > stays open: ADR-0043 lists its unit guard under "Not decided here".
+
+> **Outcome (2026-09-26, #1014):** the dispatch channel is now read off the descriptor
+> in one place. One entry, `gda.dispatch.dispatch_command`, replaced the three tails
+> that each argv body chose by hand (`dispatch_domain`, `dispatch_meta`,
+> `dispatch_recipe`). It branches only on `recipe is None`, as Decision 1 says, and
+> every argv body and the `--params-json` path call it. Before, 78 bodies answered
+> the descriptor's question a second time: #838, #843 and #854 each moved commands
+> between tails by hand, and a body that missed such a move would skip its recipe on
+> argv only. `inherits_project` is still read only by `_project_context`. Existing
+> command tests guard the branch — a mutant entry that ignores `recipe` fails
+> `gda skill`, and one that always takes it fails `scene get` — while the registry
+> test reads only descriptors and cannot.

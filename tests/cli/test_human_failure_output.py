@@ -525,9 +525,10 @@ def test_an_unresolvable_project_is_refused_in_lines_on_the_dispatch_tail(tmp_pa
 
 
 def test_a_recipe_failure_is_refused_in_lines_too(monkeypatch, tmp_path):
-    # `dispatch.dispatch_recipe`'s failure arm — the branch a recipe command takes
-    # instead of the sentinel pipeline (ADR-0023). An empty runtime dir means the
-    # real discovery finds no daemon, so no engine and no daemon are involved.
+    # The failure branch of `dispatch.dispatch_command`'s recipe arm — the arm a
+    # recipe command takes instead of the sentinel pipeline (ADR-0023). An empty
+    # runtime dir means the real discovery finds no daemon, so no engine and no
+    # daemon are involved.
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
 
     result = CliRunner().invoke(

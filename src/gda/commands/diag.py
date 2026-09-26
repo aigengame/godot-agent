@@ -28,7 +28,7 @@ from typing import Optional
 import typer
 from pydantic import BaseModel, Field
 
-from gda.dispatch import dispatch_domain, params_or_bad_parameter
+from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -223,7 +223,7 @@ def diag_errors(
     `engine_session_not_running`; with a session whose log file is gone,
     `live_log_unavailable`. An empty log is an empty result, not an error.
     """
-    dispatch_domain(
+    dispatch_command(
         DIAG_ERRORS_COMMAND,
         params_or_bad_parameter(DiagErrorsParams, limit=limit),
         json_output=json_output,
