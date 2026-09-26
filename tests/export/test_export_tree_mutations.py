@@ -398,13 +398,10 @@ def test_one_unreadable_inode_is_counted_once_in_the_published_report(tmp_path):
     locked = project / "locked"
     _write(locked / "secret.tres", "old")
     (project / "alias").symlink_to(locked, target_is_directory=True)
-    if not unlistable(locked):
-        pytest.skip("this platform lets the owner list a mode-000 directory")
-
-    try:
+    with unlistable(locked) as agreed:
+        if not agreed:
+            pytest.skip("this platform lets the owner list a mode-000 directory")
         mutations = _mutations(_export(project))
-    finally:
-        locked.chmod(0o755)
 
     assert mutations.skipped == 1
     assert (mutations.created, mutations.modified) == ([], [])

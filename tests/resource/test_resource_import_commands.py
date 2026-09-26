@@ -248,13 +248,10 @@ def test_an_unreadable_subtree_is_counted_once_beside_the_created_list(
     project, locked = _locked_icon_project(tmp_path)
     calls, fake_launch = _fake_pass(project, _icon_effects)
     monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
-    if not unlistable(locked):
-        pytest.skip("this platform lets the owner list a mode-000 directory")
-
-    try:
+    with unlistable(locked) as agreed:
+        if not agreed:
+            pytest.skip("this platform lets the owner list a mode-000 directory")
         result = _run(project, "res://icon.png")
-    finally:
-        locked.chmod(0o755)
 
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
@@ -291,15 +288,12 @@ def test_the_render_names_the_unreadable_count_beside_the_created_line(
     project, locked = _locked_icon_project(tmp_path)
     calls, fake_launch = _fake_pass(project, _icon_effects)
     monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
-    if not unlistable(locked):
-        pytest.skip("this platform lets the owner list a mode-000 directory")
-
-    try:
+    with unlistable(locked) as agreed:
+        if not agreed:
+            pytest.skip("this platform lets the owner list a mode-000 directory")
         partial = runner_cli.invoke(
             app, ["resource", "import", "res://icon.png", "--project", str(project)]
         )
-    finally:
-        locked.chmod(0o755)
 
     assert partial.exit_code == 0, partial.stdout + partial.stderr
     created_line = next(

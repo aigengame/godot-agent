@@ -394,13 +394,10 @@ def test_a_directory_the_walk_cannot_list_is_counted_once_per_inode(tmp_path):
     locked = project / "locked"
     _write(locked / "secret.tres", "old")
     (project / "alias").symlink_to(locked, target_is_directory=True)
-    if not unlistable(locked):
-        pytest.skip("this platform lets the owner list a mode-000 directory")
-
-    try:
+    with unlistable(locked) as agreed:
+        if not agreed:
+            pytest.skip("this platform lets the owner list a mode-000 directory")
         settled = _settle(project)
-    finally:
-        locked.chmod(0o755)
 
     assert settled.skipped == 1
     assert settled.created == []
@@ -414,13 +411,10 @@ def test_a_file_under_a_locked_directory_is_not_announced_as_created(tmp_path):
     project = minimal_project(tmp_path)
     locked = project / "locked"
     _write(locked / "secret.tres", "old")
-    if not unlistable(locked):
-        pytest.skip("this platform lets the owner list a mode-000 directory")
-
-    try:
+    with unlistable(locked) as agreed:
+        if not agreed:
+            pytest.skip("this platform lets the owner list a mode-000 directory")
         settled = _settle(project, lambda: locked.chmod(0o755))
-    finally:
-        locked.chmod(0o755)
 
     assert settled.created == []
     assert settled.modified == []
@@ -544,14 +538,12 @@ def test_a_spelling_that_vanishes_between_the_captures_does_not_split_one_inode(
     locked.mkdir()
     (locked / "hidden.txt").write_text("x", encoding="utf-8")
     (project / "alias").symlink_to(locked, target_is_directory=True)
-    if not unlistable(locked):
-        pytest.skip("this platform lists a mode-000 directory")
-    try:
+    with unlistable(locked) as agreed:
+        if not agreed:
+            pytest.skip("this platform lists a mode-000 directory")
         inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
         (project / "alias").unlink()
         assert inventory.settle().skipped == 1
-    finally:
-        locked.chmod(0o755)
 
 
 def test_a_spelling_retargeted_to_a_second_unreadable_inode_counts_both(tmp_path):
@@ -569,16 +561,13 @@ def test_a_spelling_retargeted_to_a_second_unreadable_inode_counts_both(tmp_path
     other.mkdir()
     alias = project / "alias"
     alias.symlink_to(locked, target_is_directory=True)
-    try:
-        if not (unlistable(locked) and unlistable(other)):
+    with unlistable(locked) as agreed, unlistable(other) as other_agreed:
+        if not (agreed and other_agreed):
             pytest.skip("this platform lists a mode-000 directory")
         inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
         alias.unlink()
         alias.symlink_to(other, target_is_directory=True)
         assert inventory.settle().skipped == 2
-    finally:
-        locked.chmod(0o755)
-        other.chmod(0o755)
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs only")
@@ -639,14 +628,12 @@ def test_an_entry_beneath_a_directory_that_opens_up_is_observed_not_created(
     locked.mkdir()
     (locked / "old.txt").write_text("x", encoding="utf-8")
     os.mkfifo(locked / "pipe")
-    if not unlistable(locked):
-        pytest.skip("this platform lists a mode-000 directory")
-    try:
+    with unlistable(locked) as agreed:
+        if not agreed:
+            pytest.skip("this platform lists a mode-000 directory")
         inventory = ProjectTreeInventory.capture(project, detect_rewrites=False)
         locked.chmod(0o755)
         settled = inventory.settle()
-    finally:
-        locked.chmod(0o755)
     assert settled.skipped == 2
     assert settled.created == []
 
@@ -661,14 +648,15 @@ def test_a_covered_file_is_observed_as_the_capture_reads_it(tmp_path):
     project = minimal_project(tmp_path / "proj")
     target = project / "data.txt"
     target.write_text("first", encoding="utf-8")
-    if not unreadable(target):
-        pytest.skip("this platform reads a mode-000 file")
-    inventory = ProjectTreeInventory.capture(project, detect_rewrites=True)
-    replacement = tmp_path / "second"
-    replacement.write_text("second", encoding="utf-8")
-    replacement.chmod(0o000)
-    os.replace(replacement, target)
-    assert inventory.settle().skipped == 2
+    with unreadable(target) as agreed:
+        if not agreed:
+            pytest.skip("this platform reads a mode-000 file")
+        inventory = ProjectTreeInventory.capture(project, detect_rewrites=True)
+        replacement = tmp_path / "second"
+        replacement.write_text("second", encoding="utf-8")
+        replacement.chmod(0o000)
+        os.replace(replacement, target)
+        assert inventory.settle().skipped == 2
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs only")
@@ -686,6 +674,7 @@ def test_a_covered_cache_entry_is_observed_without_a_hash(tmp_path):
     inventory = ProjectTreeInventory.capture(project, detect_rewrites=True)
     pipe.unlink()
     pipe.write_text("regular", encoding="utf-8")
-    if not unreadable(pipe):
-        pytest.skip("this platform reads a mode-000 file")
-    assert inventory.settle().skipped == 1
+    with unreadable(pipe) as agreed:
+        if not agreed:
+            pytest.skip("this platform reads a mode-000 file")
+        assert inventory.settle().skipped == 1
