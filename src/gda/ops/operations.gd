@@ -37,6 +37,8 @@ const REFERENCE_GRAPH := preload("lib/reference_graph.gd")
 const FILE_WRITE := preload("lib/file_write.gd")
 const OBJECT_REF := preload("lib/object_ref.gd")
 const TEXT_EDIT := preload("lib/text_edit.gd")
+const SCENE_STORE := preload("lib/scene_store.gd")
+const SCENE_VALIDATE := preload("lib/scene_validate.gd")
 
 const RESULT_BEGIN := "<<<GDA:RESULT>>>"
 const RESULT_END := "<<<GDA:END>>>"
@@ -99,7 +101,6 @@ const OP_ERROR_UNKNOWN_SETTING := "unknown_setting"
 const OP_ERROR_INVALID_TARGET := "invalid_target"
 const OP_ERROR_INVALID_KEY := "invalid_key"
 
-const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
 # The prefix every gda diagnostic line carries on stderr (see _diag), so a reader
 # can tell gda's own lines from the engine's. A const rather than an inline
@@ -115,62 +116,6 @@ const DIAG_PREFIX := "gda: "
 # how or where the line is written.
 const VALIDATE_MARKER := "validating: "
 
-# The problem kinds scene-validate reports, one per unresolvable dependency of a
-# scene (#664). Values, not free prose: gda projects them into a closed enum on
-# the published result, so an agent branches on the kind instead of matching a
-# message. SCENE_PROBLEM_SCRIPT_COMPILE_FAILED deliberately spells the same string
-# as the script_compile_failed error code — it is the same condition, reported as
-# a verdict here rather than as a refusal.
-const SCENE_PROBLEM_MISSING_RESOURCE := "missing_resource"
-const SCENE_PROBLEM_UNLOADABLE_RESOURCE := "unloadable_resource"
-const SCENE_PROBLEM_SCRIPT_COMPILE_FAILED := "script_compile_failed"
-# Deliberately the same word OP_ERROR_INCOMPATIBLE_SCRIPT_TYPE's remedy speaks:
-# the script compiles but its native base cannot bind the node that carries it.
-const SCENE_PROBLEM_INCOMPATIBLE_SCRIPT := "incompatible_script"
-# The three problems the SUB-SCENE walk can raise that a single file never does
-# (#721). The first is a real defect: a scene references one that already
-# references it, and Godot refuses the closing reference. The other two are LIMITS
-# gda declares about ITSELF — the walk stopped or could not read the target, so
-# what lies below is unchecked rather than sound. Both are reported for the same
-# reason the depth one was: a gate must not answer "sound" about a subtree it never
-# opened (GDA-DF-030).
-const SCENE_PROBLEM_CYCLIC_INSTANCE := "cyclic_instance"
-const SCENE_PROBLEM_INSTANCE_DEPTH_EXCEEDED := "instance_depth_exceeded"
-# A referenced scene in the BINARY .scn form (#721 review). It loads perfectly
-# well; what it does not carry is the [gd_scene] TEXT the walk reads its
-# dependency set out of — the same reason the top-level op refuses a .scn
-# outright. Measured on Godot 4.6.3: a .tscn parent instancing a .scn child whose
-# script has a syntax error, or whose script cannot bind its node, answered
-# `valid: true, problems: []` while the engine's own load of that parent reported
-# the child's break. Silence there reproduces exactly the defect this command
-# exists to prevent.
-const SCENE_PROBLEM_UNREADABLE_SUB_SCENE := "unreadable_sub_scene"
-
-# How many levels of referenced sub-scenes below the validated scene the walk
-# descends before it stops and says so (#721 review). The bound is on the
-# SHORTEST route to each file, not on the first route walked — see `reached_depth` in
-# _new_scene_walk for why that distinction is the contract and not an internal.
-#
-# It bounds GDA'S OWN work, and nothing else. Measured on Godot 4.6.3 against a
-# straight chain of N scenes each instancing the next (two runs each, quiet
-# machine): the pre-#721 command is FLAT at ~2s for both N=100 and N=300, because
-# it does ONE load and the engine walks the chain internally. The unbounded
-# composed walk added a per-file pass on top of that load and went 5-7s at N=100
-# and 38-47s at N=300 — superlinear, and close enough to the 60s launch ceiling
-# that it CROSSES it into launch_timeout when the machine is under load, which is
-# how the regression was first seen. Bounded, the same chains take 3-4s and 5-6s.
-#
-# It does NOT make deep chains safe, and must not be described as if it did: at
-# N=1200 the engine's own loader overflows its stack and the run dies with signal
-# 11 — on the PRE-#721 code too, where no gda recursion exists. That failure is the
-# engine's, it is reached through the single top-level load this bound does not
-# touch, and no cap here can prevent it.
-#
-# 16 is the number _packed_scene_root_type already refuses past, on the very same
-# axis (it walks the instancing chain of a scene's root), and the number
-# JSONIFY_MAX_DEPTH uses for value recursion. Real compositions nest a handful of
-# levels deep; 16 leaves large headroom while keeping the walk's cost bounded.
-const SCENE_INSTANCE_MAX_DEPTH := 16
 
 # The startup verdicts scene-preflight reports (#664). The third one an agent can
 # read, `timeout`, is gda's own: only the CLI knows the launch outran its bound,
@@ -239,6 +184,7 @@ var _group: RefCounted = null
 var _file_write := FILE_WRITE.new(self)
 var _object_ref := OBJECT_REF.new(self)
 var _text_edit := TEXT_EDIT.new(self)
+var _scene_store := SCENE_STORE.new(self)
 
 
 func _initialize() -> void:
@@ -429,7 +375,7 @@ func _op_scene_create(params: Dictionary) -> void:
 		_fail(OP_ERROR_INVALID_ROOT_TYPE, "not an instantiable Node class: " + root_type)
 		return
 	var root_name := VALUE._string_param(params, "root_name")
-	if not _is_valid_node_name(root_name):
+	if not _scene_store._is_valid_node_name(root_name):
 		_fail(OP_ERROR_INVALID_ROOT_NAME, "invalid root_name: " + root_name)
 		return
 	if FileAccess.file_exists(path) or DirAccess.dir_exists_absolute(path):
@@ -453,7 +399,7 @@ func _op_scene_create(params: Dictionary) -> void:
 	if created_dirs == null:
 		root.free()
 		return  # _ensure_parent_dirs already recorded the failure
-	if not _repack_and_save(root, path):
+	if not _scene_store._repack_and_save(root, path):
 		return  # _repack_and_save already recorded the failure (and freed root)
 
 	_succeed({
@@ -473,14 +419,14 @@ func _op_scene_create(params: Dictionary) -> void:
 # without constructing a single node.
 func _op_scene_get(params: Dictionary) -> void:
 	_diag("running operation: scene-get")
-	var packed: PackedScene = _load_scene(params)
+	var packed: PackedScene = _scene_store._load_scene(params)
 	if packed == null:
 		return  # _load_scene already recorded the failure
 	var path := VALUE._string_param(params, "path")
 
 	_succeed({
 		"path": path,
-		"root": _tree_from_state(packed.get_state(), false, SCENE_TEXT._scene_instance_paths_by_node_path(path)),
+		"root": _scene_store._tree_from_state(packed.get_state(), false, SCENE_TEXT._scene_instance_paths_by_node_path(path)),
 	})
 
 
@@ -506,7 +452,7 @@ func _op_scene_get(params: Dictionary) -> void:
 # declared surface, so an inherited engine property never leaks in.
 func _op_scene_get_exports(params: Dictionary) -> void:
 	_diag("running operation: scene-get-exports")
-	var packed: PackedScene = _load_scene(params)
+	var packed: PackedScene = _scene_store._load_scene(params)
 	if packed == null:
 		return  # _load_scene already recorded the failure
 	var root: Node = packed.instantiate()
@@ -633,7 +579,7 @@ func _op_scene_list(_params: Dictionary) -> void:
 # content removed, not just the path.
 func _op_scene_delete(params: Dictionary) -> void:
 	_diag("running operation: scene-delete")
-	var packed: PackedScene = _load_scene(params)
+	var packed: PackedScene = _scene_store._load_scene(params)
 	if packed == null:
 		return  # _load_scene already recorded the failure
 	var path := VALUE._string_param(params, "path")
@@ -719,7 +665,7 @@ func _op_scene_validate(params: Dictionary) -> void:
 	# must BE "gd_scene" — `[gd_scene]` or `[gd_scene <attrs>…]` — or a
 	# `[gd_scenery]` would pass a bare prefix test (#720 recheck).
 	var text := FileAccess.get_file_as_string(path)
-	if not _has_scene_header(text):
+	if not SCENE_VALIDATE._has_scene_header(text):
 		_fail(OP_ERROR_NOT_A_SCENE, "not a scene document (no [gd_scene] header): " + path)
 		return
 
@@ -730,7 +676,7 @@ func _op_scene_validate(params: Dictionary) -> void:
 	# script-backed custom Resource (verified against Godot 4.6.3). Gating on the load
 	# would answer `not_a_scene` for exactly the broken dependency this command exists
 	# to report, and about a file that IS a scene.
-	var own: Variant = _scene_own_problems(path)
+	var own: Variant = SCENE_VALIDATE._scene_own_problems(path)
 	if own == null:
 		# Nothing found and nothing loadable is the group's ordinary not-a-scene,
 		# reported in its words. The ROOT's contract only: a SUB-scene that does not
@@ -738,724 +684,22 @@ func _op_scene_validate(params: Dictionary) -> void:
 		# (#721) — the caller asked about THIS file, and it is a scene.
 		_fail(OP_ERROR_NOT_A_SCENE, "failed to load as a scene: " + path)
 		return
-	var problems := _attributed_problems(own as Array, path)
+	var problems := SCENE_VALIDATE._attributed_problems(own as Array, path)
 	# The COMPOSED verdict (#721): a scene that references a broken one is broken,
 	# and its own walk cannot see it — Godot resolves res://child.tscn perfectly
 	# well while everything inside the child is gone. The walk therefore descends
 	# into each referenced .tscn and adds its findings, each stamped with the file
 	# it was found in. The depth-bound findings are settled only once every route
 	# has been walked, so they come last.
-	var walk := _new_scene_walk(path, problems)
-	_collect_sub_scene_problems(path, walk)
-	_flush_pending_depth_problems(walk)
+	var walk := SCENE_VALIDATE._new_scene_walk(path, problems)
+	SCENE_VALIDATE._collect_sub_scene_problems(path, walk)
+	SCENE_VALIDATE._flush_pending_depth_problems(walk)
 
 	_succeed({
 		"path": path,
 		"valid": problems.is_empty(),
 		"problems": problems,
 	})
-
-
-# One scene file's OWN verdict — the two-stage check, without any sub-scene: the
-# dependency walk, and, only when it found nothing, the binding scan of the loaded
-# scene. Returns the problems, or null when the file did not load as a scene at
-# all. Shared by the root and by every sub-scene the walk descends into (#721), so
-# a composed verdict is the same question asked of each file rather than a second
-# implementation.
-#
-# The load is only ASKED when the scan found nothing: a scene already known broken
-# needs no second opinion, and loading it would only add the engine's own cascade
-# to stderr. The BINDING scan (#720 review) then answers what the dependency walk
-# cannot — the walk proves each referenced file loads, but not that a script can
-# bind the node that carries it, and it never sees an EMBEDDED [sub_resource
-# type="GDScript"] at all. Both are read off the loaded scene's state, so that
-# stage runs only when the load did.
-#
-# The null return is a fact, not a verdict: what the CALLER does with it differs
-# (the root refuses, the walk skips), which is why this reports the condition
-# instead of deciding it.
-func _scene_own_problems(path: String) -> Variant:
-	var problems := _scene_dependency_problems(path)
-	if not problems.is_empty():
-		return problems
-	var packed := ResourceLoader.load(path, "PackedScene") as PackedScene
-	if not _is_loaded_scene(packed):
-		return null
-	return _scene_binding_problems(packed)
-
-
-# Stamp every problem with the scene file it was found in, and hand the array back
-# (#721). ATTRIBUTION is what makes a composed verdict readable: without it a
-# missing script inside child.tscn reads as a problem of parent.tscn, and each
-# problem's `nodes` — which are relative to the scene that owns them — would be
-# resolved against the wrong tree. Present on EVERY problem, the root's included,
-# so a reader never has to infer it.
-func _attributed_problems(problems: Array, scene_path: String) -> Array:
-	for problem in problems:
-		(problem as Dictionary)["scene"] = scene_path
-	return problems
-
-
-# The OUTCOME an edge of the scene graph has been settled with, and the rule that
-# promotes one into the other (#721 review round 4). An edge — one declaring file,
-# one target — carries at most ONE problem, and these say which and whether it
-# still stands:
-#
-# - SCENE_EDGE_DEPTH_PENDING is PROVISIONAL. The edge was declined because its
-#   target lay past the depth bound ON THIS ROUTE, and the finding it holds is
-#   published only at the end, and only if no route ever reached that target
-#   inside the bound (_flush_pending_depth_problems);
-# - SCENE_EDGE_REPORTED is TERMINAL. A problem about this edge is already in the
-#   result, and nothing later can add a second one or take it back.
-#
-# PROMOTION: provisional -> terminal is allowed, and WITHDRAWS the pending
-# finding; every other transition is refused. That rule is the whole reason an
-# edge has an outcome instead of an "already reported" flag. With one flag for
-# both states, a deep route's depth deferral SUPPRESSED the cyclic_instance a
-# later, shorter route proved on the same edge, and the deferral was then dropped
-# because its target had been reached — so a cyclic composition answered
-# `valid: true`. Measured on Godot 4.6.3 over `root -> d1 ... d15 -> s -> t` plus
-# `root -> t -> s`: valid deep-first, one cyclic_instance direct-first (#721
-# review round 4).
-#
-# Promotion never loses a finding: a cycle target is by definition an ancestor of
-# the current descent, and the walk records a file's depth before it descends into
-# it, so that target was reached inside the bound — which is exactly the condition
-# under which the flush drops a pending finding anyway.
-const SCENE_EDGE_DEPTH_PENDING := "depth_pending"
-const SCENE_EDGE_REPORTED := "reported"
-
-
-# The traversal state of ONE composed verdict, in one bag (#721). Five fields that
-# only ever move together, so they are passed as one rather than as five
-# positionals that a later addition has to thread through every call site.
-#
-# Each answers exactly ONE question, and the comment says which — and, where it
-# has been misread, which question it does NOT answer. Three rounds of review
-# found the same defect three times, each time a single record standing for two
-# states (seen/answered, answered/expanded, provisional/terminal), so the fields
-# are documented as the questions they answer (#721 review round 4):
-#
-# - `problems` is the caller's own array, appended to in place;
-#
-# - `answered`: "has this file's OWN verdict been produced?" — validated, or
-#   reported as one the walk cannot read. It is what makes a file's own problems
-#   appear once however many sites reference it, and what keeps the one expensive
-#   step (the load and the script compiles behind _scene_own_problems) to once per
-#   file. It says NOTHING about the file's references: a file is answered for
-#   before its subtree is walked, and stays answered when a later route walks that
-#   subtree again;
-#
-# - `reached_depth`: "what is the SMALLEST depth at which the walk reached this
-#   file INSIDE the bound?" — and, by carrying a key at all, "was this file
-#   reached inside the bound?", which is the question every pending depth finding
-#   is settled against. A file reached again at a strictly smaller depth is
-#   expanded again from there, which is what makes the reachable SET a property of
-#   the graph rather than of the order two [ext_resource] lines appear in. A file
-#   with nothing below it to reach — missing, unreadable, or not a scene document
-#   — is recorded at 0, the minimum, so no shorter route can improve on it. It
-#   does NOT answer whether the file's own problems were produced (`answered`
-#   does), and it is not a record of the routes taken, only of the best one;
-#
-# - `chain`: "which files are ancestors of the descent currently under way?" —
-#   which is how a cycle is recognized, and whose SIZE is the depth of the edge
-#   being examined (the same fact counted, not a second one). It is not a record
-#   of what the walk has seen: it shrinks again on the way back up;
-#
-# - `edges`: "what OUTCOME has this edge — declaring file, then target — been
-#   settled with, and what finding is still pending for it?" One record per edge;
-#   see SCENE_EDGE_DEPTH_PENDING for the outcomes and the promotion rule between
-#   them. Kept on the WALK rather than on one descent because a file can be
-#   expanded more than once, and the same edge must not be reported once per
-#   expansion.
-#
-# Every key is a CANONICAL path (_canonical_resource_path) — the root's included,
-# which the caller must canonicalize before it seeds this. A root spelled
-# `res://./main.tscn` seeded a key its own children's references could never match,
-# so the file was answered for twice (#721 review round 3).
-func _new_scene_walk(root_path: String, problems: Array) -> Dictionary:
-	return {
-		"problems": problems,
-		"answered": {root_path: true},
-		"reached_depth": {root_path: 0},
-		"chain": {root_path: true},
-		"edges": {},
-	}
-
-
-# Descend into the scenes `scene_path` references, appending each one's own
-# problems to the walk (#721). Depth-first in DECLARATION order, so the composed
-# list reads parent-then-child, and each entry already carries the file it belongs
-# to.
-#
-# Five decisions, none of them free:
-#
-# - WHAT is descended into is decided by _is_sub_scene_edge, the one projection
-#   that owns "this reference is a sub-scene". Read it for the rule.
-#
-# - TERMINATION: `answered` holds every file the walk has produced a verdict
-#   about, so it stops on its own — it is bounded by the number of DISTINCT scene
-#   files reachable from the root, a finite set. A sub-scene is therefore reported
-#   ONCE PER FILE, not once per referencing site: a broken child instanced at five
-#   places is one broken file, which is the same rule the dependency walk already
-#   applies to a path declared twice. Every key is the canonical path
-#   (_resolve_ref_path), so an alias spelling is the same file.
-#
-# - DEPTH is bounded SEPARATELY, because terminating is not the same as finishing
-#   in time (#721 review). Stopping was never the problem; COST was. Each level
-#   adds a per-file pass on top of the single load the engine already walks the
-#   chain for, and measured on a straight N-scene chain that term is superlinear:
-#   the pre-#721 command is flat at ~2s for N=100 and N=300 while the unbounded
-#   composed walk went 5-7s then 38-47s, near enough the 60s launch ceiling to
-#   cross it under load. SCENE_INSTANCE_MAX_DEPTH
-#   removes that term, and reaching it is REPORTED (instance_depth_exceeded) rather
-#   than silently accepted, so an unchecked subtree never reads as a sound one. Read
-#   that constant for what the bound does and does not do — in particular it does
-#   not, and cannot, prevent the engine-side stack overflow that kills a 1200-deep
-#   chain with or without any of this.
-#
-# - The bound is on the SHORTEST route, not on the first one walked.
-#   `reached_depth` holds the smallest depth each file was reached at, and a file
-#   reached again nearer the root is walked again from there — which is what makes
-#   the published verdict independent of the order two [ext_resource] lines happen
-#   to appear in. The cheap half of the walk (read the text, parse the lines) is
-#   what repeats; the expensive half (`_scene_own_problems`: the load and the
-#   script compiles) sits behind `answered` and runs once per file whatever the
-#   shape of the graph. A file's recorded depth strictly decreases each time, and
-#   depth is bounded by SCENE_INSTANCE_MAX_DEPTH, so the repetition is bounded too.
-#
-# - A CYCLE is reported, not merely survived: `chain` holds the ancestors of the
-#   current descent, and a reference back into it becomes a cyclic_instance
-#   problem attributed to the file that declares it. `answered` alone would stop
-#   the walk silently, which would hide a composition the engine mutilates.
-#   Checked BEFORE `answered` — every ancestor is also answered for, so the
-#   cheaper test would swallow the diagnostic — and its outcome is TERMINAL, so it
-#   also outranks whatever a deeper route left on the same edge
-#   (see _report_cycle_edge).
-func _collect_sub_scene_problems(scene_path: String, walk: Dictionary) -> void:
-	var text := FileAccess.get_file_as_string(scene_path)
-	if text.is_empty():
-		return
-	var out: Array = walk["problems"]
-	var answered: Dictionary = walk["answered"]
-	var reached_depth: Dictionary = walk["reached_depth"]
-	var chain: Dictionary = walk["chain"]
-	for entry in SCENE_TEXT._ext_resource_entries_from_text(text, scene_path.get_base_dir()):
-		if not _is_sub_scene_edge(entry):
-			continue
-		var ref_path := String(entry["normalized_path"])
-		# Nothing is relaxed on this branch, and nothing needs to be: an ancestor
-		# was reached at a smaller depth than the edge that points back at it, so
-		# this route could not improve on its recorded depth.
-		if chain.has(ref_path):
-			_report_cycle_edge(walk, scene_path, text, entry)
-			continue
-		# `chain` holds the ancestors of this edge's target, so its size IS the
-		# target's depth below the validated scene. DEFERRED rather than reported:
-		# a shorter route to the same target may still reach it, and whether this
-		# deep route or that short one is walked FIRST is nothing but declaration
-		# order — see _flush_pending_depth_problems.
-		var depth := chain.size()
-		if depth > SCENE_INSTANCE_MAX_DEPTH:
-			_defer_depth_edge(walk, scene_path, text, entry)
-			continue
-		# Already reached from here or from nearer the root: nothing this route can
-		# add. Only a STRICTLY shorter route falls through, and then only to expand
-		# the subtree again — never to repeat the file's own problems.
-		if reached_depth.has(ref_path) and int(reached_depth[ref_path]) <= depth:
-			continue
-		if not answered.has(ref_path):
-			answered[ref_path] = true
-			# A referenced scene the walk cannot READ. Three cases, told apart
-			# because the reader needs different things from them:
-			#
-			# - the file is not there, or is there but no loader opens it: the
-			#   referencing file's own dependency walk has ALREADY named it
-			#   (missing_resource / unloadable_resource) with the node that
-			#   references it, so a second problem here would be one finding
-			#   reported twice;
-			# - the file LOADS as a PackedScene, but its bytes are not the
-			#   [gd_scene] text the walk reads — a binary .scn, or a PackedScene
-			#   saved into a .res resource file. Nothing has been said about it,
-			#   and staying silent would let a composed verdict answer "sound"
-			#   about a subtree it never opened;
-			# - the file loads as something else entirely (a line that declares
-			#   type="PackedScene" over a resource that is not one). The engine
-			#   ignores that declaration and loads what is actually there, so there
-			#   is no sub-scene here and nothing to report.
-			#
-			# All three are recorded at depth 0: there is nothing below them for a
-			# shorter route to reach.
-			if not FileAccess.file_exists(ref_path):
-				reached_depth[ref_path] = 0
-				continue
-			if not _has_scene_header(FileAccess.get_file_as_string(ref_path)):
-				if ResourceLoader.load(ref_path) is PackedScene:
-					out.append(_sub_scene_edge_problem(SCENE_PROBLEM_UNREADABLE_SUB_SCENE, entry,
-							scene_path, text,
-							"this scene loads, but not as the [gd_scene] text gda reads a "
-							+ "dependency set out of — a binary .scn, or a PackedScene saved "
-							+ "into a resource file, carries none, which is why the command "
-							+ "refuses such a file as its target too. This scene and "
-							+ "everything it references are UNCHECKED, not judged sound. "
-							+ "Re-save it as .tscn for a composed verdict that covers it"))
-				reached_depth[ref_path] = 0
-				continue
-			var own: Variant = _scene_own_problems(ref_path)
-			if own != null:
-				out.append_array(_attributed_problems(own as Array, ref_path))
-		# Descended into even when it did not load: its text is still readable, and
-		# the scenes IT references can be broken for reasons of their own.
-		reached_depth[ref_path] = depth
-		chain[ref_path] = true
-		_collect_sub_scene_problems(ref_path, walk)
-		chain.erase(ref_path)
-
-
-# Whether an [ext_resource] entry is an edge into a SUB-SCENE — the one projection
-# that owns that question for the composed walk (#721 review round 3).
-#
-# A UNION of two triggers, because neither alone covers the scenes Godot writes:
-#
-# - the resolved PATH names a scene file: a .tscn, which the walk reads, or a
-#   .scn, which it cannot and reports (unreadable_sub_scene). Extension is the
-#   engine's own test for picking a format handler
-#   (ResourceFormatLoader::recognize_path), and it is the only trigger that works
-#   for a line whose declared type is wrong or absent;
-# - the line DECLARES type="PackedScene". ResourceSaver will write a PackedScene
-#   into a plain .res (ResourceFormatSaverBinary accepts "res" for any resource;
-#   the text saver refuses, so .tres is not a form a PackedScene can be saved in),
-#   and such a child was silently skipped by the extension test alone — a parent
-#   instancing a .res scene with a broken script answered `valid: true` while the
-#   engine's own load of that parent reported the break (measured on Godot 4.6.3).
-#
-# The declared type is an extra TRIGGER, never a FILTER. Selecting on it would
-# MISS real edges, which is a separate measurement: Godot's text loader starts a
-# load for EVERY [ext_resource] line before it parses a single node and passes
-# `type` only as a HINT (ResourceLoaderText::load, ResourceFormatLoaderText::
-# handles_type accepts every type), so a `.tscn` declared type="Resource" and
-# never instanced breaks its referencing scene exactly as an instanced one does.
-# Both facts point the same way: widen the trigger, never narrow it.
-#
-# What is still outside: a PackedScene stored under a non-scene extension AND
-# declared as some other type. Nothing gda writes takes that form, and it is
-# stated on the public surfaces rather than left implicit. Extending the union to
-# "load every reference and ask what it is" is deliberately NOT done — it would
-# load every texture and audio file a scene names to answer a question that has
-# no known instance.
-func _is_sub_scene_edge(entry: Dictionary) -> bool:
-	if _is_scene_reference_path(String(entry["normalized_path"])):
-		return true
-	return String(entry.get("type", "")) == "PackedScene"
-
-# The per-declaring-file map of edge outcomes, created on the first edge that file
-# settles (#721 review round 4). A Dictionary is a reference, so the caller writes
-# through what it gets back.
-func _scene_edge_outcomes(walk: Dictionary, scene_path: String) -> Dictionary:
-	var edges: Dictionary = walk["edges"]
-	if not edges.has(scene_path):
-		edges[scene_path] = {}
-	return edges[scene_path]
-
-
-# Publish the cyclic_instance this edge closes, and settle the edge TERMINALLY
-# (#721).
-#
-# One edge problem per target per declaring file: a scene that references the same
-# ancestor under two ids still closes ONE cycle, so a second call about the same
-# edge publishes nothing. What it does do is PROMOTE — a provisional depth record
-# left on this edge by a deeper route is replaced and its pending finding
-# withdrawn. A cycle is a fact about the graph; a depth deferral is a statement
-# about one route, so the cycle stands whichever order the two are met in, and the
-# edge still carries exactly one problem. Read SCENE_EDGE_DEPTH_PENDING for the
-# order-dependent false-clean verdict that came of not making that distinction.
-func _report_cycle_edge(walk: Dictionary, scene_path: String, scene_text: String,
-		entry: Dictionary) -> void:
-	var outcomes := _scene_edge_outcomes(walk, scene_path)
-	var ref_path := String(entry["normalized_path"])
-	var record: Dictionary = outcomes.get(ref_path, {})
-	if String(record.get("outcome", "")) == SCENE_EDGE_REPORTED:
-		return
-	outcomes[ref_path] = {"outcome": SCENE_EDGE_REPORTED}
-	(walk["problems"] as Array).append(
-			_sub_scene_edge_problem(SCENE_PROBLEM_CYCLIC_INSTANCE, entry, scene_path, scene_text,
-			"the scene at this path is an ancestor in this scene's reference chain, "
-			+ "so referencing it here closes a cycle. Measured on Godot 4.6.3, the "
-			+ "engine refuses the closing reference ([ext_resource] referenced "
-			+ "non-existent resource), drops it, and the nodes it would have "
-			+ "contributed vanish from the composition it loads. gda stopped the "
-			+ "walk at this edge; break the cycle to get a verdict for what lies "
-			+ "beyond it"))
-
-
-# Hold this edge's depth finding PROVISIONALLY: the target lies past the bound on
-# the route currently being walked, and a shorter route may still reach it (#721
-# review).
-#
-# Recorded only on an edge nothing has settled yet — neither a pending finding of
-# its own (one unchecked subtree, not one per route that declines it) nor a
-# published problem, which already says what became of this edge. The finding
-# itself is published, or dropped, by _flush_pending_depth_problems once every
-# route has been walked.
-func _defer_depth_edge(walk: Dictionary, scene_path: String, scene_text: String,
-		entry: Dictionary) -> void:
-	var outcomes := _scene_edge_outcomes(walk, scene_path)
-	var ref_path := String(entry["normalized_path"])
-	if outcomes.has(ref_path):
-		return
-	outcomes[ref_path] = {
-		"outcome": SCENE_EDGE_DEPTH_PENDING,
-		"problem": _sub_scene_edge_problem(SCENE_PROBLEM_INSTANCE_DEPTH_EXCEEDED, entry,
-				scene_path, scene_text,
-				"gda validates " + str(SCENE_INSTANCE_MAX_DEPTH) + " levels of "
-				+ "sub-scenes below the scene it was given, and no route to this one is "
-				+ "inside that bound — this scene and everything it references are "
-				+ "UNCHECKED, not judged sound. The bound is on gda's own walk: the "
-				+ "engine still loads the whole chain itself, and at extreme depth its "
-				+ "loader overflows and the run dies with no verdict at all, which this "
-				+ "bound does not change. Validate this scene directly to get a verdict "
-				+ "for it"),
-	}
-
-
-# Publish the depth findings the finished walk still stands behind (#721 review).
-#
-# A depth finding is a statement about a TARGET — "no verdict was established for
-# this scene" — but the walk can only see one ROUTE at a time. In a diamond where a
-# leaf sits both past the bound and one edge below the root, whichever route is
-# declared first decided the verdict: deep-first reported the bound and then
-# validated the leaf anyway (valid: false, with a stale finding), while
-# direct-first validated the leaf and let the visited record swallow the deep edge
-# in silence (valid: true). One graph, two published verdicts, chosen by the order
-# two lines happen to appear in — which is not a contract.
-#
-# Deferring settles it in BOTH directions with the walk's own record: a pending
-# finding survives only when nothing ever reached its target inside the bound.
-# Order cannot change that, because it is read after every route has been walked.
-# The other two halves of the same guarantee are `reached_depth` in
-# _collect_sub_scene_problems, which is what makes a shorter route to an ANCESTOR
-# of the deep target reach the target at all, and the promotion rule in
-# _report_cycle_edge, which turns a pending record into the cycle a later route
-# proves rather than letting it suppress one.
-func _flush_pending_depth_problems(walk: Dictionary) -> void:
-	var reached_depth: Dictionary = walk["reached_depth"]
-	var out: Array = walk["problems"]
-	for scene_path in walk["edges"]:
-		var outcomes: Dictionary = walk["edges"][scene_path]
-		for ref_path in outcomes:
-			var record: Dictionary = outcomes[ref_path]
-			if String(record["outcome"]) != SCENE_EDGE_DEPTH_PENDING:
-				continue
-			if reached_depth.has(ref_path):
-				continue
-			out.append(record["problem"])
-
-
-# One problem about an EDGE of the scene graph rather than about a file's
-# contents (#721 review): the walk reached this reference and did not follow it.
-# All three such kinds carry the same three facts — the target the edge points at,
-# the file that declares it, and the nodes that reference it — so they are built in
-# one place instead of three times.
-#
-# The nodes come from a per-TARGET map, not from this entry's id: one file can
-# declare the same target under several [ext_resource] ids, and reading only the
-# id that happened to settle the edge dropped the sites the others reference
-# (#721 review round 3). It is the per-file merge _scene_dependency_problems
-# already does for an ordinary dependency, applied to the edge kinds too.
-#
-# The map is built HERE, from the declaring file's text, rather than once per
-# descent: an edge problem is the rare case, and the walk now expands a file again
-# whenever a shorter route reaches it, so a map built eagerly would be rebuilt for
-# every expansion of every file to serve the few that report one.
-func _sub_scene_edge_problem(kind: String, entry: Dictionary, scene_path: String,
-		scene_text: String, message: String) -> Dictionary:
-	var ref_path := String(entry["normalized_path"])
-	var problem := _scene_problem(kind, ref_path, String(entry.get("type", "")), message)
-	var nodes_by_path := _scene_ext_resource_nodes_by_path(scene_text, scene_path.get_base_dir())
-	problem["nodes"] = (nodes_by_path.get(ref_path, []) as Array).duplicate()
-	problem["scene"] = scene_path
-	return problem
-
-
-# Every node that references each [ext_resource] TARGET of one scene's text,
-# merged across the ids that name it (#721 review round 3).
-#
-# _scene_ext_resource_nodes_by_id answers per id, which is the wrong grain for a
-# report keyed by the file the reference points AT: two ids for one path — an
-# alias spelling, or simply a hand-written duplicate — are one target with two
-# sets of referencing nodes. In declaration order, deduplicated, which is the
-# order and the rule _scene_dependency_problems merges by.
-func _scene_ext_resource_nodes_by_path(text: String, base_dir: String) -> Dictionary:
-	var nodes_by_id := SCENE_TEXT._scene_ext_resource_nodes_by_id(text)
-	var by_path := {}
-	for entry in SCENE_TEXT._ext_resource_entries_from_text(text, base_dir):
-		var ref_path := String(entry["normalized_path"])
-		if not by_path.has(ref_path):
-			by_path[ref_path] = []
-		var nodes: Array = by_path[ref_path]
-		for node_path in nodes_by_id.get(String(entry["id"]), []):
-			if not nodes.has(node_path):
-				nodes.append(node_path)
-	return by_path
-
-
-# Whether the text OPENS with a complete, CLOSED `[gd_scene …]` section header
-# (#720 recheck ×2). Two requirements, each defeating a real bypass:
-#
-# - the section NAME must be exactly "gd_scene" (_is_section_header_line, the one
-#   owner of that rule), or "[gd_scenery]" would pass a bare prefix test;
-# - the header LINE must close with "]" — an unclosed "[gd_scene load_steps=2"
-#   is not a header, and the load cannot be relied on to catch it: when the
-#   dependency walk finds problems the load is deliberately skipped, so
-#   admission must be decided here, completely.
-#
-# Leading whitespace and a UTF-8 BOM are tolerated. The question is identity,
-# not well-formedness — a closed header over a broken body is still admitted,
-# and the load has the final word only on that admitted case.
-func _has_scene_header(text: String) -> bool:
-	var stripped := text.lstrip(" \t\r\n" + String.chr(0xFEFF))
-	var line_end := stripped.find("\n")
-	var line := stripped if line_end == -1 else stripped.substr(0, line_end)
-	line = line.strip_edges()
-	if not line.ends_with("]"):
-		return false
-	return SCENE_TEXT._is_section_header_line(line, "gd_scene")
-
-
-# Whether a load produced a scene with a root — the two conditions _load_scene
-# refuses separately, asked as one question by the validate path, which only needs
-# to know whether the file is a scene at all.
-func _is_loaded_scene(packed: PackedScene) -> bool:
-	if packed == null:
-		return false
-	var state := packed.get_state()
-	return state != null and state.get_node_count() > 0
-
-
-# One entry per SCRIPT the loaded scene binds that cannot actually serve its node
-# (#720 review). The dependency walk above proves each referenced FILE loads; this
-# walk asks the questions only the loaded state can answer:
-#
-# - an EMBEDDED [sub_resource type="GDScript"] never appears as an [ext_resource],
-#   so a syntax error inside one is invisible to the text walk — here it shows up
-#   as a script that cannot instantiate, named by its ::id sub-resource path;
-# - a script that compiles can still be REFUSED by the engine at bind time when
-#   the node's native class is outside the script's base (an `extends Resource`
-#   script on a Node2D boots silently script-less). The compatibility rule is the
-#   one _op_script_attach enforces at attach time, asked statically: the node's
-#   type must be the script's base or inherit from it;
-# - a `script` slot can hold a value that is not a Script at all — an embedded
-#   [sub_resource] of another type (#709 review). The engine refuses that at
-#   bind time too ("Cannot set object script") and the node boots script-less.
-#
-# Reported per SCRIPT with the referencing nodes merged, the dependency walk's own
-# shape. A node without a type of its own (an instanced/inherited child) is
-# skipped honestly: its real class lives in another scene, and guessing it would
-# turn this into the false positive it exists to remove.
-func _scene_binding_problems(packed: PackedScene) -> Array:
-	var state := packed.get_state()
-	var problems: Array = []
-	var by_script := {}
-	for i in state.get_node_count():
-		var node_type := String(state.get_node_type(i))
-		for j in state.get_node_property_count(i):
-			if String(state.get_node_property_name(i, j)) != "script":
-				continue
-			var value: Variant = state.get_node_property_value(i, j)
-			if value == null:
-				continue
-			var problem: Variant
-			if value is Script:
-				problem = _script_binding_problem(value as Script, node_type)
-			else:
-				# A NON-Script value in the script slot — an embedded
-				# [sub_resource] that is not a script, or anything the dependency
-				# walk could not see. Discarding it silently (#709 review) turned
-				# the engine's deterministic bind-time refusal into a clean
-				# verdict.
-				problem = _non_script_binding_problem(value)
-			if problem == null:
-				continue
-			var key := String((problem as Dictionary)["path"]) + "|" + String((problem as Dictionary)["kind"])
-			if not by_script.has(key):
-				(problem as Dictionary)["nodes"] = []
-				by_script[key] = problems.size()
-				problems.append(problem)
-			var nodes: Array = (problems[int(by_script[key])] as Dictionary)["nodes"]
-			var node_path := String(state.get_node_path(i))
-			if not nodes.has(node_path):
-				nodes.append(node_path)
-	return problems
-
-
-# One bound script's verdict against one node type: a problem Dictionary (without
-# its `nodes`, the caller owns attribution), or null when the binding is sound.
-func _script_binding_problem(script: Script, node_type: String) -> Variant:
-	if not script.can_instantiate():
-		# The scene loaded with the script attached, but the script itself never
-		# compiled — the embedded-GDScript case (an external one is caught by the
-		# dependency walk before the load is even asked). reload() on a script
-		# that never compiled retries the compile and runs no project code.
-		var err := script.reload()
-		if err == OK and script.can_instantiate():
-			return null
-		return _scene_problem(SCENE_PROBLEM_SCRIPT_COMPILE_FAILED,
-				script.resource_path, "Script",
-				"the script does not compile: " + error_string(err))
-	var base := script.get_instance_base_type()
-	if String(base).is_empty() or node_type.is_empty():
-		return null
-	if not ClassDB.class_exists(node_type):
-		return null
-	if node_type == String(base) or ClassDB.is_parent_class(node_type, base):
-		return null
-	return _scene_problem(SCENE_PROBLEM_INCOMPATIBLE_SCRIPT,
-			script.resource_path, "Script",
-			"the script extends " + String(base) + ", which cannot bind a node of type "
-			+ node_type + " — the engine would refuse the assignment and the node "
-			+ "would run script-less. Bind it to a " + String(base)
-			+ "-compatible target, or change the script's extends")
-
-
-# The verdict for a `script` property whose value is not a Script at all (#709
-# review): the engine refuses the assignment at instantiate time ("Cannot set
-# object script. Parameter should be null or a reference to a valid script.",
-# object.cpp set_script) and the node boots script-less — the same consequence as
-# an incompatible base, so it is the same problem kind. The path names the bound
-# resource where it has one (a res:// file, or the ::id sub-resource form for an
-# embedded one); a non-resource value can only name its Variant type.
-func _non_script_binding_problem(value: Variant) -> Dictionary:
-	var shown := type_string(typeof(value))
-	var bound_path := ""
-	if value is Resource:
-		shown = (value as Resource).get_class()
-		bound_path = (value as Resource).resource_path
-	return _scene_problem(SCENE_PROBLEM_INCOMPATIBLE_SCRIPT, bound_path, "Script",
-			"the node's script property binds a " + shown + ", not a Script — the "
-			+ "engine would refuse the assignment (Cannot set object script) and "
-			+ "the node would run script-less")
-
-
-# One entry per DEPENDENCY the scene declares and gda could not resolve, in the
-# order the .tscn declares them (#664).
-#
-# The dependency set is read from the file's [ext_resource] lines as text, not
-# from the loaded PackedScene: the engine drops a reference it could not resolve,
-# so the loaded object no longer knows the path that was asked for — which is the
-# one thing a report has to name. Reading the text is also what attributes each
-# dependency to the nodes that use it.
-#
-# A path declared twice (two ids for one file) is checked ONCE and reported once,
-# with the referencing nodes merged: it is one broken file, not two problems.
-func _scene_dependency_problems(path: String) -> Array:
-	var text := FileAccess.get_file_as_string(path)
-	if text.is_empty():
-		return []
-	var nodes_by_id := SCENE_TEXT._scene_ext_resource_nodes_by_id(text)
-	var problems: Array = []
-	# ref_path -> the index of its problem, or -1 when the dependency is fine. The
-	# -1 rows matter as much as the others: they are what keeps a healthy path
-	# declared twice from being re-checked (and re-loaded) on its second id.
-	var checked := {}
-	for entry in SCENE_TEXT._ext_resource_entries_from_text(text, path.get_base_dir()):
-		var ref_path := String(entry["normalized_path"])
-		if not checked.has(ref_path):
-			var problem: Variant = _scene_dependency_problem(ref_path, String(entry.get("type", "")))
-			if problem == null:
-				checked[ref_path] = -1
-			else:
-				(problem as Dictionary)["nodes"] = []
-				checked[ref_path] = problems.size()
-				problems.append(problem)
-		var at: int = int(checked[ref_path])
-		if at >= 0:
-			var nodes: Array = (problems[at] as Dictionary)["nodes"]
-			for node_path in nodes_by_id.get(String(entry["id"]), []):
-				if not nodes.has(node_path):
-					nodes.append(node_path)
-	return problems
-
-
-# One dependency's verdict: a problem Dictionary, or null when it resolves (#664).
-# `declared_type` is the type= the [ext_resource] line names ("Script",
-# "Texture2D", …), reported back so a reader can tell WHAT was expected there.
-#
-# The three kinds answer three different questions, and the split is not cosmetic:
-# a missing file needs the file, an unimported asset needs an import, and a broken
-# script needs an edit.
-func _scene_dependency_problem(ref_path: String, declared_type: String) -> Variant:
-	if not ResourceLoader.exists(ref_path):
-		# ResourceLoader.exists() is the loadability question, not the file
-		# question: an asset that was never imported (a .png with no import
-		# artifacts) is present on disk yet has no loader in a non-editor run, and
-		# the game would lose it at runtime exactly as this scene does. So the two
-		# are told apart rather than both called missing.
-		if FileAccess.file_exists(ref_path):
-			return _scene_problem(SCENE_PROBLEM_UNLOADABLE_RESOURCE, ref_path, declared_type,
-					"the file exists but no ResourceLoader can open it — typically an asset that was never imported")
-		return _scene_problem(SCENE_PROBLEM_MISSING_RESOURCE, ref_path, declared_type,
-				"the referenced file does not exist")
-	if GDSCRIPT_SCAN._is_script_path(ref_path):
-		# Ask the ALREADY-loaded script first (the scene's own load brought it in, so
-		# this costs nothing and runs nothing): a script that compiled can be
-		# instantiated, and one that did not reports an empty base type. Only when
-		# that first answer is negative is a fresh compile run, which both confirms
-		# the verdict and yields the Error the message quotes. Order matters for a
-		# reason beyond speed: GDScript.reload() executes a script's STATIC
-		# INITIALIZERS, so compiling every healthy script a second time would run
-		# project code twice per validate.
-		var loaded := ResourceLoader.load(ref_path) as GDScript
-		if loaded == null:
-			return _scene_problem(SCENE_PROBLEM_UNLOADABLE_RESOURCE, ref_path, declared_type,
-					"the script file could not be loaded")
-		if loaded.can_instantiate():
-			return null
-		var err := _script_compile_error(ref_path)
-		if err != OK:
-			return _scene_problem(SCENE_PROBLEM_SCRIPT_COMPILE_FAILED, ref_path, declared_type,
-					"the script does not compile: " + error_string(err)
-					+ " — run 'gda script validate " + ref_path + "' for the line and message")
-		return null
-	var resource := ResourceLoader.load(ref_path)
-	if resource == null:
-		return _scene_problem(SCENE_PROBLEM_UNLOADABLE_RESOURCE, ref_path, declared_type,
-				"the resource could not be loaded")
-	if declared_type == "Script" and not (resource is Script):
-		# Declared as a script but the file is not one — a plain .tres in an
-		# `[ext_resource type="Script"]` line (#709 review). The load alone cannot
-		# answer this: the loader returns the Resource it found, and the engine
-		# only refuses at bind time ("Cannot set object script"), when the node
-		# has already booted script-less.
-		return _scene_problem(SCENE_PROBLEM_INCOMPATIBLE_SCRIPT, ref_path, declared_type,
-				"the file loads as " + resource.get_class() + ", not a Script — the engine "
-				+ "would refuse the assignment (Cannot set object script) and the node "
-				+ "would run script-less")
-	return null
-
-
-func _scene_problem(kind: String, ref_path: String, declared_type: String, message: String) -> Dictionary:
-	return {
-		"kind": kind,
-		"path": ref_path,
-		"type": null if declared_type.is_empty() else declared_type,
-		"message": message,
-	}
-
-
-# Whether a .gd compiles, as an Error — the SAME check script-validate makes, so
-# "does not compile" means one thing across the two commands (#664).
-#
-# Loading a script that does not compile still hands back a GDScript object
-# (verified against Godot 4.6.3), so the loaded object cannot produce the ERROR; a
-# fresh compile can, which is why the caller falls back to this once the cheap check
-# has already said something is wrong. take_over_path is what makes the script's own
-# relative preloads resolve as in-engine (issue #131); it displaces the cached copy
-# for the rest of this one-shot process, which nothing after this reads.
-func _script_compile_error(ref_path: String) -> int:
-	var script := GDScript.new()
-	script.source_code = FileAccess.get_file_as_string(ref_path)
-	script.take_over_path(ref_path)
-	return script.reload()
 
 
 # scene-preflight: boot the scene and report how far it got (#664, dogfooding
@@ -1479,7 +723,7 @@ func _op_scene_preflight(params: Dictionary) -> void:
 	var frames: Variant = _preflight_frames(params)
 	if frames == null:
 		return  # _preflight_frames already recorded the failure
-	var packed: PackedScene = _load_scene(params)
+	var packed: PackedScene = _scene_store._load_scene(params)
 	if packed == null:
 		return  # _load_scene already recorded the failure
 	var path := VALUE._string_param(params, "path")
@@ -1590,18 +834,18 @@ func _op_node_add(params: Dictionary) -> void:
 	var path := VALUE._string_param(params, "path")
 
 	var node_name := VALUE._string_param(params, "name")
-	if not _is_valid_node_name(node_name):
+	if not _scene_store._is_valid_node_name(node_name):
 		_fail(OP_ERROR_INVALID_NODE_NAME, "invalid name: " + node_name)
 		return
 
-	var root: Node = _load_for_mutation(params)
+	var root: Node = _scene_store._load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
 	var parent_path := VALUE._string_param(params, "parent")
-	var parent := _resolve_node(root, parent_path)
+	var parent := _scene_store._resolve_node(root, parent_path)
 	if parent == null:
 		root.free()
-		if _is_canonical_parent_path(parent_path):
+		if _scene_store._is_canonical_parent_path(parent_path):
 			_fail(OP_ERROR_PARENT_NOT_FOUND, "parent node not found in scene: " + parent_path)
 		else:
 			_fail(OP_ERROR_PARENT_NOT_FOUND, "non-canonical parent path: " + parent_path
@@ -1646,7 +890,7 @@ func _op_node_add(params: Dictionary) -> void:
 	var node_path := String(root.get_path_to(node))
 	var node_type := node.get_class()
 	var script_class: Variant = CLASS_INDEX._script_class_of(node)
-	if not _repack_and_save(root, path):
+	if not _scene_store._repack_and_save(root, path):
 		return  # _repack_and_save already recorded the failure (and freed root)
 
 	_succeed({
@@ -1665,14 +909,14 @@ func _op_node_add(params: Dictionary) -> void:
 # exactly like scene-get (issue #30): listing must not execute project code.
 func _op_node_list(params: Dictionary) -> void:
 	_diag("running operation: node-list")
-	var packed: PackedScene = _load_scene(params)
+	var packed: PackedScene = _scene_store._load_scene(params)
 	if packed == null:
 		return  # _load_scene already recorded the failure
 	var path := VALUE._string_param(params, "path")
 
 	_succeed({
 		"scene_path": path,
-		"root": _tree_from_state(packed.get_state(), true, SCENE_TEXT._scene_instance_paths_by_node_path(path)),
+		"root": _scene_store._tree_from_state(packed.get_state(), true, SCENE_TEXT._scene_instance_paths_by_node_path(path)),
 	})
 
 
@@ -1687,7 +931,7 @@ func _op_node_list(params: Dictionary) -> void:
 # node still has to exist in the instantiated tree, reported as node_not_found.
 func _op_node_get(params: Dictionary) -> void:
 	_diag("running operation: node-get")
-	var packed: PackedScene = _load_scene(params)
+	var packed: PackedScene = _scene_store._load_scene(params)
 	if packed == null:
 		return  # _load_scene already recorded the failure
 	var root: Node = packed.instantiate()
@@ -1697,10 +941,10 @@ func _op_node_get(params: Dictionary) -> void:
 				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
 		return
 	var node_path := VALUE._string_param(params, "node")
-	var node := _resolve_node(root, node_path)
+	var node := _scene_store._resolve_node(root, node_path)
 	if node == null:
 		root.free()
-		_fail_node_not_found(node_path)
+		_scene_store._fail_node_not_found(node_path)
 		return
 
 	var properties: Array = []
@@ -1738,14 +982,14 @@ func _op_node_get(params: Dictionary) -> void:
 func _op_node_set(params: Dictionary) -> void:
 	_diag("running operation: node-set")
 	var path := VALUE._string_param(params, "path")
-	var root: Node = _load_for_mutation(params)
+	var root: Node = _scene_store._load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
 	var node_path := VALUE._string_param(params, "node")
-	var node := _resolve_node(root, node_path)
+	var node := _scene_store._resolve_node(root, node_path)
 	if node == null:
 		root.free()
-		_fail_node_not_found(node_path)
+		_scene_store._fail_node_not_found(node_path)
 		return
 
 	var prop_name := VALUE._string_param(params, "property")
@@ -1771,7 +1015,7 @@ func _op_node_set(params: Dictionary) -> void:
 		var target_position: Vector2 = coerced_position
 		control.set_position(target_position)
 		var stored_position: Variant = VALUE._jsonify(control.position)
-		if not _repack_and_save(root, path):
+		if not _scene_store._repack_and_save(root, path):
 			return  # _repack_and_save already recorded the failure (and freed root)
 
 		_succeed({
@@ -1825,7 +1069,7 @@ func _op_node_set(params: Dictionary) -> void:
 		# now holds the coerced value in its canonical form, the same projection
 		# node-get reports.
 		stored_value = VALUE._jsonify(node.get(prop_name))
-	if not _repack_and_save(root, path):
+	if not _scene_store._repack_and_save(root, path):
 		return  # _repack_and_save already recorded the failure (and freed root)
 
 	_succeed({
@@ -1885,14 +1129,14 @@ func _control_position_unavailable_message(subject: String, control: Control) ->
 func _op_node_remove(params: Dictionary) -> void:
 	_diag("running operation: node-remove")
 	var path := VALUE._string_param(params, "path")
-	var root: Node = _load_for_mutation(params)
+	var root: Node = _scene_store._load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
 	var node_path := VALUE._string_param(params, "node")
-	var node := _resolve_node(root, node_path)
+	var node := _scene_store._resolve_node(root, node_path)
 	if node == null:
 		root.free()
-		_fail_node_not_found(node_path)
+		_scene_store._fail_node_not_found(node_path)
 		return
 	if node == root:
 		root.free()
@@ -1907,7 +1151,7 @@ func _op_node_remove(params: Dictionary) -> void:
 	node.get_parent().remove_child(node)
 	node.free()
 
-	if not _repack_and_save(root, path):
+	if not _scene_store._repack_and_save(root, path):
 		return  # _repack_and_save already recorded the failure (and freed root)
 
 	_succeed({
@@ -1933,14 +1177,14 @@ func _op_node_remove(params: Dictionary) -> void:
 func _op_node_duplicate(params: Dictionary) -> void:
 	_diag("running operation: node-duplicate")
 	var path := VALUE._string_param(params, "path")
-	var root: Node = _load_for_mutation(params)
+	var root: Node = _scene_store._load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
 	var node_path := VALUE._string_param(params, "node")
-	var node := _resolve_node(root, node_path)
+	var node := _scene_store._resolve_node(root, node_path)
 	if node == null:
 		root.free()
-		_fail_node_not_found(node_path)
+		_scene_store._fail_node_not_found(node_path)
 		return
 	if node == root:
 		root.free()
@@ -1961,7 +1205,7 @@ func _op_node_duplicate(params: Dictionary) -> void:
 	var new_path := String(root.get_path_to(copy))
 	var copy_name := String(copy.name)
 	var copy_type := copy.get_class()
-	if not _repack_and_save(root, path):
+	if not _scene_store._repack_and_save(root, path):
 		return  # _repack_and_save already recorded the failure (and freed root)
 
 	_succeed({
@@ -2032,14 +1276,14 @@ func _reown_subtree(node: Node, owner: Node) -> void:
 func _op_node_move(params: Dictionary) -> void:
 	_diag("running operation: node-move")
 	var path := VALUE._string_param(params, "path")
-	var root: Node = _load_for_mutation(params)
+	var root: Node = _scene_store._load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
 	var node_path := VALUE._string_param(params, "node")
-	var node := _resolve_node(root, node_path)
+	var node := _scene_store._resolve_node(root, node_path)
 	if node == null:
 		root.free()
-		_fail_node_not_found(node_path)
+		_scene_store._fail_node_not_found(node_path)
 		return
 	if node == root:
 		root.free()
@@ -2048,10 +1292,10 @@ func _op_node_move(params: Dictionary) -> void:
 		return
 
 	var target_path := VALUE._string_param(params, "to")
-	var target := _resolve_node(root, target_path)
+	var target := _scene_store._resolve_node(root, target_path)
 	if target == null:
 		root.free()
-		if _is_canonical_parent_path(target_path):
+		if _scene_store._is_canonical_parent_path(target_path):
 			_fail(OP_ERROR_PARENT_NOT_FOUND, "target parent node not found in scene: " + target_path)
 		else:
 			_fail(OP_ERROR_PARENT_NOT_FOUND, "non-canonical target path: " + target_path
@@ -2086,7 +1330,7 @@ func _op_node_move(params: Dictionary) -> void:
 			return
 		if has_index and requested_index != node.get_index():
 			target.move_child(node, requested_index)
-			if not _repack_and_save(root, path):
+			if not _scene_store._repack_and_save(root, path):
 				return  # _repack_and_save already recorded the failure (and freed root)
 		else:
 			root.free()
@@ -2128,7 +1372,7 @@ func _op_node_move(params: Dictionary) -> void:
 	var new_path := String(root.get_path_to(node))
 	var moved_name := String(node.name)
 	var moved_type := node.get_class()
-	if not _repack_and_save(root, path):
+	if not _scene_store._repack_and_save(root, path):
 		return  # _repack_and_save already recorded the failure (and freed root)
 
 	_succeed({
@@ -2160,18 +1404,18 @@ func _op_node_move(params: Dictionary) -> void:
 func _op_node_connect_signal(params: Dictionary) -> void:
 	_diag("running operation: node-connect-signal")
 	var path := VALUE._string_param(params, "path")
-	var root: Node = _load_for_mutation(params)
+	var root: Node = _scene_store._load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
 
 	var from_path := VALUE._string_param(params, "from")
-	var source := _resolve_node(root, from_path)
+	var source := _scene_store._resolve_node(root, from_path)
 	if source == null:
 		root.free()
 		_fail_node_not_found_labeled("source", from_path)
 		return
 	var to_path := VALUE._string_param(params, "to")
-	var target := _resolve_node(root, to_path)
+	var target := _scene_store._resolve_node(root, to_path)
 	if target == null:
 		root.free()
 		_fail_node_not_found_labeled("target", to_path)
@@ -2204,7 +1448,7 @@ func _op_node_connect_signal(params: Dictionary) -> void:
 				+ " to " + to_path + "." + method_name + ": " + error_string(connect_err))
 		return
 
-	if not _repack_and_save(root, path):
+	if not _scene_store._repack_and_save(root, path):
 		return  # _repack_and_save already recorded the failure (and freed root)
 
 	_succeed({
@@ -2223,18 +1467,18 @@ func _op_node_connect_signal(params: Dictionary) -> void:
 func _op_node_disconnect_signal(params: Dictionary) -> void:
 	_diag("running operation: node-disconnect-signal")
 	var path := VALUE._string_param(params, "path")
-	var root: Node = _load_for_mutation(params)
+	var root: Node = _scene_store._load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
 
 	var from_path := VALUE._string_param(params, "from")
-	var source := _resolve_node(root, from_path)
+	var source := _scene_store._resolve_node(root, from_path)
 	if source == null:
 		root.free()
 		_fail_node_not_found_labeled("source", from_path)
 		return
 	var to_path := VALUE._string_param(params, "to")
-	var target := _resolve_node(root, to_path)
+	var target := _scene_store._resolve_node(root, to_path)
 	if target == null:
 		root.free()
 		_fail_node_not_found_labeled("target", to_path)
@@ -2262,7 +1506,7 @@ func _op_node_disconnect_signal(params: Dictionary) -> void:
 
 	source.disconnect(signal_name, callable)
 
-	if not _repack_and_save(root, path):
+	if not _scene_store._repack_and_save(root, path):
 		return  # _repack_and_save already recorded the failure (and freed root)
 
 	_succeed({
@@ -2525,14 +1769,14 @@ func _op_script_attach(params: Dictionary) -> void:
 
 	# Primary subject first: load + instantiate the scene, then resolve the node —
 	# validated before the secondary --script input (issue #132, Part 2).
-	var root: Node = _load_for_mutation(params)
+	var root: Node = _scene_store._load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
 	var node_path := VALUE._string_param(params, "node")
-	var node := _resolve_node(root, node_path)
+	var node := _scene_store._resolve_node(root, node_path)
 	if node == null:
 		root.free()
-		_fail_node_not_found(node_path)
+		_scene_store._fail_node_not_found(node_path)
 		return
 
 	# Secondary input: validate the --script arg only now — its .gd shape
@@ -2543,7 +1787,7 @@ func _op_script_attach(params: Dictionary) -> void:
 	if not _require_existing_script(script_path):
 		root.free()
 		return  # _require_existing_script already recorded the failure
-	if not _validate_script_preload_dependencies(script_path):
+	if not _scene_store._validate_script_preload_dependencies(script_path):
 		root.free()
 		return  # _validate_script_preload_dependencies already recorded the failure
 
@@ -2589,7 +1833,7 @@ func _op_script_attach(params: Dictionary) -> void:
 
 	# Capture the attached class_name off the live node before re-saving frees it.
 	var class_name_value: Variant = CLASS_INDEX._script_class_of(node)
-	if not _repack_and_save(root, path):
+	if not _scene_store._repack_and_save(root, path):
 		return  # _repack_and_save already recorded the failure (and freed root)
 
 	_succeed({
@@ -4190,23 +3434,6 @@ func _is_scene_path(path: String) -> bool:
 	return path.get_extension().to_lower() == "tscn"
 
 
-# Whether a path names a SCENE FILE in either of the two forms Godot saves one
-# under a scene extension: the .tscn text gda reads, or the binary .scn it cannot.
-# The composed walk asks this rather than _is_scene_path because the two answers
-# it needs are different: what it can descend into, and what it must REPORT as
-# unread rather than skip (#721 review). Extension is the engine's own test too —
-# ResourceLoader picks a format handler by recognized extension
-# (ResourceFormatLoader::recognize_path), not by the type an [ext_resource] line
-# declares.
-#
-# The PATH half of the sub-scene edge rule only: a PackedScene saved into a plain
-# .res carries no scene extension, so _is_sub_scene_edge unions this with the
-# line's declared type. Read that function for the whole rule.
-func _is_scene_reference_path(path: String) -> bool:
-	var ext := path.get_extension().to_lower()
-	return ext == "tscn" or ext == "scn"
-
-
 # Clear the script group's addressing boundary for an EXISTING script: the path
 # must be a .gd (invalid_path otherwise) and the file must exist on disk
 # (path_not_found otherwise). Returns true to proceed, or false after recording
@@ -4279,13 +3506,13 @@ func _scene_summary(path: String) -> Dictionary:
 	var state := packed.get_state()
 	if state == null or state.get_node_count() == 0:
 		return {"path": path, "root_name": null, "root_type": null}
-	var root_fields := _state_node_projection_fields(state, 0)
+	var root_fields := _scene_store._state_node_projection_fields(state, 0)
 	var instance_paths := SCENE_TEXT._scene_instance_paths_by_node_path(path)
 	if instance_paths.has("."):
 		var instance_path := String(instance_paths["."])
 		root_fields["instance_path"] = instance_path
 		if not root_fields.has("instance_status"):
-			root_fields["instance_status"] = _scene_instance_status_for_path(instance_path)
+			root_fields["instance_status"] = _scene_store._scene_instance_status_for_path(instance_path)
 	return {
 		"path": path,
 		"root_name": String(state.get_node_name(0)),
@@ -4318,348 +3545,10 @@ func _script_summary(path: String) -> Dictionary:
 	}
 
 
-# Load the .tscn named by params.path for reading or mutation, validating the
-# shared failure ladder: missing param → missing file → not loadable as a
-# scene → scene without a root. Returns null after recording the failure.
-func _load_scene(params: Dictionary) -> PackedScene:
-	var path := VALUE._string_param(params, "path")
-	if path.is_empty():
-		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
-		return null
-	if not FileAccess.file_exists(path):
-		_fail(OP_ERROR_PATH_NOT_FOUND, "scene file does not exist: " + path)
-		return null
-	var packed := ResourceLoader.load(path, "PackedScene") as PackedScene
-	if packed == null:
-		_fail(OP_ERROR_NOT_A_SCENE, "failed to load as a scene: " + path)
-		return null
-	var state := packed.get_state()
-	if state == null or state.get_node_count() == 0:
-		_fail(OP_ERROR_NOT_A_SCENE, "scene declares no root node: " + path)
-		return null
-	return packed
-
-
-# The single mutate-entry for the node group (issue #55): load the .tscn,
-# instantiate it, and clear the mutation-integrity boundary before any op
-# touches the tree, returning the instantiated root (or null after recording
-# the failure). Mutation REQUIRES instantiating the scene — only a real node
-# tree can be edited and re-packed — which runs the _init of any script
-# attached in the scene, so mutating ops execute project code where the read
-# ops (issue #30) deliberately do not. Centralising load → instantiate → guard
-# here means every current and future mutating op honors the boundary the
-# command catalog promises, rather than re-inlining (and risking forgetting)
-# the unmaterialized-node check (issue #64). The caller owns root.free().
-func _load_for_mutation(params: Dictionary) -> Node:
-	var packed: PackedScene = _load_scene(params)
-	if packed == null:
-		return null  # _load_scene already recorded the failure
-	var path := VALUE._string_param(params, "path")
-	# Capture the staleness token NOW — the instant after _load_scene's
-	# ResourceLoader.load read the .tscn, and BEFORE instantiate() (which runs the
-	# project's script _init and can take real time, ADR-0009) or any other work.
-	# Capturing here rather than after instantiate makes the baseline reflect the
-	# file gda actually read, so an external edit landing during instantiate is
-	# still caught by _check_unchanged at write time (issue #226; PR #234 review
-	# closed this read->capture window). Covers all 8 shared-tail mutating ops.
-	_file_write._capture_staleness_token(path)
-	# Test seam (issue #226): simulate an external edit that lands AFTER the read
-	# but DURING instantiate — the window this early capture closes. Gated by the
-	# env var, so it is dead code in production (mirrors GDA_TEST_PERTURB_BEFORE_SAVE).
-	if OS.has_environment("GDA_TEST_PERTURB_AFTER_LOAD"):
-		_file_write._test_perturb_target(path)
-	# Mutating ops re-pack the host scene after editing the live tree. Instantiate
-	# the host as the edited main scene so pre-existing instance children retain
-	# their scene-instance state; otherwise the packer diffs them against class
-	# defaults and serializes non-canonical `type=` / inherited-property churn.
-	var root: Node = packed.instantiate(PackedScene.GEN_EDIT_STATE_MAIN)
-	if root == null:
-		# The engine returns null for a scene it cannot instantiate at all —
-		# e.g. an instanced sub-scene whose resource loads but instantiates to
-		# nothing (packed_scene.cpp propagates the nested null). Nothing exists
-		# to edit or save, so refuse with the dependency code.
-		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene failed to instantiate: " + path
-				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
-		return null
-	var unmaterialized := _unmaterialized_node_paths(packed.get_state(), root)
-	if not unmaterialized.is_empty():
-		root.free()
-		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene nodes vanished or degraded on load: "
-				+ ", ".join(unmaterialized) + " — re-saving would silently drop or downgrade them; check the scene's dependencies and --project")
-		return null
-	# Snapshot every node's external script path NOW — the instant after
-	# instantiate, before any op-specific load can evict a sibling's script object
-	# (issue #164). _repack_and_save re-anchors from this snapshot on the way out.
-	_capture_source_attached_scripts(path)
-	_capture_external_scripts(root)
-	return root
-
-
-# The single pack-and-save tail: pack `root` into a PackedScene and save it to the
-# .tscn at `path`, then free the tree. Returns true on a clean save, or false after
-# recording save_failed (the caller must stop). root.free() runs on EVERY path —
-# pack failure, save failure, and success alike — so an instantiated scene (the most
-# leak-prone object in the mutating ops) is never leaked. Shared by every op whose
-# tail packs-and-saves a root: scene create (a freshly-built root) and the mutating
-# ops node add / node set / node remove / node duplicate / node move / connect- &
-# disconnect-signal / script attach (a re-packed instantiated tree, paired with
-# _load_for_mutation). The caller captures any result fields it needs OFF THE TREE
-# before calling, as the tree is gone once this returns; for scene create the caller
-# also creates any missing parent dirs first, since this tail only packs and saves.
-func _repack_and_save(root: Node, path: String) -> bool:
-	# Re-anchor every external script captured at load time to the one canonical
-	# cached resource for its res:// path BEFORE packing (issue #164). On the
-	# editor build gda drives, the text scene saver dedups ext_resources through a
-	# PATH-keyed cache (ResourceCache::resource_path_cache), not object identity. A
-	# re-attach can leave two distinct in-memory Script objects sharing one res://
-	# path: the engine's GDScriptCache upgrades a shallow script to a full one via
-	# set_path(take_over=true), which evicts the previously cached object WITHOUT
-	# freeing it, so a sibling node still holds the evicted orphan. With an
-	# UNIMPORTED script the path string is the only identity (no uid://), so the
-	# path-keyed dedup collapses the two same-path objects on save — silently
-	# dropping the sibling's `script = ExtResource(...)` line (or re-embedding it as
-	# a sub_resource). Re-anchoring repoints every node at the single cache owner
-	# for its path, so the saver sees one consistent ext_resource per path.
-	#
-	# This is the CENTRAL shared-mutation hardening point. Because it runs from the
-	# shared pack-and-save tail, it hardens every mutating re-pack op (node
-	# add/set/remove/duplicate/move, signal connect/disconnect) — not only `script
-	# attach` (issue #164's reported path). That broader reach is correct, not
-	# overreach: _reanchor_external_scripts only repoints a node that STILL carries
-	# its captured script (siblings preserved); it leaves a node the op
-	# intentionally re-scripted to a different non-empty path alone; and it skips
-	# nodes that vanished since capture (remove/move). `node add` is covered by
-	# test_node_add_preserves_sibling_script_on_repack_when_unimported.
-	#
-	# Optimistic staleness recheck (issue #226): refuse the write if the .tscn changed
-	# on disk since _load_for_mutation read it. Done BEFORE pack/save and after freeing
-	# the tree on refusal, so a clobbering write never lands and no scene leaks.
-	if not _file_write._check_unchanged():
-		root.free()
-		return false
-	if not _validate_scene_script_preload_dependencies(root):
-		root.free()
-		return false
-	_reanchor_external_scripts(root)
-	var repacked := PackedScene.new()
-	var pack_err := repacked.pack(root)
-	if pack_err != OK:
-		root.free()
-		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
-		return false
-	var save_err := _file_write._atomic_save_resource(repacked, path)
-	root.free()
-	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _file_write._save_failure_message("scene", path, save_err))
-		return false
-	return true
-
-
-# {NodePath (root-relative) -> script res:// path} for every node that carried a
-# file-backed script when the tree was first instantiated (issue #164). Captured
-# by _capture_external_scripts the instant _load_for_mutation finishes
-# instantiating — BEFORE any subsequent load (e.g. attach's --script) can run the
-# GDScriptCache shallow→full upgrade that evicts a sibling's script object and
-# clears its resource_path. Consumed by _reanchor_external_scripts at re-pack
-# time, where the orphan's own resource_path is already empty and useless: the
-# captured path is the only surviving anchor back to the script the node should
-# carry. A single member is safe here — operations.gd is a one-shot process that
-# runs exactly one operation, so there is no cross-operation state to leak.
-var _captured_external_scripts: Dictionary = {}
-var _source_attached_scripts: Dictionary = {}
-
-
-# Record {NodePath -> script res:// path} for every node in the freshly
-# instantiated tree that carries a file-backed script, so a later load that
-# evicts one of those scripts can be undone before re-pack (issue #164). Read off
-# the LIVE script object while its resource_path is still intact; a script with
-# no resource_path (an embedded/sub-resource script) has no external identity to
-# anchor and is skipped. Paths are root-relative (get_path_to) so they survive
-# the round-trip to _reanchor_external_scripts regardless of the root's own name.
-func _capture_external_scripts(root: Node) -> void:
-	_captured_external_scripts = {}
-	_capture_external_scripts_into(root, root)
-
-
-func _capture_external_scripts_into(node: Node, root: Node) -> void:
-	var script: Variant = node.get_script()
-	if script is Script:
-		var script_path: String = (script as Script).resource_path
-		if not script_path.is_empty():
-			_captured_external_scripts[root.get_path_to(node)] = script_path
-	for child in node.get_children():
-		_capture_external_scripts_into(child, root)
-
-
-func _capture_source_attached_scripts(scene_path: String) -> void:
-	_source_attached_scripts = SCENE_TEXT._scene_attached_external_scripts(scene_path)
-
-
-# Repoint every captured node that STILL carries its captured script at the
-# SINGLE canonical cached resource for that script's res:// path, so a re-pack/save
-# never serializes two distinct in-memory objects under one path (issue #164 root
-# cause). For each captured {NodePath -> script_path}: re-load that path with
-# CACHE_MODE_REPLACE — which installs one object as the sole ResourceCache owner of
-# the path — and set_script it back onto the node, collapsing any evicted-but-alive
-# orphan (the second same-path object the GDScriptCache shallow→full upgrade leaves
-# behind) onto the canonical one.
-#
-# Re-anchor ONLY when the node was NOT intentionally re-scripted by the op in
-# between. The discriminator is the node's CURRENT script resource_path:
-#   - equals the captured path -> still the same script (possibly the corrupted
-#     orphan instance); re-anchor to canonicalize.
-#   - empty -> the orphan whose set_path(take_over) eviction cleared its path (the
-#     exact #164 corruption signature); re-anchor to restore the captured binding.
-#   - a DIFFERENT non-empty path -> the op deliberately overwrote this node's
-#     script (e.g. script attach replacing one binding with another, issue #132);
-#     leave it, or the re-anchor would silently undo the requested change.
-# Idempotent: when a node already holds the canonical object, set_script re-binds
-# the same resource, a no-op. A node that vanished since capture (a remove/move op
-# may have detached or freed it) is skipped — its capture entry is stale.
-func _reanchor_external_scripts(root: Node) -> void:
-	for node_path: NodePath in _captured_external_scripts:
-		var node := root.get_node_or_null(node_path)
-		if node == null:
-			continue
-		var captured_path: String = _captured_external_scripts[node_path]
-		var current: Variant = node.get_script()
-		if current is Script:
-			var current_path: String = (current as Script).resource_path
-			if not current_path.is_empty() and current_path != captured_path:
-				continue  # op intentionally replaced this node's script — leave it
-		var canonical: Resource = ResourceLoader.load(
-				captured_path, "Script", ResourceLoader.CACHE_MODE_REPLACE)
-		if canonical is Script:
-			node.set_script(canonical)
-
-
-# Validate the executable preload() dependencies that can make GDScript
-# compilation fail. This uses a focused lexer rather than the project-reference
-# graph's raw line scanner: comments and unrelated string literals must not block
-# a valid attach, while a real preload call may split its argument across lines.
-func _validate_script_preload_dependencies(script_path: String) -> bool:
-	for ref_path in GDSCRIPT_SCAN._script_executable_preload_paths(script_path):
-		if not ref_path.begins_with("res://"):
-			continue
-		if FileAccess.file_exists(ref_path):
-			continue
-		_fail(OP_ERROR_MISSING_DEPENDENCY, "script preload target does not exist: "
-				+ ref_path + " (referenced by " + script_path
-				+ ") — create the preloaded asset before attaching or saving the script")
-		return false
-	return true
-
-
-# Mutating scene ops save the current instantiated tree. Validate every
-# file-backed script that would still be saved before packing, so a script whose
-# missing preload left only engine stderr cannot turn into a clean success.
-func _validate_scene_script_preload_dependencies(root: Node) -> bool:
-	for node_path: NodePath in _source_attached_scripts:
-		var node := root.get_node_or_null(node_path)
-		if node == null:
-			continue  # the op intentionally removed this node
-		var source_path: String = _source_attached_scripts[node_path]
-		var current: Variant = node.get_script()
-		if current is Script:
-			var current_path: String = (current as Script).resource_path
-			if not current_path.is_empty() and current_path != source_path:
-				continue  # the op intentionally replaced this node's script
-		if not _validate_script_preload_dependencies(source_path):
-			return false
-	return _validate_node_script_preload_dependencies(root)
-
-
-func _validate_node_script_preload_dependencies(node: Node) -> bool:
-	var script := node.get_script() as Script
-	if script != null:
-		var script_path := script.resource_path
-		if not script_path.is_empty() and not _validate_script_preload_dependencies(script_path):
-			return false
-	for child in node.get_children():
-		if not _validate_node_script_preload_dependencies(child):
-			return false
-	return true
-
-
-# Node paths declared in the scene's state that did not materialize faithfully
-# in the instantiated tree (issue #64), in the two modes the engine survives
-# silently:
-# - vanished: the node is absent — typically an instanced sub-scene whose
-#   ext_resource could not be resolved (missing file, or res:// without
-#   project context); the instance, its overrides, and its editable marker
-#   would all be erased by a re-save.
-# - degraded: the node exists but as a substitute class — the declared class
-#   was unavailable at instantiate time (e.g. an absent GDExtension/module)
-#   and the engine fell back to a placeholder node at the same path; a re-save
-#   would rewrite the node under the substitute type.
-# Mutation must refuse before saving rather than report success over either
-# data loss. Instance nodes and instance-override entries declare no type in
-# the state, so only nodes this scene itself declares get the class check.
-func _unmaterialized_node_paths(state: SceneState, root: Node) -> Array[String]:
-	var unmaterialized: Array[String] = []
-	for i in state.get_node_count():
-		var state_path := _normalize_state_path(state, i)
-		var node := root.get_node_or_null(NodePath(state_path))
-		if node == null:
-			unmaterialized.append(state_path + " (vanished)")
-			continue
-		var declared_type := String(state.get_node_type(i))
-		if not declared_type.is_empty() and node.get_class() != declared_type:
-			unmaterialized.append(state_path + " (declared " + declared_type
-					+ ", materialized " + node.get_class() + ")")
-	return unmaterialized
-
-
-# Whether a parent path is in canonical root-relative form — exactly the form
-# node list reports: "." for the root, or '/'-joined node names for a
-# descendant. Godot's NodePath resolution silently accepts non-canonical forms
-# ("A/.." walks back up to the root, "A/" / "A//B" / "A/./B" collapse the
-# redundant segment, "A:position" drops the property part — all verified on
-# 4.6.3), landing the node somewhere the literal string never named (issue
-# #66). Addressing must be exact and round-trippable, so anything
-# non-canonical is rejected rather than normalized. Every legal node name
-# passes _is_valid_node_name (Godot sanitizes names on assignment with the
-# same character set), so this can never reject a path node list reports.
-func _is_canonical_parent_path(parent_path: String) -> bool:
-	if parent_path == ".":
-		return true
-	for segment in parent_path.split("/"):
-		if not _is_valid_node_name(segment):
-			return false
-	return true
-
-
-# Resolve a node path against the scene root. Node-path addressing (issue #53)
-# is relative to the scene root: '.' is the root itself, 'Player/Arm' a
-# descendant. Only canonical paths resolve (issue #66) — this subsumes
-# rejecting absolute paths ('/root/…' opens with an empty segment), which a
-# loaded-for-editing tree outside any SceneTree could never serve. Shared by
-# node add (its --parent), node get and node set (their --node): one strict
-# resolver so every node-group op addresses nodes identically.
-func _resolve_node(root: Node, node_path: String) -> Node:
-	if not _is_canonical_parent_path(node_path):
-		return null
-	if node_path == ".":
-		return root
-	return root.get_node_or_null(NodePath(node_path))
-
-
-# Record a node-not-found failure for node get / node set, distinguishing the
-# two ways resolution can fail the same way node add does for its parent: a
-# canonical path that names no node, versus a non-canonical path rejected by
-# strict addressing (issue #66) rather than silently resolved elsewhere.
-func _fail_node_not_found(node_path: String) -> void:
-	if _is_canonical_parent_path(node_path):
-		_fail(OP_ERROR_NODE_NOT_FOUND, "node not found in scene: " + node_path)
-	else:
-		_fail(OP_ERROR_NODE_NOT_FOUND, "non-canonical node path: " + node_path
-				+ " — address the node exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
-
-
 # Like _fail_node_not_found but names which endpoint of a connection failed
 # ("source"/"target", issue #57), so an agent knows which node path to fix.
 func _fail_node_not_found_labeled(label: String, node_path: String) -> void:
-	if _is_canonical_parent_path(node_path):
+	if _scene_store._is_canonical_parent_path(node_path):
 		_fail(OP_ERROR_NODE_NOT_FOUND, label + " node not found in scene: " + node_path)
 	else:
 		_fail(OP_ERROR_NODE_NOT_FOUND, "non-canonical " + label + " node path: " + node_path
@@ -4749,7 +3638,7 @@ func _instantiate_scene_instance(instance_path: String, host_path: String) -> No
 	# instantiates around a missing nested dependency (or substitutes an
 	# unavailable class), so composing the degraded tree would bake the loss
 	# into the host. Refuse instead, naming what did not materialize.
-	var unmaterialized := _unmaterialized_node_paths(packed.get_state(), child)
+	var unmaterialized := _scene_store._unmaterialized_node_paths(packed.get_state(), child)
 	if not unmaterialized.is_empty():
 		child.free()
 		_fail(OP_ERROR_MISSING_DEPENDENCY, "instanced scene nodes vanished or degraded on load: "
@@ -4875,109 +3764,12 @@ func _displaced_script_path(node: Node) -> Variant:
 	return resource_path
 
 
-# A SceneState node path normalized to the canonical root-relative form the
-# node group addresses by and reports: the state stores "." for the root and a
-# "./Hero/Hitbox" prefix form for a descendant, which becomes "Hero/Hitbox".
-# Shared so the unmaterialized-node guard and the tree builder agree on one
-# normalization rather than re-spelling it (issue #55 review).
-func _normalize_state_path(state: SceneState, index: int) -> String:
-	return String(state.get_node_path(index)).trim_prefix("./")
-
-
-# Build the structured node tree from a SceneState. The state lists nodes in
-# tree order; each carries a node path ("." for the root, "./Hero/Hitbox" for
-# a descendant) and the path to its parent, which is enough to reconstruct the
-# parent/child structure without instantiating anything. with_paths includes
-# each node's path in the emitted tree (node-list's addressing contract),
-# normalized to the root-relative form node add accepts and reports: the
-# state's "./Hero" prefix form becomes "Hero", the root stays ".".
-func _packed_scene_root_type(packed: PackedScene, depth := 0) -> String:
-	if packed == null or depth > 16:
-		return ""
-	var state := packed.get_state()
-	if state == null or state.get_node_count() == 0:
-		return ""
-	var root_type := String(state.get_node_type(0))
-	if not root_type.is_empty():
-		return root_type
-	var root_instance := state.get_node_instance(0)
-	if root_instance != null:
-		return _packed_scene_root_type(root_instance, depth + 1)
-	return ""
-
-
-func _state_node_projection_fields(state: SceneState, index: int) -> Dictionary:
-	var fields := {"type": String(state.get_node_type(index))}
-	var instance := state.get_node_instance(index)
-	if instance != null:
-		fields["instance_status"] = "resolved"
-		var instance_path := String(instance.resource_path)
-		if not instance_path.is_empty():
-			fields["instance_path"] = instance_path
-		var root_type := _packed_scene_root_type(instance)
-		if fields["type"].is_empty() and not root_type.is_empty():
-			fields["type"] = root_type
-		return fields
-
-	var placeholder_path := String(state.get_node_instance_placeholder(index))
-	if not placeholder_path.is_empty():
-		fields["instance_path"] = placeholder_path
-		fields["instance_status"] = "missing"
-	return fields
-
-
-func _scene_instance_status_for_path(path: String) -> String:
-	return "resolved" if ResourceLoader.exists(path, "PackedScene") else "missing"
-
-
-func _tree_from_state(state: SceneState, with_paths := false, instance_paths_by_node_path := {}) -> Dictionary:
-	var by_path := {}
-	var root: Dictionary = {}
-	for i in state.get_node_count():
-		var projection_fields := _state_node_projection_fields(state, i)
-		var state_path := String(state.get_node_path(i))
-		var normalized_path := _normalize_state_path(state, i)
-		if instance_paths_by_node_path.has(normalized_path):
-			var instance_path := String(instance_paths_by_node_path[normalized_path])
-			projection_fields["instance_path"] = instance_path
-			if not projection_fields.has("instance_status"):
-				projection_fields["instance_status"] = _scene_instance_status_for_path(instance_path)
-		var node := {
-			"name": String(state.get_node_name(i)),
-			"type": projection_fields["type"],
-			"children": [],
-		}
-		if projection_fields.has("instance_path"):
-			node["instance_path"] = projection_fields["instance_path"]
-		if projection_fields.has("instance_status"):
-			node["instance_status"] = projection_fields["instance_status"]
-		if with_paths:
-			node["path"] = normalized_path
-		by_path[state_path] = node
-		if i == 0:
-			root = node
-		else:
-			var parent: Variant = by_path.get(String(state.get_node_path(i, true)))
-			if parent != null:
-				parent["children"].append(node)
-	return root
-
-
 func _has_int_param(params: Dictionary, key: String) -> bool:
 	return params.has(key) and params[key] != null
 
 
 func _int_param(params: Dictionary, key: String) -> int:
 	return int(params.get(key, 0))
-
-
-func _is_valid_node_name(node_name: String) -> bool:
-	if node_name.is_empty():
-		return false
-	for invalid_char in NODE_NAME_INVALID_CHARS:
-		if node_name.contains(String(invalid_char)):
-			return false
-	return true
 
 
 # Write `source` to a .gd file as RAW TEXT, reporting both failure modes as

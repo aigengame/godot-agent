@@ -2025,8 +2025,9 @@ def test_script_create_empty_content_round_trips_as_empty_source(godot_project):
 # --- script attach: sibling-script drop on re-pack (issue #164) ---
 
 # A deterministic harness for the issue #164 corruption, run against the real
-# engine. It drives gda's OWN operations.gd payload through the SAME product entry
-# points a mutating op uses — `_load_for_mutation` (which internally captures the
+# engine. It drives gda's OWN payload — the scene store, built with the entry as
+# its frame — through the SAME product entry points a mutating op uses —
+# `_load_for_mutation` (which internally captures the
 # external-script snapshot) and `_repack_and_save` (which internally re-anchors
 # before pack/save). The harness only supplies the deterministic engine
 # precondition and the mutation in between; capture and re-anchor are NOT called by
@@ -2069,16 +2070,18 @@ func _init() -> void:
 	var seed := PackedScene.new(); seed.pack(build_root); ResourceSaver.save(seed, "res://main.tscn")
 	build_root.free()
 
-	# Drive gda's REAL operations payload through its REAL mutate entry points.
+	# Drive gda's REAL operations payload through its REAL mutate entry points:
+	# the scene store, built with the entry as its frame (ADR-0043 §4, §6).
 	var ops_script: GDScript = load("res://ops/operations.gd")
 	var ops: Object = ops_script.new()
+	var store: RefCounted = load("res://ops/lib/scene_store.gd").new(ops)
 	var params := {"path": "res://main.tscn", "project": "res://"}
 
 	# Load + instantiate via the product's single mutate-entry. _load_for_mutation
 	# is what (post-fix) captures the external-script snapshot the instant after
 	# instantiate — the harness does NOT call _capture_external_scripts, so if that
 	# wiring is removed the snapshot is empty and the drop is left to occur.
-	var live: Node = ops.call("_load_for_mutation", params)
+	var live: Node = store.call("_load_for_mutation", params)
 	if live == null:
 		_emit(false, "_load_for_mutation returned null")
 		ops.free(); quit(); return
@@ -2100,7 +2103,7 @@ func _init() -> void:
 	# is what (post-fix) re-anchors from the snapshot before packing — the harness
 	# does NOT call _reanchor_external_scripts, so if that wiring is removed the
 	# evicted orphan is serialized and the sibling's ext_resource is dropped.
-	var ok: bool = ops.call("_repack_and_save", live, "res://main.tscn")
+	var ok: bool = store.call("_repack_and_save", live, "res://main.tscn")
 	ops.free()
 	if not ok:
 		_emit(false, "_repack_and_save reported failure")
@@ -2139,10 +2142,11 @@ func _init() -> void:
 
 	var ops_script: GDScript = load("res://ops/operations.gd")
 	var ops: Object = ops_script.new()
+	var store: RefCounted = load("res://ops/lib/scene_store.gd").new(ops)
 	var params := {"path": "res://main.tscn", "project": "res://"}
 
 	# Same shared mutate entry — captures the snapshot.
-	var live: Node = ops.call("_load_for_mutation", params)
+	var live: Node = store.call("_load_for_mutation", params)
 	if live == null:
 		_emit(false, "_load_for_mutation returned null")
 		ops.free(); quit(); return
@@ -2161,7 +2165,7 @@ func _init() -> void:
 	added.owner = live
 
 	# Same shared pack-and-save tail — re-anchors the sibling before packing.
-	var ok: bool = ops.call("_repack_and_save", live, "res://main.tscn")
+	var ok: bool = store.call("_repack_and_save", live, "res://main.tscn")
 	ops.free()
 	if not ok:
 		_emit(false, "_repack_and_save reported failure")
@@ -2175,9 +2179,9 @@ func _init() -> void:
 
 def _run_harness(project, harness: str = _ATTACH_DROP_HARNESS) -> str:
     """Run a #164 harness in `project` against the real engine; return saved .tscn."""
-    # The harness drives gda's own operations.gd, so ship a copy into the fixture:
-    # the whole payload directory, because the entry preloads its group files
-    # (ADR-0043 §6).
+    # The harness drives gda's own payload, so ship a copy into the fixture: the
+    # whole payload directory, because the entry preloads its group and concept
+    # files and the scene store preloads its own (ADR-0043 §6).
     shutil.copytree(PAYLOAD_DIR, project / "ops")
     (project / "attach_drop_harness.gd").write_text(harness, encoding="utf-8")
     proc = subprocess.run(
@@ -2219,7 +2223,7 @@ def test_script_attach_preserves_sibling_script_on_repack_when_unimported(
     # the script is unimported (path is the only identity), the dedup collapses
     # them and the sibling's ext_resource is dropped / re-embedded as a sub_resource.
     #
-    # This drives gda's real operations.gd entry points — `_load_for_mutation`
+    # This drives gda's real scene-store entry points — `_load_for_mutation`
     # (captures the snapshot) then `_repack_and_save` (re-anchors before pack) — and
     # reproduces the engine precondition deterministically in between (see
     # _ATTACH_DROP_HARNESS). The harness does NOT call _capture_external_scripts or
