@@ -86,7 +86,6 @@ func _begin_pending(tick: Callable, frames: int) -> void:
 	_frame._begin_pending(tick, frames)
 
 
-
 # Whether this headless process is running against a Godot project. A project
 # scan writes the resource UID cache under res://.godot; its presence is the
 # marker the engine itself uses, and a projectless --script run (no --path to a

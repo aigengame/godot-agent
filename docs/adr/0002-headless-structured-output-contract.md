@@ -448,17 +448,6 @@ operation, and parse codes the CLI assigns).
 > reply's stdout is the result payload, not diagnostics. Before #1013 the three
 > `screen` refusals carried that stdout, which holds base64 PNG data.
 
-> **Outcome (2026-09-26, #1015):** the headless payload is no longer one file
-> (ADR-0043), so "`operations.gd` declares exactly the `operation`-source rows"
-> now names the payload as a whole. The rows are declared once, in the op base
-> `src/gda/ops/op_base.gd`, which every command-group file and every concept
-> module that reports failure extends. The mirror test reads that file, and the
-> guard against literal codes reads every payload file. While #1015's serial chain
-> is open, the entry keeps a byte-equal copy of the block for the operation bodies
-> that have not moved yet; a test pins it to the op base, and the step that moves
-> the last body deletes it. Mirror membership and the sentinel channel do not
-> change.
-
 ## Considered options
 
 - **Sentinel-delimited JSON on stdout** (chosen) — simplest, streamable, and the

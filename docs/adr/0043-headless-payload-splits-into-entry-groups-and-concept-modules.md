@@ -391,21 +391,6 @@ maps to rules above:
   substitution and dependency inversion have no seam here: there is one frame and one
   implementation of each module, and the split does not invent a second one.
 
-> **Outcome (2026-09-26, #1015 step 1):** the op base (`ops/op_base.gd`), the entry
-> seam (a preload constant per group, a group instance created by the dispatch arm
-> and held in the entry's `_group` member) and the first two groups, `theme` and
-> `export`, landed as the map states. Two states are transitional and end with the
-> chain, not deviations from the map: the entry keeps a byte-equal copy of the
-> `OP_ERROR_*` block and of `_has_project` for the operation bodies that have not
-> moved yet (a test pins the copy to the op base), and the op base carries four typed
-> forwards to the shared helpers that still live in the entry (`_string_param`,
-> `_ensure_parent_dirs`, `_atomic_save_resource`, `_save_failure_message`); each
-> forward is deleted in the step that moves its helper to `value` or `file_write`,
-> and the op base's interface is then the four forwards and the project guard of §4.
-> The dependency-edge test and the engine-backed `info` test of §6 exist; the mutant
-> that checks a wrong `static` call through a preload constant at load time (probe 3)
-> waits for the first static concept module, in step 2.
-
 ## Considered options
 
 - **Keep one file.** Rejected. The three costs in the context grow with every
