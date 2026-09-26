@@ -42,9 +42,9 @@ so two instances can touch the project at once.
 > **Outcome (2026-09-26, #1016) — ADR-0043 (proposed) reopens the #220 premise.** A
 > Godot 4.6.3 probe showed that an absolute-path `--script` payload loads a relative
 > `preload()`, both projectless and under `--path`. Thus one module can reach both
-> runtime contexts. ADR-0043 §7 decides that the harness preloads the Value projection
-> module of the headless payload, and that the installer copies that module beside the
-> harness. #1016 deletes the mirrored block and its drift test. The other half of the
+> runtime contexts. ADR-0043 §7 decides that the harness preloads the shared value
+> module of the headless payload, which holds the Value projection, and that the
+> installer copies that module beside the harness. #1016 deletes the mirrored block and its drift test. The other half of the
 > premise, that the installer copies one file, changes with it.
 
 > **Outcome (2026-06-22, #225 / PR #247) — the harness lifecycle is complete:

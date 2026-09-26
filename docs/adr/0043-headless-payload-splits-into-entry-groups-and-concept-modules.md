@@ -4,11 +4,13 @@ status: proposed
 
 # The headless operations payload splits into an entry, command-group files, and concept modules
 
-Every [headless operation](../../CONTEXT.md) runs one GDScript payload:
-`godot --headless [--path <project>] --script <abs>/ops/operations.gd -- <operation>
-[params_json]` (ADR-0001, ADR-0002). The payload is one file. On `main` at
-`778a5b2ba` it had 7613 lines: 47 `match` arms that each call one operation
-function, 204 helpers, and about 400 lines of frame code, constants and member state.
+The 47 [headless operations](../../CONTEXT.md) that gda dispatches by operation name
+run one GDScript payload: `godot --headless [--path <project>] --script
+<abs>/ops/operations.gd -- <operation> [params_json]` (ADR-0001, ADR-0002). The other
+headless operations, such as `script run`, `resource import` and the native export, do
+not run it. The payload is one file. On `main` at `778a5b2ba` it had 7613 lines: 47
+`match` arms that each call one operation function, 204 helpers, and about 400 lines
+of frame code, constants and member state.
 
 | Role in the file | Lines |
 |---|---|
@@ -18,8 +20,9 @@ function, 204 helpers, and about 400 lines of frame code, constants and member s
 | Frame, constants and state | 408 |
 
 A 568-line block of the shared helpers exists a second time in
-`harness/gda_harness.gd`. A drift test keeps the two copies byte-identical (ADR-0018,
-#220 Outcome).
+`harness/gda_harness.gd`: the [Value projection](../../CONTEXT.md), `--value` coercion
+with its write-fidelity checks, and the property readers. A drift test keeps the two
+copies byte-identical (ADR-0018, #220 Outcome).
 
 Three earlier records left the file in this shape. The premises of the first two no
 longer hold, and the third left the question open:
@@ -29,7 +32,7 @@ longer hold, and the third left the question open:
   headless operations or about 15 live operations. Since then the file grew from 3733
   to 7613 lines, while the operations grew only from 42 to 47: the growth is the
   hardening of existing operations. The harness now serves 17 live operations.
-- ADR-0018's #220 Outcome duplicated the Value projection helpers into the harness,
+- ADR-0018's #220 Outcome duplicated that block into the harness,
   because "no single `preload()` reaches both runtime contexts, and the harness
   installer copies exactly one file". Probe 1 below disproves the first half. The
   second half is an installer choice.
@@ -52,13 +55,18 @@ projectless and with `--path`:
    qualification, and reaches the frame's `_fail` and `_succeed` through a stored
    reference.
 3. The engine checks two kinds of call at load time: a static function called through
-   a preload constant, and a function inherited from the op base. A wrong name is a
-   parse error, and every run prints it on stderr. In a split payload, an operation
-   whose group depends on the broken file emits no result and exits 1. Every other
-   operation, `info` included, still succeeds. A single-file payload with a parse
-   error does not run at all: no operation emits a result, and the process exits 0.
-   A call through an instance reference is checked only when it runs, also when the
-   member has a script type.
+   a preload constant, and a function inherited from the op base. A call to a name
+   that does not exist (a wrong call) is then a parse error. A call through an
+   instance reference is checked only when it runs, also when the member has a script
+   type. Every run, `info` included, prints a parse error on stderr. In a split
+   payload, the file that holds the error decides what fails:
+   - A wrong call in a group file, or a syntax error or a wrong call in a concept
+     module, static or instance: the entry loads. The operations whose group depends
+     on the broken file emit no result and exit 1. Every other operation, `info`
+     included, succeeds.
+   - Any parse error in the entry, or a syntax error in a group file or in the op
+     base: the entry does not load. No operation emits a result, and the process
+     exits 0. A single-file payload with a parse error behaves the same way today.
 4. A `static var` in a preloaded module is initialized once per process.
 5. A `Callable` does not keep its `RefCounted` target alive. When no member held the
    group instance, the pending tick of a multi-frame operation was invalid, the run
@@ -85,8 +93,8 @@ and `4.5-stable` sources. No 4.4 or 4.5 binary was run.
    - the `static` keyword on the functions of a static module, and on the
      per-process state that §4 names;
    - the frame limit that scene preflight keeps in its own state (§4).
-2. #1016, which #1015 blocks, makes the harness preload the Value projection module
-   that #1015 extracts, and deletes the mirror.
+2. #1016, which #1015 blocks, makes the harness preload the shared value module
+   (`value`, §2) that #1015 extracts, and deletes the mirror.
 3. The deepenings that the 2026-09-25 focused review found are evaluated after both
    steps land, each on its own record (see "Not decided here").
 
@@ -120,7 +128,7 @@ src/gda/ops/
 | concept | `scene_store` | Scene load, load for mutation and its snapshot, repack and save, the preload-dependency gate that runs before a save, node addressing (`_resolve_node`, the parent-path and node-name rules), and the projection of a stored node tree (`_tree_from_state`) | instance | 455 |
 | concept | `file_write` | The write side of a project file: parent directories, the atomic text and resource saves, the staleness token (#226), and the save-failure message | instance | 205 |
 | concept | `scene_validate` | Composed static validation of a scene and the sub-scenes it references (#664, #721) | static | 710 |
-| concept | `value` | The [Value projection](../../CONTEXT.md): `--value` coercion to a declared type, the JSON projection, and write fidelity. It also holds the parameter and property readers that the mirrored block holds today (`_string_param`, `_property_type`, `_is_storage_property`, `_type_name`). #1016 adds `_json` and the Control-position write policy | static | 560 |
+| concept | `value` | The shared value module, which holds the mirrored block: the [Value projection](../../CONTEXT.md) (the read-side JSON projection), `--value` coercion to a declared type with its write-fidelity checks, and the parameter and property readers (`_string_param`, `_property_type`, `_is_storage_property`, `_type_name`). #1016 adds `_json` and the Control-position write policy | static | 560 |
 | concept | `reference_graph` | Reference edges between project files | static | 330 |
 | concept | `scene_text` | The `.tscn` and `.tres` text format: headers and `ext_resource` entries, the resolution of the paths they carry, and the rewrite that keeps existing `ext_resource` ids stable when a scene is saved again | static | 440 |
 | concept | `project_walk` | The engine-side `res://` walk (ADR-0032) and the graph-eligibility test it walks by | static | 265 |
@@ -147,7 +155,7 @@ group and has 5 lines, so a group file for it would only pass the call through.
 ### 3. Dependency rules
 
 - The entry depends on the op base and on the group files. It holds no operation body
-  other than `info`. After #1016 it also depends on the Value projection, for
+  other than `info`. After #1016 it also depends on the shared value module, for
   `_json`.
 - A group file depends on the op base and on concept modules. It never depends on
   another group file.
@@ -236,7 +244,7 @@ There are two kinds of module:
   module that reports failure: the scene store, the file write, the object reference,
   and the text edit. They get the frame reference when they are constructed.
 - **Static modules** hold only `static func`s, and callers reach them through a
-  preload constant. They are the Value projection, the project walk, the scene text
+  preload constant. They are the shared value module, the project walk, the scene text
   module, the GDScript source scan, the reference graph, scene validation, and the
   `class_name` index. A static module reports no failure. It returns a value, and its
   caller decides.
@@ -322,7 +330,7 @@ whole. Thus the split needs no documentation sweep.
   because the entry preloads every group. This test catches a broken load-time
   check that the operations under test do not reach (probe 3).
 
-### 7. One Value projection module for both payloads (#1016)
+### 7. One shared value module for both payloads (#1016)
 
 This step reopens ADR-0018's #220 Outcome.
 
@@ -366,8 +374,8 @@ maps to rules above:
   `match` stays), no load by name, no dependency container, no plugin discovery, no
   code generation, no base-class hierarchy beyond the one op base, and no GDScript
   unit framework. No module is made for a hypothetical second adapter.
-- **DRY.** Each constant has one declaration (§5). After #1016 the Value projection
-  has one copy. One test helper reads the payload sources.
+- **DRY.** Each constant has one declaration (§5). After #1016 the shared value
+  helpers have one copy. One test helper reads the payload sources.
 - **Orthogonality.** Groups do not depend on each other. Concept modules do not depend
   on groups or on the entry, and they form no cycle (§3). A change to one command
   group edits its group file and, at most, its arms in the entry.
@@ -422,16 +430,19 @@ maps to rules above:
   groups collide only on the arms.
 - Each concept's interface is visible, so each later deepening can be judged on one
   module.
-- After #1016 the Value projection has one copy, and the two unguarded near-twins are
-  visible on the record.
+- After #1016 the shared value helpers have one copy, and the two unguarded near-twins
+  are visible on the record.
 - GDScript has no unit tier here, so each move step needs the full e2e suite on a real
   engine.
-- A payload defect that fails to compile changes how it is reported (probe 3). Today
-  every operation exits 0 with no result, which the CLI classifies as
-  `contract_violation`. After the split, only the operations whose group depends on
-  the broken file fail, with exit 1 and no result, which the CLI classifies as
-  `operation_failed`. The other operations succeed. The engine-backed `info` test
-  (§6) finds such a defect before a release, whichever operations it breaks.
+- Some payload defects that fail to compile change how they are reported (probe 3).
+  Today every such defect makes every operation exit 0 with no result, which the CLI
+  classifies as `contract_violation`. After the split, a wrong call in a group file,
+  or a syntax error or a wrong call in a concept module, fails only the operations
+  whose group depends on the broken file. They exit 1 with no result, which the CLI
+  classifies as `operation_failed`, and the other operations succeed. Any parse
+  error in the entry, or a syntax error in a group file or in the op base, stops the
+  entry from loading, so every operation still fails as `contract_violation`. The
+  engine-backed `info` test (§6) finds each of these defects before a release.
 - A call through an instance reference is checked only when it runs (probe 3). A wrong
   qualification on a path that the e2e suite does not reach fails only on that path.
   The mitigations are the moved-code diff, which shows every line that did not only
@@ -456,7 +467,7 @@ These candidates from the 2026-09-25 focused review are evaluated after #1015 an
 - one scene edit session that owns the loaded root;
 - one declared-type property write for `node set`, `resource set` and `project set`,
   and whether `game set` joins it. After #1016 the Control-position half of that
-  write is in the Value projection module;
+  write is in the shared value module;
 - one file classification behind the reference graph. Until then, each path test
   stays where §2 puts it;
 - a typed problem record for scene validation;
