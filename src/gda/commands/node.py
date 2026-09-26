@@ -21,7 +21,7 @@ from pydantic import (
 )
 
 from gda.commands.scene import SceneNode, derive_scene_root_name
-from gda.dispatch import dispatch_domain, params_or_bad_parameter
+from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -720,7 +720,7 @@ def add(
         name=name,
         index=index,
     )
-    dispatch_domain(
+    dispatch_command(
         NODE_ADD_COMMAND,
         params,
         json_output=json_output,
@@ -739,7 +739,7 @@ def list_nodes(
     project: Optional[str] = project_option(),
 ) -> None:
     """List a scene's node tree with each node's path relative to the root."""
-    dispatch_domain(
+    dispatch_command(
         NODE_LIST_COMMAND,
         NodeListParams(path=path),
         json_output=json_output,
@@ -766,7 +766,7 @@ def get(
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a node's properties (by node path) as typed JSON."""
-    dispatch_domain(
+    dispatch_command(
         NODE_GET_COMMAND,
         NodeGetParams(path=path, node=node),
         json_output=json_output,
@@ -807,7 +807,7 @@ def set_property(
     project: Optional[str] = project_option(),
 ) -> None:
     """Set a node property, coercing the value to its declared Godot type."""
-    dispatch_domain(
+    dispatch_command(
         NODE_SET_COMMAND,
         NodeSetParams(path=path, node=node, property=property, value=value),
         json_output=json_output,
@@ -834,7 +834,7 @@ def remove_node(
     project: Optional[str] = project_option(),
 ) -> None:
     """Remove a node (and its subtree) from a scene file by node path."""
-    dispatch_domain(
+    dispatch_command(
         NODE_REMOVE_COMMAND,
         NodeRemoveParams(path=path, node=node),
         json_output=json_output,
@@ -862,7 +862,7 @@ def duplicate_node(
     project: Optional[str] = project_option(),
 ) -> None:
     """Duplicate a node (and its subtree) under its parent with a fresh name."""
-    dispatch_domain(
+    dispatch_command(
         NODE_DUPLICATE_COMMAND,
         NodeDuplicateParams(path=path, node=node),
         json_output=json_output,
@@ -906,7 +906,7 @@ def move_node(
     project: Optional[str] = project_option(),
 ) -> None:
     """Reparent a node (and its subtree) under a new parent node path."""
-    dispatch_domain(
+    dispatch_command(
         NODE_MOVE_COMMAND,
         NodeMoveParams(path=path, node=node, to=to, index=index),
         json_output=json_output,
@@ -962,7 +962,7 @@ def connect_signal(
     project: Optional[str] = project_option(),
 ) -> None:
     """Wire a source node's signal to a target node's method, persisted in the scene."""
-    dispatch_domain(
+    dispatch_command(
         NODE_CONNECT_SIGNAL_COMMAND,
         NodeConnectSignalParams(
             path=path,
@@ -993,7 +993,7 @@ def disconnect_signal(
     project: Optional[str] = project_option(),
 ) -> None:
     """Unwire an existing signal→method connection; errors if it is absent."""
-    dispatch_domain(
+    dispatch_command(
         NODE_DISCONNECT_SIGNAL_COMMAND,
         NodeDisconnectSignalParams(
             path=path,

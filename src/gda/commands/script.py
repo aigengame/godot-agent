@@ -39,7 +39,7 @@ from gda.completed_run import (
     bounded_stdout,
     render_completed_run,
 )
-from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
+from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.errors import (
     classify_launch_or_crash,
     classify_run,
@@ -2101,7 +2101,7 @@ def _script_validate_recipe(
     machine-readable result or in a "this is outside that" message tells the
     reader nothing about which directory was meant.
 
-    ``project`` arrives ALREADY resolved from ``dispatch_recipe`` (an invalid
+    ``project`` arrives ALREADY resolved from ``dispatch_command`` (an invalid
     ``--project``/``$GDA_PROJECT`` became a structured ``project_not_found``
     before this runs, #353); ``None`` means projectless. ``params`` is the model
     built once by the caller, identical on the argv and ``--params-json`` paths
@@ -2164,7 +2164,7 @@ SCRIPT_VALIDATE_COMMAND: HeadlessCommand[ScriptValidateResult] = HeadlessCommand
 
 
 def _script_run_recipe(params, *, project, godot):
-    # ``project`` arrives ALREADY resolved by dispatch_recipe — an invalid
+    # ``project`` arrives ALREADY resolved by dispatch_command — an invalid
     # --project/$GDA_PROJECT was converted to a structured project_not_found before
     # this runs, so no per-recipe ValueError handling is needed here (#353 folded in
     # script run's former try/except). A projectless None remains the op's own ABI
@@ -2187,7 +2187,7 @@ def _script_run_recipe(params, *, project, godot):
 # self-description only (ADR-0004 / ADR-0012) — dispatch is by ``recipe``, adding no
 # runner-selection branch. The descriptor lives with its group (ADR-0040 §1),
 # beside the operation its recipe drives; project resolution stays in the shared
-# dispatch tail (``gda.dispatch.dispatch_recipe``), so the recipe needs no seam of
+# dispatch tail (``gda.dispatch.dispatch_command``), so the recipe needs no seam of
 # its own.
 SCRIPT_RUN_COMMAND: HeadlessCommand[ScriptRunResult] = HeadlessCommand(
     operation="script-run",
@@ -2234,7 +2234,7 @@ def create(
     """Create a new .gd script from a template or verbatim --content."""
     if content is not None and extends_type is not None:
         raise typer.BadParameter("--content and --extends are mutually exclusive.")
-    dispatch_domain(
+    dispatch_command(
         SCRIPT_CREATE_COMMAND,
         ScriptCreateParams(
             path=path,
@@ -2257,7 +2257,7 @@ def get_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a script's source and report its class_name/extends metadata."""
-    dispatch_domain(
+    dispatch_command(
         SCRIPT_GET_COMMAND,
         ScriptGetParams(path=path),
         json_output=json_output,
@@ -2275,7 +2275,7 @@ def list_scripts(
     project: Optional[str] = project_option(),
 ) -> None:
     """Enumerate the .gd scripts in the resolved project."""
-    dispatch_domain(
+    dispatch_command(
         SCRIPT_LIST_COMMAND,
         ScriptListParams(),
         json_output=json_output,
@@ -2294,7 +2294,7 @@ def delete_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Delete a script file and report what was removed."""
-    dispatch_domain(
+    dispatch_command(
         SCRIPT_DELETE_COMMAND,
         ScriptDeleteParams(path=path),
         json_output=json_output,
@@ -2355,7 +2355,7 @@ def set_script(
     # via ScriptSetParams's validator) into the Click usage error (exit 2) — the
     # same translation an argv-side pre-check used to do by hand — so the rule
     # runs once per invocation on both input paths (ADR-0015, issue #713).
-    dispatch_domain(
+    dispatch_command(
         SCRIPT_SET_COMMAND,
         params_or_bad_parameter(
             ScriptSetParams,
@@ -2393,7 +2393,7 @@ def attach_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Attach a .gd script to a node (by node path) in a scene and save."""
-    dispatch_domain(
+    dispatch_command(
         SCRIPT_ATTACH_COMMAND,
         ScriptAttachParams(
             path=path,
@@ -2461,7 +2461,7 @@ def validate_script(
     # error (exit 2), which is the SAME translation an argv-side pre-check did by
     # hand — and it keeps working when a future rule is added to the model, where a
     # hand-written pre-check would silently stop covering argv (ADR-0015).
-    dispatch_recipe(
+    dispatch_command(
         SCRIPT_VALIDATE_COMMAND,
         params_or_bad_parameter(
             ScriptValidateParams, paths=list(paths or []), all_scripts=all_scripts
@@ -2633,7 +2633,7 @@ def run_script(
     # finite positive ceiling and the non-blank marker are its field constraints,
     # enforced identically for --params-json — this argv body only translates a
     # model refusal into the Click usage error (#709 review).
-    dispatch_recipe(
+    dispatch_command(
         SCRIPT_RUN_COMMAND,
         params_or_bad_parameter(
             ScriptRunParams,

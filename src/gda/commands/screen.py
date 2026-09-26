@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from gda import dispatch
 from gda.commands.input import InputSequenceEvent
-from gda.dispatch import dispatch_recipe, params_or_bad_parameter
+from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.errors import Failure, reply_correlation_failure
 from gda.execution import ExecutionKind
 from gda.headless import (
@@ -1145,10 +1145,10 @@ def render_screen_frames(captured: "ScreenFramesResult") -> str:
 # --- Recipe channels (ADR-0023) -----------------------------------------------
 # Each ``screen`` command carries one of these on its descriptor (``recipe=``). A
 # recipe PRODUCES the outcome — run the CLI-side operation over the ALREADY-resolved
-# ``project`` (resolution happens once in :func:`gda.dispatch.dispatch_recipe`, kept
+# ``project`` (resolution happens once in :func:`gda.dispatch.dispatch_command`, kept
 # CLI-side per ADR-0006, so an invalid --project is a structured project_not_found
 # before any recipe runs, #353) — and RETURNS the typed result or a Failure; emission
-# stays the shared tail (:func:`gda.dispatch.dispatch_recipe` → ``cmd.render``), so a
+# stays the shared tail (:func:`gda.dispatch.dispatch_command` → ``cmd.render``), so a
 # recipe command renders exactly like a sentinel one. The live exchange
 # (``dispatch.run_live_exchange``) references the runner seam
 # (``dispatch.make_live_runner``) at call time, so test monkeypatches on
@@ -1360,7 +1360,7 @@ def screen_capture(
         await_frames=await_frames,
         await_events=events,
     )
-    dispatch_recipe(
+    dispatch_command(
         SCREEN_CAPTURE_COMMAND,
         params,
         json_output=json_output,
@@ -1435,7 +1435,7 @@ def screen_frames(
     # Same params model the --params-json path builds (ADR-0015): `output_dir` is
     # validated and ~-normalized through it, not passed as a raw Path. Dispatch
     # through the descriptor's recipe, exactly as the --params-json path (ADR-0023).
-    dispatch_recipe(
+    dispatch_command(
         SCREEN_FRAMES_COMMAND,
         params_or_bad_parameter(
             ScreenFramesParams,

@@ -18,7 +18,7 @@ import typer
 from pydantic import BaseModel, Field, model_validator
 
 from gda.commands.script import ScriptSetMode, resolve_set_mode
-from gda.dispatch import dispatch_domain, params_or_bad_parameter
+from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -336,7 +336,7 @@ def create(
     """Create a new .gdshader from a template or verbatim --content."""
     if content is not None and shader_type is not None:
         raise typer.BadParameter("--content and --shader-type are mutually exclusive.")
-    dispatch_domain(
+    dispatch_command(
         SHADER_CREATE_COMMAND,
         ShaderCreateParams(
             path=path,
@@ -359,7 +359,7 @@ def get_shader(
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a shader's source and report its shader_type metadata."""
-    dispatch_domain(
+    dispatch_command(
         SHADER_GET_COMMAND,
         ShaderGetParams(path=path),
         json_output=json_output,
@@ -421,7 +421,7 @@ def set_shader(
     # builder turns any model-construction failure into the Click usage error
     # (exit 2), so the rule runs once per invocation on both input paths
     # (ADR-0015, issue #713).
-    dispatch_domain(
+    dispatch_command(
         SHADER_SET_COMMAND,
         params_or_bad_parameter(
             ShaderSetParams,

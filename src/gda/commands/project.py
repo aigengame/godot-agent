@@ -21,7 +21,7 @@ import typer
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gda import dispatch
-from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
+from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.errors import Failure, make_failure
 from gda.headless import (
     HeadlessCommand,
@@ -491,7 +491,7 @@ def _bounded_write(
     CLI can do — it holds the file's PRE-write state, which no engine started
     after the fact can recover.
 
-    ``project`` arrives ALREADY resolved from ``dispatch_recipe`` (#353).
+    ``project`` arrives ALREADY resolved from ``dispatch_command`` (#353).
     Projectless is not refused here: the operation itself reports
     ``project_not_found``, and this simply has nothing to measure.
 
@@ -1344,7 +1344,7 @@ def project_info(
     project: Optional[str] = project_option(),
 ) -> None:
     """Report the resolved project's metadata (name, main scene, viewport, engine)."""
-    dispatch_domain(
+    dispatch_command(
         PROJECT_INFO_COMMAND,
         ProjectInfoParams(),
         json_output=json_output,
@@ -1366,7 +1366,7 @@ def project_get(
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a single project setting by section/key as typed JSON."""
-    dispatch_domain(
+    dispatch_command(
         PROJECT_GET_COMMAND,
         ProjectGetParams(setting=setting),
         json_output=json_output,
@@ -1400,7 +1400,7 @@ def project_list(
     project: Optional[str] = project_option(),
 ) -> None:
     """List the project's settings keys (customized only by default; --all adds defaults)."""
-    dispatch_domain(
+    dispatch_command(
         PROJECT_LIST_COMMAND,
         ProjectListParams(include_defaults=include_defaults, section=section),
         json_output=json_output,
@@ -1427,7 +1427,7 @@ def find_references(
     project: Optional[str] = project_option(),
 ) -> None:
     """Find every project file that references a given resource path or class_name."""
-    dispatch_domain(
+    dispatch_command(
         PROJECT_FIND_REFERENCES_COMMAND,
         ProjectFindReferencesParams(target=target),
         json_output=json_output,
@@ -1445,7 +1445,7 @@ def dependencies(
     project: Optional[str] = project_option(),
 ) -> None:
     """Map each scene/resource in the project to the resources it references."""
-    dispatch_domain(
+    dispatch_command(
         PROJECT_DEPENDENCIES_COMMAND,
         ProjectDependenciesParams(),
         json_output=json_output,
@@ -1466,7 +1466,7 @@ def find_unused_resources(
     project: Optional[str] = project_option(),
 ) -> None:
     """Find resource files that nothing references (built on the reference graph)."""
-    dispatch_domain(
+    dispatch_command(
         PROJECT_FIND_UNUSED_RESOURCES_COMMAND,
         ProjectFindUnusedResourcesParams(),
         json_output=json_output,
@@ -1503,7 +1503,7 @@ def project_set(
     project: Optional[str] = project_option(),
 ) -> None:
     """Set a project setting; help text is `help=` above (the shared save note)."""
-    dispatch_recipe(
+    dispatch_command(
         PROJECT_SET_COMMAND,
         ProjectSetParams(setting=setting, value=value),
         json_output=json_output,
@@ -1535,7 +1535,7 @@ def project_add_autoload(
     project: Optional[str] = project_option(),
 ) -> None:
     """Register an autoload; help text is `help=` above (the shared save note)."""
-    dispatch_recipe(
+    dispatch_command(
         PROJECT_ADD_AUTOLOAD_COMMAND,
         ProjectAddAutoloadParams(name=name, path=path),
         json_output=json_output,
@@ -1562,7 +1562,7 @@ def project_remove_autoload(
     project: Optional[str] = project_option(),
 ) -> None:
     """Unregister an autoload; help text is `help=` above (the shared save note)."""
-    dispatch_recipe(
+    dispatch_command(
         PROJECT_REMOVE_AUTOLOAD_COMMAND,
         ProjectRemoveAutoloadParams(name=name),
         json_output=json_output,
@@ -1637,7 +1637,7 @@ def project_add_input_action(
         deadzone=deadzone,
         physical=physical,
     )
-    dispatch_recipe(
+    dispatch_command(
         PROJECT_ADD_INPUT_ACTION_COMMAND,
         params,
         json_output=json_output,
@@ -1660,7 +1660,7 @@ def project_remove_input_action(
     project: Optional[str] = project_option(),
 ) -> None:
     """Unregister an input action; help text is `help=` above (the shared save note)."""
-    dispatch_recipe(
+    dispatch_command(
         PROJECT_REMOVE_INPUT_ACTION_COMMAND,
         ProjectRemoveInputActionParams(name=name),
         json_output=json_output,
@@ -1678,7 +1678,7 @@ def statistics(
     project: Optional[str] = project_option(),
 ) -> None:
     """Report the project's file/line counts, autoloads and plugins."""
-    dispatch_domain(
+    dispatch_command(
         PROJECT_STATISTICS_COMMAND,
         ProjectStatisticsParams(),
         json_output=json_output,

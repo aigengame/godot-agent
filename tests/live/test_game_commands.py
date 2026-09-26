@@ -1370,7 +1370,7 @@ def test_game_call_invokes_the_method_and_projects_its_return(monkeypatch, tmp_p
     # structured, not as a str() dump.
     assert data["value"] == {"phase": 3, "ready": True, "labels": ["a", "b"]}
     # No --args -> a null on the wire, the same full-model shape every other
-    # dispatch_domain command in this group sends (cf. game get's property:
+    # command in this group sends (cf. game get's property:
     # None). The harness treats any non-Array args as none, so the method is
     # called with no arguments.
     assert fake.calls == [
