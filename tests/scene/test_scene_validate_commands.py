@@ -256,7 +256,7 @@ def test_an_operation_failure_is_still_an_error_envelope(monkeypatch, tmp_path):
 
 # --- The cross-language enum contract (#664) --------------------------------
 #
-# `operations.gd` WRITES these strings into the sentinel and the pydantic enums READ
+# The payload WRITES these strings into the sentinel and the pydantic enums READ
 # them, so a drift in either spelling turns a real verdict into a `contract_violation`
 # at parse time. Pinned the way every other cross-language mirror in this repo is (cf.
 # `VALIDATE_MARKER` in tests/script/test_script_commands.py): scrape the const VALUES
@@ -272,16 +272,17 @@ _SCENE_STARTUP_CONST = re.compile(
 )
 
 
-def _operations_consts(pattern: re.Pattern[str]) -> set[str]:
-    # Both constant families are in the entry until scene validation and the
-    # scene group exist (ADR-0043 §5); the name below then changes per family.
-    found = set(pattern.findall(payload_source("operations.gd")))
-    assert found, "no matching consts found in the payload"
+def _payload_consts(pattern: re.Pattern[str], relative: str) -> set[str]:
+    # Each constant family is read from the module ADR-0043 §5 gives it: the
+    # problem kinds from scene validation, the startup statuses from the entry
+    # until the scene group exists.
+    found = set(pattern.findall(payload_source(relative)))
+    assert found, f"no matching consts found in {relative}"
     return found
 
 
-def test_scene_problem_kinds_mirror_the_operations_gd_consts():
-    assert _operations_consts(_SCENE_PROBLEM_CONST) == {
+def test_scene_problem_kinds_mirror_the_scene_validate_consts():
+    assert _payload_consts(_SCENE_PROBLEM_CONST, "lib/scene_validate.gd") == {
         kind.value for kind in SceneProblemKind
     }
 
@@ -290,7 +291,7 @@ def test_scene_startup_statuses_mirror_the_operations_gd_consts():
     # `timeout` is gda's OWN verdict — no engine ever reports it, so it is
     # deliberately absent from the GDScript side and excluded here. Every value the
     # ENGINE can send must have a member; a member gda mints itself must not need one.
-    assert _operations_consts(_SCENE_STARTUP_CONST) == {
+    assert _payload_consts(_SCENE_STARTUP_CONST, "operations.gd") == {
         status.value for status in SceneStartupStatus
     } - {SceneStartupStatus.TIMEOUT.value}
 
