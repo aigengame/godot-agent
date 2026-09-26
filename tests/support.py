@@ -26,7 +26,7 @@ from typer.testing import CliRunner, Result
 
 from gda.binary import resolve_godot_binary
 from gda.cli import app
-from gda.runner import RunResult
+from gda.runner import OPERATIONS_GD, RunResult
 
 if TYPE_CHECKING:  # the daemon imports stay deferred; the annotation does not
     from gda.daemon.server import DaemonServer
@@ -1719,3 +1719,77 @@ def _readable(data: bytes):
     handle.write(data)
     handle.seek(0)
     return handle
+
+
+# --- the headless payload as text (ADR-0043 §6) -------------------------------
+#
+# The payload is one entry plus the files it preloads, under ``src/gda/ops``. Every
+# test that reads it as text — the error-code mirrors, the constant mirrors, the
+# project-walk guards, the harness drift test — gets the sources from here, so a
+# file that moves or joins the payload has one place to be found in. Each parse
+# fails when it finds nothing, so a guard cannot pass on an empty read.
+
+PAYLOAD_DIR = OPERATIONS_GD.parent
+
+# A top-level function header, ``func`` or ``static func`` (the static modules add
+# the keyword), capturing the name.
+GD_FUNCTION_HEADER = re.compile(r"^(?:static )?func (\w+)\(", re.MULTILINE)
+
+
+def payload_files() -> list[Path]:
+    """Every GDScript file of the payload: the entry, then the rest sorted by path."""
+    files = sorted(PAYLOAD_DIR.rglob("*.gd"))
+    assert OPERATIONS_GD in files, f"the entry is missing from {PAYLOAD_DIR}"
+    return [OPERATIONS_GD, *(path for path in files if path != OPERATIONS_GD)]
+
+
+def payload_sources() -> dict[str, str]:
+    """``{relative path: text}`` for every payload file, each read and non-empty."""
+    sources = {
+        str(path.relative_to(PAYLOAD_DIR)): path.read_text(encoding="utf-8")
+        for path in payload_files()
+    }
+    empty = sorted(name for name, text in sources.items() if not text.strip())
+    assert not empty, f"payload files with no text: {empty}"
+    return sources
+
+
+def payload_source(relative: str = "operations.gd") -> str:
+    """The text of one payload file, named relative to ``PAYLOAD_DIR``; non-empty."""
+    text = (PAYLOAD_DIR / relative).read_text(encoding="utf-8")
+    assert text.strip(), f"{relative} has no text"
+    return text
+
+
+def gd_function(source: str, name: str) -> list[str]:
+    """The lines of top-level ``func name(...)`` or ``static func name(...)``.
+
+    The header line first, then every line up to the next column-0 line that is
+    not blank — so the body's own comments are kept and the caller decides what
+    to drop. Fails when ``name`` is not declared.
+    """
+    lines = source.splitlines()
+    start = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if (match := GD_FUNCTION_HEADER.match(line)) and match.group(1) == name
+        ),
+        None,
+    )
+    assert start is not None, f"expected a function {name} in the source"
+    block = [lines[start]]
+    for line in lines[start + 1 :]:
+        if line and not line.startswith(("\t", " ")):
+            break  # back at column 0: the function ended
+        block.append(line)
+    while block and block[-1] == "":
+        block.pop()
+    return block
+
+
+def gd_string_const(source: str, name: str) -> str:
+    """The string literal a top-level ``const NAME := "…"`` declares; fails if absent."""
+    match = re.search(rf'^const {name} := "([^"]*)"$', source, re.MULTILINE)
+    assert match, f"expected a string const {name} in the source"
+    return match.group(1)

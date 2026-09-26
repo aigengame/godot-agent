@@ -14,8 +14,7 @@ import subprocess
 
 import pytest
 
-from gda.runner import OPERATIONS_GD
-from tests.support import GODOT, Gda, assert_operation_error
+from tests.support import GODOT, PAYLOAD_DIR, Gda, assert_operation_error
 
 from tests.conftest import project_godot
 
@@ -2071,7 +2070,7 @@ func _init() -> void:
 	build_root.free()
 
 	# Drive gda's REAL operations payload through its REAL mutate entry points.
-	var ops_script: GDScript = load("res://operations.gd")
+	var ops_script: GDScript = load("res://ops/operations.gd")
 	var ops: Object = ops_script.new()
 	var params := {"path": "res://main.tscn", "project": "res://"}
 
@@ -2138,7 +2137,7 @@ func _init() -> void:
 	var seed := PackedScene.new(); seed.pack(build_root); ResourceSaver.save(seed, "res://main.tscn")
 	build_root.free()
 
-	var ops_script: GDScript = load("res://operations.gd")
+	var ops_script: GDScript = load("res://ops/operations.gd")
 	var ops: Object = ops_script.new()
 	var params := {"path": "res://main.tscn", "project": "res://"}
 
@@ -2176,8 +2175,10 @@ func _init() -> void:
 
 def _run_harness(project, harness: str = _ATTACH_DROP_HARNESS) -> str:
     """Run a #164 harness in `project` against the real engine; return saved .tscn."""
-    # The harness drives gda's own operations.gd, so ship a copy into the fixture.
-    shutil.copy(OPERATIONS_GD, project / "operations.gd")
+    # The harness drives gda's own operations.gd, so ship a copy into the fixture:
+    # the whole payload directory, because the entry preloads its group files
+    # (ADR-0043 §6).
+    shutil.copytree(PAYLOAD_DIR, project / "ops")
     (project / "attach_drop_harness.gd").write_text(harness, encoding="utf-8")
     proc = subprocess.run(
         [
