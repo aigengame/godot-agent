@@ -32,7 +32,6 @@ from pydantic import (
 )
 
 from gda import dispatch
-from gda.binary import resolve_godot_binary
 from gda.completed_run import (
     DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS,
     STDOUT_CAP,
@@ -46,6 +45,7 @@ from gda.errors import (
     classify_run,
     containment_refusal,
     Failure,
+    resolve_godot_binary_or_failure,
     script_did_not_run_failure,
     script_escapes_project_failure,
     script_exit_status_failure,
@@ -54,7 +54,6 @@ from gda.errors import (
     script_run_project_not_found_failure,
     script_run_timeout_failure,
     termination_phase,
-    unresolvable_binary_failure,
 )
 from gda.engine_log import lines as engine_log_lines
 from gda.execution import ExecutionKind
@@ -1486,14 +1485,12 @@ def run_script_run_operation(
     if refusal is not None:
         return refusal
 
-    try:
-        binary = resolve_godot_binary(godot)
-    except ValueError as exc:
-        # An empty ``--godot ""`` (a natural $GDA_GODOT mistake) makes resolution
-        # raise before a launch — the same environment failure as a missing binary,
-        # mapped to the structured envelope so it never escapes as a raw traceback
-        # (mirrors gda.headless.execute's binary resolution, #33).
-        return unresolvable_binary_failure(str(exc))
+    # An empty ``--godot ""`` cannot be resolved: the shared step returns the same
+    # environment failure as a missing binary, before a launch, so it never escapes
+    # as a raw traceback (as in gda.headless.execute's binary resolution, #33).
+    binary = resolve_godot_binary_or_failure(godot)
+    if isinstance(binary, Failure):
+        return binary
 
     # Build only this channel's argv tail — the user script under the resolved
     # project — and delegate the spawn / timeout / OSError / UTF-8-decode handling

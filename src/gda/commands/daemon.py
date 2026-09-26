@@ -43,7 +43,6 @@ from typing import Callable, Optional
 import typer
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
-from gda.binary import resolve_godot_binary
 from gda.daemon.discovery import (
     DaemonPaths,
     daemon_paths,
@@ -60,7 +59,7 @@ from gda.daemon.server import (
 )
 from gda.daemon.session import CONNECT_TIMEOUT
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
-from gda.errors import Failure, make_failure, unresolvable_binary_failure
+from gda.errors import Failure, make_failure, resolve_godot_binary_or_failure
 from gda.execution import MIN_LIVE_VERSION, ExecutionKind
 from gda.harness.install import (
     HarnessInstall,
@@ -975,10 +974,10 @@ def run_daemon_start_operation(
 
     # The daemon needs the engine binary for its sessions; resolve it and gate the
     # live version here (ADR-0021), so the floor is reported at start, not midway.
-    try:
-        binary = resolve_godot_binary(godot)
-    except ValueError as exc:
-        return unresolvable_binary_failure(str(exc))
+    # An empty ``--godot ""`` is the shared step's binary_not_found failure (#33).
+    binary = resolve_godot_binary_or_failure(godot)
+    if isinstance(binary, Failure):
+        return binary
     version = (version_check or _engine_version)(str(binary))
     if version is None or tuple(version) < MIN_LIVE_VERSION:
         minimum = ".".join(str(part) for part in MIN_LIVE_VERSION)

@@ -218,7 +218,9 @@ def test_start_defaults_to_headless_and_reports_windowed_false(
     assert isinstance(started, DaemonStartResult), started
     assert started.windowed is False
     # The default (headless) mode is threaded into the spawn.
-    assert spawned == [(project, str(daemon_ops.resolve_godot_binary(None)), False)]
+    assert spawned == [
+        (project, str(daemon_ops.resolve_godot_binary_or_failure(None)), False)
+    ]
 
 
 def test_start_windowed_threads_mode_into_spawn_and_result(
@@ -751,6 +753,30 @@ def test_cli_daemon_start_defaults_to_no_scene(tmp_path, short_runtime, monkeypa
 
     assert result.exit_code == 0, result.output
     assert captured["scene"] is None
+
+
+def test_cli_daemon_start_with_an_empty_godot_is_binary_not_found(
+    tmp_path, daemon_runtime_dir, monkeypatch
+):
+    # A fresh short runtime directory: the socket paths fit and no daemon runs, so
+    # start reaches binary resolution. An empty `--godot ""` cannot be resolved.
+    # It is the shared binary_not_found envelope (exit 127), not a traceback,
+    # before the version gate, the harness install and the spawn (#33).
+    project = _project(tmp_path)
+
+    def boom(*args, **kwargs):
+        raise AssertionError("an unresolvable binary must not reach the engine")
+
+    monkeypatch.setattr(daemon_ops, "_engine_version", boom)
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", boom)
+
+    result = CliRunner().invoke(
+        app, ["daemon", "start", "--godot", "", "--project", str(project), "--json"]
+    )
+
+    assert result.exit_code == 127, result.output
+    assert json.loads(result.stdout)["error"]["code"] == "binary_not_found"
+    assert not (project / HARNESS_RES_DIR / HARNESS_FILE).exists()
 
 
 # --- status surfaces the running daemon's display mode (#251) -----------------

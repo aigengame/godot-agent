@@ -26,13 +26,12 @@ from pydantic import (
 )
 
 from gda import dispatch
-from gda.binary import resolve_godot_binary
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import (
     Failure,
     classify_run,
     make_failure,
-    unresolvable_binary_failure,
+    resolve_godot_binary_or_failure,
 )
 from gda.headless import (
     HeadlessCommand,
@@ -1082,13 +1081,12 @@ def run_scene_preflight_operation(
     stderr to the emission point, a verdict forwards it here.
     """
     run_launch = make_launch or launch
-    try:
-        binary = resolve_godot_binary(godot)
-    except ValueError as exc:
-        # An empty ``--godot ""`` (a natural $GDA_GODOT mistake): the same
-        # environment failure as a missing binary, mapped to the structured envelope
-        # so it never escapes as a traceback (mirrors gda.headless.execute).
-        return unresolvable_binary_failure(str(exc))
+    # An empty ``--godot ""`` is the same environment failure as a missing binary:
+    # the shared step returns the structured envelope, so it never escapes as a
+    # traceback (as in gda.headless.execute).
+    binary = resolve_godot_binary_or_failure(godot)
+    if isinstance(binary, Failure):
+        return binary
 
     root = expand_user(project).resolve() if project is not None else None
     raw = run_launch(

@@ -36,7 +36,6 @@ import typer
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 from gda import dispatch
-from gda.binary import resolve_godot_binary
 from gda.completed_run import (
     DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS,
     STDOUT_CAP,
@@ -54,6 +53,7 @@ from gda.errors import (
     export_output_parent_failure,
     export_path_unset_failure,
     export_templates_missing_failure,
+    resolve_godot_binary_or_failure,
     smoke_exit_status_failure,
 )
 from gda.execution import ExecutionKind
@@ -1038,8 +1038,11 @@ def run_export_operation(
     # Phase 3 (native run + classify): run the native export and classify its raw
     # outcome. The export-get resolved name (got.name) is authoritative throughout
     # — it is what the engine exports and what the result echoes — so the native
-    # invocation, not the raw --preset string, is keyed on it.
-    binary = resolve_godot_binary(godot)
+    # invocation, not the raw --preset string, is keyed on it. Phase 1 has already
+    # refused an empty ``--godot ""`` through the same shared step.
+    binary = resolve_godot_binary_or_failure(godot)
+    if isinstance(binary, Failure):
+        return binary
     export_runner = make_export_runner(binary, project)
     # The dev-only harness must never reach the artifact (ADR-0028): an export
     # cannot strip a project.godot autoload after the fact (it is serialized whole
