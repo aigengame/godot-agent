@@ -58,15 +58,13 @@ projectless and with `--path`:
    a preload constant, and a function inherited from the op base. A call to a name
    that does not exist (a wrong call) is then a parse error. A call through an
    instance reference is checked only when it runs, also when the member has a script
-   type. Every run, `info` included, prints a parse error on stderr. In a split
-   payload, the file that holds the error decides what fails:
-   - A wrong call in a group file, or a syntax error or a wrong call in a concept
-     module, static or instance: the entry loads. The operations whose group depends
-     on the broken file emit no result and exit 1. Every other operation, `info`
-     included, succeeds.
-   - Any parse error in the entry, or a syntax error in a group file or in the op
-     base: the entry does not load. No operation emits a result, and the process
-     exits 0. A single-file payload with a parse error behaves the same way today.
+   type. Every run, `info` included, prints the load error on stderr (`Parse Error`
+   or `Failed to load script`). In a split payload, what else fails depends on
+   which files load the broken file and on which code each operation runs. The
+   probed defects failed either only the operations that depend on the broken file
+   or every operation, `info` included. The failed operations emitted no result,
+   and the process exited 0 or 1. A single-file payload with a parse error fails
+   every operation today, with exit 0.
 4. A `static var` in a preloaded module is initialized once per process.
 5. A `Callable` does not keep its `RefCounted` target alive. When no member held the
    group instance, the pending tick of a multi-frame operation was invalid, the run
@@ -250,9 +248,8 @@ There are two kinds of module:
   caller decides.
 
 A new concept module is static when its concept allows it. Its calls are checked at
-load time, and it has no lifetime to manage. A wrong call is then a parse error that
-fails the operations that depend on the module, and every run reports it on stderr
-(probe 3).
+load time, and it has no lifetime to manage. A wrong call is then a parse error, and
+every run reports it on stderr (probe 3).
 
 State and lifetime:
 
@@ -434,15 +431,16 @@ maps to rules above:
   are visible on the record.
 - GDScript has no unit tier here, so each move step needs the full e2e suite on a real
   engine.
-- Some payload defects that fail to compile change how they are reported (probe 3).
-  Today every such defect makes every operation exit 0 with no result, which the CLI
-  classifies as `contract_violation`. After the split, a wrong call in a group file,
-  or a syntax error or a wrong call in a concept module, fails only the operations
-  whose group depends on the broken file. They exit 1 with no result, which the CLI
-  classifies as `operation_failed`, and the other operations succeed. Any parse
-  error in the entry, or a syntax error in a group file or in the op base, stops the
-  entry from loading, so every operation still fails as `contract_violation`. The
-  engine-backed `info` test (§6) finds each of these defects before a release.
+- A payload file that does not compile is a gda defect. Today it fails every
+  operation with exit 0 and no result, which the CLI classifies as
+  `contract_violation`. After the split, the failed operations and the exit status
+  depend on which files load the broken file and on which code each operation runs
+  (probe 3). Some or all operations can then fail with exit 1 and no result, which
+  the CLI classifies as `operation_failed`. This ADR promises no failure scope and
+  no error code for a payload that does not compile, and the classification rules
+  of ADR-0002 do not change. In each case the envelope's diagnostics carry the
+  engine's load error, and the engine-backed `info` test (§6) fails on it before a
+  release.
 - A call through an instance reference is checked only when it runs (probe 3). A wrong
   qualification on a path that the e2e suite does not reach fails only on that path.
   The mitigations are the moved-code diff, which shows every line that did not only
