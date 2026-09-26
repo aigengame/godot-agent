@@ -48,7 +48,7 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 from gda import dispatch
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
-from gda.errors import Failure, classify_live, make_failure
+from gda.errors import Failure, classify_live, reply_correlation_failure
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -1542,7 +1542,7 @@ def _input_action_recipe(params, *, project, godot):
         injection_route("action", as_event=params.as_event), outcome.injection_route
     )
     if error is not None:
-        return make_failure("contract_violation", error, "")
+        return reply_correlation_failure(error)
     return outcome
 
 
@@ -1571,7 +1571,7 @@ def _input_tap_recipe(params, *, project, godot):
         outcome.phases[0].injection_route,
     )
     if error is not None:
-        return make_failure("contract_violation", error, "")
+        return reply_correlation_failure(error)
     return outcome
 
 
@@ -1606,11 +1606,9 @@ def _input_sequence_recipe(params, *, project, godot):
     if isinstance(outcome, Failure):
         return outcome
     if outcome.events != len(params.events):
-        return make_failure(
-            "contract_violation",
+        return reply_correlation_failure(
             f"the harness applied {outcome.events} events for a "
-            f"{len(params.events)}-event request.",
-            "",
+            f"{len(params.events)}-event request."
         )
     return outcome.model_copy(update={"phases": sequence_phases(params)})
 

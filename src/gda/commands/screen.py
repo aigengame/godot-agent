@@ -5,11 +5,11 @@ params/result models, the two capture operations (formerly ``gda.screen_ops``),
 its human renderers, its ``HeadlessCommand`` descriptors (ADR-0023), its recipe
 channels and its Typer command bodies, and mounts them on the root app through
 :func:`register`. It imports the shared machinery downward — the dispatch tail
-(``gda.dispatch``), the descriptor machinery (``gda.headless``), the shared
-failure taxonomy (``gda.errors``, whose ``classify_live`` every live group
-shares), the live runner (``gda.live_runner``) and the cross-command contract
-core (``gda.models``, which keeps the multi-group ``MAX_WINDOW_FRAMES``
-ceiling) — and is imported by nothing but the composition root (``gda.cli``).
+and the live exchange (``gda.dispatch``), the descriptor machinery
+(``gda.headless``), the shared failure taxonomy (``gda.errors``) and the
+cross-command contract core (``gda.models``, which keeps the multi-group
+``MAX_WINDOW_FRAMES`` ceiling) — and is imported by nothing but the composition
+root (``gda.cli``).
 
 The viewport is the domain object here (not under ``game``, whose object is the
 runtime scene graph). Both commands are LIVE (``kind = LIVE``), routed through
@@ -21,7 +21,7 @@ import base64
 import hashlib
 import json
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 import typer
 from pydantic import BaseModel, Field, model_validator
@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field, model_validator
 from gda import dispatch
 from gda.commands.input import InputSequenceEvent
 from gda.dispatch import dispatch_recipe, params_or_bad_parameter
-from gda.errors import Failure, classify_live, make_failure
+from gda.errors import Failure, reply_correlation_failure
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -39,9 +39,7 @@ from gda.headless import (
     project_option,
 )
 from gda.live_numbers import LIVE_ENGINE_PRECISION
-from gda.live_runner import make_daemon_runner
 from gda.models import MAX_WINDOW_FRAMES, RelayedLiveParams, NormalizedPath
-from gda.runner import GodotRunner
 
 # --- screen (runtime viewport capture, #222) ----------------------------------
 # Capture the running game's viewport over the LIVE channel. The harness reads
@@ -703,19 +701,13 @@ class ScreenFramesResult(BaseModel):
 # RETURNS its typed outcome (never emits/exits) and the CLI owns emission — the same
 # shape ``export run`` and the ``daemon`` lifecycle commands use.
 #
-# The operation runs the shared LIVE runner (the daemon IPC client), classifies the
-# raw result against an INTERMEDIATE harness-reply model via ``classify_live`` so
-# every LIVE failure (``daemon_not_running``, ``engine_disconnected``,
-# ``live_display_unavailable``, …) flows through the one registered-code pipeline,
-# then decodes the base64 PNG(s) and writes them under the agent's chosen path. A
-# failed capture writes nothing.
-
-# The LIVE runner factory seam, the SAME shape gda.dispatch.make_live_runner has —
-# ``(binary, project) -> GodotRunner`` — so the CLI threads its own seam in and a
-# test's ``inject_live_runner`` (which patches ``gda.dispatch.make_live_runner``) binds
-# without a second injection point. ``binary`` is unused (a live op reaches the
-# daemon, not a fresh engine), matching the live channel.
-LiveRunnerFactory = Callable[[Optional[Path], Optional[Path]], GodotRunner]
+# The operation runs the shared live exchange (``gda.dispatch.run_live_exchange``,
+# #1013), which classifies the raw result against an INTERMEDIATE harness-reply
+# model via ``classify_live`` so every LIVE failure (``daemon_not_running``,
+# ``engine_disconnected``, ``live_display_unavailable``, …) flows through the one
+# registered-code pipeline, and forwards the relayed stderr under ADR-0002's #803
+# rule. The operation then decodes the base64 PNG(s) and writes them under the
+# agent's chosen path. A failed capture writes nothing.
 
 
 # --- intermediate harness-reply models (the wire shape, decoded CLI-side) -----
@@ -790,16 +782,6 @@ class _FramesReply(BaseModel):
                 f"{len(self.frames)}."
             )
         return self
-
-
-def _default_runner(binary: Optional[Path], project: Optional[Path]) -> GodotRunner:
-    """Build the LIVE runner for ``project`` — the daemon-channel runner factory.
-
-    Matches the ``(binary, project)`` factory shape so the CLI's
-    ``make_live_runner`` is a drop-in; ``binary`` is unused (the daemon owns the
-    engine session).
-    """
-    return make_daemon_runner(project)
 
 
 def _write_png(png_base64: str, destination: Path) -> "tuple[int, str]":
@@ -950,22 +932,20 @@ def _settle_correlation_error(
 def run_screen_capture_operation(
     project: Optional[Path],
     params: "ScreenCaptureParams",
-    *,
-    make_runner: Optional[LiveRunnerFactory] = None,
 ) -> "ScreenCaptureResult | Failure":
     """Capture one viewport frame, write it to ``params.output``, return the result.
 
-    The single-frame recipe: run the ``screen-capture`` live op, surface any LIVE
-    failure via ``classify_live`` (so ``daemon_not_running`` /
-    ``live_display_unavailable`` — and the predicate's ``live_predicate_unmet``,
-    #661 — ride the registered-code pipeline), then decode the base64 PNG and
-    write it to ``params.output``. With ``--await-*`` the wire params carry the
-    predicate (and the optional atomic input events); the harness holds the
-    capture until the predicate's first holding frame, and the reply's
-    ``predicate`` report is surfaced on the result. ``--inline`` additionally
-    embeds the base64; the default reply is path + dims + bytes + format.
+    The single-frame recipe: run the ``screen-capture`` live op through the live
+    exchange, which surfaces any LIVE failure via ``classify_live`` (so
+    ``daemon_not_running`` / ``live_display_unavailable`` — and the predicate's
+    ``live_predicate_unmet``, #661 — ride the registered-code pipeline), then
+    decode the base64 PNG and write it to ``params.output``. With ``--await-*``
+    the wire params carry the predicate (and the optional atomic input events);
+    the harness holds the capture until the predicate's first holding frame, and
+    the reply's ``predicate`` report is surfaced on the result. ``--inline``
+    additionally embeds the base64; the default reply is path + dims + bytes +
+    format.
     """
-    runner = (make_runner or _default_runner)(None, project)
     op_params: dict[str, object] = {"settle_frames": params.settle_frames}
     if params.await_node is not None:
         op_params["await"] = {
@@ -980,8 +960,9 @@ def run_screen_capture_operation(
         }
         if params.await_events:
             op_params["events"] = [event.model_dump() for event in params.await_events]
-    result = runner.run("screen-capture", op_params)
-    reply = classify_live(result, None, _CaptureReply)
+    reply = dispatch.run_live_exchange(
+        SCREEN_CAPTURE_COMMAND.operation, op_params, _CaptureReply, project=project
+    )
     if isinstance(reply, Failure):
         return reply
     correlation = (
@@ -994,7 +975,7 @@ def run_screen_capture_operation(
         )
     )
     if correlation is not None:
-        return make_failure("contract_violation", correlation, result.stdout)
+        return reply_correlation_failure(correlation)
     output = Path(params.output)
     written, digest = _write_png(reply.png_base64, output)
     return ScreenCaptureResult(
@@ -1017,41 +998,38 @@ def run_screen_capture_operation(
 def run_screen_frames_operation(
     project: Optional[Path],
     params: "ScreenFramesParams",
-    *,
-    make_runner: Optional[LiveRunnerFactory] = None,
 ) -> "ScreenFramesResult | Failure":
     """Capture a window of ``frames`` viewport frames, write each PNG, return paths.
 
     The multi-frame recipe (the harness's time-windowed base, #223): run the
-    ``screen-frames`` live op, surface any LIVE failure via ``classify_live``, then
-    write one PNG per captured frame into ``output_dir`` (``frame_0000.png`` …) and
-    return the path-only sequence — no base64, which would blow the agent's context.
-    With ``summary`` (#665) the same frames are captured and written, but the
-    result carries the compact aggregate instead of the per-frame list, so the
-    completion envelope does not grow with the frame count.
+    ``screen-frames`` live op through the live exchange, which surfaces any LIVE
+    failure via ``classify_live``, then write one PNG per captured frame into
+    ``output_dir`` (``frame_0000.png`` …) and return the path-only sequence — no
+    base64, which would blow the agent's context. With ``summary`` (#665) the
+    same frames are captured and written, but the result carries the compact
+    aggregate instead of the per-frame list, so the completion envelope does not
+    grow with the frame count.
     """
-    runner = (make_runner or _default_runner)(None, project)
-    result = runner.run(
-        "screen-frames",
+    reply = dispatch.run_live_exchange(
+        SCREEN_FRAMES_COMMAND.operation,
         {"frames": params.frames, "settle_frames": params.settle_frames},
+        _FramesReply,
+        project=project,
     )
-    reply = classify_live(result, None, _FramesReply)
     if isinstance(reply, Failure):
         return reply
     settle_error = _settle_correlation_error(
         params.settle_frames, reply.settle_frames, "the first frame"
     )
     if settle_error is not None:
-        return make_failure("contract_violation", settle_error, result.stdout)
+        return reply_correlation_failure(settle_error)
     if reply.count != params.frames:
         # #748 re-review (ARC-748-F007): the operation has no partial-success
         # semantics — a self-consistent reply for a DIFFERENT frame budget is
         # contract drift, refused before any file is written.
-        return make_failure(
-            "contract_violation",
+        return reply_correlation_failure(
             f"the harness reply carries {reply.count} frames for a request "
-            f"of {params.frames}",
-            result.stdout,
+            f"of {params.frames}"
         )
     output_dir = Path(params.output_dir)
     written: list[ScreenFrame] = []
@@ -1171,28 +1149,20 @@ def render_screen_frames(captured: "ScreenFramesResult") -> str:
 # CLI-side per ADR-0006, so an invalid --project is a structured project_not_found
 # before any recipe runs, #353) — and RETURNS the typed result or a Failure; emission
 # stays the shared tail (:func:`gda.dispatch.dispatch_recipe` → ``cmd.render``), so a
-# recipe command renders exactly like a sentinel one. The runner seam
-# (``dispatch.make_live_runner``) is referenced at call time — as an attribute on the
-# module, never imported by name — so test monkeypatches on
+# recipe command renders exactly like a sentinel one. The live exchange
+# (``dispatch.run_live_exchange``) references the runner seam
+# (``dispatch.make_live_runner``) at call time, so test monkeypatches on
 # ``gda.dispatch.make_live_runner`` still bind. ``params`` is the built model — the
 # single source of truth (ADR-0015), identical on the argv and ``--params-json`` paths
 # — so output/inline/frames are read off it, never special-cased.
 
 
 def _screen_capture_recipe(params, *, project, godot):
-    return run_screen_capture_operation(
-        project,
-        params,
-        make_runner=dispatch.make_live_runner,
-    )
+    return run_screen_capture_operation(project, params)
 
 
 def _screen_frames_recipe(params, *, project, godot):
-    return run_screen_frames_operation(
-        project,
-        params,
-        make_runner=dispatch.make_live_runner,
-    )
+    return run_screen_frames_operation(project, params)
 
 
 # The `screen` commands are LIVE but run a CLI-side recipe (the operations above),
