@@ -7,6 +7,7 @@
 """
 
 import json
+import re
 import zipfile
 from importlib.metadata import version as package_version
 from pathlib import Path
@@ -17,7 +18,9 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.commands.meta import SKILL_MD, SkillParams, SkillResult, read_skill_text
+from gda.exit_codes import EXIT_OPERATION
 from gda.models import GdaErrorEnvelope
+from tests.support import usage_error_text
 
 BUNDLED = read_skill_text()
 
@@ -185,11 +188,15 @@ def test_skill_dir_implies_install(tmp_path):
 
 def test_skill_install_without_dir_is_a_usage_error():
     # ADR-0024: core has no default skills dir; --install requires an explicit --dir,
-    # so an install with no target is rejected (a non-zero usage exit; the exact
-    # error rendering/stream varies by tty width, so assert on the exit code).
+    # so an install with no target is rejected as a usage error. The argv body's own
+    # check answers before the model's rule does, so its sentence stays (#1014).
+    # `usage_error_text` asserts exit 2 and removes the width-dependent wrapping.
     result = CliRunner().invoke(app, ["skill", "--install"])
 
-    assert result.exit_code != 0
+    assert (
+        "`--install` requires `--dir` or `--provider` (where to write the SKILL.md)"
+        in usage_error_text(result)
+    )
     # Nothing was written: a plain `gda skill` (no install) still succeeds.
     assert CliRunner().invoke(app, ["skill"]).exit_code == 0
 
@@ -389,7 +396,12 @@ def test_skill_dir_and_provider_are_mutually_exclusive(tmp_path):
         app, ["skill", "--dir", str(tmp_path), "--provider", "claude"]
     )
 
-    assert result.exit_code != 0
+    # The argv body's own sentence, not the model's (#1014); exit 2 is asserted by
+    # `usage_error_text`.
+    assert (
+        "`--dir` and `--provider` are mutually exclusive: name a directory OR an "
+        "agent, not both" in usage_error_text(result)
+    )
     assert not (tmp_path / "SKILL.md").exists()
 
 
@@ -439,3 +451,70 @@ def test_skill_schema_input_constrains_provider_and_scope():
     blob = json.dumps(doc["input"])
     assert "claude" in blob and "codex" in blob
     assert "project" in blob and "user" in blob
+
+
+# --- an install needs a target, on both input channels (#1014) ---------------------
+#
+# `SkillParams` owns the rule, so `--params-json` (and gda-mcp's `skill` tool, which
+# forwards it) refuses an install with no target, or an empty one, as `invalid_params`.
+# The argv body builds the model through `params_or_bad_parameter`, so `--dir ''` is a
+# usage error. Before #1014 all three inputs reached `build_skill_result` and ended in a
+# `ValueError` traceback with exit 1. CliRunner reports an uncaught exception as
+# `result.exception`, so a `SystemExit` there is what "no traceback" means.
+
+_NO_TARGET = (
+    "an install needs a target: name a non-empty directory (--dir) or an agent "
+    "(--provider)"
+)
+
+
+@pytest.mark.parametrize(
+    "params", [{"install": True}, {"install_dir": ""}], ids=["no-target", "empty-dir"]
+)
+def test_skill_params_json_install_without_a_target_is_invalid_params(params):
+    result = CliRunner().invoke(
+        app, ["skill", "--params-json", json.dumps(params), "--json"]
+    )
+
+    assert isinstance(result.exception, SystemExit), result.exception
+    assert result.exit_code == EXIT_OPERATION, result.stdout
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "invalid_params"
+    assert error["category"] == "operation"
+    assert _NO_TARGET in error["message"]
+
+
+def test_skill_params_json_install_without_a_target_is_refused_in_lines():
+    # The same refusal without `--json`: rendered for a human, same exit status.
+    result = CliRunner().invoke(
+        app, ["skill", "--params-json", json.dumps({"install": True})]
+    )
+
+    assert isinstance(result.exception, SystemExit), result.exception
+    assert result.exit_code == EXIT_OPERATION, result.stdout
+    assert result.stdout.splitlines()[0] == "error: invalid_params (operation)"
+
+
+def test_skill_empty_dir_is_a_usage_error(tmp_path, monkeypatch):
+    # An empty `--dir` names no directory. Run in a scratch cwd, so a regression that
+    # wrote to "" (the cwd) cannot write into the checkout.
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(app, ["skill", "--dir", ""])
+
+    assert isinstance(result.exception, SystemExit), result.exception
+    assert _NO_TARGET in usage_error_text(result)
+    assert not (tmp_path / "SKILL.md").exists()
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"install": True}, {"install_dir": ""}, {"install": True, "install_dir": ""}],
+    ids=["no-target", "empty-dir", "install-empty-dir"],
+)
+def test_skill_params_rejects_an_install_without_a_target(kwargs):
+    # The model is the one owner of the rule (ADR-0015); both channels read it there.
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match=re.escape(_NO_TARGET)):
+        SkillParams(**kwargs)

@@ -34,7 +34,7 @@ from typing import Optional
 import typer
 from pydantic import BaseModel, Field, model_validator
 
-from gda.dispatch import dispatch_meta, dispatch_recipe
+from gda.dispatch import dispatch_meta, dispatch_recipe, params_or_bad_parameter
 from gda.errors import (
     MIN_GODOT_VERSION,
     Failure,
@@ -177,6 +177,13 @@ class SkillParams(BaseModel):
             self.install_dir = resolve_skill_dir(self.provider, self.scope)
         if self.install_dir is not None:
             self.install = True
+        # An install needs somewhere to write. This runs after provider resolved, so a
+        # named agent is a target; a missing or empty directory is not (#1014).
+        if self.install and not self.install_dir:
+            raise ValueError(
+                "an install needs a target: name a non-empty directory (--dir) or an "
+                "agent (--provider)"
+            )
         return self
 
 
@@ -529,7 +536,8 @@ def register(root: typer.Typer) -> None:
             )
         dispatch_recipe(
             SKILL_COMMAND,
-            SkillParams(
+            params_or_bad_parameter(
+                SkillParams,
                 install=install,
                 install_dir=install_dir,
                 provider=provider,
