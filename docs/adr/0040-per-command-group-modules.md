@@ -159,6 +159,12 @@ src/gda/
   fast suite green: extract `dispatch.py`; move the headless domain groups; move
   the live groups and `meta`; shrink the core files and drop the suppressions.
 
+> **Outcome (2026-09-26, #1015):** ADR-0043 (proposed) takes up the GDScript side
+> that this ADR left out of scope. The headless payload splits into an entry, one
+> file per command group that mirrors `src/gda/commands/`, and concept modules. #1016
+> replaces the harness mirror with one shared module. The cross-language
+> `operation`-name contract stays open.
+
 > **Outcome (2026-09-01, #687):** the ADR-0004 amendment that put typed `evidence` on
 > the failure envelope moved two edges in the core, and §5's chain is the reason both
 > ended up where they did.

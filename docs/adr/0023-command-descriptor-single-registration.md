@@ -162,3 +162,8 @@ no renderer is orphaned. The "command wired without a renderer" failure
 > telemetry, which the live conformance tests establish. Per-feature capability
 > echoes and event-mode counters are not required for old harness sessions: the
 > current-version policy is ADR-0018's note of the same date.
+
+> **Outcome (2026-09-26, #1015):** of the two follow-ons above, ADR-0040 realized the
+> per-group module split, and ADR-0043 (proposed) decides the structure of the
+> GDScript dispatch in `operations.gd`. The cross-language `operation`-name contract
+> stays open: ADR-0043 lists its unit guard under "Not decided here".
