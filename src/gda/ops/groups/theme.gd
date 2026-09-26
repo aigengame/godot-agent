@@ -4,6 +4,18 @@ extends "../op_base.gd"
 # entry, operations.gd, creates one instance per run and dispatches the group's
 # operation to it.
 
+const VALUE := preload("../lib/value.gd")
+const FILE_WRITE := preload("../lib/file_write.gd")
+
+# The file write theme-create saves through, created with this group's frame
+# and held for the group's life (ADR-0043 §4).
+var _file_write: FILE_WRITE
+
+
+func _init(frame) -> void:
+	super(frame)
+	_file_write = FILE_WRITE.new(frame)
+
 
 # theme-create: produce a loadable .tres Theme resource (issue #115). Unlike the
 # shader trio (plain file authoring), a Theme is an ENGINE-BACKED resource: it is
@@ -14,7 +26,7 @@ extends "../op_base.gd"
 # target that exists is already_exists.
 func _op_theme_create(params: Dictionary) -> void:
 	_diag("running operation: theme-create")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
@@ -26,12 +38,12 @@ func _op_theme_create(params: Dictionary) -> void:
 		return
 
 	var theme := Theme.new()
-	var created_dirs: Variant = _ensure_parent_dirs(path)
+	var created_dirs: Variant = _file_write._ensure_parent_dirs(path)
 	if created_dirs == null:
 		return  # _ensure_parent_dirs already recorded the failure
-	var save_err := _atomic_save_resource(theme, path)
+	var save_err := _file_write._atomic_save_resource(theme, path)
 	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("theme", path, save_err))
+		_fail(OP_ERROR_SAVE_FAILED, _file_write._save_failure_message("theme", path, save_err))
 		return
 
 	_succeed({
