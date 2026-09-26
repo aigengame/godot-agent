@@ -226,7 +226,7 @@ def test_skill_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("gda skill must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
+    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
     monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     result = CliRunner().invoke(app, ["skill", "--json"])

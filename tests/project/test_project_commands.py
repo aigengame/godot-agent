@@ -966,7 +966,7 @@ def test_project_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
+    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
     monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     for command in (

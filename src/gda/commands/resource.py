@@ -24,13 +24,13 @@ from typing import Any, Literal, Optional, get_args
 import typer
 from pydantic import BaseModel, Field, model_validator
 
-from gda.binary import resolve_godot_binary
 from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
 from gda.errors import (
     classify_launch_or_crash,
     containment_refusal,
     Failure,
     make_failure,
+    resolve_godot_binary_or_failure,
 )
 from gda.execution import ExecutionKind
 from gda.headless import (
@@ -1085,7 +1085,12 @@ def run_resource_import_operation(
     # are read out of it there, per asset (#853). None means no pass ran.
     pass_stderr: "str | None" = None
     if needs_pass:
-        binary = resolve_godot_binary(godot)
+        # Resolved only when the pass runs, so a dry run or an all-cached request
+        # never refuses an empty ``--godot ""``. Here it is the shared step's
+        # binary_not_found failure, not a traceback (#33).
+        binary = resolve_godot_binary_or_failure(godot)
+        if isinstance(binary, Failure):
+            return binary
         # The `Project tree inventory` (:mod:`gda.project_tree`, #985): the same
         # walk `export run` reports its mutations from, around the same engine
         # pass. This command used to walk the tree itself with `Path.rglob("*")`,

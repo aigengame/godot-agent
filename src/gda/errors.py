@@ -47,6 +47,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
+from gda.binary import resolve_godot_binary
 from gda.error_codes import (
     ERROR_CODE_BY_CODE,
     LIVE_ERROR_CODES,
@@ -236,19 +237,38 @@ def _operation_error_from_payload(result: RunResult) -> tuple[str, str] | None:
 def unresolvable_binary_failure(reason: str) -> Failure:
     """The ``binary_not_found`` failure when the binary cannot even be resolved (issue #33).
 
-    Binary resolution runs *before* a runner is built, so an unresolvable
-    ``--godot`` value (an empty ``--godot ""`` / ``$GDA_GODOT`` mistake) raises
-    instead of producing a launchable path. There is no engine to run — the same
-    environment outcome the runner reports as ``LaunchFailure.NOT_FOUND`` — so it
-    reuses the ``binary_not_found`` code rather than minting a new one (ADR-0002:
-    reuse the exit code; discriminate via the envelope). Kept here beside the
-    other environment failures so the whole taxonomy reads from one place.
+    Binary resolution runs *before* a runner is built, and an explicit empty
+    ``--godot ""`` makes it raise instead of producing a launchable path (an empty
+    ``$GDA_GODOT`` does not: it falls back to the default). There is no engine to
+    run — the same environment outcome the runner reports as
+    ``LaunchFailure.NOT_FOUND`` — so it reuses the ``binary_not_found`` code rather
+    than minting a new one (ADR-0002: reuse the exit code; discriminate via the
+    envelope). Callers do not build it themselves:
+    :func:`resolve_godot_binary_or_failure` is the one place that turns the raise
+    into it (#1012). Kept here beside the other environment failures so the whole
+    taxonomy reads from one place.
     """
     return make_failure(
         "binary_not_found",
         f"Godot binary could not be resolved: {reason}",
         "",
     )
+
+
+def resolve_godot_binary_or_failure(godot: str | None) -> Path | Failure:
+    """Resolve the Godot binary, or return the ``binary_not_found`` failure (#1012).
+
+    The one resolution step for every caller that takes a ``--godot`` value.
+    :func:`gda.binary.resolve_godot_binary` keeps its raising contract, and this
+    step is the one place that catches its ``ValueError``, so a caller makes one
+    call instead of copying a try/except. Each caller calls it at its own
+    resolution point, so a path that resolves no binary (a dry run, a live op)
+    is never refused.
+    """
+    try:
+        return resolve_godot_binary(godot)
+    except ValueError as exc:
+        return unresolvable_binary_failure(str(exc))
 
 
 def conflicting_params_input_failure() -> Failure:

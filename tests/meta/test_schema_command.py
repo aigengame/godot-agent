@@ -135,7 +135,7 @@ def test_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
+    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
     monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     result = CliRunner().invoke(app, ["info", "--schema"])
@@ -292,7 +292,7 @@ def test_scene_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
+    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
     monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     for command in (
@@ -547,7 +547,7 @@ def test_node_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
+    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
     monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     for command in (
@@ -838,7 +838,7 @@ def test_resource_uid_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
+    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
     monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     result = CliRunner().invoke(app, ["resource", "uid", "--schema"])
@@ -851,7 +851,7 @@ def test_script_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
+    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
     monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     for command in (
@@ -1175,7 +1175,7 @@ def test_grouped_command_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
+    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
     monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     for command in (
@@ -1837,7 +1837,7 @@ def test_asset_file_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
-    monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
+    monkeypatch.setattr("gda.headless.resolve_godot_binary_or_failure", boom)
     monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     for command in (

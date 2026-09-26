@@ -19,14 +19,13 @@ from typer._click import Context as ClickContext
 from typer.core import TyperCommand
 from typer.models import TyperInfo
 
-from gda.binary import resolve_godot_binary
 from gda.errors import (
     Failure,
     classify_live,
     classify_run,
     conflicting_params_input_failure,
     invalid_params_json_failure,
-    unresolvable_binary_failure,
+    resolve_godot_binary_or_failure,
     validation_error_message,
 )
 from gda.execution import ExecutionKind, live_stack_constraints
@@ -795,15 +794,14 @@ class HeadlessCommand(Generic[M]):
             # reports daemon_not_running, not a spurious binary_not_found.
             binary: Optional[Path] = None
         else:
-            try:
-                binary = resolve_godot_binary(godot)
-            except ValueError as exc:
-                # An empty ``--godot ""`` (a natural $GDA_GODOT mistake) makes
-                # resolution raise *before* a runner exists — there is no binary to
-                # launch, the same environment failure as a missing one. Map it to
-                # the structured ``binary_not_found`` envelope so it never escapes as
-                # a raw traceback (issue #33), mirroring the runner's NOT_FOUND path.
-                return unresolvable_binary_failure(str(exc))
+            # Resolution runs *before* a runner exists. An empty ``--godot ""``
+            # cannot be resolved, and the shared step returns the structured
+            # ``binary_not_found`` failure for it, so it never escapes as a raw
+            # traceback (issue #33), mirroring the runner's NOT_FOUND path.
+            resolved = resolve_godot_binary_or_failure(godot)
+            if isinstance(resolved, Failure):
+                return resolved
+            binary = resolved
         # ``binary`` is ``None`` only on the LIVE branch above, where the injected
         # runner (`make_live_runner`) and classifier ignore it — a live op reaches
         # the daemon, not a fresh engine (ADR-0017); the headless path always passes

@@ -226,6 +226,31 @@ def test_a_missing_binary_is_still_an_error_envelope(monkeypatch, tmp_path):
     assert json.loads(result.stdout)["error"]["code"] == "binary_not_found"
 
 
+def test_an_empty_godot_is_binary_not_found_before_any_launch(monkeypatch, tmp_path):
+    # An empty `--godot ""` cannot be resolved. It is the same shared envelope
+    # (exit 127), not a traceback, and the scene is never launched (#33).
+    project = minimal_project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout=READY, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "scene",
+            "preflight",
+            "res://main.tscn",
+            "--godot",
+            "",
+            "--project",
+            str(project),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 127, result.stdout + result.stderr
+    assert json.loads(result.stdout)["error"]["code"] == "binary_not_found"
+    assert calls == []
+
+
 def test_an_operation_refusal_survives_the_recipe(monkeypatch, tmp_path):
     # The op's own structured refusals still classify normally: a scene that cannot
     # be instantiated at all is a dependency failure, not a startup verdict.
