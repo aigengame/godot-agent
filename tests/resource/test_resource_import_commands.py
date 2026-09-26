@@ -248,13 +248,10 @@ def test_an_unreadable_subtree_is_counted_once_beside_the_created_list(
     project, locked = _locked_icon_project(tmp_path)
     calls, fake_launch = _fake_pass(project, _icon_effects)
     monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
-    if not unlistable(locked):
-        pytest.skip("this platform lets the owner list a mode-000 directory")
-
-    try:
+    with unlistable(locked) as agreed:
+        if not agreed:
+            pytest.skip("this platform lets the owner list a mode-000 directory")
         result = _run(project, "res://icon.png")
-    finally:
-        locked.chmod(0o755)
 
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
@@ -291,15 +288,12 @@ def test_the_render_names_the_unreadable_count_beside_the_created_line(
     project, locked = _locked_icon_project(tmp_path)
     calls, fake_launch = _fake_pass(project, _icon_effects)
     monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
-    if not unlistable(locked):
-        pytest.skip("this platform lets the owner list a mode-000 directory")
-
-    try:
+    with unlistable(locked) as agreed:
+        if not agreed:
+            pytest.skip("this platform lets the owner list a mode-000 directory")
         partial = runner_cli.invoke(
             app, ["resource", "import", "res://icon.png", "--project", str(project)]
         )
-    finally:
-        locked.chmod(0o755)
 
     assert partial.exit_code == 0, partial.stdout + partial.stderr
     created_line = next(
@@ -1315,3 +1309,61 @@ def test_the_human_render_shows_the_reason_on_the_assets_line(monkeypatch, tmp_p
     assert "invalid" in line
     assert "receipt_unsupported" in line
     assert ".md5" in line
+
+
+# --- an empty --godot, where the command resolves a binary (#1012) -------------
+
+
+def test_an_empty_godot_is_binary_not_found_before_the_pass(monkeypatch, tmp_path):
+    # The asset has no import cache, so the pass must run and the binary is
+    # resolved. An empty `--godot ""` cannot be: it is the shared binary_not_found
+    # envelope (exit 127), not a ValueError traceback, and nothing is launched.
+    project = icon_project(tmp_path)
+    calls, fake_launch = _fake_pass(project, lambda p: None)
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+
+    result = _run(project, "res://icon.png", "--godot", "")
+
+    assert result.exit_code == 127, result.stdout + result.stderr
+    assert json.loads(result.stdout) == {
+        "error": {
+            "category": "environment",
+            "code": "binary_not_found",
+            "message": (
+                "Godot binary could not be resolved: "
+                "explicit Godot binary path is empty"
+            ),
+            "diagnostics": "",
+        }
+    }
+    assert calls == []
+
+
+def test_a_dry_run_with_an_empty_godot_still_succeeds(tmp_path):
+    # A dry run resolves no binary, so an empty `--godot ""` does not refuse it:
+    # the command resolves where it always did, not earlier.
+    project = icon_project(tmp_path)
+
+    result = _run(project, "res://icon.png", "--dry-run", "--godot", "")
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["engine_pass"] is True
+
+
+def test_an_all_cached_run_with_an_empty_godot_still_succeeds(monkeypatch, tmp_path):
+    # All cached: no pass, so no binary is resolved and an empty `--godot ""`
+    # does not refuse the run either.
+    project = icon_project(tmp_path)
+    cached_asset(
+        project,
+        "icon.png",
+        ".godot/imported/icon.png-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ctex",
+    )
+    calls, fake_launch = _fake_pass(project, lambda p: None)
+    monkeypatch.setattr("gda.commands.resource.launch", fake_launch)
+
+    result = _run(project, "res://icon.png", "--godot", "")
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["engine_pass"] is False
+    assert calls == []

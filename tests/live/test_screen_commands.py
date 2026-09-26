@@ -2030,6 +2030,76 @@ def test_frames_settle_echo_that_disagrees_is_contract_violation(monkeypatch, tm
     assert not out_dir.exists()
 
 
+def _frames_argv(out_dir, project, frames, *extra):
+    return [
+        "screen",
+        "frames",
+        "--frames",
+        str(frames),
+        "--output-dir",
+        str(out_dir),
+        "--project",
+        str(project),
+        "--json",
+        *extra,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("reply", "argv", "message"),
+    [
+        pytest.param(
+            screen_capture_reply(_PNG_B64, width=8, height=8, settle_frames=1),
+            lambda tmp, project: _capture_argv(
+                tmp / "shot.png", project, "--settle-frames", "4"
+            ),
+            "the harness reply settled 1 frames before the capture, but the "
+            "request asked for 4",
+            id="capture-settle",
+        ),
+        pytest.param(
+            screen_frames_reply([_PNG_B64, _PNG_B64], settle_frames=0),
+            lambda tmp, project: _frames_argv(
+                tmp / "frames", project, 2, "--settle-frames", "5"
+            ),
+            "the harness reply settled 0 frames before the first frame, but the "
+            "request asked for 5",
+            id="frames-settle",
+        ),
+        pytest.param(
+            screen_frames_reply([_PNG_B64, _PNG_B64]),
+            lambda tmp, project: _frames_argv(tmp / "frames", project, 3),
+            "the harness reply carries 2 frames for a request of 3",
+            id="frames-count",
+        ),
+    ],
+)
+def test_a_screen_correlation_refusal_carries_no_reply_in_its_diagnostics(
+    monkeypatch, tmp_path, reply, argv, message
+):
+    # #1013: these refusals used to put the reply's stdout into `diagnostics`, and
+    # that stdout holds the frames' base64 PNGs. The reply is the result payload,
+    # not diagnostics, so the refusal does not carry it. The code and the message
+    # do not change.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(reply), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(app, argv(tmp_path, minimal_project(tmp_path)))
+
+    assert json.loads(result.stdout) == {
+        "error": {
+            "category": "parse",
+            "code": "contract_violation",
+            "message": message,
+            "diagnostics": "",
+        }
+    }
+    assert _PNG_B64 not in result.stdout
+    assert result.stderr == ""
+
+
 def test_frames_plus_settle_over_the_window_ceiling_is_refused(monkeypatch, tmp_path):
     # The settle frames are ticks of the SAME window, so the PAIR is bounded —
     # each half is legal alone. Both input channels refuse the sum, each in its

@@ -744,6 +744,35 @@ def test_export_run_unknown_preset_reuses_export_get_error(monkeypatch, tmp_path
     assert export_runner.calls == []
 
 
+def test_export_run_empty_godot_is_binary_not_found(monkeypatch, tmp_path):
+    # An empty `--godot ""` cannot be resolved. The refusal comes from the FIRST
+    # phase: export get resolves the binary before its runner is built, so the
+    # shared binary_not_found envelope (exit 127) is returned and neither seam
+    # runs (#33).
+    minimal_project(tmp_path)
+    get_runner, export_runner = _inject(monkeypatch)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--godot",
+            "",
+            "--project",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 127, result.stdout + result.stderr
+    assert _error(result)["code"] == "binary_not_found"
+    assert get_runner.calls == []
+    assert export_runner.calls == []
+
+
 def test_export_run_schema_emits_contract_without_engine(monkeypatch):
     # ADR-0004 hard gate: --schema emits the {input, output, error} contract
     # (plus the additive #230 `kind` and #233 `constraints`), spawns no Godot

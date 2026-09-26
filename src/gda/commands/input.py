@@ -47,8 +47,8 @@ import typer
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 from gda import dispatch
-from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
-from gda.errors import Failure, classify_live, make_failure
+from gda.dispatch import dispatch_command, params_or_bad_parameter
+from gda.errors import Failure, classify_live, reply_correlation_failure
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -1542,7 +1542,7 @@ def _input_action_recipe(params, *, project, godot):
         injection_route("action", as_event=params.as_event), outcome.injection_route
     )
     if error is not None:
-        return make_failure("contract_violation", error, "")
+        return reply_correlation_failure(error)
     return outcome
 
 
@@ -1571,7 +1571,7 @@ def _input_tap_recipe(params, *, project, godot):
         outcome.phases[0].injection_route,
     )
     if error is not None:
-        return make_failure("contract_violation", error, "")
+        return reply_correlation_failure(error)
     return outcome
 
 
@@ -1606,11 +1606,9 @@ def _input_sequence_recipe(params, *, project, godot):
     if isinstance(outcome, Failure):
         return outcome
     if outcome.events != len(params.events):
-        return make_failure(
-            "contract_violation",
+        return reply_correlation_failure(
             f"the harness applied {outcome.events} events for a "
-            f"{len(params.events)}-event request.",
-            "",
+            f"{len(params.events)}-event request."
         )
     return outcome.model_copy(update={"phases": sequence_phases(params)})
 
@@ -1672,7 +1670,7 @@ def input_key(
     params = params_or_bad_parameter(
         InputKeyParams, key=key, modifiers=modifiers, released=released
     )
-    dispatch_domain(
+    dispatch_command(
         INPUT_KEY_COMMAND,
         params,
         json_output=json_output,
@@ -1717,7 +1715,7 @@ def input_mouse_click(
     writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
     value.
     """
-    dispatch_domain(
+    dispatch_command(
         INPUT_MOUSE_CLICK_COMMAND,
         params_or_bad_parameter(
             InputMouseClickParams, x=x, y=y, button=button, double=double
@@ -1757,7 +1755,7 @@ def input_mouse_move(
     writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
     value.
     """
-    dispatch_domain(
+    dispatch_command(
         INPUT_MOUSE_MOVE_COMMAND,
         params_or_bad_parameter(InputMouseMoveParams, x=x, y=y),
         json_output=json_output,
@@ -1838,7 +1836,7 @@ def input_action(
         strength=strength,
         as_event=as_event,
     )
-    dispatch_recipe(
+    dispatch_command(
         INPUT_ACTION_COMMAND,
         params,
         json_output=json_output,
@@ -1952,7 +1950,7 @@ def input_tap(
         settle_frames=settle_frames,
         as_event=as_event,
     )
-    dispatch_recipe(
+    dispatch_command(
         INPUT_TAP_COMMAND,
         params,
         json_output=json_output,
@@ -2033,7 +2031,7 @@ def input_sequence(
     except json.JSONDecodeError as exc:
         raise typer.BadParameter(f"--events is not valid JSON: {exc}") from exc
     params = params_or_bad_parameter(InputSequenceParams, events=decoded)
-    dispatch_recipe(
+    dispatch_command(
         INPUT_SEQUENCE_COMMAND,
         params,
         json_output=json_output,

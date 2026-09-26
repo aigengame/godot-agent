@@ -17,7 +17,8 @@ import re
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -307,37 +308,52 @@ def templates_installed(gda: Gda, preset: str = "Linux/X11") -> bool:
     return gda.json("export", "get", "--preset", preset)["templates_installed"]
 
 
-def unlistable(directory: Path) -> bool:
+@contextmanager
+def unlistable(directory: Path) -> Iterator[bool]:
     """Make ``directory`` unlistable, and say whether the platform agreed.
 
     The measurement IS the guard, and it covers root too: root lists a mode-000
     directory, so a suite running as root skips instead of reading RED. One copy
     for every module that locks a directory to test the inventory's ``skipped``
     (#990), so the next platform variant has one place to reach.
+
+    The mode is restored to 0o755 on every exit, a skip and a failing assertion
+    included, so no caller restores it (#1007). Use it only as the context
+    expression of a ``with`` statement: a bare call returns the manager, which is
+    always true, so ``if not unlistable(path)`` locks nothing and never skips.
     """
     directory.chmod(0o000)
     try:
-        os.listdir(directory)
-    except OSError:
-        return True
-    directory.chmod(0o755)
-    return False
+        agreed = False
+        try:
+            os.listdir(directory)
+        except OSError:
+            agreed = True
+        yield agreed
+    finally:
+        directory.chmod(0o755)
 
 
-def unreadable(file: Path) -> bool:
+@contextmanager
+def unreadable(file: Path) -> Iterator[bool]:
     """Make ``file`` unreadable, and say whether the platform agreed.
 
     The file half of :func:`unlistable`, with the same guard: root reads a
-    mode-000 file, so a suite running as root skips instead of reading RED.
+    mode-000 file, so a suite running as root skips instead of reading RED. The
+    probe opens the file instead of listing it, and the mode restored on every
+    exit is 0o644.
     """
     file.chmod(0o000)
     try:
-        with file.open("rb"):
-            pass
-    except OSError:
-        return True
-    file.chmod(0o644)
-    return False
+        agreed = False
+        try:
+            with file.open("rb"):
+                pass
+        except OSError:
+            agreed = True
+        yield agreed
+    finally:
+        file.chmod(0o644)
 
 
 class FakeRunner:

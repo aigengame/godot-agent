@@ -19,14 +19,13 @@ from typer._click import Context as ClickContext
 from typer.core import TyperCommand
 from typer.models import TyperInfo
 
-from gda.binary import resolve_godot_binary
 from gda.errors import (
     Failure,
     classify_live,
     classify_run,
     conflicting_params_input_failure,
     invalid_params_json_failure,
-    unresolvable_binary_failure,
+    resolve_godot_binary_or_failure,
     validation_error_message,
 )
 from gda.execution import ExecutionKind, live_stack_constraints
@@ -629,7 +628,7 @@ def emit_failure(failure: Failure, *, json_output: bool) -> NoReturn:
     human lines of :func:`gda.render.render_failure`. Either way it selects the
     process exit code, which is the same on both channels. Shared by the
     sentinel-pipeline commands (via :meth:`HeadlessCommand.run`), the native-export
-    command (``export run``), the CLI dispatch tails, and the near-miss refusal
+    command (``export run``), the CLI dispatch entry, and the near-miss refusal
     (``gda.hints``).
 
     ``json_output`` is REQUIRED and keyword-only: until #685 this function had no
@@ -696,12 +695,32 @@ def emit_result(
     pass their descriptor's renderer so every command renders success identically.
 
     ``render`` is always present: it is a required descriptor field (ADR-0023), and
-    both ``emit`` and the recipe dispatch pass ``cmd.render``.
+    both ``emit`` and the dispatch entry's recipe arm pass ``cmd.render``.
     """
     if json_output:
         typer.echo(result.model_dump_json())
     else:
         typer.echo(render(result))
+
+
+def forward_child_stderr(result: RunResult, outcome: M | Failure) -> M | Failure:
+    """Forward a classified run's stderr under ADR-0002's #803 rule, and return it.
+
+    The producer half of the child-stderr rule, in ONE place for the two producers
+    that classify a run and hand the outcome on: :meth:`HeadlessCommand.execute` and
+    the live exchange (:func:`gda.dispatch.run_live_exchange`, #1013). The rule is
+    recorded in ADR-0002's #803 outcome note.
+
+    A failure CARRIES the stderr on ``child_stderr`` and this prints nothing:
+    whether printing it would repeat the bytes ``diagnostics`` is about to carry
+    depends on the caller's channel, which only :func:`emit_failure` knows (#798
+    review). A success has no diagnostics to duplicate, so its stderr is teed now.
+    """
+    if isinstance(outcome, Failure):
+        outcome.child_stderr = result.stderr
+    elif result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
+    return outcome
 
 
 @dataclass(frozen=True)
@@ -756,8 +775,8 @@ class HeadlessCommand(Generic[M]):
     # ``skill``/``version``/``help`` declare none, so a passed ``--project`` is
     # the usual unknown-option refusal there. Project-using commands leave this
     # ``True`` and receive the fully resolved project (or a structured
-    # ``project_not_found``). Read by every dispatch tail
-    # (``gda.dispatch._project_context``), so it applies to the sentinel channel
+    # ``project_not_found``). Read only by ``gda.dispatch._project_context``,
+    # which the one dispatch entry calls, so it applies to the sentinel channel
     # as much as to a recipe.
     inherits_project: bool = True
 
@@ -795,15 +814,14 @@ class HeadlessCommand(Generic[M]):
             # reports daemon_not_running, not a spurious binary_not_found.
             binary: Optional[Path] = None
         else:
-            try:
-                binary = resolve_godot_binary(godot)
-            except ValueError as exc:
-                # An empty ``--godot ""`` (a natural $GDA_GODOT mistake) makes
-                # resolution raise *before* a runner exists — there is no binary to
-                # launch, the same environment failure as a missing one. Map it to
-                # the structured ``binary_not_found`` envelope so it never escapes as
-                # a raw traceback (issue #33), mirroring the runner's NOT_FOUND path.
-                return unresolvable_binary_failure(str(exc))
+            # Resolution runs *before* a runner exists. An empty ``--godot ""``
+            # cannot be resolved, and the shared step returns the structured
+            # ``binary_not_found`` failure for it, so it never escapes as a raw
+            # traceback (issue #33), mirroring the runner's NOT_FOUND path.
+            resolved = resolve_godot_binary_or_failure(godot)
+            if isinstance(resolved, Failure):
+                return resolved
+            binary = resolved
         # ``binary`` is ``None`` only on the LIVE branch above, where the injected
         # runner (`make_live_runner`) and classifier ignore it — a live op reaches
         # the daemon, not a fresh engine (ADR-0017); the headless path always passes
@@ -823,17 +841,9 @@ class HeadlessCommand(Generic[M]):
         else:
             outcome = classify_run(result, binary, self.output_model)
 
-        # The child's stderr is teed AFTER classification, because on a failure it
-        # rides the ``Failure`` to the emission point instead: whether printing it
-        # here would repeat the bytes ``diagnostics`` is about to carry depends on
-        # the caller's channel, which this method does not know (#798 review). A
-        # success has no diagnostics to duplicate, so its tee stays immediate.
-        if isinstance(outcome, Failure):
-            outcome.child_stderr = result.stderr
-            return outcome
-        if result.stderr:
-            print(result.stderr, end="", file=sys.stderr)
-        return outcome
+        # The child's stderr is forwarded AFTER classification, because on a
+        # failure it rides the ``Failure`` to the emission point instead.
+        return forward_child_stderr(result, outcome)
 
     def run(
         self,

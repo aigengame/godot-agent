@@ -179,13 +179,10 @@ def test_an_unreadable_subtree_is_disclosed_beside_what_the_pass_created(tmp_pat
     (locked / "secret.tres").write_text("old", encoding="utf-8")
     (project / "alias").symlink_to(locked, target_is_directory=True)
     gda = Gda(project, json_output=True, timeout=180)
-    if not unlistable(locked):
-        pytest.skip("this platform lets the owner list a mode-000 directory")
-
-    try:
+    with unlistable(locked) as agreed:
+        if not agreed:
+            pytest.skip("this platform lets the owner list a mode-000 directory")
         result = gda("resource", "import", "res://icon.png")
-    finally:
-        locked.chmod(0o755)
 
     assert result.returncode == 0, result.stdout + result.stderr
     doc = json.loads(result.stdout)

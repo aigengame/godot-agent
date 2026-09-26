@@ -241,3 +241,10 @@ src/gda/
 > keeps its own published models, its renderer, and, for `export run`, the artifact it
 > excludes, so point 1's vertical slice is unchanged. This is the `gda.completed_run`
 > precedent of the note above, applied a second time.
+
+> **Outcome (2026-09-26, #1014):** point 3's three tails `dispatch_domain`,
+> `dispatch_meta` and `dispatch_recipe` are now one entry, `dispatch_command`. It
+> reads the channel off the descriptor (`cmd.recipe`; ADR-0023's note of the same
+> date), so no group module chooses a tail. `gda.dispatch` still owns `_emit`,
+> `_resolve_project_or_fail`, `_run_params_json`, `params_or_bad_parameter` and the
+> runner seams, and point 5's dependency direction does not change.

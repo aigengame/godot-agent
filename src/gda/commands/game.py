@@ -29,7 +29,7 @@ from pydantic import (
     model_validator,
 )
 
-from gda.dispatch import dispatch_domain, params_or_bad_parameter
+from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -1032,7 +1032,7 @@ def game_tree(
     500 the engine's own JSON writer cuts the reply short and the refusal is
     `contract_violation`): bound such a read with `--root` and `--max-depth`.
     """
-    dispatch_domain(
+    dispatch_command(
         GAME_TREE_COMMAND,
         params_or_bad_parameter(GameTreeParams, root=root, max_depth=max_depth),
         json_output=json_output,
@@ -1136,7 +1136,7 @@ def game_find(
     reports `daemon_not_running`; a `--root` that resolves to nothing is
     `live_node_not_found`.
     """
-    dispatch_domain(
+    dispatch_command(
         GAME_FIND_COMMAND,
         params_or_bad_parameter(
             GameFindParams,
@@ -1215,7 +1215,7 @@ def game_get(
     writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
     value.
     """
-    dispatch_domain(
+    dispatch_command(
         GAME_GET_COMMAND,
         GameGetParams(node=node, property=property, texture_digest=texture_digest),
         json_output=json_output,
@@ -1269,7 +1269,7 @@ def game_rect(
     writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
     value.
     """
-    dispatch_domain(
+    dispatch_command(
         GAME_RECT_COMMAND,
         GameRectParams(node=node),
         json_output=json_output,
@@ -1329,7 +1329,7 @@ def game_set(
     writer's: a NEGATIVE ZERO reads back as 0.0, decided before gda sees the
     value.
     """
-    dispatch_domain(
+    dispatch_command(
         GAME_SET_COMMAND,
         GameSetParams(node=node, property=property, value=value),
         json_output=json_output,
@@ -1417,7 +1417,7 @@ def game_call(
             parsed = json.loads(args)
         except ValueError:
             parsed = args
-    dispatch_domain(
+    dispatch_command(
         GAME_CALL_COMMAND,
         params_or_bad_parameter(GameCallParams, node=node, method=method, args=parsed),
         json_output=json_output,

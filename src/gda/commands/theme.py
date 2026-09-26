@@ -14,7 +14,7 @@ from typing import Optional
 import typer
 from pydantic import BaseModel, Field
 
-from gda.dispatch import dispatch_domain
+from gda.dispatch import dispatch_command
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -86,7 +86,7 @@ def create_theme(
     project: Optional[str] = project_option(),
 ) -> None:
     """Create a new, loadable .tres Theme resource (no-clobber)."""
-    dispatch_domain(
+    dispatch_command(
         THEME_CREATE_COMMAND,
         ThemeCreateParams(path=path),
         json_output=json_output,

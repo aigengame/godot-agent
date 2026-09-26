@@ -36,7 +36,6 @@ import typer
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 from gda import dispatch
-from gda.binary import resolve_godot_binary
 from gda.completed_run import (
     DEFAULT_COMPLETED_RUN_TIMEOUT_SECONDS,
     STDOUT_CAP,
@@ -44,7 +43,7 @@ from gda.completed_run import (
     bounded_stdout,
     render_completed_run,
 )
-from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
+from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.errors import (
     Failure,
     make_failure,
@@ -54,6 +53,7 @@ from gda.errors import (
     export_output_parent_failure,
     export_path_unset_failure,
     export_templates_missing_failure,
+    resolve_godot_binary_or_failure,
     smoke_exit_status_failure,
 )
 from gda.execution import ExecutionKind
@@ -1038,8 +1038,11 @@ def run_export_operation(
     # Phase 3 (native run + classify): run the native export and classify its raw
     # outcome. The export-get resolved name (got.name) is authoritative throughout
     # — it is what the engine exports and what the result echoes — so the native
-    # invocation, not the raw --preset string, is keyed on it.
-    binary = resolve_godot_binary(godot)
+    # invocation, not the raw --preset string, is keyed on it. Phase 1 has already
+    # refused an empty ``--godot ""`` through the same shared step.
+    binary = resolve_godot_binary_or_failure(godot)
+    if isinstance(binary, Failure):
+        return binary
     export_runner = make_export_runner(binary, project)
     # The dev-only harness must never reach the artifact (ADR-0028): an export
     # cannot strip a project.godot autoload after the fact (it is serialized whole
@@ -1110,7 +1113,7 @@ EXPORT_LIST_COMMAND: HeadlessCommand[ExportListResult] = HeadlessCommand(
 
 # The ``export run`` recipe channel (ADR-0023): it PRODUCES the outcome — run the
 # CLI-side operation over the ALREADY-resolved ``project`` (resolution happens once in
-# :func:`gda.dispatch.dispatch_recipe`, kept CLI-side per ADR-0006, so an invalid
+# :func:`gda.dispatch.dispatch_command`, kept CLI-side per ADR-0006, so an invalid
 # --project is a structured project_not_found before the recipe runs, #353) — and
 # RETURNS the typed result or a Failure; emission stays the shared tail, so this
 # command renders exactly like a sentinel one. Both runner seams (``dispatch.make_*``)
@@ -1684,7 +1687,7 @@ def list_presets(
     project: Optional[str] = project_option(),
 ) -> None:
     """Enumerate the resolved project's export presets (name, platform, runnable)."""
-    dispatch_domain(
+    dispatch_command(
         EXPORT_LIST_COMMAND,
         ExportListParams(),
         json_output=json_output,
@@ -1714,7 +1717,7 @@ def get_preset(
     that has them; ``templates_root_host`` names the host's directory in
     exactly that case.
     """
-    dispatch_domain(
+    dispatch_command(
         EXPORT_GET_COMMAND,
         ExportGetParams(preset=preset),
         json_output=json_output,
@@ -1816,7 +1819,7 @@ def run_export(
     # direct construction this replaced would have escaped as a traceback at exit
     # 1, the invariant #988 restored). Dispatch through the descriptor's recipe
     # (ADR-0023), exactly like every other recipe command.
-    dispatch_recipe(
+    dispatch_command(
         EXPORT_RUN_COMMAND,
         params_or_bad_parameter(
             ExportRunParams, preset=preset, mode=mode, output=output
@@ -1943,7 +1946,7 @@ def smoke_artifact(
     # finite positive ceiling and the non-negative frame count are its field
     # constraints, enforced identically for --params-json — this argv body only
     # translates a model refusal into the Click usage error.
-    dispatch_recipe(
+    dispatch_command(
         EXPORT_SMOKE_COMMAND,
         params_or_bad_parameter(
             ExportSmokeParams,

@@ -26,13 +26,12 @@ from pydantic import (
 )
 
 from gda import dispatch
-from gda.binary import resolve_godot_binary
-from gda.dispatch import dispatch_domain, dispatch_recipe, params_or_bad_parameter
+from gda.dispatch import dispatch_command, params_or_bad_parameter
 from gda.errors import (
     Failure,
     classify_run,
     make_failure,
-    unresolvable_binary_failure,
+    resolve_godot_binary_or_failure,
 )
 from gda.headless import (
     HeadlessCommand,
@@ -957,7 +956,7 @@ def _scene_validate_recipe(
     outcome). The root is reported RESOLVED: ``--project game`` in a result tells
     the reader nothing about which directory was meant.
 
-    ``project`` arrives ALREADY resolved from ``dispatch_recipe`` (an invalid
+    ``project`` arrives ALREADY resolved from ``dispatch_command`` (an invalid
     ``--project``/``$GDA_PROJECT`` became a structured ``project_not_found`` before
     this runs, #353); ``None`` means projectless, which is a legitimate context here
     (a self-contained scene addressed by filesystem path), not a refusal.
@@ -1082,13 +1081,12 @@ def run_scene_preflight_operation(
     stderr to the emission point, a verdict forwards it here.
     """
     run_launch = make_launch or launch
-    try:
-        binary = resolve_godot_binary(godot)
-    except ValueError as exc:
-        # An empty ``--godot ""`` (a natural $GDA_GODOT mistake): the same
-        # environment failure as a missing binary, mapped to the structured envelope
-        # so it never escapes as a traceback (mirrors gda.headless.execute).
-        return unresolvable_binary_failure(str(exc))
+    # An empty ``--godot ""`` is the same environment failure as a missing binary:
+    # the shared step returns the structured envelope, so it never escapes as a
+    # traceback (as in gda.headless.execute).
+    binary = resolve_godot_binary_or_failure(godot)
+    if isinstance(binary, Failure):
+        return binary
 
     root = expand_user(project).resolve() if project is not None else None
     raw = run_launch(
@@ -1296,7 +1294,7 @@ def _scene_preflight_recipe(
     project: Optional[Path],
     godot: Optional[str],
 ) -> "ScenePreflightResult | Failure":
-    # ``project`` arrives ALREADY resolved by dispatch_recipe (#353). Projectless is
+    # ``project`` arrives ALREADY resolved by dispatch_command (#353). Projectless is
     # not refused here: a self-contained scene addressed by filesystem path can be
     # booted without one, and the result reports the null root so a reader can tell.
     return run_scene_preflight_operation(params, godot=godot, project=project)
@@ -1371,7 +1369,7 @@ def create(
     """
     # Normalization + root-name derivation live in SceneCreateParams (ADR-0015),
     # so this body is a thin argv→model adapter and the --params-json path agrees.
-    dispatch_domain(
+    dispatch_command(
         SCENE_CREATE_COMMAND,
         SceneCreateParams(path=path, root_type=root_type, root_name=root_name),
         json_output=json_output,
@@ -1390,7 +1388,7 @@ def get(
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a scene file and report its structured node tree."""
-    dispatch_domain(
+    dispatch_command(
         SCENE_GET_COMMAND,
         SceneGetParams(path=path),
         json_output=json_output,
@@ -1409,7 +1407,7 @@ def get_exports(
     project: Optional[str] = project_option(),
 ) -> None:
     """List the @export properties a scene's nodes' scripts declare, per node path."""
-    dispatch_domain(
+    dispatch_command(
         SCENE_GET_EXPORTS_COMMAND,
         SceneGetExportsParams(path=path),
         json_output=json_output,
@@ -1427,7 +1425,7 @@ def list_scenes(
     project: Optional[str] = project_option(),
 ) -> None:
     """Enumerate the .tscn scenes in the resolved project."""
-    dispatch_domain(
+    dispatch_command(
         SCENE_LIST_COMMAND,
         SceneListParams(),
         json_output=json_output,
@@ -1508,7 +1506,7 @@ def validate_scene(
     dependencies resolved against; read it before trusting an invalid verdict,
     because the wrong project reports every dependency as missing.
     """
-    dispatch_recipe(
+    dispatch_command(
         SCENE_VALIDATE_COMMAND,
         SceneValidateParams(path=path),
         json_output=json_output,
@@ -1597,7 +1595,7 @@ def preflight_scene(
     # finite positive ceiling and the ≥1 frame budget are its field constraints,
     # enforced identically for --params-json — this argv body only translates a
     # model refusal into the Click usage error (#709 review).
-    dispatch_recipe(
+    dispatch_command(
         SCENE_PREFLIGHT_COMMAND,
         params_or_bad_parameter(
             ScenePreflightParams, path=path, frames=frames, timeout=timeout
@@ -1618,7 +1616,7 @@ def delete(
     project: Optional[str] = project_option(),
 ) -> None:
     """Delete a scene file and report what was removed."""
-    dispatch_domain(
+    dispatch_command(
         SCENE_DELETE_COMMAND,
         SceneDeleteParams(path=path),
         json_output=json_output,
