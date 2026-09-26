@@ -242,6 +242,23 @@ def test_an_artifact_is_excluded_when_the_walk_uses_another_link_spelling(tmp_pa
     assert settled.skipped == 0
 
 
+def test_a_file_named_like_the_artifact_in_another_directory_is_created(tmp_path):
+    # The converse of the two tests above: the name alone excludes nothing. Only
+    # the directory whose identity is the artifact's parent drops that name, so a
+    # file the run writes with the same basename in another directory is created
+    # like any other. A rule that matched the name alone passed every other test
+    # (#1007).
+    project = minimal_project(tmp_path)
+
+    def mutate() -> None:
+        _write(project / "build" / "game.x86_64", "binary")
+        _write(project / "other" / "game.x86_64", "binary")
+
+    settled = _settle(project, mutate, artifact=project / "build" / "game.x86_64")
+
+    assert [entry.rel for entry in settled.created] == ["other/game.x86_64"]
+
+
 def test_a_top_level_git_directory_is_not_walked(tmp_path):
     # Rule 5. The engine does not write to `.git`, and hashing an object database
     # would dominate the cost of a record about the project's own files.
