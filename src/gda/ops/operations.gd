@@ -28,6 +28,15 @@ extends SceneTree
 
 const EXPORT_GROUP := preload("groups/export.gd")
 const THEME_GROUP := preload("groups/theme.gd")
+const VALUE := preload("lib/value.gd")
+const PROJECT_WALK := preload("lib/project_walk.gd")
+const SCENE_TEXT := preload("lib/scene_text.gd")
+const GDSCRIPT_SCAN := preload("lib/gdscript_scan.gd")
+const CLASS_INDEX := preload("lib/class_index.gd")
+const REFERENCE_GRAPH := preload("lib/reference_graph.gd")
+const FILE_WRITE := preload("lib/file_write.gd")
+const OBJECT_REF := preload("lib/object_ref.gd")
+const TEXT_EDIT := preload("lib/text_edit.gd")
 
 const RESULT_BEGIN := "<<<GDA:RESULT>>>"
 const RESULT_END := "<<<GDA:END>>>"
@@ -170,53 +179,6 @@ const SCENE_INSTANCE_MAX_DEPTH := 16
 const SCENE_STARTUP_READY := "ready"
 const SCENE_STARTUP_NOT_READY := "not_ready"
 
-# The engine's own import/cache tree at the project root — the first of the three
-# directories a res:// walk excludes. The VALUE only — the decision that uses it
-# lives in exactly one place, _is_in_engine_cache, which _should_descend and
-# _should_collect both ask.
-#
-# RESIDUAL (#804): the engine reads this location from ProjectSettings —
-# `get_project_data_path()` is `res://` joined with `application/config/
-# project_data_dir_name`, which a project may rename — while gda hardcodes the
-# default. A project that renames its data directory therefore has gda walk the
-# renamed cache and exclude a `res://.godot` that is ordinary content. Stated
-# rather than chased: the rename is rare, and closing it means reading the setting
-# in every walk-side predicate.
-const ENGINE_CACHE_DIR := "res://.godot"
-
-# The two MARKER files whose presence makes the engine's own scan skip a directory
-# (EditorFileSystem::_should_skip_directory, editor/file_system/
-# editor_file_system.cpp:3460-3480, line numbers from the 4.6.3-stable tag): a
-# `project.godot` marks a NESTED project, whose files belong to a different res://
-# root, and a `.gdignore` is the project's own explicit "do not scan this" marker.
-# Values only — the decision that uses them is _should_descend's alone (#804).
-#
-# The same two literals are spelled a second time in Python, in
-# `_engine_skips_directory_of` (src/gda/import_evidence.py), which predicts the
-# same rule for an inventory that never spawns the engine. The two spellings are
-# held together by `test_the_two_spellings_of_the_skip_markers_agree` (#808
-# review), not by derivation.
-const NESTED_PROJECT_MARKER := "project.godot"
-const GDIGNORE_MARKER := ".gdignore"
-
-# How far a res:// walk follows symlinks when it asks whether an entry is the
-# engine cache (#760): the links followed in one chain, and the passes the
-# component-by-component resolution takes to reach its fixed point. Both count
-# SYMLINK TRAVERSALS — a pass that changes the path resolved at least one more
-# link — which is the quantity the OS itself bounds, so a chain gda gives up on
-# is one the kernel would refuse to open anyway and the bound cannot hide a path
-# the walk could otherwise have reached. The value is the LOWER of the two
-# ceilings gda targets: MAXSYMLINKS is 32 on macOS (MacOSX.sdk/usr/include/
-# sys/param.h:197) and 40 on Linux (include/linux/namei.h), so a 33-to-40-link
-# chain is resolvable on Linux and gda stops short of it — accepted, because
-# such a chain is not a shape an honest project produces.
-#
-# The ancestor climb in _is_in_engine_cache is deliberately NOT bounded by this
-# constant: it counts path COMPONENTS, a quantity no kernel limits, and running
-# out of steps there returned false, which ADMITTED cache content — the opposite
-# direction from the failure MAXSYMLINKS reasons about, and a leak at 32 levels
-# below the cache (#795 review). It terminates on its own at the root instead.
-const SYMLINK_PROBE_MAX_STEPS := 32
 
 # The project-info settings (issue #111), read with a default so a project that
 # never wrote them still reports a sensible value rather than failing: a new
@@ -247,14 +209,6 @@ const INPUT_EVENT_DEVICE_MAX := 2147483647
 # exits non-zero rather than reporting a phantom success.
 var _exit_code := 1
 
-# The gda-owned static class_name → declaring-.gd-paths index (ADR-0032), the
-# cache-independent fallback tier of the unified resolver. Built lazily once per
-# process run (a headless op is one-shot, so this is per-op) and reused across
-# the node-add / resource-create / find-references call sites. `_built` guards
-# the lazy build so an empty project (no class_name declared) is distinguished
-# from an unbuilt index rather than rescanning res:// on every miss.
-var _project_class_index: Dictionary = {}
-var _project_class_index_built := false
 
 # The multi-frame tail of an operation that cannot answer inside _initialize
 # (#664). Every other operation finishes in one call and quits on the first idle
@@ -278,6 +232,13 @@ var _preflight_ready := false
 # RefCounted target alive (ADR-0043 probe 5): a group that only a pending tick
 # referenced would be freed before the tick ran, and the run would emit no result.
 var _group: RefCounted = null
+
+# The instance concept modules the op bodies still in this file call, created
+# with this frame and held here until the process quits (ADR-0043 §4). Each
+# moves to the group that owns its callers with those bodies (#1015).
+var _file_write := FILE_WRITE.new(self)
+var _object_ref := OBJECT_REF.new(self)
+var _text_edit := TEXT_EDIT.new(self)
 
 
 func _initialize() -> void:
@@ -454,11 +415,11 @@ func _op_info() -> void:
 # it as a .tscn at the requested path (issue #18).
 func _op_scene_create(params: Dictionary) -> void:
 	_diag("running operation: scene-create")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
-	var root_type := _string_param(params, "root_type")
+	var root_type := VALUE._string_param(params, "root_type")
 	# class_exists gates can_instantiate: probing a name ClassDB does not know
 	# logs a spurious engine ERROR (issue #377); the miss still fails as
 	# invalid_root_type through the same else path.
@@ -467,7 +428,7 @@ func _op_scene_create(params: Dictionary) -> void:
 			or not ClassDB.is_parent_class(root_type, "Node"):
 		_fail(OP_ERROR_INVALID_ROOT_TYPE, "not an instantiable Node class: " + root_type)
 		return
-	var root_name := _string_param(params, "root_name")
+	var root_name := VALUE._string_param(params, "root_name")
 	if not _is_valid_node_name(root_name):
 		_fail(OP_ERROR_INVALID_ROOT_NAME, "invalid root_name: " + root_name)
 		return
@@ -488,7 +449,7 @@ func _op_scene_create(params: Dictionary) -> void:
 	# than between pack and save) is behavior-equivalent and lets scene-create reuse
 	# the one shared pack-and-save tail (_repack_and_save) the node ops use (#135).
 	# _ensure_parent_dirs does not free root on failure, so free it here on that path.
-	var created_dirs: Variant = _ensure_parent_dirs(path)
+	var created_dirs: Variant = _file_write._ensure_parent_dirs(path)
 	if created_dirs == null:
 		root.free()
 		return  # _ensure_parent_dirs already recorded the failure
@@ -515,11 +476,11 @@ func _op_scene_get(params: Dictionary) -> void:
 	var packed: PackedScene = _load_scene(params)
 	if packed == null:
 		return  # _load_scene already recorded the failure
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 
 	_succeed({
 		"path": path,
-		"root": _tree_from_state(packed.get_state(), false, _scene_instance_paths_by_node_path(path)),
+		"root": _tree_from_state(packed.get_state(), false, SCENE_TEXT._scene_instance_paths_by_node_path(path)),
 	})
 
 
@@ -551,14 +512,14 @@ func _op_scene_get_exports(params: Dictionary) -> void:
 	var root: Node = packed.instantiate()
 	if root == null:
 		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene failed to instantiate: "
-				+ _string_param(params, "path")
+				+ VALUE._string_param(params, "path")
 				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
 		return
 
 	var nodes: Array = []
 	_collect_node_exports(root, root, nodes)
 	# Capture the path before freeing the tree (reading off a freed node errors).
-	var scene_path := _string_param(params, "path")
+	var scene_path := VALUE._string_param(params, "path")
 	root.free()
 
 	_succeed({
@@ -605,10 +566,10 @@ func _script_exports_of(node: Node) -> Array:
 		var prop_name := String(prop.get("name", ""))
 		exports.append({
 			"name": prop_name,
-			"type": _type_name(int(prop.get("type", TYPE_NIL))),
+			"type": VALUE._type_name(int(prop.get("type", TYPE_NIL))),
 			"hint": int(prop.get("hint", 0)),
 			"hint_string": String(prop.get("hint_string", "")),
-			"value": _jsonify(node.get(prop_name)),
+			"value": VALUE._jsonify(node.get(prop_name)),
 		})
 	return exports
 
@@ -675,7 +636,7 @@ func _op_scene_delete(params: Dictionary) -> void:
 	var packed: PackedScene = _load_scene(params)
 	if packed == null:
 		return  # _load_scene already recorded the failure
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 
 	var state := packed.get_state()
 	var root_name := String(state.get_node_name(0))
@@ -722,7 +683,7 @@ func _op_scene_delete(params: Dictionary) -> void:
 # missing script is never read as the parent's.
 func _op_scene_validate(params: Dictionary) -> void:
 	_diag("running operation: scene-validate")
-	var raw_path := _string_param(params, "path")
+	var raw_path := VALUE._string_param(params, "path")
 	if raw_path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
@@ -734,7 +695,7 @@ func _op_scene_validate(params: Dictionary) -> void:
 	# spellings (#721 review round 3). Answering under a spelling the caller did
 	# not type is the smaller surprise, and the one the problem `path` field
 	# already chose.
-	var path := _canonical_resource_path(raw_path)
+	var path := SCENE_TEXT._canonical_resource_path(raw_path)
 	# The addressing boundary this op does NOT share with the rest of the group, and
 	# the reason is not tidiness: the dependency set is read from the scene's TEXT,
 	# and a binary .scn carries none — so the walk would find nothing and report a
@@ -979,7 +940,7 @@ func _collect_sub_scene_problems(scene_path: String, walk: Dictionary) -> void:
 	var answered: Dictionary = walk["answered"]
 	var reached_depth: Dictionary = walk["reached_depth"]
 	var chain: Dictionary = walk["chain"]
-	for entry in _ext_resource_entries_from_text(text, scene_path.get_base_dir()):
+	for entry in SCENE_TEXT._ext_resource_entries_from_text(text, scene_path.get_base_dir()):
 		if not _is_sub_scene_edge(entry):
 			continue
 		var ref_path := String(entry["normalized_path"])
@@ -1225,9 +1186,9 @@ func _sub_scene_edge_problem(kind: String, entry: Dictionary, scene_path: String
 # sets of referencing nodes. In declaration order, deduplicated, which is the
 # order and the rule _scene_dependency_problems merges by.
 func _scene_ext_resource_nodes_by_path(text: String, base_dir: String) -> Dictionary:
-	var nodes_by_id := _scene_ext_resource_nodes_by_id(text)
+	var nodes_by_id := SCENE_TEXT._scene_ext_resource_nodes_by_id(text)
 	var by_path := {}
-	for entry in _ext_resource_entries_from_text(text, base_dir):
+	for entry in SCENE_TEXT._ext_resource_entries_from_text(text, base_dir):
 		var ref_path := String(entry["normalized_path"])
 		if not by_path.has(ref_path):
 			by_path[ref_path] = []
@@ -1236,29 +1197,6 @@ func _scene_ext_resource_nodes_by_path(text: String, base_dir: String) -> Dictio
 			if not nodes.has(node_path):
 				nodes.append(node_path)
 	return by_path
-
-
-# Whether one trimmed line OPENS the section named `tag_name` — the SINGLE owner
-# of section recognition for every reader of scene text (#720 recheck ×2, #775).
-#
-# The section NAME must be exactly `tag_name`: after the tag comes the closing
-# bracket or the whitespace before attributes, or a longer name passes a bare
-# prefix test. That is not hypothetical — `[gd_scenery]` reads as a scene header
-# and `[ext_resource_group …]` reads as a declaration, while the ENGINE refuses
-# both outright ("Unknown tag 'ext_resource_group' in file",
-# resource_format_text.cpp, measured on 4.6.3). Three askers used to spell the
-# rule three different ways — closed, bare prefix, and space-only — so the rule
-# is stated here once instead of respelled per section.
-#
-# `]`, " " and "\t" are the accepting characters because that is where the
-# engine's own tokenizer ends the tag name — VariantParser reads it as an
-# identifier, so any non-identifier character closes it.
-func _is_section_header_line(stripped: String, tag_name: String) -> bool:
-	var tag := "[" + tag_name
-	if not stripped.begins_with(tag) or stripped.length() <= tag.length():
-		return false
-	var next := stripped[tag.length()]
-	return next == "]" or next == " " or next == "\t"
 
 
 # Whether the text OPENS with a complete, CLOSED `[gd_scene …]` section header
@@ -1281,7 +1219,7 @@ func _has_scene_header(text: String) -> bool:
 	line = line.strip_edges()
 	if not line.ends_with("]"):
 		return false
-	return _is_section_header_line(line, "gd_scene")
+	return SCENE_TEXT._is_section_header_line(line, "gd_scene")
 
 
 # Whether a load produced a scene with a root — the two conditions _load_scene
@@ -1413,13 +1351,13 @@ func _scene_dependency_problems(path: String) -> Array:
 	var text := FileAccess.get_file_as_string(path)
 	if text.is_empty():
 		return []
-	var nodes_by_id := _scene_ext_resource_nodes_by_id(text)
+	var nodes_by_id := SCENE_TEXT._scene_ext_resource_nodes_by_id(text)
 	var problems: Array = []
 	# ref_path -> the index of its problem, or -1 when the dependency is fine. The
 	# -1 rows matter as much as the others: they are what keeps a healthy path
 	# declared twice from being re-checked (and re-loaded) on its second id.
 	var checked := {}
-	for entry in _ext_resource_entries_from_text(text, path.get_base_dir()):
+	for entry in SCENE_TEXT._ext_resource_entries_from_text(text, path.get_base_dir()):
 		var ref_path := String(entry["normalized_path"])
 		if not checked.has(ref_path):
 			var problem: Variant = _scene_dependency_problem(ref_path, String(entry.get("type", "")))
@@ -1457,7 +1395,7 @@ func _scene_dependency_problem(ref_path: String, declared_type: String) -> Varia
 					"the file exists but no ResourceLoader can open it — typically an asset that was never imported")
 		return _scene_problem(SCENE_PROBLEM_MISSING_RESOURCE, ref_path, declared_type,
 				"the referenced file does not exist")
-	if _is_script_path(ref_path):
+	if GDSCRIPT_SCAN._is_script_path(ref_path):
 		# Ask the ALREADY-loaded script first (the scene's own load brought it in, so
 		# this costs nothing and runs nothing): a script that compiled can be
 		# instantiated, and one that did not reports an empty base type. Only when
@@ -1520,52 +1458,6 @@ func _script_compile_error(ref_path: String) -> int:
 	return script.reload()
 
 
-# node_path -> the ext_resource ids it references, inverted: id -> node paths
-# (#664). Attribution is by TEXT because that is where the binding is still
-# visible — the engine drops an unresolvable reference from the loaded scene.
-#
-# A [node ...] header opens a block and any other [section] closes it, so property
-# lines are attributed to the node above them. The header line itself is scanned
-# too: an instanced sub-scene carries its reference there (instance=ExtResource(…)).
-# Every ExtResource(...) occurrence in a line counts, so a reference inside an
-# array or dictionary value is attributed like a plain one.
-#
-# Best-effort, and the one known gap is worth naming: a MULTI-LINE property value
-# whose continuation line starts with `[` (an array literal broken across lines)
-# closes the block early, so later references in that node lose their attribution.
-# Attribution only — the dependency itself is still found and reported, because the
-# problems are read from the [ext_resource] lines, not from here.
-func _scene_ext_resource_nodes_by_id(text: String) -> Dictionary:
-	var by_id := {}
-	var node_path := ""
-	for line in text.split("\n"):
-		var stripped := line.strip_edges()
-		if stripped.begins_with("["):
-			node_path = _scene_node_path_from_header(stripped) if _is_node_header_line(stripped) else ""
-		if node_path.is_empty():
-			continue
-		for id in _ext_resource_ids_in_line(stripped):
-			if not by_id.has(id):
-				by_id[id] = []
-			var nodes: Array = by_id[id]
-			if not nodes.has(node_path):
-				nodes.append(node_path)
-	return by_id
-
-
-# Every ext_resource id an ExtResource("...") call in one line names, in order.
-func _ext_resource_ids_in_line(line: String) -> Array:
-	var ids: Array = []
-	var needle := "ExtResource("
-	var at := line.find(needle)
-	while at != -1:
-		var id := _first_quoted_after(line, at + needle.length())
-		if not id.is_empty():
-			ids.append(id)
-		at = line.find(needle, at + needle.length())
-	return ids
-
-
 # scene-preflight: boot the scene and report how far it got (#664, dogfooding
 # GDA-DF-030).
 #
@@ -1590,7 +1482,7 @@ func _op_scene_preflight(params: Dictionary) -> void:
 	var packed: PackedScene = _load_scene(params)
 	if packed == null:
 		return  # _load_scene already recorded the failure
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 
 	var instance: Node = packed.instantiate()
 	if instance == null:
@@ -1695,9 +1587,9 @@ func _preflight_tick(frame: int) -> bool:
 # node runs that script's constructor. Inherent to headless file mutation.
 func _op_node_add(params: Dictionary) -> void:
 	_diag("running operation: node-add")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 
-	var node_name := _string_param(params, "name")
+	var node_name := VALUE._string_param(params, "name")
 	if not _is_valid_node_name(node_name):
 		_fail(OP_ERROR_INVALID_NODE_NAME, "invalid name: " + node_name)
 		return
@@ -1705,7 +1597,7 @@ func _op_node_add(params: Dictionary) -> void:
 	var root: Node = _load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
-	var parent_path := _string_param(params, "parent")
+	var parent_path := VALUE._string_param(params, "parent")
 	var parent := _resolve_node(root, parent_path)
 	if parent == null:
 		root.free()
@@ -1729,8 +1621,8 @@ func _op_node_add(params: Dictionary) -> void:
 				+ ": expected 0.." + str(child_count))
 		return
 
-	var type := _string_param(params, "type")
-	var instance_path := _string_param(params, "instance")
+	var type := VALUE._string_param(params, "type")
+	var instance_path := VALUE._string_param(params, "instance")
 	var node: Node = null
 	if instance_path != "":
 		node = _instantiate_scene_instance(instance_path, path)
@@ -1753,7 +1645,7 @@ func _op_node_add(params: Dictionary) -> void:
 	# Capture the node's identity off the live tree before re-saving frees it.
 	var node_path := String(root.get_path_to(node))
 	var node_type := node.get_class()
-	var script_class: Variant = _script_class_of(node)
+	var script_class: Variant = CLASS_INDEX._script_class_of(node)
 	if not _repack_and_save(root, path):
 		return  # _repack_and_save already recorded the failure (and freed root)
 
@@ -1776,11 +1668,11 @@ func _op_node_list(params: Dictionary) -> void:
 	var packed: PackedScene = _load_scene(params)
 	if packed == null:
 		return  # _load_scene already recorded the failure
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 
 	_succeed({
 		"scene_path": path,
-		"root": _tree_from_state(packed.get_state(), true, _scene_instance_paths_by_node_path(path)),
+		"root": _tree_from_state(packed.get_state(), true, SCENE_TEXT._scene_instance_paths_by_node_path(path)),
 	})
 
 
@@ -1801,10 +1693,10 @@ func _op_node_get(params: Dictionary) -> void:
 	var root: Node = packed.instantiate()
 	if root == null:
 		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene failed to instantiate: "
-				+ _string_param(params, "path")
+				+ VALUE._string_param(params, "path")
 				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
 		return
-	var node_path := _string_param(params, "node")
+	var node_path := VALUE._string_param(params, "node")
 	var node := _resolve_node(root, node_path)
 	if node == null:
 		root.free()
@@ -1813,13 +1705,13 @@ func _op_node_get(params: Dictionary) -> void:
 
 	var properties: Array = []
 	for prop in node.get_property_list():
-		if not _is_storage_property(prop):
+		if not VALUE._is_storage_property(prop):
 			continue
 		var prop_name := String(prop.get("name", ""))
 		properties.append({
 			"name": prop_name,
-			"type": _type_name(int(prop.get("type", TYPE_NIL))),
-			"value": _jsonify(node.get(prop_name)),
+			"type": VALUE._type_name(int(prop.get("type", TYPE_NIL))),
+			"value": VALUE._jsonify(node.get(prop_name)),
 		})
 	# Capture the node's identity before freeing the tree: freeing root frees
 	# node too, and reading off a freed node is a runtime error.
@@ -1828,7 +1720,7 @@ func _op_node_get(params: Dictionary) -> void:
 	root.free()
 
 	_succeed({
-		"scene_path": _string_param(params, "path"),
+		"scene_path": VALUE._string_param(params, "path"),
 		"path": node_path,
 		"name": node_name,
 		"type": node_type,
@@ -1845,18 +1737,18 @@ func _op_node_get(params: Dictionary) -> void:
 # unresolvable instance or downgrade a substituted class.
 func _op_node_set(params: Dictionary) -> void:
 	_diag("running operation: node-set")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	var root: Node = _load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
-	var node_path := _string_param(params, "node")
+	var node_path := VALUE._string_param(params, "node")
 	var node := _resolve_node(root, node_path)
 	if node == null:
 		root.free()
 		_fail_node_not_found(node_path)
 		return
 
-	var prop_name := _string_param(params, "property")
+	var prop_name := VALUE._string_param(params, "property")
 	if _is_control_position_write(node, prop_name):
 		var control: Control = node as Control
 		if _has_container_parent(control):
@@ -1866,19 +1758,19 @@ func _op_node_set(params: Dictionary) -> void:
 			root.free()
 			_fail(OP_ERROR_UNKNOWN_PROPERTY, refusal)
 			return
-		var raw_position := _string_param(params, "value")
-		var coerced_position: Variant = _coerce_value(raw_position,
+		var raw_position := VALUE._string_param(params, "value")
+		var coerced_position: Variant = VALUE._coerce_value(raw_position,
 				TYPE_VECTOR2, control.position)
 		if coerced_position == null:
 			root.free()
 			_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value "
 					+ raw_position.c_escape()
 					+ " to Vector2 for property position on node " + node_path
-					+ _float_fidelity_note(raw_position, TYPE_VECTOR2))
+					+ VALUE._float_fidelity_note(raw_position, TYPE_VECTOR2))
 			return
 		var target_position: Vector2 = coerced_position
 		control.set_position(target_position)
-		var stored_position: Variant = _jsonify(control.position)
+		var stored_position: Variant = VALUE._jsonify(control.position)
 		if not _repack_and_save(root, path):
 			return  # _repack_and_save already recorded the failure (and freed root)
 
@@ -1886,27 +1778,27 @@ func _op_node_set(params: Dictionary) -> void:
 			"scene_path": path,
 			"path": node_path,
 			"property": prop_name,
-			"type": _type_name(TYPE_VECTOR2),
+			"type": VALUE._type_name(TYPE_VECTOR2),
 			"value": stored_position,
 		})
 		return
 
-	var declared_type := _property_type(node, prop_name)
+	var declared_type := VALUE._property_type(node, prop_name)
 	if declared_type == TYPE_NIL:
 		root.free()
 		_fail(OP_ERROR_UNKNOWN_PROPERTY, "node " + node_path
 				+ " has no settable property: " + prop_name)
 		return
 
-	var raw_value := _string_param(params, "value")
+	var raw_value := VALUE._string_param(params, "value")
 	var stored_value: Variant
 	if declared_type == TYPE_OBJECT:
 		# Object-typed property: assign an EXISTING Resource referenced by a res://
 		# path (ADR-0033, #363). A separate, headless-only step from the shared
 		# _coerce_value (it needs the expected-class hint that Variant.Type/current
 		# container context cannot carry); it records its own distinct structured failure.
-		var resolved := _resolve_object_value(prop_name,
-				_storage_property_entry(node, prop_name), raw_value, "node " + node_path)
+		var resolved := _object_ref._resolve_object_value(prop_name,
+				_object_ref._storage_property_entry(node, prop_name), raw_value, "node " + node_path)
 		if resolved == null:
 			root.free()
 			return  # _resolve_object_value already recorded the failure
@@ -1915,16 +1807,16 @@ func _op_node_set(params: Dictionary) -> void:
 		# (ADR-0035): {type, resource_path}. On disk the assignment still
 		# round-trips as its res:// path — the loaded resource carries a
 		# resource_path, so re-packing serializes it as an ext_resource.
-		stored_value = _jsonify(resolved)
+		stored_value = VALUE._jsonify(resolved)
 	else:
 		var current_value: Variant = node.get(prop_name)
-		var coerced: Variant = _coerce_value(raw_value, declared_type, current_value)
+		var coerced: Variant = VALUE._coerce_value(raw_value, declared_type, current_value)
 		if coerced == null:
 			root.free()
 			_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
-					+ " to " + _type_name(declared_type) + " for property " + prop_name
+					+ " to " + VALUE._type_name(declared_type) + " for property " + prop_name
 					+ " on node " + node_path
-					+ _float_fidelity_note(raw_value, declared_type))
+					+ VALUE._float_fidelity_note(raw_value, declared_type))
 			return
 
 		node.set(prop_name, coerced)
@@ -1932,7 +1824,7 @@ func _op_node_set(params: Dictionary) -> void:
 		# Read the value back off the node before re-saving frees the tree — the node
 		# now holds the coerced value in its canonical form, the same projection
 		# node-get reports.
-		stored_value = _jsonify(node.get(prop_name))
+		stored_value = VALUE._jsonify(node.get(prop_name))
 	if not _repack_and_save(root, path):
 		return  # _repack_and_save already recorded the failure (and freed root)
 
@@ -1940,7 +1832,7 @@ func _op_node_set(params: Dictionary) -> void:
 		"scene_path": path,
 		"path": node_path,
 		"property": prop_name,
-		"type": _type_name(declared_type),
+		"type": VALUE._type_name(declared_type),
 		"value": stored_value,
 	})
 
@@ -1992,11 +1884,11 @@ func _control_position_unavailable_message(subject: String, control: Control) ->
 # code (and resolver) node get / node set use.
 func _op_node_remove(params: Dictionary) -> void:
 	_diag("running operation: node-remove")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	var root: Node = _load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
-	var node_path := _string_param(params, "node")
+	var node_path := VALUE._string_param(params, "node")
 	var node := _resolve_node(root, node_path)
 	if node == null:
 		root.free()
@@ -2040,11 +1932,11 @@ func _op_node_remove(params: Dictionary) -> void:
 # node_not_found, the node group's shared code.
 func _op_node_duplicate(params: Dictionary) -> void:
 	_diag("running operation: node-duplicate")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	var root: Node = _load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
-	var node_path := _string_param(params, "node")
+	var node_path := VALUE._string_param(params, "node")
 	var node := _resolve_node(root, node_path)
 	if node == null:
 		root.free()
@@ -2139,11 +2031,11 @@ func _reown_subtree(node: Node, owner: Node) -> void:
 # global position the headless edit never cared about.
 func _op_node_move(params: Dictionary) -> void:
 	_diag("running operation: node-move")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	var root: Node = _load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
-	var node_path := _string_param(params, "node")
+	var node_path := VALUE._string_param(params, "node")
 	var node := _resolve_node(root, node_path)
 	if node == null:
 		root.free()
@@ -2155,7 +2047,7 @@ func _op_node_move(params: Dictionary) -> void:
 				+ " — the root has no parent to be reparented out of")
 		return
 
-	var target_path := _string_param(params, "to")
+	var target_path := VALUE._string_param(params, "to")
 	var target := _resolve_node(root, target_path)
 	if target == null:
 		root.free()
@@ -2267,32 +2159,32 @@ func _op_node_move(params: Dictionary) -> void:
 # connecting to a missing method returns OK and serializes).
 func _op_node_connect_signal(params: Dictionary) -> void:
 	_diag("running operation: node-connect-signal")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	var root: Node = _load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
 
-	var from_path := _string_param(params, "from")
+	var from_path := VALUE._string_param(params, "from")
 	var source := _resolve_node(root, from_path)
 	if source == null:
 		root.free()
 		_fail_node_not_found_labeled("source", from_path)
 		return
-	var to_path := _string_param(params, "to")
+	var to_path := VALUE._string_param(params, "to")
 	var target := _resolve_node(root, to_path)
 	if target == null:
 		root.free()
 		_fail_node_not_found_labeled("target", to_path)
 		return
 
-	var signal_name := _string_param(params, "signal")
+	var signal_name := VALUE._string_param(params, "signal")
 	if not source.has_signal(signal_name):
 		root.free()
 		_fail(OP_ERROR_SIGNAL_NOT_FOUND, "source node " + from_path
 				+ " has no signal: " + signal_name)
 		return
 
-	var method_name := _string_param(params, "method")
+	var method_name := VALUE._string_param(params, "method")
 	var callable := Callable(target, method_name)
 	# A duplicate connection is reported, not silently re-applied: a plain
 	# connect() of an existing connection errors noisily (ERR_INVALID_PARAMETER),
@@ -2330,25 +2222,25 @@ func _op_node_connect_signal(params: Dictionary) -> void:
 # source means there can be no such connection, so it maps to the same code.
 func _op_node_disconnect_signal(params: Dictionary) -> void:
 	_diag("running operation: node-disconnect-signal")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	var root: Node = _load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
 
-	var from_path := _string_param(params, "from")
+	var from_path := VALUE._string_param(params, "from")
 	var source := _resolve_node(root, from_path)
 	if source == null:
 		root.free()
 		_fail_node_not_found_labeled("source", from_path)
 		return
-	var to_path := _string_param(params, "to")
+	var to_path := VALUE._string_param(params, "to")
 	var target := _resolve_node(root, to_path)
 	if target == null:
 		root.free()
 		_fail_node_not_found_labeled("target", to_path)
 		return
 
-	var signal_name := _string_param(params, "signal")
+	var signal_name := VALUE._string_param(params, "signal")
 	# A missing source signal is signal_not_found, symmetric with connect-signal
 	# and the documented contract: a typo'd signal is fixed by naming the right
 	# signal, not by being collapsed into an absent connection (issue #57 review).
@@ -2357,7 +2249,7 @@ func _op_node_disconnect_signal(params: Dictionary) -> void:
 		_fail(OP_ERROR_SIGNAL_NOT_FOUND, "source node " + from_path
 				+ " has no signal: " + signal_name)
 		return
-	var method_name := _string_param(params, "method")
+	var method_name := VALUE._string_param(params, "method")
 	var callable := Callable(target, method_name)
 	# The signal exists but carries no such connection: nothing to remove. Guard
 	# with is_connected rather than call disconnect() (which errors on an absent
@@ -2393,11 +2285,11 @@ func _op_node_disconnect_signal(params: Dictionary) -> void:
 # already_exists, leaving it untouched (mirrors scene-create).
 func _op_script_create(params: Dictionary) -> void:
 	_diag("running operation: script-create")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
-	if not _is_script_path(path):
+	if not GDSCRIPT_SCAN._is_script_path(path):
 		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
 		return
 	if FileAccess.file_exists(path) or DirAccess.dir_exists_absolute(path):
@@ -2411,18 +2303,18 @@ func _op_script_create(params: Dictionary) -> void:
 	if content is String:
 		source = content
 	else:
-		var base := _string_param(params, "extends_type")
+		var base := VALUE._string_param(params, "extends_type")
 		if base.is_empty():
 			base = "Node"
 		source = "extends " + base + "\n"
 
-	var created_dirs: Variant = _ensure_parent_dirs(path)
+	var created_dirs: Variant = _file_write._ensure_parent_dirs(path)
 	if created_dirs == null:
 		return  # _ensure_parent_dirs already recorded the failure
 	if not _write_script_file(path, source):
 		return  # _write_script_file already recorded the failure
 
-	var meta := _script_metadata(source)
+	var meta := GDSCRIPT_SCAN._script_metadata(source)
 	_succeed({
 		"path": path,
 		"class_name": meta["class_name"],
@@ -2441,7 +2333,7 @@ func _op_script_create(params: Dictionary) -> void:
 # (issue #30).
 func _op_script_get(params: Dictionary) -> void:
 	_diag("running operation: script-get")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
@@ -2452,7 +2344,7 @@ func _op_script_get(params: Dictionary) -> void:
 	if source == null:
 		return  # _read_script_source already recorded the failure
 
-	var meta := _script_metadata(source)
+	var meta := GDSCRIPT_SCAN._script_metadata(source)
 	_succeed({
 		"path": path,
 		"source": source,
@@ -2497,7 +2389,7 @@ func _op_script_list(_params: Dictionary) -> void:
 # the result names the content removed, not just the path (mirrors scene-delete).
 func _op_script_delete(params: Dictionary) -> void:
 	_diag("running operation: script-delete")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
@@ -2507,7 +2399,7 @@ func _op_script_delete(params: Dictionary) -> void:
 	# Read the metadata before deletion so the result names the content removed.
 	# A read error here is non-fatal: the file exists and is about to be deleted,
 	# so fall back to null metadata rather than failing the delete.
-	var meta := _script_metadata(FileAccess.get_file_as_string(path))
+	var meta := GDSCRIPT_SCAN._script_metadata(FileAccess.get_file_as_string(path))
 
 	var err := DirAccess.remove_absolute(path)
 	if err != OK:
@@ -2536,7 +2428,7 @@ func _op_script_delete(params: Dictionary) -> void:
 # path_not_found, not a silent create.
 func _op_script_set(params: Dictionary) -> void:
 	_diag("running operation: script-set")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
@@ -2548,22 +2440,22 @@ func _op_script_set(params: Dictionary) -> void:
 		return  # _read_script_source already recorded the failure
 	# Capture the staleness token right after the read (issue #226) — script-set writes
 	# raw text directly, not via the shared tail, so it wires capture/recheck itself.
-	_capture_staleness_token(path)
+	_file_write._capture_staleness_token(path)
 
 	# Dispatch on the explicit mode discriminator the CLI resolved (issue #133):
 	# the edit mode is decided once, at the CLI's mutual-exclusion check, and rides
 	# through on `mode` — the op never re-infers it from which params are present,
 	# so the op's dispatch can no longer drift from the CLI's exclusivity rule.
-	var mode := _string_param(params, "mode")
+	var mode := VALUE._string_param(params, "mode")
 	var new_source: Variant
 	match mode:
 		"search_replace":
-			new_source = _apply_search_replace(source, params, "script")
+			new_source = _text_edit._apply_search_replace(source, params, "script")
 		"line_range":
-			new_source = _apply_line_range(source, params, "script")
+			new_source = _text_edit._apply_line_range(source, params, "script")
 		"full":
 			# full overwrite: content is guaranteed present by the CLI's mode check.
-			new_source = _string_param(params, "content")
+			new_source = VALUE._string_param(params, "content")
 		_:
 			# The CLI always supplies one of the three modes; a missing/unknown mode
 			# means a malformed direct op invocation, not a reachable CLI path.
@@ -2574,66 +2466,18 @@ func _op_script_set(params: Dictionary) -> void:
 
 	# Recheck before the write (issue #226): refuse if a concurrent editor changed the
 	# .gd in the read->write window.
-	if not _check_unchanged():
+	if not _file_write._check_unchanged():
 		return
 	if not _write_script_file(path, new_source):
 		return  # _write_script_file already recorded the failure
 
 	# Re-parse the written source so set round-trips through script get.
-	var meta := _script_metadata(new_source)
+	var meta := GDSCRIPT_SCAN._script_metadata(new_source)
 	_succeed({
 		"path": path,
 		"class_name": meta["class_name"],
 		"extends": meta["extends"],
 	})
-
-
-# search-replace edit: replace every literal occurrence of `search` with
-# `replace`. An empty or absent search string can never be located, and a search
-# string the source does not contain is a no_search_match failure (so an agent
-# learns the edit landed nowhere rather than silently writing the file back
-# unchanged). Returns null after recording the failure.
-func _apply_search_replace(source: String, params: Dictionary, noun: String) -> Variant:
-	var search := _string_param(params, "search")
-	var replace := _string_param(params, "replace")
-	if search.is_empty() or not source.contains(search):
-		_fail(OP_ERROR_NO_SEARCH_MATCH, "search string not found in " + noun + ": " + search.c_escape())
-		return null
-	return source.replace(search, replace)
-
-
-# line-range edit: replace the 1-based, inclusive line span [start_line,
-# end_line] with `content`. Lines are the parts of the source split on its
-# newline, so a trailing newline yields a final empty part ("a\nb\n" →
-# ["a","b",""], N=3); the valid range is 1..N. end_line defaults to start_line
-# (a single-line edit). A range outside the bounds, or end before start, is
-# invalid_line_range. Returns null after recording the failure.
-#
-# The file's own newline (CRLF when the source uses it, else LF) is used to both
-# split and rejoin, and the replacement `content` is normalized onto it, so
-# editing a CRLF script preserves CRLF instead of corrupting the edited span to
-# mixed endings. A mixed-ending file is pathological and resolves to CRLF.
-func _apply_line_range(source: String, params: Dictionary, noun: String) -> Variant:
-	var newline := "\r\n" if source.contains("\r\n") else "\n"
-	var lines := source.split(newline)
-	var line_count := lines.size()
-	var start_line := int(params.get("start_line", 0))
-	var end_line: int = int(params.get("end_line", start_line)) if params.get("end_line", null) != null else start_line
-	if start_line < 1 or start_line > line_count or end_line < start_line or end_line > line_count:
-		_fail(OP_ERROR_INVALID_LINE_RANGE, "line range " + str(start_line) + ".." + str(end_line)
-				+ " is outside the " + noun + "'s bounds (1.." + str(line_count) + ") or ends before it starts")
-		return null
-	var content := _string_param(params, "content")
-	var before := lines.slice(0, start_line - 1)
-	var after := lines.slice(end_line)
-	# Normalize the replacement's own newlines onto the file's so the whole edited
-	# file keeps one consistent ending.
-	var replacement := content.replace("\r\n", "\n").split("\n")
-	var rebuilt: Array = []
-	rebuilt.append_array(before)
-	rebuilt.append_array(replacement)
-	rebuilt.append_array(after)
-	return newline.join(PackedStringArray(rebuilt))
 
 
 # script-attach: bind a .gd script to a node in a .tscn (issue #118). Load the
@@ -2677,14 +2521,14 @@ func _apply_line_range(source: String, params: Dictionary, noun: String) -> Vari
 # rare.
 func _op_script_attach(params: Dictionary) -> void:
 	_diag("running operation: script-attach")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 
 	# Primary subject first: load + instantiate the scene, then resolve the node —
 	# validated before the secondary --script input (issue #132, Part 2).
 	var root: Node = _load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
-	var node_path := _string_param(params, "node")
+	var node_path := VALUE._string_param(params, "node")
 	var node := _resolve_node(root, node_path)
 	if node == null:
 		root.free()
@@ -2695,7 +2539,7 @@ func _op_script_attach(params: Dictionary) -> void:
 	# (invalid_path) and existence (path_not_found), via the shared #135 helper — so
 	# a scene/node problem is always reported ahead of a script problem (issue #132,
 	# Part 2). The helper records the failure; the caller frees the live tree.
-	var script_path := _string_param(params, "script")
+	var script_path := VALUE._string_param(params, "script")
 	if not _require_existing_script(script_path):
 		root.free()
 		return  # _require_existing_script already recorded the failure
@@ -2744,7 +2588,7 @@ func _op_script_attach(params: Dictionary) -> void:
 		return
 
 	# Capture the attached class_name off the live node before re-saving frees it.
-	var class_name_value: Variant = _script_class_of(node)
+	var class_name_value: Variant = CLASS_INDEX._script_class_of(node)
 	if not _repack_and_save(root, path):
 		return  # _repack_and_save already recorded the failure (and freed root)
 
@@ -2934,7 +2778,7 @@ func _validate_target_paths(params: Dictionary) -> Variant:
 # and no _init side effect runs against a target that would not be written anyway.
 func _op_resource_create(params: Dictionary) -> void:
 	_diag("running operation: resource-create")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
@@ -2944,17 +2788,17 @@ func _op_resource_create(params: Dictionary) -> void:
 	if FileAccess.file_exists(path) or DirAccess.dir_exists_absolute(path):
 		_fail(OP_ERROR_ALREADY_EXISTS, "resource target already exists: " + path)
 		return
-	var type := _string_param(params, "type")
+	var type := VALUE._string_param(params, "type")
 	var resource: Resource = _instantiate_resource_type(type)
 	if resource == null:
 		return  # _instantiate_resource_type already recorded the failure
 
-	var created_dirs: Variant = _ensure_parent_dirs(path)
+	var created_dirs: Variant = _file_write._ensure_parent_dirs(path)
 	if created_dirs == null:
 		return  # _ensure_parent_dirs already recorded the failure
-	var save_err := _atomic_save_resource(resource, path)
+	var save_err := _file_write._atomic_save_resource(resource, path)
 	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("resource", path, save_err))
+		_fail(OP_ERROR_SAVE_FAILED, _file_write._save_failure_message("resource", path, save_err))
 		return
 
 	_succeed({
@@ -2972,7 +2816,7 @@ func _op_resource_create(params: Dictionary) -> void:
 # shader-get (create → get returns the source).
 func _op_shader_create(params: Dictionary) -> void:
 	_diag("running operation: shader-create")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
@@ -2990,12 +2834,12 @@ func _op_shader_create(params: Dictionary) -> void:
 	if content is String:
 		source = content
 	else:
-		var shader_type := _string_param(params, "shader_type")
+		var shader_type := VALUE._string_param(params, "shader_type")
 		if shader_type.is_empty():
 			shader_type = "canvas_item"
 		source = "shader_type " + shader_type + ";\n"
 
-	var created_dirs: Variant = _ensure_parent_dirs(path)
+	var created_dirs: Variant = _file_write._ensure_parent_dirs(path)
 	if created_dirs == null:
 		return  # _ensure_parent_dirs already recorded the failure
 	if not _write_text_file(path, source, "shader"):
@@ -3019,7 +2863,7 @@ func _op_shader_create(params: Dictionary) -> void:
 # file that does not load as a Resource is not a resource the group can report.
 func _op_resource_get(params: Dictionary) -> void:
 	_diag("running operation: resource-get")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
@@ -3033,13 +2877,13 @@ func _op_resource_get(params: Dictionary) -> void:
 
 	var properties: Array = []
 	for prop in resource.get_property_list():
-		if not _is_storage_property(prop):
+		if not VALUE._is_storage_property(prop):
 			continue
 		var prop_name := String(prop.get("name", ""))
 		properties.append({
 			"name": prop_name,
-			"type": _type_name(int(prop.get("type", TYPE_NIL))),
-			"value": _jsonify(resource.get(prop_name)),
+			"type": VALUE._type_name(int(prop.get("type", TYPE_NIL))),
+			"value": VALUE._jsonify(resource.get(prop_name)),
 		})
 
 	_succeed({
@@ -3058,7 +2902,7 @@ func _op_resource_get(params: Dictionary) -> void:
 # create — reusing the #55 codes (unknown_property / uncoercible_value).
 func _op_resource_set(params: Dictionary) -> void:
 	_diag("running operation: resource-set")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
@@ -3071,24 +2915,24 @@ func _op_resource_set(params: Dictionary) -> void:
 		return
 	# Capture the staleness token right after the read (issue #226) — resource-set
 	# does not use the shared pack-and-save tail, so it wires capture/recheck itself.
-	_capture_staleness_token(path)
+	_file_write._capture_staleness_token(path)
 
-	var prop_name := _string_param(params, "property")
+	var prop_name := VALUE._string_param(params, "property")
 	var declared_type := _resource_property_type(resource, prop_name)
 	if declared_type == TYPE_NIL:
 		_fail(OP_ERROR_UNKNOWN_PROPERTY, "resource " + path
 				+ " has no settable property: " + prop_name)
 		return
 
-	var raw_value := _string_param(params, "value")
+	var raw_value := VALUE._string_param(params, "value")
 	var stored_value: Variant
 	if declared_type == TYPE_OBJECT:
 		# Object-typed property: assign an EXISTING Resource referenced by a res://
 		# path (ADR-0033, #363) — the resource-on-resource counterpart of node set's
 		# Object branch. Headless-only, separate from the shared _coerce_value; it
 		# records its own distinct structured failure.
-		var resolved := _resolve_object_value(prop_name,
-				_storage_property_entry(resource, prop_name), raw_value, "resource " + path)
+		var resolved := _object_ref._resolve_object_value(prop_name,
+				_object_ref._storage_property_entry(resource, prop_name), raw_value, "resource " + path)
 		if resolved == null:
 			return  # _resolve_object_value already recorded the failure
 		resource.set(prop_name, resolved)
@@ -3096,35 +2940,35 @@ func _op_resource_set(params: Dictionary) -> void:
 		# (ADR-0035): {type, resource_path}. On disk the assignment still
 		# round-trips as its res:// path — the loaded resource carries a
 		# resource_path, so re-saving serializes it as an ext_resource.
-		stored_value = _jsonify(resolved)
+		stored_value = VALUE._jsonify(resolved)
 	else:
 		var current_value: Variant = resource.get(prop_name)
-		var coerced: Variant = _coerce_value(raw_value, declared_type, current_value)
+		var coerced: Variant = VALUE._coerce_value(raw_value, declared_type, current_value)
 		if coerced == null:
 			_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
-					+ " to " + _type_name(declared_type) + " for property " + prop_name
+					+ " to " + VALUE._type_name(declared_type) + " for property " + prop_name
 					+ " on resource " + path
-					+ _float_fidelity_note(raw_value, declared_type))
+					+ VALUE._float_fidelity_note(raw_value, declared_type))
 			return
 		resource.set(prop_name, coerced)
 		# Read the value back off the resource before reporting — it now holds the
 		# coerced value in its canonical form, the same projection resource get
 		# reports, so a set round-trips through a get.
-		stored_value = _jsonify(resource.get(prop_name))
+		stored_value = VALUE._jsonify(resource.get(prop_name))
 
 	# Recheck before the write (issue #226): refuse if a concurrent editor changed the
 	# .tres in the read->write window.
-	if not _check_unchanged():
+	if not _file_write._check_unchanged():
 		return
-	var save_err := _atomic_save_resource(resource, path)
+	var save_err := _file_write._atomic_save_resource(resource, path)
 	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("resource", path, save_err))
+		_fail(OP_ERROR_SAVE_FAILED, _file_write._save_failure_message("resource", path, save_err))
 		return
 
 	_succeed({
 		"path": path,
 		"property": prop_name,
-		"type": _type_name(declared_type),
+		"type": VALUE._type_name(declared_type),
 		"value": stored_value,
 	})
 
@@ -3136,7 +2980,7 @@ func _op_resource_set(params: Dictionary) -> void:
 # identity before delete, then DirAccess.remove_absolute (delete_failed on error).
 func _op_resource_delete(params: Dictionary) -> void:
 	_diag("running operation: resource-delete")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
@@ -3167,7 +3011,7 @@ func _op_resource_delete(params: Dictionary) -> void:
 # _property_type (which is typed to Node).
 func _resource_property_type(resource: Resource, prop_name: String) -> int:
 	for prop in resource.get_property_list():
-		if String(prop.get("name", "")) == prop_name and _is_storage_property(prop):
+		if String(prop.get("name", "")) == prop_name and VALUE._is_storage_property(prop):
 			return int(prop.get("type", TYPE_NIL))
 	return TYPE_NIL
 
@@ -3201,7 +3045,7 @@ func _require_existing_resource(path: String) -> bool:
 # project code (issue #30).
 func _op_shader_get(params: Dictionary) -> void:
 	_diag("running operation: shader-get")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
@@ -3228,7 +3072,7 @@ func _op_shader_get(params: Dictionary) -> void:
 # path_not_found, never a silent create.
 func _op_shader_set(params: Dictionary) -> void:
 	_diag("running operation: shader-set")
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
@@ -3240,18 +3084,18 @@ func _op_shader_set(params: Dictionary) -> void:
 		return  # _read_text_file already recorded the failure
 	# Capture the staleness token right after the read (issue #226) — shader-set writes
 	# raw text directly, not via the shared tail, so it wires capture/recheck itself.
-	_capture_staleness_token(path)
+	_file_write._capture_staleness_token(path)
 
-	var mode := _string_param(params, "mode")
+	var mode := VALUE._string_param(params, "mode")
 	var new_source: Variant
 	match mode:
 		"search_replace":
-			new_source = _apply_search_replace(source, params, "shader")
+			new_source = _text_edit._apply_search_replace(source, params, "shader")
 		"line_range":
-			new_source = _apply_line_range(source, params, "shader")
+			new_source = _text_edit._apply_line_range(source, params, "shader")
 		"full":
 			# full overwrite: content is guaranteed present by the CLI's mode check.
-			new_source = _string_param(params, "content")
+			new_source = VALUE._string_param(params, "content")
 		_:
 			# The CLI always supplies one of the three modes; a missing/unknown mode
 			# means a malformed direct op invocation, not a reachable CLI path.
@@ -3262,7 +3106,7 @@ func _op_shader_set(params: Dictionary) -> void:
 
 	# Recheck before the write (issue #226): refuse if a concurrent editor changed the
 	# .gdshader in the read->write window.
-	if not _check_unchanged():
+	if not _file_write._check_unchanged():
 		return
 	if not _write_text_file(path, new_source, "shader"):
 		return  # _write_text_file already recorded the failure
@@ -3324,7 +3168,7 @@ func _op_resource_uid(params: Dictionary) -> void:
 		_fail(OP_ERROR_PROJECT_NOT_FOUND, "resource uid requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
 		return
 
-	var target := _string_param(params, "target")
+	var target := VALUE._string_param(params, "target")
 	if target.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: target")
 		return
@@ -3417,7 +3261,7 @@ func _op_project_get(params: Dictionary) -> void:
 	if not _has_project():
 		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project get requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
 		return
-	var setting := _string_param(params, "setting")
+	var setting := VALUE._string_param(params, "setting")
 	if setting.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: setting")
 		return
@@ -3428,8 +3272,8 @@ func _op_project_get(params: Dictionary) -> void:
 	var value: Variant = ProjectSettings.get_setting(setting)
 	_succeed({
 		"setting": setting,
-		"type": _type_name(typeof(value)),
-		"value": _jsonify(value),
+		"type": VALUE._type_name(typeof(value)),
+		"value": VALUE._jsonify(value),
 	})
 
 
@@ -3459,7 +3303,7 @@ func _op_project_list(params: Dictionary) -> void:
 		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project list requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
 		return
 	var include_defaults := bool(params.get("include_defaults", false))
-	var section := _string_param(params, "section")
+	var section := VALUE._string_param(params, "section")
 	var customized := _customized_settings()
 
 	var names: Array[String] = []
@@ -3486,8 +3330,8 @@ func _op_project_list(params: Dictionary) -> void:
 		var value: Variant = ProjectSettings.get_setting(key)
 		settings.append({
 			"setting": key,
-			"type": _type_name(typeof(value)),
-			"value": _jsonify(value),
+			"type": VALUE._type_name(typeof(value)),
+			"value": VALUE._jsonify(value),
 			"is_default": not customized.has(key),
 		})
 
@@ -3542,7 +3386,7 @@ func _op_project_set(params: Dictionary) -> void:
 	if not _has_project():
 		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project set requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
 		return
-	var setting := _string_param(params, "setting")
+	var setting := VALUE._string_param(params, "setting")
 	if setting.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: setting")
 		return
@@ -3553,12 +3397,12 @@ func _op_project_set(params: Dictionary) -> void:
 
 	var current_value: Variant = ProjectSettings.get_setting(setting)
 	var declared_type := typeof(current_value)
-	var raw_value := _string_param(params, "value")
-	var coerced: Variant = _coerce_value(raw_value, declared_type, current_value)
+	var raw_value := VALUE._string_param(params, "value")
+	var coerced: Variant = VALUE._coerce_value(raw_value, declared_type, current_value)
 	if coerced == null:
 		_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
-				+ " to " + _type_name(declared_type) + " for project setting " + setting
-				+ _float_fidelity_note(raw_value, declared_type))
+				+ " to " + VALUE._type_name(declared_type) + " for project setting " + setting
+				+ VALUE._float_fidelity_note(raw_value, declared_type))
 		return
 
 	# The engine's writer DROPS every setting whose value equals its INITIAL value
@@ -3583,10 +3427,10 @@ func _op_project_set(params: Dictionary) -> void:
 	# Read the value back off ProjectSettings before reporting — it now holds the
 	# coerced value in its canonical form, the same projection project get reports,
 	# so a set round-trips through a get.
-	var stored_value: Variant = _jsonify(ProjectSettings.get_setting(setting))
+	var stored_value: Variant = VALUE._jsonify(ProjectSettings.get_setting(setting))
 	_succeed({
 		"setting": setting,
-		"type": _type_name(declared_type),
+		"type": VALUE._type_name(declared_type),
 		"value": stored_value,
 		"restored_settings": restored,
 	})
@@ -3610,11 +3454,11 @@ func _op_project_add_autoload(params: Dictionary) -> void:
 	if not _has_project():
 		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project add-autoload requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
 		return
-	var autoload_name := _string_param(params, "name")
+	var autoload_name := VALUE._string_param(params, "name")
 	if autoload_name.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: name")
 		return
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
@@ -3653,7 +3497,7 @@ func _op_project_remove_autoload(params: Dictionary) -> void:
 	if not _has_project():
 		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project remove-autoload requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
 		return
-	var autoload_name := _string_param(params, "name")
+	var autoload_name := VALUE._string_param(params, "name")
 	if autoload_name.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: name")
 		return
@@ -3841,7 +3685,7 @@ func _op_project_add_input_action(params: Dictionary) -> void:
 	if not _has_project():
 		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project add-input-action requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
 		return
-	var action_name := _string_param(params, "name")
+	var action_name := VALUE._string_param(params, "name")
 	if action_name.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: name")
 		return
@@ -4002,7 +3846,7 @@ func _op_project_remove_input_action(params: Dictionary) -> void:
 	if not _has_project():
 		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project remove-input-action requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
 		return
-	var action_name := _string_param(params, "name")
+	var action_name := VALUE._string_param(params, "name")
 	if action_name.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: name")
 		return
@@ -4043,7 +3887,7 @@ func _shader_metadata(source: String) -> Variant:
 			var semicolon := rest.find(";")
 			if semicolon != -1:
 				rest = rest.substr(0, semicolon)
-			return _first_token(rest)
+			return GDSCRIPT_SCAN._first_token(rest)
 		# The first real line past the header: no shader_type can legally appear
 		# after it, so stop scanning.
 		break
@@ -4069,9 +3913,9 @@ func _read_text_file(path: String, noun: String) -> Variant:
 # in its diagnostic). Returns true on a clean write, or false after recording the
 # failure (the caller must stop). `noun` names the asset in the diagnostic.
 func _write_text_file(path: String, source: String, noun: String) -> bool:
-	var write_err := _atomic_write_text(path, source)
+	var write_err := _file_write._atomic_write_text(path, source)
 	if write_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message(noun, path, write_err))
+		_fail(OP_ERROR_SAVE_FAILED, _file_write._save_failure_message(noun, path, write_err))
 		return false
 	return true
 
@@ -4139,7 +3983,7 @@ func _op_project_find_references(params: Dictionary) -> void:
 	if not _has_project():
 		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project find-references requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
 		return
-	var target := _string_param(params, "target")
+	var target := VALUE._string_param(params, "target")
 	if target.is_empty():
 		_fail(OP_ERROR_INVALID_TARGET, "missing required param: target")
 		return
@@ -4159,34 +4003,34 @@ func _op_project_find_references(params: Dictionary) -> void:
 		# that spells the target res://sub/../leaf.tscn asks about the same node
 		# the graph keys res://leaf.tscn under. The echoed "target" keeps the
 		# caller's own spelling — it also carries a class_name, which is no path.
-		target_paths[_canonical_resource_path(target)] = true
+		target_paths[SCENE_TEXT._canonical_resource_path(target)] = true
 	else:
 		# Resolve the class_name through the SAME unified resolver node add /
 		# resource create use (ADR-0032), so find-references and resource create
 		# agree on whether a class resolves in an editor-never-opened project, and
 		# a class_name declared in more than one .gd is the shared ambiguous error.
-		var resolution := _resolve_project_class_script(target)
+		var resolution := CLASS_INDEX._resolve_project_class_script(target)
 		match resolution["status"]:
 			"resolved":
 				target_class = target
-				target_paths[_canonical_resource_path(String(resolution["path"]))] = true
+				target_paths[SCENE_TEXT._canonical_resource_path(String(resolution["path"]))] = true
 			"ambiguous":
-				_fail(OP_ERROR_AMBIGUOUS_CLASS_NAME, _ambiguous_class_name_message(target, resolution["paths"]))
+				_fail(OP_ERROR_AMBIGUOUS_CLASS_NAME, CLASS_INDEX._ambiguous_class_name_message(target, resolution["paths"]))
 				return
 			_:
 				_fail(OP_ERROR_INVALID_TARGET, "find-references target is not a res:// path, and no .gd script declares class_name " + target + " (check for a misspelled name): " + target)
 				return
 
 	var paths: Array[String] = []
-	_collect_resource_paths("res://", paths)
+	PROJECT_WALK._collect_resource_paths("res://", paths)
 	paths.sort()
 
 	var references: Array = []
 	for path in paths:
-		_collect_references_from(path, target_paths, target_class, references)
+		REFERENCE_GRAPH._collect_references_from(path, target_paths, target_class, references)
 	# Project-level references (autoloads, the main scene) live in
 	# project.godot, not in a scanned file — add them from ProjectSettings.
-	_collect_project_level_references(target_paths, references)
+	REFERENCE_GRAPH._collect_project_level_references(target_paths, references)
 
 	_succeed({
 		"target": target,
@@ -4205,7 +4049,7 @@ func _op_project_dependencies(_params: Dictionary) -> void:
 		return
 
 	var paths: Array[String] = []
-	_collect_resource_paths("res://", paths)
+	PROJECT_WALK._collect_resource_paths("res://", paths)
 	paths.sort()
 
 	var dependencies: Array = []
@@ -4213,9 +4057,9 @@ func _op_project_dependencies(_params: Dictionary) -> void:
 		# Only resources that can declare ext_resource dependencies (.tscn/.tres)
 		# and scripts (.gd, via preload/load) are reported as dependency sources;
 		# a leaf asset (an image) has no outgoing references to map.
-		if not _has_outgoing_references(path):
+		if not REFERENCE_GRAPH._has_outgoing_references(path):
 			continue
-		var depends_on := _outgoing_references_of(path)
+		var depends_on := REFERENCE_GRAPH._outgoing_references_of(path)
 		dependencies.append({
 			"path": path,
 			"depends_on": depends_on,
@@ -4240,7 +4084,7 @@ func _op_project_find_unused_resources(_params: Dictionary) -> void:
 		return
 
 	var paths: Array[String] = []
-	_collect_resource_paths("res://", paths)
+	PROJECT_WALK._collect_resource_paths("res://", paths)
 	paths.sort()
 
 	# Build the set of every res:// path that ANY file references — the union of
@@ -4250,18 +4094,18 @@ func _op_project_find_unused_resources(_params: Dictionary) -> void:
 	# issue requires.
 	var referenced := {}
 	for path in paths:
-		for dep in _outgoing_references_of(path):
+		for dep in REFERENCE_GRAPH._outgoing_references_of(path):
 			referenced[dep["path"]] = true
 	# Project-level entry points are "referenced" too, so they are never reported
 	# unused: the main scene and the autoloads are entered directly, not via a
 	# file reference.
-	for entry in _project_entry_points():
+	for entry in REFERENCE_GRAPH._project_entry_points():
 		referenced[entry] = true
 
 	var unused: Array = []
 	for path in paths:
 		# A script is dead CODE, not an unused resource asset (see the op note).
-		if _is_script_path(path):
+		if GDSCRIPT_SCAN._is_script_path(path):
 			continue
 		if not referenced.has(path):
 			unused.append(path)
@@ -4280,7 +4124,7 @@ func _op_project_statistics(_params: Dictionary) -> void:
 		return
 
 	var paths: Array[String] = []
-	_collect_all_file_paths("res://", paths)
+	PROJECT_WALK._collect_all_file_paths("res://", paths)
 	paths.sort()
 
 	var total_files := 0
@@ -4295,7 +4139,7 @@ func _op_project_statistics(_params: Dictionary) -> void:
 		if not by_ext.has(ext):
 			by_ext[ext] = {"files": 0, "lines": 0}
 		by_ext[ext]["files"] += 1
-		var lines := _count_lines(path)
+		var lines := REFERENCE_GRAPH._count_lines(path)
 		by_ext[ext]["lines"] += lines
 		total_lines += lines
 		match ext:
@@ -4324,837 +4168,12 @@ func _op_project_statistics(_params: Dictionary) -> void:
 		"total_files": total_files,
 		"total_lines": total_lines,
 		"by_extension": extensions,
-		"autoloads": _project_autoloads(),
-		"plugins": _project_plugins(),
+		"autoloads": REFERENCE_GRAPH._project_autoloads(),
+		"plugins": REFERENCE_GRAPH._project_plugins(),
 		"scene_count": scene_count,
 		"script_count": script_count,
 		"resource_count": resource_count,
 	})
-
-
-# The single unified project-local class_name resolver (ADR-0032), shared by node
-# add, resource create, and find-references so the three sites agree on whether a
-# class_name resolves in an editor-never-opened project. Resolves ONLY the
-# class_name → script-path step; the built-in-engine-class tier and the
-# Node-vs-Resource base-class check stay in each caller. The chain is cache-first:
-#   tier 2 — the editor global class list (get_global_class_list), populated only
-#            by the Godot editor scan, kept FIRST so an editor-opened project
-#            resolves exactly as before (the fallback is unobservable there);
-#   tier 3 — a gda-owned static scan of the project's own .gd sources, invoked
-#            only when the cache misses, so a headless editor-never-opened project
-#            still resolves a valid project-local class_name.
-# Returns a status Dictionary the caller matches on:
-#   {"status": "resolved", "path": "res://…gd"}
-#   {"status": "ambiguous", "paths": [conflicting res:// paths]}
-#   {"status": "not_found"}
-# A class_name declared in more than one .gd is ambiguous, never first-file-wins
-# (ADR-0032): a nondeterministic pick would mask a real project error the editor
-# itself reports. The scan runs NO project code — it parses raw source only.
-func _resolve_project_class_script(class_token: String) -> Dictionary:
-	if class_token.is_empty():
-		return {"status": "not_found"}
-	# Tier 2: the editor global class list (cache-first). A populated cache never
-	# carries a duplicate — the editor rejects that — so no ambiguity check here.
-	for entry in ProjectSettings.get_global_class_list():
-		if String(entry.get("class", "")) == class_token:
-			return {"status": "resolved", "path": String(entry.get("path", ""))}
-	# Tier 3: the gda-owned static scan, built once per process and reused.
-	var index := _project_class_name_index()
-	if not index.has(class_token):
-		return {"status": "not_found"}
-	var declaring: Array = index[class_token]
-	if declaring.size() > 1:
-		return {"status": "ambiguous", "paths": declaring}
-	return {"status": "resolved", "path": String(declaring[0])}
-
-
-# Build (once per process) the class_name → declaring-.gd-paths index for the
-# resolver's tier-3 static scan (ADR-0032). Walks the full res:// tree skipping
-# the root cache — reusing the extension-filtered collector
-# (_collect_resource_paths, which already enumerates .gd among the graph
-# resources) — and parses each .gd's
-# class_name from raw source with the existing never-compiled parser
-# (_script_metadata). A class_name declared in more than one .gd maps to multiple
-# paths (sorted, so an ambiguous_class_name error is deterministic regardless of
-# traversal order). Runs NO project code.
-func _project_class_name_index() -> Dictionary:
-	if _project_class_index_built:
-		return _project_class_index
-	var paths: Array[String] = []
-	_collect_resource_paths("res://", paths)
-	for path in paths:
-		if not _is_script_path(path):
-			continue
-		# get_file_as_string returns "" for an unreadable OR empty .gd; either way
-		# it declares no class_name, so it simply contributes nothing to the index.
-		var meta := _script_metadata(FileAccess.get_file_as_string(path))
-		var declared: Variant = meta.get("class_name")
-		if declared == null:
-			continue
-		var token := String(declared)
-		if not _project_class_index.has(token):
-			_project_class_index[token] = []
-		(_project_class_index[token] as Array).append(path)
-	for token in _project_class_index:
-		(_project_class_index[token] as Array).sort()
-	_project_class_index_built = true
-	return _project_class_index
-
-
-# The shared ambiguous_class_name failure message (ADR-0032), emitted uniformly by
-# all three resolver call sites: it names the class and every conflicting script
-# path so an agent can repair the project (declare the class_name in exactly one
-# .gd) rather than depend on a nondeterministic first-file-wins pick.
-func _ambiguous_class_name_message(class_token: String, paths: Array) -> String:
-	return "class_name " + class_token + " is declared in more than one script, so it cannot be resolved to a single script; declare it in exactly one .gd. Conflicting scripts: " + ", ".join(PackedStringArray(paths))
-
-
-# Whether a res:// walk descends into this child DIRECTORY. The ONE owner of the
-# descent decision: every walk over the project tree (scripts, scenes, graph
-# resources, all files) asks this and nothing else, so the rule cannot drift
-# between them and a new walk inherits it by calling this.
-#
-# THE ENGINE'S OWN SKIP RULE (#804). EditorFileSystem::_should_skip_directory
-# (editor/file_system/editor_file_system.cpp:3460-3480, line numbers from the
-# 4.6.3-stable tag) skips three kinds of directory, and this predicate now answers
-# the same three:
-#
-#   - the project DATA path (the cache) — gda's ENGINE_CACHE_DIR clause below,
-#     with the hardcoded-vs-configurable residual stated at that constant;
-#   - a directory holding a `project.godot`: another project INSIDE this one. Its
-#     files address a different res:// root, so enumerating them here gave them
-#     the outer root — `script validate --all` compiled a nested script against it
-#     and reported every one of its own `res://` preloads as missing, the exact
-#     false cascade ADR-0006's gate refuses when the same file is NAMED. `--all`
-#     and the named target now agree because the walk no longer reaches the file;
-#   - a directory holding a `.gdignore`: the project's own explicit marker for
-#     content the engine must not scan. gda honoured it nowhere, so a `.gdignore`d
-#     tree was listed, validated, counted and indexed.
-#
-# Answering that function is NOT full parity with the engine's scan, and is not
-# meant to be: _scan_new_dir discards every hidden entry and every dot-prefixed
-# DIRECTORY before it consults _should_skip_directory (editor_file_system.cpp:
-# 1157-1168, same tag). gda deliberately enumerates those (#54, #712), so a
-# `res://.hidden/x.gd` is still listed here where the engine's scan never reaches
-# it. What this predicate adopts is the marker rule, not the hidden-entry rule.
-#
-# Only a directory carrying one of those markers changes answer. The probes are
-# lexical joins onto the child's res:// path, never the directory NAME, so a
-# sub-directory merely CALLED `project.godot` (a directory, not a file) does not
-# skip anything: FileAccess.file_exists answers false for a directory
-# (FileAccessUnix::file_exists accepts S_IFREG/S_IFLNK only). Nor does the way the
-# directory was REACHED: a marked directory symlinked into the tree is skipped
-# too, because the probe resolves the link. Both edges are pinned e2e (#808
-# review), which is what keeps them from being claims alone.
-#
-# COST (#804, recorded so review does not re-litigate it): two extra
-# FileAccess.file_exists per child DIRECTORY — the same two probes the engine's
-# own scan pays, on the same directories, and a file-level stat rather than a
-# read. It is not paid per FILE, and a project's directory count is orders below
-# its file count. Caching the answer was declined: a walk visits each directory
-# once, so a cache would only add state to save nothing.
-#
-# The cache test is the full path, never the directory NAME, because a `.godot`
-# deeper in the tree is not this project's engine cache. It is usually authored
-# content (an addon vendoring a sample project, a fixture tree), and excluding it
-# hid real scripts from `script list` and let `script validate --all` report a
-# valid aggregate for a project holding an invalid script (#663 review). Sometimes
-# it is a vendored sub-project's own cache instead, whose artefacts then counted in
-# `project statistics` and `find-unused-resources` — a cost #712 accepted, since
-# nothing in the PATH tells the two apart and a false-valid aggregate is worse.
-#
-# The marker clause above retires that cost wherever an ENGINE wrote the cache —
-# the case #712 named — and #712's own reasoning is why: nothing in the path tells
-# an engine cache from authored content, but the CONTENT does. Every engine that
-# creates a project data directory writes a `.gdignore` into it — the editor
-# (EditorPaths::create, editor/file_system/editor_paths.cpp:268-277) and gda's own
-# import pass, whose `created` list names `res://.godot/.gdignore`. So a nested
-# cache any engine produced now carries the marker and is skipped, while a
-# `.godot` that is genuinely authored content — no engine ever wrote it, so no
-# `.gdignore` inside — is still walked, which is the case #712's rule was FOR
-# (#808 review).
-#
-# Three of the four walks once compared the NAME, so one project answered two
-# ways: `script list` reported a script `project statistics` counted as zero
-# (#712). One decision, one site — that is what keeps them in agreement.
-#
-# SYMLINK POLICY (#760). The walk FOLLOWS a link, as the engine does —
-# DirAccessUnix::get_next stat()s a DT_LNK entry on purpose, so a linked directory
-# reports current_is_dir() (drivers/unix/dir_access_unix.cpp:148-183), and
-# ResourceLoader loads through an alias (both measured on 4.6.3) — but it
-# identifies what it reached by FILESYSTEM IDENTITY, not by the spelling that
-# reached it. Two rules follow, and only a link pays for them:
-#
-#   - the engine cache is excluded by identity, so no SYMLINK alias re-admits it
-#     (_is_in_engine_cache — which also states why a hard link is outside the
-#     rule);
-#   - a linked directory already on this descent CHAIN is not re-entered, so a
-#     cycle terminates by rule instead of running to the OS symlink limit —
-#     `sub/loop -> sub` once emitted 33 spellings of one file, the deepest 174
-#     characters long. The chain is per-BRANCH, so what the walk enumerates is
-#     distinct res:// PATHS: a directory reachable through several link paths is
-#     reported under each, and mutually linked directories multiply the spellings
-#     quickly. The answer is decided and finite — that is the guarantee — not
-#     "each real directory exactly once" (#795 review).
-#
-# A link to ordinary authored content — a vendored checkout reached through one —
-# is neither the cache nor an ancestor, so it is followed and enumerated exactly
-# as before. That is the point of deciding by identity rather than by refusing
-# links: the two defects are about WHERE a link leads, not about links.
-func _should_descend(dir: DirAccess, child: String, chain: Array[String]) -> bool:
-	if child == ENGINE_CACHE_DIR:
-		return false
-	# The engine's two marker clauses, in its own order. They are asked BEFORE the
-	# link tests because a marker is about what the directory HOLDS, not about how
-	# it was reached: a vendored checkout carrying its own `project.godot` is
-	# skipped whether it sits in the tree or is symlinked into it, exactly as the
-	# engine skips it (FileAccess::exists resolves the link too).
-	if FileAccess.file_exists(child.path_join(NESTED_PROJECT_MARKER)):
-		return false
-	if FileAccess.file_exists(child.path_join(GDIGNORE_MARKER)):
-		return false
-	if not dir.is_link(child):
-		# Not a link: its real parent is the directory being listed, which the
-		# walk already cleared, and it cannot be an ancestor of itself. So the
-		# tests above are the whole decision — an ordinary project pays one lstat
-		# per entry plus the engine's own two marker probes, and nothing else.
-		return true
-	if _is_in_engine_cache(dir, child):
-		return false
-	for ancestor in chain:
-		if dir.is_equivalent(child, ancestor):
-			return false
-	return true
-
-
-# Whether a res:// walk COLLECTS this child FILE, once the collector's own
-# acceptance test has said yes. The file-side half of the symlink policy above
-# (#760): _should_descend gates DIRECTORY descent only, so a file link INTO the
-# cache — `res://alias.gd -> res://.godot/root_cache.gd` — reaches the accept
-# branch without ever passing it, and re-admits by itself the content the descent
-# rule keeps out. The two halves ask the same question of the same owner.
-#
-# A link to ordinary content is collected, deliberately: it is a real res:// path
-# the engine loads (measured on 4.6.3), so hiding it would hide authored content
-# the game can address. That also means the same file can be listed under two
-# paths when one is an alias of the other — both are true answers to "what can
-# this project load", and neither is the fabricated path a cycle produced.
-func _should_collect(dir: DirAccess, child: String) -> bool:
-	return not dir.is_link(child) or not _is_in_engine_cache(dir, child)
-
-
-# Whether `path` IS the engine cache or lives inside it, however it is spelled —
-# the ONE owner of the exclusion decision both walk-side predicates ask (#760).
-#
-# The identity test is the ENGINE's own: DirAccess.is_equivalent compares
-# (st_dev, st_ino) on Unix and (VolumeSerialNumber, FileId) on Windows, both
-# stat-resolved, and falls back to string equality when a path cannot be stat'd
-# (DirAccess::is_equivalent, core/io/dir_access.cpp:630-632, overridden in
-# DirAccessUnix::is_equivalent, drivers/unix/dir_access_unix.cpp:713-729, and
-# DirAccessWindows::is_equivalent, drivers/windows/dir_access_windows.cpp:411-431;
-# line numbers from the 4.6.3-stable tag). gda does not answer "are these the
-# same directory" itself, and the fallback degrades to exactly the lexical rule
-# this predicate replaced — a project with no `res://.godot` at all keeps
-# answering as it did.
-#
-# The path is resolved by hand first because DirAccess cannot do it for us:
-# DirAccessUnix::fix_path simplifies a path LEXICALLY before every syscall
-# (drivers/unix/dir_access_unix.cpp:55-57), so a `..` appended to a link never
-# reaches the kernel and cannot be used to walk up out of an alias (measured on
-# 4.6.3: is_equivalent("res://nested/.godot/..", "res://") answers false through an
-# alias of the root cache).
-#
-# ANCESTORS of the resolved path are probed, so a link INTO the cache —
-# `res://nested/imported -> res://.godot/imported` — is excluded too, not only a
-# link AT it. That climb is why _fully_resolved_path has to resolve EVERY
-# component and not just the last one: with `link1 -> sub/deep` and
-# `sub/deep/c -> ../../.godot`, reading the target against the spelling
-# `res://link1` instead of against the real `res://sub/deep` made the ancestors
-# of `res://link1/c` a directory the kernel never visits, and answered that the
-# cache was not reached — the same wrong answer in both directions, admitting the
-# root cache under one spelling and hiding a vendored checkout's own nested cache
-# under another (#795 review). The climb carries no step bound of its own: it
-# counts path COMPONENTS, which no kernel limits, and get_base_dir() shortens the
-# path every step until the root is its own parent.
-#
-# What survives is a link gda cannot read — a target read_link refuses, or a
-# chain longer than the OS resolves — which stops at the furthest path it did
-# resolve, so an unresolvable alias is reported rather than hidden. Hard links
-# are outside the rule by construction: the filesystem does not call them links,
-# so is_link never reports one and this predicate is never asked. The guarantee
-# is therefore about SYMLINK aliases.
-func _is_in_engine_cache(dir: DirAccess, path: String) -> bool:
-	var probe := _fully_resolved_path(dir, path)
-	while not dir.is_equivalent(probe, ENGINE_CACHE_DIR):
-		var parent := probe.get_base_dir()
-		if parent.is_empty() or parent == probe:
-			return false
-		probe = parent
-	return true
-
-
-# The path `path` really names, resolved the way the KERNEL resolves one: every
-# component read against the components already resolved before it, not against
-# the spelling that reached it (#795 review).
-#
-# One pass rebuilds the path component by component (_resolve_path_segments); a
-# component whose target itself names a link is resolved by the NEXT pass, and
-# the passes stop as soon as one changes nothing. A pass that does change the
-# path resolved at least one more link, so SYMLINK_PROBE_MAX_STEPS bounds the
-# passes for the same reason it bounds the hops inside one chain.
-func _fully_resolved_path(dir: DirAccess, path: String) -> String:
-	var resolved := path
-	for _pass in range(SYMLINK_PROBE_MAX_STEPS):
-		var next_path := _resolve_path_segments(dir, resolved)
-		if next_path == resolved:
-			break
-		resolved = next_path
-	return resolved
-
-
-# One left-to-right pass of the component resolution above: split `path` into its
-# root and its components, then rebuild it, resolving each component against the
-# prefix already rebuilt.
-#
-# The split climbs with get_base_dir()/get_file() rather than looking for a `/`,
-# so it makes no assumption about the root it is given — `res://`, a Unix `/`, or
-# a Windows drive all end the climb by being their own base directory, and a
-# read_link target that leaves the project (an absolute path outside `res://`) is
-# rebuilt on its own root.
-#
-# `..` pops the rebuilt prefix instead of being appended, which is the kernel's
-# reading and is safe here for the reason the lexical shortcut is not: the prefix
-# it pops is already resolved, so its parent is the real one. That is also what
-# keeps the result canonical enough for the ancestor climb above.
-func _resolve_path_segments(dir: DirAccess, path: String) -> String:
-	var segments: Array[String] = []
-	var root := path
-	while true:
-		var base := root.get_base_dir()
-		if base == root:
-			break
-		segments.push_front(root.get_file())
-		root = base
-	var resolved := root
-	for segment in segments:
-		if segment.is_empty() or segment == ".":
-			continue
-		if segment == "..":
-			resolved = resolved.get_base_dir()
-			continue
-		resolved = _resolved_link_path(dir, resolved.path_join(segment))
-	return resolved
-
-
-# The path ONE component finally names, following a chain of links up to the OS's
-# own ceiling (#760). A relative target is joined onto the directory holding the
-# link — correct for the first hop, whose base the caller has already resolved,
-# and repaired for any later one by the next pass of _fully_resolved_path. An
-# absolute target is taken as it is.
-#
-# Returns the FURTHEST path it resolved: `path` itself when that is not a link,
-# and otherwise the last target it read before the target became unreadable, the
-# chain outran the bound, or a target named the path it came from. That last case
-# is what a failed DirAccessWindows::read_link looks like — it returns the fixed
-# input path, never the empty string, and otherwise returns an already-resolved
-# absolute path from GetFinalPathNameByHandleW (drivers/windows/
-# dir_access_windows.cpp:444-462) — so on Windows an unopenable reparse point
-# stops after one probe instead of spinning out the bound, and the relative join
-# below is dead code by that platform's contract rather than by accident.
-func _resolved_link_path(dir: DirAccess, path: String) -> String:
-	var current := path
-	for _step in range(SYMLINK_PROBE_MAX_STEPS):
-		if not dir.is_link(current):
-			return current
-		var target := dir.read_link(current)
-		if target.is_empty() or target == current:
-			return current
-		current = target if target.is_absolute_path() else current.get_base_dir().path_join(target)
-	return current
-
-
-# The ONE res:// traversal (#764). Open the directory, enumerate hidden entries,
-# loop, ask _should_descend about each child DIRECTORY, and close the listing —
-# the scaffolding that used to be copied into all four collectors below, where
-# the copies were free to drift and one pair already had (see
-# _collect_scene_paths). `accept` is the only thing a caller varies: it is asked
-# about each FILE and decides whether the walk collects it, so the four
-# collectors differ in exactly that predicate and in nothing else.
-#
-# The collectors share this TRAVERSAL, not a file universe. `accept` is what makes
-# _collect_all_file_paths count the import sidecars and project.godot that
-# _collect_resource_paths excludes: one traversal, one exclusion rule, different
-# universes.
-#
-# Navigational entries ('.', '..') stay off, so the recursion cannot loop back on
-# itself (issue #54 review). Hidden entries are enumerated, so a .hidden.tscn, or
-# any file under a dot-prefixed directory, is collected as promised — the dot
-# prefix is not the exclusion test, _should_descend is, and that decision stays
-# its alone (#712).
-#
-# `accept` is asked about the full res:// child path, not the bare entry name: it
-# is the shape the predicates the collectors reuse (_is_scene_path,
-# _is_script_path, _is_graph_resource_path) are written against. The two agree on
-# the extension anyway — String.get_extension() stops at the last '/', so a file
-# with no extension under a dotted directory (res://a.b/README) answers "" either
-# way — but only the full path can carry a test that looks at the directory too.
-#
-# `chain` is the descent chain: the directories above `dir_path`, which the walk
-# carries so the symlink policy can tell a link that leads back UP the chain from
-# one that leads to new content (#760). A caller never passes it — a walk starts
-# at the root with an empty chain — and the recursion extends it by one, in a NEW
-# array, so a branch cannot see a sibling branch's ancestors.
-func _collect_paths(dir_path: String, accept: Callable, out: Array[String], chain: Array[String] = []) -> void:
-	var dir := DirAccess.open(dir_path)
-	if dir == null:
-		return
-	var descended: Array[String] = chain.duplicate()
-	descended.append(dir_path)
-	dir.include_hidden = true
-	dir.list_dir_begin()
-	var entry := dir.get_next()
-	while not entry.is_empty():
-		var child := dir_path.path_join(entry)
-		if dir.current_is_dir():
-			if _should_descend(dir, child, descended):
-				_collect_paths(child, accept, out, descended)
-		elif accept.call(child) and _should_collect(dir, child):
-			out.append(child)
-		entry = dir.get_next()
-	dir.list_dir_end()
-
-
-# The unfiltered acceptance test: every file the traversal reaches (#764). A named
-# predicate rather than an inline lambda, so the statistics walk reads as the same
-# one-line shape as the other three collectors and its universe has a name.
-func _accept_any_file(_path: String) -> bool:
-	return true
-
-
-# Recursively collect every RESOURCE-bearing file under res:// — the files that
-# can carry references (.tscn/.tres scenes & resources, .gd scripts) AND the leaf
-# asset resources (everything else except import sidecars, the project file, and
-# the .godot cache). This is the universe the reference graph, find-unused and the
-# class_name index range over.
-func _collect_resource_paths(dir_path: String, out: Array[String]) -> void:
-	_collect_paths(dir_path, _is_graph_resource_path, out)
-
-
-# Recursively collect EVERY file under res:// for the statistics counts — unlike
-# _collect_resource_paths this keeps import sidecars, project.godot and every
-# asset, since statistics counts all files. The two walks therefore range over
-# DIFFERENT universes under the same traversal and the same exclusion.
-func _collect_all_file_paths(dir_path: String, out: Array[String]) -> void:
-	_collect_paths(dir_path, _accept_any_file, out)
-
-
-# Whether a path names a file the reference graph / find-unused treat as a
-# resource: a scene, a resource, a script, or a leaf asset — anything except the
-# import sidecars and the project file the .godot cache and the engine own. Kept
-# deliberately inclusive so an asset (an image, a font) referenced by a scene is
-# itself a node in the graph and a candidate for find-unused. Distinct from the
-# resource group's _is_resource_path (a strict .tres check): this is the project
-# scan's graph-eligibility test, hence the separate name.
-func _is_graph_resource_path(path: String) -> bool:
-	var ext := path.get_extension().to_lower()
-	if ext == "import" or ext == "godot" or ext == "cfg" or ext == "uid":
-		return false
-	return not ext.is_empty()
-
-
-# Whether this file can declare OUTGOING references (so dependencies reports it as
-# a source row): a scene/resource (.tscn/.tres, via [ext_resource]) or a script
-# (.gd, via preload/load/extends). A leaf asset declares none.
-func _has_outgoing_references(path: String) -> bool:
-	var ext := path.get_extension().to_lower()
-	return ext == "tscn" or ext == "tres" or ext == "gd"
-
-
-# The outgoing references of one file as a list of {path, kind} entries, in the
-# order they appear, de-duplicated. A .tscn/.tres yields its [ext_resource]
-# paths; a .gd yields its preload/load/extends-by-path references. The referenced
-# path is always a res:// path (a relative .gd preload is resolved against the
-# file's own directory). Reading is pure text — no load/instantiate (issue #30).
-func _outgoing_references_of(path: String) -> Array:
-	var ext := path.get_extension().to_lower()
-	var seen := {}
-	var out: Array = []
-	if ext == "tscn" or ext == "tres":
-		for ref_path in _ext_resource_paths(path):
-			# Dedup the ext_resource form on path+kind, the same key
-			# find-references matches by, so the two views of the graph agree
-			# exactly (issue #116 consistency criterion).
-			var key: String = ref_path + "\next_resource"
-			if not seen.has(key):
-				seen[key] = true
-				out.append({"path": ref_path, "kind": "ext_resource"})
-	elif ext == "gd":
-		for ref in _script_outgoing_references(path):
-			# Dedup on path+KIND, not path alone: the same target reached by both
-			# preload() and load() is two distinct references, and find-references
-			# reports both — so dependencies must too, or the graphs disagree
-			# (issue #116 review). A newline joins the pair into a collision-free
-			# key — it can appear in neither a res:// path nor a kind token.
-			var key: String = String(ref["path"]) + "\n" + String(ref["kind"])
-			if not seen.has(key):
-				seen[key] = true
-				out.append(ref)
-	return out
-
-
-# The res:// paths an [ext_resource ... path="res://..."] line names in a
-# .tscn/.tres file — the file's external dependencies, in line order.
-#
-# Two owners do the work and neither rule lives here: which lines are
-# declarations and how an attribute is pulled out of one belong to the scene-text
-# reader (_raw_ext_resource_entries_from_text, #775), and folding each harvested
-# path to its one graph identity belongs to _resolve_ref_path (#774).
-func _ext_resource_paths(path: String) -> Array[String]:
-	var out: Array[String] = []
-	var text := FileAccess.get_file_as_string(path)
-	if text.is_empty():
-		return out
-	var base_dir := path.get_base_dir()
-	for entry in _raw_ext_resource_entries_from_text(text):
-		out.append(_resolve_ref_path(String(entry["path"]), base_dir))
-	return out
-
-
-# A .gd script's outgoing references as {path, kind} entries: preload("res://…")
-# and load("res://…") calls (kind preload / load), and an `extends "res://Base.gd"`
-# base-class-by-path (kind class_extends). A relative path argument is resolved
-# against the script's own directory so it becomes a res:// path comparable to the
-# rest of the graph. Parsed by text — the script is never compiled (issue #30).
-func _script_outgoing_references(path: String) -> Array:
-	var out: Array = []
-	var text := FileAccess.get_file_as_string(path)
-	if text.is_empty():
-		return out
-	var base_dir := path.get_base_dir()
-	for line in text.split("\n"):
-		var stripped := line.strip_edges()
-		out.append_array(_script_outgoing_references_in_line(stripped, base_dir))
-	return out
-
-
-# The ONE CANONICAL IDENTITY of a declared reference: the path every consumer
-# keys a referenced file by, whichever kind of declaration named it — an
-# [ext_resource] line, or a preload/load/extends argument. #774 left the two as
-# twins under two names, identical but for a parameter name; #775 merged them, so
-# the rule has one place to be read and one place to be corrected.
-#
-# A relative address is joined onto the DECLARING file's base directory first,
-# because that is how the engine resolves it — `preload("../shared/util.gd")` in
-# res://a/b.gd loads res://shared/util.gd, and an [ext_resource] line spelling the
-# same way resolves the same way (measured on 4.6.3; the graph-identity note in
-# the static-analysis section carries that measurement).
-# An ALREADY-prefixed address is canonicalized too, and that half is the #774
-# fix: it used to be returned verbatim, so preload("res://sub/../util.gd") and
-# preload("res://util.gd") — and `res://leaf.tscn` and `res://./leaf.tscn` — were
-# TWO graph nodes for ONE file. Everything downstream keys on this string: the
-# dependency walk's "a path declared twice is checked once and reported once"
-# rule, the sub-scene walk's own `answered`/`reached_depth`/`chain` sets, and the
-# id-restoring re-save — so a lexical alias defeated all of them at once.
-#
-# simplify_path() is the ENGINE'S own normalization, not gda's invention: Godot
-# reports `res://..\outside.gd` back as `res://../outside.gd` (measured on 4.6.3),
-# and it leaves a scheme it does not own alone — `uid://abc` and `user://x.tscn`
-# pass through unchanged (a uid:// reference round-trips through Godot's UID
-# system, not the path graph). It collapses `.`, `..` and doubled separators
-# without touching the scheme, which is exactly the identity question and nothing
-# more.
-func _resolve_ref_path(ref: String, base_dir: String) -> String:
-	if ref.begins_with("res://") or ref.begins_with("uid://") or ref.begins_with("user://"):
-		return _canonical_resource_path(ref)
-	return _canonical_resource_path(base_dir.path_join(ref))
-
-
-# Find every reference to the target inside one file, appending {path, kind,
-# context} entries to `references`. A .tscn/.tres references the target when an
-# [ext_resource] names one of the target's res:// paths; a .gd references it when
-# a preload/load/extends names one of those paths, or — when the target is a
-# class_name — when the file uses the class token as an identifier. The context is
-# the matched line, trimmed, so an agent locates the reference without re-reading.
-# Dispatches on extension BEFORE reading (issue #378): only the reference-bearing
-# text formats (_has_outgoing_references' .tscn/.tres/.gd set) are ever decoded,
-# so a binary artifact in the walked tree (an exported .pck/.app under build/)
-# never hits the engine's UTF-8 decode and never spams a per-file "Unicode
-# parsing error" to stderr. The graph universe is unchanged — only the decode
-# narrows, mirroring the ext-first shape of _outgoing_references_of.
-func _collect_references_from(path: String, target_paths: Dictionary, target_class: String, references: Array) -> void:
-	if not _has_outgoing_references(path):
-		return
-	var ext := path.get_extension().to_lower()
-	var text := FileAccess.get_file_as_string(path)
-	if text.is_empty():
-		return
-	if ext == "tscn" or ext == "tres":
-		var ext_base_dir := path.get_base_dir()
-		# The SAME reader the dependencies harvest uses (#775), so the incoming and
-		# outgoing views of the graph cannot recognize a different set of lines or
-		# read a different attribute out of one.
-		for entry in _raw_ext_resource_entries_from_text(text):
-			# One identity on BOTH sides: target_paths is seeded canonical, and the
-			# declared spelling is folded here through the SAME owner the harvest
-			# side uses (_resolve_ref_path — anchor to the declaring file's
-			# directory, then canonicalize), so an aliased OR relative declaration
-			# matches a canonical query and the reverse (#774).
-			if target_paths.has(_resolve_ref_path(String(entry["path"]), ext_base_dir)):
-				# The context is the declaration as WRITTEN, so the agent still sees
-				# the spelling it must edit — only the MATCHING is normalized.
-				references.append({
-					"path": path,
-					"kind": "ext_resource",
-					"context": String(entry["line"]),
-				})
-	elif ext == "gd":
-		var base_dir := path.get_base_dir()
-		for line in text.split("\n"):
-			var stripped := line.strip_edges()
-			# A preload/load/extends-by-path naming one of the target's paths.
-			for ref in _script_outgoing_references_in_line(stripped, base_dir):
-				if target_paths.has(ref["path"]):
-					references.append({"path": path, "kind": ref["kind"], "context": stripped})
-			# A class_name target used as a bare identifier token (extends Name,
-			# `var x: Name`, `Name.new()`, …). Best-effort: a whole-word token
-			# match, so a substring of a longer identifier is not a false hit.
-			# Skip the target's OWN `class_name <target>` declaration line: that is
-			# the definition site, not a reference (issue #116 review). Without this
-			# guard the class's defining file reports itself as a class_reference.
-			if (
-				not target_class.is_empty()
-				and not _is_class_name_declaration_of(stripped, target_class)
-				and _line_uses_token(stripped, target_class)
-			):
-				references.append({"path": path, "kind": "class_reference", "context": stripped})
-
-
-# The {path, kind} references in a SINGLE already-stripped .gd line — the
-# per-line core _script_outgoing_references loops over, factored out so
-# find-references can match a target path AND keep the matched line as context.
-# Finds EVERY preload(...)/load(...) call on the line (not just the first), so a
-# line with two calls is fully captured; each call's marker is matched on a word
-# boundary so `load(` INSIDE `preload(` is not double-counted as its own load
-# reference (the markers overlap as substrings, issue #116 review).
-func _script_outgoing_references_in_line(stripped: String, base_dir: String) -> Array:
-	var out: Array = []
-	var markers: Array[String] = ["preload", "load"]
-	for marker in markers:
-		var call: String = marker + "("
-		var from := 0
-		while true:
-			var idx := stripped.find(call, from)
-			if idx == -1:
-				break
-			from = idx + call.length()
-			# Word boundary on the left: the char before the marker must not be an
-			# identifier char, or this is a longer identifier ending in the marker
-			# (the `load(` inside `preload(`, or a user `myload(`), not a call to it.
-			if idx > 0 and _is_identifier_char(stripped[idx - 1]):
-				continue
-			var arg := _first_quoted_after(stripped, idx + call.length())
-			if arg.is_empty():
-				continue
-			out.append({"path": _resolve_ref_path(arg, base_dir), "kind": marker})
-	if stripped.begins_with("extends ") and stripped.find("\"") != -1:
-		var ext_arg := _first_quoted_after(stripped, "extends ".length())
-		if not ext_arg.is_empty():
-			out.append({"path": _resolve_ref_path(ext_arg, base_dir), "kind": "class_extends"})
-	return out
-
-
-# Project-level references to the target that live in project.godot rather than a
-# scanned file (issue #116): the main scene (run/main_scene) and the autoloads
-# (autoload/*). These reference a resource by path the way a file's ext_resource
-# does, so find-references must surface them or the target would look less
-# referenced than it is.
-func _collect_project_level_references(target_paths: Dictionary, references: Array) -> void:
-	var main_scene := _main_scene_path()
-	if not main_scene.is_empty() and target_paths.has(main_scene):
-		references.append({"path": "project.godot", "kind": "main_scene", "context": "application/run/main_scene=" + main_scene})
-	for autoload in _project_autoloads():
-		if target_paths.has(autoload["path"]):
-			references.append({"path": "project.godot", "kind": "autoload", "context": "autoload/" + autoload["name"] + "=" + autoload["path"]})
-
-
-# The project entry points — paths that are "reached" without a file reference, so
-# find-unused must never flag them: the main scene plus every autoload's path.
-func _project_entry_points() -> Array[String]:
-	var out: Array[String] = []
-	var main_scene := _main_scene_path()
-	if not main_scene.is_empty():
-		out.append(main_scene)
-	for autoload in _project_autoloads():
-		out.append(autoload["path"])
-	return out
-
-
-# The project's main scene res:// path, or "" when none is set. Read from
-# ProjectSettings — never run.
-func _main_scene_path() -> String:
-	var value: Variant = ProjectSettings.get_setting("application/run/main_scene", "")
-	# Canonical like every other path in the graph (#774): an aliased
-	# run/main_scene left the project's entry point matching nothing the walk
-	# found, so find-unused-resources reported the MAIN SCENE as unused.
-	# simplify_path("") is "", so an unset main scene stays the empty "none".
-	return _canonical_resource_path(String(value))
-
-
-# The project's autoload singletons as {name, path} entries, read from
-# ProjectSettings's autoload/* keys (never executed). The stored value carries a
-# leading "*" enable marker for an enabled singleton; it is stripped so the path
-# is the bare res:// path the rest of the graph compares against, then
-# canonicalized like every other path in the graph (#774). Order matters: the
-# marker must come off FIRST, because simplify_path does not recognize a scheme
-# behind it and folds "*res://a/../b.gd" to the broken "*res:/b.gd".
-func _project_autoloads() -> Array:
-	var out: Array = []
-	for setting in ProjectSettings.get_property_list():
-		var key := String(setting.get("name", ""))
-		if not key.begins_with("autoload/"):
-			continue
-		var autoload_name: String = key.substr("autoload/".length())
-		var value := String(ProjectSettings.get_setting(key, ""))
-		out.append({"name": autoload_name, "path": _canonical_resource_path(value.trim_prefix("*"))})
-	return out
-
-
-# The enabled editor plugins' plugin.cfg res:// paths (issue #116). Read from
-# editor_plugins/enabled in ProjectSettings; each entry is already a
-# res://addons/<name>/plugin.cfg path. Empty when the project enables none.
-func _project_plugins() -> Array[String]:
-	var out: Array[String] = []
-	var enabled: Variant = ProjectSettings.get_setting("editor_plugins/enabled", PackedStringArray())
-	if enabled is PackedStringArray or enabled is Array:
-		for entry in enabled:
-			out.append(String(entry))
-	return out
-
-
-# Count the lines of a TEXT file (issue #116): the number of newline-separated
-# parts of its content, treating a binary/unreadable file as 0 lines. A trailing
-# newline does not add a phantom empty final line, so "a\nb\n" is 2 lines. Only
-# called on files statistics counts.
-#
-# Line-count ONLY known text extensions (issue #116 review): a binary asset (an
-# image, a font, audio) must contribute to the file count but NOT the line count
-# — statistics' documented contract. Reading every file as text counted a binary
-# asset's stray newline bytes as lines, inflating total_lines. An unknown
-# extension is treated as binary (0 lines) rather than read as text.
-func _count_lines(path: String) -> int:
-	if not _is_text_extension(path.get_extension().to_lower()):
-		return 0
-	var text := FileAccess.get_file_as_string(path)
-	if text.is_empty():
-		return 0
-	var normalized := text.replace("\r\n", "\n")
-	var parts := normalized.split("\n")
-	var count := parts.size()
-	# A trailing newline yields a final empty part; do not count it as a line.
-	if count > 0 and parts[count - 1].is_empty():
-		count -= 1
-	return count
-
-
-# The file extensions statistics treats as text for line counting (issue #116
-# review). Covers Godot's text formats (.gd/.tscn/.tres scenes & resources, the
-# .godot/.cfg/.import config files, .gdshader) plus common plain-text companions
-# (docs, data, the C# source). Anything else — images, audio, fonts, .res binary
-# resources — is binary: it counts as a file but contributes 0 lines.
-func _is_text_extension(ext: String) -> bool:
-	return ext in [
-		"gd", "tscn", "tres", "godot", "cfg", "import", "gdshader", "gdshaderinc",
-		"cs", "json", "txt", "md", "xml", "csv", "ini", "po", "pot", "gdextension",
-	]
-
-
-# The value of the quoted attribute `attr_name` in a section-header line —
-# path="res://x" in an [ext_resource] line, name="Root" in a [node] header — or
-# "" when the line carries no such attribute.
-#
-# The name is matched WHOLE, never as a substring, and that rule is the reason
-# this helper exists: `uid="uid://…"` also contains the substring `id=`, so a
-# substring match reads an [ext_resource] line's uid as its id. The trap is open
-# on every attribute a longer name can end with — a `…_path="…"` attribute ahead
-# of the real `path="…"` hands back the wrong reference — so the rule is applied
-# ONCE, here, for every header attribute gda reads (#775) rather than relearned
-# per scan. A match is accepted only where the name starts a token: at the line
-# start, after a space or a tab, or right after a `[`.
-func _quoted_named_attr(line: String, attr_name: String) -> String:
-	var needle := attr_name + "="
-	var from := 0
-	while true:
-		var idx := line.find(needle, from)
-		if idx == -1:
-			return ""
-		var left_ok := (
-				idx == 0
-				or line[idx - 1] == " "
-				or line[idx - 1] == "\t"
-				or line[idx - 1] == "["
-		)
-		if left_ok:
-			return _first_quoted_after(line, idx + needle.length())
-		from = idx + 1
-	return ""
-
-
-# The contents of the first quoted string (single or double quotes) at/after
-# `from` in `text`, or "" when there is none. Used to pull the literal-string
-# argument out of preload("...") / load("...") / path="..." without compiling.
-func _first_quoted_after(text: String, from: int) -> String:
-	var dq := text.find("\"", from)
-	var sq := text.find("'", from)
-	var open := -1
-	var quote := "\""
-	if dq != -1 and (sq == -1 or dq < sq):
-		open = dq
-		quote = "\""
-	elif sq != -1:
-		open = sq
-		quote = "'"
-	if open == -1:
-		return ""
-	var close := text.find(quote, open + 1)
-	if close == -1:
-		return ""
-	return text.substr(open + 1, close - open - 1)
-
-
-# Whether a line uses `token` as a WHOLE-WORD identifier — bounded by a non
-# identifier character (or the line edge) on both sides — so a class_name match
-# is not a false positive on a substring of a longer name (Hero vs HeroSpawner)
-# or inside another word. Best-effort static check for class_name references that
-# carry no res:// path (extends Name, type annotations, Name.new()).
-func _line_uses_token(line: String, token: String) -> bool:
-	var from := 0
-	while true:
-		var idx := line.find(token, from)
-		if idx == -1:
-			return false
-		var before_ok := idx == 0 or not _is_identifier_char(line[idx - 1])
-		var after_index := idx + token.length()
-		var after_ok := after_index >= line.length() or not _is_identifier_char(line[after_index])
-		if before_ok and after_ok:
-			return true
-		from = idx + 1
-	return false
-
-
-func _is_identifier_char(ch: String) -> bool:
-	return ch == "_" or (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z") or (ch >= "0" and ch <= "9")
-
-
-# Whether an already-stripped .gd line is the `class_name <target>` declaration
-# of the find-references target — the definition site, not a reference. Matches
-# the same `class_name ` prefix _parse_script_meta keys on, with the first token
-# of the remainder equal to the target class (so `class_name HeroSpawner` is not
-# treated as Hero's declaration). Lets find-references exclude a class's own
-# defining line from its class_reference hits (issue #116 review).
-func _is_class_name_declaration_of(line: String, target_class: String) -> bool:
-	if not line.begins_with("class_name "):
-		return false
-	return _first_token(line.substr("class_name ".length())) == target_class
 
 
 # Whether a path names a scene file in the TEXT form gda authors and reads: a
@@ -5188,14 +4207,6 @@ func _is_scene_reference_path(path: String) -> bool:
 	return ext == "tscn" or ext == "scn"
 
 
-# Whether a path names a script file the script group operates on: a .gd
-# (GDScript) file. Script-file addressing is by extension, the same way scene
-# addressing keys on .tscn. C# (.cs) is out of scope for now — it needs the .NET
-# build of Godot (ADR-0003 targets the standard build) and a dedicated decision.
-func _is_script_path(path: String) -> bool:
-	return path.get_extension().to_lower() == "gd"
-
-
 # Clear the script group's addressing boundary for an EXISTING script: the path
 # must be a .gd (invalid_path otherwise) and the file must exist on disk
 # (path_not_found otherwise). Returns true to proceed, or false after recording
@@ -5203,7 +4214,7 @@ func _is_script_path(path: String) -> bool:
 # existing script — get / delete / set / validate / attach — so they all refuse a
 # non-.gd target and a missing file identically, rather than operating on it.
 func _require_existing_script(path: String) -> bool:
-	if not _is_script_path(path):
+	if not GDSCRIPT_SCAN._is_script_path(path):
 		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
 		return false
 	if not FileAccess.file_exists(path):
@@ -5228,60 +4239,6 @@ func _read_script_source(path: String) -> Variant:
 					+ ": " + error_string(open_err))
 			return null
 	return source
-
-
-# Extract a GDScript's declared class_name and extends from its raw source by
-# lightweight line-by-line parsing — never compiling the script (issue #30).
-# Both are null when absent. Only .gd scripts reach here (the entry points reject
-# any other extension as invalid_path), so this keys off GDScript syntax alone.
-func _script_metadata(source: String) -> Dictionary:
-	var class_name_value: Variant = null
-	var extends_value: Variant = null
-	# class_name and extends, when present, lead a GDScript file: they sit in the
-	# header, after the optional annotation lines (@tool, @icon(...), …) and
-	# before the first real statement. Scan only that header — skip blanks,
-	# comments and annotations, capture the first of each declaration, and STOP at
-	# the first line that is neither. Stopping is what keeps a class_name/extends-
-	# shaped line deeper in the body (e.g. inside a multiline string) from ever
-	# being mistaken for the declaration.
-	for raw_line in source.split("\n"):
-		var line := raw_line.strip_edges()
-		if line.is_empty() or line.begins_with("#") or line.begins_with("@"):
-			continue
-		if line.begins_with("class_name "):
-			if class_name_value == null:
-				class_name_value = _first_token(line.substr("class_name ".length()))
-			continue
-		if line.begins_with("extends "):
-			if extends_value == null:
-				extends_value = _first_token(line.substr("extends ".length()))
-			continue
-		# The first real statement past the header: no further class_name/extends
-		# declaration can legally appear, so stop scanning.
-		break
-	return {"class_name": class_name_value, "extends": extends_value}
-
-
-# The first token of a declaration's remainder — the class_name or base-class
-# identifier. A bare identifier drops a trailing inline comment and stops at the
-# first whitespace: "Hero # the hero" → "Hero", "Node2D" → "Node2D". The quoted
-# base-class-by-path form (extends "res://Base.gd") is kept whole up to its
-# closing quote — including any '#' inside the path, which is part of the string,
-# not an inline comment.
-func _first_token(rest: String) -> Variant:
-	var trimmed := rest.strip_edges()
-	if trimmed.is_empty():
-		return null
-	if trimmed.begins_with("\"") or trimmed.begins_with("'"):
-		var quote := trimmed[0]
-		var close := trimmed.find(quote, 1)
-		# An unterminated quote is reported as-is rather than silently truncated.
-		return trimmed.substr(0, close + 1) if close != -1 else trimmed
-	var comment := trimmed.find("#")
-	if comment != -1:
-		trimmed = trimmed.substr(0, comment).strip_edges()
-	var token := trimmed.split(" ", false)[0]
-	return token if not token.is_empty() else null
 
 
 # Whether this headless process is running against a Godot project. A project
@@ -5309,7 +4266,7 @@ func _has_project() -> bool:
 # so `scene list` now reports it; that listing is the one output this change grew
 # (#764).
 func _collect_scene_paths(dir_path: String, out: Array[String]) -> void:
-	_collect_paths(dir_path, _is_scene_path, out)
+	PROJECT_WALK._collect_paths(dir_path, _is_scene_path, out)
 
 
 # Summarize one .tscn for the listing: its path plus the root node's name/type
@@ -5323,7 +4280,7 @@ func _scene_summary(path: String) -> Dictionary:
 	if state == null or state.get_node_count() == 0:
 		return {"path": path, "root_name": null, "root_type": null}
 	var root_fields := _state_node_projection_fields(state, 0)
-	var instance_paths := _scene_instance_paths_by_node_path(path)
+	var instance_paths := SCENE_TEXT._scene_instance_paths_by_node_path(path)
 	if instance_paths.has("."):
 		var instance_path := String(instance_paths["."])
 		root_fields["instance_path"] = instance_path
@@ -5345,7 +4302,7 @@ func _scene_summary(path: String) -> Dictionary:
 # acceptance test is _is_script_path — the same predicate the script group's
 # addressing boundary uses, case-insensitive as the engine is.
 func _collect_script_paths(dir_path: String, out: Array[String]) -> void:
-	_collect_paths(dir_path, _is_script_path, out)
+	PROJECT_WALK._collect_paths(dir_path, GDSCRIPT_SCAN._is_script_path, out)
 
 
 # Summarize one .gd for the listing: its path plus the class_name/extends parsed
@@ -5353,7 +4310,7 @@ func _collect_script_paths(dir_path: String, out: Array[String]) -> void:
 # run it). A script whose source declares neither (or could not be read) still
 # appears, with null metadata, rather than being dropped.
 func _script_summary(path: String) -> Dictionary:
-	var meta := _script_metadata(FileAccess.get_file_as_string(path))
+	var meta := GDSCRIPT_SCAN._script_metadata(FileAccess.get_file_as_string(path))
 	return {
 		"path": path,
 		"class_name": meta["class_name"],
@@ -5365,7 +4322,7 @@ func _script_summary(path: String) -> Dictionary:
 # shared failure ladder: missing param → missing file → not loadable as a
 # scene → scene without a root. Returns null after recording the failure.
 func _load_scene(params: Dictionary) -> PackedScene:
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return null
@@ -5397,7 +4354,7 @@ func _load_for_mutation(params: Dictionary) -> Node:
 	var packed: PackedScene = _load_scene(params)
 	if packed == null:
 		return null  # _load_scene already recorded the failure
-	var path := _string_param(params, "path")
+	var path := VALUE._string_param(params, "path")
 	# Capture the staleness token NOW — the instant after _load_scene's
 	# ResourceLoader.load read the .tscn, and BEFORE instantiate() (which runs the
 	# project's script _init and can take real time, ADR-0009) or any other work.
@@ -5405,12 +4362,12 @@ func _load_for_mutation(params: Dictionary) -> Node:
 	# file gda actually read, so an external edit landing during instantiate is
 	# still caught by _check_unchanged at write time (issue #226; PR #234 review
 	# closed this read->capture window). Covers all 8 shared-tail mutating ops.
-	_capture_staleness_token(path)
+	_file_write._capture_staleness_token(path)
 	# Test seam (issue #226): simulate an external edit that lands AFTER the read
 	# but DURING instantiate — the window this early capture closes. Gated by the
 	# env var, so it is dead code in production (mirrors GDA_TEST_PERTURB_BEFORE_SAVE).
 	if OS.has_environment("GDA_TEST_PERTURB_AFTER_LOAD"):
-		_test_perturb_target(path)
+		_file_write._test_perturb_target(path)
 	# Mutating ops re-pack the host scene after editing the live tree. Instantiate
 	# the host as the edited main scene so pre-existing instance children retain
 	# their scene-instance state; otherwise the packer diffs them against class
@@ -5477,7 +4434,7 @@ func _repack_and_save(root: Node, path: String) -> bool:
 	# Optimistic staleness recheck (issue #226): refuse the write if the .tscn changed
 	# on disk since _load_for_mutation read it. Done BEFORE pack/save and after freeing
 	# the tree on refusal, so a clobbering write never lands and no scene leaks.
-	if not _check_unchanged():
+	if not _file_write._check_unchanged():
 		root.free()
 		return false
 	if not _validate_scene_script_preload_dependencies(root):
@@ -5490,10 +4447,10 @@ func _repack_and_save(root: Node, path: String) -> bool:
 		root.free()
 		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
 		return false
-	var save_err := _atomic_save_resource(repacked, path)
+	var save_err := _file_write._atomic_save_resource(repacked, path)
 	root.free()
 	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
+		_fail(OP_ERROR_SAVE_FAILED, _file_write._save_failure_message("scene", path, save_err))
 		return false
 	return true
 
@@ -5510,85 +4467,6 @@ func _repack_and_save(root: Node, path: String) -> bool:
 # runs exactly one operation, so there is no cross-operation state to leak.
 var _captured_external_scripts: Dictionary = {}
 var _source_attached_scripts: Dictionary = {}
-
-
-# --- optimistic staleness guard for headless read-modify-write ops (issue #226) ---
-#
-# A file-mutating op reads a target (.tscn/.gd/.tres/.gdshader), transforms it, then
-# writes it back. If a concurrent external editor (ADR-0018) changes that file on disk
-# inside the in-process read->write window, a blind write would CLOBBER the external
-# edit. The guard captures a cheap change token (mtime + size) right after the read and
-# re-checks it right before the write; a difference is reported as
-# file_changed_externally and the write is refused, leaving the external edit intact.
-#
-# The token is mtime+size, not mtime alone: FileAccess.get_modified_time is
-# whole-SECONDS granularity, so a same-second external edit would be invisible to mtime;
-# the file size (which an edit almost always changes) catches that case. A single member
-# set is safe — operations.gd is a one-shot process running exactly one op — mirroring
-# the _captured_external_scripts pattern above. An op that captured no token (a create)
-# leaves _staleness_path empty, and _check_unchanged is then a no-op (returns true).
-var _staleness_mtime: int = -1
-var _staleness_size: int = -1
-var _staleness_path: String = ""
-
-
-# Capture the change token for `path` right after an op reads it. Uses the SAME path
-# string the op passed to ResourceLoader.load / FileAccess (no globalize_path), so the
-# recheck reads exactly the same file. Size is read via an explicit READ open + length;
-# -1 marks an unreadable file (the recheck will still fire if it later becomes readable
-# with a different token, which is the conservative outcome).
-func _capture_staleness_token(path: String) -> void:
-	_staleness_path = path
-	_staleness_mtime = int(FileAccess.get_modified_time(path))
-	_staleness_size = _file_size(path)
-
-
-func _file_size(path: String) -> int:
-	var file := FileAccess.open(path, FileAccess.READ)
-	if file == null:
-		return -1
-	var size := file.get_length()
-	file.close()
-	return int(size)
-
-
-# Re-check the captured token right before an op writes. Returns true when the file is
-# unchanged (or when no token was captured, e.g. a create); returns false AFTER
-# recording file_changed_externally when mtime or size differs. The single emission
-# point for the guard — every wired op funnels its recheck through here.
-func _check_unchanged() -> bool:
-	# Production-inert test seam (issue #226): the in-process read->write window is
-	# sub-second, so a normal test cannot race a real external edit into it. When this
-	# env var is set, perturb the target's SIZE just before the comparison to simulate
-	# an external edit landing in the window. Gated by has_environment, so it is dead
-	# code in production — runner.py spawns Godot with no env= and never sets this var.
-	if OS.has_environment("GDA_TEST_PERTURB_BEFORE_SAVE"):
-		_test_perturb_target(_staleness_path)
-	if _staleness_path.is_empty():
-		return true  # no token captured (e.g. a create) — nothing to compare
-	var current_mtime := int(FileAccess.get_modified_time(_staleness_path))
-	var current_size := _file_size(_staleness_path)
-	if current_mtime != _staleness_mtime or current_size != _staleness_size:
-		_fail(OP_ERROR_FILE_CHANGED_EXTERNALLY,
-				"target file changed on disk since gda read it (a concurrent editor may have"
-				+ " edited it); refusing to overwrite: " + _staleness_path)
-		return false
-	return true
-
-
-# Test-only: simulate an external edit landing in the read->write window by appending a
-# byte to the target, guaranteeing a SIZE change so the guard fires regardless of mtime
-# second-granularity. Reached only through the GDA_TEST_PERTURB_BEFORE_SAVE branch in
-# _check_unchanged, so it never runs in production.
-func _test_perturb_target(path: String) -> void:
-	if path.is_empty():
-		return
-	var file := FileAccess.open(path, FileAccess.READ_WRITE)
-	if file == null:
-		return
-	file.seek_end()
-	file.store_8(10)  # a newline byte — any byte changes the size
-	file.close()
 
 
 # Record {NodePath -> script res:// path} for every node in the freshly
@@ -5614,7 +4492,7 @@ func _capture_external_scripts_into(node: Node, root: Node) -> void:
 
 
 func _capture_source_attached_scripts(scene_path: String) -> void:
-	_source_attached_scripts = _scene_attached_external_scripts(scene_path)
+	_source_attached_scripts = SCENE_TEXT._scene_attached_external_scripts(scene_path)
 
 
 # Repoint every captured node that STILL carries its captured script at the
@@ -5660,7 +4538,7 @@ func _reanchor_external_scripts(root: Node) -> void:
 # graph's raw line scanner: comments and unrelated string literals must not block
 # a valid attach, while a real preload call may split its argument across lines.
 func _validate_script_preload_dependencies(script_path: String) -> bool:
-	for ref_path in _script_executable_preload_paths(script_path):
+	for ref_path in GDSCRIPT_SCAN._script_executable_preload_paths(script_path):
 		if not ref_path.begins_with("res://"):
 			continue
 		if FileAccess.file_exists(ref_path):
@@ -5670,118 +4548,6 @@ func _validate_script_preload_dependencies(script_path: String) -> bool:
 				+ ") — create the preloaded asset before attaching or saving the script")
 		return false
 	return true
-
-
-func _script_executable_preload_paths(script_path: String) -> Array[String]:
-	var out: Array[String] = []
-	var source := FileAccess.get_file_as_string(script_path)
-	if source.is_empty() and FileAccess.get_open_error() != OK:
-		return out
-	var base_dir := script_path.get_base_dir()
-	var index := 0
-	while index < source.length():
-		var token_index := _find_code_token(source, "preload", index)
-		if token_index == -1:
-			break
-		var after_token := token_index + "preload".length()
-		var open_paren := _skip_gdscript_space_and_comments(source, after_token)
-		if open_paren >= source.length() or source[open_paren] != "(":
-			index = after_token
-			continue
-		var arg_start := _skip_gdscript_space_and_comments(source, open_paren + 1)
-		var literal := _quoted_string_literal_at(source, arg_start)
-		if not bool(literal.get("ok", false)):
-			index = open_paren + 1
-			continue
-		out.append(_resolve_ref_path(String(literal["value"]), base_dir))
-		index = int(literal["end"])
-	return out
-
-
-func _find_code_token(source: String, token: String, from: int) -> int:
-	var index := from
-	while index < source.length():
-		var ch := source[index]
-		if ch == "#":
-			index = _skip_gdscript_line_comment(source, index)
-			continue
-		if ch == "\"" or ch == "'":
-			index = _skip_quoted_string_literal(source, index)
-			continue
-		if source.substr(index, token.length()) == token:
-			var before_ok := (
-					index == 0
-					or (not _is_identifier_char(source[index - 1]) and source[index - 1] != ".")
-			)
-			var after_index := index + token.length()
-			var after_ok := (
-					after_index >= source.length()
-					or not _is_identifier_char(source[after_index])
-			)
-			if before_ok and after_ok:
-				return index
-		index += 1
-	return -1
-
-
-func _skip_gdscript_space_and_comments(source: String, from: int) -> int:
-	var index := from
-	while index < source.length():
-		var ch := source[index]
-		if ch == " " or ch == "\t" or ch == "\r" or ch == "\n":
-			index += 1
-			continue
-		if ch == "#":
-			index = _skip_gdscript_line_comment(source, index)
-			continue
-		break
-	return index
-
-
-func _skip_gdscript_line_comment(source: String, from: int) -> int:
-	var index := from
-	while index < source.length() and source[index] != "\n":
-		index += 1
-	return index
-
-
-func _skip_quoted_string_literal(source: String, from: int) -> int:
-	var literal := _quoted_string_literal_at(source, from)
-	return int(literal["end"])
-
-
-func _quoted_string_literal_at(source: String, from: int) -> Dictionary:
-	if from >= source.length():
-		return {"ok": false, "value": "", "end": source.length()}
-	var quote := source[from]
-	if quote != "\"" and quote != "'":
-		return {"ok": false, "value": "", "end": from}
-	var triple := quote + quote + quote
-	if source.substr(from, 3) == triple:
-		var content_start := from + 3
-		var triple_end := source.find(triple, content_start)
-		if triple_end == -1:
-			return {"ok": false, "value": "", "end": source.length()}
-		return {
-			"ok": true,
-			"value": source.substr(content_start, triple_end - content_start),
-			"end": triple_end + 3,
-		}
-	var out := ""
-	var index := from + 1
-	while index < source.length():
-		var ch := source[index]
-		if ch == "\\":
-			if index + 1 >= source.length():
-				return {"ok": false, "value": "", "end": source.length()}
-			out += source[index + 1]
-			index += 2
-			continue
-		if ch == quote:
-			return {"ok": true, "value": out, "end": index + 1}
-		out += ch
-		index += 1
-	return {"ok": false, "value": "", "end": source.length()}
 
 
 # Mutating scene ops save the current instantiated tree. Validate every
@@ -5813,84 +4579,6 @@ func _validate_node_script_preload_dependencies(node: Node) -> bool:
 		if not _validate_node_script_preload_dependencies(child):
 			return false
 	return true
-
-
-# The source scene's file-backed script bindings as {root-relative NodePath ->
-# script res:// path}. This catches scripts that Godot failed to materialize
-# because a preload target was missing: the node may still exist with no script,
-# so walking the instantiated tree alone cannot see the dependency.
-func _scene_attached_external_scripts(scene_path: String) -> Dictionary:
-	var text := FileAccess.get_file_as_string(scene_path)
-	if text.is_empty():
-		return {}
-	var script_resources := _scene_script_ext_resources(text, scene_path.get_base_dir())
-	var attached := {}
-	var current_node_path := ""
-	for line in text.split("\n"):
-		var stripped := line.strip_edges()
-		if _is_node_header_line(stripped):
-			current_node_path = _scene_node_path_from_header(stripped)
-			continue
-		if current_node_path.is_empty():
-			continue
-		if stripped.find("ExtResource(") == -1:
-			continue
-		# The assigned property must BE `script`, not merely start with it: a
-		# `script_owner = ExtResource("…")` property read as a script binding made
-		# a mutating op refuse over a script no node actually carries (#775).
-		var assign := stripped.find("=")
-		if assign == -1 or stripped.substr(0, assign).strip_edges() != "script":
-			continue
-		var resource_id := _first_quoted_after(stripped, stripped.find("ExtResource("))
-		if script_resources.has(resource_id):
-			attached[NodePath(current_node_path)] = script_resources[resource_id]
-	return attached
-
-
-# The scene's Script-typed [ext_resource] declarations as {id -> res:// path},
-# read through the ONE scene-text reader and folded through the ONE identity
-# owner (#775).
-#
-# The value therefore compares equal to the resource_path the ENGINE reports for
-# the same file however the declaration spelled it — relative or aliased —
-# which is exactly the comparison _validate_scene_script_preload_dependencies
-# makes. A declaration that resolves outside res:// (a uid:// reference) is left
-# out: it names no path the engine would report back.
-func _scene_script_ext_resources(text: String, base_dir: String) -> Dictionary:
-	var resources := {}
-	for entry in _raw_ext_resource_entries_from_text(text):
-		if String(entry["type"]) != "Script":
-			continue
-		var resource_id := String(entry["id"])
-		var ref_path := _resolve_ref_path(String(entry["path"]), base_dir)
-		if not resource_id.is_empty() and ref_path.begins_with("res://"):
-			resources[resource_id] = ref_path
-	return resources
-
-
-# Whether one trimmed line OPENS a node block (#775). Three scans ask it: the
-# node-to-ext_resource attribution, the attached-script binding read, and the
-# instance-path recovery — each used to spell `[node ` for itself, so a header
-# rule learned in one was learned in none of the others. Section recognition
-# itself is _is_section_header_line's.
-func _is_node_header_line(stripped: String) -> bool:
-	return _is_section_header_line(stripped, "node")
-
-
-# The root-relative NodePath a [node …] header declares, or "" when the header
-# names no node. Both attributes are read WHOLE-NAME (_quoted_named_attr), the
-# same rule the [ext_resource] reader applies: a longer attribute ending in
-# `name` or `parent` ahead of the real one would otherwise hand back its value.
-func _scene_node_path_from_header(header: String) -> String:
-	var name := _quoted_named_attr(header, "name")
-	if name.is_empty():
-		return ""
-	var parent := _quoted_named_attr(header, "parent")
-	if parent.is_empty():
-		return "."
-	if parent == ".":
-		return name
-	return parent + "/" + name
 
 
 # Node paths declared in the scene's state that did not materialize faithfully
@@ -5996,12 +4684,12 @@ func _instantiate_node_type(type: String) -> Node:
 	if not type.is_empty() and ClassDB.class_exists(type) and ClassDB.can_instantiate(type) \
 			and ClassDB.is_parent_class(type, "Node"):
 		return ClassDB.instantiate(type)
-	var resolution := _resolve_project_class_script(type)
+	var resolution := CLASS_INDEX._resolve_project_class_script(type)
 	match resolution["status"]:
 		"resolved":
 			return _instantiate_script_class(type, String(resolution["path"]))
 		"ambiguous":
-			_fail(OP_ERROR_AMBIGUOUS_CLASS_NAME, _ambiguous_class_name_message(type, resolution["paths"]))
+			_fail(OP_ERROR_AMBIGUOUS_CLASS_NAME, CLASS_INDEX._ambiguous_class_name_message(type, resolution["paths"]))
 			return null
 		_:
 			_fail(OP_ERROR_INVALID_NODE_TYPE, "not an instantiable Node class, and no .gd script declares class_name " + type
@@ -6089,7 +4777,7 @@ func _instantiate_script_class(type: String, script_path: String) -> Node:
 				+ " script cannot be instantiated: " + script_path
 				+ " — it no longer compiles; see diagnostics")
 		return null
-	var instance: Variant = _new_script_instance(script)
+	var instance: Variant = CLASS_INDEX._new_script_instance(script)
 	if instance == null:
 		_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, "registered class_name " + type
 				+ " script constructor failed: " + script_path
@@ -6102,14 +4790,6 @@ func _instantiate_script_class(type: String, script_path: String) -> Node:
 	_fail(OP_ERROR_INVALID_NODE_TYPE, "registered class_name " + type
 			+ " is not a Node-derived script: " + script_path)
 	return null
-
-
-# Isolated so an engine-raised call error from Script.new() — a constructor
-# that needs arguments, or a script broken in a way can_instantiate() does not
-# catch — aborts only this helper frame; the caller observes null and reports
-# the failure structurally instead of degrading into an unstructured abort.
-func _new_script_instance(script: Script) -> Variant:
-	return script.new()
 
 
 # Instantiate a resource by type: a built-in Resource class first, then a
@@ -6131,12 +4811,12 @@ func _instantiate_resource_type(type: String) -> Resource:
 	if not type.is_empty() and ClassDB.class_exists(type) and ClassDB.can_instantiate(type) \
 			and ClassDB.is_parent_class(type, "Resource"):
 		return ClassDB.instantiate(type)
-	var resolution := _resolve_project_class_script(type)
+	var resolution := CLASS_INDEX._resolve_project_class_script(type)
 	match resolution["status"]:
 		"resolved":
 			return _instantiate_resource_script_class(type, String(resolution["path"]))
 		"ambiguous":
-			_fail(OP_ERROR_AMBIGUOUS_CLASS_NAME, _ambiguous_class_name_message(type, resolution["paths"]))
+			_fail(OP_ERROR_AMBIGUOUS_CLASS_NAME, CLASS_INDEX._ambiguous_class_name_message(type, resolution["paths"]))
 			return null
 		_:
 			_fail(OP_ERROR_INVALID_RESOURCE_TYPE, "not an instantiable Resource class, and no .gd script declares class_name " + type
@@ -6163,7 +4843,7 @@ func _instantiate_resource_script_class(type: String, script_path: String) -> Re
 				+ " script cannot be instantiated: " + script_path
 				+ " — it no longer compiles; see diagnostics")
 		return null
-	var instance: Variant = _new_script_instance(script)
+	var instance: Variant = CLASS_INDEX._new_script_instance(script)
 	if instance == null:
 		_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, "registered class_name " + type
 				+ " script constructor failed: " + script_path
@@ -6176,19 +4856,6 @@ func _instantiate_resource_script_class(type: String, script_path: String) -> Re
 	_fail(OP_ERROR_INVALID_RESOURCE_TYPE, "registered class_name " + type
 			+ " is not a Resource-derived script: " + script_path)
 	return null
-
-
-# The class_name of the node's attached script, or null for a plain built-in
-# node (or a script with no class_name) — the result field an agent asserts to
-# confirm a class_name addition took effect.
-func _script_class_of(node: Node) -> Variant:
-	var script := node.get_script() as Script
-	if script == null:
-		return null
-	var global_name := String(script.get_global_name())
-	if global_name.is_empty():
-		return null
-	return global_name
 
 
 # The resource_path of the script CURRENTLY bound to the node — the script that an
@@ -6263,36 +4930,6 @@ func _scene_instance_status_for_path(path: String) -> String:
 	return "resolved" if ResourceLoader.exists(path, "PackedScene") else "missing"
 
 
-# SceneState exposes whether a node is an instance and can resolve the root type,
-# but the public PackedScene object it returns does not reliably carry the
-# original ext_resource path. Recover that marker from the .tscn header text and
-# merge it into the SceneState projection.
-func _scene_instance_paths_by_node_path(path: String) -> Dictionary:
-	var text := FileAccess.get_file_as_string(path)
-	if text.is_empty():
-		return {}
-	var ext_resources_by_id := {}
-	for entry in _ext_resource_entries_from_text(text, path.get_base_dir()):
-		ext_resources_by_id[String(entry["id"])] = String(entry["normalized_path"])
-
-	var instance_paths := {}
-	for line in text.split("\n"):
-		var stripped := line.strip_edges()
-		if not _is_node_header_line(stripped):
-			continue
-		# `instance` is a header ATTRIBUTE, so it is read by NAME like every other
-		# one (#775): a substring scan for `instance=ExtResource(` answered a decoy
-		# `fallback_instance=ExtResource("…")` ahead of it, and `scene get` then
-		# reported the wrong instanced scene for the node.
-		var id := _quoted_named_attr(stripped, "instance")
-		if id.is_empty() or not ext_resources_by_id.has(id):
-			continue
-		var node_path := _scene_node_path_from_header(stripped)
-		if not node_path.is_empty():
-			instance_paths[node_path] = ext_resources_by_id[id]
-	return instance_paths
-
-
 func _tree_from_state(state: SceneState, with_paths := false, instance_paths_by_node_path := {}) -> Dictionary:
 	var by_path := {}
 	var root: Dictionary = {}
@@ -6326,682 +4963,12 @@ func _tree_from_state(state: SceneState, with_paths := false, instance_paths_by_
 	return root
 
 
-# --- Object-typed property assignment via a res:// resource reference (ADR-0033, #363) ---
-#
-# node set / resource set assign an EXISTING Resource — referenced by a `res://`
-# path — to an Object-typed property that expects a Resource (sub)class (e.g.
-# CollisionShape2D.shape). This is a SEPARATE, headless-only step from the shared
-# _coerce_value block below: scalar coercion keys off Variant.Type and typed-container
-# coercion may use the current Dictionary/Array value, but resolving an Object needs
-# the property's expected-CLASS hint, which lives on the property-list entry — so this
-# deliberately is NOT mirrored into the harness (a live `game set` Object assignment is
-# out of scope, ADR-0033) and the byte-identical coercion mirror stays untouched.
-#
-# The full storage-property list entry (name/type/hint/hint_string/class_name/usage)
-# for `prop_name` on `target` (a Node or a Resource — both are Objects with a
-# property list), or an empty Dictionary when the target has no storage property by
-# that name. The shared _property_type returns only the Variant.Type, which cannot
-# carry the expected-class hint the Object step needs, so this reads the whole entry.
-func _storage_property_entry(target: Object, prop_name: String) -> Dictionary:
-	for prop in target.get_property_list():
-		if String(prop.get("name", "")) == prop_name and _is_storage_property(prop):
-			return prop
-	return {}
-
-
-# The engine/script class an Object-typed property expects, read off its
-# property-list entry. Godot records it in the entry's `class_name` (a StringName,
-# e.g. &"Shape2D" for CollisionShape2D.shape, &"PlayerConfig" for a script
-# class_name-typed export) and mirrors it in `hint_string` under
-# PROPERTY_HINT_RESOURCE_TYPE. Returns "" when neither names a class.
-func _object_expected_class(prop_entry: Dictionary) -> String:
-	var cls := String(prop_entry.get("class_name", ""))
-	if not cls.is_empty():
-		return cls
-	if int(prop_entry.get("hint", PROPERTY_HINT_NONE)) == PROPERTY_HINT_RESOURCE_TYPE:
-		return String(prop_entry.get("hint_string", ""))
-	return ""
-
-
-# Resolve a `res://` --value into the EXISTING Resource to assign to an Object-typed
-# property (ADR-0033). Returns the loaded Resource on success, or null AFTER recording
-# a DISTINCT structured failure (the caller stops; unlike _coerce_value's null, the
-# caller must NOT fall back to uncoercible_value). `subject` names the target in
-# messages ("node Player/Col" / "resource res://foo.tres"). The failure modes:
-#   - the `script` property is bound only by `script attach` (#118) → use_script_attach;
-#   - a non-`res://` value → expected_resource_path;
-#   - a property typed as a script class_name (not an engine class) is deferred to the
-#     ADR-0032 resolver → unsupported_property_type (type-check scope is engine classes);
-#   - a path that does not load as a Resource → not_a_resource;
-#   - a loaded Resource whose type is incompatible with the expected class →
-#     resource_type_mismatch.
-func _resolve_object_value(prop_name: String, prop_entry: Dictionary, raw_value: String, subject: String) -> Resource:
-	# The `script` property is bound with `script attach` — the one authoritative
-	# script-binding path (compile + base-type verification + replaced-script report,
-	# #118). Route it there rather than adding a second, unverified attach entry.
-	if prop_name == "script":
-		_fail(OP_ERROR_USE_SCRIPT_ATTACH, "property script on " + subject
-				+ " is bound with `gda script attach`, not `set` — it verifies the script"
-				+ " compiles and its base type matches, and reports any replaced script")
-		return null
-
-	# An Object-typed property takes an existing Resource by its res:// path. A
-	# non-res:// value is a distinct structured failure, never the generic
-	# uncoercible_value.
-	if not raw_value.begins_with("res://"):
-		_fail(OP_ERROR_EXPECTED_RESOURCE_PATH, "property " + prop_name + " on " + subject
-				+ " expects a Resource; assign an existing resource by its res:// path"
-				+ " (e.g. res://shapes/box.tres), not " + raw_value.c_escape())
-		return null
-
-	# Type-check scope is ENGINE-class-typed Object properties (e.g. shape: Shape2D).
-	# A property typed as a script `class_name` names a class ClassDB does not know;
-	# its validation is deferred to the ADR-0032 class_name resolver (ADR-0033), so
-	# refuse it distinctly rather than mis-type-check it against the engine hierarchy.
-	var expected_class := _object_expected_class(prop_entry)
-	if expected_class.is_empty() or not ClassDB.class_exists(expected_class):
-		var named := expected_class if not expected_class.is_empty() else "an unspecified Object type"
-		_fail(OP_ERROR_UNSUPPORTED_PROPERTY_TYPE, "property " + prop_name + " on " + subject
-				+ " expects " + named + ", which is not an engine class — assigning a Resource to"
-				+ " a script class_name-typed property is not yet supported (deferred, ADR-0033)")
-		return null
-
-	# Load the referenced resource. A missing path, or a file that is not a resource,
-	# yields null here (the engine logs why to stderr) → a distinct structured failure,
-	# never uncoercible_value. res:// resolution needs project context (pass --project).
-	var loaded := ResourceLoader.load(raw_value) as Resource
-	if loaded == null:
-		_fail(OP_ERROR_NOT_A_RESOURCE, "value does not load as a Resource: " + raw_value
-				+ " — check the res:// path exists and names a resource (pass --project so res:// resolves)")
-		return null
-
-	# is_class walks the engine class hierarchy, so a RectangleShape2D satisfies a
-	# Shape2D-typed property while a Gradient does not.
-	if not loaded.is_class(expected_class):
-		_fail(OP_ERROR_RESOURCE_TYPE_MISMATCH, "resource " + raw_value + " is a "
-				+ loaded.get_class() + ", incompatible with property " + prop_name + " on "
-				+ subject + " (expects " + expected_class + ")")
-		return null
-
-	return loaded
-
-
 func _has_int_param(params: Dictionary, key: String) -> bool:
 	return params.has(key) and params[key] != null
 
 
 func _int_param(params: Dictionary, key: String) -> int:
 	return int(params.get(key, 0))
-
-
-# --- BEGIN shared coercion (keep byte-identical: operations.gd <-> gda_harness.gd) ---
-# These pure property-introspection / value-coercion helpers are DUPLICATED
-# verbatim into src/gda/harness/gda_harness.gd: operations.gd runs via
-# `godot --headless --script <abs-fs-path>` (often projectless) while the harness
-# is a res:// autoload, so no single preload() reaches both and install.py copies
-# one file. tests/harness/test_harness_coercion_mirror.py asserts the two blocks are
-# byte-identical (modulo leading tabs), so an edit here must be mirrored there.
-# Whether a property-list entry is a STORAGE property — the ones node get
-# reports and node set targets: the properties that serialize into the .tscn,
-# excluding the engine's category headers, group separators, and editor-only
-# (non-storage) entries. This is the same usage flag the scene serializer keys
-# on, so node get reports exactly the surface a saved scene can carry.
-func _is_storage_property(prop: Dictionary) -> bool:
-	var usage := int(prop.get("usage", 0))
-	return (usage & PROPERTY_USAGE_STORAGE) != 0
-
-
-# The declared Godot type of a settable property on the node, or TYPE_NIL if the
-# node has no storage property by that name. node set keys coercion off this:
-# the value's target type comes from the property the node actually declares,
-# never from guessing.
-func _property_type(node: Node, prop_name: String) -> int:
-	for prop in node.get_property_list():
-		if String(prop.get("name", "")) == prop_name and _is_storage_property(prop):
-			return int(prop.get("type", TYPE_NIL))
-	return TYPE_NIL
-
-
-# Read a string param defensively: a non-string value (the params arrive as
-# arbitrary JSON) is treated as absent rather than crashing a typed assignment,
-# so a malformed param surfaces as a structured failure, not a runtime error.
-func _string_param(params: Dictionary, key: String) -> String:
-	var value: Variant = params.get(key, "")
-	if value is String:
-		return value
-	return ""
-
-
-# The Godot type name for a Variant.Type, as node get / node set report it
-# (the same spelling type_string uses: "int", "Vector2", "Color", …).
-func _type_name(type: int) -> String:
-	return type_string(type)
-
-
-# The value projection's hard recursion depth cap (ADR-0035): a compound value
-# nested deeper than this degrades to its string form instead of recursing on.
-# Deliberately NO visited-set — references are not descended and non-whitelisted
-# Objects stop at str(), so on-disk stored values are acyclic trees; the cap is
-# the backstop against a pathological self-referential Dictionary live-side.
-const JSONIFY_MAX_DEPTH := 16
-
-# The properties an inline value projection excludes (ADR-0035): the
-# Object/Resource base bookkeeping — every InputEvent IS a Resource, so
-# without the exclusion a path-less value Object would emit an empty
-# resource_path and masquerade as a reference projection (and the rest is
-# noise) — plus the RESERVED discriminator key `object_string` (#666): only
-# the texture projection emits it, so an inline class's own storage property
-# of that name is dropped, not copied — otherwise a presence-based consumer
-# would misclassify the inline projection as a texture.
-const JSONIFY_BOOKKEEPING_PROPS: Array[String] = [
-	"resource_path", "resource_name", "resource_local_to_scene", "script",
-	"object_string",
-]
-
-# The read-side Value projection (ADR-0035, grown from issue #55): render a
-# Godot Variant into the structured JSON a result's value field carries.
-# Scalars pass through; the fixed-shape value types node set supports become
-# flat number arrays so node get's output is exactly the projection node set
-# accepts back: Vector2 → [x, y], Vector2i likewise, Color → [r, g, b, a].
-# A Dictionary projects to a JSON object (keys stringified), an Array and the
-# packed-array family to a JSON array, each value re-entering the projection;
-# an Object renders as a reference projection, an inline value projection, or
-# the str() fallback (the TYPE_OBJECT arm below). Any other type degrades to
-# its string form rather than crashing JSON.stringify on an unencodable
-# Variant, and the depth cap bounds the recursion on the compound arms — so
-# the projection is always JSON-encodable.
-func _jsonify(value: Variant, depth: int = 0, texture_digest: bool = false) -> Variant:
-	match typeof(value):
-		TYPE_NIL, TYPE_BOOL, TYPE_INT, TYPE_FLOAT, TYPE_STRING, TYPE_STRING_NAME:
-			return value
-		TYPE_VECTOR2:
-			return [value.x, value.y]
-		TYPE_VECTOR2I:
-			return [value.x, value.y]
-		TYPE_COLOR:
-			return [value.r, value.g, value.b, value.a]
-		TYPE_DICTIONARY:
-			# The cap guards only the compound arms: a scalar is never
-			# stringified by depth, however deep it sits.
-			if depth >= JSONIFY_MAX_DEPTH:
-				return str(value)
-			var out := {}
-			# Insertion-ordered iteration; keys are coerced to strings, so two
-			# keys that collide after stringification resolve last-wins by
-			# assignment order (deterministic, ADR-0035).
-			for key in value.keys():
-				out[str(key)] = _jsonify(value[key], depth + 1, texture_digest)
-			return out
-		TYPE_ARRAY, TYPE_PACKED_BYTE_ARRAY, TYPE_PACKED_INT32_ARRAY, \
-		TYPE_PACKED_INT64_ARRAY, TYPE_PACKED_FLOAT32_ARRAY, \
-		TYPE_PACKED_FLOAT64_ARRAY, TYPE_PACKED_STRING_ARRAY, \
-		TYPE_PACKED_VECTOR2_ARRAY, TYPE_PACKED_VECTOR3_ARRAY, \
-		TYPE_PACKED_COLOR_ARRAY, TYPE_PACKED_VECTOR4_ARRAY:
-			if depth >= JSONIFY_MAX_DEPTH:
-				return str(value)
-			var items := []
-			# Element-wise re-entry: a PackedVector2Array element projects as
-			# [x, y]; an element type with no structured arm of its own (e.g.
-			# Vector3) stays str(), per the fixed-shape list above.
-			for element in value:
-				items.append(_jsonify(element, depth + 1, texture_digest))
-			return items
-		TYPE_OBJECT:
-			# A freed live Object (harness side) must not be introspected.
-			if not is_instance_valid(value):
-				return str(value)
-			if depth >= JSONIFY_MAX_DEPTH:
-				return str(value)
-			# Reference projection: a Resource with a res:// path is named by
-			# type and path, never inlined — the read-side mirror of ADR-0033's
-			# write-side reference. A sub-resource path (res://x.tscn::…)
-			# counts as a reference too.
-			if value is Resource and String(value.resource_path).begins_with("res://"):
-				return {"type": value.get_class(), "resource_path": value.resource_path}
-			# Texture projection (#666, ADR-0035 amendment): a PATH-LESS Texture2D
-			# — a runtime-created texture (ImageTexture.create_from_image) has no
-			# res:// path, so the reference arm above cannot name it and the string
-			# fallback's instance ID cannot say what it shows. PATH-LESS only:
-			# a non-empty, non-res:// path (user://, take_over_path) stays the
-			# string fallback it always was — #666's scope is the empty path. A
-			# fixed shape read off cheap getters: class + dimensions. `object_string` keeps the old
-			# str() form as secondary diagnostics and is this kind's DISCRIMINATOR
-			# (no other object shape emits it; `resource_path` stays
-			# reference-only, not even null here). `digest` is opt-in
-			# (texture_digest): get_image() is a GPU-to-CPU readback on the live
-			# side, not a price every read should pay; an image the engine cannot
-			# read back keeps digest null. Dimensions and format prefix the hashed
-			# bytes so same-bytes textures of different shapes do not collide.
-			if value is Texture2D and String(value.resource_path).is_empty():
-				var texture_projection := {
-					"type": value.get_class(),
-					"width": value.get_width(),
-					"height": value.get_height(),
-					"object_string": str(value),
-					"digest": null,
-				}
-				if texture_digest:
-					var image: Image = value.get_image()
-					if image != null and not image.is_empty():
-						var ctx := HashingContext.new()
-						if ctx.start(HashingContext.HASH_SHA256) == OK:
-							var shape := "%dx%d:%d:" % [
-								image.get_width(), image.get_height(), image.get_format(),
-							]
-							ctx.update(shape.to_utf8_buffer())
-							ctx.update(image.get_data())
-							texture_projection["digest"] = "sha256:" + ctx.finish().hex_encode()
-				return texture_projection
-			# Inline value projection: a whitelisted path-less value Object
-			# (InputEvent subclasses initially) projects its own storage
-			# properties. The whitelist is the risk-isolation boundary that
-			# keeps this shared projection safe on the live side, where an
-			# arbitrary Object could be a whole scene tree (ADR-0035).
-			if value is InputEvent:
-				var projected := {}
-				for prop in value.get_property_list():
-					if not _is_storage_property(prop):
-						continue
-					var prop_name := String(prop.get("name", ""))
-					if prop_name in JSONIFY_BOOKKEEPING_PROPS:
-						continue
-					projected[prop_name] = _jsonify(value.get(prop_name), depth + 1, texture_digest)
-				# Assigned AFTER the loop so the discriminator shadows a
-				# storage property named "type" (ADR-0035 documents the
-				# shadowing — order matters).
-				projected["type"] = value.get_class()
-				return projected
-			# String fallback: any other Object (not whitelisted, no res://
-			# path — e.g. a live Node) keeps the existing str() form.
-			return str(value)
-		_:
-			return str(value)
-
-
-# Coerce a CLI string value to a property's declared Godot type (issue #55).
-# The supported types and their accepted string forms are documented in the
-# command catalog's "Property value coercion" section — keep the two in sync.
-# Returns null when the value cannot be coerced to that type, which the caller
-# reports as the clean uncoercible_value error. null is unambiguous as a
-# failure signal because no supported target type coerces TO null.
-# `current` lets typed Dictionary/Array properties/settings provide the
-# destination type Godot should assign into; untyped and scalar coercion ignores it.
-func _coerce_value(raw: String, type: int, current: Variant = null) -> Variant:
-	match type:
-		TYPE_BOOL:
-			return _coerce_bool(raw)
-		TYPE_INT:
-			return _coerce_int(raw)
-		TYPE_FLOAT:
-			return _coerce_float(raw)
-		TYPE_STRING:
-			return raw
-		TYPE_STRING_NAME:
-			return StringName(raw)
-		TYPE_DICTIONARY:
-			return _coerce_dictionary(raw, current)
-		TYPE_ARRAY:
-			return _coerce_array(raw, current)
-		TYPE_VECTOR2:
-			var parts: Variant = _coerce_float_list(raw, 2)
-			return Vector2(parts[0], parts[1]) if parts != null else null
-		TYPE_VECTOR2I:
-			var parts: Variant = _coerce_int_list(raw, 2)
-			return Vector2i(parts[0], parts[1]) if parts != null else null
-		TYPE_COLOR:
-			return _coerce_color(raw)
-		_:
-			return null
-
-
-# A bool from "true"/"false" (case-insensitive), nothing else — so a typo never
-# silently becomes false.
-func _coerce_bool(raw: String) -> Variant:
-	var lowered := raw.strip_edges().to_lower()
-	if lowered == "true":
-		return true
-	if lowered == "false":
-		return false
-	return null
-
-
-func _coerce_int(raw: String) -> Variant:
-	var trimmed := raw.strip_edges()
-	if not trimmed.is_valid_int():
-		return null
-	return trimmed.to_int()
-
-
-# --- Float fidelity: the WRITE side of the engine's number domain (#772, #805) ---
-#
-# The rule below is about a LITERAL, not about a property type, so it reaches every
-# float a write can spell: the scalar `--value` and the components of a Vector2 or a
-# Color, which `_coerce_float` parses one at a time, and the JSON numbers inside a
-# Dictionary or an Array value, which no per-element step parses at all and which
-# `_destroyed_json_number` therefore reads from the raw text (#805). Until that was
-# added the container was the one path where a destroyed float still landed
-# silently — `--value '{"a": 1e-320}'` reported success and stored `{"a": 0.0}`.
-#
-# Godot reads a float literal with built_in_strtod (core/string/ustring.cpp),
-# reached from GDScript as String.to_float() and from JSON.parse_string alike.
-# ONE function, so the live wire's parser (#752) and this coercion do the same
-# arithmetic and differ only in WHO spells the literal. On the wire gda spells it
-# and must PREDICT the outcome (gda.live_numbers.wire_flattens_to_zero); here the
-# CALLER spells it and the engine has already answered by the time coercion runs,
-# so the policy OBSERVES the outcome instead. That is why one rule covers every
-# way the parser destroys a value, each measured on Godot 4.6.3:
-#   - an applied decimal exponent at or below -309 divides by an INFINITE power
-#     of ten: "2.2250738585072014e-308" and "5e-324" arrive as 0.0 (#752's class);
-#   - the parser keeps at most 18 mantissa digits COUNTING leading zeros, so a
-#     fixed-notation literal that spends all 18 on zeros keeps no significant
-#     digit at all: "0.000000000000000001" arrives as 0.0 while "1e-18" is exact.
-#     That cliff is far higher than the wire's, and the wire never meets it,
-#     because gda's own serializer writes scientific notation below 1e-4;
-#   - a zero mantissa times an overflowed power is 0.0 * INF: "0e600" is NaN.
-# A write PERSISTS — a .tscn, project.godot, a .tres, a running node's state — so
-# gda REFUSES these instead of storing a number the caller never sent. Same answer
-# as #752, reached from the same principle by a different route, and with a remedy
-# the wire cannot offer: the caller owns the spelling, so re-spelling can work.
-#
-# NOT refused: low-order drift. The parser lands ordinary values 1 ULP away, and a
-# full-precision literal between 1e-4 and 1e-2 up to 105 doubles away, because the
-# leading zeros spend the 18-digit budget. Refusing that would reject ordinary game
-# values, so it is DISCLOSED in the CLI contract instead, with its own remedy:
-# scientific notation restores both of those corpus rows exactly. The measurement
-# and the counts belong to `gda.live_numbers`, not to this comment.
-
-# Whether `literal`'s own digits are all zeros — the spellings that MEAN zero
-# ("0", "-0.0", "0.0000e5"), which the parser is right to read as 0.0.
-func _float_literal_names_zero(literal: String) -> bool:
-	var mantissa := literal.lstrip("+-")
-	var exponent_at := mantissa.to_lower().find("e")
-	if exponent_at >= 0:
-		mantissa = mantissa.left(exponent_at)
-	for character in mantissa:
-		if character != "0" and character != ".":
-			return false
-	return true
-
-
-# Whether the parser DESTROYS `literal` — turns the number the caller spelled into
-# a value that is not it at all. Asked of the literal the caller actually sent, and
-# answered by RUNNING the parser rather than by modelling its arithmetic, so a
-# mechanism this file does not know about is caught as well as the three it does.
-# False for a value that is merely not a float spelling: that is the ordinary
-# uncoercible failure, which this policy must not relabel.
-func _float_literal_is_destroyed(literal: String) -> bool:
-	if not literal.is_valid_float():
-		return false
-	var parsed := literal.to_float()
-	return is_nan(parsed) or (parsed == 0.0 and not _float_literal_names_zero(literal))
-
-
-# Whether `character` can appear inside a JSON number token. Deliberately a
-# CHARACTER class and not a number grammar: the scan below runs only on text the
-# JSON parser already accepted, so the grammar has been checked once, by the
-# engine, and re-implementing it here would be a second opinion about it.
-func _is_json_number_char(character: String) -> bool:
-	return character == "-" or character == "+" or character == "." \
-			or character == "e" or character == "E" \
-			or (character >= "0" and character <= "9")
-
-
-# The first JSON number literal in `raw` that the parser DESTROYS, or "" — the
-# container half of the #772 rule (#805).
-#
-# A container's coercion is `JSON.parse_string` as the gate plus one atomic
-# `str_to_var(raw)`; there is no per-element step to hook, and by the time a float
-# exists inside the parsed value its literal is gone. So the literals are read from
-# the RAW text, which is the only place they still are.
-#
-# Reading text needs one rule to be safe, and it is STRING-AWARENESS: a JSON
-# string's bytes are never a number, whatever they spell. That single rule disposes
-# of the two ways ORDINARY input invites a text scan to refuse a write the engine
-# would have kept faithfully. A value that merely LOOKS numeric is one — `{"a":
-# "1e-320"}` stores the six-character string, and no float is parsed anywhere in
-# it. A KEY is the other — every JSON key is a string, so `{"1e-320": 1.0}` names a
-# member and the `1.0` beside it is the only number present. Escapes are honoured
-# while skipping, so a quote INSIDE a string (`{"a\": 1e-320 fake": 1.0}`, valid
-# JSON whose key holds that text) does not end it early and leak its bytes into the
-# scan.
-#
-# A third way is left open, ACCEPTED rather than closed: a member the parser then
-# DISCARDS. Godot's JSON keeps the LAST value of a repeated key (measured on 4.6.3:
-# `{"a": 1e-320, "a": 2.0}` parses to `{"a": 2.0}`), but the scan reads the text and
-# sees the discarded literal too, so that write is refused although nothing
-# destroyed would have been stored. Telling a discarded token from a kept one needs
-# the key-and-position bookkeeping of a real parser — the second opinion about the
-# engine's grammar this scan avoids by construction — while the over-refusal is in
-# the safe direction: nothing wrong is written, and the remedy is to spell the key
-# once.
-#
-# Outside strings, valid JSON spells only structure, `true`/`false`/`null`, and
-# numbers, so a maximal run of number characters IS a number token — with the one
-# exception of the lone "e" the two keyword spellings contribute, which is not a
-# float spelling and which `_float_literal_is_destroyed` therefore answers false
-# for. Nothing else needs excluding, because the text is already valid JSON.
-#
-# That "already valid JSON" is also what closes the third edge. `str_to_var`
-# accepts richer Variant syntax than JSON, and `{"a": Vector2(1e-320, 0)}` really
-# does build a zeroed Vector2 through it — but that text is NOT JSON (measured on
-# Godot 4.6.3: the parse fails with "Expected 'true', 'false', or 'null', got
-# 'Vector'"), so the gate refuses it before `str_to_var` is reached and a
-# constructor is unreachable through this coercion. This scan deliberately does not
-# try to read one: it would be reading text the gate has already rejected, and
-# would blame the float parser for a syntax refusal.
-func _destroyed_json_number(raw: String) -> String:
-	var index := 0
-	var length := raw.length()
-	while index < length:
-		var character := raw[index]
-		if character == "\"":
-			index += 1
-			while index < length:
-				if raw[index] == "\\":
-					index += 2
-					continue
-				if raw[index] == "\"":
-					index += 1
-					break
-				index += 1
-			continue
-		if not _is_json_number_char(character):
-			index += 1
-			continue
-		var start := index
-		while index < length and _is_json_number_char(raw[index]):
-			index += 1
-		var literal := raw.substr(start, index - start)
-		if _float_literal_is_destroyed(literal):
-			return literal
-	return ""
-
-
-# The literal whose destruction ACTUALLY refused this coercion, or "" when the
-# refusal was anything else. A note must never explain a failure it did not
-# diagnose, so this walks exactly what `_coerce_value` walks for `type`, in the
-# same order and behind the same gates: only TYPE_FLOAT, TYPE_VECTOR2, TYPE_COLOR
-# (through `_coerce_float`) and TYPE_DICTIONARY / TYPE_ARRAY (through the raw-text
-# scan) refuse on a destroyed literal at all — TYPE_INT, TYPE_VECTOR2I and the rest
-# refuse for reasons of their own and no float spelling would help them; a wrong
-# component count refuses on ARITY before a component is parsed; a Color in hex
-# form parses no float; and a component that is not a float spelling at all is the
-# ordinary uncoercible failure, which stops the walk where `_coerce_float_list`
-# stops. The container arms repeat their coercion's JSON gate for the same reason:
-# text that is not JSON — or is JSON of the OTHER container type — was refused by
-# the gate, not by the float parser, so it keeps the plain message.
-#
-# For the SCALAR arms that second walk re-derives a different shape (split, arity,
-# hex form), and that independence is what keeps the note honest. For the container
-# arms it re-derives nothing — gate plus scan, twice — which is affordable at two
-# arms and is the trigger to watch: if a THIRD container-shaped type ever reaches
-# this rule, stop walking and have `_coerce_value` hand back the reason it refused.
-func _destroyed_float_literal(raw: String, type: int) -> String:
-	var components: PackedStringArray
-	match type:
-		TYPE_FLOAT:
-			components = PackedStringArray([raw])
-		TYPE_VECTOR2:
-			components = raw.split(",")
-			if components.size() != 2:
-				return ""
-		TYPE_COLOR:
-			var trimmed := raw.strip_edges()
-			if trimmed.begins_with("#"):
-				return ""
-			components = trimmed.split(",")
-			if components.size() != 3 and components.size() != 4:
-				return ""
-		TYPE_DICTIONARY, TYPE_ARRAY:
-			if typeof(JSON.parse_string(raw)) != type:
-				return ""
-			return _destroyed_json_number(raw)
-		_:
-			return ""
-	for part in components:
-		var literal := part.strip_edges()
-		if not literal.is_valid_float():
-			return ""
-		if _float_literal_is_destroyed(literal):
-			return literal
-	return ""
-
-
-# The explanation appended to an uncoercible_value message when a destroyed
-# literal is what refused the coercion, and "" for every OTHER coercion failure —
-# so "abc" on a float, any value on an int, a non-JSON value on a Dictionary, and a
-# three-component Vector2 all keep the message they always had. `type` is the
-# declared type the failed `_coerce_value` was given; a list type names the ONE
-# offending component, and a container the ONE offending JSON number, rather than
-# the whole argument.
-func _float_fidelity_note(raw: String, type: int) -> String:
-	var literal := _destroyed_float_literal(raw, type)
-	if literal.is_empty():
-		return ""
-	var outcome := "NaN" if is_nan(literal.to_float()) else "0.0"
-	return " — Godot's own float parser reads " + literal.c_escape() + " as " \
-			+ outcome + ", so the write would store a number you did not send;" \
-			+ " gda refuses it instead of changing your value silently. Try the" \
-			+ " same value in scientific notation carrying only the digits it needs" \
-			+ " (1e-18, not 0.000000000000000001); if that reads as 0.0 too, the" \
-			+ " value is below this parser's reach and no decimal spelling delivers" \
-			+ " it — the live wire refuses that same class as well"
-
-
-func _coerce_float(raw: String) -> Variant:
-	var trimmed := raw.strip_edges()
-	# is_valid_float accepts integer spellings too, which is intended: "3" is a
-	# valid float value, and Godot stores it as 3.0.
-	if not trimmed.is_valid_float():
-		return null
-	# A literal the parser destroys is refused (#772). null is the same uncoercible
-	# signal a non-numeric value gives; _float_fidelity_note tells the caller which
-	# of the two it was, so the two failures do not need two codes.
-	if _float_literal_is_destroyed(trimmed):
-		return null
-	return trimmed.to_float()
-
-
-# Parse a comma-separated list of exactly `count` floats (e.g. "10,20" for a
-# Vector2). Whitespace around each component is tolerated; a wrong count or a
-# non-numeric component fails the whole coercion.
-func _coerce_float_list(raw: String, count: int) -> Variant:
-	var parts := raw.split(",")
-	if parts.size() != count:
-		return null
-	var out: Array[float] = []
-	for part in parts:
-		var coerced: Variant = _coerce_float(part)
-		if coerced == null:
-			return null
-		out.append(coerced)
-	return out
-
-
-func _coerce_int_list(raw: String, count: int) -> Variant:
-	var parts := raw.split(",")
-	if parts.size() != count:
-		return null
-	var out: Array[int] = []
-	for part in parts:
-		var coerced: Variant = _coerce_int(part)
-		if coerced == null:
-			return null
-		out.append(coerced)
-	return out
-
-
-# A Color from either a "#rrggbb"/"#rrggbbaa" hex string or a comma-separated
-# list of 3 (rgb) or 4 (rgba) floats in 0..1. Godot's Color.html validates the
-# hex form; the float-list form reuses the shared numeric coercion.
-func _coerce_color(raw: String) -> Variant:
-	var trimmed := raw.strip_edges()
-	if trimmed.begins_with("#"):
-		if not Color.html_is_valid(trimmed):
-			return null
-		return Color.html(trimmed)
-	var parts := trimmed.split(",")
-	if parts.size() != 3 and parts.size() != 4:
-		return null
-	var out: Array[float] = []
-	for part in parts:
-		var coerced: Variant = _coerce_float(part)
-		if coerced == null:
-			return null
-		out.append(coerced)
-	if out.size() == 3:
-		return Color(out[0], out[1], out[2])
-	return Color(out[0], out[1], out[2], out[3])
-
-
-func _coerce_dictionary(raw: String, current: Variant = null) -> Variant:
-	var parsed: Variant = JSON.parse_string(raw)
-	if not (parsed is Dictionary):
-		return null
-	# A number the parser destroys is refused here exactly as `_coerce_float`
-	# refuses a scalar one (#805): same code, same note, same reason — the write
-	# would store a value the caller never sent. Scanned on the raw text, and only
-	# now that the gate has accepted it (see `_destroyed_json_number`).
-	if not _destroyed_json_number(raw).is_empty():
-		return null
-	var variant: Variant = str_to_var(raw)
-	if not (variant is Dictionary):
-		return null
-	var dictionary: Dictionary = variant
-	if current is Dictionary:
-		var current_dictionary: Dictionary = current
-		if current_dictionary.is_typed():
-			var typed_dictionary: Dictionary = current_dictionary.duplicate()
-			typed_dictionary.clear()
-			typed_dictionary.assign(dictionary)
-			if typed_dictionary.size() != dictionary.size():
-				return null
-			return typed_dictionary
-	return dictionary
-
-
-func _coerce_array(raw: String, current: Variant = null) -> Variant:
-	var parsed: Variant = JSON.parse_string(raw)
-	if not (parsed is Array):
-		return null
-	# Same refusal as `_coerce_dictionary`'s, for the same reason (#805).
-	if not _destroyed_json_number(raw).is_empty():
-		return null
-	var variant: Variant = str_to_var(raw)
-	if not (variant is Array):
-		return null
-	var array: Array = variant
-	if current is Array:
-		var current_array: Array = current
-		if current_array.is_typed():
-			var typed_array: Array = current_array.duplicate()
-			typed_array.clear()
-			typed_array.assign(array)
-			if typed_array.size() != array.size():
-				return null
-			return typed_array
-	return array
-# --- END shared coercion ---
 
 
 func _is_valid_node_name(node_name: String) -> bool:
@@ -7011,54 +4978,6 @@ func _is_valid_node_name(node_name: String) -> bool:
 		if node_name.contains(String(invalid_char)):
 			return false
 	return true
-
-
-func _ensure_parent_dirs(path: String) -> Variant:
-	var parent := path.get_base_dir()
-	if parent.is_empty() or DirAccess.dir_exists_absolute(parent):
-		return []
-
-	var missing: Array[String] = []
-	var current := parent
-	while not current.is_empty() and not DirAccess.dir_exists_absolute(current):
-		missing.push_front(current)
-		var next := current.get_base_dir()
-		if next == current:
-			break
-		current = next
-
-	var err := DirAccess.make_dir_recursive_absolute(parent)
-	if err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, "failed to create parent directory " + parent + ": " + error_string(err))
-		return null
-	return missing
-
-
-# Build a save-failure diagnostic for a `noun` (scene / script) written to
-# `path`: the error, the parent directory, and a write-probe that names why the
-# directory is unwritable when that is the cause. Shared by every save path so
-# the diagnostic (and the probe) stays identical across groups.
-func _save_failure_message(noun: String, path: String, save_err: Error) -> String:
-	var parent := path.get_base_dir()
-	var message := "failed to save " + noun + " to " + path
-	if not parent.is_empty():
-		message += " in parent directory " + parent
-	message += ": " + error_string(save_err)
-
-	var probe_dir := "."
-	if not parent.is_empty():
-		probe_dir = parent
-	var probe_name := ".gda-write-check.tmp"
-	var probe_path := probe_dir.path_join(probe_name)
-	var probe := FileAccess.open(probe_path, FileAccess.WRITE)
-	if probe == null:
-		message += "; write probe " + probe_path + " failed: " + error_string(FileAccess.get_open_error())
-	else:
-		probe.close()
-		var dir := DirAccess.open(probe_dir)
-		if dir != null:
-			dir.remove(probe_name)
-	return message
 
 
 # Write `source` to a .gd file as RAW TEXT, reporting both failure modes as
@@ -7072,298 +4991,11 @@ func _save_failure_message(noun: String, path: String, save_err: Error) -> Strin
 # original .gd (issue #226): a non-OK return leaves the target untouched, and we
 # translate it into the same save_failed ladder this op has always reported.
 func _write_script_file(path: String, source: String) -> bool:
-	var write_err := _atomic_write_text(path, source)
+	var write_err := _file_write._atomic_write_text(path, source)
 	if write_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, write_err))
+		_fail(OP_ERROR_SAVE_FAILED, _file_write._save_failure_message("script", path, write_err))
 		return false
 	return true
-
-
-# --- atomic write primitives (issue #226) -----------------------------------
-#
-# Godot's text savers (ResourceSaver for .tscn/.tres, FileAccess for .gd/.gdshader)
-# open the destination directly and truncate-in-place, so a failed save TEARS the
-# original. The engine has an atomic mode (FileAccess::set_backup_save(true)) but it
-# is not bound to GDScript, so we replicate it: write to a SAME-DIRECTORY sibling
-# temp, then DirAccess.rename_absolute(tmp, path) — a same-filesystem POSIX rename,
-# which IS bound and IS atomic. On any failure the target is left byte-untouched and
-# the temp is removed, so a concurrent reader (or our own staleness guard) never sees
-# a half-written file. Returns an Error code (OK on success); the caller keeps its
-# existing save_failed ladder and only translates a non-OK return.
-
-
-# A sibling temp path in the target's own directory (so rename is same-filesystem
-# and therefore atomic). The PID disambiguates parallel one-shot headless processes
-# writing the same target, so their temps never collide. Pure string ops, so it
-# works for res:// paths as well as absolute/user:// paths.
-#
-# The target's ORIGINAL extension is PRESERVED as the temp's trailing extension
-# (".gda-<pid>-<file>.tmp.<ext>") because ResourceSaver.save picks its saver by the
-# destination's recognized extension — a ".tmp" tail would be "File unrecognized"
-# and fail every .tscn/.tres save. FileAccess writes (.gd/.gdshader) don't care, so
-# preserving the extension is harmless there and correct for the resource path.
-func _atomic_temp_path(path: String) -> String:
-	var ext := path.get_extension()
-	var suffix := ".tmp" if ext.is_empty() else ".tmp." + ext
-	return path.get_base_dir().path_join(".gda-" + str(OS.get_process_id()) + "-" + path.get_file() + suffix)
-
-
-# Remove a file if it exists, swallowing the outcome — used to clean up a temp on a
-# failed atomic write, where the write error is what we want to report, not a
-# secondary cleanup error.
-func _remove_quiet(path: String) -> void:
-	if FileAccess.file_exists(path):
-		DirAccess.remove_absolute(path)
-
-
-# Restore ext_resource ids that already existed in the target .tscn before
-# ResourceSaver re-serialized it. Scope is deliberately narrow: match resources by
-# their normalized ext_resource path, rewrite only id="..." attributes and
-# ExtResource("...") references, and leave all other saver canonicalization alone
-# (issue #393). If ResourceSaver collapses duplicate entries for the same path, keep
-# the first old id for that canonical path rather than accepting a freshly generated
-# id.
-func _restore_existing_ext_resource_ids(
-		scene_path: String,
-		original_text: String,
-		saved_text: String) -> String:
-	if original_text.is_empty() or saved_text.is_empty():
-		return saved_text
-	var base_dir := scene_path.get_base_dir()
-	var original_ids := _ext_resource_ids_by_path(original_text, base_dir)
-	if original_ids.is_empty():
-		return saved_text
-	var saved_entries := _ext_resource_entries_from_text(saved_text, base_dir)
-	if saved_entries.is_empty():
-		return saved_text
-
-	var reserved_ids := {}
-	for entry in saved_entries:
-		var ref_path := String(entry["normalized_path"])
-		if original_ids.has(ref_path):
-			for old_id in original_ids[ref_path]:
-				reserved_ids[String(old_id)] = true
-	if reserved_ids.is_empty():
-		return saved_text
-
-	var used_ids := {}
-	var id_remap := {}
-	var path_positions := {}
-	for entry in saved_entries:
-		var saved_id := String(entry["id"])
-		var ref_path := String(entry["normalized_path"])
-		var final_id := saved_id
-		if original_ids.has(ref_path):
-			var position := int(path_positions.get(ref_path, 0))
-			var old_ids: Array = original_ids[ref_path]
-			if position < old_ids.size():
-				final_id = String(old_ids[position])
-			path_positions[ref_path] = position + 1
-		elif reserved_ids.has(final_id):
-			final_id = _fresh_ext_resource_id(saved_id, used_ids, reserved_ids)
-		if used_ids.has(final_id):
-			final_id = _fresh_ext_resource_id(saved_id, used_ids, reserved_ids)
-		used_ids[final_id] = true
-		if final_id != saved_id:
-			id_remap[saved_id] = final_id
-
-	if id_remap.is_empty():
-		return saved_text
-	return _replace_ext_resource_ids(saved_text, id_remap)
-
-
-# Whether one trimmed line DECLARES an external resource (#775). The entries
-# reader below and the save-side id substitution are its two askers; the
-# substitution rewrites lines in place and so cannot go through the reader, but it
-# must agree with it on WHICH lines it may touch. Section recognition itself is
-# _is_section_header_line's, not respelled here.
-func _is_ext_resource_line(stripped: String) -> bool:
-	return _is_section_header_line(stripped, "ext_resource")
-
-
-# Every [ext_resource] declaration in one scene/resource text, as written — the
-# ONE reader of scene text (#775). Four more scans over these same lines lived
-# beside this one, and three of them still pulled the path out with a SUBSTRING
-# match: this reader was BORN whole-name (#394 landed it together with
-# _quoted_named_attr), and the older scans it grew up beside never learned the
-# rule. Adapting them onto this reader ends the class for [ext_resource]
-# attributes; the ExtResource("…") CALL-SITE scan over property values
-# (_ext_resource_ids_in_line) is a separate read and is still a substring match.
-#
-# The entry is the line's own content, unresolved: `path` is the spelling the
-# declaration used, and anchoring it to a base directory is the caller's step
-# (_resolve_ref_path, or the id-keyed view below). A line naming no path declares
-# no reference and is dropped.
-func _raw_ext_resource_entries_from_text(text: String) -> Array:
-	var entries: Array = []
-	for line in text.split("\n"):
-		var stripped := line.strip_edges()
-		if not _is_ext_resource_line(stripped):
-			continue
-		var ref_path := _quoted_named_attr(stripped, "path")
-		if ref_path.is_empty():
-			continue
-		# `type` is the class the line DECLARES for the reference ("Script",
-		# "Texture2D", …); "" when the line names none. Carried so scene-validate can
-		# report what was expected at a path that did not resolve (#664) — the
-		# id/path consumers ignore it.
-		#
-		# `line` is the declaration as WRITTEN (trimmed): find-references reports it
-		# as the match context, so an agent sees the spelling it has to edit.
-		entries.append({
-			"path": ref_path,
-			"id": _quoted_named_attr(stripped, "id"),
-			"type": _quoted_named_attr(stripped, "type"),
-			"line": stripped,
-		})
-	return entries
-
-
-# The ID-KEYED view of the same declarations, each resolved to its canonical
-# graph identity against the declaring file's directory. A declaration with no
-# `id` is left out because the ENGINE refuses the whole file over it — "Parse
-# Error: Missing 'id' in external resource tag" (resource_format_text.cpp,
-# measured on 4.6.3), and `scene validate` answers not_a_scene. That is what
-# separates an id-less line from an unknown ATTRIBUTE, which Godot accepts and
-# this reader therefore must read correctly.
-func _ext_resource_entries_from_text(text: String, base_dir: String) -> Array:
-	var entries: Array = []
-	for entry in _raw_ext_resource_entries_from_text(text):
-		var id := String(entry["id"])
-		if id.is_empty():
-			continue
-		var ref_path := String(entry["path"])
-		entries.append({
-			"path": ref_path,
-			"normalized_path": _resolve_ref_path(ref_path, base_dir),
-			"id": id,
-			"type": String(entry.get("type", "")),
-		})
-	return entries
-
-
-# The canonical spelling of one already-absolute path — the identity half of
-# _resolve_ref_path, split out so a caller that has no base directory to resolve
-# against can key by the SAME identity (#721 review round 3).
-#
-# The composed scene walk is that caller: its root arrives from the command line
-# rather than from an [ext_resource] line, and seeding the walk with the caller's
-# raw spelling put the root behind a different identity from every one of its
-# children — `res://./main.tscn` and the `res://main.tscn` a child references back
-# were two files, so the root was answered for twice.
-func _canonical_resource_path(path: String) -> String:
-	return path.simplify_path()
-
-
-func _ext_resource_ids_by_path(text: String, base_dir: String) -> Dictionary:
-	var by_path := {}
-	for entry in _ext_resource_entries_from_text(text, base_dir):
-		var ref_path := String(entry["normalized_path"])
-		if not by_path.has(ref_path):
-			by_path[ref_path] = []
-		(by_path[ref_path] as Array).append(String(entry["id"]))
-	return by_path
-
-
-func _fresh_ext_resource_id(seed: String, used_ids: Dictionary, reserved_ids: Dictionary) -> String:
-	var base := seed if not seed.is_empty() else "resource"
-	var index := 2
-	var candidate := base + "_gda" + str(index)
-	while used_ids.has(candidate) or reserved_ids.has(candidate):
-		index += 1
-		candidate = base + "_gda" + str(index)
-	return candidate
-
-
-func _replace_ext_resource_ids(text: String, id_remap: Dictionary) -> String:
-	var updated := text
-	var placeholders := {}
-	var index := 0
-	for saved_id in id_remap:
-		var placeholder := "__GDA_EXT_RESOURCE_ID_" + str(index) + "__"
-		while updated.find(placeholder) != -1:
-			index += 1
-			placeholder = "__GDA_EXT_RESOURCE_ID_" + str(index) + "__"
-		placeholders[placeholder] = String(id_remap[saved_id])
-		updated = _replace_ext_resource_id_attr(
-				updated,
-				String(saved_id),
-				placeholder)
-		updated = updated.replace(
-				'ExtResource("' + String(saved_id) + '")',
-				'ExtResource("' + placeholder + '")')
-		index += 1
-	for placeholder in placeholders:
-		updated = _replace_ext_resource_id_attr(
-				updated,
-				String(placeholder),
-				String(placeholders[placeholder]))
-		updated = updated.replace(
-				'ExtResource("' + String(placeholder) + '")',
-				'ExtResource("' + String(placeholders[placeholder]) + '")')
-	return updated
-
-
-func _replace_ext_resource_id_attr(text: String, old_id: String, new_id: String) -> String:
-	var old_attr := 'id="' + old_id + '"'
-	var new_attr := 'id="' + new_id + '"'
-	var lines := text.split("\n")
-	for index in lines.size():
-		var line := String(lines[index])
-		if _is_ext_resource_line(line.strip_edges()):
-			lines[index] = line.replace(old_attr, new_attr)
-	return "\n".join(lines)
-
-
-# Save `res` to `path` atomically: ResourceSaver.save to a sibling temp, then rename
-# the temp over the target. Returns OK on success, or the first non-OK Error (with
-# the temp removed and the target untouched).
-func _atomic_save_resource(res: Resource, path: String) -> int:
-	var should_restore_ext_ids := (
-			path.get_extension().to_lower() == "tscn" and FileAccess.file_exists(path)
-	)
-	var original_text := FileAccess.get_file_as_string(path) if should_restore_ext_ids else ""
-	var tmp := _atomic_temp_path(path)
-	var save_err := ResourceSaver.save(res, tmp)
-	if save_err != OK:
-		_remove_quiet(tmp)
-		return save_err
-	if should_restore_ext_ids:
-		var saved_text := FileAccess.get_file_as_string(tmp)
-		var stable_text := _restore_existing_ext_resource_ids(path, original_text, saved_text)
-		if stable_text != saved_text:
-			var rewrite_err := _atomic_write_text(tmp, stable_text)
-			if rewrite_err != OK:
-				_remove_quiet(tmp)
-				return rewrite_err
-	var rename_err := DirAccess.rename_absolute(tmp, path)
-	if rename_err != OK:
-		_remove_quiet(tmp)
-		return rename_err
-	return OK
-
-
-# Write `content` to `path` atomically as RAW TEXT: store into a sibling temp,
-# capture the write error BEFORE close() invalidates the handle (a disk-full/I/O
-# error surfaces at get_error(), not at open), then rename the temp over the target.
-# Returns OK on success, or the first non-OK Error (with the temp removed and the
-# target untouched).
-func _atomic_write_text(path: String, content: String) -> int:
-	var tmp := _atomic_temp_path(path)
-	var file := FileAccess.open(tmp, FileAccess.WRITE)
-	if file == null:
-		return FileAccess.get_open_error()
-	file.store_string(content)
-	var write_err := file.get_error()
-	file.close()
-	if write_err != OK:
-		_remove_quiet(tmp)
-		return write_err
-	var rename_err := DirAccess.rename_absolute(tmp, path)
-	if rename_err != OK:
-		_remove_quiet(tmp)
-		return rename_err
-	return OK
 
 
 # The ONE JSON writer for every headless reply (#771) — the same choice the live
