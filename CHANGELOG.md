@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.19.1](https://github.com/aigengame/godot-agent/compare/v0.19.0...v0.19.1) (2026-09-26)
+
+
+### Bug Fixes
+
+* **gda:** architecture refactor W1 — one dispatch entry, one live exchange, and structured refusals for an empty --godot and a targetless skill install ([830b064](https://github.com/aigengame/godot-agent/commit/830b064a8d61d3967a58d5fb2edcae0c22369931))
+* **gda:** refuse a skill install with no target and dispatch through one entry ([#1020](https://github.com/aigengame/godot-agent/issues/1020)) ([1631b7d](https://github.com/aigengame/godot-agent/commit/1631b7dfd229a3d93d4f0377c9f3688da3ddfa0e))
+* **gda:** refuse an empty --godot with binary_not_found on every caller ([#1018](https://github.com/aigengame/godot-agent/issues/1018)) ([ac4e8d5](https://github.com/aigengame/godot-agent/commit/ac4e8d5b489004926df04c650c1a023c4835ad0f))
+* **gda:** run screen and perf through the shared live exchange ([#1019](https://github.com/aigengame/godot-agent/issues/1019)) ([d1c566f](https://github.com/aigengame/godot-agent/commit/d1c566f8e41946be55881f2e896d5cecb0552206))
+
 ## [0.19.0](https://github.com/aigengame/godot-agent/compare/v0.18.0...v0.19.0) (2026-09-22)
 
 
