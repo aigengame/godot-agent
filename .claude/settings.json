@@ -1,4 +1,5 @@
 {
+  "customInstructions": "To apply gda contracts through a complete workflow: configure a restricted Headless operation, check and run an export, drive a Live operation, verify its effect, capture useful evidence, and finish the session. Run `gda skill` to access the bundled compact guide, input-route table, result-verdict table, and environment constraints. Refer to installed command help and schemas for exact options, result fields, and errors.",
   "hooks": {
     "Stop": [
       {
