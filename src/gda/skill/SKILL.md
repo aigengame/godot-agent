@@ -151,7 +151,7 @@ also bypasses an unresolved `uid://` main scene.
    disposable project copy is an optional way to keep the harness out of
    the source project. You do not need to uninstall before `gda export run`:
    it removes the harness for the export and restores the project's prior
-   harness state (ADR-0028). Other export routes do not remove it.
+   harness state. Other export routes do not remove it.
 
 For a windowed launch, `live_windowed_unavailable` means skip rendered
 checks in this environment. `live_windowed_permission_denied` means retry
