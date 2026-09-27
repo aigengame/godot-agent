@@ -22,7 +22,7 @@ const SCENE_TEXT := preload("scene_text.gd")
 # whole-SECONDS granularity, so a same-second external edit would be invisible to mtime;
 # the file size (which an edit almost always changes) catches that case. A single member
 # set is safe — operations.gd is a one-shot process running exactly one op — mirroring
-# the _captured_external_scripts pattern above. An op that captured no token (a create)
+# the _captured_external_scripts pattern. An op that captured no token (a create)
 # leaves _staleness_path empty, and _check_unchanged is then a no-op (returns true).
 static var _staleness_mtime: int = -1
 static var _staleness_size: int = -1

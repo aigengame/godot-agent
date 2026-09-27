@@ -11,7 +11,7 @@ const VALUE := preload("value.gd")
 # node set / resource set assign an EXISTING Resource — referenced by a `res://`
 # path — to an Object-typed property that expects a Resource (sub)class (e.g.
 # CollisionShape2D.shape). This is a SEPARATE, headless-only step from the shared
-# _coerce_value block below: scalar coercion keys off Variant.Type and typed-container
+# _coerce_value block: scalar coercion keys off Variant.Type and typed-container
 # coercion may use the current Dictionary/Array value, but resolving an Object needs
 # the property's expected-CLASS hint, which lives on the property-list entry — so this
 # deliberately is NOT mirrored into the harness (a live `game set` Object assignment is
