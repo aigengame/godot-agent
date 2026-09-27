@@ -2180,8 +2180,8 @@ func _init() -> void:
 def _run_harness(project, harness: str = _ATTACH_DROP_HARNESS) -> str:
     """Run a #164 harness in `project` against the real engine; return saved .tscn."""
     # The harness drives gda's own payload, so ship a copy into the fixture: the
-    # whole payload directory, because the entry preloads its group and concept
-    # files and the scene store preloads its own (ADR-0043 §6).
+    # whole payload directory, because payload files preload other payload files
+    # by relative path (ADR-0043 §6).
     shutil.copytree(PAYLOAD_DIR, project / "ops")
     (project / "attach_drop_harness.gd").write_text(harness, encoding="utf-8")
     proc = subprocess.run(

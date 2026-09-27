@@ -47,7 +47,9 @@ WALK_MODULE = "lib/project_walk.gd"
 # preload constant (ADR-0043 §5): ``PROJECT_WALK._collect_paths``.
 QUALIFIER = r"(?:[A-Z][A-Z0-9_]*\.)?"
 
-# The section note that documents the two static scans over the one traversal.
+# The section note that documents the two static scans over the one traversal. It
+# opens the project group's static-analysis reads.
+SECTION_NOTE_FILE = "groups/project.gd"
 SECTION_HEADER = "# --- project static-analysis reads (issue #116) ---"
 
 # A gda helper named in prose: a ``_``-prefixed identifier that is not the tail of
@@ -140,7 +142,7 @@ def test_the_static_analysis_note_names_only_helpers_that_exist():
     phantoms = sorted(name for name, text in sources.items() if "_scan_project" in text)
     assert not phantoms, f"{phantoms} name _scan_project, which no function defines"
 
-    note = _comment_block(payload_source(), SECTION_HEADER)
+    note = _comment_block(payload_source(SECTION_NOTE_FILE), SECTION_HEADER)
     mentioned = {token for line in note for token in HELPER_MENTION.findall(line)}
     assert mentioned, "the section note must name the helpers it describes"
     undefined = sorted(mentioned - defined)

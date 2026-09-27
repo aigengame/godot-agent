@@ -274,8 +274,8 @@ _SCENE_STARTUP_CONST = re.compile(
 
 def _payload_consts(pattern: re.Pattern[str], relative: str) -> set[str]:
     # Each constant family is read from the module ADR-0043 §5 gives it: the
-    # problem kinds from scene validation, the startup statuses from the entry
-    # until the scene group exists.
+    # problem kinds from scene validation, the startup statuses from the scene
+    # group.
     found = set(pattern.findall(payload_source(relative)))
     assert found, f"no matching consts found in {relative}"
     return found
@@ -287,11 +287,11 @@ def test_scene_problem_kinds_mirror_the_scene_validate_consts():
     }
 
 
-def test_scene_startup_statuses_mirror_the_operations_gd_consts():
+def test_scene_startup_statuses_mirror_the_scene_group_consts():
     # `timeout` is gda's OWN verdict — no engine ever reports it, so it is
     # deliberately absent from the GDScript side and excluded here. Every value the
     # ENGINE can send must have a member; a member gda mints itself must not need one.
-    assert _payload_consts(_SCENE_STARTUP_CONST, "operations.gd") == {
+    assert _payload_consts(_SCENE_STARTUP_CONST, "groups/scene.gd") == {
         status.value for status in SceneStartupStatus
     } - {SceneStartupStatus.TIMEOUT.value}
 
