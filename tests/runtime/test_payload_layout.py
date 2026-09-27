@@ -2,9 +2,10 @@
 
 The payload under ``src/gda/ops`` is an entry (``operations.gd``), the op base
 (``op_base.gd``), one file per command group (``groups/``) and the concept
-modules (``lib/``). A group depends on the op base and on concept modules, never
-on another group or on the entry; a concept module never depends on a group or
-on the entry; and the concept modules form no cycle. The engine loads a cycle
+modules (``lib/``). The entry depends on the op base and on the group files; a
+group depends on the op base and on concept modules, never on another group or
+on the entry; a concept module never depends on a group or on the entry; and the
+concept modules form no cycle. The engine loads a cycle
 (ADR-0043 probe 7) and a group that preloads the entry, so the rules hold only
 through this test: it reads the ``preload("…")`` and ``extends "…"`` targets of
 every payload file and fails on each forbidden edge.
@@ -72,6 +73,22 @@ def _name(path: Path) -> str:
 def test_every_payload_file_is_in_a_tier_of_the_module_map():
     for path in payload_files():
         assert _tier(path) in {ENTRY, SEAM, GROUP, CONCEPT}
+
+
+def test_the_entry_depends_on_the_op_base_and_the_groups_only():
+    # ADR-0043 §3: the entry holds no operation body other than `info`, so it has
+    # no reason to reach a concept module. A `lib/` preload in the entry is an
+    # operation's dependency that stayed behind.
+    for source, targets in _edges().items():
+        if _tier(source) != ENTRY:
+            continue
+        forbidden = sorted(
+            _name(target) for target in targets if _tier(target) not in {SEAM, GROUP}
+        )
+        assert not forbidden, (
+            f"{_name(source)} depends on a file outside the seam and group tiers: "
+            f"{forbidden}"
+        )
 
 
 def test_no_group_depends_on_another_group_or_the_entry():

@@ -28,7 +28,7 @@ from gda.runner import (
     RunResult,
     UserDataReport,
 )
-from tests.support import gd_function, payload_source, payload_sources
+from tests.support import payload_source, payload_sources
 
 # The live execution channel's failure codes (ADR-0017 / ADR-0021). Registered
 # here as the first Phase-2 slice's error contract; emitted by the daemon IPC
@@ -77,10 +77,6 @@ GDSCRIPT_OPERATION_CODE = re.compile(
 )
 GDSCRIPT_HARNESS_LIVE_CODE = re.compile(
     r'^const LIVE_ERROR_[A-Z_]+ := "([a-z_]+)"$', re.MULTILINE
-)
-# A whole declaration line, for the transitional entry-copy pin below.
-GDSCRIPT_OPERATION_CODE_LINE = re.compile(
-    r'^const OP_ERROR_[A-Z_]+ := "[a-z_]+"$', re.MULTILINE
 )
 BARE_FAIL_CODE = re.compile(r'_fail\(\s*"[a-z_]+"')
 
@@ -551,24 +547,6 @@ def test_gdscript_fail_calls_do_not_use_literal_error_codes():
     # pass on a `_fail("literal")` in code that moved away from it (ADR-0043 §6).
     for name, gdscript in payload_sources().items():
         assert not BARE_FAIL_CODE.search(gdscript), f"literal error code in {name}"
-
-
-def test_the_entry_copies_of_the_op_seam_match_the_op_base_until_they_go():
-    # Transitional (#1015): while operation bodies are still in the entry, the
-    # entry keeps its own OP_ERROR_* block and `_has_project`, because a
-    # SceneTree cannot inherit them from the op base and qualifying every use
-    # only to unqualify it again as the bodies move would hide the moves. The
-    # op base is the declaration; the entry's copies must declare the same
-    # OP_ERROR_* lines in the same order and the same `_has_project` function, so
-    # the two cannot drift apart. The last step of #1015 deletes the entry's copies
-    # and this test with them.
-    entry = payload_source()
-    op_base = payload_source("op_base.gd")
-
-    entry_codes = GDSCRIPT_OPERATION_CODE_LINE.findall(entry)
-    assert entry_codes, "the entry no longer declares OP_ERROR_*: delete this test"
-    assert entry_codes == GDSCRIPT_OPERATION_CODE_LINE.findall(op_base)
-    assert gd_function(entry, "_has_project") == gd_function(op_base, "_has_project")
 
 
 def test_live_failures_are_registered_classifier_live_codes():

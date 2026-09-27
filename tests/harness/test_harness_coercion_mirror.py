@@ -24,8 +24,10 @@ GDA_HARNESS_GD = ROOT / "src" / "gda" / "harness" / "gda_harness.gd"
 
 # The mirrored block is the shared value module, a static module: the guard reads
 # it and ignores the `static` keyword the module adds (ADR-0043 §7). The
-# Control-position policy and the reply writer are still in the entry.
+# Control-position policy is the node group's; the reply writer is still in the
+# entry.
 MIRRORED_PAYLOAD_FILE = "lib/value.gd"
+CONTROL_POSITION_FILE = "groups/node.gd"
 ENTRY_FILE = "operations.gd"
 
 # The keyword a static module adds to each of its functions and variables.
@@ -94,10 +96,10 @@ def test_shared_coercion_block_is_byte_identical_across_the_two_gd_files():
 
 
 def test_control_position_policy_is_byte_identical_across_the_two_gd_files():
-    operations_policy = _control_position_policy(_payload_text())
+    operations_policy = _control_position_policy(payload_source(CONTROL_POSITION_FILE))
     harness_policy = _control_position_policy(_harness_text())
 
-    assert operations_policy, "the operations.gd Control-position policy must exist"
+    assert operations_policy, "the node group's Control-position policy must exist"
     assert operations_policy == harness_policy
 
 

@@ -42,8 +42,8 @@ from gda.commands.project import JOY_AXIS_NAMES, JOY_BUTTON_NAMES
 
 from tests.support import GODOT, payload_source
 
-# The tables are in the entry until the project group exists (ADR-0043 §5).
-JOY_TABLES_FILE = "operations.gd"
+# The tables are the project group's (ADR-0043 §5).
+JOY_TABLES_FILE = "groups/project.gd"
 
 # The enum bookkeeping entries that are not bindable inputs. Excluded by NAME so
 # the exclusion is visible and a rename fails loudly.
