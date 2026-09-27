@@ -248,6 +248,18 @@ so two instances can touch the project at once.
 > current reply is still a `contract_violation`; it is not evidence of a particular
 > old version.
 
+> **Outcome (2026-09-27, #1016) — the #220 duplication is resolved (ADR-0043 §7).**
+> The headless payload and the harness now preload ONE shared value module,
+> `src/gda/ops/lib/value.gd`: the Value projection, the `--value` coercion, the
+> property readers, the reply JSON writer `_json` and the Control-position write
+> policy. The mirrored block, the harness copies of `_json` and of that policy, and
+> the drift test are deleted. The install now writes two files into
+> `addons/gda_harness/`: the harness and the module, which the harness preloads by a
+> sibling relative path. A stale or missing module resyncs like a stale harness, a
+> change to either file increases `HARNESS_VERSION`, and uninstall removes both files
+> and the engine-generated `.uid` sidecar of each. The #220 note and the other notes
+> stay as the point-in-time record.
+
 ## Decision
 
 **1. The harness is an installed autoload, not a runtime injection.** `gda` bundles
