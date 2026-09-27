@@ -41,9 +41,11 @@ from tests.support import (
     INPUT_TAP_ACTION_RESULT,
     PERF_PACKED_VALUE_BYTES,
     PNG_1X1_B64,
+    gd_function,
     inject_live_runner,
     minimal_project,
     panel_text,
+    payload_source,
     perf_sample_reply,
     screen_capture_reply,
     sentinel,
@@ -1037,8 +1039,10 @@ def test_game_get_names_game_rect_for_the_control_reads_it_cannot_serve():
     # not on it (#852, GDA-DF-071): `position` and `size` carry editor usage only,
     # `global_position` carries no usage flags, and `global_rect` is a method. The
     # generic refusal therefore stranded a caller on exactly the reads `game rect`
-    # serves. The message is written in the harness, so this reads the harness.
+    # serves. The message is written in the harness, so this reads the harness;
+    # the layout inputs it names come from the shared value module, read with it.
     source = GDA_HARNESS_GD.read_text(encoding="utf-8")
+    shared = payload_source("lib/value.gd")
     declared = HARNESS_CONTROL_LAYOUT_READS.search(source)
     assert declared is not None, (
         f"{GDA_HARNESS_GD.name} must declare CONTROL_LAYOUT_READS"
@@ -1054,15 +1058,16 @@ def test_game_get_names_game_rect_for_the_control_reads_it_cannot_serve():
     # The read that DOES serve them, with every field it reports named, so the
     # caller re-issues one command instead of discovering the fields.
     assert "gda game rect" in message
-    # The layout INPUTS are stated ONCE, in `_control_layout_inputs`, and both the
-    # redirect and the `position` setter refusal take them from there (third
-    # review of PR #967: the setter had kept naming offset_* on a container child
-    # after the redirect learned better — two owners of one rule).
-    assert "_control_layout_inputs(control)" in message, message
-    setter = _harness_function(source, "_control_position_unavailable_message")
+    # The layout INPUTS are stated ONCE, in `_control_layout_inputs` of the shared
+    # value module, and both the redirect and the `position` setter refusal take
+    # them from there (third review of PR #967: the setter had kept naming offset_*
+    # on a container child after the redirect learned better — two owners of one
+    # rule).
+    assert "VALUE._control_layout_inputs(control)" in message, message
+    setter = "\n".join(gd_function(shared, "_control_position_unavailable_message"))
     assert "_control_layout_inputs(control)" in setter, setter
     assert "offset_left" not in setter, setter
-    inputs = _harness_function(source, "_control_layout_inputs")
+    inputs = "\n".join(gd_function(shared, "_control_layout_inputs"))
     for field in (
         "position",
         "size",
