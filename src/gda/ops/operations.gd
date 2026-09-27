@@ -44,7 +44,7 @@ const RESULT_END := "<<<GDA:END>>>"
 
 # The prefix every gda diagnostic line carries on stderr (see _diag), so a reader
 # can tell gda's own lines from the engine's. A const rather than an inline
-# literal because one diagnostic — VALIDATE_MARKER below — is PARSED by gda, not
+# literal because one diagnostic — VALIDATE_MARKER — is PARSED by gda, not
 # merely displayed, which makes this prefix half of a cross-language contract.
 const DIAG_PREFIX := "gda: "
 
@@ -295,8 +295,9 @@ func _op_info() -> void:
 #
 # This is the REPORTING half. The way IN — the --value string the ops coerce with
 # String.to_float(), the engine's own parser — is answered by #772, in the shared
-# coercion block above: a literal that parser turns into 0.0 or NaN although the
-# caller did not write a zero is REFUSED, and its low-order drift is disclosed.
+# coercion block (_coerce_value): a literal that parser turns into 0.0 or NaN
+# although the caller did not write a zero is REFUSED, and its low-order drift is
+# disclosed.
 func _json(value: Variant) -> String:
 	return JSON.stringify(value, "", true, true)
 

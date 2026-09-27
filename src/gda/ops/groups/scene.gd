@@ -33,8 +33,8 @@ const PREFLIGHT_READY_EVIDENCE := "<<<GDA:PREFLIGHT-READY>>>"
 
 # The startup verdicts scene-preflight reports (#664). The third one an agent can
 # read, `timeout`, is gda's own: only the CLI knows the launch outran its bound,
-# because an engine stuck inside a scene's `_ready` never reaches the frame loop
-# below to report anything at all.
+# because an engine stuck inside a scene's `_ready` never reaches an idle frame, so
+# _preflight_tick never runs to report anything at all.
 const SCENE_STARTUP_READY := "ready"
 const SCENE_STARTUP_NOT_READY := "not_ready"
 
@@ -300,7 +300,7 @@ func _op_scene_delete(params: Dictionary) -> void:
 # but never INSTANTIATED, so none of the scene's own node scripts run — no _init, no
 # _ready, no frames. (The project's autoloads still start, as they do for every
 # --project op; and compiling a script executes its static initializers, which is
-# why the compile check below asks the loaded script first.) That is the boundary
+# why _script_binding_problem asks the loaded script first.) That is the boundary
 # against scene-preflight below, which boots the scene on purpose.
 #
 # It exists because loading a scene SUCCEEDS whatever is broken inside it: the
