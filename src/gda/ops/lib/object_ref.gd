@@ -14,8 +14,9 @@ const VALUE := preload("value.gd")
 # _coerce_value block: scalar coercion keys off Variant.Type and typed-container
 # coercion may use the current Dictionary/Array value, but resolving an Object needs
 # the property's expected-CLASS hint, which lives on the property-list entry — so this
-# deliberately is NOT mirrored into the harness (a live `game set` Object assignment is
-# out of scope, ADR-0033) and the byte-identical coercion mirror stays untouched.
+# deliberately is NOT in the shared value module the harness preloads (a live `game
+# set` Object assignment is out of scope, ADR-0033) and the shared _coerce_value stays
+# untouched.
 #
 # The full storage-property list entry (name/type/hint/hint_string/class_name/usage)
 # for `prop_name` on `target` (a Node or a Resource — both are Objects with a

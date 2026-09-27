@@ -1725,7 +1725,7 @@ def _readable(data: bytes):
 #
 # The payload is one entry plus the files it preloads, under ``src/gda/ops``. Every
 # test that reads it as text — the error-code mirrors, the constant mirrors, the
-# project-walk guards, the harness drift test — gets the sources from here, so a
+# project-walk guards, the payload layout rules — gets the sources from here, so a
 # file that moves or joins the payload has one place to be found in. Each parse
 # fails when it finds nothing, so a guard cannot pass on an empty read.
 

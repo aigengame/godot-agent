@@ -140,8 +140,10 @@ class DaemonStartResult(BaseModel):
             "The `res://` paths this start CREATED in the project (outermost "
             "directory first), so the harness install is an auditable mutation "
             "rather than a silent write into a tracked project (#654). Empty on an "
-            "idempotent repeat start and on a version resync — those rewrite the "
-            "harness (`harness_synced`) but create nothing new. Reversed by "
+            "idempotent repeat start. A version resync rewrites the harness "
+            "(`harness_synced`) and creates only a harness file that is missing: the "
+            "first resync of a harness installed without its shared value module "
+            "creates `res://addons/gda_harness/value.gd`. Reversed by "
             "`gda daemon uninstall`, except `res://addons` itself: an empty "
             "directory is invisible to git, and the shared Godot addons directory "
             "may be about to hold another addon."
@@ -445,10 +447,12 @@ class DaemonInstallResult(BaseModel):
         description=(
             "The `res://` paths this call CREATED in the project (outermost directory "
             "first), so the install is an auditable mutation rather than a silent "
-            "write into a tracked project (#654). Empty on an idempotent repeat and "
-            "on a version resync — those rewrite the harness (`harness_synced`) but "
-            "create nothing new. Reversed by `gda daemon uninstall`, except "
-            "`res://addons` itself."
+            "write into a tracked project (#654). Empty on an idempotent repeat. A "
+            "version resync rewrites the harness (`harness_synced`) and creates only "
+            "a harness file that is missing: the first resync of a harness installed "
+            "without its shared value module creates "
+            "`res://addons/gda_harness/value.gd`. Reversed by `gda daemon "
+            "uninstall`, except `res://addons` itself."
         ),
     )
     created_sections: list[str] = Field(
@@ -483,8 +487,9 @@ class DaemonUninstallResult(BaseModel):
     removed_paths: list[str] = Field(
         default_factory=list,
         description=(
-            "The `res://` paths removed: the harness script, its engine-generated "
-            "`.uid` sidecar, and `res://addons/gda_harness` once empty (#654). "
+            "The `res://` paths removed: the harness script, the shared value module "
+            "`value.gd` it preloads, the engine-generated `.uid` sidecar of each, and "
+            "`res://addons/gda_harness` once empty (#654). "
             "`res://addons` is left in place: an empty directory is invisible to "
             "git, so it causes none of the tracked-file churn this removal is for, "
             "and the shared Godot addons directory may be about to hold another "
@@ -1690,13 +1695,13 @@ def daemon_uninstall(
     entry is stripped first, then the files — so a mid-failure never leaves a
     dangling autoload (which an exported game logs `ERR_CONTINUE` and skips at
     startup — error spam, not a hard crash; ADR-0028). It restores the project: the
-    harness script, its engine-generated `.uid` sidecar and the emptied addon
-    directory all go, and an autoload section left with no keys loses its header
-    too, so `project.godot` returns to its pre-install bytes. The result enumerates
-    every path and section removed. Idempotent (a no-op if not installed). Refused
-    while a daemon is running (`daemon_running`); stop it first with
-    `gda daemon stop`. Live is macOS/Linux only; elsewhere reports
-    `live_unsupported_platform`.
+    harness script, the shared value module `value.gd` it preloads, their
+    engine-generated `.uid` sidecars and the emptied addon directory all go, and an
+    autoload section left with no keys loses its header too, so `project.godot`
+    returns to its pre-install bytes. The result enumerates every path and section
+    removed. Idempotent (a no-op if not installed). Refused while a daemon is
+    running (`daemon_running`); stop it first with `gda daemon stop`. Live is
+    macOS/Linux only; elsewhere reports `live_unsupported_platform`.
     """
     # The docstring above spells section names WITHOUT their square brackets on
     # purpose: Typer renders it through Rich, which reads `[autoload]` as a markup

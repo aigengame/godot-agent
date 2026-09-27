@@ -2,7 +2,8 @@
 
 The payload under ``src/gda/ops`` is an entry (``operations.gd``), the op base
 (``op_base.gd``), one file per command group (``groups/``) and the concept
-modules (``lib/``). The entry depends on the op base and on the group files; a
+modules (``lib/``). The entry depends on the op base, on the group files and on
+one concept module, the shared value module (for ``_json``, #1016); a
 group depends on the op base and on concept modules, never on another group or
 on the entry; a concept module never depends on a group or on the entry; and the
 concept modules form no cycle. The engine loads a cycle
@@ -23,6 +24,10 @@ ENTRY = "entry"
 SEAM = "seam"
 GROUP = "group"
 CONCEPT = "concept"
+
+# The one concept module the entry may depend on (ADR-0043 §3): the shared value
+# module, which holds the reply JSON writer `_json` since #1016.
+SHARED_VALUE_MODULE = PAYLOAD_DIR / "lib" / "value.gd"
 
 
 def _tier(path: Path) -> str:
@@ -76,18 +81,23 @@ def test_every_payload_file_is_in_a_tier_of_the_module_map():
 
 
 def test_the_entry_depends_on_the_op_base_and_the_groups_only():
-    # ADR-0043 §3: the entry holds no operation body other than `info`, so it has
-    # no reason to reach a concept module. A `lib/` preload in the entry is an
-    # operation's dependency that stayed behind.
+    # ADR-0043 §3: the entry holds no operation body other than `info`, so the only
+    # concept module it has a reason to reach is the shared value module, for the
+    # reply JSON writer `_json` its `_succeed` and `_fail` call (#1016). Any other
+    # `lib/` preload in the entry is an operation's dependency that stayed behind.
+    allowed = SHARED_VALUE_MODULE.resolve()
+    assert allowed.is_file(), f"{_name(allowed)} is missing"
     for source, targets in _edges().items():
         if _tier(source) != ENTRY:
             continue
         forbidden = sorted(
-            _name(target) for target in targets if _tier(target) not in {SEAM, GROUP}
+            _name(target)
+            for target in targets
+            if _tier(target) not in {SEAM, GROUP} and target != allowed
         )
         assert not forbidden, (
-            f"{_name(source)} depends on a file outside the seam and group tiers: "
-            f"{forbidden}"
+            f"{_name(source)} depends on a file outside the seam and group tiers "
+            f"other than {_name(allowed)}: {forbidden}"
         )
 
 

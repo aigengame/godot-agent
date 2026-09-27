@@ -406,7 +406,7 @@ resource — the same shape a subsequent `get` reads back (pass `--project` so `
 is a **separate, headless-only** step from the shared coercion above — scalar coercion keys off the
 Variant type and container coercion may use the current typed container value, but neither carries the
 expected-class hint on the property-list entry — so
-assigning a Resource on the live `gda game set` is **out of scope** and the coercion mirror is
+assigning a Resource on the live `gda game set` is **out of scope** and the shared coercion is
 unchanged for Object assignment. Its failure modes are **distinct structured codes**, never `uncoercible_value`: a non-`res://`
 value is `expected_resource_path`; a path that does not load as a Resource is `not_a_resource`; a loaded
 resource whose type is incompatible with the property's expected class is `resource_type_mismatch`. The
@@ -421,8 +421,8 @@ commands**, not specific to nodes. `gda resource set` (#120) applies the same #5
 addressed `.tres` resource property's declared type and round-trips through `resource get`, exactly
 as `node set` round-trips through `node get`; here `unknown_property` names a property absent on the
 **resource** rather than a node. The live `gda game set` (#220) applies the same coercion table to a
-**running** node's runtime property (the gda harness carries a verbatim copy of the coercion helpers,
-kept in sync by a drift test). When a `game get` / `game set` property name is explicit, the harness
+**running** node's runtime property (the gda harness preloads the same shared value module that holds
+the headless coercion, #1016). When a `game get` / `game set` property name is explicit, the harness
 checks storage properties first, then attached-script variables; unfiltered `game get` keeps the
 storage-property listing and does not dump plain script variables. Live set success results keep
 `value` as the observed read-back value and add `verified`: `true` when that read-back equals the

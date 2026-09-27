@@ -680,7 +680,7 @@ CONTAINER_PER_COMMAND = [
 
 @pytest.mark.e2e
 def test_project_set_shares_the_refusal(probe_project):
-    """The policy is the shared coercion's, not `node set`'s (the mirror's point)."""
+    """The policy is the shared coercion's, not `node set`'s."""
     (probe_project / "project.godot").write_text(
         (probe_project / "project.godot").read_text(encoding="utf-8")
         + '\n[gda]\n\nprobe/value=1.5\nprobe/dict={"a": 1.0}\nprobe/arr=[1.0]\n',
@@ -789,13 +789,13 @@ SET_MAIN_TSCN = (
 def test_game_set_refuses_the_same_literals_against_a_real_daemon(
     tmp_path, daemon_runtime_dir
 ):
-    """The harness copy of the policy, exercised where it actually runs.
+    """The policy on the live channel, exercised where it actually runs.
 
     ``game set`` carries the value as a STRING, so ``RelayedLiveParams`` (#752) never
-    sees a float and cannot refuse it — the coercion block in ``gda_harness.gd`` is
-    the only thing standing between the caller and a silently zeroed live write.
-    This is why the block is mirrored, and why it is exercised through a real
-    session rather than trusted to the drift test.
+    sees a float and cannot refuse it — the shared ``_coerce_value`` the harness
+    preloads is the only thing standing between the caller and a silently zeroed
+    live write. This is why it is exercised through a real session, not only
+    through the headless commands that run the same module.
     """
     (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(SET_MAIN_TSCN, encoding="utf-8")
@@ -832,7 +832,7 @@ def test_game_set_refuses_the_same_literals_against_a_real_daemon(
         assert accepted.returncode == 0, accepted.stdout + accepted.stderr
         assert value_bits(json.loads(accepted.stdout)["value"]) == value_bits(1e-18)
 
-        # ...and the note's attribution is the harness copy's too: an int variable
+        # ...and the note's attribution holds on the live channel too: an int variable
         # never reaches the float coercion, so the live refusal keeps the plain
         # message rather than blaming a parser that never saw the literal.
         misattributed = run(
@@ -845,9 +845,9 @@ def test_game_set_refuses_the_same_literals_against_a_real_daemon(
             "cannot coerce value 1e-320 to int for script variable n on node /root/Main"
         ), misattributed.stdout
 
-        # The container half is the harness copy's too (#805) — the mirrored block
-        # is what makes that true, and this is where it is exercised rather than
-        # inferred from the drift test.
+        # The container half is the harness's too (#805) — the shared value module
+        # the harness preloads is what makes that true, and this is where it is
+        # exercised on the live channel.
         for prop, value, note in (
             ("d", '{"a": 1e-320}', "reads 1e-320 as 0.0"),
             ("a", "[0e600]", "reads 0e600 as NaN"),

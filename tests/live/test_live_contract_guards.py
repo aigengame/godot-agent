@@ -51,6 +51,9 @@ from tests.support import (
 
 ROOT = Path(__file__).resolve().parents[2]
 GDA_HARNESS_GD = ROOT / "src" / "gda" / "harness" / "gda_harness.gd"
+# The shared value module the harness preloads (#1016, ADR-0043 §7): it holds the
+# Control-position write policy that `game set` and headless `node set` share.
+SHARED_VALUE_GD = ROOT / "src" / "gda" / "ops" / "lib" / "value.gd"
 
 
 def _leaf_commands(command, path):
@@ -1037,8 +1040,10 @@ def test_game_get_names_game_rect_for_the_control_reads_it_cannot_serve():
     # not on it (#852, GDA-DF-071): `position` and `size` carry editor usage only,
     # `global_position` carries no usage flags, and `global_rect` is a method. The
     # generic refusal therefore stranded a caller on exactly the reads `game rect`
-    # serves. The message is written in the harness, so this reads the harness.
+    # serves. The message is written in the harness, so this reads the harness;
+    # the layout inputs it names come from the shared value module, read with it.
     source = GDA_HARNESS_GD.read_text(encoding="utf-8")
+    shared = SHARED_VALUE_GD.read_text(encoding="utf-8")
     declared = HARNESS_CONTROL_LAYOUT_READS.search(source)
     assert declared is not None, (
         f"{GDA_HARNESS_GD.name} must declare CONTROL_LAYOUT_READS"
@@ -1054,15 +1059,18 @@ def test_game_get_names_game_rect_for_the_control_reads_it_cannot_serve():
     # The read that DOES serve them, with every field it reports named, so the
     # caller re-issues one command instead of discovering the fields.
     assert "gda game rect" in message
-    # The layout INPUTS are stated ONCE, in `_control_layout_inputs`, and both the
-    # redirect and the `position` setter refusal take them from there (third
-    # review of PR #967: the setter had kept naming offset_* on a container child
-    # after the redirect learned better — two owners of one rule).
-    assert "_control_layout_inputs(control)" in message, message
-    setter = _harness_function(source, "_control_position_unavailable_message")
+    # The layout INPUTS are stated ONCE, in `_control_layout_inputs` of the shared
+    # value module, and both the redirect and the `position` setter refusal take
+    # them from there (third review of PR #967: the setter had kept naming offset_*
+    # on a container child after the redirect learned better — two owners of one
+    # rule).
+    assert "VALUE._control_layout_inputs(control)" in message, message
+    setter = _harness_function(
+        shared, "_control_position_unavailable_message", SHARED_VALUE_GD
+    )
     assert "_control_layout_inputs(control)" in setter, setter
     assert "offset_left" not in setter, setter
-    inputs = _harness_function(source, "_control_layout_inputs")
+    inputs = _harness_function(shared, "_control_layout_inputs", SHARED_VALUE_GD)
     for field in (
         "position",
         "size",
@@ -1133,14 +1141,22 @@ def test_game_get_names_game_rect_for_the_control_reads_it_cannot_serve():
     )
 
 
-def _harness_function(source: str, name: str) -> str:
-    """One top-level GDScript function's text, its body included."""
+def _harness_function(source: str, name: str, origin: Path = GDA_HARNESS_GD) -> str:
+    """One top-level GDScript function's text, its body included.
+
+    ``source`` is the text of ``origin``: the harness, or the shared value module
+    it preloads, whose functions are ``static func``.
+    """
     lines = source.splitlines()
     start = next(
-        (index for index, line in enumerate(lines) if line.startswith(f"func {name}(")),
+        (
+            index
+            for index, line in enumerate(lines)
+            if line.startswith((f"func {name}(", f"static func {name}("))
+        ),
         None,
     )
-    assert start is not None, f"expected function {name} in {GDA_HARNESS_GD.name}"
+    assert start is not None, f"expected function {name} in {origin.name}"
     body = [lines[start]]
     for line in lines[start + 1 :]:
         if line and not line.startswith("\t"):

@@ -2,8 +2,9 @@
 
 ``gda daemon start`` performs this **one-time, install-time write** (never a
 per-launch mutation, which would race a concurrent editor and corrupt config):
-it materializes the bundled harness under ``res://addons/`` and ensures its
-``[autoload]`` entry in ``project.godot``. It is idempotent and order-preserving,
+it materializes the bundled harness under ``res://addons/``, with the shared value
+module it preloads beside it (ADR-0043 §7), and ensures its ``[autoload]`` entry in
+``project.godot``. It is idempotent and order-preserving,
 and reports whether it changed anything (``installed_harness``).
 
 The write is Python-side because it happens *before* any engine session exists.
@@ -102,20 +103,28 @@ HARNESS_RES_DIR = f"{HARNESS_ADDONS_DIR}/gda_harness"
 HARNESS_FILE = "gda_harness.gd"
 HARNESS_RES_PATH = f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}"
 
+# The shared value module (ADR-0043 §7): the headless payload's `lib/value.gd`,
+# which the harness preloads by a sibling relative path. The installer copies it
+# beside the harness under the same basename, so the two payloads name one file.
+HARNESS_VALUE_FILE = "value.gd"
+HARNESS_VALUE_RES_PATH = f"res://{HARNESS_RES_DIR}/{HARNESS_VALUE_FILE}"
+
 # The engine writes a `<script>.uid` sidecar next to every script it imports, so the
 # harness install grows a file gda never wrote. It is still gda's footprint (it names
 # gda's script), so uninstall removes it — without it the addon directory is never
 # empty and the existing empty-directory removal never fires (GDA-DF-009, #654).
 HARNESS_UID_FILE = f"{HARNESS_FILE}.uid"
 HARNESS_UID_RES_PATH = f"res://{HARNESS_RES_DIR}/{HARNESS_UID_FILE}"
+HARNESS_VALUE_UID_FILE = f"{HARNESS_VALUE_FILE}.uid"
+HARNESS_VALUE_UID_RES_PATH = f"res://{HARNESS_RES_DIR}/{HARNESS_VALUE_UID_FILE}"
 HARNESS_RES_DIR_PATH = f"res://{HARNESS_RES_DIR}"
-HARNESS_ADDONS_RES_PATH = f"res://{HARNESS_ADDONS_DIR}"
 
-# Bumped when the bundled harness changes; the daemon self-syncs the installed
-# copy to it (#225). The installed copy declares its version in a leading header
-# (`# gda-harness-version: <N>`); a mismatch re-materializes via the content
-# compare. NOT the package version — the harness changes far less often.
-HARNESS_VERSION = "25"
+# Bumped when the bundled harness or the shared value module changes; the daemon
+# self-syncs the installed copy to it (#225). The installed harness declares its
+# version in a leading header (`# gda-harness-version: <N>`); a mismatch
+# re-materializes via the content compare. NOT the package version — the harness
+# changes far less often.
+HARNESS_VERSION = "26"
 
 _VERSION_HEADER_PREFIX = "# gda-harness-version:"
 _AUTOLOAD_HEADER = "[autoload]"
@@ -135,6 +144,9 @@ _AUTOLOAD_SECTION = "autoload"
 _HARNESS_SETTING = f"{_AUTOLOAD_SECTION}/{HARNESS_AUTOLOAD_NAME}"
 _PROJECT_FILE = "project.godot"
 _BUNDLED_HARNESS = Path(__file__).parent / HARNESS_FILE
+_BUNDLED_VALUE_MODULE = (
+    Path(__file__).parent.parent / "ops" / "lib" / HARNESS_VALUE_FILE
+)
 
 
 @dataclass(frozen=True)
@@ -152,8 +164,9 @@ class HarnessInstall:
     ``created_paths`` / ``created_sections`` are the mutation receipt (#654): the
     ``res://`` paths THIS call brought into existence (outermost directory first) and
     the ``project.godot`` sections it added. Both are empty on an idempotent repeat
-    install and on a version resync — nothing new appears there; the rewrite is what
-    ``synced`` reports.
+    install. A version resync creates only an installed script that was missing — the
+    first resync of a harness installed without the shared value module creates the
+    module (#1016); the rewrite is what ``synced`` reports.
 
     The receipt says what this call CREATED, for the caller to REPORT. It is
     deliberately not the input to any undo: :class:`HarnessSnapshot` owns that, and
@@ -226,33 +239,54 @@ def _version_header() -> str:
     return f"{_VERSION_HEADER_PREFIX} {HARNESS_VERSION}"
 
 
-def _materialized_content() -> str:
-    """The exact bytes the installed harness should hold: version header + body."""
-    return f"{_version_header()}\n{_BUNDLED_HARNESS.read_text(encoding='utf-8')}"
+def _materialized_content(dest: Path) -> str:
+    """The exact text the installed script ``dest`` should hold.
+
+    The harness is its version header + its bundled body; the header is what
+    :func:`installed_harness_version` reads. The shared value module is its bundled
+    body alone: the harness header already names the version of the install, and the
+    content compare in :func:`_materialize` sees a stale module without one.
+    """
+    if dest.name == HARNESS_FILE:
+        return f"{_version_header()}\n{_BUNDLED_HARNESS.read_text(encoding='utf-8')}"
+    if dest.name == HARNESS_VALUE_FILE:
+        return _BUNDLED_VALUE_MODULE.read_text(encoding="utf-8")
+    raise ValueError(f"no bundled source for an installed script named {dest.name}")
 
 
 def _harness_dest(project: Path) -> Path:
     return project / HARNESS_RES_DIR / HARNESS_FILE
 
 
-def _harness_uid(project: Path) -> Path:
-    return project / HARNESS_RES_DIR / HARNESS_UID_FILE
-
-
 def harness_artifacts(project: Path) -> tuple[Path, ...]:
-    """Every file in ``project`` that the harness install owns: script + ``.uid``.
+    """Every file in ``project`` that the harness install owns.
 
-    The ONLY enumeration of them, in deletion order (the script first, then the
-    sidecar). Every consumer reads it rather than restating it: :func:`_remove_files`
-    deletes exactly these, and :class:`HarnessSnapshot` captures exactly these (plus
-    ``project.godot``) for both transactional callers — ``gda export run``'s strip
-    (ADR-0028) and ``gda daemon start``'s failed-start restore. A second
-    hand-maintained list would let them drift — a file one side removes but the
-    other never captured would simply never come back, breaking the "left
-    byte-identical" guarantee (#654; the drift risk was called out in PR #680 review,
-    which is why removal now iterates this instead of its own tuple).
+    The harness script, then the shared value module it preloads (ADR-0043 §7), each
+    followed by the ``.uid`` sidecar the engine writes for it. The ONLY enumeration
+    of them, in deletion order. Every consumer reads it rather than restating it:
+    :func:`_materialize` copies and compares the scripts in it, and
+    :func:`_created_paths` reports the ones it will create (neither touches a
+    ``.uid``, which the engine writes); :func:`_remove_files` deletes exactly these,
+    and :class:`HarnessSnapshot` captures exactly these (plus ``project.godot``) for
+    both transactional callers — ``gda export run``'s strip (ADR-0028) and ``gda
+    daemon start``'s failed-start restore. A second hand-maintained list would let
+    them drift — a file one side removes but the other never captured would simply
+    never come back, breaking the "left byte-identical" guarantee (#654; the drift
+    risk was called out in PR #680 review, which is why removal now iterates this
+    instead of its own tuple).
     """
-    return (_harness_dest(project), _harness_uid(project))
+    directory = project / HARNESS_RES_DIR
+    return (
+        directory / HARNESS_FILE,
+        directory / HARNESS_UID_FILE,
+        directory / HARNESS_VALUE_FILE,
+        directory / HARNESS_VALUE_UID_FILE,
+    )
+
+
+def _installed_scripts(project: Path) -> tuple[Path, ...]:
+    """The scripts of :func:`harness_artifacts`: every entry but a ``.uid`` sidecar."""
+    return tuple(path for path in harness_artifacts(project) if path.suffix != ".uid")
 
 
 def harness_directories(project: Path) -> tuple[Path, ...]:
@@ -416,19 +450,23 @@ def installed_harness_version(project: Path) -> Optional[str]:
 
 
 def _materialize(project: Path) -> bool:
-    """Write the bundled harness under res://addons; True iff it changed on disk.
+    """Write the bundled scripts under res://addons; True iff one changed on disk.
 
-    The destination content is the version header + the bundled body, so a version
-    bump (or a body change) is a content difference — re-materialize only then,
-    never unconditionally (an mtime bump would trip the concurrent-editor prompt).
+    The scripts are the ones :func:`harness_artifacts` lists. Each destination is
+    compared with its bundled content (:func:`_materialized_content`), so a version
+    bump, a body change, or a stale or missing module is a content difference. Only
+    a script that differs is rewritten, never unconditionally (an mtime bump would
+    trip the concurrent-editor prompt).
     """
-    dest = _harness_dest(project)
-    content = _materialized_content()
-    if dest.exists() and dest.read_text(encoding="utf-8") == content:
-        return False
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(content, encoding="utf-8")
-    return True
+    changed = False
+    for dest in _installed_scripts(project):
+        content = _materialized_content(dest)
+        if dest.exists() and dest.read_text(encoding="utf-8") == content:
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(content, encoding="utf-8")
+        changed = True
+    return changed
 
 
 def _harness_entries(section: ConfigSection) -> list[ConfigEntry]:
@@ -509,16 +547,14 @@ def _created_paths(project: Path) -> tuple[str, ...]:
 
     Read BEFORE ``_materialize`` runs: whatever is missing now is exactly what its
     ``mkdir(parents=True)`` + write brings into existence, so this is the install
-    half of the #654 receipt. Empty when the harness file already exists (an
-    idempotent repeat install or a version resync creates nothing).
+    half of the #654 receipt. The directories come from :func:`harness_directories`
+    and the scripts from :func:`harness_artifacts`, never a ``.uid``. Empty when
+    every script already exists (an idempotent repeat install, or a version resync
+    of a complete install, creates nothing).
     """
     return tuple(
-        res_path
-        for path, res_path in (
-            (project / HARNESS_ADDONS_DIR, HARNESS_ADDONS_RES_PATH),
-            (project / HARNESS_RES_DIR, HARNESS_RES_DIR_PATH),
-            (_harness_dest(project), HARNESS_RES_PATH),
-        )
+        _res_path(project, path)
+        for path in (*harness_directories(project), *_installed_scripts(project))
         if not path.exists()
     )
 
@@ -653,14 +689,14 @@ def _remove_autoload(text: str) -> _ConfigEdit:
 
 
 def _remove_files(project: Path) -> tuple[str, ...]:
-    """Delete the harness file, its ``.uid`` sidecar and the emptied addon dir.
+    """Delete the harness scripts, their ``.uid`` sidecars and the emptied addon dir.
 
     Iterates :func:`harness_artifacts` — the single authority for what the install
     owns — and derives the receipt from the same entries, so adding an artifact
     there extends deletion, the receipt and ADR-0028's export snapshot at once
     (PR #680 review). Returns the ``res://`` paths actually removed (the filesystem
-    half of the #654 receipt). The engine writes the ``.uid`` sidecar itself, but it
-    names gda's script, so it is gda's footprint — and until it goes the addon
+    half of the #654 receipt). The engine writes each ``.uid`` sidecar itself, but it
+    names a gda script, so it is gda's footprint — and until they go the addon
     directory is never empty, so the directory removal below never fires
     (GDA-DF-009).
 
