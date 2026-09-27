@@ -93,8 +93,10 @@ def _git_blob_if_present(revision: str, path: str) -> bytes | None:
     A revision before the shared value module existed has no ``lib/value.gd``; the
     module then counts as changed, which is what it is for the installed harness.
     """
+    # `--full-tree` reads `path` from the repository root, as `git show rev:path`
+    # does; without it Git reads the path from the working directory.
     listed = subprocess.run(
-        ["git", "ls-tree", "--name-only", revision, "--", path],
+        ["git", "ls-tree", "--full-tree", "--name-only", revision, "--", path],
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

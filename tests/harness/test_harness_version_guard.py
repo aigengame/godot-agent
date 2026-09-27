@@ -1,5 +1,8 @@
 """Cross-revision harness identity guard."""
 
+import os
+import subprocess
+
 import pytest
 
 import harness_version_guard
@@ -71,6 +74,36 @@ def test_a_module_the_base_does_not_have_counts_as_a_change():
             _files(b"same body"),
             _install("10"),
         )
+
+
+def test_a_present_file_is_found_from_a_subdirectory(tmp_path, monkeypatch):
+    # Git reads an `ls-tree` path from the working directory. Run from a
+    # subdirectory, the guard saw no module and passed a module change that had no
+    # version bump (PR #1033 review).
+    env = {
+        **os.environ,
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_SYSTEM": os.devnull,
+        "GIT_AUTHOR_NAME": "gda tests",
+        "GIT_AUTHOR_EMAIL": "tests@example.invalid",
+        "GIT_COMMITTER_NAME": "gda tests",
+        "GIT_COMMITTER_EMAIL": "tests@example.invalid",
+    }
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib" / "value.gd").write_bytes(b"module body")
+    (tmp_path / "scripts").mkdir()
+    for args in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "init"]):
+        subprocess.run(
+            ["git", "-C", str(tmp_path), *args],
+            check=True,
+            capture_output=True,
+            env=env,
+        )
+    monkeypatch.chdir(tmp_path / "scripts")
+
+    found = harness_version_guard._git_blob_if_present("HEAD", "lib/value.gd")
+
+    assert found == b"module body"
 
 
 @pytest.mark.parametrize(
