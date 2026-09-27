@@ -9,13 +9,13 @@ group, where every problem reported is a ``res://`` resolution outcome).
 
 import json
 import re
-from pathlib import Path
 
 from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.commands.scene import SceneProblemKind, SceneStartupStatus
 from tests.support import (
+    payload_source,
     assert_operation_error,
     invoke_cli,
     minimal_project,
@@ -256,7 +256,7 @@ def test_an_operation_failure_is_still_an_error_envelope(monkeypatch, tmp_path):
 
 # --- The cross-language enum contract (#664) --------------------------------
 #
-# `operations.gd` WRITES these strings into the sentinel and the pydantic enums READ
+# The payload WRITES these strings into the sentinel and the pydantic enums READ
 # them, so a drift in either spelling turns a real verdict into a `contract_violation`
 # at parse time. Pinned the way every other cross-language mirror in this repo is (cf.
 # `VALIDATE_MARKER` in tests/script/test_script_commands.py): scrape the const VALUES
@@ -272,26 +272,26 @@ _SCENE_STARTUP_CONST = re.compile(
 )
 
 
-def _operations_consts(pattern: re.Pattern[str]) -> set[str]:
-    operations = (
-        Path(__file__).resolve().parents[2] / "src" / "gda" / "ops" / "operations.gd"
-    )
-    found = set(pattern.findall(operations.read_text(encoding="utf-8")))
-    assert found, "no matching consts found in operations.gd"
+def _payload_consts(pattern: re.Pattern[str], relative: str) -> set[str]:
+    # Each constant family is read from the module ADR-0043 §5 gives it: the
+    # problem kinds from scene validation, the startup statuses from the scene
+    # group.
+    found = set(pattern.findall(payload_source(relative)))
+    assert found, f"no matching consts found in {relative}"
     return found
 
 
-def test_scene_problem_kinds_mirror_the_operations_gd_consts():
-    assert _operations_consts(_SCENE_PROBLEM_CONST) == {
+def test_scene_problem_kinds_mirror_the_scene_validate_consts():
+    assert _payload_consts(_SCENE_PROBLEM_CONST, "lib/scene_validate.gd") == {
         kind.value for kind in SceneProblemKind
     }
 
 
-def test_scene_startup_statuses_mirror_the_operations_gd_consts():
+def test_scene_startup_statuses_mirror_the_scene_group_consts():
     # `timeout` is gda's OWN verdict — no engine ever reports it, so it is
     # deliberately absent from the GDScript side and excluded here. Every value the
     # ENGINE can send must have a member; a member gda mints itself must not need one.
-    assert _operations_consts(_SCENE_STARTUP_CONST) == {
+    assert _payload_consts(_SCENE_STARTUP_CONST, "groups/scene.gd") == {
         status.value for status in SceneStartupStatus
     } - {SceneStartupStatus.TIMEOUT.value}
 

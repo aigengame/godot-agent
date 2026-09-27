@@ -12,6 +12,14 @@ status: accepted
 > copies of the `<<<GDA:RESULT>>>…<<<GDA:END>>>` wrapping. No contract change — the
 > emitted bytes, exit codes, and envelope shape are identical.
 
+> **Outcome (2026-09-27, #1015):** the `operation`-source rows are declared once in
+> `src/gda/ops/op_base.gd`, the op base every command-group file and every
+> failure-reporting concept module extends (ADR-0043 §5). Where this ADR says
+> "`operations.gd` declares exactly the `operation`-source rows", read the op base
+> as the declaring file; `operations.gd` names the headless payload as a whole. The
+> mirror test (`tests/cli/test_error_registry.py`) reads the op base. No contract
+> change: the codes, their membership and the sentinel envelope are unchanged.
+
 Structured output is `gda`'s core differentiator (ADR-0000), but a headless Godot
 process mixes its version banner, warnings, errors, and `print()` output into
 stdout/stderr. `godot-mcp` does not solve this — it returns the raw stdout blob as

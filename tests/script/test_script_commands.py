@@ -7,7 +7,6 @@ parse → typed model → JSON — with canned engine output, no real Godot.
 """
 
 import json
-import re
 from pathlib import Path
 
 import pytest
@@ -18,6 +17,8 @@ from gda.commands.script import ScriptSetMode
 from gda.project import owning_project
 from gda.runner import RunResult
 from tests.support import (
+    gd_string_const,
+    payload_source,
     SCRIPT_CREATE_RESULT as CREATE_RESULT,
     SCRIPT_GET_RESULT as GET_RESULT,
     SCRIPT_LIST_RESULT as LIST_RESULT,
@@ -1341,24 +1342,21 @@ def test_script_validate_batch_human_output_leads_with_the_aggregate(monkeypatch
     ]
 
 
-# The two `operations.gd` consts the per-file marker is composed from. Matched the
-# way every other cross-language mirror in this repo is (cf. `HARNESS_LOG_MARKER`
-# in tests/cli/test_error_registry.py): extract the const's VALUE, so the pin survives
+# The two payload consts the per-file marker is composed from, each read from the
+# module ADR-0043 §5 gives it: DIAG_PREFIX is the entry's, with `_diag`;
+# VALIDATE_MARKER is the script group's. Matched the way every other
+# cross-language mirror in this repo is (cf. `HARNESS_LOG_MARKER` in
+# tests/cli/test_error_registry.py): extract the const's VALUE, so the pin survives
 # any change to how or where the line is written and fails only when the CONTRACT
 # moves.
-_OPERATIONS_DIAG_PREFIX = re.compile(r'^const DIAG_PREFIX := "(.*)"$', re.MULTILINE)
-_OPERATIONS_VALIDATE_MARKER = re.compile(
-    r'^const VALIDATE_MARKER := "(.*)"$', re.MULTILINE
-)
+MARKER_CONST_FILE = {
+    "DIAG_PREFIX": "operations.gd",
+    "VALIDATE_MARKER": "groups/script.gd",
+}
 
 
-def _operations_const(pattern: re.Pattern[str], name: str) -> str:
-    operations = (
-        Path(__file__).resolve().parents[2] / "src" / "gda" / "ops" / "operations.gd"
-    )
-    match = pattern.search(operations.read_text(encoding="utf-8"))
-    assert match is not None, f"{name} const missing from operations.gd"
-    return match.group(1)
+def _payload_const(name: str) -> str:
+    return gd_string_const(payload_source(MARKER_CONST_FILE[name]), name)
 
 
 def test_validate_marker_mirrors_the_operations_gd_consts():
@@ -1368,8 +1366,8 @@ def test_validate_marker_mirrors_the_operations_gd_consts():
     # Python holds the composed prefix; this pins the composition.
     from gda.commands.script import VALIDATE_MARKER_PREFIX
 
-    prefix = _operations_const(_OPERATIONS_DIAG_PREFIX, "DIAG_PREFIX")
-    marker = _operations_const(_OPERATIONS_VALIDATE_MARKER, "VALIDATE_MARKER")
+    prefix = _payload_const("DIAG_PREFIX")
+    marker = _payload_const("VALIDATE_MARKER")
 
     assert prefix + marker == VALIDATE_MARKER_PREFIX
 
@@ -1382,8 +1380,8 @@ def test_validate_marker_is_recognised_by_the_parser_it_feeds():
     # check while failing on real output.
     from gda.commands.script import parse_validate_segments
 
-    prefix = _operations_const(_OPERATIONS_DIAG_PREFIX, "DIAG_PREFIX")
-    marker = _operations_const(_OPERATIONS_VALIDATE_MARKER, "VALIDATE_MARKER")
+    prefix = _payload_const("DIAG_PREFIX")
+    marker = _payload_const("VALIDATE_MARKER")
 
     segments = parse_validate_segments(f"{prefix}{marker}res://a.gd\n")
 
