@@ -13,8 +13,18 @@ sidecar and a now-empty ``[autoload]`` section, so install → uninstall leaves
 ``project.godot`` byte-identical (line endings included) and no
 ``addons/gda_harness/`` residue — ``addons/`` itself is deliberately left in place.
 Both halves RETURN the exact path/section set they touched.
+
+#1016 installs the shared value module beside the harness, which preloads it, so
+every file-level guarantee above covers both scripts and both sidecars.
 """
 
+import hashlib
+import re
+from pathlib import Path
+
+import harness_version_guard
+
+from gda.harness import install as install_mod
 from gda.harness.install import (
     HARNESS_AUTOLOAD_NAME,
     HARNESS_FILE,
@@ -22,6 +32,10 @@ from gda.harness.install import (
     HARNESS_RES_PATH,
     HARNESS_UID_FILE,
     HARNESS_UID_RES_PATH,
+    HARNESS_VALUE_FILE,
+    HARNESS_VALUE_RES_PATH,
+    HARNESS_VALUE_UID_FILE,
+    HARNESS_VALUE_UID_RES_PATH,
     HARNESS_VERSION,
     HarnessSnapshot,
     harness_artifacts,
@@ -47,13 +61,23 @@ def _harness_uid(project):
     return project / HARNESS_RES_DIR / HARNESS_UID_FILE
 
 
-def _write_engine_uid_sidecar(project):
-    """Stand in for the engine's import pass, which writes the ``.uid`` sidecar.
+def _module_file(project):
+    """The installed shared value module, beside the harness (#1016)."""
+    return project / HARNESS_RES_DIR / HARNESS_VALUE_FILE
 
-    The real sidecar comes from a Godot import (covered end-to-end by
-    ``tests/daemon/test_e2e_daemon.py``); here only its PRESENCE matters, so the fast
-    tests plant one with the shape the engine writes."""
+
+def _module_uid(project):
+    return project / HARNESS_RES_DIR / HARNESS_VALUE_UID_FILE
+
+
+def _write_engine_uid_sidecar(project):
+    """Stand in for the engine's import pass, which writes a ``.uid`` per script.
+
+    The real sidecars come from a Godot import (covered end-to-end by
+    ``tests/daemon/test_e2e_daemon.py``); here only their PRESENCE matters, so the
+    fast tests plant them with the shape the engine writes."""
     _harness_uid(project).write_text("uid://bxxxxxxxxxxxxx\n", encoding="utf-8")
+    _module_uid(project).write_text("uid://byyyyyyyyyyyyy\n", encoding="utf-8")
 
 
 def test_install_materializes_harness_and_writes_autoload_entry(tmp_path):
@@ -291,8 +315,10 @@ def test_uninstall_removes_the_engine_generated_uid_sidecar(tmp_path):
 
     assert result.removed is True
     assert not _harness_uid(tmp_path).exists()  # the sidecar goes with the script
+    assert not _module_uid(tmp_path).exists()  # and the module's with the module
     assert not (tmp_path / HARNESS_RES_DIR).exists()  # so the dir can go too
     assert HARNESS_UID_RES_PATH in result.removed_paths
+    assert HARNESS_VALUE_UID_RES_PATH in result.removed_paths
 
 
 def test_uninstall_removes_the_generated_empty_autoload_section(tmp_path):
@@ -412,6 +438,7 @@ def test_install_reports_the_paths_and_sections_it_created(tmp_path):
         "res://addons",
         "res://addons/gda_harness",
         HARNESS_RES_PATH,
+        HARNESS_VALUE_RES_PATH,
     )
     assert result.created_sections == ("[autoload]",)
 
@@ -430,12 +457,16 @@ def test_install_does_not_claim_an_addons_dir_the_project_already_had(tmp_path):
 
     result = install_harness(tmp_path)
 
-    assert result.created_paths == ("res://addons/gda_harness", HARNESS_RES_PATH)
+    assert result.created_paths == (
+        "res://addons/gda_harness",
+        HARNESS_RES_PATH,
+        HARNESS_VALUE_RES_PATH,
+    )
 
 
 def test_uninstall_reports_every_path_and_section_it_removed(tmp_path):
-    # The removal half of the #654 receipt, in removal order: the script, its .uid
-    # sidecar, then the emptied addon directory — plus the generated section.
+    # The removal half of the #654 receipt, in removal order: each script and its
+    # .uid sidecar, then the emptied addon directory — plus the generated section.
     (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
     install_harness(tmp_path)
     _write_engine_uid_sidecar(tmp_path)
@@ -445,6 +476,8 @@ def test_uninstall_reports_every_path_and_section_it_removed(tmp_path):
     assert result.removed_paths == (
         HARNESS_RES_PATH,
         HARNESS_UID_RES_PATH,
+        HARNESS_VALUE_RES_PATH,
+        HARNESS_VALUE_UID_RES_PATH,
         "res://addons/gda_harness",
     )
     assert result.removed_sections == ("[autoload]",)
@@ -527,8 +560,6 @@ def test_uninstall_removal_is_driven_by_the_harness_artifacts_authority(
     # what the install owns, but removal used to carry its own copy — so the claim
     # was only true of the export snapshot. Extending the authority must now extend
     # deletion AND the receipt, which is the whole point of having one list.
-    import gda.harness.install as install_mod
-
     (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
     install_harness(tmp_path)
     extra = tmp_path / HARNESS_RES_DIR / "gda_harness.gd.extra"
@@ -546,13 +577,16 @@ def test_uninstall_removal_is_driven_by_the_harness_artifacts_authority(
     assert not (tmp_path / HARNESS_RES_DIR).exists()  # nothing left to hold the dir
 
 
-def test_harness_artifacts_names_the_script_and_its_uid_sidecar(tmp_path):
+def test_harness_artifacts_names_each_script_and_its_uid_sidecar(tmp_path):
     # The single enumeration `gda export run`'s transactional snapshot reads, so its
     # strip and restore stay in step with what uninstall deletes (#654). A file
-    # uninstall removes but the snapshot never captured would never come back.
+    # uninstall removes but the snapshot never captured would never come back. Since
+    # #1016 the install copies and compares the scripts it lists, too.
     assert harness_artifacts(tmp_path) == (
         _harness_file(tmp_path),
         _harness_uid(tmp_path),
+        _module_file(tmp_path),
+        _module_uid(tmp_path),
     )
 
 
@@ -779,6 +813,7 @@ def test_restore_undoes_a_fresh_install_completely(tmp_path):
     assert undone == (
         "restored project.godot",
         f"removed {HARNESS_RES_PATH}",
+        f"removed {HARNESS_VALUE_RES_PATH}",
         "removed res://addons/gda_harness",
         "removed res://addons",
     )
@@ -800,6 +835,9 @@ def test_restore_puts_a_stale_harness_body_back_unchanged(tmp_path):
     harness.parent.mkdir(parents=True)
     stale = b"# gda-harness-version: stale-old\nextends Node\n# my own edits\n"
     harness.write_bytes(stale)
+    # The module is current, so the harness body is the only thing the install
+    # rewrites and nothing is created.
+    _module_file(tmp_path).write_bytes(_bundled_module_bytes())
     godot_before = project_godot.read_bytes()
 
     snapshot = HarnessSnapshot.capture(tmp_path)
@@ -919,6 +957,7 @@ def test_snapshot_pending_names_what_a_failed_restore_leaves_behind(tmp_path):
     assert snapshot.pending() == (
         "project.godot",
         HARNESS_RES_PATH,
+        HARNESS_VALUE_RES_PATH,
         "res://addons",
         f"res://{HARNESS_RES_DIR}",
     )
@@ -943,6 +982,7 @@ def test_snapshot_pending_marks_an_unreadable_path_instead_of_raising(tmp_path):
     assert residue[0].startswith("project.godot (state unmeasurable: ")
     assert residue[1:] == (
         HARNESS_RES_PATH,
+        HARNESS_VALUE_RES_PATH,
         "res://addons",
         f"res://{HARNESS_RES_DIR}",
     )
@@ -959,10 +999,6 @@ def test_ready_gates_on_template_feature_as_its_first_statement():
     # has `template` == false), which requires installed export templates and the
     # Godot e2e job — skipped on PRs. This STATIC guard runs in the default PR gate
     # instead, so the property is checked on every PR rather than assumed.
-    from pathlib import Path
-
-    import gda.harness.install as install_mod
-
     bundled = Path(install_mod.__file__).parent / HARNESS_FILE
     lines = bundled.read_text(encoding="utf-8").splitlines()
     ready_at = next(
@@ -981,42 +1017,144 @@ def test_ready_gates_on_template_feature_as_its_first_statement():
     assert body[1] == "return", body
 
 
-# The bundled harness bytes, PINNED to the version that declares them (#736
-# review follow-up). This current-snapshot guard makes an accidental body edit
-# loud in the unit tier. The cross-revision invariant — changed body bytes MUST
-# increase HARNESS_VERSION — is enforced mechanically by
-# scripts/harness_version_guard.py in the required Python CI job. Updating the
-# harness is therefore three deliberate edits:
-#   1. edit gda_harness.gd;
+# The bundled bytes the install copies, PINNED to the version that declares them
+# (#736 review follow-up; #1016 adds the shared value module). This current-snapshot
+# guard makes an accidental edit of either file loud in the unit tier. The
+# cross-revision invariant — changed bytes MUST increase HARNESS_VERSION — is
+# enforced mechanically by scripts/harness_version_guard.py in the required Python
+# CI job. Updating the harness or the module is therefore three deliberate edits:
+#   1. edit gda_harness.gd or src/gda/ops/lib/value.gd;
 #   2. bump HARNESS_VERSION in src/gda/harness/install.py;
-#   3. update the current pins below (the failure carries the new hash).
-PINNED_HARNESS_VERSION = "25"
-PINNED_HARNESS_SHA256 = (
-    "5eae9531a987c6aaa27f08cd04cb122c90787690e35d296f65f5cc9a6e1108aa"
-)
+#   3. update the current pins below (the failure carries the new hashes).
+PINNED_HARNESS_VERSION = "26"
+PINNED_BUNDLED_SHA256 = {
+    HARNESS_FILE: "c5fc27dacf4e0f9bf8e9a43a3466067abd33112969faa161a9a5eaaa45f37cf7",
+    HARNESS_VALUE_FILE: "a312688a95a740649cd9782f17ec6d53e7cb5cb5d09081f50893db1398f7aa2e",
+}
+
+
+def _bundled_sources() -> dict[str, Path]:
+    """The bundled file each installed script is copied from, by installed name."""
+    return {
+        HARNESS_FILE: install_mod._BUNDLED_HARNESS,
+        HARNESS_VALUE_FILE: install_mod._BUNDLED_VALUE_MODULE,
+    }
+
+
+def _bundled_module_bytes() -> bytes:
+    return _bundled_sources()[HARNESS_VALUE_FILE].read_bytes()
 
 
 def test_bundled_harness_bytes_are_pinned_to_the_declared_version():
     # Two failure directions, each with its own instruction:
-    # - the harness bytes changed but HARNESS_VERSION did not -> the hash
+    # - the bundled bytes changed but HARNESS_VERSION did not -> a hash
     #   mismatches: bump the version AND re-pin;
     # - HARNESS_VERSION was bumped but this pin was not -> the version
-    #   mismatches: re-pin to the new (version, hash) pair.
-    import hashlib
-    from pathlib import Path
-
-    from gda.harness import install
-
-    bundled = Path(install.__file__).parent / HARNESS_FILE
-    digest = hashlib.sha256(bundled.read_bytes()).hexdigest()
+    #   mismatches: re-pin to the new (version, hashes) pair.
+    digests = {
+        name: hashlib.sha256(path.read_bytes()).hexdigest()
+        for name, path in _bundled_sources().items()
+    }
 
     assert HARNESS_VERSION == PINNED_HARNESS_VERSION, (
         f"HARNESS_VERSION is {HARNESS_VERSION!r} but this pin says "
         f"{PINNED_HARNESS_VERSION!r}: update PINNED_HARNESS_VERSION and "
-        f"PINNED_HARNESS_SHA256 (current bytes: {digest})."
+        f"PINNED_BUNDLED_SHA256 (current bytes: {digests})."
     )
-    assert digest == PINNED_HARNESS_SHA256, (
-        f"the bundled gda_harness.gd changed (sha256 {digest}) without a "
+    assert digests == PINNED_BUNDLED_SHA256, (
+        f"the bundled harness files changed (sha256 {digests}) without a "
         "version bump: bump HARNESS_VERSION in src/gda/harness/install.py and "
-        "update PINNED_HARNESS_VERSION / PINNED_HARNESS_SHA256 in this file."
+        "update PINNED_HARNESS_VERSION / PINNED_BUNDLED_SHA256 in this file."
     )
+
+
+def test_the_pin_and_the_version_guard_cover_every_installed_script(tmp_path):
+    # A script the install copies but neither guard reads could change without a
+    # HARNESS_VERSION bump, and an installed project would then keep a stale copy.
+    scripts = sorted(
+        path.name for path in harness_artifacts(tmp_path) if path.suffix != ".uid"
+    )
+    assert scripts == sorted(PINNED_BUNDLED_SHA256)
+    root = Path(__file__).resolve().parents[2]
+    guarded = {(root / path).resolve() for path in harness_version_guard.HARNESS_PATHS}
+    assert guarded == {path.resolve() for path in _bundled_sources().values()}
+
+
+# --- The shared value module the install copies (#1016, ADR-0043 §7) -----------
+# The harness preloads the module by a sibling relative path, and the installer
+# copies it ALONE into the user's project.
+
+_CLASS_NAME = re.compile(r"^\s*class_name\b", re.MULTILINE)
+_PRELOAD = re.compile(r"\bpreload\s*\(")
+_EXTENDS_PATH = re.compile(r"""^\s*extends\s+["']""", re.MULTILINE)
+
+
+def _code(source: str) -> str:
+    """``source`` with each line's comment dropped, so prose about a rule is not code."""
+    return "\n".join(line.split("#", 1)[0] for line in source.splitlines())
+
+
+def test_the_shared_value_module_declares_no_class_name_and_depends_on_no_file():
+    # A global class name would enter the user's project namespace, and a file the
+    # module preloads (or extends by path) would not be there: the installer copies
+    # the module alone.
+    code = _code(_bundled_module_bytes().decode("utf-8"))
+
+    assert not _CLASS_NAME.search(code), "the shared value module declares a class_name"
+    assert not _PRELOAD.search(code), "the shared value module preloads a file"
+    assert not _EXTENDS_PATH.search(code), "the shared value module extends a file"
+
+
+def test_the_harness_preloads_the_module_by_the_name_the_install_gives_it():
+    harness = _bundled_sources()[HARNESS_FILE].read_text(encoding="utf-8")
+    targets = re.findall(r"""preload\(\s*["']([^"']+)["']\s*\)""", _code(harness))
+    assert targets == [HARNESS_VALUE_FILE]
+
+
+def test_install_copies_the_shared_value_module_verbatim(tmp_path):
+    (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
+
+    install_harness(tmp_path)
+
+    assert _module_file(tmp_path).read_bytes() == _bundled_module_bytes()
+
+
+def test_a_stale_module_alone_resyncs_the_install(tmp_path):
+    # The install owns both scripts, so drift in the module alone is a stale install:
+    # the next install rewrites the module and leaves the current harness untouched.
+    (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
+    install_harness(tmp_path)
+    harness = _harness_file(tmp_path)
+    harness_before = (harness.read_bytes(), harness.stat().st_mtime_ns)
+    _module_file(tmp_path).write_text("extends RefCounted\n# stale\n", encoding="utf-8")
+
+    result = install_harness(tmp_path)
+
+    assert result.changed is True
+    assert result.synced is True
+    assert result.created_paths == ()  # the module was rewritten, not created
+    assert _module_file(tmp_path).read_bytes() == _bundled_module_bytes()
+    assert (harness.read_bytes(), harness.stat().st_mtime_ns) == harness_before
+    assert install_harness(tmp_path).changed is False  # idempotent again
+
+
+def test_first_resync_of_a_harness_installed_without_the_module_creates_it(tmp_path):
+    # An install made before #1016 has the harness and no module. Its first resync
+    # rewrites the stale harness AND creates the module, so the receipt names it.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(
+        _NO_AUTOLOAD + f'\n[autoload]\n\nGdaHarness="*{HARNESS_RES_PATH}"\n',
+        encoding="utf-8",
+    )
+    harness = _harness_file(tmp_path)
+    harness.parent.mkdir(parents=True)
+    harness.write_text("# gda-harness-version: 25\nextends Node\n", encoding="utf-8")
+
+    result = install_harness(tmp_path)
+
+    assert result.changed is True
+    assert result.synced is True
+    assert result.created_paths == (HARNESS_VALUE_RES_PATH,)
+    assert result.created_sections == ()
+    assert installed_harness_version(tmp_path) == HARNESS_VERSION
+    assert _module_file(tmp_path).read_bytes() == _bundled_module_bytes()

@@ -37,6 +37,8 @@ const EXPORT_GROUP := preload("groups/export.gd")
 const PROJECT_GROUP := preload("groups/project.gd")
 const SHADER_GROUP := preload("groups/shader.gd")
 const THEME_GROUP := preload("groups/theme.gd")
+# The shared value module holds the reply JSON writer, _json (ADR-0043 §3, §7).
+const VALUE := preload("lib/value.gd")
 
 const RESULT_BEGIN := "<<<GDA:RESULT>>>"
 const RESULT_END := "<<<GDA:END>>>"
@@ -44,7 +46,7 @@ const RESULT_END := "<<<GDA:END>>>"
 
 # The prefix every gda diagnostic line carries on stderr (see _diag), so a reader
 # can tell gda's own lines from the engine's. A const rather than an inline
-# literal because one diagnostic — VALIDATE_MARKER below — is PARSED by gda, not
+# literal because one diagnostic — VALIDATE_MARKER — is PARSED by gda, not
 # merely displayed, which makes this prefix half of a cross-language contract.
 const DIAG_PREFIX := "gda: "
 
@@ -278,33 +280,10 @@ func _op_info() -> void:
 	_succeed(Engine.get_version_info())
 
 
-# The ONE JSON writer for every headless reply (#771) — the same choice the live
-# harness made in #752, for the same reason, because it is the same engine
-# function. Godot's default JSON.stringify renders a float through String::num,
-# which formats FIXED-POINT with at most MAX_DECIMALS (32) decimals: it flattened
-# every value below ~1e-32.6 to 0.0 and rounded ordinary values to ~15 significant
-# digits (3.141592653589793 came back as 3.14159265358979, and an @export of
-# 1e-300 read back as 0.0). The full_precision argument switches it to
-# String::num_scientific (grisu2, shortest round-tripping form), which loses none
-# of those and still spells every float with a "." or an "e", so a JSON number
-# that was a float stays one. The measured corpus and its counts belong to the one
-# authority that owns them, `gda.live_numbers` (Python side) — not restated here.
-# The other three arguments keep their defaults ("" indent, sort_keys true), so
-# ONLY the number spelling changes. One residual, disclosed in the CLI contract:
-# the engine emits "0.0" for a NEGATIVE ZERO before this argument is consulted.
-#
-# This is the REPORTING half. The way IN — the --value string the ops coerce with
-# String.to_float(), the engine's own parser — is answered by #772, in the shared
-# coercion block above: a literal that parser turns into 0.0 or NaN although the
-# caller did not write a zero is REFUSED, and its low-order drift is disclosed.
-func _json(value: Variant) -> String:
-	return JSON.stringify(value, "", true, true)
-
-
 # Record a successful result: emit it through the sentinel contract and mark
 # the process to exit 0. The single quit() lives in _process.
 func _succeed(payload: Dictionary) -> void:
-	print(RESULT_BEGIN + _json(payload) + RESULT_END)
+	print(RESULT_BEGIN + VALUE._json(payload) + RESULT_END)
 	_exit_code = 0
 
 
@@ -315,7 +294,7 @@ func _diag(message: String) -> void:
 # Record a structured failure through the ADR-0002 sentinel contract. The
 # process is left to exit non-zero via _process.
 func _fail(code: String, message: String) -> void:
-	print(RESULT_BEGIN + _json({
+	print(RESULT_BEGIN + VALUE._json({
 		"error": {
 			"code": code,
 			"message": message,

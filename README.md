@@ -479,7 +479,7 @@ gda restores the explicit lines it drops and reports the rest on the result.
 | `daemon stop` | Stop the project's daemon and any running engine session. |
 | `daemon status` | Report the daemon's state (running, windowed mode, session, and that session's startup verdict). |
 | `daemon install` | Install the in-game harness without starting a daemon, and report what it wrote. Idempotent; `daemon start` does this itself, so use it only to review or commit the `project.godot` change on its own. |
-| `daemon uninstall` | Remove the in-game harness — autoload entry, harness files, `.uid` sidecar — restoring `project.godot`, and report what was removed. Dev-tooling teardown only: `gda export run` already strips the harness from exported builds. |
+| `daemon uninstall` | Remove the in-game harness — autoload entry, harness files, `.uid` sidecars — restoring `project.godot`, and report what was removed. Dev-tooling teardown only: `gda export run` already strips the harness from exported builds. |
 
 **`game`** — the running game's runtime scene graph
 

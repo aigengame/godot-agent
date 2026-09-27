@@ -27,6 +27,7 @@ import pytest
 from gda.harness.install import (
     HARNESS_FILE,
     HARNESS_RES_DIR,
+    HARNESS_VALUE_FILE,
     HARNESS_VERSION,
     installed_harness_version,
 )
@@ -675,8 +676,8 @@ SCRIPT_VARIABLE_MAIN_TSCN = (
 def test_daemon_game_get_projects_compound_values_with_live_fallback(
     tmp_path, daemon_runtime_dir
 ):
-    # The live half of ADR-0035, through the byte-identical mirrored harness
-    # projection: `game get` of an exported Dictionary arrives as a structured
+    # The live half of ADR-0035, through the shared value module the harness
+    # preloads (#1016): `game get` of an exported Dictionary arrives as a structured
     # JSON object, while a Node-valued property — a non-whitelisted runtime
     # Object — stays the str() fallback (the whitelist keeps the shared
     # projection safe against projecting a whole live scene tree).
@@ -801,8 +802,9 @@ def test_daemon_game_set_mutates_explicit_plain_script_dictionary_variable(
 def test_daemon_game_set_preserves_json_container_integer_and_float_types(
     tmp_path, daemon_runtime_dir
 ):
-    # #427 live-side parity: the mirrored harness coercion must preserve JSON
-    # integer vs float values in the same session state that game get observes.
+    # #427 live-side parity: the coercion in the shared value module the harness
+    # preloads (#1016) must preserve JSON integer vs float values in the same
+    # session state that game get observes.
     (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8")
@@ -1114,6 +1116,7 @@ def test_daemon_round_trip_restores_the_project_it_started_from(
             "res://addons",
             f"res://{HARNESS_RES_DIR}",
             f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}",
+            f"res://{HARNESS_RES_DIR}/{HARNESS_VALUE_FILE}",
         ]
         assert started_doc["created_sections"] == ["[autoload]"]
         assert harness.exists()
@@ -1126,13 +1129,16 @@ def test_daemon_round_trip_restores_the_project_it_started_from(
         assert run("daemon", "stop").returncode == 0
 
         # Now let the ENGINE scan the project, the way a human opening the editor on
-        # it does. This is what writes the .uid sidecar next to the installed harness.
+        # it does. This is what writes a .uid sidecar next to each installed script:
+        # the harness and the shared value module it preloads (#1016).
         imported = import_project(tmp_path)
         sidecar = harness.with_name(f"{HARNESS_FILE}.uid")
-        assert sidecar.exists(), (
-            "the engine did not write the .uid sidecar, so the removal assertions "
-            f"below would be vacuous\n{imported.stdout}{imported.stderr}"
-        )
+        module_sidecar = harness.with_name(f"{HARNESS_VALUE_FILE}.uid")
+        for written in (sidecar, module_sidecar):
+            assert written.exists(), (
+                f"the engine did not write {written.name}, so the removal assertions "
+                f"below would be vacuous\n{imported.stdout}{imported.stderr}"
+            )
         # The scan itself must not have rewritten project.godot, or the byte
         # comparison at the end would be measuring the engine, not the uninstall.
         assert project_godot.read_bytes() == started_installed_bytes, (
@@ -1146,6 +1152,8 @@ def test_daemon_round_trip_restores_the_project_it_started_from(
         assert removed["removed_paths"] == [
             f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}",
             f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}.uid",
+            f"res://{HARNESS_RES_DIR}/{HARNESS_VALUE_FILE}",
+            f"res://{HARNESS_RES_DIR}/{HARNESS_VALUE_FILE}.uid",
             f"res://{HARNESS_RES_DIR}",
         ]
         assert removed["removed_sections"] == ["[autoload]"]
@@ -1153,6 +1161,8 @@ def test_daemon_round_trip_restores_the_project_it_started_from(
         # Nothing of the harness survives: no script, no sidecar, no addon directory.
         assert not harness.exists()
         assert not sidecar.exists()
+        assert not harness.with_name(HARNESS_VALUE_FILE).exists()
+        assert not module_sidecar.exists()
         assert not (tmp_path / HARNESS_RES_DIR).exists()
         # And project.godot is back to the bytes the project started with.
         assert project_godot.read_bytes() == before

@@ -26,6 +26,7 @@ from gda.models import EnvironmentProbe
 from gda.harness.install import (
     HARNESS_FILE,
     HARNESS_RES_DIR,
+    HARNESS_VALUE_FILE,
     HARNESS_VERSION,
     HarnessSnapshot,
     install_harness,
@@ -1335,6 +1336,8 @@ def test_failed_install_keeps_a_pre_existing_harness_untouched(
     assert failure.error.code == "harness_install_permission_denied"
     assert harness.read_bytes() == stale  # restored verbatim, still stale
     assert sidecar.read_bytes() == b"uid://bxxxxxxxxxxxxx\n"
+    # The module the install created beside the stale harness is gone again.
+    assert not (project / HARNESS_RES_DIR / HARNESS_VALUE_FILE).exists()
     assert (project / HARNESS_RES_DIR).is_dir()  # pre-existing dirs survive
     assert (project / "addons").is_dir()
     assert project_godot.read_bytes() == before
@@ -1896,6 +1899,7 @@ def test_start_result_names_the_paths_and_sections_the_install_created(
         "res://addons",
         "res://addons/gda_harness",
         f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}",
+        f"res://{HARNESS_RES_DIR}/{HARNESS_VALUE_FILE}",
     ]
     assert started.created_sections == ["[autoload]"]
 
@@ -1921,13 +1925,14 @@ def test_already_running_start_reports_an_empty_receipt_when_nothing_is_created(
 def test_uninstall_result_names_every_removed_path_and_section(
     tmp_path, short_runtime, monkeypatch
 ):
-    # The removal half: the script, the engine-written .uid sidecar (GDA-DF-009) and
-    # the emptied addon dir, plus the generated [autoload] section (GDA-DF-020).
+    # The removal half: each script and its engine-written .uid sidecar (GDA-DF-009)
+    # and the emptied addon dir, plus the generated [autoload] section (GDA-DF-020).
     project = _project(tmp_path)
     install_harness(project)
-    (project / HARNESS_RES_DIR / f"{HARNESS_FILE}.uid").write_text(
-        "uid://bxxxxxxxxxxxxx\n", encoding="utf-8"
-    )
+    for script in (HARNESS_FILE, HARNESS_VALUE_FILE):
+        (project / HARNESS_RES_DIR / f"{script}.uid").write_text(
+            "uid://bxxxxxxxxxxxxx\n", encoding="utf-8"
+        )
     monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
 
     outcome = daemon_ops.run_daemon_uninstall_operation(project)
@@ -1936,6 +1941,8 @@ def test_uninstall_result_names_every_removed_path_and_section(
     assert outcome.removed_paths == [
         f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}",
         f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}.uid",
+        f"res://{HARNESS_RES_DIR}/{HARNESS_VALUE_FILE}",
+        f"res://{HARNESS_RES_DIR}/{HARNESS_VALUE_FILE}.uid",
         f"res://{HARNESS_RES_DIR}",
     ]
     assert outcome.removed_sections == ["[autoload]"]
@@ -2012,6 +2019,7 @@ def test_install_performs_the_first_install_and_reports_what_it_created(
         "res://addons",
         f"res://{HARNESS_RES_DIR}",
         f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}",
+        f"res://{HARNESS_RES_DIR}/{HARNESS_VALUE_FILE}",
     ]
     assert outcome.created_sections == ["[autoload]"]
     assert (project / HARNESS_RES_DIR / HARNESS_FILE).exists()

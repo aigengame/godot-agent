@@ -41,6 +41,7 @@ from gda.harness.install import (
     HARNESS_AUTOLOAD_NAME,
     HARNESS_FILE,
     HARNESS_RES_DIR,
+    HARNESS_VALUE_FILE,
     install_harness,
 )
 from gda.import_evidence import CACHE_ROOT_REL
@@ -418,8 +419,10 @@ def test_export_run_pack_omits_installed_harness_and_restores_it(godot_project):
     )
     install_harness(godot_project)
     harness_file = godot_project / HARNESS_RES_DIR / HARNESS_FILE
+    module_file = godot_project / HARNESS_RES_DIR / HARNESS_VALUE_FILE
     project_godot = godot_project / "project.godot"
     assert harness_file.exists(), "precondition: harness installed on disk"
+    assert module_file.exists(), "precondition: shared value module installed"
     assert HARNESS_AUTOLOAD_NAME in project_godot.read_text(encoding="utf-8")
 
     artifact = godot_project / "dist" / "packed.zip"
@@ -449,6 +452,12 @@ def test_export_run_pack_omits_installed_harness_and_restores_it(godot_project):
             "the exported archive still carries the harness script:\n"
             + "\n".join(names)
         )
+        # (a') Nor does it carry the shared value module the harness preloads
+        # (#1016): the strip removes every install-owned file, not the harness alone.
+        assert not any(f"{HARNESS_RES_DIR}/{HARNESS_VALUE_FILE}" in n for n in names), (
+            "the exported archive still carries the harness's shared value module:\n"
+            + "\n".join(names)
+        )
         # (b) The packed project settings declare NO GdaHarness autoload — the
         # specific Godot risk (project.binary serializes ProjectSettings wholesale,
         # ADR-0028), so checking the file's absence alone is not enough.
@@ -458,6 +467,7 @@ def test_export_run_pack_omits_installed_harness_and_restores_it(godot_project):
         )
     # The dev project is left UNTOUCHED: harness restored on disk and in config.
     assert harness_file.exists(), "the harness file must be restored after export"
+    assert module_file.exists(), "the shared value module must be restored after export"
     assert HARNESS_AUTOLOAD_NAME in project_godot.read_text(encoding="utf-8")
 
 

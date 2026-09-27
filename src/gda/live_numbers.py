@@ -34,10 +34,10 @@ rows it split **41 exact / 15 changed / 40 flattened to ``0.0``**, and a
 (grisu2, shortest round-tripping form), which was exact on **95 of the 96** corpus
 rows and on all 5500 of that sweep — the sweep drew no negative zero, and the
 single corpus miss IS that value. BOTH of gda's engine-side payloads therefore
-stringify every reply with ``full_precision`` — the harness (``gda_harness.gd``'s
-``_json``, #752) and the headless operations payload (``ops/operations.gd``'s
-``_json``, #771) — and the result direction carries full binary64 precision on
-either channel. One residual, kept in the public contract because it is an engine
+stringify every reply with ``full_precision`` — the harness (#752) and the headless
+operations payload (#771), through the one writer ``_json`` of the shared value
+module that both preload (#1016) — and the result direction carries full binary64
+precision on either channel. One residual, kept in the public contract because it is an engine
 early return (``JSON::_stringify`` emits ``"0.0"`` for anything equal to zero): a
 NEGATIVE ZERO reads back as ``0.0``.
 
@@ -50,7 +50,7 @@ answered under **Write direction** below (#772).
 
 **The result path has TWO writers, and each float has exactly one of them.** The
 paragraph above is about the engine's: a value the game reports is stringified by
-``gda_harness.gd``'s ``_json`` and read back by Python. But a live result can
+the harness through the shared ``_json`` and read back by Python. But a live result can
 also carry a number the engine never wrote — one gda computes or echoes CLI-side
 (``perf monitors``' window statistics, and the budget bounds it copies out of the
 caller's own file). Those never meet Godot's writer, so the engine's residual is
@@ -155,11 +155,10 @@ always was: refusing it would reject ordinary game values.
 The predicate itself lives in GDScript, not here, and deliberately so. It must run where
 the property's DECLARED TYPE is known — ``--value 1e-320`` on a String property is an
 ordinary string and must not be refused — and it asks the engine rather than modelling
-it, so there is nothing a Python twin could be a second opinion about. It is mirrored
-byte-identically in ``ops/operations.gd`` and ``harness/gda_harness.gd``
-(``tests/harness/test_harness_coercion_mirror.py``), and
-``tests/value_projection/test_e2e_write_value_fidelity.py`` re-derives the verdict from
-a real engine on both channels.
+it, so there is nothing a Python twin could be a second opinion about. It has one copy,
+in the shared value module that the headless payload and the harness both preload
+(#1016), and ``tests/value_projection/test_e2e_write_value_fidelity.py`` re-derives the
+verdict from a real engine on both channels.
 
 Keying on what the parser PRODUCED draws two edges, named here so the contract is not
 read wider — or narrower — than it is. They are separated by what gets STORED, not by

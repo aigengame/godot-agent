@@ -1126,8 +1126,8 @@ def test_node_set_container_managed_control_position_names_the_inputs_it_carries
 
 @pytest.mark.e2e
 def test_node_set_coerces_json_dictionary_and_array_via_get(godot_project):
-    # #422 extends the shared coercion block, so the headless operations.gd side
-    # must accept the same JSON container forms the live harness accepts.
+    # #422 extends the shared coercion (_coerce_value), so the headless side must
+    # accept the same JSON container forms the live harness accepts.
     scene_path = godot_project / "main.tscn"
     (godot_project / "player.gd").write_text(
         "extends Node2D\n"

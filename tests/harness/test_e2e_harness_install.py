@@ -44,6 +44,8 @@ from gda.harness.install import (
     HARNESS_AUTOLOAD_NAME,
     HARNESS_FILE,
     HARNESS_RES_PATH,
+    HARNESS_VALUE_FILE,
+    HARNESS_VALUE_RES_PATH,
     install_harness,
 )
 
@@ -82,6 +84,9 @@ def test_installed_harness_boots_inert_in_a_real_engine(tmp_path):
 
     assert result.changed is True
     assert (tmp_path / "addons" / "gda_harness" / "gda_harness.gd").exists()
+    # The shared value module sits beside it, so the harness's relative preload of
+    # it resolves in the engine boot below (#1016).
+    assert (tmp_path / "addons" / "gda_harness" / HARNESS_VALUE_FILE).exists()
     text = (tmp_path / "project.godot").read_text(encoding="utf-8")
     assert f'{HARNESS_AUTOLOAD_NAME}="*{HARNESS_RES_PATH}"' in text
 
@@ -479,8 +484,10 @@ def test_daemon_install_leaves_a_project_a_real_engine_boots_inert(tmp_path):
     receipt = json.loads(installed.stdout)
     assert receipt["installed_harness"] is True
     assert HARNESS_RES_PATH in receipt["created_paths"]
+    assert HARNESS_VALUE_RES_PATH in receipt["created_paths"]
     assert receipt["created_sections"] == ["[autoload]"]
     assert (tmp_path / "addons" / "gda_harness" / HARNESS_FILE).exists()
+    assert (tmp_path / "addons" / "gda_harness" / HARNESS_VALUE_FILE).exists()
     assert f'{HARNESS_AUTOLOAD_NAME}="*{HARNESS_RES_PATH}"' in (
         tmp_path / "project.godot"
     ).read_text(encoding="utf-8")

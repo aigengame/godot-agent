@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ddcd4c6cb98116f201953a7796200677ee689e3228de8fd88f00eb9f6530c1d6 -->
+<!-- gda-readme-i18n: source=README.md sha256=7d7d92d0993ec6afb4bf0e7a2cd17a568b7d31a05241239fd1d8ebdc22b651a3 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -495,7 +495,7 @@ en el resultado.
 | `daemon stop` | Detiene el daemon del proyecto y cualquier sesión del motor en ejecución. |
 | `daemon status` | Informa el estado del daemon (en ejecución, modo con ventana, sesión y el veredicto de arranque de esa sesión). |
 | `daemon install` | Instala el harness dentro del juego sin iniciar un daemon e informa qué escribió. Idempotente; `daemon start` ya lo hace por su cuenta, así que úsalo solo para revisar o hacer commit por separado del cambio en `project.godot`. |
-| `daemon uninstall` | Elimina el harness dentro del juego — entrada de autoload, archivos del harness, sidecar `.uid` — restaurando `project.godot`, e informa qué se eliminó. Solo desmontaje de herramientas de desarrollo: `gda export run` ya elimina el harness de las builds exportadas. |
+| `daemon uninstall` | Elimina el harness dentro del juego — entrada de autoload, archivos del harness, sidecars `.uid` — restaurando `project.godot`, e informa qué se eliminó. Solo desmontaje de herramientas de desarrollo: `gda export run` ya elimina el harness de las builds exportadas. |
 
 **`game`** — el grafo de escena en runtime del juego en ejecución
 

@@ -1,19 +1,43 @@
 extends RefCounted
 
-# gda headless operations payload: the shared value module (ADR-0043 §2, §7).
-# The Value projection, the --value coercion with its write-fidelity checks, and
-# the parameter and property readers. Static: callers reach it through a preload
-# constant, and it reports no failure. The block between the shared-coercion
-# markers is mirrored byte-for-byte (modulo `static`) in the harness until #1016.
+# gda shared value module (ADR-0043 §2, §7): the ONE copy of the value helpers
+# that the headless payload and the gda harness share. It holds the Value
+# projection (_jsonify), the --value coercion with its write-fidelity checks
+# (_coerce_value), the parameter and property readers, the reply JSON writer
+# (_json), and the Control-position write policy. Static: callers reach it
+# through a preload constant, and it reports no failure.
+#
+# The headless payload preloads it by its path in the payload tree. The harness
+# preloads it by a sibling relative path, because the installer copies this file
+# ALONE beside the harness into the project's addons/gda_harness/ directory. So
+# it declares no class_name (a global class name would enter the user's project)
+# and preloads nothing (a preloaded file would not be installed). A change to it
+# changes what the install writes, so it bumps HARNESS_VERSION.
 
 
-# --- BEGIN shared coercion (keep byte-identical: operations.gd <-> gda_harness.gd) ---
-# These pure property-introspection / value-coercion helpers are DUPLICATED
-# verbatim into src/gda/harness/gda_harness.gd: operations.gd runs via
-# `godot --headless --script <abs-fs-path>` (often projectless) while the harness
-# is a res:// autoload, so no single preload() reaches both and install.py copies
-# one file. tests/harness/test_harness_coercion_mirror.py asserts the two blocks are
-# byte-identical (modulo leading tabs), so an edit here must be mirrored there.
+# The ONE JSON writer for every reply, headless (#771) and live (#752): both
+# channels frame their results with it, because both call the same engine
+# function. Godot's default JSON.stringify renders a float through String::num,
+# which formats FIXED-POINT with at most MAX_DECIMALS (32) decimals: it flattened
+# every value below ~1e-32.6 to 0.0 and rounded ordinary values to ~15 significant
+# digits (3.141592653589793 came back as 3.14159265358979, and an @export of
+# 1e-300 read back as 0.0). The full_precision argument switches it to
+# String::num_scientific (grisu2, shortest round-tripping form), which loses none
+# of those and still spells every float with a "." or an "e", so a JSON number
+# that was a float stays one. The measured corpus and its counts belong to the one
+# authority that owns them, `gda.live_numbers` (Python side) — not restated here.
+# The other three arguments keep their defaults ("" indent, sort_keys true), so
+# ONLY the number spelling changes. One residual, disclosed in the CLI contract:
+# the engine emits "0.0" for a NEGATIVE ZERO before this argument is consulted.
+#
+# This is the REPORTING half. The way IN — the --value string the ops coerce with
+# String.to_float(), the engine's own parser — is answered by #772 in
+# _coerce_value: a literal that parser turns into 0.0 or NaN although the caller
+# did not write a zero is REFUSED, and its low-order drift is disclosed.
+static func _json(value: Variant) -> String:
+	return JSON.stringify(value, "", true, true)
+
+
 # Whether a property-list entry is a STORAGE property — the ones node get
 # reports and node set targets: the properties that serialize into the .tscn,
 # excluding the engine's category headers, group separators, and editor-only
@@ -574,4 +598,40 @@ static func _coerce_array(raw: String, current: Variant = null) -> Variant:
 				return null
 			return typed_array
 	return array
-# --- END shared coercion ---
+
+
+# The Control-position write policy that headless node set and live game set
+# share: which write it covers, and the refusal for a Container child.
+static func _is_control_position_write(node: Node, prop_name: String) -> bool:
+	return prop_name == "position" and node is Control
+
+
+static func _has_container_parent(control: Control) -> bool:
+	return control.get_parent() is Container
+
+
+static func _control_layout_inputs(control: Control) -> String:
+	# The ONE statement of which layout inputs a Control carries, shared by the
+	# `game get` redirect and the `position` setter refusal of `game set` and
+	# the headless `node set`, so they cannot disagree —
+	# they did: the setter kept naming offset_* on a container child after the
+	# getter had learned better (PR #967, third review). The engine strips
+	# PROPERTY_USAGE_STORAGE from offset_* / anchor_* when the parent is a
+	# Container (Control::_validate_property), so on such a child the inputs are
+	# custom_minimum_size, the size flags, and the parent's own layout.
+	if _has_container_parent(control):
+		return " This Control is a direct child of a Container, which owns its" \
+				+ " position and size: the offset_* and anchor_* properties are" \
+				+ " not in its storage set. The layout inputs it does carry are" \
+				+ " the storage properties custom_minimum_size," \
+				+ " size_flags_horizontal and size_flags_vertical; the rest is" \
+				+ " the parent Container's own layout"
+	return " The layout inputs are the" \
+			+ " storage properties offset_left, offset_top, offset_right," \
+			+ " offset_bottom and anchor_left, anchor_top, anchor_right," \
+			+ " anchor_bottom"
+
+
+static func _control_position_unavailable_message(subject: String, control: Control) -> String:
+	return subject + " is a direct child of a Container, so Control.position is not an actionable settable property." \
+			+ _control_layout_inputs(control)
