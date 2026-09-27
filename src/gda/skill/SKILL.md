@@ -217,8 +217,8 @@ A `screen capture` is evidence only when it shows the intended state:
   be gone by then.
 - Inspect the image. When timing matters, also inspect the returned frame
   counters and predicate evidence.
-- Do not use a fixed settle count. Process frames are not a fixed
-  wall-clock duration.
+- Do not assume that one settle count works for every state. Process
+  frames are not a fixed wall-clock duration.
 
 If the game needs structured records in `logger tail`, resolve the harness
 by node path and check that the daemon launched the session. Do not refer to
