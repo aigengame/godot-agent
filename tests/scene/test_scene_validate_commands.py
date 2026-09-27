@@ -9,13 +9,13 @@ group, where every problem reported is a ``res://`` resolution outcome).
 
 import json
 import re
-from pathlib import Path
 
 from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.commands.scene import SceneProblemKind, SceneStartupStatus
 from tests.support import (
+    payload_source,
     assert_operation_error,
     invoke_cli,
     minimal_project,
@@ -273,11 +273,10 @@ _SCENE_STARTUP_CONST = re.compile(
 
 
 def _operations_consts(pattern: re.Pattern[str]) -> set[str]:
-    operations = (
-        Path(__file__).resolve().parents[2] / "src" / "gda" / "ops" / "operations.gd"
-    )
-    found = set(pattern.findall(operations.read_text(encoding="utf-8")))
-    assert found, "no matching consts found in operations.gd"
+    # Both constant families are in the entry until scene validation and the
+    # scene group exist (ADR-0043 §5); the name below then changes per family.
+    found = set(pattern.findall(payload_source("operations.gd")))
+    assert found, "no matching consts found in the payload"
     return found
 
 

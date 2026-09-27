@@ -35,16 +35,15 @@ as a failure instead of silently widening the accepted set.
 import json
 import re
 import subprocess
-from pathlib import Path
 
 import pytest
 
 from gda.commands.project import JOY_AXIS_NAMES, JOY_BUTTON_NAMES
 
-from tests.support import GODOT
+from tests.support import GODOT, payload_source
 
-ROOT = Path(__file__).resolve().parents[2]
-OPERATIONS_GD = ROOT / "src" / "gda" / "ops" / "operations.gd"
+# The tables are in the entry until the project group exists (ADR-0043 §5).
+JOY_TABLES_FILE = "operations.gd"
 
 # The enum bookkeeping entries that are not bindable inputs. Excluded by NAME so
 # the exclusion is visible and a rename fails loudly.
@@ -54,12 +53,12 @@ _ENTRY = re.compile(r'^\t"([A-Za-z0-9]+)":\s*([A-Z0-9_]+),$', re.M)
 
 
 def _gd_table(const_name: str) -> dict[str, str]:
-    """Read one ``const <NAME> := { "Gda": ENGINE_CONST, ... }`` table from operations.gd."""
-    source = OPERATIONS_GD.read_text(encoding="utf-8")
+    """Read one ``const <NAME> := { "Gda": ENGINE_CONST, ... }`` table from the payload."""
+    source = payload_source(JOY_TABLES_FILE)
     block = re.search(
         r"^const " + const_name + r" := \{\n(.*?)^\}$", source, re.M | re.S
     )
-    assert block is not None, f"{const_name} table not found in {OPERATIONS_GD}"
+    assert block is not None, f"{const_name} table not found in {JOY_TABLES_FILE}"
     entries = _ENTRY.findall(block.group(1))
     assert entries, f"{const_name} table is empty"
     return dict(entries)

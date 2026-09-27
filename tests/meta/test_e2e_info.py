@@ -10,11 +10,16 @@ import json
 
 import pytest
 
-from tests.support import Gda
+from gda.runner import SubprocessGodotRunner
+from tests.support import GODOT, Gda
 
 from tests.conftest import project_godot
 
 gda = Gda()
+
+# What the engine prints on stderr for a payload file that does not compile
+# (ADR-0043 probe 3): the analyzer's error, and the loader's refusal.
+LOAD_ERROR_MARKS = ("Parse Error", "Failed to load script")
 
 
 @pytest.mark.e2e
@@ -76,3 +81,18 @@ def test_gda_info_refuses_a_project_that_is_not_one(tmp_path):
 
     assert proc.returncode == 4, proc.stdout + proc.stderr
     assert json.loads(proc.stdout)["error"]["code"] == "project_not_found"
+
+
+@pytest.mark.e2e
+def test_gda_info_compiles_every_payload_file():
+    # ADR-0043 §6: the entry preloads every group file, so `info` compiles the
+    # whole payload, and the engine prints a load error on stderr on every run
+    # (probe 3). The exit status alone cannot catch it: a wrong call to an
+    # inherited op-base function in a group file fails only that group's
+    # operations, and `info` still exits 0. The stderr check is the gate. A payload file that does not compile
+    # is a gda defect that must not reach a release; this is the gate.
+    result = SubprocessGodotRunner(GODOT).run("info", {})
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    for mark in LOAD_ERROR_MARKS:
+        assert mark not in result.stderr, result.stderr

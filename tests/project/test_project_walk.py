@@ -14,12 +14,14 @@ a real engine in ``test_e2e_project_walk.py``.
 """
 
 import re
-from pathlib import Path
 
 from gda import import_evidence
-
-ROOT = Path(__file__).resolve().parents[2]
-OPERATIONS_GD = ROOT / "src" / "gda" / "ops" / "operations.gd"
+from tests.support import (
+    GD_FUNCTION_HEADER,
+    gd_function,
+    gd_string_const,
+    payload_source,
+)
 
 # The four collectors, each of which must be a single delegation to the traversal.
 COLLECTORS = (
@@ -42,20 +44,15 @@ HELPER_MENTION = re.compile(r"(?<![A-Za-z0-9_])_[a-z][A-Za-z0-9_]*")
 
 
 def _source() -> str:
-    return OPERATIONS_GD.read_text(encoding="utf-8")
+    # The walk and its collectors are in the entry until the project-walk module
+    # exists (ADR-0043 §2); the name below then changes to that module.
+    return payload_source("operations.gd")
 
 
 def _function_body(source: str, name: str) -> list[str]:
     """The statement lines of top-level ``func name(...)`` — comments dropped."""
-    lines = source.splitlines()
-    start = next(
-        (i for i, line in enumerate(lines) if line.startswith(f"func {name}(")), None
-    )
-    assert start is not None, f"expected function {name} in operations.gd"
     body: list[str] = []
-    for line in lines[start + 1 :]:
-        if line and not line.startswith(("\t", " ")):
-            break  # back at column 0: the function ended
+    for line in gd_function(source, name)[1:]:
         stripped = line.strip()
         if stripped and not stripped.startswith("#"):
             body.append(stripped)
@@ -106,7 +103,7 @@ def test_the_four_res_collectors_share_one_traversal():
         f"each collector must pass its own acceptance test, got {accepts}"
     )
     for name, accept in accepts.items():
-        assert f"func {accept}(" in source, f"{name} passes undefined {accept}"
+        assert gd_function(source, accept), f"{name} passes undefined {accept}"
 
 
 def test_the_static_analysis_note_names_only_helpers_that_exist():
@@ -116,7 +113,7 @@ def test_the_static_analysis_note_names_only_helpers_that_exist():
     # and every gda helper it names must be a function that actually exists, so
     # the correction cannot rot back into a phantom.
     source = _source()
-    defined = set(re.findall(r"^func (_[A-Za-z0-9_]+)\(", source, re.MULTILINE))
+    defined = set(GD_FUNCTION_HEADER.findall(source))
 
     assert "_scan_project" not in source, (
         "operations.gd names _scan_project, which no function defines"
@@ -151,8 +148,8 @@ def _enclosing_function(source: str, line_index: int) -> str | None:
     lines = source.splitlines()
     for i in range(line_index, -1, -1):
         line = lines[i]
-        if line.startswith("func "):
-            return line[len("func ") :].split("(")[0]
+        if header := GD_FUNCTION_HEADER.match(line):
+            return header.group(1)
         if line and not line.startswith(("\t", " ", "#")):
             return None  # a top-level statement that is not a func: outside one
     return None
@@ -173,7 +170,7 @@ def test_the_symlink_policy_is_asked_on_both_branches_of_the_traversal():
             f"{TRAVERSAL} must ask {predicate}; the symlink policy covers both the "
             f"directory branch and the file branch"
         )
-        assert f"func {predicate}(" in source, f"{predicate} is asked but not defined"
+        assert gd_function(source, predicate), f"{predicate} is asked but not defined"
 
 
 def test_the_engine_cache_exclusion_has_one_owner():
@@ -245,13 +242,6 @@ def test_the_engine_skip_markers_are_asked_only_by_the_descent_predicate():
     )
 
 
-def _const_value(source: str, name: str) -> str:
-    """The string literal a top-level ``const NAME := "…"`` declares."""
-    match = re.search(rf'^const {name} := "([^"]*)"$', source, re.MULTILINE)
-    assert match, f"expected a string const {name} in operations.gd"
-    return match.group(1)
-
-
 def test_the_two_spellings_of_the_skip_markers_agree():
     # #808 review: the rule crossed the language seam. `_should_descend` decides
     # it for the walk; `_engine_skips_directory_of` (src/gda/import_evidence.py)
@@ -272,7 +262,9 @@ def test_the_two_spellings_of_the_skip_markers_agree():
     # that must be identical.
     source = _source()
 
-    engine_side = {name: _const_value(source, name) for name in SKIP_MARKER_CONSTANTS}
+    engine_side = {
+        name: gd_string_const(source, name) for name in SKIP_MARKER_CONSTANTS
+    }
     python_side = {
         name: getattr(import_evidence, name) for name in SKIP_MARKER_CONSTANTS
     }

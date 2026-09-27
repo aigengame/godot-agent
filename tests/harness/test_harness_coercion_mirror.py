@@ -17,9 +17,14 @@ other fails here.
 import re
 from pathlib import Path
 
+from tests.support import gd_function, payload_source
+
 ROOT = Path(__file__).resolve().parents[2]
-OPERATIONS_GD = ROOT / "src" / "gda" / "ops" / "operations.gd"
 GDA_HARNESS_GD = ROOT / "src" / "gda" / "harness" / "gda_harness.gd"
+
+# The mirrored block is in the entry until the shared value module exists
+# (ADR-0043 §7); the name below then changes to that module.
+MIRRORED_PAYLOAD_FILE = "operations.gd"
 
 # The block both files delimit with these matching marker comments.
 BLOCK = re.compile(
@@ -34,58 +39,49 @@ CONTROL_POSITION_POLICY_HELPERS = (
 )
 
 
-def _shared_block(path: Path) -> str:
+def _payload_text() -> str:
+    return payload_source(MIRRORED_PAYLOAD_FILE)
+
+
+def _harness_text() -> str:
+    return GDA_HARNESS_GD.read_text(encoding="utf-8")
+
+
+def _shared_block(text: str, label: str) -> str:
     """The marker-delimited shared block, with each line's leading tabs stripped.
 
     Leading tabs are normalized so an accidental re-indent of one copy is not
     flagged as content drift — only the helper LOGIC must match.
     """
-    text = path.read_text(encoding="utf-8")
     matches = BLOCK.findall(text)
     assert len(matches) == 1, (
-        f"expected exactly one shared-coercion block in {path.name}, found {len(matches)}"
+        f"expected exactly one shared-coercion block in {label}, found {len(matches)}"
     )
     body = matches[0]
     return "\n".join(line.lstrip("\t") for line in body.splitlines())
 
 
-def _top_level_function(path: Path, name: str) -> str:
-    text = path.read_text(encoding="utf-8")
-    lines = text.splitlines()
-    start = next(
-        (index for index, line in enumerate(lines) if line.startswith(f"func {name}(")),
-        None,
-    )
-    assert start is not None, f"expected function {name} in {path.name}"
-
-    block: list[str] = []
-    for index in range(start, len(lines)):
-        line = lines[index]
-        if index > start and line and not line.startswith("\t"):
-            break
-        block.append(line.lstrip("\t"))
-    while block and block[-1] == "":
-        block.pop()
-    return "\n".join(block)
+def _top_level_function(text: str, name: str) -> str:
+    return "\n".join(line.lstrip("\t") for line in gd_function(text, name))
 
 
-def _control_position_policy(path: Path) -> str:
+def _control_position_policy(text: str) -> str:
     return "\n\n".join(
-        _top_level_function(path, name) for name in CONTROL_POSITION_POLICY_HELPERS
+        _top_level_function(text, name) for name in CONTROL_POSITION_POLICY_HELPERS
     )
 
 
 def test_shared_coercion_block_is_byte_identical_across_the_two_gd_files():
-    operations_block = _shared_block(OPERATIONS_GD)
-    harness_block = _shared_block(GDA_HARNESS_GD)
+    operations_block = _shared_block(_payload_text(), MIRRORED_PAYLOAD_FILE)
+    harness_block = _shared_block(_harness_text(), GDA_HARNESS_GD.name)
 
     assert operations_block, "the operations.gd shared block must be non-empty"
     assert operations_block == harness_block
 
 
 def test_control_position_policy_is_byte_identical_across_the_two_gd_files():
-    operations_policy = _control_position_policy(OPERATIONS_GD)
-    harness_policy = _control_position_policy(GDA_HARNESS_GD)
+    operations_policy = _control_position_policy(_payload_text())
+    harness_policy = _control_position_policy(_harness_text())
 
     assert operations_policy, "the operations.gd Control-position policy must exist"
     assert operations_policy == harness_policy
@@ -101,8 +97,8 @@ def test_the_reply_json_writer_is_byte_identical_across_the_two_gd_files():
     edit to one that is not mirrored has a caller-visible cost: the same value
     read back differently depending on the channel.
     """
-    operations_writer = _top_level_function(OPERATIONS_GD, "_json")
-    harness_writer = _top_level_function(GDA_HARNESS_GD, "_json")
+    operations_writer = _top_level_function(_payload_text(), "_json")
+    harness_writer = _top_level_function(_harness_text(), "_json")
 
     assert 'JSON.stringify(value, "", true, true)' in operations_writer
     assert operations_writer == harness_writer
