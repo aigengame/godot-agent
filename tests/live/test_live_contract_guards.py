@@ -41,9 +41,11 @@ from tests.support import (
     INPUT_TAP_ACTION_RESULT,
     PERF_PACKED_VALUE_BYTES,
     PNG_1X1_B64,
+    gd_function,
     inject_live_runner,
     minimal_project,
     panel_text,
+    payload_source,
     perf_sample_reply,
     screen_capture_reply,
     sentinel,
@@ -51,9 +53,6 @@ from tests.support import (
 
 ROOT = Path(__file__).resolve().parents[2]
 GDA_HARNESS_GD = ROOT / "src" / "gda" / "harness" / "gda_harness.gd"
-# The shared value module the harness preloads (#1016, ADR-0043 §7): it holds the
-# Control-position write policy that `game set` and headless `node set` share.
-SHARED_VALUE_GD = ROOT / "src" / "gda" / "ops" / "lib" / "value.gd"
 
 
 def _leaf_commands(command, path):
@@ -1043,7 +1042,7 @@ def test_game_get_names_game_rect_for_the_control_reads_it_cannot_serve():
     # serves. The message is written in the harness, so this reads the harness;
     # the layout inputs it names come from the shared value module, read with it.
     source = GDA_HARNESS_GD.read_text(encoding="utf-8")
-    shared = SHARED_VALUE_GD.read_text(encoding="utf-8")
+    shared = payload_source("lib/value.gd")
     declared = HARNESS_CONTROL_LAYOUT_READS.search(source)
     assert declared is not None, (
         f"{GDA_HARNESS_GD.name} must declare CONTROL_LAYOUT_READS"
@@ -1065,12 +1064,10 @@ def test_game_get_names_game_rect_for_the_control_reads_it_cannot_serve():
     # on a container child after the redirect learned better — two owners of one
     # rule).
     assert "VALUE._control_layout_inputs(control)" in message, message
-    setter = _harness_function(
-        shared, "_control_position_unavailable_message", SHARED_VALUE_GD
-    )
+    setter = "\n".join(gd_function(shared, "_control_position_unavailable_message"))
     assert "_control_layout_inputs(control)" in setter, setter
     assert "offset_left" not in setter, setter
-    inputs = _harness_function(shared, "_control_layout_inputs", SHARED_VALUE_GD)
+    inputs = "\n".join(gd_function(shared, "_control_layout_inputs"))
     for field in (
         "position",
         "size",
@@ -1141,22 +1138,14 @@ def test_game_get_names_game_rect_for_the_control_reads_it_cannot_serve():
     )
 
 
-def _harness_function(source: str, name: str, origin: Path = GDA_HARNESS_GD) -> str:
-    """One top-level GDScript function's text, its body included.
-
-    ``source`` is the text of ``origin``: the harness, or the shared value module
-    it preloads, whose functions are ``static func``.
-    """
+def _harness_function(source: str, name: str) -> str:
+    """One top-level GDScript function's text, its body included."""
     lines = source.splitlines()
     start = next(
-        (
-            index
-            for index, line in enumerate(lines)
-            if line.startswith((f"func {name}(", f"static func {name}("))
-        ),
+        (index for index, line in enumerate(lines) if line.startswith(f"func {name}(")),
         None,
     )
-    assert start is not None, f"expected function {name} in {origin.name}"
+    assert start is not None, f"expected function {name} in {GDA_HARNESS_GD.name}"
     body = [lines[start]]
     for line in lines[start + 1 :]:
         if line and not line.startswith("\t"):
