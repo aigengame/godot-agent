@@ -802,8 +802,9 @@ def test_daemon_game_set_mutates_explicit_plain_script_dictionary_variable(
 def test_daemon_game_set_preserves_json_container_integer_and_float_types(
     tmp_path, daemon_runtime_dir
 ):
-    # #427 live-side parity: the mirrored harness coercion must preserve JSON
-    # integer vs float values in the same session state that game get observes.
+    # #427 live-side parity: the coercion in the shared value module the harness
+    # preloads (#1016) must preserve JSON integer vs float values in the same
+    # session state that game get observes.
     (tmp_path / "project.godot").write_text(LIVE_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8")
