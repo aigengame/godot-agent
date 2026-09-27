@@ -7,6 +7,7 @@ supported version (>= 4.4) per ADR-0003.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -16,6 +17,16 @@ from tests.support import GODOT, Gda
 from tests.conftest import project_godot
 
 gda = Gda()
+
+# A project whose autoload leaves this mark on both streams when it runs (#1035).
+AUTOLOAD_MARK = "GDA-1035-INVOKER-AUTOLOAD-RAN"
+AUTOLOAD_GD = f"""extends Node
+
+
+func _init() -> void:
+\tprint("{AUTOLOAD_MARK}")
+\tprinterr("{AUTOLOAD_MARK}")
+"""
 
 # What the engine prints on stderr for a payload file that does not compile
 # (ADR-0043 probe 3): the analyzer's error, and the loader's refusal.
@@ -96,3 +107,54 @@ def test_gda_info_compiles_every_payload_file():
     assert result.exit_code == 0, result.stdout + result.stderr
     for mark in LOAD_ERROR_MARKS:
         assert mark not in result.stderr, result.stderr
+
+
+def _project_with_a_marking_autoload(directory: Path) -> Path:
+    directory.mkdir()
+    (directory / "project.godot").write_text(
+        project_godot(
+            name="invoker", extra='[autoload]\n\nMarker="*res://marker.gd"\n'
+        ),
+        encoding="utf-8",
+    )
+    (directory / "marker.gd").write_text(AUTOLOAD_GD, encoding="utf-8")
+    return directory
+
+
+@pytest.mark.e2e
+def test_gda_info_does_not_boot_the_project_in_the_working_directory(tmp_path):
+    # #1035: `info` inherits no project (#670), so the engine must not load one
+    # either. Without --path the engine reads its own working directory, which is
+    # the invoker's: it loaded the project there, and that project's autoloads ran.
+    # The mark must be absent from both streams and from the engine log.
+    project = _project_with_a_marking_autoload(tmp_path / "invoker")
+    root = tmp_path / "user-data"
+
+    proc = gda("--user-data-root", str(root), "info", "--json", cwd=project)
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert AUTOLOAD_MARK not in proc.stdout
+    assert AUTOLOAD_MARK not in proc.stderr
+    log = (root / "logs" / "godot.log").read_text(encoding="utf-8")
+    assert "<<<GDA:RESULT>>>" in log, log
+    assert AUTOLOAD_MARK not in log
+
+    # The same engine answer as a run in an empty directory.
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    reference = gda("info", "--json", cwd=empty)
+    assert reference.returncode == 0, reference.stdout + reference.stderr
+    assert json.loads(proc.stdout) == json.loads(reference.stdout)
+
+
+@pytest.mark.e2e
+def test_gda_info_with_an_explicit_project_still_boots_it(tmp_path):
+    # #1035 leaves `info --project` as it was (#670): the engine runs against the
+    # named project, so its autoloads run. This is also the control arm of the test
+    # above: the mark that test must not find is one this project does print.
+    project = _project_with_a_marking_autoload(tmp_path / "invoker")
+
+    proc = Gda(project)("info", "--json")
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert AUTOLOAD_MARK in proc.stderr

@@ -1108,6 +1108,49 @@ class GodotRunner(Protocol):
     def run(self, operation: str, params: dict) -> RunResult: ...
 
 
+def _launch_without_project(
+    binary: Path, args: list[str], *, timeout: float
+) -> RunResult:
+    """Launch one sentinel run in which the engine can load no project (#1035).
+
+    Without ``--path``, the engine does not run projectless by itself: it reads its
+    project from its working directory, which is the invoker's. A
+    ``project.godot``, a ``project.binary`` or an ``<executable name>.pck`` there
+    makes it load that project and start its autoloads
+    (``ProjectSettings::_setup``). gda cannot vouch for the invoker's working
+    directory, so this run gets a fresh, empty directory that gda makes for it, and
+    ``--path`` points the engine at that directory. ``--path`` only sets the
+    engine's working directory (``Main::setup`` calls ``set_cwd``). In an empty
+    directory the engine finds nothing to load, so the run is projectless whatever
+    the invoker's working directory holds. ``--path`` is used, not the spawn's own
+    ``cwd``, so that a relative binary path still resolves against the invoker's
+    directory, as it does for every other launch.
+
+    The directory is removed after every outcome. If it cannot be made, the launch
+    is refused before any spawn, with the same typed reason as a private log target
+    that cannot be made in the same temporary directory: the cause and the remedy
+    are the same.
+    """
+    try:
+        workdir = tempfile.mkdtemp(prefix="gda-noproject-")
+    except OSError as exc:
+        return RunResult(
+            stdout="",
+            stderr=(
+                "gda: the empty working directory that keeps the engine from "
+                f"loading a project could not be created ({exc}); the launch was "
+                "refused before the engine started. Point TMPDIR at a writable "
+                "directory.\n"
+            ),
+            exit_code=EXIT_NOT_FOUND,
+            launch_failure=LaunchFailure.USER_DATA_UNWRITABLE,
+        )
+    try:
+        return launch(binary, ["--path", workdir, *args], cwd=None, timeout=timeout)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 @dataclass
 class SubprocessGodotRunner:
     """A GodotRunner that spawns a one-shot ``godot --headless --script`` process.
@@ -1116,13 +1159,24 @@ class SubprocessGodotRunner:
     returns the process's raw stdout/stderr/exit code unparsed — extracting the
     result from the noise is the parser's job (ADR-0002). When ``project`` is
     set it is passed as ``--path`` so the engine runs against that project and
-    ``res://`` resolves there (issue #32); otherwise the engine runs projectless.
+    ``res://`` resolves there (issue #32).
+
+    When ``project`` is ``None``, the engine reads the invoker's working directory
+    and loads the project it finds there, if any (#1035). ``ignore_cwd`` is how a
+    run that must load no project gets none: the engine then starts in a fresh,
+    empty directory (:func:`_launch_without_project`). It applies only to a run
+    without a ``project``.
     """
 
     binary: Path
     project: Path | None = None
     script: Path = OPERATIONS_GD
     timeout: float = DEFAULT_TIMEOUT_SECONDS
+    ignore_cwd: bool = False
+
+    def __post_init__(self) -> None:
+        if self.ignore_cwd and self.project is not None:
+            raise ValueError("ignore_cwd applies only to a run without a project")
 
     def run(self, operation: str, params: dict) -> RunResult:
         # Build only this channel's argv tail (:func:`sentinel_args`, shared with the
@@ -1130,11 +1184,12 @@ class SubprocessGodotRunner:
         # timeout / OSError / UTF-8-decode handling to the shared launch primitive
         # (#185).
         #
-        # A sentinel op runs projectless or against --path; it never needs a working
-        # directory, so cwd is always the default.
-        return launch(
-            self.binary,
-            sentinel_args(operation, params, project=self.project, script=self.script),
-            cwd=None,
-            timeout=self.timeout,
+        # A sentinel op never needs gda to change the spawn's working directory, so
+        # cwd is always the default. The engine's own working directory is --path:
+        # the project, or the empty directory of a run that ignores the invoker's.
+        args = sentinel_args(
+            operation, params, project=self.project, script=self.script
         )
+        if self.ignore_cwd:
+            return _launch_without_project(self.binary, args, timeout=self.timeout)
+        return launch(self.binary, args, cwd=None, timeout=self.timeout)
