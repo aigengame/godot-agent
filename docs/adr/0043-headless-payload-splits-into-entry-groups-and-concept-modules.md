@@ -362,6 +362,21 @@ This step reopens ADR-0018's #220 Outcome.
 While #1015 is open, the harness does not change. The mirror drift test reads the new
 module and ignores the `static` keyword that the module adds.
 
+> **Outcome (2026-09-27, #1016):** the public delta declared above was not complete.
+> Two more changes come from the same cause: the install writes a second file into
+> `res://addons/gda_harness/`. Both are accepted, and #1016 records them.
+>
+> - In a project that has the harness installed, the headless operations that read
+>   the project's scripts also see `value.gd`, as they already see `gda_harness.gd`.
+>   `script list` has one more entry, `project statistics` counts one more script and
+>   its lines, and `project find-references` on the module returns the harness's
+>   `preload`. A project without the harness does not change.
+> - When a failed `daemon start` or `daemon install` rolls back a fresh install, the
+>   rollback text in the failure `diagnostics` also names the module. A permission
+>   failure can name `value.gd` as the path that failed.
+>
+> Neither change touches the schema or the help.
+
 ### 8. Principles as rules
 
 The split adds the abstraction that the move needs, and nothing more. Each principle
