@@ -4,6 +4,8 @@ extends "../op_base.gd"
 # entry, operations.gd, creates one instance per run and dispatches the group's
 # operations to it.
 
+const VALUE := preload("../lib/value.gd")
+
 
 # export-list: enumerate the project's export presets (issue #114). Reads the
 # project's res://export_presets.cfg with ConfigFile — a cheap config parse, not
@@ -46,7 +48,7 @@ func _op_export_get(params: Dictionary) -> void:
 		_fail(OP_ERROR_PROJECT_NOT_FOUND, "export get requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
 		return
 
-	var preset_name := _string_param(params, "preset")
+	var preset_name := VALUE._string_param(params, "preset")
 	if preset_name.is_empty():
 		_fail(OP_ERROR_INVALID_PARAMS, "missing required param: preset")
 		return
@@ -67,7 +69,7 @@ func _op_export_get(params: Dictionary) -> void:
 			var installed := _export_templates_installed(templates_root, version_dir)
 			summary["templates_installed"] = installed
 			summary["templates_root_host"] = _hidden_host_templates_root(
-				_string_param(params, "host_data_path"), templates_root, version_dir, installed
+				VALUE._string_param(params, "host_data_path"), templates_root, version_dir, installed
 			)
 			_succeed(summary)
 			return
