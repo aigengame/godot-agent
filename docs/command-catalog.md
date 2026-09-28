@@ -1053,19 +1053,55 @@ The script executes in full, within the trusted-project assumption (ADR-0009).
 ### `project`
 
 Reads and writes the resolved project's `project.godot` / `ProjectSettings` headlessly. Every
-project command runs against an **explicit project context** (`--project`/`$GDA_PROJECT`/cwd,
-ADR-0006): `ProjectSettings` without a resolved project reports only the engine's bare defaults,
-not the agent's project, so a projectless run is refused with `project_not_found` (exit 4) rather
-than returning a misleading result.
+project command except `project create` runs against an **explicit project context**
+(`--project`/`$GDA_PROJECT`/cwd, ADR-0006): `ProjectSettings` without a resolved project reports
+only the engine's bare defaults, not the agent's project, so a projectless run is refused with
+`project_not_found` (exit 4) rather than returning a misleading result. `project create` makes a
+new project at a destination, so it has no project context and resolves none (see **Project
+creation** below).
 
-> **Autoloads run on every `project` command (#61, ADR-0009).** `project info` and `project get` are
+> **Autoloads run on every `project` command except `project create` (#61, ADR-0009).**
+> `project create` loads no project, so no autoload runs (#1035). `project info` and `project get` are
 > **state-reads** at the operation level — they read `ProjectSettings` and never instantiate a scene;
 > `project set` is a **`ProjectSettings` write** that persists to `project.godot`
-> (`ProjectSettings.save()`) but still never instantiates a scene. Either way, every `project` command
+> (`ProjectSettings.save()`) but still never instantiates a scene. Either way, every other `project` command
 > runs under `--project`, and the engine constructs the project's **autoload singletons** (running
 > their `_init`/`_ready`) at startup, *before* the operation gets control, on `project info` / `get` /
 > `set` alike. This is the documented **process-startup execution surface** of the trusted-project
 > model (ADR-0009), not re-introduced silently: a `project` op is not zero-execution.
+
+**Project creation** (established by #1027): `gda project create DESTINATION --name NAME` makes a
+minimal Godot project, so an agent that starts with no project can use the other `project`,
+`scene` and `script` commands next. DESTINATION is a directory that does not exist yet, in a
+parent directory that exists, or an existing empty directory. Entries whose names start with `.`
+do not count, so a directory after `git init` is empty for this rule (the Project Manager
+precedent). The command creates only the destination, never a missing parent. A relative
+DESTINATION resolves against the invoker's working directory, and `~` expands, before the engine
+starts; `res://`, `user://` and `uid://` are refused, because no project exists yet to give them a
+meaning. The destination is an operation input, not a project context (ADR-0006, #1027 note): the
+command declares no `--project`, reads no project from `$GDA_PROJECT` or the working directory, and
+its engine run loads no project (#1035), so no other project's autoload runs and none of its
+settings is copied. A destination inside another project is accepted. The name loses its leading and
+trailing spaces and control characters (U+0000 to U+0020), and the stripped name is what is written
+and reported. The command writes one file, `project.godot`. It holds `application/config/name` and
+only what the engine writes on every save, `config_version` and the version feature in
+`application/config/features`; every other setting keeps its Godot default. There is no main scene,
+renderer choice, icon or template: set those with the existing commands. The request succeeds only
+when the name reads back unchanged from the written file (a `ConfigFile` read in the same engine
+process). The result is
+`{path, name, created_dirs, project_file}`: `path` is the absolute project root, and
+`created_dirs` lists the destination when this request created it and is empty when the
+destination existed. It is not one of the writers under "What a write does to `project.godot`"
+below: there is no earlier file to restore, so the result has no residual-mutation fields.
+
+Each refusal is an `Error envelope` for argv and `--params-json` input alike. A destination that
+holds `project.godot` is `already_exists`, checked before the emptiness rule; any other nonempty
+directory is `destination_not_empty`; a file at the destination, a virtual path, or a missing
+parent is `invalid_path`; a name that is empty after stripping is `invalid_params`; a directory
+that cannot be created, a file that cannot be written, or a name that does not read back is
+`save_failed` (all exit 4). A refusal changes nothing that existed before the request. When a
+request fails after it created the directory or the file, it removes only what it created, and
+`diagnostics` lists each path it could not remove.
 
 **Project metadata** (established by #111): `gda project info` reports the project's `name` and
 `main_scene` (from `ProjectSettings`), its configured `viewport_width`/`viewport_height`, and the
@@ -1199,6 +1235,7 @@ operation had already failed, its envelope stands instead.
 
 | Command | Description |
 | --- | --- |
+| `gda project create` | Create a minimal project in a new or empty destination directory |
 | `gda project info` | Project metadata (name, main scene, viewport, engine version) |
 | `gda project get` | Read a project setting by section/key (typed JSON) |
 | `gda project list` | List the project's settings keys (customized by default; `--all` adds defaults, `--section` filters) |

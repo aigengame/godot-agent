@@ -40,6 +40,12 @@ COLLECTORS = (
 TRAVERSAL = "_collect_paths"
 LISTING_CALL = "list_dir_begin()"
 
+# The one listing that is not a res:// walk: `project create` lists ONE absolute
+# destination directory, outside any project, to apply its emptiness rule (#1027).
+# It has no exclusion rules that could drift from the walk's, and it must see a
+# listing failure, which the traversal ignores. So it is exempt by name, once.
+DESTINATION_LISTING = "_destination_entries"
+
 # The module that holds the traversal and its predicates.
 WALK_MODULE = "lib/project_walk.gd"
 
@@ -100,6 +106,11 @@ def test_the_four_res_collectors_share_one_traversal():
     # exactly once in the payload, inside the shared walker; each collector is a
     # single delegation to it and differs only in the acceptance test it passes.
     copies = sum(text.count(LISTING_CALL) for text in payload_sources().values())
+    exempt = "\n".join(
+        gd_function(_holder(DESTINATION_LISTING), DESTINATION_LISTING)
+    ).count(LISTING_CALL)
+    assert exempt == 1, f"{DESTINATION_LISTING} must list its directory once"
+    copies -= exempt
     assert copies == 1, (
         f"the res:// listing scaffolding must live only in {TRAVERSAL}; "
         f"found {copies} copies of {LISTING_CALL}"

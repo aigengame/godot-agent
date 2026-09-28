@@ -49,6 +49,12 @@ and limits.
 
 ## Headless workflow
 
+With no project yet, run `gda project create DIR --name NAME --json` first.
+DIR must be a new directory in an existing parent, or an empty directory;
+dot-prefixed entries such as `.git` do not count. The new `project.godot` sets
+only the name, so set the main scene and other settings with `project set`.
+Then use DIR as the project.
+
 1. Create or edit a scene with `scene`, `node`, `script`, and `resource`
    commands. Use `script attach` to bind a script to a node; generic
    `node set --property script` is refused. Create assets used by

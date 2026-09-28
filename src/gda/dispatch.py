@@ -212,12 +212,13 @@ def _project_context(
     and whether its engine run must ignore the invoker's working directory.
 
     One rule, shared by both dispatch arms. A command with ``inherits_project=False``
-    (a meta command, or ``export smoke``, which acts on a caller-selected path)
-    never INHERITS a project context ($GDA_PROJECT, then the cwd): it is about
-    ``gda`` or the engine itself, or about an operand gda cannot tie to a project,
-    so an inherited invalid ``$GDA_PROJECT`` must not make it fail (#357,
-    ADR-0042). It still VALIDATES an EXPLICIT
-    ``--project`` when it takes one and one is given (``gda info --project``, #670)
+    (a meta command, ``export smoke``, which acts on a caller-selected path, or
+    ``project create``, whose destination is an operation input) never INHERITS a
+    project context ($GDA_PROJECT, then the cwd): it is about ``gda`` or the engine
+    itself, or about an operand gda cannot tie to a project, so an inherited
+    invalid ``$GDA_PROJECT`` must not make it fail (#357, ADR-0042, #1027). It
+    still VALIDATES an EXPLICIT ``--project`` when it takes one and one is given
+    (``gda info --project``, #670)
     — naming a project is a deliberate choice, so a bad one is a structured refusal
     rather than something quietly ignored.
 
