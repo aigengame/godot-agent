@@ -20,6 +20,12 @@ const PROJECT_MAIN_SCENE_SETTING := "application/run/main_scene"
 const PROJECT_VIEWPORT_WIDTH_SETTING := "display/window/size/viewport_width"
 const PROJECT_VIEWPORT_HEIGHT_SETTING := "display/window/size/viewport_height"
 
+# project-create (issue #1027): the one file the op writes, and the engine-virtual
+# schemes it refuses as a destination (the CLI passes them through unchanged, so
+# the refusal is an operation error on both input channels).
+const PROJECT_CREATE_FILE := "project.godot"
+const PROJECT_CREATE_VIRTUAL_PREFIXES := ["res://", "user://", "uid://"]
+
 # Autoload singletons live under the "autoload/<name>" section of project.godot
 # (issue #119). The value is the res:// path optionally prefixed with "*" to mean
 # "enabled as a singleton" — the normal, accessible form gda writes.
@@ -65,6 +71,149 @@ func _op_project_info(_params: Dictionary) -> void:
 		"viewport_height": int(ProjectSettings.get_setting(PROJECT_VIEWPORT_HEIGHT_SETTING, 0)),
 		"engine_version": Engine.get_version_info(),
 	})
+
+
+# project-create: create a minimal Godot project at a destination directory (issue
+# #1027). The destination is an operation input, not the project this process runs
+# against. The CLI starts this engine in an empty directory of its own (#1035), so
+# ProjectSettings holds only engine defaults, and save_custom() — which merges the
+# current settings into the file it writes — writes the name and what the engine
+# writes on every save (config_version and the version feature). The CLI has made
+# the destination absolute, because this engine's working directory is that empty
+# directory.
+#
+# The destination is a new directory in an existing parent, or an existing
+# directory that holds no entries other than dot-prefixed ones (Project Manager
+# precedent: a directory after `git init` is accepted). The op creates only the
+# destination itself, never a parent. When the request fails after it created
+# something, it removes only what it created, and names on stderr (the envelope's
+# diagnostics) each path it could not remove.
+#
+# The success condition is a read-back: ConfigFile, the engine's own parser, must
+# return the name from the written file in this process. A name that the parser
+# does not return unchanged (for example one that starts with U+FEFF, which the
+# parser drops) is save_failed, and the file is removed.
+func _op_project_create(params: Dictionary) -> void:
+	_diag("running operation: project-create")
+	var destination := VALUE._string_param(params, "destination")
+	var name := VALUE._string_param(params, "name").strip_edges()
+	if destination.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: destination")
+		return
+	for prefix in PROJECT_CREATE_VIRTUAL_PREFIXES:
+		if destination.begins_with(prefix):
+			_fail(OP_ERROR_INVALID_PATH, "project create requires a filesystem destination; "
+					+ destination + " is an engine-virtual path")
+			return
+	if not destination.is_absolute_path():
+		_fail(OP_ERROR_INVALID_PATH, "project create requires an absolute destination: " + destination)
+		return
+	if name.is_empty():
+		_fail(OP_ERROR_INVALID_PARAMS, "project create requires a nonempty name; the name is"
+				+ " empty after leading and trailing whitespace is removed")
+		return
+
+	var project_file := destination.path_join(PROJECT_CREATE_FILE)
+	var created_dirs: Array = []
+	if DirAccess.dir_exists_absolute(destination):
+		if FileAccess.file_exists(project_file):
+			_fail(OP_ERROR_ALREADY_EXISTS, "the destination already holds a project: " + project_file)
+			return
+		var entries: Variant = _destination_entries(destination)
+		if entries == null:
+			_fail(OP_ERROR_INVALID_PATH, "cannot list the destination directory: " + destination)
+			return
+		if (entries as PackedStringArray).has(PROJECT_CREATE_FILE):
+			_fail(OP_ERROR_ALREADY_EXISTS, "the destination already holds a project: " + project_file)
+			return
+		for entry in entries:
+			if not String(entry).begins_with("."):
+				_fail(OP_ERROR_DESTINATION_NOT_EMPTY, "the destination directory is not empty"
+						+ " (it holds " + String(entry) + "): " + destination)
+				return
+	elif FileAccess.file_exists(destination):
+		_fail(OP_ERROR_INVALID_PATH, "the destination is a file, not a directory: " + destination)
+		return
+	elif not DirAccess.dir_exists_absolute(destination.get_base_dir()):
+		_fail(OP_ERROR_INVALID_PATH, "the destination's parent directory does not exist: "
+				+ destination.get_base_dir() + " — project create does not create parent directories")
+		return
+	else:
+		var mkdir_err := DirAccess.make_dir_absolute(destination)
+		if mkdir_err == ERR_ALREADY_EXISTS:
+			_fail(OP_ERROR_INVALID_PATH, "an entry that is not a directory exists at the destination: "
+					+ destination)
+			return
+		if mkdir_err != OK:
+			_fail(OP_ERROR_SAVE_FAILED, "could not create the destination directory "
+					+ destination + ": " + error_string(mkdir_err))
+			return
+		created_dirs.append(destination)
+
+	ProjectSettings.set_setting(PROJECT_NAME_SETTING, name)
+	var save_err := ProjectSettings.save_custom(project_file)
+	if save_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, "could not write " + project_file + ": " + error_string(save_err)
+				+ _remove_created(project_file, created_dirs))
+		return
+
+	var config := ConfigFile.new()
+	var load_err := config.load(project_file)
+	var stored: Variant = null
+	if load_err == OK:
+		stored = config.get_value("application", "config/name", null)
+	if not (stored is String and stored == name):
+		_fail(OP_ERROR_SAVE_FAILED, "the project name did not read back unchanged from "
+				+ project_file + " (read back: " + var_to_str(stored) + ")"
+				+ _remove_created(project_file, created_dirs))
+		return
+
+	_succeed({
+		"path": destination,
+		"name": name,
+		"created_dirs": created_dirs,
+		"project_file": project_file,
+	})
+
+
+# Every entry of `destination` except "." and "..", hidden ones included, or null
+# when the directory cannot be listed. DirAccess hides dot-prefixed entries by
+# default, and on macOS also the entries with the UF_HIDDEN flag, so the op asks
+# for all of them and applies the dot-prefix rule itself.
+func _destination_entries(destination: String) -> Variant:
+	var dir := DirAccess.open(destination)
+	if dir == null:
+		return null
+	dir.include_hidden = true
+	dir.include_navigational = false
+	if dir.list_dir_begin() != OK:
+		return null
+	var entries := PackedStringArray()
+	var entry := dir.get_next()
+	while not entry.is_empty():
+		entries.append(entry)
+		entry = dir.get_next()
+	dir.list_dir_end()
+	return entries
+
+
+# Remove what a failed project-create request created: the project file, when it
+# exists now (the op refuses a destination that already holds one, so this request
+# wrote it), then each directory the request created. Each path that cannot be removed is a leftover, named on stderr
+# (the envelope's diagnostics). Returns the text the failure message ends with.
+func _remove_created(project_file: String, created_dirs: Array) -> String:
+	var leftovers := PackedStringArray()
+	if FileAccess.file_exists(project_file) and DirAccess.remove_absolute(project_file) != OK:
+		leftovers.append(project_file)
+	for index in range(created_dirs.size() - 1, -1, -1):
+		var directory := String(created_dirs[index])
+		if DirAccess.dir_exists_absolute(directory) and DirAccess.remove_absolute(directory) != OK:
+			leftovers.append(directory)
+	if leftovers.is_empty():
+		return ""
+	for leftover in leftovers:
+		_diag("leftover: " + leftover)
+	return "; could not remove " + str(leftovers.size()) + " path(s) this request created, listed in diagnostics"
 
 
 # project-get: read one project setting by its full "section/key" name and report

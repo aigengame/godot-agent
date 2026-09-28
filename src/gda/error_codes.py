@@ -223,11 +223,20 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A create operation target already exists and will not be overwritten.",
     ),
     ErrorCodeSpec(
+        "destination_not_empty",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A create operation destination is a directory that holds entries other "
+        "than dot-prefixed ones, so nothing was written into it.",
+    ),
+    ErrorCodeSpec(
         "save_failed",
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
-        "A scene could not be packed or saved.",
+        "A scene could not be packed or saved, or a project file or its directory "
+        "could not be created, written or read back.",
     ),
     ErrorCodeSpec(
         "delete_failed",

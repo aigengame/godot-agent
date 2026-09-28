@@ -305,7 +305,8 @@ operation, and parse codes the CLI assigns).
 | `invalid_root_type` | `operation` | `operation` | `4` | A requested Godot root node type cannot be instantiated as a `Node`. |
 | `invalid_root_name` | `operation` | `operation` | `4` | A requested root node name is empty or would be rewritten by Godot. |
 | `already_exists` | `operation` | `operation` | `4` | A create operation target already exists and will not be overwritten. |
-| `save_failed` | `operation` | `operation` | `4` | A scene could not be packed or saved. |
+| `destination_not_empty` | `operation` | `operation` | `4` | A create operation destination is a directory that holds entries other than dot-prefixed ones, so nothing was written into it. |
+| `save_failed` | `operation` | `operation` | `4` | A scene could not be packed or saved, or a project file or its directory could not be created, written or read back. |
 | `delete_failed` | `operation` | `operation` | `4` | A file could not be removed from disk. |
 | `file_changed_externally` | `operation` | `operation` | `4` | A read-modify-write operation's target file changed on disk between the read and the write, so the write was refused to avoid clobbering the external edit. |
 | `project_not_found` | `operation` | `operation` | `4` | gda has no resolved Godot project usable for the requested target: an operation needed one and none was resolved, or an explicit `--project` was empty, or a `--project`/`$GDA_PROJECT` does not name a Godot project (no `project.godot`). |

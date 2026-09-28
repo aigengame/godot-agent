@@ -152,6 +152,8 @@ func _initialize() -> void:
 			_resource_group()._op_resource_uid(params)
 		"project-info":
 			_project_group()._op_project_info(params)
+		"project-create":
+			_project_group()._op_project_create(params)
 		"project-get":
 			_project_group()._op_project_get(params)
 		"project-list":

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, TypeVar, Union
 
 import typer
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 from gda import dispatch
 from gda.dispatch import dispatch_command, params_or_bad_parameter
@@ -37,7 +37,7 @@ from gda.models import (
     SET_ECHO_VALUE_DESC,
     VALUE_PROJECTION_DESC,
 )
-from gda.project import PROJECT_MARKER
+from gda.project import PROJECT_MARKER, expand_user, is_engine_virtual_path
 from gda.project_file import (
     ProjectFileChangedError,
     ProjectFileRestoreError,
@@ -287,6 +287,97 @@ class ProjectInfoResult(BaseModel):
     )
     engine_version: EngineVersion = Field(
         description="The Godot engine version the project runs on."
+    )
+
+
+# --- project create (issue #1027) --------------------------------------------
+#
+# The one `project` command that runs against NO project: the destination is an
+# operation input, not a project context (ADR-0006). The descriptor inherits no
+# project and the command declares no --project, so the sentinel launch runs the
+# engine in an empty directory (#1035) and the new project.godot holds no setting
+# of another project.
+
+
+def normalize_project_destination(path: str) -> str:
+    """Normalize a ``project create`` destination before the engine starts (#1027).
+
+    A ``~`` prefix expands and a relative path is made absolute against the
+    invocation cwd, identically on the argv and ``--params-json`` paths (ADR-0015).
+    The engine cannot do this: it runs in an empty directory of its own (#1035), so
+    a relative path would resolve there. Absolute, not canonical: ``..`` is not
+    folded and a symlink is not resolved, so the result reports the path the caller
+    named. An empty string and an engine-virtual path (``res://``, ``user://``,
+    ``uid://``) pass through unchanged, and the operation refuses them with
+    ``invalid_path``: every refusal of this command is an ``Error envelope`` on
+    both input channels, never an argv usage error. Without that exception, an
+    empty string would name the invocation cwd.
+    """
+    if not path or is_engine_virtual_path(path):
+        return path
+    expanded = expand_user(Path(path))
+    if expanded.is_absolute():
+        return str(expanded)
+    return str(Path.cwd() / expanded)
+
+
+ProjectDestination = Annotated[str, AfterValidator(normalize_project_destination)]
+
+PROJECT_CREATE_DESTINATION_DESC = (
+    "The directory to create the project in. It must not exist yet, in an existing "
+    "parent directory, or it must be an empty directory; entries whose names start "
+    "with '.' (for example .git) do not count. A relative path resolves against the "
+    "current working directory, and ~ expands. res://, user:// and uid:// paths are "
+    "refused."
+)
+PROJECT_CREATE_NAME_DESC = (
+    "The project name, written to application/config/name. Leading and trailing "
+    "whitespace is removed; a name that is empty after that is refused."
+)
+
+
+class ProjectCreateParams(BaseModel):
+    """The operation params of ``gda project create`` (issue #1027).
+
+    Both fields are the request, and the params model only normalizes them: the
+    ``destination`` through :data:`ProjectDestination`, and the ``name`` not at
+    all. Every refusal — a virtual path, a file or a nonempty directory at the
+    destination, a missing parent, an empty name — is decided by the operation
+    after this model accepts the request, so it is the same ``Error envelope`` for
+    argv and ``--params-json`` input. There is no project param and no
+    ``--project``: the command inherits no project (ADR-0006).
+    """
+
+    destination: ProjectDestination = Field(description=PROJECT_CREATE_DESTINATION_DESC)
+    name: str = Field(description=PROJECT_CREATE_NAME_DESC)
+
+
+class ProjectCreateResult(BaseModel):
+    """The result of ``gda project create`` (issue #1027).
+
+    Every path is absolute. ``project_file`` is the one file the request wrote; the
+    engine read the name back from it in the same process before this result was
+    returned. The field is ``path``, not ``project_root``, which already names the
+    project gda resolved for a call.
+    """
+
+    path: str = Field(
+        description="The absolute path of the new project's root directory."
+    )
+    name: str = Field(
+        description=(
+            "The project name as written to application/config/name, without "
+            "leading and trailing whitespace."
+        )
+    )
+    created_dirs: list[str] = Field(
+        description=(
+            "The absolute paths of the directories this request created: the "
+            "destination when it did not exist, else empty."
+        )
+    )
+    project_file: str = Field(
+        description="The absolute path of the project.godot this request wrote."
     )
 
 
@@ -1007,6 +1098,19 @@ def render_project_info(info: "ProjectInfoResult") -> str:
     )
 
 
+def render_project_create(created: "ProjectCreateResult") -> str:
+    """Render a created project as a small ``key: value`` block for humans."""
+    created_dirs = ", ".join(created.created_dirs) if created.created_dirs else "(none)"
+    return "\n".join(
+        [
+            f"created project: {created.path}",
+            f"name: {created.name}",
+            f"project_file: {created.project_file}",
+            f"created_dirs: {created_dirs}",
+        ]
+    )
+
+
 def render_project_get(got: "ProjectGetResult") -> str:
     """Render a read setting as ``<setting> (<type>) = <value>``."""
     return f"{got.setting} ({got.type}) = {format_value(got.value)}"
@@ -1147,6 +1251,18 @@ PROJECT_INFO_COMMAND: HeadlessCommand[ProjectInfoResult] = HeadlessCommand(
     input_model=ProjectInfoParams,
     output_model=ProjectInfoResult,
     render=render_project_info,
+)
+
+PROJECT_CREATE_COMMAND: HeadlessCommand[ProjectCreateResult] = HeadlessCommand(
+    operation="project-create",
+    input_model=ProjectCreateParams,
+    output_model=ProjectCreateResult,
+    render=render_project_create,
+    # The destination is an operation input, not a project context (ADR-0006):
+    # neither $GDA_PROJECT nor the cwd is read as a project. With no --project, the
+    # sentinel launch also runs the engine where it can load no project (#1035), so
+    # the save writes no setting of another project into the new project.godot.
+    inherits_project=False,
 )
 
 PROJECT_GET_COMMAND: HeadlessCommand[ProjectGetResult] = HeadlessCommand(
@@ -1329,10 +1445,43 @@ PROJECT_STATISTICS_COMMAND: HeadlessCommand[ProjectStatisticsResult] = HeadlessC
 # #116 adds the read-only, project-wide static-analysis reads (find-references,
 # dependencies, find-unused-resources, statistics), all backed by a single static
 # project scan that parses files as text — never instantiating a scene or loading
-# a script (issue #30). Every project command runs against an explicit project
-# context (--project), so — like any --project op — it runs the project's
-# autoloads at engine startup (#61, ADR-0009).
+# a script (issue #30). Every project command except create runs against an
+# explicit project context (--project), so — like any --project op — it runs the
+# project's autoloads at engine startup (#61, ADR-0009). create (#1027) makes a new
+# project at a destination; it inherits no project and boots none (#1035).
 _app = typer.Typer(help="Act on the Godot project as a whole.", no_args_is_help=True)
+
+
+@_app.command(name="create", cls=PROJECT_CREATE_COMMAND.command_class())
+def project_create(
+    destination: str = typer.Argument(..., help=PROJECT_CREATE_DESTINATION_DESC),
+    name: str = typer.Option(..., "--name", help=PROJECT_CREATE_NAME_DESC),
+    json_output: bool = json_option(),
+    schema: bool = PROJECT_CREATE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+) -> None:
+    """Create a minimal Godot project in a new or empty destination directory.
+
+    The command writes one file, the destination's project.godot, which holds the
+    project name and what the engine writes on every save (config_version and the
+    engine version feature). Set the main scene, the renderer and other settings
+    after that with the other project commands.
+
+    The destination is not a project context: the command takes no --project, and
+    it reads neither $GDA_PROJECT nor the current directory as a project. It loads
+    no project in the engine. When the request fails, it removes what it created;
+    diagnostics names anything it could not remove.
+    """
+    dispatch_command(
+        PROJECT_CREATE_COMMAND,
+        params_or_bad_parameter(
+            ProjectCreateParams, destination=destination, name=name
+        ),
+        json_output=json_output,
+        godot=godot,
+        project=None,
+    )
 
 
 @_app.command(name="info", cls=PROJECT_INFO_COMMAND.command_class())
