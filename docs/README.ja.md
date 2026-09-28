@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=98b26192f5f15db7cb56e5ad1f03706355e876584fd28c4eb53ebbeea063c36c -->
+<!-- gda-readme-i18n: source=README.md sha256=4fdeb5c1c57de1684949c6c7a934973f8690cd89df5896e0ba7a2c5baf7cac0d -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -450,8 +450,9 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `project find-unused-resources` | どこからも参照されていないリソースファイルを見つけます。 |
 | `project statistics` | プロジェクトのファイル数/行数、オートロードなどを報告します。 |
 
-`project` の書き込みはエンジン経由で保存され、エンジンはファイル全体を再シリアライズ
-します。gda は削除された明示的な行を復元し、残りの変更を結果で報告します。
+既存の `project.godot` を変更する `project` の書き込みはエンジン経由で保存され、
+エンジンはファイル全体を再シリアライズします。gda は削除された明示的な行を復元し、
+残りの変更を結果で報告します。
 
 **`resource`** — リソースファイル(`.tres`)とプロジェクトのインポート済みアセット
 
