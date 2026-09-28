@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.20.0](https://github.com/aigengame/godot-agent/compare/v0.19.0...v0.20.0) (2026-09-28)
+
+
+### Features
+
+* **gda:** add project create for a minimal project at a destination ([#1038](https://github.com/aigengame/godot-agent/issues/1038)) ([cf2f8b9](https://github.com/aigengame/godot-agent/commit/cf2f8b95965723eab2975e7fa1712c1b2bb72bff))
+* **gda:** architecture refactor W4 — project create, a projectless launch that ignores the working directory, and skill guidance ([79b8fb0](https://github.com/aigengame/godot-agent/commit/79b8fb05da333eb65e0a14d374b3385cc1ac0ad6))
+
+
+### Bug Fixes
+
+* **gda:** architecture refactor W1 — one dispatch entry, one live exchange, and structured refusals for an empty --godot and a targetless skill install ([830b064](https://github.com/aigengame/godot-agent/commit/830b064a8d61d3967a58d5fb2edcae0c22369931))
+* **gda:** keep a command that inherits no project from booting the cwd project ([#1037](https://github.com/aigengame/godot-agent/issues/1037)) ([fe51fe1](https://github.com/aigengame/godot-agent/commit/fe51fe134977e1908639553fdc1570f861acca71))
+* **gda:** refuse a skill install with no target and dispatch through one entry ([#1020](https://github.com/aigengame/godot-agent/issues/1020)) ([1631b7d](https://github.com/aigengame/godot-agent/commit/1631b7dfd229a3d93d4f0377c9f3688da3ddfa0e))
+* **gda:** refuse an empty --godot with binary_not_found on every caller ([#1018](https://github.com/aigengame/godot-agent/issues/1018)) ([ac4e8d5](https://github.com/aigengame/godot-agent/commit/ac4e8d5b489004926df04c650c1a023c4835ad0f))
+* **gda:** run screen and perf through the shared live exchange ([#1019](https://github.com/aigengame/godot-agent/issues/1019)) ([d1c566f](https://github.com/aigengame/godot-agent/commit/d1c566f8e41946be55881f2e896d5cecb0552206))
+
 ## [0.19.0](https://github.com/aigengame/godot-agent/compare/v0.18.0...v0.19.0) (2026-09-22)
 
 
