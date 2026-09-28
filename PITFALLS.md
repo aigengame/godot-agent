@@ -105,6 +105,26 @@ another environment can have different capabilities._
   result before classifying the change.
 - **Last verified:** 2026-08 in godot-agent review worktrees.
 
+## zsh semantics in agent shell commands on macOS
+
+- **Applies when:** The agent's shell tool runs commands through zsh (check
+  `echo $ZSH_VERSION`), usually on a macOS host, and the command uses bash habits.
+- **Symptom:** `no matches found: --include=*.py` and the whole command stops; `=== not
+  found` from a `====` separator; `fatal: Needed a single revision` after `set -- $var`;
+  `git show $sha:path` shows the wrong object or reports `ambiguous argument
+  '<sha>oject.gd'`; `command not found: timeout`.
+- **Cause:** An unmatched glob is an error that stops the command line. An unquoted `$var`
+  is not split into words. A word that starts with `=` expands to a command path. `$var:`
+  followed by a letter is a modifier (`:s` substitutes, `:r` removes an extension) and
+  changes the value with no error. Stock macOS has no GNU `timeout`.
+- **Prevention:** Consider running a multi-step script with `bash -c '…'` or a script file
+  with a bash shebang. In zsh, quote glob arguments (`--include='*.py'`), write `${var}`
+  before a `:`, do not start a word with `=`, and use the tool's own timeout instead of
+  `timeout`.
+- **Recovery:** Rerun under bash or with the quoting fixed. Treat the first failure as an
+  invocation error, not as evidence about the product.
+- **Last verified:** 2026-09-28 with zsh 5.9 on macOS.
+
 ## Godot `user://` writes in a restricted environment
 
 - **Applies when:** A sandbox or remote execution environment does not allow Godot to
