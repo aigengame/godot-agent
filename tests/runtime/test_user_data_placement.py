@@ -489,6 +489,52 @@ def test_placement_reports_the_redirected_data_path(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# The empty engine working directory of a run that must load no project (#1035)
+# --------------------------------------------------------------------------
+
+
+def test_the_placement_makes_the_empty_engine_directory_only_when_asked(tmp_path):
+    # It is part of the placement, beside the log, so it uses no location that the
+    # log does not already use. It is gone when the placement ends, whatever ended it.
+    root = tmp_path / "udr"
+    env = {"HOME": str(tmp_path / "h")}
+    with user_data_placement(root, env=env) as placement:
+        assert placement.empty_engine_dir is None
+
+    made: list[Path] = []
+    with pytest.raises(RuntimeError):
+        with user_data_placement(root, env=env, empty_engine_dir=True) as placement:
+            assert placement.empty_engine_dir is not None
+            made.append(placement.empty_engine_dir)
+            assert placement.empty_engine_dir.parent == root / "logs"
+            assert list(placement.empty_engine_dir.iterdir()) == []
+            raise RuntimeError("the launch ended abnormally")
+    assert made and not made[0].exists()
+
+
+def test_an_engine_directory_that_cannot_be_made_is_the_placement_refusal(
+    monkeypatch, tmp_path
+):
+    # The same typed refusal as the log target it sits beside, and it names that
+    # target. Nothing is spawned.
+    rec = RecordingSpawn()
+    monkeypatch.setattr(subprocess, "Popen", rec)
+    monkeypatch.setattr(
+        "gda.runner.tempfile.mkdtemp", _permission_denied("gda-noproject-")
+    )
+    root = tmp_path / "udr"
+    set_user_data_root(str(root))
+
+    result = launch(Path("/x/Godot"), [], cwd=None, timeout=60.0, ignore_cwd=True)
+
+    assert result.launch_failure is LaunchFailure.USER_DATA_UNWRITABLE
+    assert result.exit_code == EXIT_NOT_FOUND
+    assert str(root / "logs" / "godot.log") in result.stderr
+    assert "Permission denied" in result.stderr
+    assert rec.spawns == 0
+
+
+# --------------------------------------------------------------------------
 # The CLI seam: the OPTION, not just the environment variable
 # --------------------------------------------------------------------------
 

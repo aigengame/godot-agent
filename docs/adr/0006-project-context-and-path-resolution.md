@@ -71,12 +71,12 @@ is a literal path component, not shell-style home expansion.
   > `gda info` run inside a Godot project loaded that project and ran its
   > autoloads, although gda had declined to inherit it. The fix is in one place,
   > the sentinel launch: when a command that inherits no project gets no
-  > `--project`, the runner makes a fresh, empty directory for that launch and
-  > passes it as `--path`, so the engine finds no project whatever the invoker's
-  > working directory holds. The directory is removed after the run. An explicit
-  > `--project` is unchanged, and so is every command that inherits a project,
-  > including a run of one that resolves no project. `export smoke` does not use
-  > this launch (ADR-0042).
+  > `--project`, the launch makes a fresh, empty directory inside its user-data
+  > placement, beside the engine log, and passes it as `--path`, so the engine
+  > finds no project whatever the invoker's working directory holds. The directory
+  > is removed after the run. An explicit `--project` is unchanged, and so is
+  > every command that inherits a project, including a run of one that resolves
+  > no project. `export smoke` does not use this launch (ADR-0042).
 
 - The test suite's temp-project fixture is exercised for real by passing
   `--project`, rather than being a directory the engine never sees.

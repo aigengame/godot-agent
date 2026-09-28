@@ -345,18 +345,25 @@ class UserDataPlacement:
     here rather than left in the caller's local so the placement is self-describing:
     one object then answers every question about where the launch put its user data,
     and the :class:`UserDataReport` derives from it alone (#850 review).
+
+    ``empty_engine_dir`` is set only for a launch that must load no project
+    (#1035): an empty directory beside the log, which the launch passes to the
+    engine as ``--path``. ``None`` for every other launch. It is not reported.
     """
 
     root: Optional[Path]
     log_file: Path
     data_path: Optional[Path]
     env: Optional[dict[str, str]]
+    empty_engine_dir: Optional[Path] = None
 
 
 @contextmanager
 def user_data_placement(
     root: Optional[Path] = None,
     env: Optional[Mapping[str, str]] = None,
+    *,
+    empty_engine_dir: bool = False,
 ) -> Iterator[UserDataPlacement]:
     """Prepare — and preflight — one launch's user-data placement (issue #653).
 
@@ -383,10 +390,18 @@ def user_data_placement(
     that derived path can be unusable while ``root`` is perfectly writable, e.g.
     blocked by a regular file. gda would then have preflighted only the log,
     reported success, and left the script with an unopenable ``user://``.
+
+    ``empty_engine_dir`` also makes the empty engine working directory of a launch
+    that must load no project (#1035). It is made after the log preflight, in the
+    directory that holds the log (the private temporary directory, or
+    ``<root>/logs``), so it uses no location that the log does not already use. If
+    it cannot be made, the refusal is the same one, and it names the log target.
+    It is removed on exit after every outcome, best effort.
     """
     if env is None:
         env = os.environ
     temp_root: Optional[str] = None
+    engine_dir: Optional[Path] = None
     try:
         try:
             if root is None:
@@ -419,6 +434,10 @@ def user_data_placement(
                 # ``FileAccess::open(..., WRITE)`` will succeed, and the same
                 # per-launch truncation the daemon does for a Session log (ADR-0022).
                 log_file.write_bytes(b"")
+                if empty_engine_dir:
+                    engine_dir = Path(
+                        tempfile.mkdtemp(prefix="gda-noproject-", dir=log_file.parent)
+                    )
             except OSError as exc:
                 raise UserDataUnwritable(
                     str(exc), data_path=data_path, log_file=log_file
@@ -426,9 +445,15 @@ def user_data_placement(
         except UserDataUnwritable:
             raise
         yield UserDataPlacement(
-            root=root, log_file=log_file, data_path=data_path, env=child_env
+            root=root,
+            log_file=log_file,
+            data_path=data_path,
+            env=child_env,
+            empty_engine_dir=engine_dir,
         )
     finally:
+        if engine_dir is not None:
+            shutil.rmtree(engine_dir, ignore_errors=True)
         if temp_root is not None:
             shutil.rmtree(temp_root, ignore_errors=True)
 
@@ -666,6 +691,7 @@ def launch(
     timeout_label: str = DEFAULT_TIMEOUT_LABEL,
     watch: Optional[LaunchWatch] = None,
     user_data_root: Path | None = None,
+    ignore_cwd: bool = False,
 ) -> RunResult:
     """Spawn one ``godot --headless`` process and normalize its raw outcome.
 
@@ -738,6 +764,14 @@ def launch(
     inputs cannot describe the placement differently. Lifetime stays with whoever
     supplied the root: this primitive removes only the private temporary log
     directory it makes for itself.
+
+    ``ignore_cwd`` is for a run that must load no project (#1035), and only the
+    sentinel runner sets it. The placement then also makes an empty directory
+    beside the log, and the argv gets ``--path <that directory>`` before
+    ``*args``, so the engine does not load a project from the invoker's working
+    directory. The spawn's own ``cwd`` does not change, so a relative binary path
+    still resolves against the invoker's directory. The directory is removed with
+    the placement.
     """
     root: Path | None
     if user_data_root is None:
@@ -771,6 +805,7 @@ def launch(
         timeout_label=timeout_label,
         watch=watch,
         root=root,
+        ignore_cwd=ignore_cwd,
     )
 
 
@@ -783,6 +818,7 @@ def _launch_under(
     timeout_label: str,
     watch: Optional[LaunchWatch],
     root: Path | None,
+    ignore_cwd: bool,
 ) -> RunResult:
     """Prepare ``root`` into a placement, spawn under it, and report it back.
 
@@ -790,10 +826,11 @@ def _launch_under(
     two inputs settled it (ADR-0042): the process-wide resolution every existing
     channel uses, or the explicit one ``export smoke`` hands in. Separated only so
     that the two inputs share ONE preparation, spawn, refusal and report — a second
-    copy is how the two would come to place a launch differently.
+    copy is how the two would come to place a launch differently. ``ignore_cwd``
+    asks the placement for the empty engine working directory (#1035).
     """
     try:
-        with user_data_placement(root) as placement:
+        with user_data_placement(root, empty_engine_dir=ignore_cwd) as placement:
             # Only the preparation above can raise UserDataUnwritable: the spawn
             # itself maps every OSError to the NOT_FOUND result below.
             result = _spawn_streamed(
@@ -875,7 +912,12 @@ def _spawn_streamed(
     launch failure, never the negative signal code — which would otherwise be
     classified as an ``engine_crashed`` the engine did not commit.
     """
-    cmd = [str(binary), "--headless", "--log-file", str(placement.log_file), *args]
+    cmd = [str(binary), "--headless", "--log-file", str(placement.log_file)]
+    if placement.empty_engine_dir is not None:
+        # A run that must load no project (#1035): the engine's working directory
+        # is the empty one the placement made, not the invoker's.
+        cmd += ["--path", str(placement.empty_engine_dir)]
+    cmd += args
     started = time.monotonic()
     try:
         # Capture raw bytes (no ``text=True``): Godot's ``JSON.stringify`` emits
@@ -1108,49 +1150,6 @@ class GodotRunner(Protocol):
     def run(self, operation: str, params: dict) -> RunResult: ...
 
 
-def _launch_without_project(
-    binary: Path, args: list[str], *, timeout: float
-) -> RunResult:
-    """Launch one sentinel run in which the engine can load no project (#1035).
-
-    Without ``--path``, the engine does not run projectless by itself: it reads its
-    project from its working directory, which is the invoker's. A
-    ``project.godot``, a ``project.binary`` or an ``<executable name>.pck`` there
-    makes it load that project and start its autoloads
-    (``ProjectSettings::_setup``). gda cannot vouch for the invoker's working
-    directory, so this run gets a fresh, empty directory that gda makes for it, and
-    ``--path`` points the engine at that directory. ``--path`` only sets the
-    engine's working directory (``Main::setup`` calls ``set_cwd``). In an empty
-    directory the engine finds nothing to load, so the run is projectless whatever
-    the invoker's working directory holds. ``--path`` is used, not the spawn's own
-    ``cwd``, so that a relative binary path still resolves against the invoker's
-    directory, as it does for every other launch.
-
-    The directory is removed after every outcome. If it cannot be made, the launch
-    is refused before any spawn, with the same typed reason as a private log target
-    that cannot be made in the same temporary directory: the cause and the remedy
-    are the same.
-    """
-    try:
-        workdir = tempfile.mkdtemp(prefix="gda-noproject-")
-    except OSError as exc:
-        return RunResult(
-            stdout="",
-            stderr=(
-                "gda: the empty working directory that keeps the engine from "
-                f"loading a project could not be created ({exc}); the launch was "
-                "refused before the engine started. Point TMPDIR at a writable "
-                "directory.\n"
-            ),
-            exit_code=EXIT_NOT_FOUND,
-            launch_failure=LaunchFailure.USER_DATA_UNWRITABLE,
-        )
-    try:
-        return launch(binary, ["--path", workdir, *args], cwd=None, timeout=timeout)
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
-
-
 @dataclass
 class SubprocessGodotRunner:
     """A GodotRunner that spawns a one-shot ``godot --headless --script`` process.
@@ -1162,10 +1161,13 @@ class SubprocessGodotRunner:
     ``res://`` resolves there (issue #32).
 
     When ``project`` is ``None``, the engine reads the invoker's working directory
-    and loads the project it finds there, if any (#1035). ``ignore_cwd`` is how a
-    run that must load no project gets none: the engine then starts in a fresh,
-    empty directory (:func:`_launch_without_project`). It applies only to a run
-    without a ``project``.
+    and loads the project it finds there, if any (#1035): a ``project.godot``, a
+    ``project.binary`` or an ``<executable name>.pck`` makes it load that project
+    and start its autoloads (``ProjectSettings::_setup``). ``ignore_cwd`` is how a
+    run that must load no project gets none: :func:`launch` then passes an empty
+    directory from the launch's user-data placement as ``--path``, which only sets
+    the engine's working directory (``Main::setup`` calls ``set_cwd``). It applies
+    only to a run without a ``project``.
     """
 
     binary: Path
@@ -1186,10 +1188,12 @@ class SubprocessGodotRunner:
         #
         # A sentinel op never needs gda to change the spawn's working directory, so
         # cwd is always the default. The engine's own working directory is --path:
-        # the project, or the empty directory of a run that ignores the invoker's.
-        args = sentinel_args(
-            operation, params, project=self.project, script=self.script
+        # the project, or the empty directory that ``ignore_cwd`` asks the launch
+        # for (#1035).
+        return launch(
+            self.binary,
+            sentinel_args(operation, params, project=self.project, script=self.script),
+            cwd=None,
+            timeout=self.timeout,
+            ignore_cwd=self.ignore_cwd,
         )
-        if self.ignore_cwd:
-            return _launch_without_project(self.binary, args, timeout=self.timeout)
-        return launch(self.binary, args, cwd=None, timeout=self.timeout)
