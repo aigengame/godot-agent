@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=7d7d92d0993ec6afb4bf0e7a2cd17a568b7d31a05241239fd1d8ebdc22b651a3 -->
+<!-- gda-readme-i18n: source=README.md sha256=98b26192f5f15db7cb56e5ad1f03706355e876584fd28c4eb53ebbeea063c36c -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -124,6 +124,14 @@ gda info --json
 
 ```bash
 gda info --json | jq .major   # → 4
+```
+
+**还没有项目？先创建一个。** 目的目录必须是新目录或空目录（`.git` 这类条目不计入）。
+`gda` 只写入一个文件，即只设置名称的 `project.godot`：
+
+```bash
+gda project create ./my-game --name "My Game" --json
+# {"path":"/home/me/my-game","name":"My Game","created_dirs":["/home/me/my-game"],"project_file":"/home/me/my-game/project.godot"}
 ```
 
 **以 Headless 方式构建一个场景。** 让 `gda` 一次性指向一个 Godot 项目（一个含有 `project.godot` 的目录）；
@@ -407,6 +415,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 
 | 命令 | 作用 |
 | ------- | ------------ |
+| `project create` | 在新的或空的目的目录中创建最小项目，即只设置名称的 `project.godot`；`.git` 这类条目不计入。 |
 | `project info` | 报告项目元数据（名称、主场景、视口、引擎版本）。 |
 | `project get` | 按 section/key 读取单个项目设置，输出带类型的 JSON。 |
 | `project list` | 列出项目的设置键（默认只列已自定义的；`--all` 加上引擎默认值，`--section` 按前缀过滤）。 |

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=7d7d92d0993ec6afb4bf0e7a2cd17a568b7d31a05241239fd1d8ebdc22b651a3 -->
+<!-- gda-readme-i18n: source=README.md sha256=98b26192f5f15db7cb56e5ad1f03706355e876584fd28c4eb53ebbeea063c36c -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -134,6 +134,15 @@ y de los scripts van a stderr:
 
 ```bash
 gda info --json | jq .major   # → 4
+```
+
+**¿Aún no tienes un proyecto? Crea uno.** El destino debe ser nuevo o estar vacío (las
+entradas como `.git` no cuentan). `gda` escribe un solo archivo, un `project.godot` que solo
+define el nombre:
+
+```bash
+gda project create ./my-game --name "My Game" --json
+# {"path":"/home/me/my-game","name":"My Game","created_dirs":["/home/me/my-game"],"project_file":"/home/me/my-game/project.godot"}
 ```
 
 **Construye una escena en modo headless.** Apunta `gda` a un proyecto de Godot (un directorio con `project.godot`)
@@ -431,6 +440,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 
 | Comando | Qué hace |
 | ------- | ------------ |
+| `project create` | Crea un proyecto mínimo, un `project.godot` que solo define el nombre, en un directorio de destino nuevo o vacío; las entradas como `.git` no cuentan. |
 | `project info` | Informa los metadatos del proyecto (nombre, escena principal, viewport, versión del motor). |
 | `project get` | Lee un único ajuste del proyecto por sección/clave como JSON tipado. |
 | `project list` | Lista las claves de ajustes del proyecto (las personalizadas por defecto; `--all` añade los valores predeterminados del motor, `--section` filtra por prefijo). |

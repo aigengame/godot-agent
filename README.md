@@ -127,6 +127,14 @@ With `--json`, stdout is clean JSON you can pipe; all engine and script diagnost
 gda info --json | jq .major   # → 4
 ```
 
+**No project yet? Create one.** The destination must be new or empty (entries such as `.git`
+do not count). `gda` writes one file, a `project.godot` that sets only the name:
+
+```bash
+gda project create ./my-game --name "My Game" --json
+# {"path":"/home/me/my-game","name":"My Game","created_dirs":["/home/me/my-game"],"project_file":"/home/me/my-game/project.godot"}
+```
+
 **Build a scene headlessly.** Point `gda` at a Godot project (a directory with `project.godot`)
 once; relative paths then resolve *inside* it, and nodes are addressed by their path relative to
 the scene root:
@@ -416,6 +424,7 @@ names the file, and only `preflight` catches a first-frame failure.
 
 | Command | What it does |
 | ------- | ------------ |
+| `project create` | Create a minimal project, a `project.godot` that sets only the name, in a new or empty destination directory; entries such as `.git` do not count. |
 | `project info` | Report project metadata (name, main scene, viewport, engine version). |
 | `project get` | Read a single project setting by section/key as typed JSON. |
 | `project list` | List the project's settings keys (customized by default; `--all` adds engine defaults, `--section` filters by prefix). |
