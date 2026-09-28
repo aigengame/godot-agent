@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from gda.project import ENGINE_VIRTUAL_PREFIXES
 from gda.project_file import read_config_text
 from tests.conftest import project_godot
 from tests.support import Gda
@@ -190,11 +191,19 @@ def test_a_missing_parent_is_invalid_path_and_nothing_is_created(tmp_path, chann
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("channel", CHANNELS)
-@pytest.mark.parametrize("destination", ["res://game", "user://game", "uid://game"])
+# The cases come from the Python constant, so this test also holds the op's own
+# spelling of the schemes (PROJECT_CREATE_VIRTUAL_PREFIXES) to it.
+@pytest.mark.parametrize(
+    "destination", [prefix + "game" for prefix in ENGINE_VIRTUAL_PREFIXES]
+)
 def test_a_virtual_destination_is_invalid_path(tmp_path, channel, destination):
     before = _snapshot(tmp_path)
 
-    _assert_refused(_create(destination, "New", channel, cwd=tmp_path), "invalid_path")
+    proc = _create(destination, "New", channel, cwd=tmp_path)
+    _assert_refused(proc, "invalid_path")
+    # The code alone does not show the branch: a scheme the op does not list falls
+    # through to the missing-parent refusal, which is invalid_path too.
+    assert "engine-virtual" in json.loads(proc.stdout)["error"]["message"]
     assert _snapshot(tmp_path) == before
 
 

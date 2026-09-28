@@ -37,7 +37,7 @@ from gda.models import (
     SET_ECHO_VALUE_DESC,
     VALUE_PROJECTION_DESC,
 )
-from gda.project import PROJECT_MARKER, expand_user, is_engine_virtual_path
+from gda.project import PROJECT_MARKER, is_engine_virtual_path, project_absolute
 from gda.project_file import (
     ProjectFileChangedError,
     ProjectFileRestoreError,
@@ -315,10 +315,7 @@ def normalize_project_destination(path: str) -> str:
     """
     if not path or is_engine_virtual_path(path):
         return path
-    expanded = expand_user(Path(path))
-    if expanded.is_absolute():
-        return str(expanded)
-    return str(Path.cwd() / expanded)
+    return str(project_absolute(Path(path)))
 
 
 ProjectDestination = Annotated[str, AfterValidator(normalize_project_destination)]
@@ -332,7 +329,8 @@ PROJECT_CREATE_DESTINATION_DESC = (
 )
 PROJECT_CREATE_NAME_DESC = (
     "The project name, written to application/config/name. Leading and trailing "
-    "whitespace is removed; a name that is empty after that is refused."
+    "spaces, tabs and line breaks are removed; a name that is empty after that is "
+    "refused."
 )
 
 
@@ -367,7 +365,7 @@ class ProjectCreateResult(BaseModel):
     name: str = Field(
         description=(
             "The project name as written to application/config/name, without "
-            "leading and trailing whitespace."
+            "leading and trailing spaces, tabs and line breaks."
         )
     )
     created_dirs: list[str] = Field(

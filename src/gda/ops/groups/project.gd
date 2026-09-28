@@ -23,6 +23,12 @@ const PROJECT_VIEWPORT_HEIGHT_SETTING := "display/window/size/viewport_height"
 # project-create (issue #1027): the one file the op writes, and the engine-virtual
 # schemes it refuses as a destination (the CLI passes them through unchanged, so
 # the refusal is an operation error on both input channels).
+#
+# The schemes are spelled a second time in Python, as ENGINE_VIRTUAL_PREFIXES
+# (src/gda/project.py), which decides what the CLI passes through. The two
+# spellings are held together by `test_a_virtual_destination_is_invalid_path`
+# (tests/project/test_e2e_project_create.py), which takes its cases from the
+# Python constant, not by derivation.
 const PROJECT_CREATE_FILE := "project.godot"
 const PROJECT_CREATE_VIRTUAL_PREFIXES := ["res://", "user://", "uid://"]
 
@@ -110,21 +116,21 @@ func _op_project_create(params: Dictionary) -> void:
 		return
 	if name.is_empty():
 		_fail(OP_ERROR_INVALID_PARAMS, "project create requires a nonempty name; the name is"
-				+ " empty after leading and trailing whitespace is removed")
+				+ " empty after leading and trailing spaces, tabs and line breaks are removed")
 		return
 
 	var project_file := destination.path_join(PROJECT_CREATE_FILE)
 	var created_dirs: Array = []
 	if DirAccess.dir_exists_absolute(destination):
-		if FileAccess.file_exists(project_file):
+		# project.godot is checked before the emptiness rule, and also where the
+		# directory cannot be listed (a stat needs no read permission).
+		var entries: Variant = _destination_entries(destination)
+		if FileAccess.file_exists(project_file) \
+				or (entries != null and (entries as PackedStringArray).has(PROJECT_CREATE_FILE)):
 			_fail(OP_ERROR_ALREADY_EXISTS, "the destination already holds a project: " + project_file)
 			return
-		var entries: Variant = _destination_entries(destination)
 		if entries == null:
 			_fail(OP_ERROR_INVALID_PATH, "cannot list the destination directory: " + destination)
-			return
-		if (entries as PackedStringArray).has(PROJECT_CREATE_FILE):
-			_fail(OP_ERROR_ALREADY_EXISTS, "the destination already holds a project: " + project_file)
 			return
 		for entry in entries:
 			if not String(entry).begins_with("."):
@@ -179,7 +185,9 @@ func _op_project_create(params: Dictionary) -> void:
 # Every entry of `destination` except "." and "..", hidden ones included, or null
 # when the directory cannot be listed. DirAccess hides dot-prefixed entries by
 # default, and on macOS also the entries with the UF_HIDDEN flag, so the op asks
-# for all of them and applies the dot-prefix rule itself.
+# for all of them and applies the dot-prefix rule itself. This is the one listing
+# outside the shared res:// walk; the #764 guard in tests/project/test_project_walk.py
+# exempts it by name and counts it once.
 func _destination_entries(destination: String) -> Variant:
 	var dir := DirAccess.open(destination)
 	if dir == null:
@@ -199,8 +207,9 @@ func _destination_entries(destination: String) -> Variant:
 
 # Remove what a failed project-create request created: the project file, when it
 # exists now (the op refuses a destination that already holds one, so this request
-# wrote it), then each directory the request created. Each path that cannot be removed is a leftover, named on stderr
-# (the envelope's diagnostics). Returns the text the failure message ends with.
+# wrote it), then each directory the request created. Each path that cannot be
+# removed is a leftover, named on stderr (the envelope's diagnostics). Returns the
+# text the failure message ends with.
 func _remove_created(project_file: String, created_dirs: Array) -> String:
 	var leftovers := PackedStringArray()
 	if FileAccess.file_exists(project_file) and DirAccess.remove_absolute(project_file) != OK:
