@@ -1081,13 +1081,14 @@ starts; `res://`, `user://` and `uid://` are refused, because no project exists 
 meaning. The destination is an operation input, not a project context (ADR-0006, #1027 note): the
 command declares no `--project`, reads no project from `$GDA_PROJECT` or the working directory, and
 its engine run loads no project (#1035), so no other project's autoload runs and none of its
-settings is copied. A destination inside another project is accepted. The name loses its leading
-and trailing spaces, tabs and line breaks, and the stripped name is what is written and reported.
-The command writes one file, `project.godot`. It holds `application/config/name` and only what the engine writes
-on every save, `config_version` and the version feature in `application/config/features`; every
-other setting keeps its Godot default. There is no main scene, renderer choice, icon or template:
-set those with the existing commands. The request succeeds only when the name reads back unchanged
-from the written file (a `ConfigFile` read in the same engine process). The result is
+settings is copied. A destination inside another project is accepted. The name loses its leading and
+trailing spaces and control characters (U+0000 to U+0020), and the stripped name is what is written
+and reported. The command writes one file, `project.godot`. It holds `application/config/name` and
+only what the engine writes on every save, `config_version` and the version feature in
+`application/config/features`; every other setting keeps its Godot default. There is no main scene,
+renderer choice, icon or template: set those with the existing commands. The request succeeds only
+when the name reads back unchanged from the written file (a `ConfigFile` read in the same engine
+process). The result is
 `{path, name, created_dirs, project_file}`: `path` is the absolute project root, and
 `created_dirs` lists the destination when this request created it and is empty when the
 destination existed. It is not one of the writers under "What a write does to `project.godot`"

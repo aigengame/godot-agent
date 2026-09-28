@@ -329,8 +329,8 @@ PROJECT_CREATE_DESTINATION_DESC = (
 )
 PROJECT_CREATE_NAME_DESC = (
     "The project name, written to application/config/name. Leading and trailing "
-    "spaces, tabs and line breaks are removed; a name that is empty after that is "
-    "refused."
+    "spaces and control characters (U+0000 to U+0020) are removed; a name that is "
+    "empty after that is refused."
 )
 
 
@@ -365,7 +365,7 @@ class ProjectCreateResult(BaseModel):
     name: str = Field(
         description=(
             "The project name as written to application/config/name, without "
-            "leading and trailing spaces, tabs and line breaks."
+            "leading and trailing spaces and control characters (U+0000 to U+0020)."
         )
     )
     created_dirs: list[str] = Field(

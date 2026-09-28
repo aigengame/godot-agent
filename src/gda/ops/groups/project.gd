@@ -116,7 +116,7 @@ func _op_project_create(params: Dictionary) -> void:
 		return
 	if name.is_empty():
 		_fail(OP_ERROR_INVALID_PARAMS, "project create requires a nonempty name; the name is"
-				+ " empty after leading and trailing spaces, tabs and line breaks are removed")
+				+ " empty after leading and trailing spaces and control characters are removed")
 		return
 
 	var project_file := destination.path_join(PROJECT_CREATE_FILE)
