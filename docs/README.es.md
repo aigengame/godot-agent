@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=4fdeb5c1c57de1684949c6c7a934973f8690cd89df5896e0ba7a2c5baf7cac0d -->
+<!-- gda-readme-i18n: source=README.md sha256=9f9563be477f888a56fed94dcb087088ebb27fc15a7e6ffc6f4d8a9d972b2e85 -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -455,8 +455,10 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `project statistics` | Informa los recuentos de archivos/líneas del proyecto, los autoloads y más. |
 
 Cada escritura de `project` que modifica un `project.godot` existente guarda a través
-del motor, que reserializa el archivo completo: gda restaura las líneas explícitas que
-el motor elimina e informa del resto en el resultado.
+del motor, que reserializa el archivo completo. Cuando la escritura tiene éxito, gda ya
+restauró las declaraciones de ajustes eliminadas que puede leer, y el resultado informa de
+los cambios de ajustes y de la reordenación de secciones que detecta. Los comentarios y el
+formato, como los finales de línea CRLF, pueden cambiar o desaparecer sin que se informe.
 
 **`resource`** — archivos de recurso (`.tres`) y los assets importados del proyecto
 
