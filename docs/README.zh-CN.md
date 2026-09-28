@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=9f9563be477f888a56fed94dcb087088ebb27fc15a7e6ffc6f4d8a9d972b2e85 -->
+<!-- gda-readme-i18n: source=README.md sha256=c99e8154c06435369640dac45cf0a04d5d826110b12314af053b279c83332f97 -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -428,11 +428,6 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `project dependencies` | 把每个场景/资源映射到它所依赖的资源。 |
 | `project find-unused-resources` | 找出没有任何东西引用的资源文件。 |
 | `project statistics` | 报告项目的文件/行数统计、autoload 等信息。 |
-
-每次修改已有 `project.godot` 的 `project` 写入都经由引擎保存，
-而引擎会重新序列化整个文件。写入成功时，gda 已恢复被删掉且它能读取的设置声明，
-结果会报告 gda 检测到的设置改动和 section 重排。
-注释和格式（例如 CRLF 换行符）可能被改动或删除，而结果不会报告。
 
 **`resource`** — 资源文件（`.tres`）与项目的已导入资产
 

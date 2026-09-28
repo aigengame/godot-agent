@@ -438,12 +438,6 @@ names the file, and only `preflight` catches a first-frame failure.
 | `project find-unused-resources` | Find resource files that nothing references. |
 | `project statistics` | Report the project's file/line counts, autoloads, and more. |
 
-Every `project` write that changes an existing `project.godot` saves through the engine,
-which reserializes the whole file. When the write succeeds, gda has restored the dropped
-setting declarations that it can read, and the result reports the setting changes and the
-section reordering that it detects. Comments and formatting, such as CRLF line endings,
-can change or disappear without a report.
-
 **`resource`** — resource files (`.tres`) and the project's imported assets
 
 | Command | What it does |
