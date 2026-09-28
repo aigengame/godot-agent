@@ -58,9 +58,15 @@ Recipe = Callable[..., "BaseModel | Failure"]
 RunnerFactory = Callable[[Path, Optional[Path]], GodotRunner]
 
 
-def make_subprocess_runner(binary: Path, project: Optional[Path] = None) -> GodotRunner:
-    """Build the default real Godot runner for ``binary`` and ``project``."""
-    return SubprocessGodotRunner(binary, project=project)
+def make_subprocess_runner(
+    binary: Path, project: Optional[Path] = None, *, ignore_cwd: bool = False
+) -> GodotRunner:
+    """Build the default real Godot runner for ``binary`` and ``project``.
+
+    ``ignore_cwd`` makes a run without a project load none from the invoker's
+    working directory either (#1035; see :class:`~gda.runner.SubprocessGodotRunner`).
+    """
+    return SubprocessGodotRunner(binary, project=project, ignore_cwd=ignore_cwd)
 
 
 def command_constraints(
@@ -777,7 +783,9 @@ class HeadlessCommand(Generic[M]):
     # ``True`` and receive the fully resolved project (or a structured
     # ``project_not_found``). Read only by ``gda.dispatch._project_context``,
     # which the one dispatch entry calls, so it applies to the sentinel channel
-    # as much as to a recipe.
+    # as much as to a recipe. On the sentinel channel the engine inherits nothing
+    # either: a ``False`` command given no ``--project`` runs the engine where it
+    # can load no project, whatever the invoker's working directory holds (#1035).
     inherits_project: bool = True
 
     def schema_option(self) -> bool:

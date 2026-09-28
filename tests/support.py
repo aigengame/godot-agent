@@ -417,7 +417,9 @@ def error_sentinel(code: str, message: str) -> str:
 def inject_runner(monkeypatch, result: RunResult) -> FakeRunner:
     """Swap the CLI's runner seam for a ``FakeRunner`` returning ``result``."""
     fake = FakeRunner(result)
-    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr(
+        "gda.dispatch.make_runner", lambda binary, project=None, **_: fake
+    )
     return fake
 
 
@@ -485,11 +487,12 @@ def recording_runner(monkeypatch, result: RunResult) -> list[Path | None]:
     ``--project`` becomes visible to a test, because the runner turns it into the
     engine's ``--path`` (issue #32). Returns the list the factory appends to — one
     entry per runner built, in order — so a caller reads the project it expects,
-    or the whole list where the number of builds is the point.
+    or the whole list where the number of builds is the point. The seam's
+    ``ignore_cwd`` keyword (#1035) is accepted and not recorded.
     """
     projects: list[Path | None] = []
 
-    def record(binary, project=None):
+    def record(binary, project=None, **_):
         projects.append(project)
         return FakeRunner(result)
 

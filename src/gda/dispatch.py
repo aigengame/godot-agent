@@ -28,6 +28,7 @@ from gda.export_runner import ExportRunner, make_subprocess_export_runner
 from gda.headless import (
     HeadlessCommand,
     M,
+    RunnerFactory,
     emit_failure,
     emit_result,
     forward_child_stderr,
@@ -73,12 +74,15 @@ def params_or_bad_parameter(model_cls: type[P], /, **kwargs: Any) -> P:
         raise typer.BadParameter(str(exc)) from exc
 
 
-def make_runner(binary: Path, project: Optional[Path]) -> GodotRunner:
+def make_runner(
+    binary: Path, project: Optional[Path], *, ignore_cwd: bool = False
+) -> GodotRunner:
     """Build the default (real) Godot runner for ``binary`` and ``project``.
 
-    A seam tests override (via monkeypatch) to inject a fake runner.
+    A seam tests override (via monkeypatch) to inject a fake runner. ``ignore_cwd``
+    is set only by :func:`_emit`, for a run that must load no project (#1035).
     """
-    return make_subprocess_runner(binary, project)
+    return make_subprocess_runner(binary, project, ignore_cwd=ignore_cwd)
 
 
 def make_export_runner(binary: Path, project: Optional[Path]) -> ExportRunner:
@@ -130,6 +134,16 @@ def run_live_exchange(
     return forward_child_stderr(result, classify_live(result, None, reply_model))
 
 
+def _cwd_ignoring_runner(binary: Path, project: Optional[Path]) -> GodotRunner:
+    """The :func:`make_runner` seam for a run that must load no project (#1035).
+
+    A :data:`~gda.headless.RunnerFactory` like the seam itself, so ``cmd.emit``
+    takes it unchanged. It reads ``make_runner`` at call time, so a test
+    monkeypatch on ``gda.dispatch.make_runner`` still binds.
+    """
+    return make_runner(binary, project, ignore_cwd=True)
+
+
 def _emit(
     cmd: HeadlessCommand[M],
     params: BaseModel,
@@ -137,6 +151,7 @@ def _emit(
     json_output: bool,
     godot: Optional[str],
     project: Optional[Path],
+    ignore_cwd: bool,
 ) -> None:
     """Drive ``cmd.emit`` with the shared CLI execution tail.
 
@@ -147,8 +162,18 @@ def _emit(
     ``gda.dispatch.make_live_runner`` still binds. The ``cmd.emit`` arm of
     :func:`dispatch_command` (every command without a ``recipe``) funnels through
     here.
+
+    ``ignore_cwd`` comes from :func:`_project_context`. When it is set, the
+    headless runner starts the engine where it can load no project (#1035). A
+    ``LIVE`` command does not read it: the daemon launches its own sessions.
     """
-    runner_factory = make_live_runner if cmd.kind is ExecutionKind.LIVE else make_runner
+    runner_factory: RunnerFactory
+    if cmd.kind is ExecutionKind.LIVE:
+        runner_factory = make_live_runner
+    elif ignore_cwd:
+        runner_factory = _cwd_ignoring_runner
+    else:
+        runner_factory = make_runner
     cmd.emit(
         params,
         godot=godot,
@@ -182,8 +207,9 @@ def _resolve_project_or_fail(
 
 def _project_context(
     cmd: HeadlessCommand[M], project: Optional[str], *, json_output: bool
-) -> Optional[Path]:
-    """The project ``cmd`` runs against, resolved once per dispatch (ADR-0006).
+) -> tuple[Optional[Path], bool]:
+    """The project ``cmd`` runs against, resolved once per dispatch (ADR-0006),
+    and whether its engine run must ignore the invoker's working directory.
 
     One rule, shared by both dispatch arms. A command with ``inherits_project=False``
     (a meta command, or ``export smoke``, which acts on a caller-selected path)
@@ -194,10 +220,17 @@ def _project_context(
     ``--project`` when it takes one and one is given (``gda info --project``, #670)
     — naming a project is a deliberate choice, so a bad one is a structured refusal
     rather than something quietly ignored.
+
+    The second value is ``True`` on exactly one branch: a command that inherits no
+    project, given no ``--project``. gda did not read the working directory there,
+    so the engine must not read it either. Without ``--path`` the engine loads the
+    project it finds in its working directory, which is the one gda declined to
+    inherit (#1035). Only the sentinel arm uses the value; no recipe of such a
+    command runs the operations payload.
     """
     if not cmd.inherits_project and project is None:
-        return None
-    return _resolve_project_or_fail(project, json_output=json_output)
+        return None, True
+    return _resolve_project_or_fail(project, json_output=json_output), False
 
 
 def dispatch_command(
@@ -230,9 +263,16 @@ def dispatch_command(
     sentinel ``cmd.emit`` with its ``kind``-selected runner (:func:`_emit`), whose
     renderer is also ``cmd.render``, so none is threaded here.
     """
-    resolved = _project_context(cmd, project, json_output=json_output)
+    resolved, ignore_cwd = _project_context(cmd, project, json_output=json_output)
     if cmd.recipe is None:
-        _emit(cmd, params, json_output=json_output, godot=godot, project=resolved)
+        _emit(
+            cmd,
+            params,
+            json_output=json_output,
+            godot=godot,
+            project=resolved,
+            ignore_cwd=ignore_cwd,
+        )
         return
     outcome = cmd.recipe(params, project=resolved, godot=godot)
     if isinstance(outcome, Failure):
