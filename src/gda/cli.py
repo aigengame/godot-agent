@@ -148,10 +148,12 @@ def main(
         "default gda redirects only the engine log, to a private temporary file, "
         "so a read-only application-data directory is not fatal and concurrent "
         "runs do not share one log; pass this when `user://` itself must be "
-        "writable. Godot reads the export templates and editor settings from that "
-        "same directory, so a release/debug 'export run' under it finds no "
-        "installed templates unless you place them there ('--mode pack' needs "
-        "none). An Engine session is unaffected: the daemon owns its log (ADR-0022).",
+        "writable. Godot reads the export templates from that same directory, so "
+        "a release/debug 'export run' under it finds no installed templates unless "
+        "you place them there ('--mode pack' needs none). Whether the editor "
+        "configuration and cache move with it depends on the platform; on Linux "
+        "they do not. An Engine session is unaffected: the daemon owns its log "
+        "(ADR-0022).",
     ),
 ) -> None:
     """An agent-facing Godot CLI with structured output."""

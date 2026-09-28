@@ -210,9 +210,10 @@ explicit executable source: the resolved Godot executable inside a caller-select
 `Export artifact`. Given that Godot executable, an argv tail, an optional working
 directory, and a timeout, the primitive builds `[executable, --headless, --log-file
 <gda-owned path>, *args]`, captures bytes, and normalizes the outcome into a `Raw
-run`. This remains the single home of spawn, timeout, launch-failure, UTF-8-decode,
-and `User-data placement` handling. It is not an arbitrary-process runner and has
-no mode or platform strategy registry.
+run`. A run that must load no project gets `--path <empty directory>` before
+`*args` (#1035). This remains the single home of spawn, timeout, launch-failure,
+UTF-8-decode, and `User-data placement` handling. It is not an arbitrary-process
+runner and has no mode or platform strategy registry.
 Every launch **streams**: both pipes are read as they arrive, so whatever the run
 produced before gda ended it survives, and the launch is timed. #655 introduced
 that beside a **buffered** strategy which discarded the child's output at the
@@ -233,7 +234,9 @@ file that concurrent invocations contend over. Normally the target is a private
 temporary file, so a read-only application-data directory is not fatal; the
 per-invocation `--user-data-root`, which overrides `GDA_USER_DATA_ROOT`, instead
 places the log *and* `user://` under a caller-chosen directory, since Godot has no
-`--user-data-dir` flag and the platform data variable is the only lever. After it
+`--user-data-dir` flag and the platform data variable is the only lever. A run that
+must load no project also gets its empty engine working directory from the placement,
+beside the log (#1035). After it
 resolves the artifact, Artifact smoke creates and owns a fresh private root when
 neither existing override names one, then supplies that root through the narrow
 internal placement input so a caller-selected exported game cannot write the real

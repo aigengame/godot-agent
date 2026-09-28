@@ -63,6 +63,37 @@ is a literal path component, not shell-style home expansion.
   > none. The descriptor field recording inheritance is `inherits_project`
   > (ADR-0023).
 
+  > **Outcome (2026-09-27, #1035):** "projectless" in this ADR means that the
+  > engine loads no project from the invoker's working directory. For a command
+  > that inherits no project, it did not mean that until this fix. gda skipped
+  > steps 2–3, but it then launched the engine without `--path`, and the engine
+  > reads its project from its own working directory, which was the invoker's. So
+  > `gda info` run inside a Godot project loaded that project and ran its
+  > autoloads, although gda had declined to inherit it. The fix is in one place,
+  > the sentinel launch: when a command that inherits no project gets no
+  > `--project`, the launch makes a fresh, empty directory inside its user-data
+  > placement, beside the engine log, and passes it as `--path`, so the engine
+  > finds no project whatever the invoker's working directory holds. The directory
+  > is removed after the run. An explicit `--project` is unchanged, and so is
+  > every command that inherits a project, including a run of one that resolves
+  > no project. `export smoke` does not use this launch (ADR-0042).
+
+  > **Outcome (2026-09-28, #1027):** `gda project create <destination>` makes a
+  > project, so no project exists for it to run against. Its destination is an
+  > operation input, not project context. The command inherits no project and
+  > declares no `--project`, so gda reads no project from `$GDA_PROJECT` or the
+  > working directory (the ADR-0042 `export smoke` precedent), and the precedence
+  > above does not apply to the destination. The engine runs in the empty
+  > directory of the #1035 launch, so the CLI resolves a relative destination
+  > against the invoker's working directory, and expands `~`, before the engine
+  > starts. `res://`, `user://` and `uid://` destinations are refused, because
+  > there is no project to give them a meaning. A destination inside another
+  > project is accepted: the ownership refusal of the 2026-08-31 amendment below
+  > applies to a path of a resolved project, and this command resolves none.
+  > `inherits_project=False` only stops gda from reading a project. The engine
+  > loads no project because the command runs through the #1035 launch, and
+  > without that launch it would load the one in the working directory.
+
 - The test suite's temp-project fixture is exercised for real by passing
   `--project`, rather than being a directory the engine never sees.
 - `--project`/`$GDA_PROJECT` is process context, not an operation parameter, so

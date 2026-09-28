@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=7d7d92d0993ec6afb4bf0e7a2cd17a568b7d31a05241239fd1d8ebdc22b651a3 -->
+<!-- gda-readme-i18n: source=README.md sha256=00b0a4d61800bdf211710ccf30886b7e9f25c06fdc16d140378d4821a0fb7f9c -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -132,6 +132,17 @@ gda info --json
 gda info --json | jq .major   # → 4
 ```
 
+**プロジェクトがまだない?** `gda` はそれでも、プレーンなファイルシステムパス(カレントディレクトリからの
+相対)に対して **projectless(プロジェクトなし)** で動作します。プロジェクトが必要なのは `res://` の解決
+だけです。[設定](#configuration) を参照してください。プロジェクトを作成するには、作成先を新しい
+ディレクトリか空のディレクトリにします(`.git` などのエントリは数えません)。`gda` が書き込むのは、
+名前だけを設定する `project.godot` の 1 ファイルです:
+
+```bash
+gda project create ./my-game --name "My Game" --json
+# {"path":"/home/me/my-game","name":"My Game","created_dirs":["/home/me/my-game"],"project_file":"/home/me/my-game/project.godot"}
+```
+
 **シーンを Headless で構築します。** 一度 `gda` に Godot プロジェクト(`project.godot` を含む
 ディレクトリ)を指定すれば、相対パスはその *内部* で解決され、ノードはシーンルートからの相対パスで
 指定されます。
@@ -145,10 +156,6 @@ gda scene validate scenes/main.tscn --json
 gda scene get scenes/main.tscn --json
 # {"path":"scenes/main.tscn","root":{"name":"main","type":"Node2D","children":[{"name":"Hero",…}]}}
 ```
-
-> プロジェクトがない? `gda` はそれでも、プレーンなファイルシステムパス(カレントディレクトリからの
-> 相対)に対して **projectless(プロジェクトなし)** で動作します — プロジェクトが必要なのは `res://`
-> の解決だけです。[設定](#configuration) を参照してください。
 
 **Live 操作で実行中のゲームを検査・操作します。** これらの操作はプロジェクトの
 **メインシーン**を実行します。そのため、いま構築したシーンを Godot の
@@ -427,6 +434,7 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 
 | コマンド | 機能 |
 | ------- | ------------ |
+| `project create` | 名前だけを設定する `project.godot` からなる最小限のプロジェクトを、新しいまたは空の作成先ディレクトリに作成します。`.git` などのエントリは数えません。 |
 | `project info` | プロジェクトのメタデータ(名前、メインシーン、ビューポート、エンジンバージョン)を報告します。 |
 | `project get` | 単一のプロジェクト設定を section/key で指定し、型付き JSON として読み取ります。 |
 | `project list` | プロジェクトの設定キーを一覧します(デフォルトはカスタマイズ済みのもの。`--all` でエンジンのデフォルトを追加、`--section` でプレフィックスによりフィルタ)。 |
@@ -439,9 +447,6 @@ Headless 検証はプロジェクトの実行準備を確認し、Live 操作は
 | `project dependencies` | 各シーン/リソースを、それが依存するリソースに対応付けます。 |
 | `project find-unused-resources` | どこからも参照されていないリソースファイルを見つけます。 |
 | `project statistics` | プロジェクトのファイル数/行数、オートロードなどを報告します。 |
-
-`project` の書き込みはエンジン経由で保存され、エンジンはファイル全体を再シリアライズ
-します。gda は削除された明示的な行を復元し、残りの変更を結果で報告します。
 
 **`resource`** — リソースファイル(`.tres`)とプロジェクトのインポート済みアセット
 

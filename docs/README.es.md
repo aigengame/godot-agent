@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=7d7d92d0993ec6afb4bf0e7a2cd17a568b7d31a05241239fd1d8ebdc22b651a3 -->
+<!-- gda-readme-i18n: source=README.md sha256=00b0a4d61800bdf211710ccf30886b7e9f25c06fdc16d140378d4821a0fb7f9c -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -136,6 +136,17 @@ y de los scripts van a stderr:
 gda info --json | jq .major   # → 4
 ```
 
+**¿Aún no tienes un proyecto?** `gda` igualmente se ejecuta **sin proyecto** (projectless) sobre rutas
+simples del sistema de archivos (relativas a tu directorio actual); solo la resolución de `res://`
+necesita un proyecto. Consulta [Configuración](#configuration). Para crear uno, el destino debe ser
+nuevo o estar vacío (las entradas como `.git` no cuentan). `gda` escribe un solo archivo, un
+`project.godot` que solo define el nombre:
+
+```bash
+gda project create ./my-game --name "My Game" --json
+# {"path":"/home/me/my-game","name":"My Game","created_dirs":["/home/me/my-game"],"project_file":"/home/me/my-game/project.godot"}
+```
+
 **Construye una escena en modo headless.** Apunta `gda` a un proyecto de Godot (un directorio con `project.godot`)
 una vez; las rutas relativas se resuelven entonces *dentro* de él, y los nodos se direccionan por su ruta relativa
 a la raíz de la escena:
@@ -149,9 +160,6 @@ gda scene validate scenes/main.tscn --json
 gda scene get scenes/main.tscn --json
 # {"path":"scenes/main.tscn","root":{"name":"main","type":"Node2D","children":[{"name":"Hero",…}]}}
 ```
-
-> ¿Sin proyecto? `gda` igualmente se ejecuta **sin proyecto** (projectless) sobre rutas simples del sistema de
-> archivos (relativas a tu directorio actual) — solo la resolución de `res://` necesita un proyecto. Consulta [Configuración](#configuration).
 
 **Inspecciona y controla el juego *en ejecución* con operaciones Live.** Estas operaciones ejecutan
 la **escena principal** del proyecto, así que apúntala a la que acabas de construir mediante el
@@ -431,6 +439,7 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 
 | Comando | Qué hace |
 | ------- | ------------ |
+| `project create` | Crea un proyecto mínimo, un `project.godot` que solo define el nombre, en un directorio de destino nuevo o vacío; las entradas como `.git` no cuentan. |
 | `project info` | Informa los metadatos del proyecto (nombre, escena principal, viewport, versión del motor). |
 | `project get` | Lee un único ajuste del proyecto por sección/clave como JSON tipado. |
 | `project list` | Lista las claves de ajustes del proyecto (las personalizadas por defecto; `--all` añade los valores predeterminados del motor, `--section` filtra por prefijo). |
@@ -443,10 +452,6 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `project dependencies` | Mapea cada escena/recurso a los recursos de los que depende. |
 | `project find-unused-resources` | Encuentra archivos de recurso que nada referencia. |
 | `project statistics` | Informa los recuentos de archivos/líneas del proyecto, los autoloads y más. |
-
-Cada escritura de `project` guarda a través del motor, que reserializa el archivo
-completo: gda restaura las líneas explícitas que el motor elimina e informa del resto
-en el resultado.
 
 **`resource`** — archivos de recurso (`.tres`) y los assets importados del proyecto
 

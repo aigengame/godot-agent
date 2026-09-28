@@ -238,9 +238,10 @@ class InputMouseClickParams(RelayedLiveParams):
 
     Injects the COMPLETE click gesture at viewport position ``(x, y)`` into the
     running game's root viewport: the initial mouse move, the button press, and
-    the button release, one per process frame across a 3-frame window. Godot's
-    UI activates on the RELEASE — a bare press never emits a default ``Button``'s
-    ``pressed`` and leaves the button held down (GDA-DF-004) — so the gesture,
+    the button release, one per process frame across a 3-frame window. A
+    default ``BaseButton`` activates on the release; ``action_mode`` or
+    subclasses such as ``MenuButton``/``OptionButton`` can activate on press.
+    A bare press leaves a default button held down (GDA-DF-004), so the gesture,
     not a lone press event, is what the op's name promises; the initial move
     settles hover state at the click position first. Each phase applies at its
     own frame boundary (ADR-0020). ``button`` selects which button (left/right/
@@ -1702,9 +1703,10 @@ def input_mouse_click(
     Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017) and
     injects the WHOLE activation gesture at the viewport position: the initial
     move, the press, and the release, one per process frame across a 3-frame
-    window. Godot's UI activates on the release (a bare press never emits a
-    Button's `pressed`), so the result reports the injected phases plus the
-    focused Control before and after the gesture. Read the injected coordinate
+    window. A default `BaseButton` activates on the release; `action_mode` or
+    subclasses such as `MenuButton`/`OptionButton` can activate on press. The
+    result reports the injected phases plus the focused Control before and
+    after the gesture. Read the injected coordinate
     from the mouse events' position; Godot may leave
     Viewport.get_mouse_position() / Node2D.get_global_mouse_position() stale in
     daemon sessions. With no daemon it reports `daemon_not_running`.

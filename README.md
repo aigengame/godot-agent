@@ -127,6 +127,16 @@ With `--json`, stdout is clean JSON you can pipe; all engine and script diagnost
 gda info --json | jq .major   # → 4
 ```
 
+**No project yet?** `gda` still runs **projectless** on plain filesystem paths (relative to your
+current directory); only `res://` resolution needs a project. See [Configuration](#configuration).
+To create one, use a destination that is new or empty (entries such as `.git` do not count).
+`gda` writes one file, a `project.godot` that sets only the name:
+
+```bash
+gda project create ./my-game --name "My Game" --json
+# {"path":"/home/me/my-game","name":"My Game","created_dirs":["/home/me/my-game"],"project_file":"/home/me/my-game/project.godot"}
+```
+
 **Build a scene headlessly.** Point `gda` at a Godot project (a directory with `project.godot`)
 once; relative paths then resolve *inside* it, and nodes are addressed by their path relative to
 the scene root:
@@ -140,9 +150,6 @@ gda scene validate scenes/main.tscn --json
 gda scene get scenes/main.tscn --json
 # {"path":"scenes/main.tscn","root":{"name":"main","type":"Node2D","children":[{"name":"Hero",…}]}}
 ```
-
-> No project? `gda` still runs **projectless** on plain filesystem paths (relative to your current
-> directory) — only `res://` resolution needs a project. See [Configuration](#configuration).
 
 **Inspect and drive the *running* game with Live operations.** These operations run the
 project's **main scene**, so point it at the one you just built via Godot's
@@ -416,6 +423,7 @@ names the file, and only `preflight` catches a first-frame failure.
 
 | Command | What it does |
 | ------- | ------------ |
+| `project create` | Create a minimal project, a `project.godot` that sets only the name, in a new or empty destination directory; entries such as `.git` do not count. |
 | `project info` | Report project metadata (name, main scene, viewport, engine version). |
 | `project get` | Read a single project setting by section/key as typed JSON. |
 | `project list` | List the project's settings keys (customized by default; `--all` adds engine defaults, `--section` filters by prefix). |
@@ -428,9 +436,6 @@ names the file, and only `preflight` catches a first-frame failure.
 | `project dependencies` | Map each scene/resource to the resources it depends on. |
 | `project find-unused-resources` | Find resource files that nothing references. |
 | `project statistics` | Report the project's file/line counts, autoloads, and more. |
-
-Every `project` write saves through the engine, which reserializes the whole file:
-gda restores the explicit lines it drops and reports the rest on the result.
 
 **`resource`** — resource files (`.tres`) and the project's imported assets
 
