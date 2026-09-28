@@ -1754,11 +1754,12 @@ re-derives every verdict from a running engine.
   gestures** (#652) are multi-frame: `input mouse-click <x> <y> [--button
   left|right|middle] [--double]` injects the COMPLETE click its name implies —
   the initial move, the press, and the release, one per process frame across a
-  3-frame window — because Godot's UI activates on the release (a bare press
-  never emits a default `Button`'s `pressed` and leaves it held down,
-  GDA-DF-004); and `input tap (--key K [--modifiers …] | --action NAME
-  [--strength F]) [--hold-frames N] [--settle-frames M]` performs the complete
-  press-hold-release of one key or one InputMap action — press at window frame
+  3-frame window. A default `BaseButton` activates on the release; `action_mode`
+  or subclasses such as `MenuButton`/`OptionButton` can activate on press (a bare
+  press leaves a default button held down, GDA-DF-004). `input tap (--key K
+  [--modifiers …] | --action NAME [--strength F]) [--hold-frames N]
+  [--settle-frames M]` performs the complete press-hold-release of one key or
+  one InputMap action — press at window frame
   0, release after N (default 2, at least 1) process frames, then M (default 2)
   settle frames so the game observes the release before the op returns — because
   a press/release pair contained in one immediate frame reports success without

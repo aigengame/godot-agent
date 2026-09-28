@@ -18,6 +18,7 @@ Live operations use `gda-daemon` with Godot 4.6+ on macOS or Linux.
 - Pass `--project DIR`, set `GDA_PROJECT`, or run inside the project directory.
   The project must contain `project.godot`. Use an explicit project when a
   script or asset depends on `res://` or project autoloads.
+- Keep the same engine and project for the related calls of one workflow.
 - Use `gda --version --json` to identify the installed CLI and its source in a
   long session. Use `gda info --json` to check the Godot engine.
 - Use `gda --help` for command groups, `gda <group> --help` for a group's
@@ -59,10 +60,10 @@ and limits.
 3. Run `scene preflight` to boot the target scene for a bounded interval.
    Check its startup verdict and diagnostics. Use `script run` for a
    project test script; inspect the child status even when `gda` succeeds.
-4. Use `export list` to select a preset, then `export run`. If needed, use
-   `export smoke` on the built artifact. A smoke run proves only what that
-   bounded process observed; it does not prove that the game completed its
-   intended task.
+4. Use `export list` to select a preset. Optionally inspect it with
+   `export get`, then run `export run`. If needed, use `export smoke` on the
+   built artifact. A smoke run proves only what that bounded process
+   observed; it does not prove that the game completed its intended task.
 
 When `scene create` uses a `Control-derived` root, it writes zero anchors
 and zero offsets. A root with no intrinsic minimum size renders as a zero-size
@@ -72,21 +73,56 @@ not at viewport size. Set `anchor_right` and `anchor_bottom` to `1` with
 For a `Control` inside a `Container`, change minimum size, size flags, or
 the container layout instead of offsets.
 
-### Writable `user://` in restricted environments
+`export run` checks the export templates itself before it exports, and
+refuses with `export_templates_missing` when they are not available.
+`--mode pack` needs no templates. `export get` is optional inspection. Give
+it the same engine, project, preset, and data root (`--user-data-root`) as
+`export run`:
 
-Headless runs already send the engine log to a private temporary file.
-If a script must write to `user://` and the default application-data
-directory is not writable, give that invocation a writable data root:
+- `templates_installed: false` means that the `templates_version` directory
+  is missing under `templates_root`. Then a non-null `templates_root_host`
+  means that the host has these templates but the data root hides them; a
+  null value means that they are not installed.
+- `templates_installed: true` means only that the version directory exists.
+  It does not prove that the preset's platform can export.
+
+To recover, put matching templates, including the files for the preset's
+platform, under `templates_root`. With a data root, you can instead select
+another data root, or run without one where the environment permits.
+Template readiness does not prove that an export succeeds or that the
+Export artifact runs.
+
+### Data root in restricted environments
+
+A headless run sends the engine log to a private temporary file. Godot can
+still write to its data directory during engine initialization, including
+for a validation. If that directory is not writable, select a writable data
+root. The global option comes before the command group:
 
 ```bash
-gda --user-data-root /writable/gda-data script run res://tests/all.gd --project game --json
+gda --user-data-root /writable/gda-data scene validate res://main.tscn --project game --json
 ```
 
-This moves both the log and `user://`. Inspect `engine_data_path` or
-`log_file` before treating a failed save as a game defect. Scope the
-redirect to the calls that need it: Godot also finds export templates under
-its application-data directory, so a redirected export can hide templates
-installed on the host.
+The data root moves the engine data directory (`user://` and the export
+templates) and the engine log. The editor configuration and cache locations
+depend on the platform and can stay in place; on Linux they do not move.
+Judge the impact from the operation verdict and the engine diagnostics. A
+directory warning does not by itself make a successful operation invalid.
+`script run` reports `engine_data_path` and `log_file`; inspect them before
+you treat a failed `user://` save as a game defect.
+
+- Use one data root for the engine-launching headless operations of one
+  restricted workflow.
+- Use a separate data root for each invocation that runs at the same time.
+  Each launch truncates the one engine log under a data root.
+- Do not set the data root (`GDA_USER_DATA_ROOT`) for unrelated commands.
+- Do not give `export smoke` a data root unless it refuses with
+  `user_data_unwritable`. Without one, each smoke run creates a private data
+  root, so no `user://` state carries from one smoke run to the next.
+- `--user-data-root` does not reconfigure an Engine session that the daemon
+  manages.
+- A successful validation under a data root does not prove that the export
+  templates are available there.
 
 ## Live workflow
 
@@ -108,7 +144,14 @@ also bypasses an unresolved `uid://` main scene.
 4. Use `input` for interaction, `diag errors` and `logger tail` for
    diagnostics, and `perf` for measurements. Start the daemon with
    `--windowed` if you need `screen capture`; a rendered capture requires
-   an available desktop session. Stop with `gda daemon stop`.
+   an available desktop session.
+5. Stop with `gda daemon stop`. This stops the daemon and its Engine
+   session, but the gda harness stays installed. To remove the gda harness
+   installation, run `gda daemon uninstall` after `daemon stop`. A
+   disposable project copy is an optional way to keep the harness out of
+   the source project. You do not need to uninstall before `gda export run`:
+   it removes the harness for the export and restores the project's prior
+   harness state. Other export routes do not remove it.
 
 For a windowed launch, `live_windowed_unavailable` means skip rendered
 checks in this environment. `live_windowed_permission_denied` means retry
@@ -137,7 +180,45 @@ receive that action rather than the mapped key:
 The table describes eligible delivery under normal propagation and
 consumption rules, not proof that a handler ran. For UI activation, use
 `input mouse-click` or `input tap` to send a complete press/release
-gesture. A lone press does not activate a Godot `Button`.
+gesture. A default `BaseButton` activates on the release; `action_mode` or
+subclasses such as `MenuButton`/`OptionButton` can activate on press.
+
+To verify an interaction:
+
+1. Find out whether the game polls input state or handles input events.
+   Select the route from the table.
+2. Find the runtime target with a bounded `game tree` or `game find` query.
+3. Inject the matching input.
+4. Read the expected game state, for example with `game get`. This read is
+   the proof. An injected gesture alone does not prove that the intended
+   handler or gameplay action ran.
+
+`game rect` reports coordinates relative to the Control's canvas. A
+transformed `CanvasLayer` or an active `Camera2D` can make them differ from
+click coordinates. Do not take click coordinates from the pixels of a
+viewport capture.
+
+`script run` runs your script as written. It does not add coordinate
+conversion, gesture completion, or event timing to the script's own
+`push_input()` calls. Your tests must establish those details and the
+actual UI layout. Input that a script sends is separate from input that
+gda injects with `input` commands into an Engine session. See Godot's
+[InputEvent guide](https://docs.godotengine.org/en/4.6/tutorials/inputs/inputevent.html).
+
+A `screen capture` is evidence only when it shows the intended state:
+
+- Use the `--await-*` predicate to capture when the relevant state holds.
+  The predicate must represent the visible state. Text kept on a hidden
+  `Label` is not sufficient.
+- Use `--await-events` to trigger a short-lived state and capture it in one
+  operation.
+- Use `--settle-frames` when the game draws the state later. A settle moves
+  the capture later than the predicate's first match. The earlier state can
+  be gone by then.
+- Inspect the image. When timing matters, also inspect the returned frame
+  counters and predicate evidence.
+- Do not assume that one settle count works for every state. Process
+  frames are not a fixed wall-clock duration.
 
 If the game needs structured records in `logger tail`, resolve the harness
 by node path and check that the daemon launched the session. Do not refer to
