@@ -26,9 +26,9 @@ const PROJECT_VIEWPORT_HEIGHT_SETTING := "display/window/size/viewport_height"
 #
 # The schemes are spelled a second time in Python, as ENGINE_VIRTUAL_PREFIXES
 # (src/gda/project.py), which decides what the CLI passes through. The two
-# spellings are held together by `test_a_virtual_destination_is_invalid_path`
-# (tests/project/test_e2e_project_create.py), which takes its cases from the
-# Python constant, not by derivation.
+# spellings are held together by a test, not by derivation:
+# `test_a_virtual_destination_is_invalid_path` (tests/project/test_e2e_project_create.py)
+# takes its cases from the Python constant.
 const PROJECT_CREATE_FILE := "project.godot"
 const PROJECT_CREATE_VIRTUAL_PREFIXES := ["res://", "user://", "uid://"]
 

@@ -773,7 +773,7 @@ class HeadlessCommand(Generic[M]):
     # commands an agent reaches for FIRST when something is wrong (#353/#357).
     # Two DOMAIN commands set it ``False`` too. ``export smoke`` (ADR-0042): its
     # operand is a caller-selected artifact path that gda has no fact tying to any
-    # project. ``project create`` (#1027): its destination is an operation input,
+    # project. ``project create`` (#1027): its destination is an operation input;
     # the project it makes does not exist yet. Neither has a project to inherit —
     # which is why this field is not a synonym for "meta command".
     # Whether a command ACCEPTS an explicit ``--project`` is its CLI signature's
