@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=c99e8154c06435369640dac45cf0a04d5d826110b12314af053b279c83332f97 -->
+<!-- gda-readme-i18n: source=README.md sha256=00b0a4d61800bdf211710ccf30886b7e9f25c06fdc16d140378d4821a0fb7f9c -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -126,8 +126,9 @@ gda info --json
 gda info --json | jq .major   # → 4
 ```
 
-**还没有项目？先创建一个。** 目的目录必须是新目录或空目录（`.git` 这类条目不计入）。
-`gda` 只写入一个文件，即只设置名称的 `project.godot`：
+**还没有项目？** `gda` 仍可在普通文件系统路径上以**无项目（projectless）**方式运行（路径相对于你的当前目录）；
+只有 `res://` 解析才需要项目。参见[配置](#configuration)。若要创建项目，目的目录必须是新目录或空目录
+（`.git` 这类条目不计入）。`gda` 只写入一个文件，即只设置名称的 `project.godot`：
 
 ```bash
 gda project create ./my-game --name "My Game" --json
@@ -146,9 +147,6 @@ gda scene validate scenes/main.tscn --json
 gda scene get scenes/main.tscn --json
 # {"path":"scenes/main.tscn","root":{"name":"main","type":"Node2D","children":[{"name":"Hero",…}]}}
 ```
-
-> 没有项目？`gda` 仍可在普通文件系统路径上以**无项目（projectless）**方式运行（路径相对于你的当前目录）——
-> 只有 `res://` 解析才需要项目。参见[配置](#configuration)。
 
 **使用 Live 操作检查并操控*正在运行*的游戏。** 这些操作会运行项目的**主场景**，所以先通过
 Godot 的 `application/run/main_scene` 项目设置（也就是编辑器里的

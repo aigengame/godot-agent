@@ -127,8 +127,10 @@ With `--json`, stdout is clean JSON you can pipe; all engine and script diagnost
 gda info --json | jq .major   # → 4
 ```
 
-**No project yet? Create one.** The destination must be new or empty (entries such as `.git`
-do not count). `gda` writes one file, a `project.godot` that sets only the name:
+**No project yet?** `gda` still runs **projectless** on plain filesystem paths (relative to your
+current directory); only `res://` resolution needs a project. See [Configuration](#configuration).
+To create one, use a destination that is new or empty (entries such as `.git` do not count).
+`gda` writes one file, a `project.godot` that sets only the name:
 
 ```bash
 gda project create ./my-game --name "My Game" --json
@@ -148,9 +150,6 @@ gda scene validate scenes/main.tscn --json
 gda scene get scenes/main.tscn --json
 # {"path":"scenes/main.tscn","root":{"name":"main","type":"Node2D","children":[{"name":"Hero",…}]}}
 ```
-
-> No project? `gda` still runs **projectless** on plain filesystem paths (relative to your current
-> directory) — only `res://` resolution needs a project. See [Configuration](#configuration).
 
 **Inspect and drive the *running* game with Live operations.** These operations run the
 project's **main scene**, so point it at the one you just built via Godot's

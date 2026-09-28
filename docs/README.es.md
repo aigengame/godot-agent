@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=c99e8154c06435369640dac45cf0a04d5d826110b12314af053b279c83332f97 -->
+<!-- gda-readme-i18n: source=README.md sha256=00b0a4d61800bdf211710ccf30886b7e9f25c06fdc16d140378d4821a0fb7f9c -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -136,9 +136,11 @@ y de los scripts van a stderr:
 gda info --json | jq .major   # → 4
 ```
 
-**¿Aún no tienes un proyecto? Crea uno.** El destino debe ser nuevo o estar vacío (las
-entradas como `.git` no cuentan). `gda` escribe un solo archivo, un `project.godot` que solo
-define el nombre:
+**¿Aún no tienes un proyecto?** `gda` igualmente se ejecuta **sin proyecto** (projectless) sobre rutas
+simples del sistema de archivos (relativas a tu directorio actual); solo la resolución de `res://`
+necesita un proyecto. Consulta [Configuración](#configuration). Para crear uno, el destino debe ser
+nuevo o estar vacío (las entradas como `.git` no cuentan). `gda` escribe un solo archivo, un
+`project.godot` que solo define el nombre:
 
 ```bash
 gda project create ./my-game --name "My Game" --json
@@ -158,9 +160,6 @@ gda scene validate scenes/main.tscn --json
 gda scene get scenes/main.tscn --json
 # {"path":"scenes/main.tscn","root":{"name":"main","type":"Node2D","children":[{"name":"Hero",…}]}}
 ```
-
-> ¿Sin proyecto? `gda` igualmente se ejecuta **sin proyecto** (projectless) sobre rutas simples del sistema de
-> archivos (relativas a tu directorio actual) — solo la resolución de `res://` necesita un proyecto. Consulta [Configuración](#configuration).
 
 **Inspecciona y controla el juego *en ejecución* con operaciones Live.** Estas operaciones ejecutan
 la **escena principal** del proyecto, así que apúntala a la que acabas de construir mediante el
