@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=c99e8154c06435369640dac45cf0a04d5d826110b12314af053b279c83332f97 -->
+<!-- gda-readme-i18n: source=README.md sha256=00b0a4d61800bdf211710ccf30886b7e9f25c06fdc16d140378d4821a0fb7f9c -->
 
 # gda — AI エージェント向け Godot オートメーション
 
@@ -132,9 +132,11 @@ gda info --json
 gda info --json | jq .major   # → 4
 ```
 
-**まだプロジェクトがない場合は作成します。** 作成先は新しいディレクトリか空のディレクトリにします
-(`.git` などのエントリは数えません)。`gda` が書き込むのは、名前だけを設定する `project.godot`
-の 1 ファイルです:
+**プロジェクトがまだない?** `gda` はそれでも、プレーンなファイルシステムパス(カレントディレクトリからの
+相対)に対して **projectless(プロジェクトなし)** で動作します。プロジェクトが必要なのは `res://` の解決
+だけです。[設定](#configuration) を参照してください。プロジェクトを作成するには、作成先を新しい
+ディレクトリか空のディレクトリにします(`.git` などのエントリは数えません)。`gda` が書き込むのは、
+名前だけを設定する `project.godot` の 1 ファイルです:
 
 ```bash
 gda project create ./my-game --name "My Game" --json
@@ -154,10 +156,6 @@ gda scene validate scenes/main.tscn --json
 gda scene get scenes/main.tscn --json
 # {"path":"scenes/main.tscn","root":{"name":"main","type":"Node2D","children":[{"name":"Hero",…}]}}
 ```
-
-> プロジェクトがない? `gda` はそれでも、プレーンなファイルシステムパス(カレントディレクトリからの
-> 相対)に対して **projectless(プロジェクトなし)** で動作します — プロジェクトが必要なのは `res://`
-> の解決だけです。[設定](#configuration) を参照してください。
 
 **Live 操作で実行中のゲームを検査・操作します。** これらの操作はプロジェクトの
 **メインシーン**を実行します。そのため、いま構築したシーンを Godot の
