@@ -1,0 +1,375 @@
+name: gda-balancing
+
+# gda-balancing CI, separate from the gda workflow (ci.yml) until the project
+# moves to its own repository. Every pull request and push starts this
+# workflow: a `paths` filter would leave the required `gda-balancing required`
+# check pending on a pull request that the filter excludes. The scope job
+# selects the jobs instead.
+on:
+  # The default pull_request activity types, for the reason given in ci.yml.
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+  schedule:
+    # Nightly (04:17 UTC), at a different time from the gda nightly. Scheduled
+    # and manual runs select the complete inventory-closed matrix, which is the
+    # backstop for a change that the path rule does not select.
+    - cron: "17 4 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  # Scheduled and manually requested evidence runs must not be cancelled by a
+  # push merely because all three can target refs/heads/main. PR and push runs
+  # still replace stale runs for the same ref.
+  group: >-
+    ${{
+      github.workflow
+    }}-${{
+      (github.event_name == 'schedule' ||
+        github.event_name == 'workflow_dispatch') &&
+        format('{0}-{1}', github.event_name, github.run_id) ||
+        github.ref
+    }}
+  cancel-in-progress: >-
+    ${{
+      github.event_name == 'pull_request' ||
+      github.event_name == 'push'
+    }}
+
+jobs:
+  balancing-scope:
+    name: Classify gda-balancing scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      required: ${{ steps.classify.outputs.required }}
+
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up pinned policy interpreter
+        # Classification is stdlib-only and latency-critical. Pin Python
+        # directly instead of installing uv and syncing no project.
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Classify changed paths
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # A pull request classifies its change set, and a push to main its
+          # pushed range. Disable rename collapsing so a cross-boundary move
+          # supplies both the deleted source path and added destination path.
+          # Otherwise an affecting member file renamed into an unrelated docs
+          # path could silently bypass the full matrix. A scheduled or manual
+          # run, or a range that git cannot read, selects the full matrix.
+          if { [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "push" ]; } &&
+            git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA" \
+              > changed-paths.txt; then
+            python libs/gda-balancing/tools/ci.py classify \
+              < changed-paths.txt > balancing-scope.json
+          else
+            python libs/gda-balancing/tools/ci.py classify --all \
+              > balancing-scope.json
+          fi
+          python -c \
+            'import json, os; value=json.load(open("balancing-scope.json", encoding="utf-8")); open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8").write("required=%s\n" % str(value["required"]).lower())'
+          cat balancing-scope.json
+
+  balancing-type-check:
+    name: gda-balancing type check (pyright)
+    needs: balancing-scope
+    if: ${{ needs.balancing-scope.outputs.required == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up gda-balancing environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          sync: member
+          save-cache: false
+
+      - name: Type check
+        # gda-balancing is its own uv project (ADR-0038) with its own pyright
+        # pin, so the run resolves from the member environment; pyright's
+        # --project points at the member's [tool.pyright] scope (#502).
+        run: uv run --frozen --project libs/gda-balancing pyright --project libs/gda-balancing
+
+  balancing-inventory:
+    name: gda-balancing inventory closure
+    needs: balancing-scope
+    if: ${{ needs.balancing-scope.outputs.required == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      test_matrix: ${{ steps.test_matrix.outputs.value }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up gda-balancing environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          sync: member
+
+      - name: Verify unfiltered and shard inventory closure
+        run: |
+          mkdir -p test-results
+          uv run --frozen --project libs/gda-balancing \
+            python libs/gda-balancing/tools/ci.py verify-inventory \
+            --report test-results/inventory.json
+
+      - name: Export required shard matrix
+        id: test_matrix
+        run: |
+          value="$(uv run --no-project --python 3.13 python \
+            libs/gda-balancing/tools/ci.py required-test-shards)"
+          echo "value=${value}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload inventory report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: gda-balancing-inventory
+          path: test-results/inventory.json
+          if-no-files-found: error
+
+  balancing-tests:
+    name: gda-balancing tests (${{ matrix.shard }})
+    needs:
+      - balancing-scope
+      - balancing-inventory
+    if: ${{ needs.balancing-scope.outputs.required == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # The invalid sentinel keeps strategy expansion valid when inventory is
+        # skipped. If this job is ever made unconditional, shard selection then
+        # fails closed instead of silently executing only one real shard.
+        shard: ${{ fromJSON(needs.balancing-inventory.outputs.test_matrix || '["__invalid__"]') }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up gda-balancing environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          sync: member
+          save-cache: false
+
+      - name: Run complete shard with hard duration bound
+        run: |
+          mkdir -p test-results
+          set -o pipefail
+          process_timeout="$(uv run --no-project --python 3.13 python \
+            libs/gda-balancing/tools/ci.py process-timeout required)"
+          uv run --no-project --python 3.13 python \
+            libs/gda-balancing/tools/ci.py shard-paths "${{ matrix.shard }}" |
+            xargs timeout --signal=TERM --kill-after=30s "${process_timeout}s" \
+              uv run --frozen --project libs/gda-balancing pytest \
+              -q --durations=50 \
+              --junitxml="test-results/${{ matrix.shard }}-junit.xml" \
+            2>&1 | tee "test-results/${{ matrix.shard }}.log"
+
+      - name: Summarize durations and verify test outcomes
+        if: ${{ always() }}
+        run: |
+          mkdir -p test-results
+          if [ -f "test-results/${{ matrix.shard }}-junit.xml" ]; then
+            uv run --no-project --python 3.13 python \
+              libs/gda-balancing/tools/ci.py summarize-junit \
+              --junit "test-results/${{ matrix.shard }}-junit.xml" \
+              --report "test-results/${{ matrix.shard }}-durations.json"
+            uv run --no-project --python 3.13 python \
+              libs/gda-balancing/tools/ci.py verify-outcomes \
+              --junit "test-results/${{ matrix.shard }}-junit.xml" \
+              --report "test-results/${{ matrix.shard }}-outcomes.json"
+          else
+            printf '{"error":"shard timed out before JUnit was finalized"}\n' \
+              > "test-results/${{ matrix.shard }}-durations.json"
+            printf '{"error":"shard timed out before JUnit was finalized"}\n' \
+              > "test-results/${{ matrix.shard }}-outcomes.json"
+          fi
+
+      - name: Upload shard diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: gda-balancing-${{ matrix.shard }}-diagnostics
+          path: test-results/
+          if-no-files-found: error
+
+  balancing-smoke:
+    name: gda-balancing wheel and subprocess smoke
+    needs:
+      - balancing-scope
+      - balancing-inventory
+    if: ${{ needs.balancing-scope.outputs.required == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up gda-balancing environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          sync: member
+          save-cache: false
+
+      - name: Run subprocess tests and build with one hard duration bound
+        run: |
+          mkdir -p test-results
+          process_timeout="$(uv run --no-project --python 3.13 python \
+            libs/gda-balancing/tools/ci.py process-timeout required)"
+          uv run --no-project --python 3.13 python \
+            libs/gda-balancing/tools/ci.py shard-paths smoke \
+            > test-results/smoke-paths.txt
+          timeout --signal=TERM --kill-after=30s "${process_timeout}s" \
+            bash -euo pipefail -c '
+              xargs uv run --frozen --project libs/gda-balancing pytest \
+                -q --durations=50 \
+                --junitxml=test-results/smoke-junit.xml \
+                < test-results/smoke-paths.txt \
+                2>&1 | tee test-results/smoke.log
+              uv build --project libs/gda-balancing --out-dir dist-gda-balancing
+            '
+
+      - name: Summarize durations and verify smoke outcomes
+        if: ${{ always() }}
+        run: |
+          mkdir -p test-results
+          if [ -f test-results/smoke-junit.xml ]; then
+            uv run --no-project --python 3.13 python \
+              libs/gda-balancing/tools/ci.py summarize-junit \
+              --junit test-results/smoke-junit.xml \
+              --report test-results/smoke-durations.json
+            uv run --no-project --python 3.13 python \
+              libs/gda-balancing/tools/ci.py verify-outcomes \
+              --junit test-results/smoke-junit.xml \
+              --report test-results/smoke-outcomes.json
+          else
+            printf '{"error":"smoke timed out before JUnit was finalized"}\n' \
+              > test-results/smoke-durations.json
+            printf '{"error":"smoke timed out before JUnit was finalized"}\n' \
+              > test-results/smoke-outcomes.json
+          fi
+
+      - name: Upload smoke diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: gda-balancing-smoke-diagnostics
+          path: |
+            test-results/
+            dist-gda-balancing/
+          if-no-files-found: error
+
+  balancing-required:
+    name: gda-balancing required
+    needs:
+      - balancing-scope
+      - balancing-type-check
+      - balancing-inventory
+      - balancing-tests
+      - balancing-smoke
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    # The one-minute unrelated-path target is a measured service level, not a
+    # job timeout. Leave enough room for runner/startup jitter while the step
+    # itself remains a constant-time shell assertion.
+    timeout-minutes: 5
+
+    steps:
+      - name: Aggregate stable required result
+        env:
+          SCOPE_RESULT: ${{ needs.balancing-scope.result }}
+          REQUIRED: ${{ needs.balancing-scope.outputs.required }}
+          TYPE_CHECK_RESULT: ${{ needs.balancing-type-check.result }}
+          INVENTORY_RESULT: ${{ needs.balancing-inventory.result }}
+          TEST_RESULT: ${{ needs.balancing-tests.result }}
+          SMOKE_RESULT: ${{ needs.balancing-smoke.result }}
+        run: |
+          if [ "$SCOPE_RESULT" != "success" ]; then
+            echo "gda-balancing scope classification ended as: $SCOPE_RESULT" >&2
+            exit 1
+          fi
+          case "$REQUIRED" in
+            false)
+              echo "No changed path affects gda-balancing."
+              exit 0
+              ;;
+            true) ;;
+            *)
+              echo "gda-balancing scope output is absent or invalid: $REQUIRED" >&2
+              exit 1
+              ;;
+          esac
+          for result in "$TYPE_CHECK_RESULT" "$INVENTORY_RESULT" "$TEST_RESULT" "$SMOKE_RESULT"; do
+            if [ "$result" != "success" ]; then
+              echo "A required gda-balancing dependency ended as: $result" >&2
+              exit 1
+            fi
+          done
+
+  coinstall-smoke:
+    name: Both products co-install
+    needs: balancing-scope
+    # Not part of the aggregator and not a required check (#1042). It runs with
+    # the balancing matrix, which the nightly always selects, so a root
+    # pyproject.toml or uv.lock change that breaks co-installation is found by
+    # the nightly.
+    if: ${{ needs.balancing-scope.outputs.required == 'true' }}
+    runs-on: ubuntu-latest
+
+    # Replaces feedback the shared workspace lock used to give for free (ADR-0038).
+    # While gda and gda-balancing resolved into one lock, uv proved on every
+    # change that their dependency closures stay mutually satisfiable; two
+    # independent locks each resolve alone and can silently drift into wheels
+    # that cannot be installed side by side (a user who wants both, or a future
+    # agent image carrying both, would hit it first). So the co-installability
+    # claim becomes an explicit test: build both wheels, install them together
+    # into one clean environment, and run a command from each.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          # Neither project's venv is used here — the build backends run in
+          # uv's own isolated build envs and the smoke install is a fresh venv.
+          sync: none
+          save-cache: false
+
+      - name: Build both wheels
+        run: |
+          uv build --out-dir dist-coinstall
+          uv build --project libs/gda-balancing --out-dir dist-coinstall
+
+      - name: Install both into one clean environment and run each command
+        run: |
+          uv venv coinstall-venv
+          uv pip install --python coinstall-venv/bin/python dist-coinstall/*.whl
+          ./coinstall-venv/bin/gda --help
+          ./coinstall-venv/bin/gda-balancing version

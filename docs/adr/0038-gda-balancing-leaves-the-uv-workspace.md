@@ -68,6 +68,12 @@ uv project inside the repo, with its own lock under its own directory.**
   `coinstall-smoke` job builds both wheels, installs them together into one
   clean environment, and runs `gda --help` and `gda-balancing version`. What
   was an implicit property of the packaging layout is now an asserted one.
+
+  > **Outcome (2026-09-29, #1042):** the co-install smoke moved to the
+  > gda-balancing workflow and is no longer a required check. It runs when the
+  > balancing scope is required and on the balancing nightly, so a root
+  > `pyproject.toml` or `uv.lock` change that breaks co-installation is found by
+  > that nightly, not by the pull request.
 - **The release-PR lock sync generalizes to two locks.** ADR-0037's sync ran
   `uv lock` and committed the root lock on every Release PR branch. Each branch
   now refreshes **both** locks and commits whichever actually changed. Which
@@ -151,6 +157,18 @@ uv project inside the repo, with its own lock under its own directory.**
   > its process bound while every required shard still passed. The release
   > workflow retains its exact-SHA unfiltered suite; #597 remains open for that
   > path's current performance risk.
+  >
+  > **Outcome (2026-09-29, #1042):** gda-balancing CI has its own workflow,
+  > `gda-balancing.yml`, until the project moves to its own repository. It
+  > keeps the job names above, adds the member type check under the
+  > aggregator, and has its own nightly and manual full-matrix runs; the gda
+  > workflow runs no balancing job. The path rule is now positive: only
+  > `libs/gda-balancing/`, the gda-balancing workflow and the shared setup
+  > action are affecting, and an empty change set selects the full matrix.
+  > Every other path is unrelated, and the nightly full matrix is the backstop.
+  > This reverses #598's fail-closed rule. A pull request that changes only
+  > `libs/gda-balancing/` skips the gda type check and the unit-test and
+  > package-build job.
 - **CI and Release share one exact uv tool version.** The shared
   `setup-python-env` action owns the pin for every project-sync and release
   consumer; workflows may not opt back into a moving `latest` or restate the

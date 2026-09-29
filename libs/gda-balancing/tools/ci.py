@@ -73,55 +73,24 @@ PROCESS_TIMEOUT_SECONDS: Final = {
     "unfiltered": 900,
 }
 
-_AFFECTING_EXACT: Final = {
-    ".github/workflows/ci.yml",
-    ".github/workflows/release-scope-guard.yml",
-    ".github/workflows/release.yml",
-    ".release-please-manifest.json",
-    "pyproject.toml",
-    "release-please-config.json",
-    "scripts/release_scope_guard.py",
-    "scripts/release_tags.py",
-    "tests/repo/test_balancing_ci_wiring.py",
-    "tests/repo/test_release_scope_guard.py",
-    "tests/repo/test_release_tags.py",
-    "uv.lock",
-}
+_AFFECTING_EXACT: Final = {".github/workflows/gda-balancing.yml"}
 _AFFECTING_PREFIXES: Final = (
     ".github/actions/setup-python-env/",
     "libs/gda-balancing/",
 )
-_UNRELATED_EXACT: Final = {
-    "AGENTS.md",
-    "CONTEXT-MAP.md",
-    "CONTEXT.md",
-    "README.md",
-    "RULES.md",
-    "STATE.md",
-}
-_UNRELATED_PREFIXES: Final = (
-    ".agents/",
-    ".codex/",
-    "docs/",
-    "examples/",
-    "src/",
-    "tests/",
-)
 
 
 def classify_path(path: str) -> str:
-    """Classify one repository-relative path; unknown fails closed to affecting."""
+    """Classify one repository-relative path; only the listed paths are affecting."""
     normalized = path.strip().removeprefix("./")
     if normalized in _AFFECTING_EXACT or normalized.startswith(_AFFECTING_PREFIXES):
         return "affecting"
-    if normalized in _UNRELATED_EXACT or normalized.startswith(_UNRELATED_PREFIXES):
-        return "unrelated"
-    return "unknown"
+    return "unrelated"
 
 
 def balancing_required(paths: list[str]) -> bool:
-    """Run the full matrix unless every changed path is explicitly unrelated."""
-    return not paths or any(classify_path(path) != "unrelated" for path in paths)
+    """Run the full matrix for an empty change set or any affecting path."""
+    return not paths or any(classify_path(path) == "affecting" for path in paths)
 
 
 def shard_paths(shard: str) -> tuple[Path, ...]:

@@ -8,7 +8,8 @@ import sys
 
 
 _ROOT = Path(__file__).parents[2]
-_WORKFLOW = _ROOT / ".github/workflows/ci.yml"
+_WORKFLOW = _ROOT / ".github/workflows/gda-balancing.yml"
+_GDA_WORKFLOW = _ROOT / ".github/workflows/ci.yml"
 _RELEASE_WORKFLOW = _ROOT / ".github/workflows/release.yml"
 _POLICY = _ROOT / "libs/gda-balancing/tools/ci.py"
 _JOB_HEADER = re.compile(r"^  (?P<name>[A-Za-z0-9_-]+):\s*$", re.MULTILINE)
@@ -92,29 +93,19 @@ def test_scope_diff_preserves_both_sides_of_cross_boundary_renames(tmp_path):
     )
     assert json.loads(classification.stdout)["required"] is True
 
-    policy_guard = subprocess.run(
-        [
-            sys.executable,
-            _POLICY,
-            "classify",
-            "tests/repo/test_balancing_ci_wiring.py",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert json.loads(policy_guard.stdout)["required"] is True
-
 
 def test_scheduled_and_manual_evidence_runs_have_isolated_non_cancelling_groups():
-    workflow = _WORKFLOW.read_text(encoding="utf-8")
-    concurrency = workflow.split("\nconcurrency:\n", 1)[1].split("\njobs:\n", 1)[0]
+    for path in (_WORKFLOW, _GDA_WORKFLOW):
+        workflow = path.read_text(encoding="utf-8")
+        concurrency = workflow.split("\nconcurrency:\n", 1)[1].split("\njobs:\n", 1)[0]
 
-    assert "github.event_name == 'schedule'" in concurrency
-    assert "github.event_name == 'workflow_dispatch'" in concurrency
-    assert "format('{0}-{1}', github.event_name, github.run_id)" in concurrency
-    assert "github.event_name == 'pull_request'" in concurrency
-    assert "github.event_name == 'push'" in concurrency
+        assert "github.event_name == 'schedule'" in concurrency, path.name
+        assert "github.event_name == 'workflow_dispatch'" in concurrency, path.name
+        assert "format('{0}-{1}', github.event_name, github.run_id)" in concurrency, (
+            path.name
+        )
+        assert "github.event_name == 'pull_request'" in concurrency, path.name
+        assert "github.event_name == 'push'" in concurrency, path.name
 
 
 def test_scheduled_run_uses_the_full_matrix_without_a_serial_duplicate():
@@ -126,11 +117,12 @@ def test_scheduled_run_uses_the_full_matrix_without_a_serial_duplicate():
     required = _workflow_job(workflow, "balancing-required")
 
     assert "EVENT_NAME: ${{ github.event_name }}" in scope
-    assert 'if [ "$EVENT_NAME" = "pull_request" ]; then' in scope
+    assert '[ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "push" ]' in scope
     assert "classify --all" in scope
     for job in (inventory, tests, smoke):
         assert "needs.balancing-scope.outputs.required == 'true'" in job
         assert "github.event_name" not in job
+    assert "- balancing-type-check" in required
     assert "- balancing-inventory" in required
     assert "- balancing-tests" in required
     assert "- balancing-smoke" in required
@@ -140,6 +132,7 @@ def test_scheduled_run_uses_the_full_matrix_without_a_serial_duplicate():
 
 def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
     workflow = _WORKFLOW.read_text(encoding="utf-8")
+    gda_workflow = _GDA_WORKFLOW.read_text(encoding="utf-8")
     release = _RELEASE_WORKFLOW.read_text(encoding="utf-8")
     action = (_ROOT / ".github/actions/setup-python-env/action.yml").read_text(
         encoding="utf-8"
@@ -156,6 +149,7 @@ def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
     assert 'version: "0.11.19"' in action
     assert "uv-version:" not in action
     assert "uv-version:" not in workflow
+    assert "uv-version:" not in gda_workflow
     assert "uv-version:" not in release
     assert release.count("uses: ./.github/actions/setup-python-env") == 3
     assert "uses: actions/setup-python@v6" in scope_job
