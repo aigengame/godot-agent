@@ -165,8 +165,8 @@ def test_a_config_declaring_no_sections_anywhere_fails_loudly():
 
 
 def test_the_shipped_config_resolves_the_same_sections_for_every_package():
-    # Drift alarm: today's config declares no package-level override, so both
-    # packages resolve to the one top-level list. If that ever stops holding,
+    # Drift alarm: today's config declares no package-level override, so every
+    # package resolves to the one top-level list. If that ever stops holding,
     # this fails and the per-package resolution above is what keeps the guard
     # correct.
     for path in REAL_CONFIG["packages"]:
@@ -321,8 +321,10 @@ def _main(title, files, tmp_path):
 def test_main_passes_a_releasing_member_only_pr(capsys, tmp_path):
     exit_code = _main("feat(gda-balancing): add a thing", MEMBER_ONLY, tmp_path)
 
+    out = capsys.readouterr().out
     assert exit_code == 0
-    assert "confined to" in capsys.readouterr().out
+    assert "confined to" in out
+    assert "proposes no gda release" in out
 
 
 def test_main_fails_a_releasing_pr_that_straddles_the_boundary(capsys, tmp_path):

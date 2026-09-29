@@ -1,12 +1,11 @@
 """The single authority for the git tags release-please mints in this repo.
 
-Three call sites need to know a package's tag: the Release workflow's root build
-job (validating `v<version>`), its gda-balancing build job (validating
-`gda-balancing-v<version>`), and the release-PR maintenance gate (requiring every
+Two call sites need to know a package's tag: the Release workflow's build job
+(validating `v<version>`) and the release-PR maintenance gate (requiring every
 released component's tag to exist before it runs, #82). Each used to compose the
 tag itself, so a supported config change — flipping `include-v-in-tag`, changing
 `tag-separator` — would make release-please mint a tag one of them rejects. This
-module is the one derivation they all call.
+module is the one derivation they both call.
 
 release-please builds a tag from FOUR inherited inputs — `component`,
 `include-component-in-tag`, `include-v-in-tag` and `tag-separator` — each

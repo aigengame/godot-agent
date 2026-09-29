@@ -11,6 +11,16 @@ ROOT = Path(__file__).resolve().parents[2]
 REAL_CONFIG = json.loads((ROOT / "release-please-config.json").read_text())
 REAL_MANIFEST = json.loads((ROOT / ".release-please-manifest.json").read_text())
 
+# The live config declares only the root package (#1043). Tests of a second,
+# component-bearing package add a synthetic one to it.
+TWO_PACKAGE_CONFIG = {
+    **REAL_CONFIG,
+    "packages": {
+        **REAL_CONFIG["packages"],
+        "libs/member": {"component": "member", "include-component-in-tag": True},
+    },
+}
+
 
 def expected_live_tags():
     """Project the live manifest without hard-coding its current versions."""
@@ -27,8 +37,8 @@ def test_root_package_tag_matches_release_please_v_prefix():
 
 def test_member_package_tag_carries_its_component():
     assert (
-        release_tags.derive_tag(REAL_CONFIG, "libs/gda-balancing", "0.1.0")
-        == "gda-balancing-v0.1.0"
+        release_tags.derive_tag(TWO_PACKAGE_CONFIG, "libs/member", "0.1.0")
+        == "member-v0.1.0"
     )
 
 
@@ -91,17 +101,17 @@ def test_an_undeclared_package_path_fails_loudly():
 
 
 def test_required_tags_skips_the_never_released_placeholder():
-    manifest = {".": "0.8.1", "libs/gda-balancing": "0.0.0"}
+    manifest = {".": "0.8.1", "libs/member": "0.0.0"}
 
-    assert release_tags.required_tags(REAL_CONFIG, manifest) == ["v0.8.1"]
+    assert release_tags.required_tags(TWO_PACKAGE_CONFIG, manifest) == ["v0.8.1"]
 
 
 def test_required_tags_covers_every_released_package():
-    manifest = {".": "0.8.1", "libs/gda-balancing": "0.1.0"}
+    manifest = {".": "0.8.1", "libs/member": "0.1.0"}
 
-    assert release_tags.required_tags(REAL_CONFIG, manifest) == [
+    assert release_tags.required_tags(TWO_PACKAGE_CONFIG, manifest) == [
         "v0.8.1",
-        "gda-balancing-v0.1.0",
+        "member-v0.1.0",
     ]
 
 
@@ -129,11 +139,11 @@ def test_main_prints_one_required_tag_per_line(capsys):
 
 def test_main_prints_a_single_derived_tag(capsys):
     exit_code = release_tags.main(
-        [*CONFIG_ARGS, "--tag-for", "libs/gda-balancing", "--version", "0.1.0"]
+        [*CONFIG_ARGS, "--tag-for", ".", "--version", "0.8.1"]
     )
 
     assert exit_code == 0
-    assert capsys.readouterr().out.strip() == "gda-balancing-v0.1.0"
+    assert capsys.readouterr().out.strip() == "v0.8.1"
 
 
 def test_main_reports_a_derivation_failure_on_stderr(capsys, tmp_path):

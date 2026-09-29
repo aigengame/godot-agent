@@ -151,7 +151,7 @@ def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
     assert "uv-version:" not in workflow
     assert "uv-version:" not in gda_workflow
     assert "uv-version:" not in release
-    assert release.count("uses: ./.github/actions/setup-python-env") == 3
+    assert release.count("uses: ./.github/actions/setup-python-env") == 2
     assert "uses: actions/setup-python@v6" in scope_job
     assert 'python-version: "3.13"' in scope_job
     assert "setup-python-env" not in scope_job
@@ -163,12 +163,3 @@ def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
     _assert_job_timeout(workflow, "balancing-tests", 15)
     _assert_job_timeout(workflow, "balancing-smoke", 15)
     _assert_job_timeout(workflow, "balancing-required", 5)
-    _assert_job_timeout(release, "build-release-gda-balancing", 30)
-    assert "process-timeout unfiltered" in release
-    assert "verify-outcomes" in release
-    assert (
-        "Summarize durations and verify release outcomes\n"
-        "        if: ${{ always() }}\n"
-        "        run: |\n"
-        "          mkdir -p test-results"
-    ) in release

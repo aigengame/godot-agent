@@ -170,6 +170,14 @@ uv project inside the repo, with its own lock under its own directory.**
   > This reverses #598's fail-closed rule. A pull request that changes only
   > `libs/gda-balancing/` skips the gda type check and the unit-test and
   > package-build job.
+  >
+  > **Outcome (2026-09-29, #1043):** this repository no longer releases
+  > gda-balancing; ADR-0037's 2026-09-29 Outcome note records the release
+  > model change. The release workflow's exact-SHA unfiltered suite that the
+  > 2026-08-11 Outcome names no longer runs, and neither do the member-only
+  > release sync or the member lock sync on Release PR branches. The
+  > consequence "ADR-0037's release model is otherwise unchanged" below now
+  > holds for the root package only.
 - **CI and Release share one exact uv tool version.** The shared
   `setup-python-env` action owns the pin for every project-sync and release
   consumer; workflows may not opt back into a moving `latest` or restate the

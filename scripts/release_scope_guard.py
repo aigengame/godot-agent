@@ -3,7 +3,9 @@
 release-please drops a commit from the root `gda` package only when EVERY
 changed file is excluded, and `exclude-paths` matches directory prefixes only
 (ADR-0038). So a releasing-typed PR that touches `libs/gda-balancing` AND
-anything outside it proposes two Release PRs — the mistake ADR-0037 describes.
+anything outside it counts for the root package: its merge puts a member change
+into a gda release and bumps the gda version for it. This repository no longer
+releases the member (#1043), so the member change has no release of its own.
 This module decides that at PR time.
 
 Both of its inputs are DERIVED from `release-please-config.json`, never
@@ -169,8 +171,8 @@ class Verdict:
         """A releasing PR that straddles the member boundary is the failure.
 
         Everything else passes: a non-releasing PR bumps nothing wherever it
-        reaches, and a releasing PR confined to one side proposes exactly one
-        release train.
+        reaches, and a releasing PR confined to one side cannot put a member
+        change into a gda release.
         """
         return not (self.releasing and self.touches_member and self.touches_outside)
 
@@ -187,7 +189,7 @@ class Verdict:
         if not self.touches_outside:
             return (
                 f"Releasing-typed member PR is confined to {self.member_dirs}; "
-                "only the member's release train can be proposed."
+                "it proposes no gda release."
             )
 
         listing = "\n".join(f"  {path}" for path in self.outside)
@@ -196,8 +198,9 @@ class Verdict:
             f"and the PR touches {self.member_dirs}, but these changed files fall "
             f"outside it:\n{listing}\n\n"
             "release-please excludes a commit from the root `gda` package only "
-            "when EVERY changed file is excluded, so merging this would propose "
-            "BOTH a gda release and a gda-balancing release (ADR-0037/0038).\n"
+            "when EVERY changed file is excluded, so merging this would put the "
+            "member change into a gda release and bump the gda version for it "
+            "(ADR-0038).\n"
             "Fix by splitting the PR: keep the releasing-typed change confined "
             "to the member directory, and move the files above into a separate "
             "PR (a non-releasing type, or its own gda-releasing one)."
