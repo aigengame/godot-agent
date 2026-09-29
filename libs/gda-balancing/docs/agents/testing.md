@@ -69,7 +69,8 @@ remains the mapping for the earlier bootstrap test split. Pytest collection
 rejects `xfail(strict=False)` before execution.
 
 CI also runs the existing outcome check on each JUnit file; undeclared skips
-and xfails fail the job. Balancing-affecting or unknown paths run inventory,
+and xfails fail the job. A change set that touches `libs/gda-balancing/`, the
+gda-balancing workflow, or the shared setup action, or that is empty, runs inventory,
 all six required shards, the separate smoke shard, and the stable
 `gda-balancing required` result. Each test process retains the existing
 eight-minute bound and fifteen-minute job timeout. Scheduled validation uses

@@ -28,36 +28,33 @@ suite_conftest = importlib.util.module_from_spec(_CONFTEST_SPEC)
 _CONFTEST_SPEC.loader.exec_module(suite_conftest)
 
 
-def test_balancing_paths_and_shared_release_surfaces_are_affecting():
-    assert ci.balancing_required(
-        [
-            "libs/gda-balancing/src/gda_balancing/domain/authority/context.py",
-            "libs/gda-balancing/uv.lock",
-            ".github/actions/setup-python-env/action.yml",
-            ".github/workflows/release.yml",
-            "scripts/release_scope_guard.py",
-            "scripts/release_tags.py",
-            "tests/repo/test_balancing_ci_wiring.py",
-            "tests/repo/test_release_scope_guard.py",
-            "tests/repo/test_release_tags.py",
-        ]
-    )
+def test_balancing_paths_workflow_and_setup_action_are_affecting():
+    for path in (
+        "libs/gda-balancing/src/gda_balancing/domain/authority/context.py",
+        "libs/gda-balancing/uv.lock",
+        ".github/workflows/gda-balancing.yml",
+        ".github/actions/setup-python-env/action.yml",
+    ):
+        assert ci.classify_path(path) == "affecting", path
+        assert ci.balancing_required(["docs/adr/0001-example.md", path]), path
 
 
-def test_known_root_product_change_is_unrelated():
+def test_empty_change_set_runs_the_full_balancing_matrix():
+    assert ci.balancing_required([])
+
+
+def test_every_other_path_is_unrelated():
     assert not ci.balancing_required(
         [
+            "pyproject.toml",
+            "uv.lock",
             "src/gda/cli.py",
             "tests/test_cli.py",
             "examples/sandbox/README.md",
             "docs/adr/0001-example.md",
+            "future-shared-tool/config.toml",
         ]
     )
-
-
-def test_unknown_path_defaults_to_the_full_balancing_matrix():
-    assert ci.classify_path("future-shared-tool/config.toml") == "unknown"
-    assert ci.balancing_required(["future-shared-tool/config.toml"])
 
 
 def test_shards_pairwise_partition_every_balancing_test_file():
