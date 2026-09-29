@@ -56,8 +56,7 @@ runs:
         esac
 
     # Each project gets its own venv (.venv at the project root), so a job that
-    # needs only one does not pay to resolve and install the other. The member's
-    # release build in particular must not sync the root.
+    # needs only one does not pay to resolve and install the other.
     - name: Install root (gda) dependencies
       if: ${{ inputs.sync == 'root' || inputs.sync == 'both' }}
       shell: bash

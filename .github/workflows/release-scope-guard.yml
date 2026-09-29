@@ -1,8 +1,8 @@
 name: Release scope guard
 
 # A releasing-typed PR that touches BOTH libs/gda-balancing and anything outside
-# it would propose two Release PRs (ADR-0037/0038). This workflow refuses that
-# shape at PR time.
+# it counts for the root gda package, so its merge would put a member change
+# into a gda release (ADR-0038). This workflow refuses that shape at PR time.
 #
 # `edited` is LOAD-BEARING here, and is why this is its own workflow rather than
 # a job in ci.yml. The verdict is a function of the PR TITLE, and the default
@@ -35,8 +35,9 @@ jobs:
     # status check on `main`, and gda-balancing PRs now carry truthful
     # releasing types (`feat`/`fix`/...) — so this job is what actually stops a
     # releasing-typed PR that spans `libs/gda-balancing/**` AND anything
-    # outside it from merging into both release histories (ADR-0037's flip
-    # note, ADR-0038).
+    # outside it from bumping the gda version for a member change (ADR-0037's
+    # flip note, ADR-0038). This repository no longer releases the member
+    # (#1043); the guard stays required to stop that gda bump.
     #
     # The required-check configuration is part of the guarantee, not a
     # convenience: a guard only blocks a merge while it is required, and no

@@ -21,10 +21,6 @@
   "packages": {
     ".": {
       "exclude-paths": ["libs/gda-balancing"]
-    },
-    "libs/gda-balancing": {
-      "component": "gda-balancing",
-      "include-component-in-tag": true
     }
   },
   "separate-pull-requests": true

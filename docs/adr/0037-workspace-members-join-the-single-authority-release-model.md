@@ -12,6 +12,31 @@ status: accepted
 > `uv sync --all-packages` are superseded — each is marked inline. The release
 > model this record decides (one manifest ledger, per-package components,
 > disjoint tags, separate Release PRs) is **unchanged**.
+>
+> **Outcome (2026-09-29, #1043):** gda-balancing releases stop in this
+> repository. They resume only from the member's own repository after it moves
+> there, and that repository sets up its own release authority. The
+> single-authority model here now covers one package: release-please manages
+> only the root `gda` package, and the member's package and manifest entries,
+> its release jobs and its lock sync are removed. The root keeps
+> `"exclude-paths": ["libs/gda-balancing"]`, so a member-only commit still
+> proposes no `gda` release.
+>
+> This repository no longer maintains the member's version or release records.
+> Its version field and changelog stay as they were at the last release
+> (`0.1.0`), and nothing here updates or publishes them. That is the state that
+> the **Keep the member out of release-please** option below rejects, with two
+> costs: a version that no release tool owns, and a retroactive ledger entry at
+> the next release, which the member's own repository makes. The owner accepted
+> both costs on 2026-09-29. The `pypi-gda-balancing` environment and the
+> member's PyPI trusted publisher are removed after this change merges, because
+> both are bound to this repository. The `gda-balancing-v0.1.0` tag, its GitHub
+> and PyPI releases, and the member changelog stay as history.
+>
+> The `Member releasing-PR scope guard` stays a required check. A
+> releasing-typed PR that changes the member and anything outside it still
+> counts for the root package, so its merge would put a member change into a
+> `gda` release and bump the `gda` version for it.
 
 The repo becomes a uv workspace with #502: `libs/gda-balancing` is wired in as
 an independently versioned member (a sibling product; not a `gda` dependency).

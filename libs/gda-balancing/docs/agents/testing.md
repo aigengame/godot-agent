@@ -75,10 +75,10 @@ all six required shards, the separate smoke shard, and the stable
 `gda-balancing required` result. Each test process retains the existing
 eight-minute bound and fifteen-minute job timeout. Scheduled validation uses
 this complete inventory-closed matrix; it does not run the whole suite in one
-process. The release flow retains that single-process check, its fifteen-minute
-process bound, outcome verification, and diagnostic uploads. Member release
-PRs remain restricted to
-`libs/gda-balancing/**`; the workflows keep their existing ownership boundary.
+process. No workflow now runs the whole suite in one process, because this
+repository no longer releases the member (#1043). A releasing-typed PR that changes
+`libs/gda-balancing/**` must stay inside it; the workflows keep their existing
+ownership boundary.
 
 ## Optimizations
 
@@ -162,6 +162,6 @@ The member optimization did not restructure nightly or release flows. Later
 root-owned CI evidence showed that the scheduled serial suite exceeded its
 process bound while every inventory-closed shard passed. #635 therefore uses
 the existing matrix for scheduled validation and removes the duplicate serial
-job. The release flow remains unchanged; #597 tracks its current serial-path
-risk. Any further workflow change requires independent CI evidence and a
-root-owned, non-releasing PR.
+job. #1043 later removed the member release flow and, with it, the last serial
+run of the suite. Any further workflow change requires independent CI evidence
+and a root-owned, non-releasing PR.

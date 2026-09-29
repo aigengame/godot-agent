@@ -71,12 +71,13 @@ detail — on any divergence, it wins.
   Packages, Experiment Specifications, and Approval Records own their authored domains
   (bADR-0012/0022). Host implementations are conforming implementations, never authority. Games
   consume resolved Standard Schema output; no parallel game-config authority is adapted (PRD #501).
-- **Own project, own release train** (ADR-0038) — this package is an independent uv project,
-  not a workspace member: it locks separately, so every command run from the repo root needs
-  `--project libs/gda-balancing` (see this package's README). Its PRs therefore use
-  **truthful conventional-commit types** (`feat`/`fix`/…) and release under
-  `gda-balancing-vX.Y.Z` tags — the non-releasing-title discipline that applied before #528
-  is lifted **for this directory only**.
+- **Own project, no release from this repository** (ADR-0038, #1043) — this package is an
+  independent uv project, not a workspace member: it locks separately, so every command run
+  from the repo root needs `--project libs/gda-balancing` (see this package's README). This
+  repository no longer releases it; its releases resume only after it moves to its own
+  repository. Its PRs use **truthful conventional-commit types** (`feat`/`fix`/…): the root
+  package excludes this directory, so a change confined to it proposes no `gda` release — the
+  non-releasing-title discipline that applied before #528 is lifted **for this directory only**.
   - A PR that touches this directory **and anything outside it** is still attributed to the
     root `gda` package. The `Member releasing-PR scope guard` required check refuses such a
     PR when its title is releasing-typed — **split it** rather than downgrading the type,
