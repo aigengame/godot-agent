@@ -38,7 +38,7 @@ def _assert_job_timeout(workflow: str, job_name: str, minutes: int) -> None:
 
 def test_scope_diff_preserves_both_sides_of_cross_boundary_renames(tmp_path):
     workflow = _WORKFLOW.read_text(encoding="utf-8")
-    assert 'git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA"' in workflow
+    assert 'git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA"' in workflow
 
     repository = tmp_path / "repository"
     source = repository / "libs/gda-balancing/source.py"

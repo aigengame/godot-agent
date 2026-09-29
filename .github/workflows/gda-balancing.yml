@@ -69,13 +69,16 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           # A pull request classifies its change set, and a push to main its
-          # pushed range. Disable rename collapsing so a cross-boundary move
-          # supplies both the deleted source path and added destination path.
-          # Otherwise an affecting member file renamed into an unrelated docs
-          # path could silently bypass the full matrix. A scheduled or manual
-          # run, or a range that git cannot read, selects the full matrix.
+          # pushed range. The range starts at the merge base, so a change that
+          # exists only on main is not counted; a push to main is a
+          # fast-forward, so its merge base is the previous tip. Disable rename
+          # collapsing so a cross-boundary move supplies both the deleted
+          # source path and added destination path. Otherwise an affecting
+          # member file renamed into an unrelated docs path could silently
+          # bypass the full matrix. A scheduled or manual run, or a range that
+          # git cannot read, selects the full matrix.
           if { [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "push" ]; } &&
-            git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA" \
+            git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA" \
               > changed-paths.txt; then
             python libs/gda-balancing/tools/ci.py classify \
               < changed-paths.txt > balancing-scope.json
@@ -335,10 +338,10 @@ jobs:
   coinstall-smoke:
     name: Both products co-install
     needs: balancing-scope
-    # Not part of the aggregator and not a required check (#1042). It runs with
-    # the balancing matrix, which the nightly always selects, so a root
-    # pyproject.toml or uv.lock change that breaks co-installation is found by
-    # the nightly.
+    # Not part of the aggregator, and not meant to be a required check (#1042).
+    # It runs with the balancing matrix, which the nightly always selects, so a
+    # root pyproject.toml or uv.lock change that breaks co-installation is found
+    # by the nightly.
     if: ${{ needs.balancing-scope.outputs.required == 'true' }}
     runs-on: ubuntu-latest
 

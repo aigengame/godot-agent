@@ -95,10 +95,12 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          # Disable rename collapsing so a file moved into gda-balancing also
-          # lists its source path. The gda jobs are skipped only for a change
-          # set that is not empty and is entirely inside libs/gda-balancing/.
-          git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA" \
+          # The change set starts at the merge base, so a change that exists
+          # only on main is not counted. Disable rename collapsing so a file
+          # moved into gda-balancing also lists its source path. The gda jobs
+          # are skipped only for a change set that is not empty and is
+          # entirely inside libs/gda-balancing/.
+          git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA" \
             > changed-paths.txt
           if [ -s changed-paths.txt ] &&
             ! grep -qv '^libs/gda-balancing/' changed-paths.txt; then

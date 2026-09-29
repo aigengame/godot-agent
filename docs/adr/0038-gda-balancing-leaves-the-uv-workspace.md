@@ -70,10 +70,11 @@ uv project inside the repo, with its own lock under its own directory.**
   was an implicit property of the packaging layout is now an asserted one.
 
   > **Outcome (2026-09-29, #1042):** the co-install smoke moved to the
-  > gda-balancing workflow and is no longer a required check. It runs when the
-  > balancing scope is required and on the balancing nightly, so a root
-  > `pyproject.toml` or `uv.lock` change that breaks co-installation is found by
-  > that nightly, not by the pull request.
+  > gda-balancing workflow and is no longer meant to be a required check; the
+  > maintainer removes it from the branch ruleset after this change merges. It
+  > runs when the balancing scope is required and on the balancing nightly, so a
+  > root `pyproject.toml` or `uv.lock` change that breaks co-installation is
+  > found by that nightly, not by the pull request.
 - **The release-PR lock sync generalizes to two locks.** ADR-0037's sync ran
   `uv lock` and committed the root lock on every Release PR branch. Each branch
   now refreshes **both** locks and commits whichever actually changed. Which
