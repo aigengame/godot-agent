@@ -349,7 +349,7 @@ that the guard, the `inherited_from` marker and the connection check share.
   (2026-09-30): it read L797-L799 as covering every write, which the three saving
   writes disprove, and no requirement asked for it. The five reported successes are a
   mutation-integrity defect of the instanced-children contract (#399, #400; the #64
-  boundary), to be decided per operation and outside this record.
+  boundary), to be decided per operation and outside this record: tracked in #1054.
 - A rename operation, and a dependents check for `scene delete` when the deleted scene
   is another scene's base.
 - Changing the root type of an inherited scene, which the editor also refuses; gda has
