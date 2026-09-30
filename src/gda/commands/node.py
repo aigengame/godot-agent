@@ -37,6 +37,19 @@ from gda.models import (
 )
 from gda.render import render_node_tree, render_property_lines, render_set_echo
 
+# The sentence `--index` discloses on `node add` and `node move`, in the option
+# help and the field description (#1055). The engine's packer saves no index
+# for a node the scene root owns whose parent the root also owns, unless the
+# scene is inherited (SceneState::_parse_node, scene/resources/packed_scene.cpp
+# L819-L830 at 4.6.3-stable). A local child of an instanced child's root is such
+# a node, and on load the instance creates its own children first. The editor
+# runs the same packer, so gda discloses this and does not refuse the index.
+_INDEX_UNDER_INSTANCE_NOTE = (
+    "Under an instanced child's root in a plain scene, the file records no "
+    "sibling index for a node the host scene owns, so a local node added or "
+    "moved there is placed after the instance's own children on load."
+)
+
 
 class NodeAddParams(BaseModel):
     """The operation params of ``gda node add`` (issue #53; instancing #399).
@@ -90,7 +103,8 @@ class NodeAddParams(BaseModel):
         description=(
             "Optional 0-based sibling index under the parent where the new "
             "child is inserted. Omit to append. Valid runtime range is "
-            "0..child_count before insertion, so child_count appends."
+            "0..child_count before insertion, so child_count appends. "
+            + _INDEX_UNDER_INSTANCE_NOTE
         ),
     )
 
@@ -403,7 +417,8 @@ class NodeMoveParams(BaseModel):
             "refused instead, with or without an index. "
             "With the same parent, valid runtime "
             "range is 0..child_count-1; with a different parent, 0..target_child_count "
-            "before the move, so target_child_count appends."
+            "before the move, so target_child_count appends. "
+            + _INDEX_UNDER_INSTANCE_NOTE
         ),
     )
 
@@ -708,7 +723,7 @@ def add(
         "--index",
         help=(
             "0-based sibling index under the parent where the child is inserted. "
-            "Omit to append; child_count appends."
+            "Omit to append; child_count appends. " + _INDEX_UNDER_INSTANCE_NOTE
         ),
     ),
     json_output: bool = json_option(),
@@ -911,7 +926,8 @@ def move_node(
         help=(
             "Final 0-based sibling index under --to. Omit to append on "
             "cross-parent moves and no-op on same-parent moves; a node another "
-            "scene declares is refused instead, with or without --index."
+            "scene declares is refused instead, with or without --index. "
+            + _INDEX_UNDER_INSTANCE_NOTE
         ),
     ),
     json_output: bool = json_option(),

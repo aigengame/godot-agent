@@ -92,6 +92,12 @@ func _op_node_add(params: Dictionary) -> void:
 	var node_path := String(root.get_path_to(node))
 	var node_type := node.get_class()
 	var script_class: Variant = CLASS_INDEX._script_class_of(node)
+	# The instanced scene as the file stores it (#1055), not as the caller spelled
+	# it: PackedScene.instantiate stamps the loaded scene's resource_path as the
+	# child's scene_file_path, and the packer loads that path to write the
+	# ext_resource entry (scene/resources/packed_scene.cpp L2519-L2521 and L846
+	# at 4.6.3-stable). A filesystem spelling therefore echoes as res://.
+	var instance: Variant = node.scene_file_path if instance_path != "" else null
 	if not _scene_store._repack_and_save(root, path):
 		return  # _repack_and_save already recorded the failure (and freed root)
 
@@ -101,7 +107,7 @@ func _op_node_add(params: Dictionary) -> void:
 		"name": node_name,
 		"type": node_type,
 		"script_class": script_class,
-		"instance": instance_path if instance_path != "" else null,
+		"instance": instance,
 	})
 
 

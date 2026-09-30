@@ -473,6 +473,32 @@ def test_node_add_instance_composes_a_scene_and_round_trips(godot_project):
 
 
 @pytest.mark.e2e
+def test_node_add_instance_echoes_the_res_path_the_file_stores(godot_project):
+    # #1055: given a filesystem spelling of the instanced scene, the saver
+    # writes the loaded scene's res:// path into the ext_resource entry. The
+    # result's `instance` must echo that stored path, not the caller's spelling.
+    gda = Gda(godot_project)
+    hud = godot_project / "hud.tscn"
+    hud.write_text(
+        "\n".join(
+            ["[gd_scene format=3]", "", '[node name="Hud" type="CanvasLayer"]', ""]
+        ),
+        encoding="utf-8",
+    )
+    main = godot_project / "main.tscn"
+    _create_scene(main)
+
+    added = gda("node", "add", "res://main.tscn", "--instance", str(hud), "--json")
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    saved = main.read_text(encoding="utf-8")
+    stored = re.search(r'\[ext_resource type="PackedScene" path="([^"]+)"', saved)
+    assert stored, saved
+    assert stored.group(1) == "res://hud.tscn"
+    assert json.loads(added.stdout)["instance"] == "res://hud.tscn"
+
+
+@pytest.mark.e2e
 def test_node_add_instance_missing_scene_yields_missing_dependency(godot_project):
     # The #392/#396 dependency precedent applied to composition (#399): a
     # missing instanced-scene path is a structured missing_dependency naming

@@ -347,6 +347,9 @@ the file untouched, while a cross-parent move appends under the destination. A F
 one the scene inherits, or one inside an instanced child — is the exception: it is refused with
 `cannot_target_foreign`, with or without `--index` (#1049). Negative or
 out-of-range indexes fail with `invalid_child_index` (exit 4), leaving the file untouched.
+Under an instanced child's root in a plain scene, the file records no sibling index for a node
+the host scene owns, so a local node added or moved there is placed after the instance's own
+children on load — the editor saves it the same way.
 
 **Property reporting and value coercion** (established by #55): `gda node get` instantiates the
 scene and reports the addressed node's **storage** properties (the ones that serialize into the
