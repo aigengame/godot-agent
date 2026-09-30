@@ -66,6 +66,16 @@ single self-contained source are core to gda's positioning as structured,
 machine-reproducible authoring; a cache-backed, editor-only indirection layer would
 trade exactly that away.
 
+> **Outcome (2026-09-30, #1048 / #1050):** one scene header is authored as text rather
+> than through `ResourceSaver`. `gda scene create --inherits` writes `[gd_scene format=3]`,
+> one path-only `PackedScene` `ext_resource`, and a root line with `instance=`
+> ([ADR-0044](0044-inherited-scenes-are-edited-by-the-editor-rules-and-read-composed.md)),
+> because the mark that makes a root inherited is not bound to script and packing an
+> instantiated base flattens it. The written text is the path-only form this record
+> ratifies — no `uid`, no `unique_id`, no `load_steps` — and the engine reads it back
+> before the command reports success. Every later save of that scene goes through
+> `ResourceSaver` as before.
+
 ## Non-goals
 
 - **We do not synthesize editor-equivalent uids headlessly.** They would not match any

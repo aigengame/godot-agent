@@ -367,6 +367,39 @@ launch), survives the session process so a crash stays diagnosable until relaunc
 (ADR-0022).
 _Avoid_: console output, stdout dump
 
+### Scene model
+
+**Inherited scene**:
+A scene whose root line carries `instance=` to another scene — its BASE — and no
+`type=`: the tree starts as the base's tree, and the file stores only what this scene
+changes — property overrides on the base's nodes (typeless entries), nodes of its own,
+and connections of its own. The engine re-creates the base's tree on every load, so a
+change to the base reaches every scene that inherits it. `scene create --inherits`
+authors one; every mutating node command keeps the root's base reference through the
+re-pack; `scene get` / `node list` read it COMPOSED with the base chain, marking each
+inherited node with `inherited_from`; and the structural edits the file cannot record
+are refused (see `Foreign node`) (ADR-0044). It is the root-level counterpart of an
+instanced child (`node add --instance`): that composes a scene INTO a node, this one
+starts a scene FROM another.
+_Avoid_: derived scene, child scene, subclass scene, scene instance
+
+**Foreign node**:
+A node or connection the scene does not declare, in either of the two shapes the
+editor's own guard tells apart: an INHERITED one, declared by a scene in the base chain
+of an `Inherited scene`; or an INSTANCE-INTERNAL one, owned by the scene an instanced
+child instantiates. The first is decided from the stored `SceneState` chain, never from
+the instantiated tree; the second from the node's owner in the tree the mutation already
+holds; one helper answers both, and the guard, the `inherited_from` marker and the
+connection check share it. The scene file cannot record removing, reparenting,
+reordering or disconnecting either shape, so `node remove`, `node move` and `node
+disconnect-signal` refuse with `cannot_target_foreign`, naming the declaring scene
+(ADR-0044). The term classifies the node; it does not decide the other writes. An
+inherited node takes an override entry, a script, a connection from it, a duplicate and
+a local child under it (verified). The same writes on an instance-internal node are the
+instanced-children contract's question, decided per operation: ADR-0044 lists which
+reach the file and which do not. The root of an inherited scene is not foreign.
+_Avoid_: external node, locked node, read-only node, borrowed node
+
 ### Structured output
 
 **Value projection**:
