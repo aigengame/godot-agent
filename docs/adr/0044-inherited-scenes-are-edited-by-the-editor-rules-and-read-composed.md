@@ -45,17 +45,17 @@ the engine allow, what gda does today, and the decisions that #1049, #1050, #105
   state or in an instance state up the owner chain (L1235-L1236, L1281-L1282) and strips
   `CONNECT_INHERITED` from the ones it stores (L1319).
 - **The editor refuses what the format cannot record.** `SceneTreeDock::_validate_no_foreign`
-  (`editor/docks/scene_tree_dock.cpp` L2337-L2363; renamed `_validate_no_foreign_selected`
+  (`editor/docks/scene_tree_dock.cpp` L2337-L2364; renamed `_validate_no_foreign_selected`
   on 4.7) has two branches. A node whose owner is not the edited scene — a node inside an
   instanced child — is refused with *"Can't operate on nodes from a foreign scene!"*
   (L2341-L2345). In an inherited scene, a node the inherited state resolves by path is
   refused with *"Can't operate on nodes the current scene inherits from!"*
-  (L2349-L2360); the root is exempt except for a type change. The guard gates erase,
+  (L2347-L2360); the root is exempt except for a type change. The guard gates erase,
   reparent (to an existing or a new node), move up and down, rename, cut, change type,
   make local and load-as-placeholder. Duplicate is not gated.
 - **The editor creates an inherited scene in C++.** `EditorNode::load_scene(...,
   p_set_inherited)` instantiates the base with `GEN_EDIT_STATE_MAIN_INHERITED`, sets the
-  mark, and clears the scene file path (`editor/editor_node.cpp` L4792, L4803-L4807).
+  mark, and clears the scene file path (`editor/editor_node.cpp` L4792, L4803-L4808).
   GDScript has no equivalent: the mark is unbound, and packing an instantiated base
   without it stores every base node as the new scene's own, typed — a flattened copy.
 - **What a script can read.** `SceneState.get_base_scene_state()` (bound, L2429) returns
