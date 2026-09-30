@@ -335,6 +335,16 @@ refuse such a node with `cannot_target_foreign` (exit 4), file untouched (#1049)
 names the declaring scene: the scene in the base chain that adds the node, not one that only
 overrides it. The scene's own local nodes stay removable and movable — reordered among
 inherited siblings, and reparented to or from an inherited parent.
+`node disconnect-signal` refuses a connection another scene declares with `cannot_target_foreign`,
+file untouched, and the message names the declaring scene (#1052): the packer stores a connection
+only when it does not find it already declared, so the file cannot record removing such a one.
+The check is the packer's own. Walking from the two endpoints' common parent up the owner chain,
+the connection is foreign at an instanced child when that child's scene, or a scene in its base
+chain, declares it (paths relative to the child), and at the scene root when a scene in this
+scene's base chain declares it. Whether the instanced child is editable does not matter. A
+connection only the scene itself declares still disconnects, including one from an inherited node
+or to a node inside an instanced child; where the scene re-declares a connection a base already
+declares, the base wins and the command refuses.
 
 **Sibling order authoring** (#415): `node add --index <n>` inserts the new child at a
 0-based sibling index under `--parent`; omitting `--index` appends as before, and
@@ -630,7 +640,9 @@ serialized by `PackedScene.pack` into the `[connection ...]` line; a plain runti
 A re-read of the saved scene shows the connection (`is_connected` is true), so `connect-signal` is
 verifiable end-to-end. Connecting an already-wired signal→method is a clean `already_connected` error
 (not a noisy engine failure or a silent re-apply); disconnecting a connection that does not exist is
-`connection_not_found` (not a silent no-op). A node path that resolves to nothing is `node_not_found`
+`connection_not_found` (not a silent no-op), and disconnecting one another scene declares — a scene
+the edited scene inherits, or one it instances — is `cannot_target_foreign` (not a silent no-op
+either; see "Inherited scenes" above, #1052). A node path that resolves to nothing is `node_not_found`
 (the message names whether the *source* or *target* endpoint failed); a missing or non-scene file
 reuses `path_not_found` / `not_a_scene`. All failures exit 4 and leave the file untouched.
 
