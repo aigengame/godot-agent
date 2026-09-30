@@ -51,20 +51,22 @@ var _preflight_frame_limit := 0
 
 
 # scene-create: instantiate a root node of the requested type, pack it, save
-# it as a .tscn at the requested path (issue #18).
+# it as a .tscn at the requested path (issue #18). With `inherits`, write an
+# Inherited scene of that base instead (#1050).
 func _op_scene_create(params: Dictionary) -> void:
 	_diag("running operation: scene-create")
 	var path := VALUE._string_param(params, "path")
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
+	var inherits := VALUE._string_param(params, "inherits")
 	var root_type := VALUE._string_param(params, "root_type")
 	# class_exists gates can_instantiate: probing a name ClassDB does not know
 	# logs a spurious engine ERROR (issue #377); the miss still fails as
 	# invalid_root_type through the same else path.
-	if root_type.is_empty() or not ClassDB.class_exists(root_type) \
+	if inherits.is_empty() and (root_type.is_empty() or not ClassDB.class_exists(root_type) \
 			or not ClassDB.can_instantiate(root_type) \
-			or not ClassDB.is_parent_class(root_type, "Node"):
+			or not ClassDB.is_parent_class(root_type, "Node")):
 		_fail(OP_ERROR_INVALID_ROOT_TYPE, "not an instantiable Node class: " + root_type)
 		return
 	var root_name := VALUE._string_param(params, "root_name")
@@ -73,6 +75,9 @@ func _op_scene_create(params: Dictionary) -> void:
 		return
 	if FileAccess.file_exists(path) or DirAccess.dir_exists_absolute(path):
 		_fail(OP_ERROR_ALREADY_EXISTS, "scene target already exists: " + path)
+		return
+	if not inherits.is_empty():
+		_create_inherited_scene(path, root_name, inherits)
 		return
 
 	var root: Node = ClassDB.instantiate(root_type)
@@ -100,6 +105,63 @@ func _op_scene_create(params: Dictionary) -> void:
 		"root_name": actual_root_name,
 		"root_type": root_type,
 		"created_dirs": created_dirs,
+	})
+
+
+# scene-create --inherits (#1050, ADR-0044 decision 5): write the text the
+# engine's saver writes for an Inherited scene of `inherits`, then load it back.
+# The base is LOADED, never instantiated, so its scripts run no _init. Once the
+# file is written, the engine must read it back as inherited from that base —
+# get_node_instance(0) on its state, the route bound at ADR-0003's 4.4 floor
+# (get_base_scene_state() is bound only from 4.5) — and with `root_name` as its
+# root's name; a file that fails either check is removed, so a refusal leaves no
+# file. The read-back is the load the static reads perform.
+func _create_inherited_scene(path: String, root_name: String, inherits: String) -> void:
+	if not ResourceLoader.exists(inherits):
+		_fail(OP_ERROR_MISSING_DEPENDENCY, "base scene not found: " + inherits
+				+ " — --inherits must reference an existing scene file; check the path and --project")
+		return
+	if not ResourceLoader.exists(inherits, "PackedScene"):
+		_fail(OP_ERROR_NOT_A_SCENE, "not a scene: " + inherits
+				+ " — --inherits must reference a PackedScene (.tscn/.scn)")
+		return
+	var base := ResourceLoader.load(inherits, "PackedScene") as PackedScene
+	if base == null:
+		_fail(OP_ERROR_MISSING_DEPENDENCY, "base scene failed to load: " + inherits
+				+ " — a dependency is missing or the file is broken; see diagnostics")
+		return
+	var base_path := String(base.resource_path)
+	var created_dirs: Variant = _file_write._ensure_parent_dirs(path)
+	if created_dirs == null:
+		return  # _ensure_parent_dirs already recorded the failure
+	var write_err := _file_write._atomic_write_text(path, SCENE_TEXT._inherited_scene_text(root_name, base_path))
+	if write_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, _file_write._save_failure_message("scene", path, write_err))
+		return
+
+	var written := ResourceLoader.load(path, "PackedScene") as PackedScene
+	var state := written.get_state() if written != null else null
+	var read_base: PackedScene = null
+	if state != null and state.get_node_count() > 0:
+		read_base = state.get_node_instance(0)
+	if read_base == null or String(read_base.resource_path) != base_path:
+		_file_write._remove_quiet(path)
+		_fail(OP_ERROR_SAVE_FAILED, "the engine does not read " + path + " back as a scene inheriting "
+				+ base_path + "; the file was removed")
+		return
+	var read_root_name := String(state.get_node_name(0))
+	if read_root_name != root_name:
+		_file_write._remove_quiet(path)
+		_fail(OP_ERROR_INVALID_ROOT_NAME, "Godot read root_name " + root_name + " back as "
+				+ read_root_name + "; the file was removed")
+		return
+
+	_succeed({
+		"path": path,
+		"root_name": read_root_name,
+		"root_type": _scene_store._packed_scene_root_type(written),
+		"created_dirs": created_dirs,
+		"inherits": base_path,
 	})
 
 

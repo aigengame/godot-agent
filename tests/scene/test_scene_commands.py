@@ -7,11 +7,13 @@ typed model → JSON — exercised here with canned engine output, no real Godot
 
 import json
 
+import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.runner import RunResult
 from tests.support import (
+    SCENE_CREATE_INHERITED_RESULT as INHERITED_CREATE_RESULT,
     SCENE_CREATE_RESULT as CREATE_RESULT,
     SCENE_DELETE_RESULT as DELETE_RESULT,
     SCENE_GET_RESULT as GET_RESULT,
@@ -82,6 +84,150 @@ def test_scene_create_accepts_explicit_root_name(monkeypatch):
                 "root_type": "Node2D",
                 "root_name": "LevelV2",
             },
+        )
+    ]
+
+
+def test_scene_create_inherits_dispatches_the_base_without_a_root_type(monkeypatch):
+    # #1050: --inherits replaces --root-type. The dispatch payload carries the
+    # base and omits root_type, and the result echoes the base as `inherits`.
+    result, fake = invoke_cli(
+        monkeypatch,
+        [
+            "scene",
+            "create",
+            "/tmp/proj/goblin.tscn",
+            "--inherits",
+            "res://base_enemy.tscn",
+            "--json",
+        ],
+        stdout=sentinel(INHERITED_CREATE_RESULT),
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == INHERITED_CREATE_RESULT
+    assert fake.calls == [
+        (
+            "scene-create",
+            {
+                "path": "/tmp/proj/goblin.tscn",
+                "root_name": "goblin",
+                "inherits": "res://base_enemy.tscn",
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "selectors",
+    [
+        pytest.param(
+            ["--root-type", "Node2D", "--inherits", "res://base_enemy.tscn"],
+            id="both",
+        ),
+        pytest.param([], id="neither"),
+    ],
+)
+def test_scene_create_needs_exactly_one_of_root_type_or_inherits(
+    monkeypatch, selectors
+):
+    # #1050: --root-type and --inherits are mutually exclusive and one is
+    # required, the rule node add applies to --type/--instance: on argv a
+    # violation is a usage error (exit 2) and no engine is spawned.
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["scene", "create", "/tmp/proj/goblin.tscn", *selectors, "--json"],
+        stdout=sentinel(INHERITED_CREATE_RESULT),
+    )
+
+    assert result.exit_code == 2
+    assert "--inherits" in result.output
+    assert fake.calls == []
+
+
+def test_scene_create_params_json_with_both_selectors_is_invalid_params(monkeypatch):
+    # The same rule on the --params-json channel is a structured invalid_params.
+    result, fake = invoke_cli(
+        monkeypatch,
+        [
+            "scene",
+            "create",
+            "--params-json",
+            json.dumps(
+                {
+                    "path": "/tmp/proj/goblin.tscn",
+                    "root_type": "Node2D",
+                    "inherits": "res://base_enemy.tscn",
+                }
+            ),
+            "--json",
+        ],
+        stdout=sentinel(INHERITED_CREATE_RESULT),
+    )
+
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "invalid_params"
+    assert "--inherits" in err["message"]
+    assert fake.calls == []
+
+
+def test_scene_create_inherits_refuses_a_scn_target_on_argv(monkeypatch):
+    # The inherited header is .tscn text, and text in a .scn does not load: the
+    # target is refused before any engine spawn.
+    result, fake = invoke_cli(
+        monkeypatch,
+        [
+            "scene",
+            "create",
+            "/tmp/proj/goblin.scn",
+            "--inherits",
+            "res://base_enemy.tscn",
+            "--json",
+        ],
+        stdout=sentinel(INHERITED_CREATE_RESULT),
+    )
+
+    assert result.exit_code == 2
+    assert ".scn" in result.output
+    assert fake.calls == []
+
+
+def test_scene_create_inherits_refuses_a_scn_target_on_params_json(monkeypatch):
+    result, fake = invoke_cli(
+        monkeypatch,
+        [
+            "scene",
+            "create",
+            "--params-json",
+            json.dumps(
+                {"path": "/tmp/proj/goblin.scn", "inherits": "res://base_enemy.tscn"}
+            ),
+            "--json",
+        ],
+        stdout=sentinel(INHERITED_CREATE_RESULT),
+    )
+
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "invalid_params"
+    assert ".scn" in err["message"]
+    assert fake.calls == []
+
+
+def test_scene_create_root_type_still_accepts_a_scn_target(monkeypatch):
+    # The .scn refusal is --inherits' alone: a typed root saves through the
+    # engine's saver, which writes the binary format for a .scn.
+    stdout = sentinel({**CREATE_RESULT, "path": "/tmp/proj/main.scn"})
+    result, fake = invoke_cli(
+        monkeypatch,
+        ["scene", "create", "/tmp/proj/main.scn", "--root-type", "Node2D", "--json"],
+        stdout=stdout,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert fake.calls == [
+        (
+            "scene-create",
+            {"path": "/tmp/proj/main.scn", "root_type": "Node2D", "root_name": "main"},
         )
     ]
 
