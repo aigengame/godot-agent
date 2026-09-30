@@ -269,8 +269,9 @@ func _op_scene_list(_params: Dictionary) -> void:
 # → not_a_scene): delete only removes a file that loads as a PackedScene, so a
 # stray non-scene file is refused rather than silently deleted. The root
 # name/type are read from stored state before deletion so the result names the
-# content removed, not just the path. The type goes through the base-chain
-# resolution scene-list uses (#1055): an inherited scene's root entry stores no
+# content removed, not just the path. The type is read through the root
+# projection scene-list reads (#1055) — the same call, so the two report the
+# same type at every chain depth: an inherited scene's root entry stores no
 # type, so its own state alone would report "".
 func _op_scene_delete(params: Dictionary) -> void:
 	_diag("running operation: scene-delete")
@@ -281,7 +282,7 @@ func _op_scene_delete(params: Dictionary) -> void:
 
 	var state := packed.get_state()
 	var root_name := String(state.get_node_name(0))
-	var root_type := _scene_store._packed_scene_root_type(packed)
+	var root_type := String(_scene_store._state_node_projection_fields(state, 0)["type"])
 
 	var err := DirAccess.remove_absolute(path)
 	if err != OK:
