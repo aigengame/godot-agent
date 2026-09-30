@@ -13,7 +13,7 @@ one through *New Inherited Scene*; gda has no command for it, and whether gda ca
 one at all was the question of 2026-09-30.
 
 The answer, measured the same day (Godot 4.6.3, macOS, gda at main `ccee96424`), is
-"mostly, with four holes and one missing door". This record states what the format and
+"mostly, with five holes and one missing door". This record states what the format and
 the engine allow, what gda does today, and the decisions that #1049, #1050, #1051 and
 #1052 carry out. Engine line numbers are at `4.6.3-stable`.
 
@@ -58,9 +58,13 @@ the engine allow, what gda does today, and the decisions that #1049, #1050, #105
   mark, and clears the scene file path (`editor/editor_node.cpp` L4792, L4803-L4808).
   GDScript has no equivalent: the mark is unbound, and packing an instantiated base
   without it stores every base node as the new scene's own, typed — a flattened copy.
-- **What a script can read.** `SceneState.get_base_scene_state()` (bound, L2429) returns
-  the base's state; `get_node_path` (L2433), `get_node_index` (L2439), `get_node_instance`
-  (L2437; it returns the base scene for the parentless root, L1910-L1926) and the
+- **What a script can read.** `get_node_instance` (bound, L2437) returns the base scene
+  for the parentless root of an inherited scene (L1910-L1926), so
+  `get_node_instance(0).get_state()` reaches the base's state on every 4.x that ADR-0003
+  supports; `scene_store._packed_scene_root_type` already resolves the root type through
+  it. `get_base_scene_state()` (L2429) returns the same state but is bound only from 4.5
+  (engine commit `a71f670d7d`; declared and unbound at `4.4-stable`), below ADR-0003's
+  headless floor. `get_node_path` (L2433), `get_node_index` (L2439) and the
   `get_connection_*` readers (L2443 on) are bound; `find_node_by_path` (L1493) is not.
 - **The header the saver writes.** The text saver writes `[gd_scene format=3]` — no
   `load_steps`; `uid=` only when a UID is registered for the path, which a headless gda
@@ -93,7 +97,7 @@ inherited node (`Shape/UnderShape`, saved with `parent_id_path`); `scene validat
 children with the override applied. `node duplicate` of an inherited node and `script
 attach` to one were verified on the same shape in the first probe.
 
-Four things do not hold:
+Five things do not hold:
 
 1. **`node remove` on an inherited node reports success.** The inherited node stays;
    nothing can record its deletion. It is worse than a no-op when the node has local
@@ -107,37 +111,52 @@ Four things do not hold:
    sibling override entries is rewritten.
 3. **`node disconnect-signal` on a connection the base declares reports success.** No
    `[connection]` entry can express the removal; the oracle sees the connection made.
-4. **`scene get` and `node list` see only the scene's own state.** They list the override
+4. **`node set` and `script attach` on a node inside an instanced child report
+   success.** In `Host.tscn`, a plain scene with `Hud` instanced from `BaseEnemy.tscn`,
+   `--node Hud/Sprite` on either command returns a result and the file gains no entry:
+   the packer discards a node the scene root does not own and holds as no editable
+   instance (L797-L799), so nothing about such a node reaches the file. Found by PR
+   #1053's review and re-run the same day on the same gda code.
+5. **`scene get` and `node list` see only the scene's own state.** They list the override
    entries, typeless, and the local nodes whose parent has an entry; `Shape`, `Hitbox`
    and `Shape/UnderShape` are absent, and a fresh inherited scene lists `children: []`.
    Meanwhile `node set --node Shape` addresses that node, so the listing no longer names
-   what the node commands accept — which the catalog promises for `node list`.
+   what the node commands accept — which the catalog promises for `node list`. A scene
+   whose base is absent does not load at all: both reads return `not_a_scene` (exit 4),
+   `scene list` reports null root fields, and `scene validate` names the missing file as
+   a `missing_resource` on `.`.
 
 And the missing door: **`scene create` cannot make one.**
 
-The first three share one cause with each other and with the editor's guard: the format
-cannot record the edit, so "success" is what the packer says by omission. The fourth is
-a projection that stops at the scene's own state. The fifth is the C++ door with no
-script-side equivalent.
+The first four share one cause with each other and with the editor's guard: the format
+cannot record the edit, so "success" is what the packer says by omission. The fifth is
+a projection that stops at the scene's own state. The missing door is the C++ door with
+no script-side equivalent.
 
 ## Decision
 
 Six decisions. The implementation issues own the code, the tests and the docs deltas;
 the decisions bind them.
 
-### 1. gda mirrors the editor's guard, from the stored state
+### 1. gda mirrors the editor's guard, from the two sources the editor reads
 
-Whether the scene may restructure a node is decided from what the scene DECLARES, never
-from the instantiated tree. Two branches, the editor's:
+Whether the scene may edit a node is decided by the editor's two branches, each from the
+source the editor reads for it:
 
-- **Inherited node**: its normalized path is declared by a scene in the base chain. gda
-  walks `SceneState.get_base_scene_state()` recursively from the scene's own state and
-  takes the union of the node paths each state in the chain declares, normalized the way
-  gda normalizes state paths today. This is what `find_node_by_path` does inside the
-  engine; that method is not bound, and under `GEN_EDIT_STATE_MAIN` an inherited node and
-  a local node share the root as owner, so the tree cannot tell them apart.
-- **Instance-internal node**: its owner is not the scene root. The engine's own check,
-  read from the instantiated tree the mutation path already holds.
+- **Inherited node**: its normalized path is declared by a scene in the base chain —
+  decided from the STORED states, never from the instantiated tree. gda walks the chain
+  from the scene's own state through `get_node_instance(0).get_state()`, the route
+  `scene_store._packed_scene_root_type` already takes and the one bound on every 4.x
+  ADR-0003 supports (`get_base_scene_state()` reads the same state and is bound only from
+  4.5), and takes the union of the node paths each state in the chain declares,
+  normalized the way gda normalizes state paths today. This is what `find_node_by_path`
+  does inside the engine; that method is not bound, and under `GEN_EDIT_STATE_MAIN` an
+  inherited node and a local node share the root as owner, so the tree cannot tell them
+  apart.
+- **Instance-internal node**: its owner is not the scene root — the engine's own check,
+  read from the instantiated tree the mutation path already holds. The stored states
+  cannot answer this one: an instanced child is one entry, and its internals are in no
+  state of the chain.
 
 One helper answers both questions, and answers them for connections too: a connection is
 foreign when a state in the base chain, or the instance state that owns both endpoints,
@@ -147,24 +166,30 @@ projection and node addressing, in the `scene_store` concept module (ADR-0043), 
 
 `node remove` and `node move` — both forms, including a same-parent move without
 `--index` — refuse a foreign node before touching the tree, in an inherited scene and in a
-plain one, and the file stays byte-identical.
+plain one, and the file stays byte-identical. An instance-internal node is refused by
+every mutating command that addresses it — as the target, as the `--parent` / `--to`
+destination, or as a connection endpoint — because the packer records nothing about such
+a node (Context, item 4): the write those commands report today never reaches the file.
 
 ### 2. One error code: `cannot_target_foreign`
 
 Both branches, on nodes and on connections, report one registered operation code,
 `cannot_target_foreign` (category `operation`, source `operation`, exit 4), beside
 `cannot_target_root`. The caller's next move is the same in every case: edit the scene
-that declares the target, or override properties in this one. What differs — which scene
-declares it — goes in the message, which names that scene's `res://` path, in the shape
-of `cannot remove Shape: the node is declared by res://BaseEnemy.tscn, which this scene
-inherits — edit that scene, or override its properties here`. Two codes would make the
-caller branch on a distinction it cannot act on differently.
+that declares the target — or, for an inherited node, override its properties in this
+one. What differs — which scene declares it, and whether an override is open — goes in
+the message, which names that scene's `res://` path, in the shape of `cannot remove
+Shape: the node is declared by res://BaseEnemy.tscn, which this scene inherits — edit
+that scene, or override its properties here`, and for an instance-internal node `cannot
+set Hud/Sprite: the node is inside res://BaseEnemy.tscn, instanced at Hud — edit that
+scene`. Two codes would make the caller branch on a distinction it cannot act on
+differently.
 
 The ADR-0002 registry row, added by #1049 with the code's other registration sites:
 
 | Code | Category | Source | Exit Code | Meaning |
 |------|----------|--------|-----------|---------|
-| `cannot_target_foreign` | `operation` | `operation` | `4` | A structural edit targeted a node or connection another scene declares — one the scene inherits, or one inside an instanced child — which the scene file cannot remove, reparent, reorder, or disconnect. |
+| `cannot_target_foreign` | `operation` | `operation` | `4` | The edit targeted a node or connection another scene declares and this scene's file cannot record it: removing, reparenting, reordering or disconnecting one the scene inherits, or any edit to one inside an instanced child. |
 
 The spelling takes the editor's word: "foreign" is what the editor calls a node the
 edited scene does not own. This record widens it to both branches, and the glossary term
@@ -172,14 +197,22 @@ edited scene does not own. This record widens it to both branches, and the gloss
 
 ### 3. What stays allowed
 
-The refusal covers the structural edits the format cannot record, and nothing else. On
-an inherited node: `node set` (an override entry), `script attach`, `node connect-signal`
-(a connection the scene declares), `node add` under it (a local child, placed by `index`),
-`node duplicate` (the copy is local and typed). On a local node of an inherited scene:
+The refusal covers what the format cannot record, and nothing else. On an inherited
+node: `node set` (an override entry), `script attach`, `node connect-signal` (a
+connection the scene declares), `node add` under it (a local child, placed by `index`),
+`node duplicate` (the copy is local and typed) — each verified to reach the file
+(Context). On a local node of an inherited scene:
 everything, including a move among inherited siblings — the engine saves `index` for
 every node of an inherited scene and applies it when the local node is added (verified:
 `node move --node OrcOnly --to . --index 0` puts it first at runtime). The root of an
 inherited scene keeps `cannot_target_root` for the edits that need a parent.
+
+Nothing stays allowed on an instance-internal node. The packer records no override,
+script, connection or child for a node the root does not own (L797-L799), so each of
+those writes is a reported success the file never held (Context, item 4), and #1049
+refuses them with the same code as the structural edits. The scene the child
+instantiates is where such an edit belongs. This is the one place the two shapes of a
+`Foreign node` differ, and the message says which shape refused.
 
 ### 4. Static reads compose the chain, still without instantiating
 
@@ -198,12 +231,14 @@ down the chain, then the scene's own state on top.
   `instance_path` / `instance_status` exactly as #400 defined them.
 - Internals of an instanced child — in the base or in the scene — stay unexpanded and
   marked as today.
-- A base that does not resolve keeps today's output: the root's `missing` marker and the
-  scene's own entries. gda does not guess a tree it cannot read.
+- A base that does not resolve keeps today's failure: the engine does not load such a
+  scene, so `scene get` and `node list` return `not_a_scene` (exit 4) as they do at
+  `ccee96424` (Context, item 5). gda does not guess a tree it cannot read.
 - The human rendering marks inherited nodes, so both modes tell the same story.
 
-This reads `get_base_scene_state()` on states that are already loaded — the base is a
-dependency of the derived scene and comes in with it — and instantiates nothing.
+This reads the chain through decision 1's route on states that are already loaded — the
+base is a dependency of the inherited scene and comes in with it — and instantiates
+nothing.
 ADR-0009's state-read guarantee and README's "read without instantiating" stay true as
 written. The inherited-node set the marker uses is the helper of decision 1.
 
@@ -227,7 +262,8 @@ reads its own output.
   (the base is not a scene). The base path is normalized to `res://` like every scene
   path.
 - After the write, the command loads the file back and confirms the engine reads it as
-  inherited — its state has a base scene state. A file the engine does not read that way
+  inherited — `get_node_instance(0)` on its state returns the base, decision 1's route.
+  A file the engine does not read that way
   is `save_failed` and is removed. The read-back is the load the static reads perform and
   adds no point to the `Project-code execution surface`.
 - The result carries `inherits` and the `root_type` resolved from the base's root, by the
@@ -267,13 +303,19 @@ that the guard, the `inherited_from` marker and the connection check share.
 6. **Editable children** (`[editable path=...]`) as gda's route into an instanced
    child's nodes. Not decided here: the guard's instance branch stays the editor's, and
    an editable instance keeps its own packer semantics (L797-L799) that this record does
-   not model.
+   not model. Until it is decided, the instance branch refuses an editable instance's
+   internals too — a conservative refusal where the packer would record an override,
+   never a silent drop; gda authors no editable instance.
+7. **Raise the headless floor to 4.5** so the guard may read `get_base_scene_state()`.
+   Rejected: the route decision 1 takes reads the same state, is bound at ADR-0003's 4.4
+   floor, and is already in use in `scene_store`; a floor amendment would buy nothing.
 
 ## Consequences
 
 - **A reported success becomes a refusal.** A caller that scripted `node remove` or
-  `node move` against a foreign node, or `disconnect-signal` against a foreign
-  connection, gets `cannot_target_foreign` (exit 4) where it got a result before. That
+  `node move` against a foreign node, `disconnect-signal` against a foreign connection,
+  or any write against an instance-internal node, gets `cannot_target_foreign` (exit 4)
+  where it got a result before. That
   result never described the file; this corrects the contract rather than narrowing it.
   `--json` consumers branch on the code; the message says which scene to edit.
 - **Static reads grow, for inherited scenes only.** `children` fill in with the base's
@@ -284,7 +326,8 @@ that the guard, the `inherited_from` marker and the connection check share.
   `required` list changes) and `inherits` joins the input and the result, omitted when
   absent, so existing dispatch payloads and results stay byte-identical.
 - **One new error code**, registered at its sites under the ADR-0002 registry tests.
-- **Docs.** Catalog: the scene-root shared rule gains the second rule; the `node remove`,
+- **Docs.** Catalog: the scene-root shared rule gains the second rule, and carries the
+  instance-internal refusal once for every node-addressing write; the `node remove`,
   `node move` and `disconnect-signal` bullets and the #64 mutation-integrity paragraph say
   what an inherited scene keeps and refuses; "Static instance reporting" and the "what a
   scene DECLARES" sentence gain the inherited half; the `scene create` row and section
@@ -313,6 +356,8 @@ that the guard, the `inherited_from` marker and the connection check share.
 
 - ADR-0002: the registry row and the operation-source registration. ADR-0004: the
   model-driven schema delta.
+- ADR-0003: the headless floor (4.4) stands; decision 1 reads the base chain through a
+  route bound there (option 7).
 - ADR-0009: state reads execute no project code — kept. Its rejection of text-level
   editing is not the case here (decision 5).
 - ADR-0033 and ADR-0036: references by `res://` path; ADR-0036 carries the Outcome note.

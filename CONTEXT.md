@@ -387,14 +387,17 @@ _Avoid_: derived scene, child scene, subclass scene, scene instance
 A node or connection the scene does not declare, in either of the two shapes the
 editor's own guard tells apart: an INHERITED one, declared by a scene in the base chain
 of an `Inherited scene`; or an INSTANCE-INTERNAL one, owned by the scene an instanced
-child instantiates. Decided from the stored `SceneState` chain and the node's owner,
-never from the instantiated tree, by one helper that the guard, the `inherited_from`
-marker and the connection check share. The scene file cannot record removing,
-reparenting, reordering or disconnecting one, so `node remove`, `node move` and `node
-disconnect-signal` refuse with `cannot_target_foreign`, naming the declaring scene;
-overriding its properties, attaching a script, connecting a signal from it, duplicating
-it, and adding a local child under it stay allowed (ADR-0044). The root of an inherited
-scene is not foreign.
+child instantiates. The first is decided from the stored `SceneState` chain, never from
+the instantiated tree; the second from the node's owner in the tree the mutation already
+holds; one helper answers both, and the guard, the `inherited_from` marker and the
+connection check share it. The scene file cannot record removing, reparenting,
+reordering or disconnecting either shape, so `node remove`, `node move` and `node
+disconnect-signal` refuse with `cannot_target_foreign`, naming the declaring scene. The
+shapes differ in what else the file can hold: an inherited node takes an override entry,
+a script, a connection from it, a duplicate and a local child under it; an
+instance-internal node takes nothing — the packer records no entry for a node the root
+does not own — so every mutating command that addresses one refuses with the same code
+(ADR-0044). The root of an inherited scene is not foreign.
 _Avoid_: external node, locked node, read-only node, borrowed node
 
 ### Structured output
