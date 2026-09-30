@@ -213,7 +213,7 @@ def test_a_connection_the_base_declares_is_refused_in_the_inherited_scene(projec
     )
 
     assert message == (
-        "cannot disconnect Hitbox.body_entered -> ._on_hit: the connection is"
+        "cannot disconnect Hitbox.body_entered -> .._on_hit: the connection is"
         " declared by res://BaseEnemy.tscn, which this scene inherits — edit that"
         " scene"
     )

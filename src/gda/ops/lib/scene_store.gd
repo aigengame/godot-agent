@@ -483,9 +483,10 @@ func _refuse_foreign_node(root: Node, node: Node, node_path: String, verb: Strin
 # packer skips it. A state reads an endpoint back as the path the text loader
 # stored ("Hitbox") or, for one stored by node index, as "./Hitbox"; both are
 # normalized as _normalize_state_path normalizes a node path. The message names
-# the declaring scene, base first, and joins '.' to a member directly
-# ("._on_hit"). Returns true after recording cannot_target_foreign. The caller
-# owns root.free().
+# the declaring scene, base first, and renders the endpoints as the command's
+# connection_not_found and already_connected messages do ("Hitbox.body_entered
+# -> .._on_hit" for a root target). Returns true after recording
+# cannot_target_foreign. The caller owns root.free().
 func _refuse_foreign_connection(root: Node, source: Node, signal_name: String,
 		target: Node, method_name: String) -> bool:
 	var common: Node = target
@@ -514,8 +515,7 @@ func _refuse_foreign_connection(root: Node, source: Node, signal_name: String,
 					var where := ", which this scene inherits" if common == root \
 							else ", instanced at " + String(root.get_path_to(common))
 					_fail(OP_ERROR_CANNOT_TARGET_FOREIGN, "cannot disconnect "
-							+ from_path + ("" if from_path == "." else ".") + signal_name + " -> "
-							+ to_path + ("" if to_path == "." else ".") + method_name
+							+ from_path + "." + signal_name + " -> " + to_path + "." + method_name
 							+ ": the connection is declared by " + String(link["path"])
 							+ where + " — edit that scene")
 					return true
