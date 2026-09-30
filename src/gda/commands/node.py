@@ -292,14 +292,17 @@ class NodeRemoveParams(BaseModel):
     ``path`` is the ``.tscn`` scene file to mutate; ``node`` addresses the node
     to delete by its node path relative to the scene root. The scene root ('.')
     has no parent to be removed from, so removing it is refused rather than
-    emptying the scene.
+    emptying the scene. A node another scene declares — one the scene inherits,
+    or one inside an instanced child — is refused too: the file has no entry
+    that could delete it (ADR-0044).
     """
 
     path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path relative to the scene root: 'Player/Arm' a nested node. "
-            "The root ('.') cannot be removed."
+            "The root ('.') cannot be removed, nor can a node another scene "
+            "declares: one the scene inherits, or one inside an instanced child."
         )
     )
 
@@ -368,14 +371,19 @@ class NodeMoveParams(BaseModel):
     new parent the same way. The move is refused when the target is invalid (no
     such parent, or a name collision at the destination) or **cyclic** — moving a
     node under itself or one of its own descendants would detach the subtree from
-    the scene. The scene root ('.') has no parent to be reparented out of.
+    the scene. The scene root ('.') has no parent to be reparented out of. A node
+    another scene declares — one the scene inherits, or one inside an instanced
+    child — is refused in every form, a same-parent move without ``index``
+    included: the file has no entry that could reparent or reorder it (ADR-0044).
     """
 
     path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path of the node to reparent, relative to the scene root: "
-            "'Player/Arm' a nested node. The root ('.') cannot be moved."
+            "'Player/Arm' a nested node. The root ('.') cannot be moved, nor can "
+            "a node another scene declares: one the scene inherits, or one "
+            "inside an instanced child."
         )
     )
     to: str = Field(
@@ -391,7 +399,9 @@ class NodeMoveParams(BaseModel):
         description=(
             "Optional final 0-based sibling index under the destination parent. "
             "Omit to preserve existing behavior: same-parent move is a no-op, "
-            "and cross-parent move appends. With the same parent, valid runtime "
+            "and cross-parent move appends. A node another scene declares is "
+            "refused instead, with or without an index. "
+            "With the same parent, valid runtime "
             "range is 0..child_count-1; with a different parent, 0..target_child_count "
             "before the move, so target_child_count appends."
         ),
@@ -824,7 +834,9 @@ def remove_node(
         "--node",
         help=(
             "Node path of the node to delete, relative to the scene root: "
-            "'Player/Arm' a nested node. The root ('.') cannot be removed."
+            "'Player/Arm' a nested node. The root ('.') cannot be removed, nor "
+            "can a node another scene declares: one the scene inherits, or one "
+            "inside an instanced child."
         ),
     ),
     json_output: bool = json_option(),
@@ -879,7 +891,9 @@ def move_node(
         "--node",
         help=(
             "Node path of the node to reparent, relative to the scene root: "
-            "'Player/Arm' a nested node. The root ('.') cannot be moved."
+            "'Player/Arm' a nested node. The root ('.') cannot be moved, nor can "
+            "a node another scene declares: one the scene inherits, or one "
+            "inside an instanced child."
         ),
     ),
     to: str = typer.Option(
@@ -896,7 +910,8 @@ def move_node(
         "--index",
         help=(
             "Final 0-based sibling index under --to. Omit to append on "
-            "cross-parent moves and no-op on same-parent moves."
+            "cross-parent moves and no-op on same-parent moves; a node another "
+            "scene declares is refused instead, with or without --index."
         ),
     ),
     json_output: bool = json_option(),

@@ -110,6 +110,22 @@ Four things do not hold:
    the base put it and its overrides are gone (the engine prints an owner warning). A
    same-parent reorder leaves the node where the base put it too; only the `index` of
    sibling override entries is rewritten.
+
+   > **Outcome (2026-09-30, #1049):** re-measured on the reproduction #1049 records
+   > (`Goblin.tscn` with an override on `Sprite`, a local `GoblinOnly` and a local
+   > `Shape/UnderShape`; gda code as at `ccee96424`), items 1 and 2 understate what the
+   > reported success did to the file. Item 1: `node remove --node Shape` also rewrote
+   > `GoblinOnly`'s `index` from `3` to `2`, so the runtime order changed from `Sprite,
+   > Shape, Hitbox, GoblinOnly` to `Sprite, Shape, GoblinOnly, Hitbox`, beside the lost
+   > `Shape/UnderShape` entry. Item 2: a reparent does not lose the node's overrides, it
+   > forks the node. `node move --node Sprite --to GoblinOnly` dropped the root-level
+   > `Sprite` override entry and added a second, local, typed node, `[node name="Sprite"
+   > type="Sprite2D" parent="GoblinOnly" index="0"]`, that carries the `modulate`
+   > override; at runtime the inherited `Sprite` stays under the root without it, and
+   > `GoblinOnly`'s `index` was rewritten from `3` to `2` as in item 1. Both edits, and
+   > the rest of items 1 and 2, now return `cannot_target_foreign` with the file
+   > byte-identical (#1049).
+
 3. **`node disconnect-signal` on a connection the base declares reports success.** No
    `[connection]` entry can express the removal; the oracle sees the connection made.
 4. **`scene get` and `node list` see only the scene's own state.** They list the override
