@@ -329,6 +329,8 @@ def test_node_add_schema_emits_model_derived_contract_without_other_args():
     assert "0-based" in index_description
     assert "Omit to append" in index_description
     assert "child_count" in index_description
+    # #1055: the order the file cannot record under an instanced child.
+    assert "instanced child's root in a plain scene" in index_description
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
@@ -470,6 +472,8 @@ def test_node_move_schema_emits_model_derived_contract_without_other_args():
     assert "0-based" in index_description
     assert "same-parent move is a no-op" in index_description
     assert "target_child_count" in index_description
+    # #1055: the order the file cannot record under an instanced child.
+    assert "instanced child's root in a plain scene" in index_description
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 

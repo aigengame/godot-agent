@@ -580,12 +580,82 @@ def test_scene_delete_removes_a_scene_and_names_what_was_removed(godot_project):
 
     assert deleted.returncode == 0, deleted.stdout + deleted.stderr
     data = json.loads(deleted.stdout)
-    assert data["path"] == "res://main.tscn"
-    assert data["root_name"] == "main"
-    assert data["root_type"] == "Node2D"
+    # The whole result, so a plain scene's report keeps exactly these fields.
+    assert data == {
+        "path": "res://main.tscn",
+        "root_name": "main",
+        "root_type": "Node2D",
+    }
     # The file is gone from disk, not just from the report.
     assert not scene_path.exists()
     assert json.loads(gda("scene", "list", "--json").stdout)["scenes"] == []
+
+
+def _write_inherited_scene(path, root_name: str, base: str) -> None:
+    """Write the header the engine's saver writes for an inherited scene."""
+    path.write_text(
+        "\n".join(
+            [
+                "[gd_scene format=3]",
+                "",
+                f'[ext_resource type="PackedScene" path="{base}" id="1_base"]',
+                "",
+                f'[node name="{root_name}" instance=ExtResource("1_base")]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.e2e
+def test_scene_delete_reports_the_base_root_type_of_an_inherited_scene(
+    godot_project,
+):
+    # #1055: an inherited scene's root entry stores no type, so reading the
+    # scene's own state reported root_type "". scene delete must report the
+    # root_type scene list reports for the same file: the class the base chain
+    # resolves to, here through one base and through two.
+    gda = Gda(godot_project)
+    created = gda(
+        "scene",
+        "create",
+        "res://base_enemy.tscn",
+        "--root-type",
+        "CharacterBody2D",
+        "--json",
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+    _write_inherited_scene(
+        godot_project / "goblin.tscn", "Goblin", "res://base_enemy.tscn"
+    )
+    _write_inherited_scene(
+        godot_project / "goblin_chief.tscn", "GoblinChief", "res://goblin.tscn"
+    )
+
+    listed = gda("scene", "list", "--json")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    listed_types = {
+        scene["path"]: scene["root_type"]
+        for scene in json.loads(listed.stdout)["scenes"]
+    }
+    assert listed_types["res://goblin.tscn"] == "CharacterBody2D"
+    assert listed_types["res://goblin_chief.tscn"] == "CharacterBody2D"
+
+    # Two levels first, so the base it resolves through still exists.
+    for path, root_name in (
+        ("res://goblin_chief.tscn", "GoblinChief"),
+        ("res://goblin.tscn", "Goblin"),
+    ):
+        deleted = gda("scene", "delete", path, "--json")
+        assert deleted.returncode == 0, deleted.stdout + deleted.stderr
+        assert json.loads(deleted.stdout) == {
+            "path": path,
+            "root_name": root_name,
+            "root_type": listed_types[path],
+        }
+    assert not (godot_project / "goblin_chief.tscn").exists()
+    assert not (godot_project / "goblin.tscn").exists()
 
 
 @pytest.mark.e2e
