@@ -327,6 +327,37 @@ def test_the_declaring_scene_is_the_one_that_adds_the_node(project):
     assert "declared by res://Base.tscn, which this scene inherits" in base_only
 
 
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["node", "remove", "res://Level17.tscn", "--node", "Core"],
+        ["node", "move", "res://Level17.tscn", "--node", "Core", "--to", "Local"],
+    ],
+    ids=["remove", "move"],
+)
+def test_a_node_declared_seventeen_links_up_is_refused(project, argv):
+    # Seventeen inherited links (PR #1057 review): the first guard walked the
+    # base chain through a 17-state cap that left out the deepest base, so the
+    # Core that Level0 declares read as local — remove reported success and
+    # rewrote the file, move forked Core into a local typed node. The walk now
+    # runs to the end of the chain the engine loaded.
+    gda = Gda(project)
+    gda.json("scene", "create", "res://Level0.tscn", "--root-type", "Node2D")
+    gda.json("node", "add", "res://Level0.tscn", "--type", "Node2D", "--name", "Core")
+    base = "res://Level0.tscn"
+    for n in range(1, 18):
+        (project / f"Level{n}.tscn").write_text(
+            _inherited_header(f"Level{n}", base), encoding="utf-8"
+        )
+        base = f"res://Level{n}.tscn"
+    gda.json("node", "add", "res://Level17.tscn", "--type", "Node2D", "--name", "Local")
+
+    message = _refused(gda, project / "Level17.tscn", *argv)
+
+    assert "declared by res://Level0.tscn, which this scene inherits" in message
+
+
 # --- control cases: what stays allowed (ADR-0044 decision 3) ---
 
 

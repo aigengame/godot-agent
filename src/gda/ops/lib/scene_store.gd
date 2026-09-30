@@ -367,11 +367,6 @@ func _fail_node_not_found(node_path: String) -> void:
 # the stored states of the scene it edits (#1049). Set by _load_for_mutation.
 var _mutation_scene: PackedScene = null
 
-# How far the base chain is walked: a bound on a chain the engine would not load
-# anyway, so a walk always ends.
-const BASE_CHAIN_MAX_DEPTH := 16
-
-
 # The base chain of a scene, base first (ADR-0044 decision 1): one
 # {"state": SceneState, "path": res:// path} per scene, from the scene no other
 # scene stands behind to `packed` itself, which is last. A plain scene is a
@@ -380,10 +375,17 @@ const BASE_CHAIN_MAX_DEPTH := 16
 # floor; get_base_scene_state() reads the same state and is bound only from 4.5.
 # The one walk of the chain: the root type and the inherited-node map both take
 # it, and a later reader of the chain takes it too rather than growing a second.
+# It is COMPLETE, not depth-bound: the foreign-node guard classifies from it,
+# and a chain cut short reads the deepest base's nodes as local (PR #1057
+# review: capped at 17 states, a remove at 17 links reported success and
+# rewrote the file). The engine bounds the chain by loading it — `packed` is
+# already loaded, and a circular chain fails that load, the loader seeing the
+# in-flight scene as a missing resource — so each link here is one state read
+# and the walk always ends.
 func _base_chain(packed: PackedScene) -> Array:
 	var chain := []
 	var current := packed
-	while current != null and chain.size() <= BASE_CHAIN_MAX_DEPTH:
+	while current != null:
 		var state := current.get_state()
 		if state == null or state.get_node_count() == 0:
 			break
