@@ -392,12 +392,12 @@ the instantiated tree; the second from the node's owner in the tree the mutation
 holds; one helper answers both, and the guard, the `inherited_from` marker and the
 connection check share it. The scene file cannot record removing, reparenting,
 reordering or disconnecting either shape, so `node remove`, `node move` and `node
-disconnect-signal` refuse with `cannot_target_foreign`, naming the declaring scene. The
-shapes differ in what else the file can hold: an inherited node takes an override entry,
-a script, a connection from it, a duplicate and a local child under it; an
-instance-internal node takes nothing — the packer records no entry for a node the root
-does not own — so every mutating command that addresses one refuses with the same code
-(ADR-0044). The root of an inherited scene is not foreign.
+disconnect-signal` refuse with `cannot_target_foreign`, naming the declaring scene
+(ADR-0044). The term classifies the node; it does not decide the other writes. An
+inherited node takes an override entry, a script, a connection from it, a duplicate and
+a local child under it (verified). The same writes on an instance-internal node are the
+instanced-children contract's question, decided per operation: ADR-0044 lists which
+reach the file and which do not. The root of an inherited scene is not foreign.
 _Avoid_: external node, locked node, read-only node, borrowed node
 
 ### Structured output

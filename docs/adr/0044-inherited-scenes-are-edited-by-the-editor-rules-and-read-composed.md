@@ -13,7 +13,7 @@ one through *New Inherited Scene*; gda has no command for it, and whether gda ca
 one at all was the question of 2026-09-30.
 
 The answer, measured the same day (Godot 4.6.3, macOS, gda at main `ccee96424`), is
-"mostly, with five holes and one missing door". This record states what the format and
+"mostly, with four holes and one missing door". This record states what the format and
 the engine allow, what gda does today, and the decisions that #1049, #1050, #1051 and
 #1052 carry out. Engine line numbers are at `4.6.3-stable`.
 
@@ -63,9 +63,10 @@ the engine allow, what gda does today, and the decisions that #1049, #1050, #105
   `get_node_instance(0).get_state()` reaches the base's state on every 4.x that ADR-0003
   supports; `scene_store._packed_scene_root_type` already resolves the root type through
   it. `get_base_scene_state()` (L2429) returns the same state but is bound only from 4.5
-  (engine commit `a71f670d7d`; declared and unbound at `4.4-stable`), below ADR-0003's
-  headless floor. `get_node_path` (L2433), `get_node_index` (L2439) and the
-  `get_connection_*` readers (L2443 on) are bound; `find_node_by_path` (L1493) is not.
+  (engine commit `a71f670d7d`; declared and unbound at `4.4-stable`), so it is
+  unavailable at ADR-0003's 4.4 headless floor. `get_node_path` (L2433),
+  `get_node_index` (L2439) and the `get_connection_*` readers (L2443 on) are bound;
+  `find_node_by_path` (L1493) is not.
 - **The header the saver writes.** The text saver writes `[gd_scene format=3]` — no
   `load_steps`; `uid=` only when a UID is registered for the path, which a headless gda
   process never has (ADR-0036) — then the external resources, then one `[node ...]` line
@@ -97,7 +98,7 @@ inherited node (`Shape/UnderShape`, saved with `parent_id_path`); `scene validat
 children with the override applied. `node duplicate` of an inherited node and `script
 attach` to one were verified on the same shape in the first probe.
 
-Five things do not hold:
+Four things do not hold:
 
 1. **`node remove` on an inherited node reports success.** The inherited node stays;
    nothing can record its deletion. It is worse than a no-op when the node has local
@@ -111,13 +112,7 @@ Five things do not hold:
    sibling override entries is rewritten.
 3. **`node disconnect-signal` on a connection the base declares reports success.** No
    `[connection]` entry can express the removal; the oracle sees the connection made.
-4. **`node set` and `script attach` on a node inside an instanced child report
-   success.** In `Host.tscn`, a plain scene with `Hud` instanced from `BaseEnemy.tscn`,
-   `--node Hud/Sprite` on either command returns a result and the file gains no entry:
-   the packer discards a node the scene root does not own and holds as no editable
-   instance (L797-L799), so nothing about such a node reaches the file. Found by PR
-   #1053's review and re-run the same day on the same gda code.
-5. **`scene get` and `node list` see only the scene's own state.** They list the override
+4. **`scene get` and `node list` see only the scene's own state.** They list the override
    entries, typeless, and the local nodes whose parent has an entry; `Shape`, `Hitbox`
    and `Shape/UnderShape` are absent, and a fresh inherited scene lists `children: []`.
    Meanwhile `node set --node Shape` addresses that node, so the listing no longer names
@@ -128,8 +123,8 @@ Five things do not hold:
 
 And the missing door: **`scene create` cannot make one.**
 
-The first four share one cause with each other and with the editor's guard: the format
-cannot record the edit, so "success" is what the packer says by omission. The fifth is
+The first three share one cause with each other and with the editor's guard: the format
+cannot record the edit, so "success" is what the packer says by omission. The fourth is
 a projection that stops at the scene's own state. The missing door is the C++ door with
 no script-side equivalent.
 
@@ -166,10 +161,7 @@ projection and node addressing, in the `scene_store` concept module (ADR-0043), 
 
 `node remove` and `node move` — both forms, including a same-parent move without
 `--index` — refuse a foreign node before touching the tree, in an inherited scene and in a
-plain one, and the file stays byte-identical. An instance-internal node is refused by
-every mutating command that addresses it — as the target, as the `--parent` / `--to`
-destination, or as a connection endpoint — because the packer records nothing about such
-a node (Context, item 4): the write those commands report today never reaches the file.
+plain one, and the file stays byte-identical.
 
 ### 2. One error code: `cannot_target_foreign`
 
@@ -181,7 +173,7 @@ one. What differs — which scene declares it, and whether an override is open �
 the message, which names that scene's `res://` path, in the shape of `cannot remove
 Shape: the node is declared by res://BaseEnemy.tscn, which this scene inherits — edit
 that scene, or override its properties here`, and for an instance-internal node `cannot
-set Hud/Sprite: the node is inside res://BaseEnemy.tscn, instanced at Hud — edit that
+remove Hud/Sprite: the node is inside res://BaseEnemy.tscn, instanced at Hud — edit that
 scene`. Two codes would make the caller branch on a distinction it cannot act on
 differently.
 
@@ -189,7 +181,7 @@ The ADR-0002 registry row, added by #1049 with the code's other registration sit
 
 | Code | Category | Source | Exit Code | Meaning |
 |------|----------|--------|-----------|---------|
-| `cannot_target_foreign` | `operation` | `operation` | `4` | The edit targeted a node or connection another scene declares and this scene's file cannot record it: removing, reparenting, reordering or disconnecting one the scene inherits, or any edit to one inside an instanced child. |
+| `cannot_target_foreign` | `operation` | `operation` | `4` | A structural edit targeted a node or connection another scene declares — one the scene inherits, or one inside an instanced child — which the scene file cannot remove, reparent, reorder, or disconnect. |
 
 The spelling takes the editor's word: "foreign" is what the editor calls a node the
 edited scene does not own. This record widens it to both branches, and the glossary term
@@ -197,22 +189,20 @@ edited scene does not own. This record widens it to both branches, and the gloss
 
 ### 3. What stays allowed
 
-The refusal covers what the format cannot record, and nothing else. On an inherited
-node: `node set` (an override entry), `script attach`, `node connect-signal` (a
-connection the scene declares), `node add` under it (a local child, placed by `index`),
-`node duplicate` (the copy is local and typed) — each verified to reach the file
-(Context). On a local node of an inherited scene:
+The refusal covers the structural edits the format cannot record, and nothing else. On
+an inherited node: `node set` (an override entry), `script attach`, `node
+connect-signal` (a connection the scene declares), `node add` under it (a local child,
+placed by `index`), `node duplicate` (the copy is local and typed) — each verified to
+reach the file (Context). On a local node of an inherited scene:
 everything, including a move among inherited siblings — the engine saves `index` for
 every node of an inherited scene and applies it when the local node is added (verified:
 `node move --node OrcOnly --to . --index 0` puts it first at runtime). The root of an
 inherited scene keeps `cannot_target_root` for the edits that need a parent.
 
-Nothing stays allowed on an instance-internal node. The packer records no override,
-script, connection or child for a node the root does not own (L797-L799), so each of
-those writes is a reported success the file never held (Context, item 4), and #1049
-refuses them with the same code as the structural edits. The scene the child
-instantiates is where such an edit belongs. This is the one place the two shapes of a
-`Foreign node` differ, and the message says which shape refused.
+On an instance-internal node this record decides only the structural edits above. The
+other writes are not one case — some reach the file and some do not (Not decided here
+lists what was verified) — and they are the instanced-children contract's question
+(#399, #400) in any scene, not an inherited-scene one.
 
 ### 4. Static reads compose the chain, still without instantiating
 
@@ -233,7 +223,7 @@ down the chain, then the scene's own state on top.
   marked as today.
 - A base that does not resolve keeps today's failure: the engine does not load such a
   scene, so `scene get` and `node list` return `not_a_scene` (exit 4) as they do at
-  `ccee96424` (Context, item 5). gda does not guess a tree it cannot read.
+  `ccee96424` (Context, item 4). gda does not guess a tree it cannot read.
 - The human rendering marks inherited nodes, so both modes tell the same story.
 
 This reads the chain through decision 1's route on states that are already loaded — the
@@ -303,9 +293,7 @@ that the guard, the `inherited_from` marker and the connection check share.
 6. **Editable children** (`[editable path=...]`) as gda's route into an instanced
    child's nodes. Not decided here: the guard's instance branch stays the editor's, and
    an editable instance keeps its own packer semantics (L797-L799) that this record does
-   not model. Until it is decided, the instance branch refuses an editable instance's
-   internals too — a conservative refusal where the packer would record an override,
-   never a silent drop; gda authors no editable instance.
+   not model.
 7. **Raise the headless floor to 4.5** so the guard may read `get_base_scene_state()`.
    Rejected: the route decision 1 takes reads the same state, is bound at ADR-0003's 4.4
    floor, and is already in use in `scene_store`; a floor amendment would buy nothing.
@@ -313,9 +301,8 @@ that the guard, the `inherited_from` marker and the connection check share.
 ## Consequences
 
 - **A reported success becomes a refusal.** A caller that scripted `node remove` or
-  `node move` against a foreign node, `disconnect-signal` against a foreign connection,
-  or any write against an instance-internal node, gets `cannot_target_foreign` (exit 4)
-  where it got a result before. That
+  `node move` against a foreign node, or `disconnect-signal` against a foreign
+  connection, gets `cannot_target_foreign` (exit 4) where it got a result before. That
   result never described the file; this corrects the contract rather than narrowing it.
   `--json` consumers branch on the code; the message says which scene to edit.
 - **Static reads grow, for inherited scenes only.** `children` fill in with the base's
@@ -326,8 +313,7 @@ that the guard, the `inherited_from` marker and the connection check share.
   `required` list changes) and `inherits` joins the input and the result, omitted when
   absent, so existing dispatch payloads and results stay byte-identical.
 - **One new error code**, registered at its sites under the ADR-0002 registry tests.
-- **Docs.** Catalog: the scene-root shared rule gains the second rule, and carries the
-  instance-internal refusal once for every node-addressing write; the `node remove`,
+- **Docs.** Catalog: the scene-root shared rule gains the second rule; the `node remove`,
   `node move` and `disconnect-signal` bullets and the #64 mutation-integrity paragraph say
   what an inherited scene keeps and refuses; "Static instance reporting" and the "what a
   scene DECLARES" sentence gain the inherited half; the `scene create` row and section
@@ -347,6 +333,23 @@ that the guard, the `inherited_from` marker and the connection check share.
 ## Not decided here
 
 - Editable children as a gda feature (option 6).
+- The non-structural writes on an instance-internal node, in any scene. Verified on
+  2026-09-30 (Godot 4.6.3; `Host.tscn`, a plain scene with `Hud` instanced from
+  `BaseEnemy.tscn` and no `[editable]` entry; gda code as at `ccee96424`): `node set`
+  and `script attach` on `Hud/Sprite`, `node add --parent Hud/Sprite` and `node
+  connect-signal --from Hud/Sprite` each report success and the file gains no entry;
+  `node move` of a local node `--to Hud/Sprite` reports success and the file LOSES
+  that local node's entry. The packer skips a node the root does not own, with its
+  subtree (L797-L799), and the connection parser skips a source inside an instance
+  (L1137-L1140). `node duplicate` of `Hud/Sprite`, `node connect-signal --to
+  Hud/Sprite` and `node disconnect-signal` of that connection reach the file: the
+  duplicate op re-owns the copy to the scene root, and a connection whose source the
+  root owns stores its target by path (L1302-L1310). A refusal of every write on that
+  shape was recorded on PR #1053's first review round and withdrawn on the second
+  (2026-09-30): it read L797-L799 as covering every write, which the three saving
+  writes disprove, and no requirement asked for it. The five reported successes are a
+  mutation-integrity defect of the instanced-children contract (#399, #400; the #64
+  boundary), to be decided per operation and outside this record.
 - A rename operation, and a dependents check for `scene delete` when the deleted scene
   is another scene's base.
 - Changing the root type of an inherited scene, which the editor also refuses; gda has
