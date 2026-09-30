@@ -381,7 +381,7 @@ flags — `gda --help` is the authoritative list of what is installed.
 
 | Command | What it does |
 | ------- | ------------ |
-| `scene create` | Create a new `.tscn` with the given root node type. |
+| `scene create` | Create a new `.tscn` with the given root node type, or `--inherits` a base scene: a variant whose root is the base's root (not `node add --instance`, which composes a child). |
 | `scene get` | Read a scene and report its structured node tree. |
 | `scene list` | Enumerate the `.tscn` scenes in the resolved project. |
 | `scene get-exports` | List the `@export` properties a scene's nodes' scripts declare. |

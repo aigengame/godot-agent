@@ -79,6 +79,11 @@ not at viewport size. Set `anchor_right` and `anchor_bottom` to `1` with
 For a `Control` inside a `Container`, change minimum size, size flags, or
 the container layout instead of offsets.
 
+For a variant of a base scene, use `scene create PATH --inherits BASE`, not
+`node add --instance`: the new scene's root is the base's root. In the variant,
+override inherited nodes with `node set` and add its own nodes; edit or remove
+inherited nodes in the base.
+
 `export run` checks the export templates itself before it exports, and
 refuses with `export_templates_missing` when they are not available.
 `--mode pack` needs no templates. `export get` is optional inspection. Give

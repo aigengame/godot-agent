@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=519d2e21cf2e358aa9ea5f16d295ba620bd66d4e42645702dfc8e3672ae4387c -->
+<!-- gda-readme-i18n: source=README.md sha256=5645973970763e0543704f8c920d7cfa57b957258a19f1f59044ade805d4e3fb -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -371,7 +371,7 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `scene create` | 用指定的根节点类型创建一个新的 `.tscn`。 |
+| `scene create` | 用指定的根节点类型创建一个新的 `.tscn`，或用 `--inherits` 继承一个基础场景：生成以基础场景的根为根的变体（不同于 `node add --instance`，后者组合出一个子节点）。 |
 | `scene get` | 读取一个场景并报告其结构化的节点树。 |
 | `scene list` | 枚举已解析项目中的 `.tscn` 场景。 |
 | `scene get-exports` | 列出场景里各节点脚本声明的 `@export` 属性。 |

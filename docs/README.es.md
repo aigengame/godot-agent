@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=519d2e21cf2e358aa9ea5f16d295ba620bd66d4e42645702dfc8e3672ae4387c -->
+<!-- gda-readme-i18n: source=README.md sha256=5645973970763e0543704f8c920d7cfa57b957258a19f1f59044ade805d4e3fb -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -397,7 +397,7 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 
 | Comando | Qué hace |
 | ------- | ------------ |
-| `scene create` | Crea un nuevo `.tscn` con el tipo de nodo raíz indicado. |
+| `scene create` | Crea un nuevo `.tscn` con el tipo de nodo raíz indicado, o hereda de una escena base con `--inherits`: una variante cuya raíz es la raíz de la base (no `node add --instance`, que compone un hijo). |
 | `scene get` | Lee una escena e informa su árbol de nodos estructurado. |
 | `scene list` | Enumera las escenas `.tscn` del proyecto resuelto. |
 | `scene get-exports` | Lista las propiedades `@export` que declaran los scripts de los nodos de una escena. |

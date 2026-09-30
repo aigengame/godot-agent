@@ -61,7 +61,7 @@ they are provenance, not status markers.
 
 | Command | Description |
 | --- | --- |
-| `gda scene create` | Create a new `.tscn` with a given root node type |
+| `gda scene create` | Create a new `.tscn` with a given root node type, or inheriting a base scene (`--inherits`) |
 | `gda scene delete` | Delete a scene file |
 | `gda scene get` | Read a scene's structured tree from its file on disk |
 | `gda scene list` | Enumerate scenes in the project |
@@ -335,6 +335,15 @@ refuse such a node with `cannot_target_foreign` (exit 4), file untouched (#1049)
 names the declaring scene: the scene in the base chain that adds the node, not one that only
 overrides it. The scene's own local nodes stay removable and movable — reordered among
 inherited siblings, and reparented to or from an inherited parent.
+`scene create PATH --inherits BASE` authors one (#1050): it writes the text the engine's saver
+writes — the base's `res://` path as a path-only `ext_resource`, and a root line that instances
+it — and the result's `inherits` is that `res://` path whatever spelling was given, with
+`root_type` the base's root class. `--inherits` and `--root-type` are exclusive and one is
+required (exit 2); the target must be a `.tscn`; `--root-name` defaults to the filename stem.
+The base is loaded, not instantiated, so its scripts' `_init` does not run: a missing base is
+`missing_dependency`, a file that is not a scene is `not_a_scene`, and a scene that fails to
+load is `missing_dependency` (exit 4), with no file written. The written file is loaded back; a
+file the engine does not read as inheriting the base is `save_failed` and is removed.
 
 **Sibling order authoring** (#415): `node add --index <n>` inserts the new child at a
 0-based sibling index under `--parent`; omitting `--index` appends as before, and
