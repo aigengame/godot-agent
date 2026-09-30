@@ -467,6 +467,64 @@ func _refuse_foreign_node(root: Node, node: Node, node_path: String, verb: Strin
 	return false
 
 
+# Refuse disconnecting a Foreign connection — one the file has no entry to
+# remove (ADR-0044 decisions 1-2, #1052). The packer records a connection only
+# when it does not find it already declared, and this is that check
+# (SceneState::_parse_connections), read on the stored states: from the
+# endpoints' common parent up the owner chain, at each instanced child the
+# connection is foreign when that child's scene or a scene in ITS base chain
+# declares it, with paths relative to the child; at the scene root, when a
+# scene in THIS scene's base chain declares it. The check does not read
+# is_editable_instance, so neither does this. Each chain is _base_chain's walk:
+# on the edited scene without its own state (the last link), and on the scene
+# an instanced child's scene_file_path names, since
+# Node.get_scene_instance_state() is not bound. A connection only the scene
+# itself declares is not foreign; one it re-declares over a base's is, as the
+# packer skips it. A state reads an endpoint back as the path the text loader
+# stored ("Hitbox") or, for one stored by node index, as "./Hitbox"; both are
+# normalized as _normalize_state_path normalizes a node path. The message names
+# the declaring scene, base first, and joins '.' to a member directly
+# ("._on_hit"). Returns true after recording cannot_target_foreign. The caller
+# owns root.free().
+func _refuse_foreign_connection(root: Node, source: Node, signal_name: String,
+		target: Node, method_name: String) -> bool:
+	var common: Node = target
+	while common != source and not common.is_ancestor_of(source):
+		common = common.get_parent()
+	if common != root and common.scene_file_path.is_empty():
+		common = common.owner
+	while common != null:
+		var chain: Array
+		if common == root:
+			chain = _base_chain(_mutation_scene)
+			chain = chain.slice(0, chain.size() - 1)
+		else:
+			chain = _base_chain(ResourceLoader.load(common.scene_file_path, "PackedScene") as PackedScene)
+		var from := String(common.get_path_to(source))
+		var to := String(common.get_path_to(target))
+		for link in chain:
+			var state: SceneState = link["state"]
+			for i in state.get_connection_count():
+				if String(state.get_connection_source(i)).trim_prefix("./") == from \
+						and String(state.get_connection_signal(i)) == signal_name \
+						and String(state.get_connection_target(i)).trim_prefix("./") == to \
+						and String(state.get_connection_method(i)) == method_name:
+					var from_path := String(root.get_path_to(source))
+					var to_path := String(root.get_path_to(target))
+					var where := ", which this scene inherits" if common == root \
+							else ", instanced at " + String(root.get_path_to(common))
+					_fail(OP_ERROR_CANNOT_TARGET_FOREIGN, "cannot disconnect "
+							+ from_path + ("" if from_path == "." else ".") + signal_name + " -> "
+							+ to_path + ("" if to_path == "." else ".") + method_name
+							+ ": the connection is declared by " + String(link["path"])
+							+ where + " — edit that scene")
+					return true
+		if common == root:
+			break
+		common = common.owner
+	return false
+
+
 # A SceneState node path normalized to the canonical root-relative form the
 # node group addresses by and reports: the state stores "." for the root and a
 # "./Hero/Hitbox" prefix form for a descendant, which becomes "Hero/Hitbox".
