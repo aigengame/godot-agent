@@ -46,8 +46,8 @@ from gda.render import render_node_tree, render_property_lines, render_set_echo
 # runs the same packer, so gda discloses this and does not refuse the index.
 _INDEX_UNDER_INSTANCE_NOTE = (
     "Under an instanced child's root in a plain scene, the file records no "
-    "sibling index, so the node is placed after the instance's own children "
-    "on load."
+    "sibling index for a node the host scene owns, so a local node added or "
+    "moved there is placed after the instance's own children on load."
 )
 
 
