@@ -133,7 +133,11 @@ def test_scene_create_needs_exactly_one_of_root_type_or_inherits(
 ):
     # #1050: --root-type and --inherits are mutually exclusive and one is
     # required, the rule node add applies to --type/--instance: on argv a
-    # violation is a usage error (exit 2) and no engine is spawned.
+    # violation is a usage error (exit 2) and no engine is spawned. The
+    # refusal sentence is pinned on the --params-json channel below, which
+    # reports the same sentence as plain text; the argv usage panel is Rich
+    # output whose option names carry style escapes when colour is on (CI),
+    # so it is not substring-asserted here.
     result, fake = invoke_cli(
         monkeypatch,
         ["scene", "create", "/tmp/proj/goblin.tscn", *selectors, "--json"],
@@ -141,7 +145,6 @@ def test_scene_create_needs_exactly_one_of_root_type_or_inherits(
     )
 
     assert result.exit_code == 2
-    assert "--inherits" in result.output
     assert fake.calls == []
 
 
