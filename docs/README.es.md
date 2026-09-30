@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=00b0a4d61800bdf211710ccf30886b7e9f25c06fdc16d140378d4821a0fb7f9c -->
+<!-- gda-readme-i18n: source=README.md sha256=519d2e21cf2e358aa9ea5f16d295ba620bd66d4e42645702dfc8e3672ae4387c -->
 
 # gda — Automatización de Godot para agentes de IA
 
@@ -416,9 +416,9 @@ identifica el archivo y solo `preflight` detecta un fallo en el primer fotograma
 | `node get` | Lee las propiedades de un nodo (por ruta de nodo) como JSON tipado. |
 | `node list` | Lista el árbol de nodos de una escena con la ruta de cada nodo relativa a la raíz. |
 | `node set` | Define una propiedad de nodo, forzando el valor a su tipo de Godot declarado. En un `Control`, `position` escribe los cuatro offsets; el layout coloca los hijos de un `Container` y estos no tienen offsets: define `custom_minimum_size`, las size flags o el layout del padre. |
-| `node remove` | Elimina un nodo (y su subárbol) por ruta de nodo. |
+| `node remove` | Elimina un nodo (y su subárbol) por ruta de nodo. Rechaza un nodo que declara otra escena: heredado, o dentro de un hijo instanciado. |
 | `node duplicate` | Duplica un nodo (y su subárbol) bajo su padre. |
-| `node move` | Reasigna un nodo (y su subárbol) a un nuevo padre, o lo reordena con `--index`. |
+| `node move` | Reasigna un nodo (y su subárbol) a un nuevo padre, o lo reordena con `--index`. Rechaza un nodo que declara otra escena: heredado, o dentro de un hijo instanciado. |
 | `node connect-signal` | Conecta la señal de un nodo origen al método de un nodo destino. |
 | `node disconnect-signal` | Desconecta una conexión señal→método existente. |
 

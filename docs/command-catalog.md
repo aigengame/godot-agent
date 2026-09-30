@@ -284,9 +284,13 @@ node under the substitute type. A GDScript attached to the scene whose `preload(
 target no longer exists is also refused before save with `missing_dependency`, naming the
 missing `res://` path so the dependency can be created first. Mutating node commands detect
 these cases and refuse with the registered `missing_dependency` error (exit 4), leaving the
-file untouched. Related trust boundary: instantiating executes `_init`
-of scripts already attached in the scene (#62) — treat headless mutation of an untrusted scene
-as running its code.
+file untouched. An inherited scene (see "Inherited scenes" below) round-trips the same way: its
+root keeps the `instance=` reference to its base, and its override entries and local nodes are
+re-saved. What its file cannot record — the removal, reparent or reorder of a node its base
+chain declares, or of a node inside an instanced child — is refused with `cannot_target_foreign`
+(exit 4) rather than re-saved as a loss (#1049). Related trust boundary: instantiating executes
+`_init` of scripts already attached in the scene (#62) — treat headless mutation of an untrusted
+scene as running its code.
 
 Scene mutation writes also preserve existing `.tscn` `ext_resource` ids and matching
 `ExtResource("...")` references after Godot's text saver re-serializes the file. Matching is by
@@ -323,6 +327,15 @@ carrying the nested culprit; instancing the host into itself is refused as `cycl
 composed scene runs the `_init` of scripts inside it: the same trust boundary as the
 `class_name` path (#62).
 
+**Inherited scenes** (ADR-0044): an inherited scene is a `.tscn` whose root line carries
+`instance=ExtResource(...)` to a base scene and no `type=`; it stores only what it changes —
+property overrides on the base's nodes, and nodes of its own. The file has no entry that
+deletes, reparents or reorders a node its base chain declares, so `node remove` and `node move`
+refuse such a node with `cannot_target_foreign` (exit 4), file untouched (#1049). The message
+names the declaring scene: the scene in the base chain that adds the node, not one that only
+overrides it. The scene's own local nodes stay removable and movable — reordered among
+inherited siblings, and reparented to or from an inherited parent.
+
 **Sibling order authoring** (#415): `node add --index <n>` inserts the new child at a
 0-based sibling index under `--parent`; omitting `--index` appends as before, and
 `--index child_count` is the explicit append position. Valid `node add` indexes are
@@ -330,7 +343,9 @@ composed scene runs the `_init` of scripts inside it: the same trust boundary as
 0-based sibling index under `--to`: for a same-parent move the range is `0..child_count-1`,
 and for a different-parent move it is `0..target_child_count` before the move. Omitting
 `--index` preserves existing behavior: a same-parent move is a successful no-op that leaves
-the file untouched, while a cross-parent move appends under the destination. Negative or
+the file untouched, while a cross-parent move appends under the destination. A Foreign node —
+one the scene inherits, or one inside an instanced child — is the exception: it is refused with
+`cannot_target_foreign`, with or without `--index` (#1049). Negative or
 out-of-range indexes fail with `invalid_child_index` (exit 4), leaving the file untouched.
 
 **Property reporting and value coercion** (established by #55): `gda node get` instantiates the
@@ -549,12 +564,19 @@ scene file, each a `load → locate → restructure → pack → save` round-tri
 node-path addressing and the mutation-integrity boundary above. They share one rule for the
 **scene root**: the root has no parent, so an edit that needs one is refused with the registered
 `cannot_target_root` error (exit 4), leaving the file untouched, rather than emptying or
-corrupting the scene.
+corrupting the scene. `node remove` and `node move` share a second rule, for a **Foreign node**
+— one the scene inherits, or one inside an instanced child, editable or not: the file has no
+entry that could delete, reparent or reorder it, so the edit is refused with the registered
+`cannot_target_foreign` error (exit 4), leaving the file untouched, and the message names the
+scene that declares the node, where the edit can be made (#1049, ADR-0044). `node duplicate` of
+an inherited node is not refused: the copy it saves is local and typed.
 
 - `gda node remove SCENE --node <node-path>` deletes a node **and its whole subtree**, echoing
   the removed node's path/name/type (captured before the re-save). A node path that resolves to
   nothing is `node_not_found`; removing the root (`--node .`) is `cannot_target_root` — delete
-  the scene file instead.
+  the scene file instead. Removing a Foreign node is `cannot_target_foreign` — edit the scene that
+  declares it. In an inherited scene, a local node stays removable, one under an inherited parent
+  included.
 - `gda node duplicate SCENE --node <node-path>` copies a node **and its whole subtree** under the
   source node's **own parent** (the copy is a sibling), assigning a **fresh, non-colliding name**:
   the source name with an incrementing integer appended, starting at `2` (`Hero` → `Hero2`, then
@@ -571,13 +593,15 @@ corrupting the scene.
   `duplicate_node_name` — both the same codes `node add` reports. A **cyclic** target — the moved
   node itself or one of its **own descendants** — would detach the subtree from the scene and is
   refused with the registered `cyclic_target` code. Moving the root (`--node .`) is
-  `cannot_target_root` — the root has no parent to be reparented out of. Moving a node to the
+  `cannot_target_root` — the root has no parent to be reparented out of. Moving a Foreign node is
+  `cannot_target_foreign` in every form. Moving any other node to the
   parent it **already sits under** without `--index` is a successful **no-op** that leaves the
-  file untouched. The
+  file untouched. In an inherited scene, a local node stays movable: reordered among inherited
+  siblings, and reparented to or from an inherited parent. The
   reparent preserves the moved node's own **local transform** (a purely structural move, no
   transform churn) and the instance state of any instanced sub-scene it carries — its
-  `instance=ExtResource(...)`, its `[editable ...]` marker, and its inherited/override children are
-  not rewritten into local nodes (the #64 mutation-integrity boundary).
+  `instance=ExtResource(...)`, its `[editable ...]` marker, and the override entries on its
+  internal nodes are not rewritten into local nodes (the #64 mutation-integrity boundary).
 
 **Signal wiring** (established by #57): `gda node connect-signal SCENE --from <source-path> --signal
 <name> --to <target-path> --method <name>` records a connection from a **source node's signal** to a

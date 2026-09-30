@@ -291,8 +291,10 @@ func _op_node_set(params: Dictionary) -> void:
 #
 # The scene root has no parent to be detached from, and the re-pack needs a
 # root, so removing '.' is refused with cannot_target_root rather than emptying
-# the scene. A node path that resolves to nothing is node_not_found, the same
-# code (and resolver) node get / node set use.
+# the scene. A Foreign node — one the scene inherits, or one inside an instanced
+# child — is refused with cannot_target_foreign: the file has no entry that could
+# delete it (#1049, ADR-0044). A node path that resolves to nothing is
+# node_not_found, the same code (and resolver) node get / node set use.
 func _op_node_remove(params: Dictionary) -> void:
 	_diag("running operation: node-remove")
 	var path := VALUE._string_param(params, "path")
@@ -309,6 +311,9 @@ func _op_node_remove(params: Dictionary) -> void:
 		root.free()
 		_fail(OP_ERROR_CANNOT_TARGET_ROOT, "cannot remove the scene root: " + node_path
 				+ " — the root has no parent to be removed from; delete the scene file instead")
+		return
+	if _scene_store._refuse_foreign_node(root, node, node_path, "remove"):
+		root.free()
 		return
 
 	# Capture the removed node's identity off the live tree before detaching and
@@ -416,7 +421,9 @@ func _reown_subtree(node: Node, owner: Node) -> void:
 #
 # Failure modes, each a registered code leaving the file untouched:
 # - the moved node resolves to nothing → node_not_found; the scene root has no
-#   parent to be reparented out of → cannot_target_root.
+#   parent to be reparented out of → cannot_target_root; a Foreign node (one the
+#   scene inherits, or one inside an instanced child) → cannot_target_foreign, in
+#   every form, the same-parent no-op below included (#1049, ADR-0044).
 # - the target parent resolves to nothing → parent_not_found (the same code, and
 #   canonical-vs-non-canonical message, node add reports for its --parent).
 # - the target is the node itself or one of its OWN descendants → cyclic_target:
@@ -433,10 +440,11 @@ func _reown_subtree(node: Node, owner: Node) -> void:
 # Reparenting uses Node.reparent(target, false) rather than a manual
 # remove_child → add_child + _reown_subtree. reparent() preserves the moved
 # node's owner AND its descendants' owners, so an instanced sub-scene under the
-# node keeps its instance= reference, its [editable ...] marker, and its
-# inherited/override children — a manual reown would rewrite those overrides into
-# locally-owned type= nodes, breaking instance inheritance and violating the #64
-# mutation-integrity boundary (verified empirically on Godot 4.6.3). The false
+# node keeps its instance= reference, its [editable ...] marker, and the
+# override entries on the nodes its own scene declares — a manual reown would
+# rewrite those overrides into locally-owned type= nodes, cutting them loose from
+# the instanced scene and violating the #64 mutation-integrity boundary (verified
+# empirically on Godot 4.6.3). The false
 # (keep_global_transform=false) argument keeps the move purely structural: the
 # node retains its LOCAL transform instead of having it rewritten to preserve a
 # global position the headless edit never cared about.
@@ -456,6 +464,9 @@ func _op_node_move(params: Dictionary) -> void:
 		root.free()
 		_fail(OP_ERROR_CANNOT_TARGET_ROOT, "cannot move the scene root: " + node_path
 				+ " — the root has no parent to be reparented out of")
+		return
+	if _scene_store._refuse_foreign_node(root, node, node_path, "move"):
+		root.free()
 		return
 
 	var target_path := VALUE._string_param(params, "to")

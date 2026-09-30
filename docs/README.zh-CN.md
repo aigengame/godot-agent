@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=00b0a4d61800bdf211710ccf30886b7e9f25c06fdc16d140378d4821a0fb7f9c -->
+<!-- gda-readme-i18n: source=README.md sha256=519d2e21cf2e358aa9ea5f16d295ba620bd66d4e42645702dfc8e3672ae4387c -->
 
 # gda — 面向 AI Agent 的 Godot 自动化
 
@@ -390,9 +390,9 @@ Headless 验证确认项目就绪状态；Live 操作返回用于验证实际行
 | `node get` | 按节点路径读取一个节点的属性，输出带类型的 JSON。 |
 | `node list` | 列出一个场景的节点树，并给出每个节点相对于根的路径。 |
 | `node set` | 设置一个节点属性，并把值强制转换为它声明的 Godot 类型。对 `Control`，`position` 会写入四个 offset；`Container` 的子节点由布局管理、不带 offset——请改为设置 `custom_minimum_size`、size flags 或父节点的布局。 |
-| `node remove` | 按节点路径移除一个节点（及其子树）。 |
+| `node remove` | 按节点路径移除一个节点（及其子树）。拒绝另一个场景声明的节点：继承而来的节点，或实例化子节点内部的节点。 |
 | `node duplicate` | 在父节点下复制一个节点（及其子树）。 |
-| `node move` | 把一个节点（及其子树）重新挂到新的父节点下，或用 `--index` 调整同级顺序。 |
+| `node move` | 把一个节点（及其子树）重新挂到新的父节点下，或用 `--index` 调整同级顺序。拒绝另一个场景声明的节点：继承而来的节点，或实例化子节点内部的节点。 |
 | `node connect-signal` | 把源节点的信号接到目标节点的方法上。 |
 | `node disconnect-signal` | 断开一个已有的「信号→方法」连接。 |
 

@@ -383,6 +383,15 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         " removed from, duplicated alongside, or reparented out of.",
     ),
     ErrorCodeSpec(
+        "cannot_target_foreign",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A structural edit targeted a node or connection another scene declares"
+        " — one the scene inherits, or one inside an instanced child —"
+        " which the scene file cannot remove, reparent, reorder, or disconnect.",
+    ),
+    ErrorCodeSpec(
         "cyclic_target",
         ErrorCategory.OPERATION,
         EXIT_OPERATION,

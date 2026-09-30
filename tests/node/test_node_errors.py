@@ -255,6 +255,23 @@ def test_node_remove_root_maps_to_stable_cannot_target_root_code(monkeypatch):
     assert_operation_error(result, "cannot_target_root", "root")
 
 
+def test_node_remove_foreign_node_maps_to_stable_cannot_target_foreign_code(
+    monkeypatch,
+):
+    # #1049 (ADR-0044): a node another scene declares — here one the scene
+    # inherits — has no entry the file could delete, so the removal is refused
+    # with cannot_target_foreign, and the message names the scene to edit.
+    result = _node_remove(
+        monkeypatch,
+        "cannot_target_foreign",
+        "cannot remove Shape: the node is declared by res://BaseEnemy.tscn, which"
+        " this scene inherits — edit that scene, or override its properties here",
+        node="Shape",
+    )
+
+    assert_operation_error(result, "cannot_target_foreign", "res://BaseEnemy.tscn")
+
+
 _node_duplicate = operation_error_invoker(
     lambda node="Hero": ["node", "duplicate", "/x/main.tscn", "--node", node, "--json"],
     "node-duplicate",
@@ -357,6 +374,24 @@ def test_node_move_root_maps_to_stable_cannot_target_root_code(monkeypatch):
     )
 
     assert_operation_error(result, "cannot_target_root", "root")
+
+
+def test_node_move_foreign_node_maps_to_stable_cannot_target_foreign_code(
+    monkeypatch,
+):
+    # #1049 (ADR-0044): a node inside an instanced child cannot be reparented
+    # or reordered by the host file, so the move is refused with
+    # cannot_target_foreign, naming the instanced scene and where it is instanced.
+    result = _node_move(
+        monkeypatch,
+        "cannot_target_foreign",
+        "cannot move Hud/Sprite: the node is inside res://BaseEnemy.tscn,"
+        " instanced at Hud — edit that scene",
+        node="Hud/Sprite",
+        to="Hud",
+    )
+
+    assert_operation_error(result, "cannot_target_foreign", "instanced at Hud")
 
 
 # --- node connect-signal / disconnect-signal (issue #57) ---

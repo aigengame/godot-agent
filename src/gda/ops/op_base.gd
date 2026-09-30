@@ -35,6 +35,8 @@ const OP_ERROR_UNINSTANTIABLE_SCRIPT := "uninstantiable_script"
 const OP_ERROR_AMBIGUOUS_CLASS_NAME := "ambiguous_class_name"
 const OP_ERROR_NODE_NOT_FOUND := "node_not_found"
 const OP_ERROR_CANNOT_TARGET_ROOT := "cannot_target_root"
+# A node another scene declares: inherited, or inside an instanced child (ADR-0044).
+const OP_ERROR_CANNOT_TARGET_FOREIGN := "cannot_target_foreign"
 const OP_ERROR_CYCLIC_TARGET := "cyclic_target"
 const OP_ERROR_UNKNOWN_PROPERTY := "unknown_property"
 const OP_ERROR_UNCOERCIBLE_VALUE := "uncoercible_value"
