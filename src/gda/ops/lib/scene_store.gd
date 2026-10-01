@@ -598,6 +598,31 @@ func _scene_instance_status_for_path(path: String) -> String:
 	return "resolved" if ResourceLoader.exists(path, "PackedScene") else "missing"
 
 
+# The root facts of a loaded scene, read once from its stored state (#1065):
+# the _node_facts of its root entry — `name`; `type`, the nearest typed root
+# down the base chain, since an Inherited scene's root entry stores none; and
+# the instance marker `instance_path` / `instance_status`, present only on an
+# instanced root — and `inherits`, the res:// path of the base the engine
+# resolves for the root — get_node_instance(0), _base_chain's route — present
+# only when it resolves one. The marker is what the file names; `inherits` is
+# what the engine read, which scene create --inherits confirms after its write.
+# scene create, scene get, node list, scene list and scene delete project their
+# root fields from this one read. Empty when `packed` is null or its state holds
+# no root entry.
+func _root_facts(packed: PackedScene) -> Dictionary:
+	if packed == null:
+		return {}
+	var state := packed.get_state()
+	if state == null or state.get_node_count() == 0:
+		return {}
+	var facts := _node_facts(state, 0,
+			SCENE_TEXT._scene_instance_paths_by_node_path(String(packed.resource_path)))
+	var base := state.get_node_instance(0)
+	if base != null:
+		facts["inherits"] = String(base.resource_path)
+	return facts
+
+
 # The structured node tree scene get and node list report, built from stored
 # state without instantiating anything (issue #30). A state lists its nodes in
 # tree order, each with its node path and its parent's, which is enough to
@@ -619,8 +644,9 @@ func _scene_instance_status_for_path(path: String) -> String:
 # whose parent the tree does not hold is not listed. Each state's instance
 # markers are read against that scene's own file (_projected_node); an instanced
 # child whose scene is missing loads as neither typed nor instanced, so no state
-# adds it and it carries no inherited_from. The root is the scene's own entry.
-# with_paths adds each
+# adds it and it carries no inherited_from. The root is the scene's own entry,
+# projected from its _root_facts without `inherits`, which a tree node does not
+# carry: the root's instance marker names the base. with_paths adds each
 # node's path (node list's addressing contract), normalized to the root-relative
 # form node add accepts and reports: "Hero" for "./Hero", "." for the root.
 func _composed_tree(packed: PackedScene, with_paths := false) -> Dictionary:
@@ -628,18 +654,17 @@ func _composed_tree(packed: PackedScene, with_paths := false) -> Dictionary:
 	var declared := _inherited_node_map(chain)
 	var own := chain.size() - 1
 	var composed := chain.size() > 1
-	var root := {"children": []}
+	var root := _root_facts(packed)
+	root.erase("inherits")
+	root["children"] = []
+	if with_paths:
+		root["path"] = _normalize_state_path(chain[own]["state"], 0)
 	var by_path := {".": root}
 	for level in chain.size():
 		var state: SceneState = chain[level]["state"]
 		var instance_paths := SCENE_TEXT._scene_instance_paths_by_node_path(chain[level]["path"])
 		for i in state.get_node_count():
 			if i == 0:
-				if level == own:
-					var top := _projected_node(state, 0, instance_paths, with_paths)
-					top["children"] = root["children"]
-					root = top
-					by_path["."] = root
 				continue
 			var node_path := _normalize_state_path(state, i)
 			var adds := _state_adds_node(state, i)
@@ -660,30 +685,30 @@ func _composed_tree(packed: PackedScene, with_paths := false) -> Dictionary:
 	return root
 
 
-# One node of _composed_tree as entry `index` of `state` declares it: name,
-# type and instance markers, no children. `instance_paths` is the text recovery
-# of the scene whose state this is (SCENE_TEXT._scene_instance_paths_by_node_path),
-# which names an instance whose scene is gone and so reads as missing.
+# One node of _composed_tree as entry `index` of `state` declares it: its
+# _node_facts, no children.
 func _projected_node(state: SceneState, index: int, instance_paths: Dictionary, with_paths: bool) -> Dictionary:
-	var fields := _state_node_projection_fields(state, index)
+	var node := _node_facts(state, index, instance_paths)
+	node["children"] = []
+	if with_paths:
+		node["path"] = _normalize_state_path(state, index)
+	return node
+
+
+# What the stored-node projection reads for entry `index` of `state`: name, type
+# and instance markers. `instance_paths` is the text recovery of the scene whose
+# state this is (SCENE_TEXT._scene_instance_paths_by_node_path), which names an
+# instance whose scene is gone and so reads as missing.
+func _node_facts(state: SceneState, index: int, instance_paths: Dictionary) -> Dictionary:
+	var facts := _state_node_projection_fields(state, index)
 	var node_path := _normalize_state_path(state, index)
 	if instance_paths.has(node_path):
 		var instance_path := String(instance_paths[node_path])
-		fields["instance_path"] = instance_path
-		if not fields.has("instance_status"):
-			fields["instance_status"] = _scene_instance_status_for_path(instance_path)
-	var node := {
-		"name": String(state.get_node_name(index)),
-		"type": fields["type"],
-		"children": [],
-	}
-	if fields.has("instance_path"):
-		node["instance_path"] = fields["instance_path"]
-	if fields.has("instance_status"):
-		node["instance_status"] = fields["instance_status"]
-	if with_paths:
-		node["path"] = node_path
-	return node
+		facts["instance_path"] = instance_path
+		if not facts.has("instance_status"):
+			facts["instance_status"] = _scene_instance_status_for_path(instance_path)
+	facts["name"] = String(state.get_node_name(index))
+	return facts
 
 
 func _is_valid_node_name(node_name: String) -> bool:
